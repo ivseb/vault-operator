@@ -37,169 +37,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-// src/core/modes/builtinModes.ts
-var builtinModes_exports = {};
-__export(builtinModes_exports, {
-  BUILT_IN_MODES: () => BUILT_IN_MODES,
-  TOOL_GROUP_MAP: () => TOOL_GROUP_MAP,
-  expandToolGroups: () => expandToolGroups,
-  getBuiltInMode: () => getBuiltInMode
-});
-function getBuiltInMode(slug) {
-  return BUILT_IN_MODES.find((m) => m.slug === slug);
-}
-function expandToolGroups(groups) {
-  const names = [];
-  for (const group of groups) {
-    names.push(...TOOL_GROUP_MAP[group] ?? []);
-  }
-  return [...new Set(names)];
-}
-var TOOL_GROUP_MAP, BUILT_IN_MODES;
-var init_builtinModes = __esm({
-  "src/core/modes/builtinModes.ts"() {
-    TOOL_GROUP_MAP = {
-      read: ["read_file", "list_files", "search_files"],
-      vault: ["get_frontmatter", "search_by_tag", "get_vault_stats", "get_linked_notes", "get_daily_note", "open_note", "semantic_search", "query_base"],
-      edit: ["write_file", "edit_file", "append_to_file", "create_folder", "delete_file", "move_file", "update_frontmatter", "generate_canvas", "create_excalidraw", "create_base", "update_base"],
-      web: ["web_fetch", "web_search"],
-      agent: ["ask_followup_question", "attempt_completion", "update_todo_list", "new_task", "switch_mode", "update_settings", "configure_model"],
-      mcp: ["use_mcp_tool"],
-      skill: ["execute_command", "execute_recipe", "call_plugin_api", "resolve_capability_gap", "enable_plugin"]
-    };
-    BUILT_IN_MODES = [
-      {
-        slug: "ask",
-        name: "Ask",
-        icon: "circle-help",
-        description: "Conversational vault assistant. Search, explore, and get answers \u2014 read-only.",
-        whenToUse: "Use for questions, searches, and exploration of your vault content. Also answers questions about how Obsidian and Obsilo work. Does not modify any files.",
-        toolGroups: ["read", "vault", "agent"],
-        source: "built-in",
-        roleDefinition: `You are Obsilo in Ask mode \u2014 read-only access to the vault. You answer questions, explore ideas, and think with the user \u2014 without modifying any files.
-
-## Core principles
-
-- ANSWER DIRECTLY. If the vault context or conversation already contains the answer, write it immediately without calling any tools.
-- YOUR TEXT IS THE ANSWER. After searching, write the full substantive answer as text. Never write process summaries like "Found N notes about X" or "Synthesized results into..." \u2014 the user needs the actual content, not a report of what you did.
-- THINK, DON'T JUST RETRIEVE. For complex or open-ended questions, synthesize across multiple notes. Highlight connections the user hasn't made. Offer your own analysis and perspective. Challenge assumptions if warranted.
-- PARALLEL SEARCH. When a question spans multiple topics, call semantic_search for each in parallel rather than sequentially.
-- BE HONEST. If the vault doesn't contain relevant information, say so clearly. Don't pad answers with generic knowledge when the user asked about their own notes.
-- LEARN FROM FEEDBACK. When the user corrects you or wants different depth/style, adapt immediately and apply the preference going forward.
-
-## How you search
-
-IMPORTANT: If the user asks for internet/web/online information ("search the internet", "latest news", "aktuell", "neueste"), this is NOT a vault question \u2014 escalate to Agent mode via switch_mode so web_search can be used. Do NOT search the vault for external information.
-
-Search strategy for VAULT content (in this order):
-1. semantic_search(query) \u2014 Start here for any topic or concept query. Finds notes by meaning, not just keywords. Use this first whenever the Semantic Index is available.
-2. search_by_tag(tags) \u2014 For tag-based lookups (e.g., "find all meeting notes").
-3. search_files(path, pattern) \u2014 For exact keyword or regex when semantic_search is not sufficient.
-4. read_file(path) \u2014 Only for files you have already identified via search. Do not speculatively read files.
-
-## What you can help with
-
-- **Vault content questions**: "What do I know about X?", "Find my notes on Y", "Summarize everything about Z"
-- **Obsidian questions**: How wikilinks, tags, frontmatter, Canvas, Bases, and Daily Notes work
-- **Obsilo questions**: What tools are available, how modes work, how to use features, what capabilities exist
-- **Knowledge synthesis**: Combine information from multiple notes into a coherent answer
-- **Discovery**: Surface connections and gaps the user hasn't noticed
-- **Hybrid search**: Use both semantic similarity and keyword matching for comprehensive results
-
-## How you format answers
-
-- ALWAYS structure longer answers with ## and ### headings. Never write walls of text.
-- Prefer well-structured prose over tables. Bold key terms on first mention.
-- Cite vault sources with [1], [2] markers and a [sources]...[/sources] block at the end.
-- If useful follow-ups exist, add a [followups]...[/followups] block at the very end.
-
-## Mode escalation
-
-You are read-only. You never create, edit, move, or delete files.
-When the user picks an action that requires writing, use switch_mode to escalate to Agent mode.`
-      },
-      {
-        slug: "agent",
-        name: "Agent",
-        icon: "zap",
-        description: "Fully capable autonomous agent. Reads, writes, searches, browses the web, and delegates to sub-agents.",
-        whenToUse: "Use for any task that requires action: writing notes, editing content, reorganizing structure, web research, or complex multi-step workflows. Can spawn sub-agents for parallel or sequential delegation.",
-        toolGroups: ["read", "vault", "edit", "web", "agent", "mcp", "skill"],
-        source: "built-in",
-        roleDefinition: `You are Obsilo in Agent mode \u2014 fully autonomous with access to all tools: vault read/write, web research, sub-agents, MCP, and plugin skills.
-
-## Core principles
-
-- GET IT DONE. Your goal is to accomplish the task, not discuss it. Execute tools, deliver results. Do not ask for permission to do things you can just do.
-- ACT, DON'T NARRATE. Never describe what you plan to do or did \u2014 just do it and write the result. Never write "Synthesized results...", "Created summary note...", "Found N notes..." as your answer.
-- PARALLEL WHEN POSSIBLE. Call independent tools together. Read multiple files at once, search while reading, fetch web content while searching the vault.
-- RESULT FIRST. Your text response must contain the substantive answer or outcome. The user already saw tool calls \u2014 they know what you did.
-- THINK WITH THE USER. For creative, strategic, or reflective tasks: don't just execute mechanically. Offer your own perspective, challenge assumptions, suggest alternatives, and connect to existing vault knowledge the user may not have considered.
-- BE HONEST. If a request doesn't make sense, say so. If there's a better approach, propose it. If you're uncertain, say "I'm not sure" rather than fabricating an answer.
-- LEARN AND ADAPT. Pay attention to how the user responds \u2014 their corrections, preferences, and the level of detail they want. Adapt immediately within the session. When the user corrects your search approach (e.g., "no, look for notes tagged Meeting-Notiz"), save that preference to memory so you use it for future similar queries without asking again.
-
-## Work style
-
-- For multi-step tasks (3+ steps): use update_todo_list to show progress.
-- Always read_file before editing an existing note.
-- Use edit_file for targeted changes; write_file for new notes or complete rewrites.
-- INTERNET vs VAULT: When the user asks for internet/web/online information \u2192 web_search directly, no vault search. When looking for related notes in the vault \u2192 semantic_search.
-- Use web_search + web_fetch for tasks requiring external information. If web_search is unavailable, enable it yourself via update_settings.
-- Open notes with open_note after creating or editing.
-
-## Complete the job
-
-Your task is not done until the user has a USABLE result. Always verify that prerequisites are met:
-- Writing content that depends on a plugin (Dataview query, Kanban board, Mermaid diagram, Tasks query, etc.)? Check if the plugin is enabled. If not, call enable_plugin before or after writing the content. If approval is required, ask for it \u2014 don't silently deliver broken content.
-- Creating a note that references other notes? Verify the linked notes exist or create them.
-- Configuring a plugin? Verify it's enabled first.
-
-Never leave the user with output that looks correct but doesn't work.
-
-## How you format answers
-
-- ALWAYS structure longer answers with ## and ### headings. Never write walls of text.
-- Prefer well-structured prose over tables. Bold key terms on first mention.
-- Cite vault sources with [1], [2] markers and a [sources]...[/sources] block at the end.
-- If useful follow-ups exist, add a [followups]...[/followups] block at the very end.
-
-## Obsidian conventions
-
-- Internal links: [[Note Name]] (not markdown links)
-- Tags: lowercase, hyphenated \u2014 "machine-learning" not "Machine Learning"
-- Frontmatter: ---\\ntitle: ...\\ntags: [...]\\ncreated: YYYY-MM-DD\\n---
-- Headers: ## main sections, ### subsections
-- Callouts: > [!note], > [!tip], > [!warning]
-
-## Direct execution (default)
-
-You have all the tools needed for most tasks. Use them directly:
-- File conversion (PDF, DOCX) \u2192 execute_recipe (pandoc-pdf, pandoc-docx, pandoc-convert)
-- Plugin data (Dataview, Omnisearch, MetaEdit) \u2192 call_plugin_api
-- Plugin commands \u2192 execute_command
-- Vault read/write \u2192 read_file, write_file, edit_file
-- Web research \u2192 web_search + web_fetch
-- Knowledge queries \u2192 semantic_search
-
-NEVER delegate to a sub-agent what you can do directly in 1-4 tool calls.
-
-## Sub-agent delegation (only when direct execution is insufficient)
-
-Before spawning a sub-agent with new_task, verify ALL of these conditions:
-1. The task requires 5+ steps across different specialties
-2. Context isolation genuinely helps (e.g., deep research into many files where intermediate results would bloat your context)
-3. You cannot accomplish it with your current tools in a reasonable number of calls
-
-Available modes: agent (full capabilities), ask (read-only vault queries).
-Sub-agents must NOT spawn further sub-agents. Maximum nesting depth: 1.
-Always pass all necessary context in the message \u2014 the sub-agent cannot see this conversation.
-
-Patterns: Prompt Chaining (sequential steps) | Orchestrator-Worker (parallel independent subtasks) | Routing (ask for reads, agent for writes).`
-      }
-    ];
-  }
-});
-
 // src/i18n/locales/en.ts
 var en;
 var init_en = __esm({
@@ -6708,27 +6545,27 @@ var require_FileFetcher = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FileFetcher = void 0;
-    var fs2 = __importStar(require("fs/promises"));
+    var fs3 = __importStar(require("fs/promises"));
     var path3 = __importStar(require("path"));
     var FileFetcher = class {
       fetch(uri, onDocument) {
         return __awaiter(this, void 0, void 0, function* () {
           let isDirectory;
           try {
-            const stat = yield fs2.stat(uri);
+            const stat = yield fs3.stat(uri);
             isDirectory = stat.isDirectory();
-          } catch (_a6) {
+          } catch (_a7) {
             return true;
           }
           if (isDirectory) {
-            const files = yield fs2.readdir(uri);
+            const files = yield fs3.readdir(uri);
             for (const file of files) {
               const filePath = path3.join(uri, file);
               yield this.fetch(filePath, onDocument);
             }
             return true;
           } else {
-            const text3 = yield fs2.readFile(uri, "utf8");
+            const text3 = yield fs3.readFile(uri, "utf8");
             const parts = uri.split(".");
             return yield onDocument(uri, text3, parts.length > 0 ? parts[parts.length - 1].toLowerCase() : void 0);
           }
@@ -8262,11 +8099,11 @@ var require_o200k_base3 = __commonJS({
     __exportStar(require_constants(), exports);
     __exportStar(require_specialTokens(), exports);
     var api = GptEncoding_js_1.GptEncoding.getEncodingApi("o200k_base", () => o200k_base_js_1.default);
-    var { decode, decodeAsyncGenerator, decodeGenerator, encode, encodeGenerator, isWithinTokenLimit, countTokens, encodeChat, encodeChatGenerator, vocabularySize, setMergeCacheSize, clearMergeCache, estimateCost } = api;
+    var { decode, decodeAsyncGenerator, decodeGenerator, encode: encode2, encodeGenerator, isWithinTokenLimit, countTokens, encodeChat, encodeChatGenerator, vocabularySize, setMergeCacheSize, clearMergeCache, estimateCost } = api;
     exports.decode = decode;
     exports.decodeAsyncGenerator = decodeAsyncGenerator;
     exports.decodeGenerator = decodeGenerator;
-    exports.encode = encode;
+    exports.encode = encode2;
     exports.encodeGenerator = encodeGenerator;
     exports.isWithinTokenLimit = isWithinTokenLimit;
     exports.countTokens = countTokens;
@@ -8561,14 +8398,14 @@ var require_stringify = __commonJS({
       return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
     }
     exports.unsafeStringify = unsafeStringify;
-    function stringify2(arr, offset = 0) {
+    function stringify3(arr, offset = 0) {
       const uuid2 = unsafeStringify(arr, offset);
       if (!(0, validate_js_1.default)(uuid2)) {
         throw TypeError("Stringified UUID is invalid");
       }
       return uuid2;
     }
-    exports.default = stringify2;
+    exports.default = stringify3;
   }
 });
 
@@ -8851,11 +8688,11 @@ var require_v35 = __commonJS({
     exports.URL = exports.DNS = exports.stringToBytes = void 0;
     var parse_js_1 = require_parse();
     var stringify_js_1 = require_stringify();
-    function stringToBytes2(str) {
-      str = unescape(encodeURIComponent(str));
-      const bytes = new Uint8Array(str.length);
-      for (let i = 0; i < str.length; ++i) {
-        bytes[i] = str.charCodeAt(i);
+    function stringToBytes2(str2) {
+      str2 = unescape(encodeURIComponent(str2));
+      const bytes = new Uint8Array(str2.length);
+      for (let i = 0; i < str2.length; ++i) {
+        bytes[i] = str2.charCodeAt(i);
       }
       return bytes;
     }
@@ -9324,7 +9161,7 @@ var require_LocalDocument = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalDocument = void 0;
-    var fs2 = __importStar(require("fs/promises"));
+    var fs3 = __importStar(require("fs/promises"));
     var path3 = __importStar(require("path"));
     var LocalDocument = class {
       /**
@@ -9379,7 +9216,7 @@ var require_LocalDocument = __commonJS({
       hasMetadata() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs2.access(path3.join(this.folderPath, `${this.id}.json`));
+            yield fs3.access(path3.join(this.folderPath, `${this.id}.json`));
             return true;
           } catch (err) {
             return false;
@@ -9395,7 +9232,7 @@ var require_LocalDocument = __commonJS({
           if (this._metadata == void 0) {
             let json;
             try {
-              json = (yield fs2.readFile(path3.join(this.folderPath, `${this.id}.json`))).toString();
+              json = (yield fs3.readFile(path3.join(this.folderPath, `${this.id}.json`))).toString();
             } catch (err) {
               throw new Error(`Error reading metadata for document "${this.uri}": ${err.toString()}`);
             }
@@ -9416,7 +9253,7 @@ var require_LocalDocument = __commonJS({
         return __awaiter(this, void 0, void 0, function* () {
           if (this._text == void 0) {
             try {
-              this._text = (yield fs2.readFile(path3.join(this.folderPath, `${this.id}.txt`))).toString();
+              this._text = (yield fs3.readFile(path3.join(this.folderPath, `${this.id}.txt`))).toString();
             } catch (err) {
               throw new Error(`Error reading text file for document "${this.uri}": ${err.toString()}`);
             }
@@ -9486,11 +9323,11 @@ var require_wink_helpers = __commonJS({
         return b[accessor1] > a[accessor1] ? 1 : b[accessor1] === a[accessor1] ? 0 : -1;
       });
     };
-    helpers.array.pluck = function(a, key, limit) {
+    helpers.array.pluck = function(a, key, limit2) {
       var k, plucked;
       k = a.length;
       var i = key || 0;
-      var lim = limit || k;
+      var lim = limit2 || k;
       if (lim > k) lim = k;
       plucked = new Array(lim);
       for (k = 0; k < lim; k += 1) plucked[k] = a[k][i];
@@ -9673,8 +9510,8 @@ var require_wink_helpers = __commonJS({
     };
     helpers.string = /* @__PURE__ */ Object.create(null);
     var rgxDiacritical = /[\u0300-\u036f]/g;
-    helpers.string.normalize = function(str) {
-      return str.toLowerCase().normalize("NFD").replace(rgxDiacritical, "");
+    helpers.string.normalize = function(str2) {
+      return str2.toLowerCase().normalize("NFD").replace(rgxDiacritical, "");
     };
     module2.exports = helpers;
   }
@@ -9877,7 +9714,7 @@ var require_wink_bm25_text_search = __commonJS({
         consolidated = true;
         return true;
       };
-      var search = function(text3, limit, filter4, params) {
+      var search = function(text3, limit2, filter4, params) {
         if (!consolidated) {
           throw Error("winkBM25S: search is not possible unless learnings are consolidated!");
         }
@@ -9905,7 +9742,7 @@ var require_wink_bm25_text_search = __commonJS({
             }
           }
         }
-        return helpers.object.table(results).sort(helpers.array.descendingOnValue).slice(0, Math.max(limit || 10, 1));
+        return helpers.object.table(results).sort(helpers.array.descendingOnValue).slice(0, Math.max(limit2 || 10, 1));
       };
       var reset = function() {
         documents = /* @__PURE__ */ Object.create(null);
@@ -10942,28 +10779,28 @@ var require_print_tokens = __commonJS({
       var i, j;
       var t2, tv;
       var pad = "                         ";
-      var str;
+      var str2;
       var props = ["prefix", "suffix", "shape", "lutCase", "nerHint", "tokenType"];
       console.log("\n\ntoken      p-spaces   prefix  suffix  shape   case    nerHint type     normal/pos");
       console.log("\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014\u2014");
       for (i = 0; i < imax; i += tkSize) {
-        str = "";
+        str2 = "";
         t2 = tokens[i];
         tv = cache.value(t2);
-        str += (JSON.stringify(tv).replace(/"/g, "") + pad).slice(0, 18);
-        str += ((tokens[i + 1] & psMask) + pad).slice(0, 4);
+        str2 += (JSON.stringify(tv).replace(/"/g, "") + pad).slice(0, 18);
+        str2 += ((tokens[i + 1] & psMask) + pad).slice(0, 4);
         for (j = 0; j < props.length; j += 1) {
-          str += (JSON.stringify(cache.property(t2, props[j])).replace(/"/g, "") + pad).slice(0, 8);
+          str2 += (JSON.stringify(cache.property(t2, props[j])).replace(/"/g, "") + pad).slice(0, 8);
         }
         if (tokens[i + 1] > 65535) {
-          str += " " + cache.value(cache.nox(tokens[i + 1]));
-          str += " / " + cache.valueOf("pos", (tokens[i + 2] & posMask) >>> bits4lemma);
+          str2 += " " + cache.value(cache.nox(tokens[i + 1]));
+          str2 += " / " + cache.valueOf("pos", (tokens[i + 2] & posMask) >>> bits4lemma);
         } else {
-          str += " " + JSON.stringify(cache.value(cache.normal(t2))).replace(/"/g, "");
-          str += " / " + cache.property(t2, "pos");
+          str2 += " " + JSON.stringify(cache.value(cache.normal(t2))).replace(/"/g, "");
+          str2 += " / " + cache.property(t2, "pos");
         }
-        console.log(str);
-        str += " / " + cache.valueOf("pos", (tokens[i + 2] & posMask) >>> bits4lemma);
+        console.log(str2);
+        str2 += " / " + cache.valueOf("pos", (tokens[i + 2] & posMask) >>> bits4lemma);
       }
       console.log("\n\ntotal number of tokens: %d", tokens.length / tkSize);
     };
@@ -11858,14 +11695,14 @@ var require_compose_patterns = __commonJS({
     var product = function(a) {
       return a.reduce(productReducer, [[]]);
     };
-    var composePatterns = function(str) {
-      if (!str || typeof str !== "string") return [];
+    var composePatterns = function(str2) {
+      if (!str2 || typeof str2 !== "string") return [];
       const LIMIT1 = 512;
       const LIMIT2 = 65536;
-      var quotedTextElems = extractEnclosedText(str);
+      var quotedTextElems = extractEnclosedText(str2);
       var patterns = [];
       var finalPatterns = [];
-      if (!quotedTextElems) return [[str]];
+      if (!quotedTextElems) return [[str2]];
       quotedTextElems.forEach(function(e) {
         patterns.push(e.split("|"));
       });
@@ -13055,8 +12892,8 @@ var require_porter_stemmer = __commonJS({
       return rgn = markRegions(s), /e$/i.test(s) ? (preceding = s.replace(/e$/, ""), /e/.test(rgn.r2) || /e/.test(rgn.r1) && !isShort(preceding) ? preceding : s) : /l$/.test(s) && (rgn = markRegions(s)).r2 && /l$/.test(rgn.r2) ? s.replace(/ll$/, "l") : s;
     };
     var stem = function(word) {
-      var str = word.toLowerCase();
-      return str.length < 3 ? str : exceptions1[str] ? exceptions1[str] : (str = prelude(str), str = step1a(str), rgxException2.test(str) || (str = step1b(str), str = step1c(str), str = step2(str), str = step3(str), str = step4(str), str = step5(str)), str = str.replace(/3/g, "y"));
+      var str2 = word.toLowerCase();
+      return str2.length < 3 ? str2 : exceptions1[str2] ? exceptions1[str2] : (str2 = prelude(str2), str2 = step1a(str2), rgxException2.test(str2) || (str2 = step1b(str2), str2 = step1c(str2), str2 = step2(str2), str2 = step3(str2), str2 = step4(str2), str2 = step5(str2)), str2 = str2.replace(/3/g, "y"));
     };
     module2.exports = stem;
   }
@@ -16022,7 +15859,7 @@ var require_wn_verb_exceptions = __commonJS({
     var dap = "dap";
     var deal = "deal";
     var debar = "debar";
-    var debug2 = "debug";
+    var debug3 = "debug";
     var debus = "debus";
     var decalcify = "decalcify";
     var declassify = "declassify";
@@ -16788,7 +16625,7 @@ var require_wn_verb_exceptions = __commonJS({
     var slap = "slap";
     var slat = "slat";
     var sled = "sled";
-    var sleep2 = "sleep";
+    var sleep3 = "sleep";
     var slide = "slide";
     var slip = "slip";
     var slit = "slit";
@@ -17130,9 +16967,9 @@ var require_wn_verb_exceptions = __commonJS({
     var zap = "zap";
     var zigzag = "zigzag";
     var zip = "zip";
-    exceptions.abetted = abet, exceptions.abetting = abet, exceptions.abhorred = abhor, exceptions.abhorring = abhor, exceptions.abode = abide, exceptions.abought = aby, exceptions.abutted = abut, exceptions.abutting = abut, exceptions.abye = aby, exceptions.accompanied = accompany, exceptions.acetified = acetify, exceptions.acidified = acidify, exceptions.acquitted = acquit, exceptions.acquitting = acquit, exceptions.addrest = address, exceptions.admitted = admit, exceptions.admitting = admit, exceptions.aerified = aerify, exceptions.airdropped = airdrop, exceptions.airdropping = airdrop, exceptions.alkalified = alkalify, exceptions.allied = ally, exceptions.allotted = allot, exceptions.allotting = allot, exceptions.am = be, exceptions.ammonified = ammonify, exceptions.amnestied = amnesty, exceptions.amplified = amplify, exceptions.anglified = anglify, exceptions.annulled = annul, exceptions.annulling = annul, exceptions.appalled = appal, exceptions.appalling = appal, exceptions.applied = apply, exceptions.arcked = arc, exceptions.arcking = arc, exceptions.are = be, exceptions.argufied = argufy, exceptions.arisen = arise, exceptions.arose = arise, exceptions.ate = eat, exceptions.atrophied = atrophy, exceptions.averred = aver, exceptions.averring = aver, exceptions.awoke = awake, exceptions.awoken = awake, exceptions.babied = baby, exceptions.backbit = backbite, exceptions.backbitten = backbite, exceptions.backslid = backslide, exceptions.backslidden = backslide, exceptions.bade = bid, exceptions.bagged = bag, exceptions.bagging = bag, exceptions.ballyragged = ballyrag, exceptions.ballyragging = ballyrag, exceptions.bandied = bandy, exceptions.banned = ban, exceptions.banning = ban, exceptions.barred = bar, exceptions.barrelled = barrel, exceptions.barrelling = barrel, exceptions.barring = bar, exceptions.basified = basify, exceptions.batted = bat, exceptions.batting = bat, exceptions.bayonetted = bayonet, exceptions.bayonetting = bayonet, exceptions.beaten = beat, exceptions.beatified = beatify, exceptions.beautified = beautify, exceptions.became = become, exceptions.bed = bed, exceptions.bedded = bed, exceptions.bedding = bed, exceptions.bedevilled = bedevil, exceptions.bedevilling = bedevil, exceptions.bedimmed = bedim, exceptions.bedimming = bedim, exceptions.been = be, exceptions.befallen = befall, exceptions.befell = befall, exceptions.befitted = befit, exceptions.befitting = befit, exceptions.befogged = befog, exceptions.befogging = befog, exceptions.began = begin, exceptions.begat = beget, exceptions.begetting = beget, exceptions.begged = beg, exceptions.begging = beg, exceptions.beginning = begin, exceptions.begirt = begird, exceptions.begot = beget, exceptions.begotten = beget, exceptions.begun = begin, exceptions.beheld = behold, exceptions.beholden = behold, exceptions.bejewelled = bejewel, exceptions.bejewelling = bejewel, exceptions.bellied = belly, exceptions.belying = belie, exceptions.benefitted = benefit, exceptions.benefitting = benefit, exceptions.benempt = bename, exceptions.bent = bend, exceptions.berried = berry, exceptions.besetting = beset, exceptions.besought = beseech, exceptions.bespoke = bespeak, exceptions.bespoken = bespeak, exceptions.bestirred = bestir, exceptions.bestirring = bestir, exceptions.bestrewn = bestrew, exceptions.bestrid = bestride, exceptions.bestridden = bestride, exceptions.bestrode = bestride, exceptions.betaken = betake, exceptions.bethought = bethink, exceptions.betook = betake, exceptions.betted = bet, exceptions.betting = bet, exceptions.bevelled = bevel, exceptions.bevelling = bevel, exceptions.biassed = bias, exceptions.biassing = bias, exceptions.bidden = bid, exceptions.bidding = bid, exceptions.bing = bing, exceptions.binned = bin, exceptions.binning = bin, exceptions.bit = bite, exceptions.bitted = bit, exceptions.bitten = bite, exceptions.bitting = bit, exceptions.bivouacked = bivouac, exceptions.bivouacking = bivouac, exceptions.blabbed = blab, exceptions.blabbing = blab, exceptions.blackberried = blackberry, exceptions.blacklegged = blackleg, exceptions.blacklegging = blackleg, exceptions.blatted = blat, exceptions.blatting = blat, exceptions.bled = bleed, exceptions.blest = bless, exceptions.blew = blow, exceptions.blipped = blip, exceptions.blipping = blip, exceptions.blobbed = blob, exceptions.blobbing = blob, exceptions.bloodied = bloody, exceptions.blotted = blot, exceptions.blotting = blot, exceptions.blown = blow, exceptions.blubbed = blub, exceptions.blubbing = blub, exceptions.blurred = blur, exceptions.blurring = blur, exceptions.bobbed = bob, exceptions.bobbing = bob, exceptions.bodied = body, exceptions.bootlegged = bootleg, exceptions.bootlegging = bootleg, exceptions.bopped = bop, exceptions.bopping = bop, exceptions.bore = bear, exceptions.born = bear, exceptions.borne = bear, exceptions.bought = buy, exceptions.bound = bind, exceptions.bragged = brag, exceptions.bragging = brag, exceptions.bred = breed, exceptions.brevetted = brevet, exceptions.brevetting = brevet, exceptions.brimmed = brim, exceptions.brimming = brim, exceptions.broke = break1, exceptions.broken = break1, exceptions.brought = bring, exceptions.browbeaten = browbeat, exceptions.brutified = brutify, exceptions.budded = bud, exceptions.budding = bud, exceptions.bugged = bug, exceptions.bugging = bug, exceptions.built = build2, exceptions.bulldogging = bulldog, exceptions.bullied = bully, exceptions.bullshitted = bullshit, exceptions.bullshitting = bullshit, exceptions.bullwhipped = bullwhip, exceptions.bullwhipping = bullwhip, exceptions.bullyragged = bullyrag, exceptions.bullyragging = bullyrag, exceptions.bummed = bum, exceptions.bumming = bum, exceptions.buried = bury, exceptions.burnt = burn, exceptions.burred = bur, exceptions.burring = bur, exceptions.bushelled = bushel, exceptions.bushelling = bushel, exceptions.busied = busy, exceptions.bypast = bypass, exceptions.caballed = cabal, exceptions.caballing = cabal, exceptions.caddied = caddy, exceptions.caddies = caddy, exceptions.caddying = caddy, exceptions.calcified = calcify, exceptions.came = come, exceptions.canalled = canal, exceptions.canalling = canal, exceptions.cancelled = cancel, exceptions.cancelling = cancel, exceptions.candied = candy, exceptions.canned = can, exceptions.canning = can, exceptions.canopied = canopy, exceptions.capped = cap, exceptions.capping = cap, exceptions.carburetted = carburet, exceptions.carburetting = carburet, exceptions.carillonned = carillon, exceptions.carillonning = carillon, exceptions.carnied = carny, exceptions.carnified = carnify, exceptions.carolled = carol, exceptions.carolling = carol, exceptions.carried = carry, exceptions.casefied = casefy, exceptions.catnapped = catnap, exceptions.catnapping = catnap, exceptions.catted = cat, exceptions.catting = cat, exceptions.caught = catch1, exceptions.cavilled = cavil, exceptions.cavilling = cavil, exceptions.certified = certify, exceptions.channelled = channel, exceptions.channelling = channel, exceptions.chapped = chap, exceptions.chapping = chap, exceptions.charred = char, exceptions.charring = char, exceptions.chatted = chat, exceptions.chatting = chat, exceptions.chevied = chivy, exceptions.chevies = chivy, exceptions.chevying = chivy, exceptions.chid = chide, exceptions.chidden = chide, exceptions.chinned = chin, exceptions.chinning = chin, exceptions.chipped = chip, exceptions.chipping = chip, exceptions.chiselled = chisel, exceptions.chiselling = chisel, exceptions.chitchatted = chitchat, exceptions.chitchatting = chitchat, exceptions.chivied = chivy, exceptions.chivved = chiv, exceptions.chivvied = chivy, exceptions.chivvies = chivy, exceptions.chivving = chiv, exceptions.chivvying = chivy, exceptions.chondrified = chondrify, exceptions.chopped = chop, exceptions.chopping = chop, exceptions.chose = choose, exceptions.chosen = choose, exceptions.chugged = chug, exceptions.chugging = chug, exceptions.chummed = chum, exceptions.chumming = chum, exceptions.citified = citify, exceptions.clad = clothe, exceptions.cladded = clad, exceptions.cladding = clad, exceptions.clammed = clam, exceptions.clamming = clam, exceptions.clapped = clap, exceptions.clapping = clap, exceptions.clarified = clarify, exceptions.classified = classify, exceptions.cleft = cleave, exceptions.clemmed = clem, exceptions.clemming = clem, exceptions.clept = clepe, exceptions.clipped = clip, exceptions.clipping = clip, exceptions.clogged = clog, exceptions.clogging = clog, exceptions.clopped = clop, exceptions.clopping = clop, exceptions.clotted = clot, exceptions.clotting = clot, exceptions.clove = cleave, exceptions.cloven = cleave, exceptions.clubbed = club, exceptions.clubbing = club, exceptions.clung = cling, exceptions.cockneyfied = cockneyfy, exceptions.codded = cod, exceptions.codding = cod, exceptions.codified = codify, exceptions.cogged = cog, exceptions.cogging = cog, exceptions.coiffed = coif, exceptions.coiffing = coif, exceptions.collied = colly, exceptions.combatted = combat, exceptions.combatting = combat, exceptions.committed = commit, exceptions.committing = commit, exceptions.compelled = compel, exceptions.compelling = compel, exceptions.complied = comply, exceptions.complotted = complot, exceptions.complotting = complot, exceptions.concurred = concur, exceptions.concurring = concur, exceptions.confabbed = confab, exceptions.confabbing = confab, exceptions.conferred = confer, exceptions.conferring = confer, exceptions.conned = con, exceptions.conning = con, exceptions.controlled = control, exceptions.controlling = control, exceptions.copied = copy, exceptions.copped = cop, exceptions.copping = cop, exceptions.coquetted = coquet, exceptions.coquetting = coquet, exceptions.corralled = corral, exceptions.corralling = corral, exceptions.could = can, exceptions.counselled = counsel, exceptions.counselling = counsel, exceptions.counterplotted = counterplot, exceptions.counterplotting = counterplot, exceptions.countersank = countersink, exceptions.countersunk = countersink, exceptions.crabbed = crab, exceptions.crabbing = crab, exceptions.crammed = cram, exceptions.cramming = cram, exceptions.crapped = crap, exceptions.crapping = crap, exceptions.creeped = creep, exceptions.crept = creep, exceptions.cribbed = crib, exceptions.cribbing = crib, exceptions.cried = cry, exceptions.cropped = crop, exceptions.cropping = crop, exceptions.crossbred = crossbreed, exceptions.crosscutting = crosscut, exceptions.crucified = crucify, exceptions.cubbed = cub, exceptions.cubbing = cub, exceptions.cudgelled = cudgel, exceptions.cudgelling = cudgel, exceptions.cupelled = cupel, exceptions.cupelling = cupel, exceptions.cupped = cup, exceptions.cupping = cup, exceptions.curetted = curet, exceptions.curettes = curet, exceptions.curetting = curet, exceptions.curried = curry, exceptions.curst = curse, exceptions.curtsied = curtsy, exceptions.curvetted = curvet, exceptions.curvetting = curvet, exceptions.cutting = cut, exceptions.dabbed = dab, exceptions.dabbing = dab, exceptions.dagged = dag, exceptions.dagging = dag, exceptions.dallied = dally, exceptions.dammed = dam, exceptions.damming = dam, exceptions.damnified = damnify, exceptions.dandified = dandify, exceptions.dapped = dap, exceptions.dapping = dap, exceptions.dealt = deal, exceptions.debarred = debar, exceptions.debarring = debar, exceptions.debugged = debug2, exceptions.debugging = debug2, exceptions.debussed = debus, exceptions.debusses = debus, exceptions.debussing = debus, exceptions.decalcified = decalcify, exceptions.declassified = declassify, exceptions.decontrolled = decontrol, exceptions.decontrolling = decontrol, exceptions.decried = decry, exceptions.deferred = defer, exceptions.deferring = defer, exceptions.defied = defy, exceptions.degassed = degas, exceptions.degasses = degas, exceptions.degassing = degas, exceptions.dehumidified = dehumidify, exceptions.deified = deify, exceptions.demitted = demit, exceptions.demitting = demit, exceptions.demobbed = demob, exceptions.demobbing = demob, exceptions.demulsified = demulsify, exceptions.demurred = demur, exceptions.demurring = demur, exceptions.demystified = demystify, exceptions.denazified = denazify, exceptions.denied = deny, exceptions.denitrified = denitrify, exceptions.denned = den, exceptions.denning = den, exceptions.descried = descry, exceptions.deterred = deter, exceptions.deterring = deter, exceptions.detoxified = detoxify, exceptions.devilled = devil, exceptions.devilling = devil, exceptions.devitrified = devitrify, exceptions.diagrammed = diagram, exceptions.diagramming = diagram, exceptions.dialled = dial, exceptions.dialling = dial, exceptions.dibbed = dib, exceptions.dibbing = dib, exceptions.did = do1, exceptions.digging = dig, exceptions.dignified = dignify, exceptions.dimmed = dim, exceptions.dimming = dim, exceptions.dinned = din, exceptions.dinning = din, exceptions.dipped = dip, exceptions.dipping = dip, exceptions.dirtied = dirty, exceptions.disannulled = disannul, exceptions.disannulling = disannul, exceptions.disbarred = disbar, exceptions.disbarring = disbar, exceptions.disbudded = disbud, exceptions.disbudding = disbud, exceptions.disembodied = disembody, exceptions.disembowelled = disembowel, exceptions.disembowelling = disembowel, exceptions.disenthralled = disenthral, exceptions.disenthralling = disenthral, exceptions.disenthralls = disenthral, exceptions.disenthrals = disenthrall, exceptions.dishevelled = dishevel, exceptions.dishevelling = dishevel, exceptions.disinterred = disinter, exceptions.disinterring = disinter, exceptions.dispelled = dispel, exceptions.dispelling = dispel, exceptions.disqualified = disqualify, exceptions.dissatisfied = dissatisfy, exceptions.distilled = distil, exceptions.distilling = distil, exceptions.diversified = diversify, exceptions.divvied = divvy, exceptions.dizzied = dizzy, exceptions.does = do1, exceptions.dogged = dog, exceptions.dogging = dog, exceptions.doglegged = dogleg, exceptions.doglegging = dogleg, exceptions.dollied = dolly, exceptions.done = do1, exceptions.donned = don, exceptions.donning = don, exceptions.dotted = dot, exceptions.dotting = dot, exceptions.dought = dow, exceptions.dove = dive, exceptions.drabbed = drab, exceptions.drabbing = drab, exceptions.dragged = drag, exceptions.dragging = drag, exceptions.drank = drink, exceptions.drawn = draw, exceptions.dreamt = dream, exceptions.drew = draw, exceptions.dried = dry, exceptions.dripped = drip, exceptions.dripping = drip, exceptions.drivelled = drivel, exceptions.drivelling = drivel, exceptions.driven = drive, exceptions.dropped = drop, exceptions.dropping = drop, exceptions.drove = drive, exceptions.drubbed = drub, exceptions.drubbing = drub, exceptions.drugged = drug, exceptions.drugging = drug, exceptions.drummed = drum, exceptions.drumming = drum, exceptions.drunk = drink, exceptions.dubbed = dub, exceptions.dubbing = dub, exceptions.duelled = duel, exceptions.duelling = duel, exceptions.dug = dig, exceptions.dulcified = dulcify, exceptions.dummied = dummy, exceptions.dunned = dun, exceptions.dunning = dun, exceptions.dwelt = dwell, exceptions.dying = die, exceptions.easied = easy, exceptions.eaten = eat, exceptions.eavesdropped = eavesdrop, exceptions.eavesdropping = eavesdrop, exceptions.eddied = eddy, exceptions.edified = edify, exceptions.electrified = electrify, exceptions.embedded = embed, exceptions.embedding = embed, exceptions.embodied = embody, exceptions.embussed = embus, exceptions.embusses = embus, exceptions.embussing = embus, exceptions.emitted = emit, exceptions.emitting = emit, exceptions.empanelled = empanel, exceptions.empanelling = empanel, exceptions.emptied = empty2, exceptions.emulsified = emulsify, exceptions.enamelled = enamel, exceptions.enamelling = enamel, exceptions.englutted = englut, exceptions.englutting = englut, exceptions.enrolled = enrol, exceptions.enrolling = enrol, exceptions.enthralled = enthral, exceptions.enthralling = enthral, exceptions.entrammelled = entrammel, exceptions.entrammelling = entrammel, exceptions.entrapped = entrap, exceptions.entrapping = entrap, exceptions.envied = envy, exceptions.enwound = enwind, exceptions.enwrapped = enwrap, exceptions.enwrapping = enwrap, exceptions.equalled = equal, exceptions.equalling = equal, exceptions.equipped = equip, exceptions.equipping = equip, exceptions.espied = espy, exceptions.esterified = esterify, exceptions.estopped = estop, exceptions.estopping = estop, exceptions.etherified = etherify, exceptions.excelled = excel, exceptions.excelling = excel, exceptions.exemplified = exemplify, exceptions.expelled = expel, exceptions.expelling = expel, exceptions.extolled = extol, exceptions.extolling = extol, exceptions.facetted = facet, exceptions.facetting = facet, exceptions.fagged = fag, exceptions.fagging = fag, exceptions.fallen = fall, exceptions.falsified = falsify, exceptions.fancied = fancy, exceptions.fanned = fan, exceptions.fanning = fan, exceptions.fantasied = fantasy, exceptions.fatted = fat, exceptions.fatting = fat, exceptions.featherbedded = featherbed, exceptions.featherbedding = featherbed, exceptions.fed = feed, exceptions.feed = feed, exceptions.fell = fall, exceptions.felt = feel, exceptions.ferried = ferry, exceptions.fibbed = fib, exceptions.fibbing = fib, exceptions.figged = fig, exceptions.figging = fig, exceptions.finned = fin, exceptions.finning = fin, exceptions.fitted = fit, exceptions.fitting = fit, exceptions.flagged = flag, exceptions.flagging = flag, exceptions.flammed = flam, exceptions.flamming = flam, exceptions.flannelled = flannel, exceptions.flannelling = flannel, exceptions.flapped = flap, exceptions.flapping = flap, exceptions.flatted = flat, exceptions.flatting = flat, exceptions.fled = flee, exceptions.flew = fly, exceptions.flimflammed = flimflam, exceptions.flimflamming = flimflam, exceptions.flipped = flip, exceptions.flipping = flip, exceptions.flitted = flit, exceptions.flitting = flit, exceptions.flogged = flog, exceptions.flogging = flog, exceptions.floodlit = floodlight, exceptions.flopped = flop, exceptions.flopping = flop, exceptions.flown = fly, exceptions.flubbed = flub, exceptions.flubbing = flub, exceptions.flung = fling, exceptions.flurried = flurry, exceptions.flyblew = flyblow, exceptions.flyblown = flyblow, exceptions.fobbed = fob, exceptions.fobbing = fob, exceptions.fogged = fog, exceptions.fogging = fog, exceptions.footslogged = footslog, exceptions.footslogging = footslog, exceptions.forbad = forbid, exceptions.forbade = forbid, exceptions.forbidden = forbid, exceptions.forbidding = forbid, exceptions.forbore = forbear, exceptions.forborne = forbear, exceptions.fordid = fordo, exceptions.fordone = fordo, exceptions.foredid = foredo, exceptions.foredone = foredo, exceptions.foregone = forego, exceptions.foreknew = foreknow, exceptions.foreknown = foreknow, exceptions.foreran = forerun, exceptions.forerunning = forerun, exceptions.foresaw = foresee, exceptions.foreseen = foresee, exceptions.foreshown = foreshow, exceptions.forespoke = forespeak, exceptions.forespoken = forespeak, exceptions.foretold = foretell, exceptions.forewent = forego, exceptions.forgave = forgive, exceptions.forgetting = forget, exceptions.forgiven = forgive, exceptions.forgone = forgo, exceptions.forgot = forget, exceptions.forgotten = forget, exceptions.formatted = format, exceptions.formatting = format, exceptions.forsaken = forsake, exceptions.forsook = forsake, exceptions.forspoke = forspeak, exceptions.forspoken = forspeak, exceptions.forswore = forswear, exceptions.forsworn = forswear, exceptions.fortified = fortify, exceptions.forwent = forgo, exceptions.fought = fight, exceptions.found = find4, exceptions.foxtrotted = foxtrot, exceptions.foxtrotting = foxtrot, exceptions.frapped = frap, exceptions.frapping = frap, exceptions.frenchified = frenchify, exceptions.frenzied = frenzy, exceptions.fretted = fret, exceptions.fretting = fret, exceptions.fried = fry, exceptions.frigged = frig, exceptions.frigging = frig, exceptions.fritted = frit, exceptions.fritting = frit, exceptions.frivolled = frivol, exceptions.frivolling = frivol, exceptions.frogged = frog, exceptions.frogging = frog, exceptions.frolicked = frolic, exceptions.frolicking = frolic, exceptions.froze = freeze, exceptions.frozen = freeze, exceptions.fructified = fructify, exceptions.fuelled = fuel, exceptions.fuelling = fuel, exceptions.fulfilled = fulfil, exceptions.fulfilling = fulfil, exceptions.funned = fun, exceptions.funnelled = funnel, exceptions.funnelling = funnel, exceptions.funning = fun, exceptions.furred = fur, exceptions.furring = fur, exceptions.gadded = gad, exceptions.gadding = gad, exceptions.gagged = gag, exceptions.gagging = gag, exceptions.gainsaid = gainsay, exceptions.gambolled = gambol, exceptions.gambolling = gambol, exceptions.gammed = gam, exceptions.gamming = gam, exceptions.gan = gin, exceptions.ganned = gan, exceptions.ganning = gan, exceptions.gapped = gap, exceptions.gapping = gap, exceptions.gasified = gasify, exceptions.gassed = gas, exceptions.gasses = gas, exceptions.gassing = gas, exceptions.gave = give, exceptions.gelled = gel, exceptions.gelling = gel, exceptions.gelt = geld, exceptions.gemmed = gem, exceptions.gemming = gem, exceptions.getting = get2, exceptions.ghostwritten = ghostwrite, exceptions.ghostwrote = ghostwrite, exceptions.gibbed = gib, exceptions.gibbing = gib, exceptions.giddied = giddy, exceptions.giftwrapped = giftwrap, exceptions.giftwrapping = giftwrap, exceptions.gigged = gig, exceptions.gigging = gig, exceptions.gilt = gild, exceptions.ginned = gin, exceptions.ginning = gin, exceptions.gipped = gip, exceptions.gipping = gip, exceptions.girt = gird, exceptions.given = give, exceptions.glommed = glom, exceptions.glomming = glom, exceptions.gloried = glory, exceptions.glorified = glorify, exceptions.glutted = glut, exceptions.glutting = glut, exceptions.gnawn = gnaw, exceptions.gollied = golly, exceptions.gone = go, exceptions.got = get2, exceptions.gotten = get2, exceptions.grabbed = grab, exceptions.grabbing = grab, exceptions.gratified = gratify, exceptions.gravelled = gravel, exceptions.gravelling = gravel, exceptions.graven = grave, exceptions.grew = grow, exceptions.grinned = grin, exceptions.grinning = grin, exceptions.gripped = grip, exceptions.gripping = grip, exceptions.gript = grip, exceptions.gritted = grit, exceptions.gritting = grit, exceptions.ground = grind, exceptions.grovelled = grovel, exceptions.grovelling = grovel, exceptions.grown = grow, exceptions.grubbed = grub, exceptions.grubbing = grub, exceptions.guarantied = guaranty, exceptions.gullied = gully, exceptions.gummed = gum, exceptions.gumming = gum, exceptions.gunned = gun, exceptions.gunning = gun, exceptions.gypped = gyp, exceptions.gypping = gyp, exceptions.hacksawn = hacksaw, exceptions.had = have, exceptions.hammed = ham, exceptions.hamming = ham, exceptions.hamstrung = hamstring, exceptions.handfed = handfeed, exceptions.handicapped = handicap, exceptions.handicapping = handicap, exceptions.handselled = handsel, exceptions.handselling = handsel, exceptions.harried = harry, exceptions.has = have, exceptions.hatchelled = hatchel;
+    exceptions.abetted = abet, exceptions.abetting = abet, exceptions.abhorred = abhor, exceptions.abhorring = abhor, exceptions.abode = abide, exceptions.abought = aby, exceptions.abutted = abut, exceptions.abutting = abut, exceptions.abye = aby, exceptions.accompanied = accompany, exceptions.acetified = acetify, exceptions.acidified = acidify, exceptions.acquitted = acquit, exceptions.acquitting = acquit, exceptions.addrest = address, exceptions.admitted = admit, exceptions.admitting = admit, exceptions.aerified = aerify, exceptions.airdropped = airdrop, exceptions.airdropping = airdrop, exceptions.alkalified = alkalify, exceptions.allied = ally, exceptions.allotted = allot, exceptions.allotting = allot, exceptions.am = be, exceptions.ammonified = ammonify, exceptions.amnestied = amnesty, exceptions.amplified = amplify, exceptions.anglified = anglify, exceptions.annulled = annul, exceptions.annulling = annul, exceptions.appalled = appal, exceptions.appalling = appal, exceptions.applied = apply, exceptions.arcked = arc, exceptions.arcking = arc, exceptions.are = be, exceptions.argufied = argufy, exceptions.arisen = arise, exceptions.arose = arise, exceptions.ate = eat, exceptions.atrophied = atrophy, exceptions.averred = aver, exceptions.averring = aver, exceptions.awoke = awake, exceptions.awoken = awake, exceptions.babied = baby, exceptions.backbit = backbite, exceptions.backbitten = backbite, exceptions.backslid = backslide, exceptions.backslidden = backslide, exceptions.bade = bid, exceptions.bagged = bag, exceptions.bagging = bag, exceptions.ballyragged = ballyrag, exceptions.ballyragging = ballyrag, exceptions.bandied = bandy, exceptions.banned = ban, exceptions.banning = ban, exceptions.barred = bar, exceptions.barrelled = barrel, exceptions.barrelling = barrel, exceptions.barring = bar, exceptions.basified = basify, exceptions.batted = bat, exceptions.batting = bat, exceptions.bayonetted = bayonet, exceptions.bayonetting = bayonet, exceptions.beaten = beat, exceptions.beatified = beatify, exceptions.beautified = beautify, exceptions.became = become, exceptions.bed = bed, exceptions.bedded = bed, exceptions.bedding = bed, exceptions.bedevilled = bedevil, exceptions.bedevilling = bedevil, exceptions.bedimmed = bedim, exceptions.bedimming = bedim, exceptions.been = be, exceptions.befallen = befall, exceptions.befell = befall, exceptions.befitted = befit, exceptions.befitting = befit, exceptions.befogged = befog, exceptions.befogging = befog, exceptions.began = begin, exceptions.begat = beget, exceptions.begetting = beget, exceptions.begged = beg, exceptions.begging = beg, exceptions.beginning = begin, exceptions.begirt = begird, exceptions.begot = beget, exceptions.begotten = beget, exceptions.begun = begin, exceptions.beheld = behold, exceptions.beholden = behold, exceptions.bejewelled = bejewel, exceptions.bejewelling = bejewel, exceptions.bellied = belly, exceptions.belying = belie, exceptions.benefitted = benefit, exceptions.benefitting = benefit, exceptions.benempt = bename, exceptions.bent = bend, exceptions.berried = berry, exceptions.besetting = beset, exceptions.besought = beseech, exceptions.bespoke = bespeak, exceptions.bespoken = bespeak, exceptions.bestirred = bestir, exceptions.bestirring = bestir, exceptions.bestrewn = bestrew, exceptions.bestrid = bestride, exceptions.bestridden = bestride, exceptions.bestrode = bestride, exceptions.betaken = betake, exceptions.bethought = bethink, exceptions.betook = betake, exceptions.betted = bet, exceptions.betting = bet, exceptions.bevelled = bevel, exceptions.bevelling = bevel, exceptions.biassed = bias, exceptions.biassing = bias, exceptions.bidden = bid, exceptions.bidding = bid, exceptions.bing = bing, exceptions.binned = bin, exceptions.binning = bin, exceptions.bit = bite, exceptions.bitted = bit, exceptions.bitten = bite, exceptions.bitting = bit, exceptions.bivouacked = bivouac, exceptions.bivouacking = bivouac, exceptions.blabbed = blab, exceptions.blabbing = blab, exceptions.blackberried = blackberry, exceptions.blacklegged = blackleg, exceptions.blacklegging = blackleg, exceptions.blatted = blat, exceptions.blatting = blat, exceptions.bled = bleed, exceptions.blest = bless, exceptions.blew = blow, exceptions.blipped = blip, exceptions.blipping = blip, exceptions.blobbed = blob, exceptions.blobbing = blob, exceptions.bloodied = bloody, exceptions.blotted = blot, exceptions.blotting = blot, exceptions.blown = blow, exceptions.blubbed = blub, exceptions.blubbing = blub, exceptions.blurred = blur, exceptions.blurring = blur, exceptions.bobbed = bob, exceptions.bobbing = bob, exceptions.bodied = body, exceptions.bootlegged = bootleg, exceptions.bootlegging = bootleg, exceptions.bopped = bop, exceptions.bopping = bop, exceptions.bore = bear, exceptions.born = bear, exceptions.borne = bear, exceptions.bought = buy, exceptions.bound = bind, exceptions.bragged = brag, exceptions.bragging = brag, exceptions.bred = breed, exceptions.brevetted = brevet, exceptions.brevetting = brevet, exceptions.brimmed = brim, exceptions.brimming = brim, exceptions.broke = break1, exceptions.broken = break1, exceptions.brought = bring, exceptions.browbeaten = browbeat, exceptions.brutified = brutify, exceptions.budded = bud, exceptions.budding = bud, exceptions.bugged = bug, exceptions.bugging = bug, exceptions.built = build2, exceptions.bulldogging = bulldog, exceptions.bullied = bully, exceptions.bullshitted = bullshit, exceptions.bullshitting = bullshit, exceptions.bullwhipped = bullwhip, exceptions.bullwhipping = bullwhip, exceptions.bullyragged = bullyrag, exceptions.bullyragging = bullyrag, exceptions.bummed = bum, exceptions.bumming = bum, exceptions.buried = bury, exceptions.burnt = burn, exceptions.burred = bur, exceptions.burring = bur, exceptions.bushelled = bushel, exceptions.bushelling = bushel, exceptions.busied = busy, exceptions.bypast = bypass, exceptions.caballed = cabal, exceptions.caballing = cabal, exceptions.caddied = caddy, exceptions.caddies = caddy, exceptions.caddying = caddy, exceptions.calcified = calcify, exceptions.came = come, exceptions.canalled = canal, exceptions.canalling = canal, exceptions.cancelled = cancel, exceptions.cancelling = cancel, exceptions.candied = candy, exceptions.canned = can, exceptions.canning = can, exceptions.canopied = canopy, exceptions.capped = cap, exceptions.capping = cap, exceptions.carburetted = carburet, exceptions.carburetting = carburet, exceptions.carillonned = carillon, exceptions.carillonning = carillon, exceptions.carnied = carny, exceptions.carnified = carnify, exceptions.carolled = carol, exceptions.carolling = carol, exceptions.carried = carry, exceptions.casefied = casefy, exceptions.catnapped = catnap, exceptions.catnapping = catnap, exceptions.catted = cat, exceptions.catting = cat, exceptions.caught = catch1, exceptions.cavilled = cavil, exceptions.cavilling = cavil, exceptions.certified = certify, exceptions.channelled = channel, exceptions.channelling = channel, exceptions.chapped = chap, exceptions.chapping = chap, exceptions.charred = char, exceptions.charring = char, exceptions.chatted = chat, exceptions.chatting = chat, exceptions.chevied = chivy, exceptions.chevies = chivy, exceptions.chevying = chivy, exceptions.chid = chide, exceptions.chidden = chide, exceptions.chinned = chin, exceptions.chinning = chin, exceptions.chipped = chip, exceptions.chipping = chip, exceptions.chiselled = chisel, exceptions.chiselling = chisel, exceptions.chitchatted = chitchat, exceptions.chitchatting = chitchat, exceptions.chivied = chivy, exceptions.chivved = chiv, exceptions.chivvied = chivy, exceptions.chivvies = chivy, exceptions.chivving = chiv, exceptions.chivvying = chivy, exceptions.chondrified = chondrify, exceptions.chopped = chop, exceptions.chopping = chop, exceptions.chose = choose, exceptions.chosen = choose, exceptions.chugged = chug, exceptions.chugging = chug, exceptions.chummed = chum, exceptions.chumming = chum, exceptions.citified = citify, exceptions.clad = clothe, exceptions.cladded = clad, exceptions.cladding = clad, exceptions.clammed = clam, exceptions.clamming = clam, exceptions.clapped = clap, exceptions.clapping = clap, exceptions.clarified = clarify, exceptions.classified = classify, exceptions.cleft = cleave, exceptions.clemmed = clem, exceptions.clemming = clem, exceptions.clept = clepe, exceptions.clipped = clip, exceptions.clipping = clip, exceptions.clogged = clog, exceptions.clogging = clog, exceptions.clopped = clop, exceptions.clopping = clop, exceptions.clotted = clot, exceptions.clotting = clot, exceptions.clove = cleave, exceptions.cloven = cleave, exceptions.clubbed = club, exceptions.clubbing = club, exceptions.clung = cling, exceptions.cockneyfied = cockneyfy, exceptions.codded = cod, exceptions.codding = cod, exceptions.codified = codify, exceptions.cogged = cog, exceptions.cogging = cog, exceptions.coiffed = coif, exceptions.coiffing = coif, exceptions.collied = colly, exceptions.combatted = combat, exceptions.combatting = combat, exceptions.committed = commit, exceptions.committing = commit, exceptions.compelled = compel, exceptions.compelling = compel, exceptions.complied = comply, exceptions.complotted = complot, exceptions.complotting = complot, exceptions.concurred = concur, exceptions.concurring = concur, exceptions.confabbed = confab, exceptions.confabbing = confab, exceptions.conferred = confer, exceptions.conferring = confer, exceptions.conned = con, exceptions.conning = con, exceptions.controlled = control, exceptions.controlling = control, exceptions.copied = copy, exceptions.copped = cop, exceptions.copping = cop, exceptions.coquetted = coquet, exceptions.coquetting = coquet, exceptions.corralled = corral, exceptions.corralling = corral, exceptions.could = can, exceptions.counselled = counsel, exceptions.counselling = counsel, exceptions.counterplotted = counterplot, exceptions.counterplotting = counterplot, exceptions.countersank = countersink, exceptions.countersunk = countersink, exceptions.crabbed = crab, exceptions.crabbing = crab, exceptions.crammed = cram, exceptions.cramming = cram, exceptions.crapped = crap, exceptions.crapping = crap, exceptions.creeped = creep, exceptions.crept = creep, exceptions.cribbed = crib, exceptions.cribbing = crib, exceptions.cried = cry, exceptions.cropped = crop, exceptions.cropping = crop, exceptions.crossbred = crossbreed, exceptions.crosscutting = crosscut, exceptions.crucified = crucify, exceptions.cubbed = cub, exceptions.cubbing = cub, exceptions.cudgelled = cudgel, exceptions.cudgelling = cudgel, exceptions.cupelled = cupel, exceptions.cupelling = cupel, exceptions.cupped = cup, exceptions.cupping = cup, exceptions.curetted = curet, exceptions.curettes = curet, exceptions.curetting = curet, exceptions.curried = curry, exceptions.curst = curse, exceptions.curtsied = curtsy, exceptions.curvetted = curvet, exceptions.curvetting = curvet, exceptions.cutting = cut, exceptions.dabbed = dab, exceptions.dabbing = dab, exceptions.dagged = dag, exceptions.dagging = dag, exceptions.dallied = dally, exceptions.dammed = dam, exceptions.damming = dam, exceptions.damnified = damnify, exceptions.dandified = dandify, exceptions.dapped = dap, exceptions.dapping = dap, exceptions.dealt = deal, exceptions.debarred = debar, exceptions.debarring = debar, exceptions.debugged = debug3, exceptions.debugging = debug3, exceptions.debussed = debus, exceptions.debusses = debus, exceptions.debussing = debus, exceptions.decalcified = decalcify, exceptions.declassified = declassify, exceptions.decontrolled = decontrol, exceptions.decontrolling = decontrol, exceptions.decried = decry, exceptions.deferred = defer, exceptions.deferring = defer, exceptions.defied = defy, exceptions.degassed = degas, exceptions.degasses = degas, exceptions.degassing = degas, exceptions.dehumidified = dehumidify, exceptions.deified = deify, exceptions.demitted = demit, exceptions.demitting = demit, exceptions.demobbed = demob, exceptions.demobbing = demob, exceptions.demulsified = demulsify, exceptions.demurred = demur, exceptions.demurring = demur, exceptions.demystified = demystify, exceptions.denazified = denazify, exceptions.denied = deny, exceptions.denitrified = denitrify, exceptions.denned = den, exceptions.denning = den, exceptions.descried = descry, exceptions.deterred = deter, exceptions.deterring = deter, exceptions.detoxified = detoxify, exceptions.devilled = devil, exceptions.devilling = devil, exceptions.devitrified = devitrify, exceptions.diagrammed = diagram, exceptions.diagramming = diagram, exceptions.dialled = dial, exceptions.dialling = dial, exceptions.dibbed = dib, exceptions.dibbing = dib, exceptions.did = do1, exceptions.digging = dig, exceptions.dignified = dignify, exceptions.dimmed = dim, exceptions.dimming = dim, exceptions.dinned = din, exceptions.dinning = din, exceptions.dipped = dip, exceptions.dipping = dip, exceptions.dirtied = dirty, exceptions.disannulled = disannul, exceptions.disannulling = disannul, exceptions.disbarred = disbar, exceptions.disbarring = disbar, exceptions.disbudded = disbud, exceptions.disbudding = disbud, exceptions.disembodied = disembody, exceptions.disembowelled = disembowel, exceptions.disembowelling = disembowel, exceptions.disenthralled = disenthral, exceptions.disenthralling = disenthral, exceptions.disenthralls = disenthral, exceptions.disenthrals = disenthrall, exceptions.dishevelled = dishevel, exceptions.dishevelling = dishevel, exceptions.disinterred = disinter, exceptions.disinterring = disinter, exceptions.dispelled = dispel, exceptions.dispelling = dispel, exceptions.disqualified = disqualify, exceptions.dissatisfied = dissatisfy, exceptions.distilled = distil, exceptions.distilling = distil, exceptions.diversified = diversify, exceptions.divvied = divvy, exceptions.dizzied = dizzy, exceptions.does = do1, exceptions.dogged = dog, exceptions.dogging = dog, exceptions.doglegged = dogleg, exceptions.doglegging = dogleg, exceptions.dollied = dolly, exceptions.done = do1, exceptions.donned = don, exceptions.donning = don, exceptions.dotted = dot, exceptions.dotting = dot, exceptions.dought = dow, exceptions.dove = dive, exceptions.drabbed = drab, exceptions.drabbing = drab, exceptions.dragged = drag, exceptions.dragging = drag, exceptions.drank = drink, exceptions.drawn = draw, exceptions.dreamt = dream, exceptions.drew = draw, exceptions.dried = dry, exceptions.dripped = drip, exceptions.dripping = drip, exceptions.drivelled = drivel, exceptions.drivelling = drivel, exceptions.driven = drive, exceptions.dropped = drop, exceptions.dropping = drop, exceptions.drove = drive, exceptions.drubbed = drub, exceptions.drubbing = drub, exceptions.drugged = drug, exceptions.drugging = drug, exceptions.drummed = drum, exceptions.drumming = drum, exceptions.drunk = drink, exceptions.dubbed = dub, exceptions.dubbing = dub, exceptions.duelled = duel, exceptions.duelling = duel, exceptions.dug = dig, exceptions.dulcified = dulcify, exceptions.dummied = dummy, exceptions.dunned = dun, exceptions.dunning = dun, exceptions.dwelt = dwell, exceptions.dying = die, exceptions.easied = easy, exceptions.eaten = eat, exceptions.eavesdropped = eavesdrop, exceptions.eavesdropping = eavesdrop, exceptions.eddied = eddy, exceptions.edified = edify, exceptions.electrified = electrify, exceptions.embedded = embed, exceptions.embedding = embed, exceptions.embodied = embody, exceptions.embussed = embus, exceptions.embusses = embus, exceptions.embussing = embus, exceptions.emitted = emit, exceptions.emitting = emit, exceptions.empanelled = empanel, exceptions.empanelling = empanel, exceptions.emptied = empty2, exceptions.emulsified = emulsify, exceptions.enamelled = enamel, exceptions.enamelling = enamel, exceptions.englutted = englut, exceptions.englutting = englut, exceptions.enrolled = enrol, exceptions.enrolling = enrol, exceptions.enthralled = enthral, exceptions.enthralling = enthral, exceptions.entrammelled = entrammel, exceptions.entrammelling = entrammel, exceptions.entrapped = entrap, exceptions.entrapping = entrap, exceptions.envied = envy, exceptions.enwound = enwind, exceptions.enwrapped = enwrap, exceptions.enwrapping = enwrap, exceptions.equalled = equal, exceptions.equalling = equal, exceptions.equipped = equip, exceptions.equipping = equip, exceptions.espied = espy, exceptions.esterified = esterify, exceptions.estopped = estop, exceptions.estopping = estop, exceptions.etherified = etherify, exceptions.excelled = excel, exceptions.excelling = excel, exceptions.exemplified = exemplify, exceptions.expelled = expel, exceptions.expelling = expel, exceptions.extolled = extol, exceptions.extolling = extol, exceptions.facetted = facet, exceptions.facetting = facet, exceptions.fagged = fag, exceptions.fagging = fag, exceptions.fallen = fall, exceptions.falsified = falsify, exceptions.fancied = fancy, exceptions.fanned = fan, exceptions.fanning = fan, exceptions.fantasied = fantasy, exceptions.fatted = fat, exceptions.fatting = fat, exceptions.featherbedded = featherbed, exceptions.featherbedding = featherbed, exceptions.fed = feed, exceptions.feed = feed, exceptions.fell = fall, exceptions.felt = feel, exceptions.ferried = ferry, exceptions.fibbed = fib, exceptions.fibbing = fib, exceptions.figged = fig, exceptions.figging = fig, exceptions.finned = fin, exceptions.finning = fin, exceptions.fitted = fit, exceptions.fitting = fit, exceptions.flagged = flag, exceptions.flagging = flag, exceptions.flammed = flam, exceptions.flamming = flam, exceptions.flannelled = flannel, exceptions.flannelling = flannel, exceptions.flapped = flap, exceptions.flapping = flap, exceptions.flatted = flat, exceptions.flatting = flat, exceptions.fled = flee, exceptions.flew = fly, exceptions.flimflammed = flimflam, exceptions.flimflamming = flimflam, exceptions.flipped = flip, exceptions.flipping = flip, exceptions.flitted = flit, exceptions.flitting = flit, exceptions.flogged = flog, exceptions.flogging = flog, exceptions.floodlit = floodlight, exceptions.flopped = flop, exceptions.flopping = flop, exceptions.flown = fly, exceptions.flubbed = flub, exceptions.flubbing = flub, exceptions.flung = fling, exceptions.flurried = flurry, exceptions.flyblew = flyblow, exceptions.flyblown = flyblow, exceptions.fobbed = fob, exceptions.fobbing = fob, exceptions.fogged = fog, exceptions.fogging = fog, exceptions.footslogged = footslog, exceptions.footslogging = footslog, exceptions.forbad = forbid, exceptions.forbade = forbid, exceptions.forbidden = forbid, exceptions.forbidding = forbid, exceptions.forbore = forbear, exceptions.forborne = forbear, exceptions.fordid = fordo, exceptions.fordone = fordo, exceptions.foredid = foredo, exceptions.foredone = foredo, exceptions.foregone = forego, exceptions.foreknew = foreknow, exceptions.foreknown = foreknow, exceptions.foreran = forerun, exceptions.forerunning = forerun, exceptions.foresaw = foresee, exceptions.foreseen = foresee, exceptions.foreshown = foreshow, exceptions.forespoke = forespeak, exceptions.forespoken = forespeak, exceptions.foretold = foretell, exceptions.forewent = forego, exceptions.forgave = forgive, exceptions.forgetting = forget, exceptions.forgiven = forgive, exceptions.forgone = forgo, exceptions.forgot = forget, exceptions.forgotten = forget, exceptions.formatted = format, exceptions.formatting = format, exceptions.forsaken = forsake, exceptions.forsook = forsake, exceptions.forspoke = forspeak, exceptions.forspoken = forspeak, exceptions.forswore = forswear, exceptions.forsworn = forswear, exceptions.fortified = fortify, exceptions.forwent = forgo, exceptions.fought = fight, exceptions.found = find4, exceptions.foxtrotted = foxtrot, exceptions.foxtrotting = foxtrot, exceptions.frapped = frap, exceptions.frapping = frap, exceptions.frenchified = frenchify, exceptions.frenzied = frenzy, exceptions.fretted = fret, exceptions.fretting = fret, exceptions.fried = fry, exceptions.frigged = frig, exceptions.frigging = frig, exceptions.fritted = frit, exceptions.fritting = frit, exceptions.frivolled = frivol, exceptions.frivolling = frivol, exceptions.frogged = frog, exceptions.frogging = frog, exceptions.frolicked = frolic, exceptions.frolicking = frolic, exceptions.froze = freeze, exceptions.frozen = freeze, exceptions.fructified = fructify, exceptions.fuelled = fuel, exceptions.fuelling = fuel, exceptions.fulfilled = fulfil, exceptions.fulfilling = fulfil, exceptions.funned = fun, exceptions.funnelled = funnel, exceptions.funnelling = funnel, exceptions.funning = fun, exceptions.furred = fur, exceptions.furring = fur, exceptions.gadded = gad, exceptions.gadding = gad, exceptions.gagged = gag, exceptions.gagging = gag, exceptions.gainsaid = gainsay, exceptions.gambolled = gambol, exceptions.gambolling = gambol, exceptions.gammed = gam, exceptions.gamming = gam, exceptions.gan = gin, exceptions.ganned = gan, exceptions.ganning = gan, exceptions.gapped = gap, exceptions.gapping = gap, exceptions.gasified = gasify, exceptions.gassed = gas, exceptions.gasses = gas, exceptions.gassing = gas, exceptions.gave = give, exceptions.gelled = gel, exceptions.gelling = gel, exceptions.gelt = geld, exceptions.gemmed = gem, exceptions.gemming = gem, exceptions.getting = get2, exceptions.ghostwritten = ghostwrite, exceptions.ghostwrote = ghostwrite, exceptions.gibbed = gib, exceptions.gibbing = gib, exceptions.giddied = giddy, exceptions.giftwrapped = giftwrap, exceptions.giftwrapping = giftwrap, exceptions.gigged = gig, exceptions.gigging = gig, exceptions.gilt = gild, exceptions.ginned = gin, exceptions.ginning = gin, exceptions.gipped = gip, exceptions.gipping = gip, exceptions.girt = gird, exceptions.given = give, exceptions.glommed = glom, exceptions.glomming = glom, exceptions.gloried = glory, exceptions.glorified = glorify, exceptions.glutted = glut, exceptions.glutting = glut, exceptions.gnawn = gnaw, exceptions.gollied = golly, exceptions.gone = go, exceptions.got = get2, exceptions.gotten = get2, exceptions.grabbed = grab, exceptions.grabbing = grab, exceptions.gratified = gratify, exceptions.gravelled = gravel, exceptions.gravelling = gravel, exceptions.graven = grave, exceptions.grew = grow, exceptions.grinned = grin, exceptions.grinning = grin, exceptions.gripped = grip, exceptions.gripping = grip, exceptions.gript = grip, exceptions.gritted = grit, exceptions.gritting = grit, exceptions.ground = grind, exceptions.grovelled = grovel, exceptions.grovelling = grovel, exceptions.grown = grow, exceptions.grubbed = grub, exceptions.grubbing = grub, exceptions.guarantied = guaranty, exceptions.gullied = gully, exceptions.gummed = gum, exceptions.gumming = gum, exceptions.gunned = gun, exceptions.gunning = gun, exceptions.gypped = gyp, exceptions.gypping = gyp, exceptions.hacksawn = hacksaw, exceptions.had = have, exceptions.hammed = ham, exceptions.hamming = ham, exceptions.hamstrung = hamstring, exceptions.handfed = handfeed, exceptions.handicapped = handicap, exceptions.handicapping = handicap, exceptions.handselled = handsel, exceptions.handselling = handsel, exceptions.harried = harry, exceptions.has = have, exceptions.hatchelled = hatchel;
     exceptions.hatchelling = hatchel, exceptions.hatted = hat, exceptions.hatting = hat, exceptions.heard = hear, exceptions.hedgehopped = hedgehop, exceptions.hedgehopping = hedgehop, exceptions.held = hold, exceptions.hemmed = hem, exceptions.hemming = hem, exceptions.hewn = hew, exceptions.hiccupped = hiccup, exceptions.hiccupping = hiccup, exceptions.hid = hide, exceptions.hidden = hide, exceptions.hinnied = hinny, exceptions.hitting = hit, exceptions.hobbed = hob, exceptions.hobbing = hob, exceptions.hobnobbed = hobnob, exceptions.hobnobbing = hobnob, exceptions.hocussed = hocus, exceptions.hocussing = hocus, exceptions.hogged = hog, exceptions.hogging = hog, exceptions.hogtying = hogtie, exceptions.honied = honey, exceptions.hopped = hop, exceptions.hopping = hop, exceptions.horrified = horrify, exceptions.horsewhipped = horsewhip, exceptions.horsewhipping = horsewhip, exceptions.houselled = housel, exceptions.houselling = housel, exceptions.hove = heave, exceptions.hovelled = hovel, exceptions.hovelling = hovel, exceptions.hugged = hug, exceptions.hugging = hug, exceptions.humbugged = humbug, exceptions.humbugging = humbug, exceptions.humidified = humidify, exceptions.hummed = hum, exceptions.humming = hum, exceptions.hung = hang, exceptions.hurried = hurry, exceptions.hypertrophied = hypertrophy, exceptions.identified = identify, exceptions.imbedded = imbed, exceptions.imbedding = imbed, exceptions.impanelled = impanel, exceptions.impanelling = impanel, exceptions.impelled = impel, exceptions.impelling = impel, exceptions.implied = imply, exceptions.inbred = inbreed, exceptions.incurred = incur, exceptions.incurring = incur, exceptions.indemnified = indemnify, exceptions.indwelt = indwell, exceptions.inferred = infer, exceptions.inferring = infer, exceptions.initialled = initial, exceptions.initialling = initial, exceptions.inlaid = inlay, exceptions.insetting = inset, exceptions.inspanned = inspan, exceptions.inspanning = inspan, exceptions.installed = install, exceptions.installing = install, exceptions.intensified = intensify, exceptions.interbred = interbreed, exceptions.intercropped = intercrop, exceptions.intercropping = intercrop, exceptions.intercutting = intercut, exceptions.interlaid = interlay, exceptions.interlapped = interlap, exceptions.interlapping = interlap, exceptions.intermarried = intermarry, exceptions.intermitted = intermit, exceptions.intermitting = intermit, exceptions.interpled = interplead, exceptions.interred = inter, exceptions.interring = inter, exceptions.interstratified = interstratify, exceptions.interwove = interweave, exceptions.interwoven = interweave, exceptions.intromitted = intromit, exceptions.intromitting = intromit, exceptions.inwove = inweave, exceptions.inwoven = inweave, exceptions.inwrapped = inwrap, exceptions.inwrapping = inwrap, exceptions.is = be, exceptions.jabbed = jab, exceptions.jabbing = jab, exceptions.jagged = jag, exceptions.jagging = jag, exceptions.jammed = jam, exceptions.jamming = jam, exceptions.japanned = japan, exceptions.japanning = japan, exceptions.jarred = jar, exceptions.jarring = jar, exceptions.jellied = jelly, exceptions.jellified = jellify, exceptions.jemmied = jemmy, exceptions.jetted = jet, exceptions.jetting = jet, exceptions.jewelled = jewel, exceptions.jewelling = jewel, exceptions.jibbed = jib, exceptions.jibbing = jib, exceptions.jigged = jig, exceptions.jigging = jig, exceptions.jimmied = jimmy, exceptions.jitterbugged = jitterbug, exceptions.jitterbugging = jitterbug, exceptions.jobbed = job, exceptions.jobbing = job, exceptions.jogged = jog, exceptions.jogging = jog, exceptions.jollied = jolly, exceptions.jollified = jollify, exceptions.jotted = jot, exceptions.jotting = jot, exceptions.joypopped = joypop, exceptions.joypopping = joypop, exceptions.jugged = jug, exceptions.jugging = jug, exceptions.justified = justify, exceptions.jutted = jut, exceptions.jutting = jut, exceptions.kenned = ken, exceptions.kennelled = kennel, exceptions.kennelling = kennel, exceptions.kenning = ken, exceptions.kent = ken, exceptions.kept = keep, exceptions.kernelled = kernel, exceptions.kernelling = kernel, exceptions.kidded = kid, exceptions.kidding = kid, exceptions.kidnapped = kidnap, exceptions.kidnapping = kidnap, exceptions.kipped = kip, exceptions.kipping = kip, exceptions.knapped = knap, exceptions.knapping = knap, exceptions.kneecapped = kneecap, exceptions.kneecapping = kneecap, exceptions.knelt = kneel, exceptions.knew = know, exceptions.knitted = knit, exceptions.knitting = knit, exceptions.knobbed = knob, exceptions.knobbing = knob, exceptions.knotted = knot, exceptions.knotting = knot, exceptions.known = know, exceptions.labelled = label, exceptions.labelling = label, exceptions.laden = lade, exceptions.ladyfied = ladify, exceptions.ladyfies = ladify, exceptions.ladyfying = ladify, exceptions.lagged = lag, exceptions.lagging = lag, exceptions.laid = lay, exceptions.lain = lie, exceptions.lallygagged = lallygag, exceptions.lallygagging = lallygag, exceptions.lammed = lam, exceptions.lamming = lam, exceptions.lapidified = lapidify, exceptions.lapped = lap, exceptions.lapping = lap, exceptions.laurelled = laurel, exceptions.laurelling = laurel, exceptions.lay = lie, exceptions.leant = lean, exceptions.leapfrogged = leapfrog, exceptions.leapfrogging = leapfrog, exceptions.leapt = leap, exceptions.learnt = learn, exceptions.led = lead, exceptions.left = leave, exceptions.lent = lend, exceptions.letting = let1, exceptions.levelled = level, exceptions.levelling = level, exceptions.levied = levy, exceptions.libelled = libel, exceptions.libelling = libel, exceptions.lignified = lignify, exceptions.lipped = lip, exceptions.lipping = lip, exceptions.liquefied = liquefy, exceptions.liquified = liquify, exceptions.lit = light, exceptions.lobbed = lob, exceptions.lobbied = lobby, exceptions.lobbing = lob, exceptions.logged = log, exceptions.logging = log, exceptions.lopped = lop, exceptions.lopping = lop, exceptions.lost = lose, exceptions.lotted = lot, exceptions.lotting = lot, exceptions.lugged = lug, exceptions.lugging = lug, exceptions.lullabied = lullaby, exceptions.lying = lie, exceptions.madded = mad, exceptions.madding = mad, exceptions.made = make, exceptions.magnified = magnify, exceptions.manned = man, exceptions.manning = man, exceptions.manumitted = manumit, exceptions.manumitting = manumit, exceptions.mapped = map2, exceptions.mapping = map2, exceptions.marcelled = marcel, exceptions.marcelling = marcel, exceptions.marred = mar, exceptions.married = marry, exceptions.marring = mar, exceptions.marshalled = marshal, exceptions.marshalling = marshal, exceptions.marvelled = marvel, exceptions.marvelling = marvel, exceptions.matted = mat, exceptions.matting = mat, exceptions.meant = mean, exceptions.medalled = medal, exceptions.medalling = medal, exceptions.met = meet, exceptions.metalled = metal, exceptions.metalling = metal, exceptions.metrified = metrify, exceptions.might = may, exceptions.mimicked = mimic, exceptions.mimicking = mimic, exceptions.minified = minify, exceptions.misapplied = misapply, exceptions.misbecame = misbecome, exceptions.miscarried = miscarry, exceptions.misdealt = misdeal, exceptions.misfitted = misfit, exceptions.misfitting = misfit, exceptions.misgave = misgive, exceptions.misgiven = misgive, exceptions.mishitting = mishit, exceptions.mislaid = mislay, exceptions.misled = mislead, exceptions.mispled = misplead, exceptions.misspelt = misspell, exceptions.misspent = misspend, exceptions.mistaken = mistake, exceptions.mistook = mistake, exceptions.misunderstood = misunderstand, exceptions.mobbed = mob, exceptions.mobbing = mob, exceptions.modelled = model, exceptions.modelling = model, exceptions.modified = modify, exceptions.mollified = mollify, exceptions.molten = melt, exceptions.mopped = mop, exceptions.mopping = mop, exceptions.mortified = mortify, exceptions.mown = mow, exceptions.mudded = mud, exceptions.muddied = muddy, exceptions.mudding = mud, exceptions.mugged = mug, exceptions.mugging = mug, exceptions.multiplied = multiply, exceptions.mummed = mum, exceptions.mummified = mummify, exceptions.mumming = mum, exceptions.mutinied = mutiny, exceptions.mystified = mystify, exceptions.nabbed = nab, exceptions.nabbing = nab, exceptions.nagged = nag, exceptions.nagging = nag, exceptions.napped = nap, exceptions.napping = nap, exceptions.netted = net, exceptions.netting = net, exceptions.nibbed = nib, exceptions.nibbing = nib, exceptions.nickelled = nickel, exceptions.nickelling = nickel, exceptions.nidified = nidify, exceptions.nigrified = nigrify, exceptions.nipped = nip, exceptions.nipping = nip, exceptions.nitrified = nitrify, exceptions.nodded = nod, exceptions.nodding = nod, exceptions.nonplussed = nonplus, exceptions.nonplusses = nonplus, exceptions.nonplussing = nonplus, exceptions.notified = notify, exceptions.nullified = nullify, exceptions.nutted = nut, exceptions.nutting = nut, exceptions.objectified = objectify, exceptions.occupied = occupy, exceptions.occurred = occur, exceptions.occurring = occur, exceptions.offsetting = offset, exceptions.omitted = omit2, exceptions.omitting = omit2, exceptions.ossified = ossify, exceptions.outbidden = outbid, exceptions.outbidding = outbid, exceptions.outbred = outbreed, exceptions.outcried = outcry, exceptions.outcropped = outcrop, exceptions.outcropping = outcrop, exceptions.outdid = outdo, exceptions.outdone = outdo, exceptions.outdrawn = outdraw, exceptions.outdrew = outdraw, exceptions.outfitted = outfit, exceptions.outfitting = outfit, exceptions.outfought = outfight, exceptions.outgassed = outgas, exceptions.outgasses = outgas, exceptions.outgassing = outgas, exceptions.outgeneralled = outgeneral, exceptions.outgeneralling = outgeneral, exceptions.outgone = outgo, exceptions.outgrew = outgrow, exceptions.outgrown = outgrow, exceptions.outlaid = outlay, exceptions.outmanned = outman, exceptions.outmanning = outman, exceptions.outputted = output, exceptions.outputting = output, exceptions.outran = outrun, exceptions.outridden = outride, exceptions.outrode = outride, exceptions.outrunning = outrun, exceptions.outshone = outshine, exceptions.outshot = outshoot, exceptions.outsold = outsell, exceptions.outspanned = outspan, exceptions.outspanning = outspan, exceptions.outstood = outstand, exceptions.outstripped = outstrip, exceptions.outstripping = outstrip, exceptions.outthought = outthink, exceptions.outwent = outgo, exceptions.outwitted = outwit, exceptions.outwitting = outwit, exceptions.outwore = outwear, exceptions.outworn = outwear, exceptions.overbidden = overbid, exceptions.overbidding = overbid, exceptions.overblew = overblow, exceptions.overblown = overblow, exceptions.overbore = overbear, exceptions.overborne = overbear, exceptions.overbuilt = overbuild, exceptions.overcame = overcome, exceptions.overcropped = overcrop, exceptions.overcropping = overcrop, exceptions.overdid = overdo, exceptions.overdone = overdo, exceptions.overdrawn = overdraw, exceptions.overdrew = overdraw, exceptions.overdriven = overdrive, exceptions.overdrove = overdrive, exceptions.overflew = overfly, exceptions.overflown = overflow, exceptions.overgrew = overgrow, exceptions.overgrown = overgrow, exceptions.overheard = overhear, exceptions.overhung = overhang, exceptions.overlaid = overlay, exceptions.overlain = overlie, exceptions.overlapped = overlap, exceptions.overlapping = overlap, exceptions.overlay = overlie, exceptions.overlying = overlie, exceptions.overmanned = overman, exceptions.overmanning = overman, exceptions.overpaid = overpay, exceptions.overpast = overpass, exceptions.overran = overrun, exceptions.overridden = override, exceptions.overrode = override, exceptions.overrunning = overrun, exceptions.oversaw = oversee, exceptions.overseen = oversee, exceptions.oversetting = overset, exceptions.oversewn = oversew, exceptions.overshot = overshoot, exceptions.oversimplified = oversimplify, exceptions.overslept = oversleep, exceptions.oversold = oversell, exceptions.overspent = overspend, exceptions.overspilt = overspill, exceptions.overstepped = overstep, exceptions.overstepping = overstep, exceptions.overtaken = overtake, exceptions.overthrew = overthrow, exceptions.overthrown = overthrow, exceptions.overtook = overtake, exceptions.overtopped = overtop, exceptions.overtopping = overtop, exceptions.overwound = overwind, exceptions.overwritten = overwrite, exceptions.overwrote = overwrite, exceptions.pacified = pacify, exceptions.padded = pad, exceptions.padding = pad, exceptions.paid = pay, exceptions.palled = pal, exceptions.palling = pal, exceptions.palsied = palsy, exceptions.pandied = pandy, exceptions.panelled = panel, exceptions.panelling = panel, exceptions.panicked = panic, exceptions.panicking = panic, exceptions.panned = pan, exceptions.panning = pan, exceptions.parallelled = parallel, exceptions.parallelling = parallel, exceptions.parcelled = parcel, exceptions.parcelling = parcel, exceptions.parodied = parody, exceptions.parried = parry, exceptions.partaken = partake, exceptions.partook = partake, exceptions.pasquil = pasquinade, exceptions.pasquilled = pasquinade, exceptions.pasquilling = pasquinade, exceptions.pasquils = pasquinade, exceptions.patrolled = patrol, exceptions.patrolling = patrol, exceptions.patted = pat, exceptions.patting = pat, exceptions.pedalled = pedal, exceptions.pedalling = pedal, exceptions.pegged = peg, exceptions.pegging = peg, exceptions.pencilled = pencil, exceptions.pencilling = pencil, exceptions.penned = pen, exceptions.penning = pen, exceptions.pent = pen, exceptions.pepped = pep, exceptions.pepping = pep, exceptions.permitted = permit, exceptions.permitting = permit, exceptions.personified = personify, exceptions.petrified = petrify, exceptions.petted = pet, exceptions.pettifogged = pettifog, exceptions.pettifogging = pettifog, exceptions.petting = pet, exceptions.phantasied = phantasy, exceptions.photocopied = photocopy, exceptions.photomapped = photomap, exceptions.photomapping = photomap, exceptions.photosetting = photoset, exceptions.physicked = physic, exceptions.physicking = physic, exceptions.picnicked = picnic, exceptions.picnicking = picnic, exceptions.pigged = pig, exceptions.pigging = pig, exceptions.pilloried = pillory, exceptions.pinned = pin, exceptions.pinning = pin, exceptions.pipped = pip, exceptions.pipping = pip, exceptions.pistolled = pistol, exceptions.pistolling = pistol, exceptions.pitapatted = pitapat, exceptions.pitapatting = pitapat, exceptions.pitied = pity, exceptions.pitted = pit, exceptions.pitting = pit, exceptions.planned = plan, exceptions.planning = plan, exceptions.platted = plat, exceptions.platting = plat, exceptions.pled = plead, exceptions.plied = ply, exceptions.plodded = plod, exceptions.plodding = plod, exceptions.plopped = plop, exceptions.plopping = plop, exceptions.plotted = plot, exceptions.plotting = plot, exceptions.plugged = plug, exceptions.plugging = plug, exceptions.podded = pod, exceptions.podding = pod, exceptions.pommelled = pommel, exceptions.pommelling = pommel, exceptions.popes = popes, exceptions.popped = pop, exceptions.popping = pop, exceptions.potted = pot, exceptions.potting = pot, exceptions.preachified = preachify, exceptions.precancelled = precancel, exceptions.precancelling = precancel, exceptions.preferred = prefer, exceptions.preferring = prefer, exceptions.preoccupied = preoccupy, exceptions.prepaid = prepay, exceptions.presignified = presignify, exceptions.pretermitted = pretermit, exceptions.pretermitting = pretermit, exceptions.prettied = pretty, exceptions.prettified = prettify, exceptions.pried = pry, exceptions.prigged = prig, exceptions.prigging = prig, exceptions.primmed = prim, exceptions.primming = prim, exceptions.prodded = prod, exceptions.prodding = prod, exceptions.programmed = program, exceptions.programmes = program, exceptions.programming = program, exceptions.prologed = prologue, exceptions.prologing = prologue, exceptions.prologs = prologue, exceptions.propelled = propel, exceptions.propelling = propel, exceptions.prophesied = prophesy, exceptions.propped = prop2, exceptions.propping = prop2, exceptions.proven = prove, exceptions.pubbed = pub, exceptions.pubbing = pub, exceptions.pugged = pug, exceptions.pugging = pug, exceptions.pummelled = pummel, exceptions.pummelling = pummel, exceptions.punned = pun, exceptions.punning = pun, exceptions.pupped = pup, exceptions.pupping = pup, exceptions.purified = purify, exceptions.putrefied = putrefy, exceptions.puttied = putty, exceptions.putting = put, exceptions.qualified = qualify, exceptions.quantified = quantify, exceptions.quarrelled = quarrel, exceptions.quarrelling = quarrel, exceptions.quarried = quarry, exceptions.quartersawn = quartersaw, exceptions.queried = query, exceptions.quickstepped = quickstep, exceptions.quickstepping = quickstep, exceptions.quipped = quip, exceptions.quipping = quip, exceptions.quitted = quit, exceptions.quitting = quit, exceptions.quizzed = quiz, exceptions.quizzes = quiz, exceptions.quizzing = quiz, exceptions.ragged = rag, exceptions.ragging = rag, exceptions.rallied = rally, exceptions.ramified = ramify, exceptions.rammed = ram, exceptions.ramming = ram, exceptions.ran = run, exceptions.rang = ring, exceptions.rapped = rap, exceptions.rappelled = rappel, exceptions.rappelling = rappel, exceptions.rapping = rap, exceptions.rarefied = rarefy, exceptions.ratified = ratify, exceptions.ratted = rat, exceptions.ratting = rat, exceptions.ravelled = ravel, exceptions.ravelling = ravel, exceptions.rebelled = rebel, exceptions.rebelling = rebel, exceptions.rebuilt = rebuild, exceptions.rebutted = rebut, exceptions.rebutting = rebut, exceptions.recapped = recap, exceptions.recapping = recap, exceptions.reclassified = reclassify, exceptions.recommitted = recommit, exceptions.recommitting = recommit, exceptions.recopied = recopy, exceptions.rectified = rectify, exceptions.recurred = recur, exceptions.recurring = recur, exceptions.red = red, exceptions.redded = red, exceptions.redding = red, exceptions.redid = redo, exceptions.redone = redo, exceptions.referred = refer, exceptions.referring = refer, exceptions.refitted = refit, exceptions.refitting = refit, exceptions.reft = reave, exceptions.refuelled = refuel, exceptions.refuelling = refuel, exceptions.regretted = regret, exceptions.regretting = regret, exceptions.reheard = rehear, exceptions.reified = reify, exceptions.relied = rely, exceptions.remade = remake, exceptions.remarried = remarry, exceptions.remitted = remit, exceptions.remitting = remit, exceptions.rent = rend, exceptions.repaid = repay, exceptions.repelled = repel, exceptions.repelling = repel, exceptions.replevied = replevy, exceptions.replied = reply, exceptions.repotted = repot, exceptions.repotting = repot, exceptions.reran = rerun, exceptions.rerunning = rerun, exceptions.resat = resit, exceptions.resetting = reset, exceptions.resewn = resew, exceptions.resitting = resit, exceptions.retaken = retake, exceptions.rethought = rethink, exceptions.retold = retell, exceptions.retook = retake, exceptions.retransmitted = retransmit, exceptions.retransmitting = retransmit, exceptions.retried = retry, exceptions.retrofitted = retrofit, exceptions.retrofitting = retrofit, exceptions.retted = ret, exceptions.retting = ret, exceptions.reunified = reunify, exceptions.revelled = revel, exceptions.revelling = revel, exceptions.revetted = revet, exceptions.revetting = revet, exceptions.revivified = revivify, exceptions.revved = rev, exceptions.revving = rev, exceptions.rewound = rewind, exceptions.rewritten = rewrite, exceptions.rewrote = rewrite, exceptions.ribbed = rib, exceptions.ribbing = rib, exceptions.ricochetted = ricochet, exceptions.ricochetting = ricochet, exceptions.ridded = rid, exceptions.ridden = ride, exceptions.ridding = rid, exceptions.rigged = rig, exceptions.rigging = rig, exceptions.rigidified = rigidify, exceptions.rimmed = rim, exceptions.rimming = rim, exceptions.ripped = rip, exceptions.ripping = rip, exceptions.risen = rise, exceptions.rivalled = rival, exceptions.rivalling = rival, exceptions.riven = rive, exceptions.robbed = rob, exceptions.robbing = rob, exceptions.rode = ride, exceptions.rose = rise, exceptions.rotted = rot, exceptions.rotting = rot, exceptions.rove = reeve, exceptions.rowelled = rowel, exceptions.rowelling = rowel, exceptions.rubbed = rub, exceptions.rubbing = rub, exceptions.rung = ring, exceptions.running = run, exceptions.rutted = rut, exceptions.rutting = rut, exceptions.saccharified = saccharify, exceptions.sagged = sag, exceptions.sagging = sag, exceptions.said = say, exceptions.salaried = salary, exceptions.salified = salify, exceptions.sallied = sally, exceptions.sanctified = sanctify, exceptions.sandbagged = sandbag, exceptions.sandbagging = sandbag, exceptions.sang = sing, exceptions.sank = sink, exceptions.saponified = saponify, exceptions.sapped = sap, exceptions.sapping = sap, exceptions.sat = sit, exceptions.satisfied = satisfy, exceptions.savvied = savvy, exceptions.saw = see, exceptions.sawn = saw, exceptions.scagged = scag, exceptions.scagging = scag, exceptions.scanned = scan, exceptions.scanning = scan, exceptions.scarified = scarify, exceptions.scarred = scar, exceptions.scarring = scar, exceptions.scatted = scat, exceptions.scatting = scat, exceptions.scorified = scorify, exceptions.scragged = scrag, exceptions.scragging = scrag, exceptions.scrammed = scram, exceptions.scramming = scram, exceptions.scrapped = scrap, exceptions.scrapping = scrap, exceptions.scried = scry, exceptions.scrubbed = scrub, exceptions.scrubbing = scrub, exceptions.scrummed = scrum, exceptions.scrumming = scrum, exceptions.scudded = scud, exceptions.scudding = scud, exceptions.scummed = scum, exceptions.scumming = scum, exceptions.scurried = scurry, exceptions.seed = seed, exceptions.seen = see, exceptions.sent = send, exceptions.setting = set, exceptions.sewn = sew, exceptions.shagged = shag, exceptions.shagging = shag, exceptions.shaken = shake, exceptions.shammed = sham, exceptions.shamming = sham, exceptions.sharecropped = sharecrop, exceptions.sharecropping = sharecrop, exceptions.shat = shit, exceptions.shaven = shave, exceptions.shorn = shear, exceptions.shed = shed, exceptions.shedding = shed, exceptions.shellacked = shellac, exceptions.shellacking = shellac, exceptions.shent = shend, exceptions.shewn = shew, exceptions.shied = shy, exceptions.shikarred = shikar, exceptions.shikarring = shikar, exceptions.shillyshallied = shillyshally, exceptions.shimmed = shim, exceptions.shimmied = shimmy, exceptions.shimming = shim, exceptions.shinned = shin, exceptions.shinning = shin, exceptions.shipped = ship, exceptions.shipping = ship, exceptions.shitted = shit, exceptions.shitting = shit, exceptions.shod = shoe, exceptions.shone = shine, exceptions.shook = shake, exceptions.shopped = shop, exceptions.shopping = shop, exceptions.shot = shoot, exceptions.shotgunned = shotgun, exceptions.shotgunning = shotgun, exceptions.shotted = shot, exceptions.shotting = shot, exceptions.shovelled = shovel, exceptions.shovelling = shovel, exceptions.shown = show, exceptions.shrank = shrink, exceptions.shredded = shred, exceptions.shredding = shred, exceptions.shrivelled = shrivel, exceptions.shrivelling = shrivel, exceptions.shriven = shrive, exceptions.shrove = shrive, exceptions.shrugged = shrug, exceptions.shrugging = shrug, exceptions.shrunk = shrink;
-    exceptions.shrunken = shrink, exceptions.shunned = shun, exceptions.shunning = shun, exceptions.shutting = shut, exceptions.sicked = sic, exceptions.sicking = sic, exceptions.sideslipped = sideslip, exceptions.sideslipping = sideslip, exceptions.sidestepped = sidestep, exceptions.sidestepping = sidestep, exceptions.sightsaw = sightsee, exceptions.sightseen = sightsee, exceptions.signalled = signal, exceptions.signalling = signal, exceptions.signified = signify, exceptions.silicified = silicify, exceptions.simplified = simplify, exceptions.singing = sing, exceptions.sinned = sin, exceptions.sinning = sin, exceptions.sipped = sip, exceptions.sipping = sip, exceptions.sitting = sit, exceptions.skellied = skelly, exceptions.skenned = sken, exceptions.skenning = sken, exceptions.sketted = sket, exceptions.sketting = sket, exceptions.skidded = skid, exceptions.skidding = skid, exceptions.skimmed = skim, exceptions.skimming = skim, exceptions.skinned = skin, exceptions.skinning = skin, exceptions.skipped = skip, exceptions.skipping = skip, exceptions.skivvied = skivvy, exceptions.skydove = skydive, exceptions.slabbed = slab, exceptions.slabbing = slab, exceptions.slagged = slag, exceptions.slagging = slag, exceptions.slain = slay, exceptions.slammed = slam, exceptions.slamming = slam, exceptions.slapped = slap, exceptions.slapping = slap, exceptions.slatted = slat, exceptions.slatting = slat, exceptions.sledding = sled, exceptions.slept = sleep2, exceptions.slew = slay, exceptions.slid = slide, exceptions.slidden = slide, exceptions.slipped = slip, exceptions.slipping = slip, exceptions.slitting = slit, exceptions.slogged = slog, exceptions.slogging = slog, exceptions.slopped = slop, exceptions.slopping = slop, exceptions.slotted = slot, exceptions.slotting = slot, exceptions.slugged = slug, exceptions.slugging = slug, exceptions.slummed = slum, exceptions.slumming = slum, exceptions.slung = sling, exceptions.slunk = slink, exceptions.slurred = slur, exceptions.slurring = slur, exceptions.smelt = smell, exceptions.smit = smite, exceptions.smitten = smite, exceptions.smote = smite, exceptions.smutted = smut, exceptions.smutting = smut, exceptions.snagged = snag, exceptions.snagging = snag, exceptions.snapped = snap, exceptions.snapping = snap, exceptions.snedded = sned, exceptions.snedding = sned, exceptions.snipped = snip, exceptions.snipping = snip, exceptions.snivelled = snivel, exceptions.snivelling = snivel, exceptions.snogged = snog, exceptions.snogging = snog, exceptions.snubbed = snub, exceptions.snubbing = snub, exceptions.snuck = sneak, exceptions.snugged = snug, exceptions.snugging = snug, exceptions.sobbed = sob, exceptions.sobbing = sob, exceptions.sodded = sod, exceptions.sodding = sod, exceptions.sold = sell, exceptions.solemnified = solemnify, exceptions.solidified = solidify, exceptions.soothsaid = soothsay, exceptions.sopped = sop, exceptions.sopping = sop, exceptions.sought = seek, exceptions.sown = sow, exceptions.spagged = spag, exceptions.spagging = spag, exceptions.spancelled = spancel, exceptions.spancelling = spancel, exceptions.spanned = span, exceptions.spanning = span, exceptions.sparred = spar, exceptions.sparring = spar, exceptions.spat = spit, exceptions.spatted = spat, exceptions.spatting = spat, exceptions.specified = specify, exceptions.sped = speed, exceptions.speechified = speechify, exceptions.spellbound = spellbind, exceptions.spelt = spell, exceptions.spent = spend, exceptions.spied = spy, exceptions.spilt = spill, exceptions.spinning = spin, exceptions.spiralled = spiral, exceptions.spiralling = spiral, exceptions.spitted = spit, exceptions.spitting = spit, exceptions.splitting = split, exceptions.spoilt = spoil, exceptions.spoke = speak, exceptions.spoken = speak, exceptions.spotlit = spotlight, exceptions.spotted = spot, exceptions.spotting = spot, exceptions.sprang = spring, exceptions.sprigged = sprig, exceptions.sprigging = sprig, exceptions.sprung = spring, exceptions.spudded = spud, exceptions.spudding = spud, exceptions.spun = spin, exceptions.spurred = spur, exceptions.spurring = spur, exceptions.squatted = squat, exceptions.squatting = squat, exceptions.squibbed = squib, exceptions.squibbing = squib, exceptions.squidded = squid, exceptions.squidding = squid, exceptions.squilgee = squeegee, exceptions.stabbed = stab, exceptions.stabbing = stab, exceptions.stank = stink, exceptions.starred = star, exceptions.starring = star, exceptions.steadied = steady, exceptions.stellified = stellify, exceptions.stemmed = stem, exceptions.stemming = stem, exceptions.stencilled = stencil, exceptions.stencilling = stencil, exceptions.stepped = step, exceptions.stepping = step, exceptions.stetted = stet, exceptions.stetting = stet, exceptions.stied = sty, exceptions.stilettoeing = stiletto, exceptions.stirred = stir, exceptions.stirring = stir, exceptions.stole = steal, exceptions.stolen = steal, exceptions.stood = stand, exceptions.stopped = stop, exceptions.stopping = stop, exceptions.storied = story, exceptions.stotted = stot, exceptions.stotting = stot, exceptions.stove = stave, exceptions.strapped = strap, exceptions.strapping = strap, exceptions.stratified = stratify, exceptions.strewn = strew, exceptions.stridden = stride, exceptions.stripped = strip2, exceptions.stripping = strip2, exceptions.striven = strive, exceptions.strode = stride, exceptions.stropped = strop, exceptions.stropping = strop, exceptions.strove = strive, exceptions.strown = strow, exceptions.stricken = strike, exceptions.struck = strike, exceptions.strummed = strum, exceptions.strumming = strum, exceptions.strung = string4, exceptions.strutted = strut, exceptions.strutting = strut, exceptions.stubbed = stub, exceptions.stubbing = stub, exceptions.stuck = stick, exceptions.studded = stud, exceptions.studding = stud, exceptions.studied = study, exceptions.stultified = stultify, exceptions.stummed = stum, exceptions.stumming = stum, exceptions.stung = sting, exceptions.stunk = stink, exceptions.stunned = stun, exceptions.stunning = stun, exceptions.stupefied = stupefy, exceptions.stymying = stymie, exceptions.subbed = sub, exceptions.subbing = sub, exceptions.subjectified = subjectify, exceptions.subletting = sublet, exceptions.submitted = submit, exceptions.submitting = submit, exceptions.subtotalled = subtotal, exceptions.subtotalling = subtotal, exceptions.sullied = sully, exceptions.sulphuretted = sulphuret, exceptions.sulphuretting = sulphuret, exceptions.summed = sum, exceptions.summing = sum, exceptions.sung = sing, exceptions.sunk = sink, exceptions.sunken = sink, exceptions.sunned = sun, exceptions.sunning = sun, exceptions.supped = sup, exceptions.supping = sup, exceptions.supplied = supply, exceptions.swabbed = swab, exceptions.swabbing = swab, exceptions.swagged = swag, exceptions.swagging = swag, exceptions.swam = swim, exceptions.swapped = swap, exceptions.swapping = swap, exceptions.swatted = swat, exceptions.swatting = swat, exceptions.swept = sweep, exceptions.swigged = swig, exceptions.swigging = swig, exceptions.swimming = swim, exceptions.swivelled = swivel, exceptions.swivelling = swivel, exceptions.swollen = swell, exceptions.swopped = swap, exceptions.swopping = swap, exceptions.swops = swap, exceptions.swore = swear, exceptions.sworn = swear, exceptions.swotted = swot, exceptions.swotting = swot, exceptions.swum = swim, exceptions.swung = swing, exceptions.syllabified = syllabify, exceptions.symbolled = symbol, exceptions.symbolling = symbol, exceptions.tabbed = tab, exceptions.tabbing = tab, exceptions.tagged = tag, exceptions.tagging = tag, exceptions.taken = take, exceptions.talcked = talc, exceptions.talcking = talc, exceptions.tallied = tally, exceptions.tammied = tammy, exceptions.tanned = tan, exceptions.tanning = tan, exceptions.tapped = tap, exceptions.tapping = tap, exceptions.tarred = tar, exceptions.tarried = tarry, exceptions.tarring = tar, exceptions.tasselled = tassel, exceptions.tasselling = tassel, exceptions.tatted = tat, exceptions.tatting = tat, exceptions.taught = teach, exceptions.taxis = taxis, exceptions.taxying = taxi, exceptions.teaselled = teasel, exceptions.teaselling = teasel, exceptions.tedded = ted, exceptions.tedding = ted, exceptions.tepefied = tepefy, exceptions.terrified = terrify, exceptions.testes = testes, exceptions.testified = testify, exceptions.thinned = thin, exceptions.thinning = thin, exceptions.thought = think, exceptions.threw = throw1, exceptions.thriven = thrive, exceptions.throbbed = throb, exceptions.throbbing = throb, exceptions.throve = thrive, exceptions.thrown = throw1, exceptions.thrummed = thrum, exceptions.thrumming = thrum, exceptions.thudded = thud, exceptions.thudding = thud, exceptions.tidied = tidy, exceptions.tinned = tin, exceptions.tinning = tin, exceptions.tinselled = tinsel, exceptions.tinselling = tinsel, exceptions.tipped = tip, exceptions.tipping = tip, exceptions.tittupped = tittup, exceptions.tittupping = tittup, exceptions.toadied = toady, exceptions.togged = tog, exceptions.togging = tog, exceptions.told = tell, exceptions.took = take, exceptions.topped = top, exceptions.topping = top, exceptions.tore = tear, exceptions.torn = tear, exceptions.torrefied = torrefy, exceptions.torrify = torrefy, exceptions.totalled = total, exceptions.totalling = total, exceptions.totted = tot, exceptions.totting = tot, exceptions.towelled = towel, exceptions.towelling = towel, exceptions.trafficked = traffic, exceptions.trafficking = traffic, exceptions.trameled = trammel, exceptions.trameling = trammel, exceptions.tramelled = trammel, exceptions.tramelling = trammel, exceptions.tramels = trammel, exceptions.trammed = tram, exceptions.tramming = tram, exceptions.transferred = transfer, exceptions.transferring = transfer, exceptions.transfixt = transfix, exceptions.tranship = transship, exceptions.transhipped = tranship, exceptions.transhipping = tranship, exceptions.transmitted = transmit, exceptions.transmitting = transmit, exceptions.transmogrified = transmogrify, exceptions.transshipped = transship, exceptions.transshipping = transship, exceptions.trapanned = trapan, exceptions.trapanning = trapan, exceptions.trapped = trap, exceptions.trapping = trap, exceptions.travelled = travel, exceptions.travelling = travel, exceptions.travestied = travesty, exceptions.trekked = trek, exceptions.trekking = trek, exceptions.trepanned = trepan, exceptions.trepanning = trepan, exceptions.tried = try1, exceptions.trigged = trig, exceptions.trigging = trig, exceptions.trimmed = trim, exceptions.trimming = trim, exceptions.tripped = trip, exceptions.tripping = trip, exceptions.trod = tread, exceptions.trodden = tread, exceptions.trogged = trog, exceptions.trogging = trog, exceptions.trotted = trot, exceptions.trotting = trot, exceptions.trowelled = trowel, exceptions.trowelling = trowel, exceptions.tugged = tug, exceptions.tugging = tug, exceptions.tumefied = tumefy, exceptions.tunned = tun, exceptions.tunnelled = tunnel, exceptions.tunnelling = tunnel, exceptions.tunning = tun, exceptions.tupped = tup, exceptions.tupping = tup, exceptions.twigged = twig, exceptions.twigging = twig, exceptions.twinned = twin, exceptions.twinning = twin, exceptions.twitted = twit, exceptions.twitting = twit, exceptions.tying = tie, exceptions.typesetting = typeset, exceptions.typewritten = typewrite, exceptions.typewrote = typewrite, exceptions.typified = typify, exceptions.uglified = uglify, exceptions.unbarred = unbar, exceptions.unbarring = unbar, exceptions.unbent = unbend, exceptions.unbound = unbind, exceptions.uncapped = uncap, exceptions.uncapping = uncap, exceptions.unclad = unclothe, exceptions.unclogged = unclog, exceptions.unclogging = unclog, exceptions.underbidding = underbid, exceptions.underbought = underbuy, exceptions.undercutting = undercut, exceptions.underfed = underfeed, exceptions.undergirt = undergird, exceptions.undergone = undergo, exceptions.underlaid = underlay, exceptions.underlain = underlie, exceptions.underlay = underlie, exceptions.underletting = underlet, exceptions.underlying = underlie, exceptions.underpaid = underpay, exceptions.underpinned = underpin, exceptions.underpinning = underpin, exceptions.underpropped = underprop, exceptions.underpropping = underprop, exceptions.undersetting = underset, exceptions.undershot = undershoot, exceptions.undersold = undersell, exceptions.understood = understand, exceptions.understudied = understudy, exceptions.undertaken = undertake, exceptions.undertook = undertake, exceptions.underwent = undergo, exceptions.underwritten = underwrite, exceptions.underwrote = underwrite, exceptions.undid = undo, exceptions.undone = undo, exceptions.unfitted = unfit, exceptions.unfitting = unfit, exceptions.unfroze = unfreeze, exceptions.unfrozen = unfreeze, exceptions.unified = unify, exceptions.unkennelled = unkennel, exceptions.unkennelling = unkennel, exceptions.unknitted = unknit, exceptions.unknitting = unknit, exceptions.unlaid = unlay, exceptions.unlearnt = unlearn, exceptions.unmade = unmake, exceptions.unmanned = unman, exceptions.unmanning = unman, exceptions.unpegged = unpeg, exceptions.unpegging = unpeg, exceptions.unpinned = unpin, exceptions.unpinning = unpin, exceptions.unplugged = unplug, exceptions.unplugging = unplug, exceptions.unravelled = unravel, exceptions.unravelling = unravel, exceptions.unrigged = unrig, exceptions.unrigging = unrig, exceptions.unripped = unrip, exceptions.unripping = unrip, exceptions.unrove = unreeve, exceptions.unsaid = unsay, exceptions.unshipped = unship, exceptions.unshipping = unship, exceptions.unslung = unsling, exceptions.unsnapped = unsnap, exceptions.unsnapping = unsnap, exceptions.unspoke = unspeak, exceptions.unspoken = unspeak, exceptions.unsteadied = unsteady, exceptions.unstepped = unstep, exceptions.unstepping = unstep, exceptions.unstopped = unstop, exceptions.unstopping = unstop, exceptions.unstrung = unstring, exceptions.unstuck = unstick, exceptions.unswore = unswear, exceptions.unsworn = unswear, exceptions.untaught = unteach, exceptions.unthought = unthink, exceptions.untidied = untidy, exceptions.untrod = untread, exceptions.untrodden = untread, exceptions.untying = untie, exceptions.unwound = unwind, exceptions.unwrapped = unwrap2, exceptions.unwrapping = unwrap2, exceptions.unzipped = unzip, exceptions.unzipping = unzip, exceptions.upbuilt = upbuild, exceptions.upheld = uphold, exceptions.uphove = upheave, exceptions.upped = up, exceptions.uppercutting = uppercut, exceptions.upping = up, exceptions.uprisen = uprise, exceptions.uprose = uprise, exceptions.upsetting = upset, exceptions.upsprang = upspring, exceptions.upsprung = upspring, exceptions.upswept = upsweep, exceptions.upswollen = upswell, exceptions.upswung = upswing, exceptions.vagged = vag, exceptions.vagging = vag, exceptions.varied = vary, exceptions.vatted = vat, exceptions.vatting = vat, exceptions.verbified = verbify, exceptions.verified = verify, exceptions.versified = versify, exceptions.vetted = vet, exceptions.vetting = vet, exceptions.victualled = victual, exceptions.victualling = victual, exceptions.vilified = vilify, exceptions.vitrified = vitrify, exceptions.vitriolled = vitriol, exceptions.vitriolling = vitriol, exceptions.vivified = vivify, exceptions.vying = vie, exceptions.wadded = wad, exceptions.waddied = waddy, exceptions.wadding = wad, exceptions.wadsetted = wadset, exceptions.wadsetting = wadset, exceptions.wagged = wag, exceptions.wagging = wag, exceptions.wanned = wan, exceptions.wanning = wan, exceptions.warred = war, exceptions.warring = war, exceptions.was = be, exceptions.waylaid = waylay, exceptions.wearied = weary, exceptions.weatherstripped = weatherstrip, exceptions.weatherstripping = weatherstrip, exceptions.webbed = web, exceptions.webbing = web, exceptions.wedded = wed, exceptions.wedding = wed, exceptions.weed = weed, exceptions.went = go, exceptions.wept = weep, exceptions.were = be, exceptions.wetted = wet, exceptions.wetting = wet, exceptions.whammed = wham, exceptions.whamming = wham, exceptions.whapped = whap, exceptions.whapping = whap, exceptions.whetted = whet, exceptions.whetting = whet, exceptions.whinnied = whinny, exceptions.whipped = whip, exceptions.whipping = whip, exceptions.whipsawn = whipsaw, exceptions.whirred = whir, exceptions.whirring = whir, exceptions.whizzed = whiz, exceptions.whizzes = whiz, exceptions.whizzing = whiz, exceptions.whopped = whop, exceptions.whopping = whop, exceptions.wigged = wig, exceptions.wigging = wig, exceptions.wigwagged = wigwag, exceptions.wigwagging = wigwag, exceptions.wildcatted = wildcat, exceptions.wildcatting = wildcat, exceptions.winning = win, exceptions.winterfed = winterfeed, exceptions.wiredrawn = wiredraw, exceptions.wiredrew = wiredraw, exceptions.withdrawn = withdraw, exceptions.withdrew = withdraw, exceptions.withheld = withhold, exceptions.withstood = withstand, exceptions.woke = wake, exceptions.woken = wake, exceptions.won = win, exceptions.wonned = won, exceptions.wonning = won, exceptions.wore = wear, exceptions.worn = wear, exceptions.worried = worry, exceptions.worshipped = worship, exceptions.worshipping = worship, exceptions.wound = wind, exceptions.wove = weave, exceptions.woven = weave, exceptions.wrapped = wrap2, exceptions.wrapping = wrap2, exceptions.wried = wry, exceptions.written = write, exceptions.wrote = write, exceptions.wrought = work, exceptions.wrung = wring, exceptions.would = will, exceptions.yakked = yak, exceptions.yakking = yak, exceptions.yapped = yap, exceptions.yapping = yap, exceptions.ycleped = clepe, exceptions.yclept = clepe, exceptions.yenned = yen, exceptions.yenning = yen, exceptions.yodelled = yodel, exceptions.yodelling = yodel, exceptions.zapped = zap, exceptions.zapping = zap, exceptions.zigzagged = zigzag, exceptions.zigzagging = zigzag, exceptions.zipped = zip, exceptions.zipping = zip, module2.exports = exceptions;
+    exceptions.shrunken = shrink, exceptions.shunned = shun, exceptions.shunning = shun, exceptions.shutting = shut, exceptions.sicked = sic, exceptions.sicking = sic, exceptions.sideslipped = sideslip, exceptions.sideslipping = sideslip, exceptions.sidestepped = sidestep, exceptions.sidestepping = sidestep, exceptions.sightsaw = sightsee, exceptions.sightseen = sightsee, exceptions.signalled = signal, exceptions.signalling = signal, exceptions.signified = signify, exceptions.silicified = silicify, exceptions.simplified = simplify, exceptions.singing = sing, exceptions.sinned = sin, exceptions.sinning = sin, exceptions.sipped = sip, exceptions.sipping = sip, exceptions.sitting = sit, exceptions.skellied = skelly, exceptions.skenned = sken, exceptions.skenning = sken, exceptions.sketted = sket, exceptions.sketting = sket, exceptions.skidded = skid, exceptions.skidding = skid, exceptions.skimmed = skim, exceptions.skimming = skim, exceptions.skinned = skin, exceptions.skinning = skin, exceptions.skipped = skip, exceptions.skipping = skip, exceptions.skivvied = skivvy, exceptions.skydove = skydive, exceptions.slabbed = slab, exceptions.slabbing = slab, exceptions.slagged = slag, exceptions.slagging = slag, exceptions.slain = slay, exceptions.slammed = slam, exceptions.slamming = slam, exceptions.slapped = slap, exceptions.slapping = slap, exceptions.slatted = slat, exceptions.slatting = slat, exceptions.sledding = sled, exceptions.slept = sleep3, exceptions.slew = slay, exceptions.slid = slide, exceptions.slidden = slide, exceptions.slipped = slip, exceptions.slipping = slip, exceptions.slitting = slit, exceptions.slogged = slog, exceptions.slogging = slog, exceptions.slopped = slop, exceptions.slopping = slop, exceptions.slotted = slot, exceptions.slotting = slot, exceptions.slugged = slug, exceptions.slugging = slug, exceptions.slummed = slum, exceptions.slumming = slum, exceptions.slung = sling, exceptions.slunk = slink, exceptions.slurred = slur, exceptions.slurring = slur, exceptions.smelt = smell, exceptions.smit = smite, exceptions.smitten = smite, exceptions.smote = smite, exceptions.smutted = smut, exceptions.smutting = smut, exceptions.snagged = snag, exceptions.snagging = snag, exceptions.snapped = snap, exceptions.snapping = snap, exceptions.snedded = sned, exceptions.snedding = sned, exceptions.snipped = snip, exceptions.snipping = snip, exceptions.snivelled = snivel, exceptions.snivelling = snivel, exceptions.snogged = snog, exceptions.snogging = snog, exceptions.snubbed = snub, exceptions.snubbing = snub, exceptions.snuck = sneak, exceptions.snugged = snug, exceptions.snugging = snug, exceptions.sobbed = sob, exceptions.sobbing = sob, exceptions.sodded = sod, exceptions.sodding = sod, exceptions.sold = sell, exceptions.solemnified = solemnify, exceptions.solidified = solidify, exceptions.soothsaid = soothsay, exceptions.sopped = sop, exceptions.sopping = sop, exceptions.sought = seek, exceptions.sown = sow, exceptions.spagged = spag, exceptions.spagging = spag, exceptions.spancelled = spancel, exceptions.spancelling = spancel, exceptions.spanned = span, exceptions.spanning = span, exceptions.sparred = spar, exceptions.sparring = spar, exceptions.spat = spit, exceptions.spatted = spat, exceptions.spatting = spat, exceptions.specified = specify, exceptions.sped = speed, exceptions.speechified = speechify, exceptions.spellbound = spellbind, exceptions.spelt = spell, exceptions.spent = spend, exceptions.spied = spy, exceptions.spilt = spill, exceptions.spinning = spin, exceptions.spiralled = spiral, exceptions.spiralling = spiral, exceptions.spitted = spit, exceptions.spitting = spit, exceptions.splitting = split, exceptions.spoilt = spoil, exceptions.spoke = speak, exceptions.spoken = speak, exceptions.spotlit = spotlight, exceptions.spotted = spot, exceptions.spotting = spot, exceptions.sprang = spring, exceptions.sprigged = sprig, exceptions.sprigging = sprig, exceptions.sprung = spring, exceptions.spudded = spud, exceptions.spudding = spud, exceptions.spun = spin, exceptions.spurred = spur, exceptions.spurring = spur, exceptions.squatted = squat, exceptions.squatting = squat, exceptions.squibbed = squib, exceptions.squibbing = squib, exceptions.squidded = squid, exceptions.squidding = squid, exceptions.squilgee = squeegee, exceptions.stabbed = stab, exceptions.stabbing = stab, exceptions.stank = stink, exceptions.starred = star, exceptions.starring = star, exceptions.steadied = steady, exceptions.stellified = stellify, exceptions.stemmed = stem, exceptions.stemming = stem, exceptions.stencilled = stencil, exceptions.stencilling = stencil, exceptions.stepped = step, exceptions.stepping = step, exceptions.stetted = stet, exceptions.stetting = stet, exceptions.stied = sty, exceptions.stilettoeing = stiletto, exceptions.stirred = stir, exceptions.stirring = stir, exceptions.stole = steal, exceptions.stolen = steal, exceptions.stood = stand, exceptions.stopped = stop, exceptions.stopping = stop, exceptions.storied = story, exceptions.stotted = stot, exceptions.stotting = stot, exceptions.stove = stave, exceptions.strapped = strap, exceptions.strapping = strap, exceptions.stratified = stratify, exceptions.strewn = strew, exceptions.stridden = stride, exceptions.stripped = strip2, exceptions.stripping = strip2, exceptions.striven = strive, exceptions.strode = stride, exceptions.stropped = strop, exceptions.stropping = strop, exceptions.strove = strive, exceptions.strown = strow, exceptions.stricken = strike, exceptions.struck = strike, exceptions.strummed = strum, exceptions.strumming = strum, exceptions.strung = string4, exceptions.strutted = strut, exceptions.strutting = strut, exceptions.stubbed = stub, exceptions.stubbing = stub, exceptions.stuck = stick, exceptions.studded = stud, exceptions.studding = stud, exceptions.studied = study, exceptions.stultified = stultify, exceptions.stummed = stum, exceptions.stumming = stum, exceptions.stung = sting, exceptions.stunk = stink, exceptions.stunned = stun, exceptions.stunning = stun, exceptions.stupefied = stupefy, exceptions.stymying = stymie, exceptions.subbed = sub, exceptions.subbing = sub, exceptions.subjectified = subjectify, exceptions.subletting = sublet, exceptions.submitted = submit, exceptions.submitting = submit, exceptions.subtotalled = subtotal, exceptions.subtotalling = subtotal, exceptions.sullied = sully, exceptions.sulphuretted = sulphuret, exceptions.sulphuretting = sulphuret, exceptions.summed = sum, exceptions.summing = sum, exceptions.sung = sing, exceptions.sunk = sink, exceptions.sunken = sink, exceptions.sunned = sun, exceptions.sunning = sun, exceptions.supped = sup, exceptions.supping = sup, exceptions.supplied = supply, exceptions.swabbed = swab, exceptions.swabbing = swab, exceptions.swagged = swag, exceptions.swagging = swag, exceptions.swam = swim, exceptions.swapped = swap, exceptions.swapping = swap, exceptions.swatted = swat, exceptions.swatting = swat, exceptions.swept = sweep, exceptions.swigged = swig, exceptions.swigging = swig, exceptions.swimming = swim, exceptions.swivelled = swivel, exceptions.swivelling = swivel, exceptions.swollen = swell, exceptions.swopped = swap, exceptions.swopping = swap, exceptions.swops = swap, exceptions.swore = swear, exceptions.sworn = swear, exceptions.swotted = swot, exceptions.swotting = swot, exceptions.swum = swim, exceptions.swung = swing, exceptions.syllabified = syllabify, exceptions.symbolled = symbol, exceptions.symbolling = symbol, exceptions.tabbed = tab, exceptions.tabbing = tab, exceptions.tagged = tag, exceptions.tagging = tag, exceptions.taken = take, exceptions.talcked = talc, exceptions.talcking = talc, exceptions.tallied = tally, exceptions.tammied = tammy, exceptions.tanned = tan, exceptions.tanning = tan, exceptions.tapped = tap, exceptions.tapping = tap, exceptions.tarred = tar, exceptions.tarried = tarry, exceptions.tarring = tar, exceptions.tasselled = tassel, exceptions.tasselling = tassel, exceptions.tatted = tat, exceptions.tatting = tat, exceptions.taught = teach, exceptions.taxis = taxis, exceptions.taxying = taxi, exceptions.teaselled = teasel, exceptions.teaselling = teasel, exceptions.tedded = ted, exceptions.tedding = ted, exceptions.tepefied = tepefy, exceptions.terrified = terrify, exceptions.testes = testes, exceptions.testified = testify, exceptions.thinned = thin, exceptions.thinning = thin, exceptions.thought = think, exceptions.threw = throw1, exceptions.thriven = thrive, exceptions.throbbed = throb, exceptions.throbbing = throb, exceptions.throve = thrive, exceptions.thrown = throw1, exceptions.thrummed = thrum, exceptions.thrumming = thrum, exceptions.thudded = thud, exceptions.thudding = thud, exceptions.tidied = tidy, exceptions.tinned = tin, exceptions.tinning = tin, exceptions.tinselled = tinsel, exceptions.tinselling = tinsel, exceptions.tipped = tip, exceptions.tipping = tip, exceptions.tittupped = tittup, exceptions.tittupping = tittup, exceptions.toadied = toady, exceptions.togged = tog, exceptions.togging = tog, exceptions.told = tell, exceptions.took = take, exceptions.topped = top, exceptions.topping = top, exceptions.tore = tear, exceptions.torn = tear, exceptions.torrefied = torrefy, exceptions.torrify = torrefy, exceptions.totalled = total, exceptions.totalling = total, exceptions.totted = tot, exceptions.totting = tot, exceptions.towelled = towel, exceptions.towelling = towel, exceptions.trafficked = traffic, exceptions.trafficking = traffic, exceptions.trameled = trammel, exceptions.trameling = trammel, exceptions.tramelled = trammel, exceptions.tramelling = trammel, exceptions.tramels = trammel, exceptions.trammed = tram, exceptions.tramming = tram, exceptions.transferred = transfer, exceptions.transferring = transfer, exceptions.transfixt = transfix, exceptions.tranship = transship, exceptions.transhipped = tranship, exceptions.transhipping = tranship, exceptions.transmitted = transmit, exceptions.transmitting = transmit, exceptions.transmogrified = transmogrify, exceptions.transshipped = transship, exceptions.transshipping = transship, exceptions.trapanned = trapan, exceptions.trapanning = trapan, exceptions.trapped = trap, exceptions.trapping = trap, exceptions.travelled = travel, exceptions.travelling = travel, exceptions.travestied = travesty, exceptions.trekked = trek, exceptions.trekking = trek, exceptions.trepanned = trepan, exceptions.trepanning = trepan, exceptions.tried = try1, exceptions.trigged = trig, exceptions.trigging = trig, exceptions.trimmed = trim, exceptions.trimming = trim, exceptions.tripped = trip, exceptions.tripping = trip, exceptions.trod = tread, exceptions.trodden = tread, exceptions.trogged = trog, exceptions.trogging = trog, exceptions.trotted = trot, exceptions.trotting = trot, exceptions.trowelled = trowel, exceptions.trowelling = trowel, exceptions.tugged = tug, exceptions.tugging = tug, exceptions.tumefied = tumefy, exceptions.tunned = tun, exceptions.tunnelled = tunnel, exceptions.tunnelling = tunnel, exceptions.tunning = tun, exceptions.tupped = tup, exceptions.tupping = tup, exceptions.twigged = twig, exceptions.twigging = twig, exceptions.twinned = twin, exceptions.twinning = twin, exceptions.twitted = twit, exceptions.twitting = twit, exceptions.tying = tie, exceptions.typesetting = typeset, exceptions.typewritten = typewrite, exceptions.typewrote = typewrite, exceptions.typified = typify, exceptions.uglified = uglify, exceptions.unbarred = unbar, exceptions.unbarring = unbar, exceptions.unbent = unbend, exceptions.unbound = unbind, exceptions.uncapped = uncap, exceptions.uncapping = uncap, exceptions.unclad = unclothe, exceptions.unclogged = unclog, exceptions.unclogging = unclog, exceptions.underbidding = underbid, exceptions.underbought = underbuy, exceptions.undercutting = undercut, exceptions.underfed = underfeed, exceptions.undergirt = undergird, exceptions.undergone = undergo, exceptions.underlaid = underlay, exceptions.underlain = underlie, exceptions.underlay = underlie, exceptions.underletting = underlet, exceptions.underlying = underlie, exceptions.underpaid = underpay, exceptions.underpinned = underpin, exceptions.underpinning = underpin, exceptions.underpropped = underprop, exceptions.underpropping = underprop, exceptions.undersetting = underset, exceptions.undershot = undershoot, exceptions.undersold = undersell, exceptions.understood = understand, exceptions.understudied = understudy, exceptions.undertaken = undertake, exceptions.undertook = undertake, exceptions.underwent = undergo, exceptions.underwritten = underwrite, exceptions.underwrote = underwrite, exceptions.undid = undo, exceptions.undone = undo, exceptions.unfitted = unfit, exceptions.unfitting = unfit, exceptions.unfroze = unfreeze, exceptions.unfrozen = unfreeze, exceptions.unified = unify, exceptions.unkennelled = unkennel, exceptions.unkennelling = unkennel, exceptions.unknitted = unknit, exceptions.unknitting = unknit, exceptions.unlaid = unlay, exceptions.unlearnt = unlearn, exceptions.unmade = unmake, exceptions.unmanned = unman, exceptions.unmanning = unman, exceptions.unpegged = unpeg, exceptions.unpegging = unpeg, exceptions.unpinned = unpin, exceptions.unpinning = unpin, exceptions.unplugged = unplug, exceptions.unplugging = unplug, exceptions.unravelled = unravel, exceptions.unravelling = unravel, exceptions.unrigged = unrig, exceptions.unrigging = unrig, exceptions.unripped = unrip, exceptions.unripping = unrip, exceptions.unrove = unreeve, exceptions.unsaid = unsay, exceptions.unshipped = unship, exceptions.unshipping = unship, exceptions.unslung = unsling, exceptions.unsnapped = unsnap, exceptions.unsnapping = unsnap, exceptions.unspoke = unspeak, exceptions.unspoken = unspeak, exceptions.unsteadied = unsteady, exceptions.unstepped = unstep, exceptions.unstepping = unstep, exceptions.unstopped = unstop, exceptions.unstopping = unstop, exceptions.unstrung = unstring, exceptions.unstuck = unstick, exceptions.unswore = unswear, exceptions.unsworn = unswear, exceptions.untaught = unteach, exceptions.unthought = unthink, exceptions.untidied = untidy, exceptions.untrod = untread, exceptions.untrodden = untread, exceptions.untying = untie, exceptions.unwound = unwind, exceptions.unwrapped = unwrap2, exceptions.unwrapping = unwrap2, exceptions.unzipped = unzip, exceptions.unzipping = unzip, exceptions.upbuilt = upbuild, exceptions.upheld = uphold, exceptions.uphove = upheave, exceptions.upped = up, exceptions.uppercutting = uppercut, exceptions.upping = up, exceptions.uprisen = uprise, exceptions.uprose = uprise, exceptions.upsetting = upset, exceptions.upsprang = upspring, exceptions.upsprung = upspring, exceptions.upswept = upsweep, exceptions.upswollen = upswell, exceptions.upswung = upswing, exceptions.vagged = vag, exceptions.vagging = vag, exceptions.varied = vary, exceptions.vatted = vat, exceptions.vatting = vat, exceptions.verbified = verbify, exceptions.verified = verify, exceptions.versified = versify, exceptions.vetted = vet, exceptions.vetting = vet, exceptions.victualled = victual, exceptions.victualling = victual, exceptions.vilified = vilify, exceptions.vitrified = vitrify, exceptions.vitriolled = vitriol, exceptions.vitriolling = vitriol, exceptions.vivified = vivify, exceptions.vying = vie, exceptions.wadded = wad, exceptions.waddied = waddy, exceptions.wadding = wad, exceptions.wadsetted = wadset, exceptions.wadsetting = wadset, exceptions.wagged = wag, exceptions.wagging = wag, exceptions.wanned = wan, exceptions.wanning = wan, exceptions.warred = war, exceptions.warring = war, exceptions.was = be, exceptions.waylaid = waylay, exceptions.wearied = weary, exceptions.weatherstripped = weatherstrip, exceptions.weatherstripping = weatherstrip, exceptions.webbed = web, exceptions.webbing = web, exceptions.wedded = wed, exceptions.wedding = wed, exceptions.weed = weed, exceptions.went = go, exceptions.wept = weep, exceptions.were = be, exceptions.wetted = wet, exceptions.wetting = wet, exceptions.whammed = wham, exceptions.whamming = wham, exceptions.whapped = whap, exceptions.whapping = whap, exceptions.whetted = whet, exceptions.whetting = whet, exceptions.whinnied = whinny, exceptions.whipped = whip, exceptions.whipping = whip, exceptions.whipsawn = whipsaw, exceptions.whirred = whir, exceptions.whirring = whir, exceptions.whizzed = whiz, exceptions.whizzes = whiz, exceptions.whizzing = whiz, exceptions.whopped = whop, exceptions.whopping = whop, exceptions.wigged = wig, exceptions.wigging = wig, exceptions.wigwagged = wigwag, exceptions.wigwagging = wigwag, exceptions.wildcatted = wildcat, exceptions.wildcatting = wildcat, exceptions.winning = win, exceptions.winterfed = winterfeed, exceptions.wiredrawn = wiredraw, exceptions.wiredrew = wiredraw, exceptions.withdrawn = withdraw, exceptions.withdrew = withdraw, exceptions.withheld = withhold, exceptions.withstood = withstand, exceptions.woke = wake, exceptions.woken = wake, exceptions.won = win, exceptions.wonned = won, exceptions.wonning = won, exceptions.wore = wear, exceptions.worn = wear, exceptions.worried = worry, exceptions.worshipped = worship, exceptions.worshipping = worship, exceptions.wound = wind, exceptions.wove = weave, exceptions.woven = weave, exceptions.wrapped = wrap2, exceptions.wrapping = wrap2, exceptions.wried = wry, exceptions.written = write, exceptions.wrote = write, exceptions.wrought = work, exceptions.wrung = wring, exceptions.would = will, exceptions.yakked = yak, exceptions.yakking = yak, exceptions.yapped = yap, exceptions.yapping = yap, exceptions.ycleped = clepe, exceptions.yclept = clepe, exceptions.yenned = yen, exceptions.yenning = yen, exceptions.yodelled = yodel, exceptions.yodelling = yodel, exceptions.zapped = zap, exceptions.zapping = zap, exceptions.zigzagged = zigzag, exceptions.zigzagging = zigzag, exceptions.zipped = zip, exceptions.zipping = zip, module2.exports = exceptions;
   }
 });
 
@@ -17322,7 +17159,7 @@ var require_LocalIndex = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalIndex = void 0;
-    var fs2 = __importStar(require("fs/promises"));
+    var fs3 = __importStar(require("fs/promises"));
     var path3 = __importStar(require("path"));
     var uuid_1 = require_cjs_browser();
     var ItemSelector_1 = require_ItemSelector();
@@ -17382,7 +17219,7 @@ var require_LocalIndex = __commonJS({
        */
       createIndex() {
         return __awaiter(this, arguments, void 0, function* (config2 = { version: 1 }) {
-          var _a6;
+          var _a7;
           if (yield this.isIndexCreated()) {
             if (config2.deleteIfExists) {
               yield this.deleteIndex();
@@ -17391,13 +17228,13 @@ var require_LocalIndex = __commonJS({
             }
           }
           try {
-            yield fs2.mkdir(this._folderPath, { recursive: true });
+            yield fs3.mkdir(this._folderPath, { recursive: true });
             this._data = {
               version: config2.version,
-              metadata_config: (_a6 = config2.metadata_config) !== null && _a6 !== void 0 ? _a6 : {},
+              metadata_config: (_a7 = config2.metadata_config) !== null && _a7 !== void 0 ? _a7 : {},
               items: []
             };
-            yield fs2.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._data));
+            yield fs3.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._data));
           } catch (err) {
             yield this.deleteIndex();
             throw new Error("Error creating index");
@@ -17411,7 +17248,7 @@ var require_LocalIndex = __commonJS({
        */
       deleteIndex() {
         this._data = void 0;
-        return fs2.rm(this._folderPath, {
+        return fs3.rm(this._folderPath, {
           recursive: true,
           maxRetries: 3
         });
@@ -17448,7 +17285,7 @@ var require_LocalIndex = __commonJS({
             throw new Error("No update in progress");
           }
           try {
-            yield fs2.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._update));
+            yield fs3.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._update));
             this._data = this._update;
             this._update = void 0;
           } catch (err) {
@@ -17533,7 +17370,7 @@ var require_LocalIndex = __commonJS({
       isIndexCreated() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs2.access(path3.join(this._folderPath, this.indexName));
+            yield fs3.access(path3.join(this._folderPath, this.indexName));
             return true;
           } catch (err) {
             return false;
@@ -17601,7 +17438,7 @@ var require_LocalIndex = __commonJS({
           for (const item of top) {
             if (item.item.metadataFile) {
               const metadataPath = path3.join(this._folderPath, item.item.metadataFile);
-              const metadata = yield fs2.readFile(metadataPath);
+              const metadata = yield fs3.readFile(metadataPath);
               item.item.metadata = JSON.parse(metadata.toString());
             }
           }
@@ -17666,17 +17503,17 @@ var require_LocalIndex = __commonJS({
           if (!(yield this.isIndexCreated())) {
             throw new Error("Index does not exist");
           }
-          const data2 = yield fs2.readFile(path3.join(this._folderPath, this.indexName));
+          const data2 = yield fs3.readFile(path3.join(this._folderPath, this.indexName));
           this._data = JSON.parse(data2.toString());
         });
       }
       addItemToUpdate(item, unique) {
         return __awaiter(this, void 0, void 0, function* () {
-          var _a6;
+          var _a7;
           if (!item.vector) {
             throw new Error("Vector is required");
           }
-          const id = (_a6 = item.id) !== null && _a6 !== void 0 ? _a6 : (0, uuid_1.v4)();
+          const id = (_a7 = item.id) !== null && _a7 !== void 0 ? _a7 : (0, uuid_1.v4)();
           if (unique) {
             const existing = this._update.items.find((i) => i.id === id);
             if (existing) {
@@ -17693,7 +17530,7 @@ var require_LocalIndex = __commonJS({
             }
             metadataFile = `${(0, uuid_1.v4)()}.json`;
             const metadataPath = path3.join(this._folderPath, metadataFile);
-            yield fs2.writeFile(metadataPath, JSON.stringify(item.metadata));
+            yield fs3.writeFile(metadataPath, JSON.stringify(item.metadata));
           } else if (item.metadata) {
             metadata = item.metadata;
           }
@@ -18565,7 +18402,7 @@ var require_LocalDocumentIndex = __commonJS({
     };
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalDocumentIndex = void 0;
-    var fs2 = __importStar(require("fs/promises"));
+    var fs3 = __importStar(require("fs/promises"));
     var path3 = __importStar(require("path"));
     var uuid_1 = require_cjs_browser();
     var GPT3Tokenizer_1 = require_GPT3Tokenizer();
@@ -18579,7 +18416,7 @@ var require_LocalDocumentIndex = __commonJS({
        * @param config Configuration settings for the document index.
        */
       constructor(config2) {
-        var _a6, _b;
+        var _a7, _b;
         super(config2.folderPath);
         this._embeddings = config2.embeddings;
         this._chunkingConfig = Object.assign({
@@ -18587,7 +18424,7 @@ var require_LocalDocumentIndex = __commonJS({
           chunkSize: 512,
           chunkOverlap: 0
         }, config2.chunkingConfig);
-        this._tokenizer = (_b = (_a6 = config2.tokenizer) !== null && _a6 !== void 0 ? _a6 : this._chunkingConfig.tokenizer) !== null && _b !== void 0 ? _b : new GPT3Tokenizer_1.GPT3Tokenizer();
+        this._tokenizer = (_b = (_a7 = config2.tokenizer) !== null && _a7 !== void 0 ? _a7 : this._chunkingConfig.tokenizer) !== null && _b !== void 0 ? _b : new GPT3Tokenizer_1.GPT3Tokenizer();
         this._chunkingConfig.tokenizer = this._tokenizer;
       }
       /**
@@ -18608,7 +18445,7 @@ var require_LocalDocumentIndex = __commonJS({
       isCatalogCreated() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs2.access(path3.join(this.folderPath, "catalog.json"));
+            yield fs3.access(path3.join(this.folderPath, "catalog.json"));
             return true;
           } catch (err) {
             return false;
@@ -18622,9 +18459,9 @@ var require_LocalDocumentIndex = __commonJS({
        */
       getDocumentId(uri) {
         return __awaiter(this, void 0, void 0, function* () {
-          var _a6;
+          var _a7;
           yield this.loadIndexData();
-          return (_a6 = this._catalog) === null || _a6 === void 0 ? void 0 : _a6.uriToId[uri];
+          return (_a7 = this._catalog) === null || _a7 === void 0 ? void 0 : _a7.uriToId[uri];
         });
       }
       /**
@@ -18634,9 +18471,9 @@ var require_LocalDocumentIndex = __commonJS({
        */
       getDocumentUri(documentId) {
         return __awaiter(this, void 0, void 0, function* () {
-          var _a6;
+          var _a7;
           yield this.loadIndexData();
-          return (_a6 = this._catalog) === null || _a6 === void 0 ? void 0 : _a6.idToUri[documentId];
+          return (_a7 = this._catalog) === null || _a7 === void 0 ? void 0 : _a7.idToUri[documentId];
         });
       }
       /**
@@ -18679,12 +18516,12 @@ var require_LocalDocumentIndex = __commonJS({
             throw new Error(`Error deleting document "${uri}": ${err.toString()}`);
           }
           try {
-            yield fs2.unlink(path3.join(this.folderPath, `${documentId}.txt`));
+            yield fs3.unlink(path3.join(this.folderPath, `${documentId}.txt`));
           } catch (err) {
             throw new Error(`Error removing text file for document "${uri}" from disk: ${err.toString()}`);
           }
           try {
-            yield fs2.unlink(path3.join(this.folderPath, `${documentId}.json`));
+            yield fs3.unlink(path3.join(this.folderPath, `${documentId}.json`));
           } catch (err) {
           }
         });
@@ -18768,9 +18605,9 @@ var require_LocalDocumentIndex = __commonJS({
               });
             }
             if (metadata != void 0) {
-              yield fs2.writeFile(path3.join(this.folderPath, `${documentId}.json`), JSON.stringify(metadata));
+              yield fs3.writeFile(path3.join(this.folderPath, `${documentId}.json`), JSON.stringify(metadata));
             }
-            yield fs2.writeFile(path3.join(this.folderPath, `${documentId}.txt`), text3);
+            yield fs3.writeFile(path3.join(this.folderPath, `${documentId}.txt`), text3);
             this._newCatalog.uriToId[uri] = documentId;
             this._newCatalog.idToUri[documentId] = uri;
             this._newCatalog.count++;
@@ -18881,7 +18718,7 @@ var require_LocalDocumentIndex = __commonJS({
         return __awaiter(this, void 0, void 0, function* () {
           yield _super.endUpdate.call(this);
           try {
-            yield fs2.writeFile(path3.join(this.folderPath, "catalog.json"), JSON.stringify(this._newCatalog));
+            yield fs3.writeFile(path3.join(this.folderPath, "catalog.json"), JSON.stringify(this._newCatalog));
             this._catalog = this._newCatalog;
             this._newCatalog = void 0;
           } catch (err) {
@@ -18900,7 +18737,7 @@ var require_LocalDocumentIndex = __commonJS({
           }
           const catalogPath = path3.join(this.folderPath, "catalog.json");
           if (yield this.isCatalogCreated()) {
-            const buffer = yield fs2.readFile(catalogPath);
+            const buffer = yield fs3.readFile(catalogPath);
             this._catalog = JSON.parse(buffer.toString());
           } else {
             try {
@@ -18910,7 +18747,7 @@ var require_LocalDocumentIndex = __commonJS({
                 uriToId: {},
                 idToUri: {}
               };
-              yield fs2.writeFile(catalogPath, JSON.stringify(this._catalog));
+              yield fs3.writeFile(catalogPath, JSON.stringify(this._catalog));
             } catch (err) {
               throw new Error(`Error creating document catalog: ${err.toString()}`);
             }
@@ -18935,8 +18772,8 @@ var require_axios = __commonJS({
     var { getPrototypeOf } = Object;
     var { iterator, toStringTag } = Symbol;
     var kindOf = /* @__PURE__ */ ((cache) => (thing) => {
-      const str = toString2.call(thing);
-      return cache[str] || (cache[str] = str.slice(8, -1).toLowerCase());
+      const str2 = toString2.call(thing);
+      return cache[str2] || (cache[str2] = str2.slice(8, -1).toLowerCase());
     })(/* @__PURE__ */ Object.create(null));
     var kindOfTest = (type) => {
       type = type.toLowerCase();
@@ -18986,9 +18823,9 @@ var require_axios = __commonJS({
     var isFileList = kindOfTest("FileList");
     var isStream = (val2) => isObject2(val2) && isFunction$1(val2.pipe);
     var isFormData = (thing) => {
-      let kind2;
-      return thing && (typeof FormData === "function" && thing instanceof FormData || isFunction$1(thing.append) && ((kind2 = kindOf(thing)) === "formdata" || // detect form-data instance
-      kind2 === "object" && isFunction$1(thing.toString) && thing.toString() === "[object FormData]"));
+      let kind3;
+      return thing && (typeof FormData === "function" && thing instanceof FormData || isFunction$1(thing.append) && ((kind3 = kindOf(thing)) === "formdata" || // detect form-data instance
+      kind3 === "object" && isFunction$1(thing.toString) && thing.toString() === "[object FormData]"));
     };
     var isURLSearchParams = kindOfTest("URLSearchParams");
     var [isReadableStream, isRequest, isResponse, isHeaders] = [
@@ -18997,7 +18834,7 @@ var require_axios = __commonJS({
       "Response",
       "Headers"
     ].map(kindOfTest);
-    var trim = (str) => str.trim ? str.trim() : str.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "");
+    var trim = (str2) => str2.trim ? str2.trim() : str2.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "");
     function forEach(obj, fn, { allOwnKeys = false } = {}) {
       if (obj === null || typeof obj === "undefined") {
         return;
@@ -19135,13 +18972,13 @@ var require_axios = __commonJS({
       } while (sourceObj && (!filter4 || filter4(sourceObj, destObj)) && sourceObj !== Object.prototype);
       return destObj;
     };
-    var endsWith = (str, searchString, position) => {
-      str = String(str);
-      if (position === void 0 || position > str.length) {
-        position = str.length;
+    var endsWith = (str2, searchString, position) => {
+      str2 = String(str2);
+      if (position === void 0 || position > str2.length) {
+        position = str2.length;
       }
       position -= searchString.length;
-      const lastIndex = str.indexOf(searchString, position);
+      const lastIndex = str2.indexOf(searchString, position);
       return lastIndex !== -1 && lastIndex === position;
     };
     var toArray2 = (thing) => {
@@ -19169,17 +19006,17 @@ var require_axios = __commonJS({
         fn.call(obj, pair[0], pair[1]);
       }
     };
-    var matchAll = (regExp, str) => {
+    var matchAll = (regExp, str2) => {
       let matches;
       const arr = [];
-      while ((matches = regExp.exec(str)) !== null) {
+      while ((matches = regExp.exec(str2)) !== null) {
         arr.push(matches);
       }
       return arr;
     };
     var isHTMLForm = kindOfTest("HTMLFormElement");
-    var toCamelCase = (str) => {
-      return str.toLowerCase().replace(/[-_\s]([a-z\d])(\w*)/g, function replacer(m, p1, p2) {
+    var toCamelCase = (str2) => {
+      return str2.toLowerCase().replace(/[-_\s]([a-z\d])(\w*)/g, function replacer(m, p1, p2) {
         return p1.toUpperCase() + p2;
       });
     };
@@ -19519,7 +19356,7 @@ var require_axios = __commonJS({
       build2(obj);
       return formData;
     }
-    function encode$1(str) {
+    function encode$1(str2) {
       const charMap = {
         "!": "%21",
         "'": "%27",
@@ -19529,7 +19366,7 @@ var require_axios = __commonJS({
         "%20": "+",
         "%00": "\0"
       };
-      return encodeURIComponent(str).replace(/[!'()~]|%20|%00/g, function replacer(match) {
+      return encodeURIComponent(str2).replace(/[!'()~]|%20|%00/g, function replacer(match) {
         return charMap[match];
       });
     }
@@ -19549,14 +19386,14 @@ var require_axios = __commonJS({
         return _encode(pair[0]) + "=" + _encode(pair[1]);
       }, "").join("&");
     };
-    function encode(val2) {
+    function encode2(val2) {
       return encodeURIComponent(val2).replace(/%3A/gi, ":").replace(/%24/g, "$").replace(/%2C/gi, ",").replace(/%20/g, "+");
     }
     function buildURL(url2, params, options) {
       if (!params) {
         return url2;
       }
-      const _encode = options && options.encode || encode;
+      const _encode = options && options.encode || encode2;
       const _options = utils$1.isFunction(options) ? {
         serialize: options
       } : options;
@@ -19752,7 +19589,7 @@ var require_axios = __commonJS({
       }
       return (encoder || JSON.stringify)(rawValue);
     }
-    var defaults = {
+    var defaults2 = {
       transitional: transitionalDefaults,
       adapter: ["xhr", "http", "fetch"],
       transformRequest: [function transformRequest(data2, headers) {
@@ -19797,7 +19634,7 @@ var require_axios = __commonJS({
         return data2;
       }],
       transformResponse: [function transformResponse(data2) {
-        const transitional = this.transitional || defaults.transitional;
+        const transitional = this.transitional || defaults2.transitional;
         const forcedJSONParsing = transitional && transitional.forcedJSONParsing;
         const JSONRequested = this.responseType === "json";
         if (utils$1.isResponse(data2) || utils$1.isReadableStream(data2)) {
@@ -19843,9 +19680,9 @@ var require_axios = __commonJS({
       }
     };
     utils$1.forEach(["delete", "get", "head", "post", "put", "patch"], (method) => {
-      defaults.headers[method] = {};
+      defaults2.headers[method] = {};
     });
-    var defaults$1 = defaults;
+    var defaults$1 = defaults2;
     var ignoreDuplicateOf = utils$1.toObjectSet([
       "age",
       "authorization",
@@ -19899,16 +19736,16 @@ var require_axios = __commonJS({
       }
       return utils$1.isArray(value) ? value.map(normalizeValue) : String(value);
     }
-    function parseTokens(str) {
+    function parseTokens(str2) {
       const tokens = /* @__PURE__ */ Object.create(null);
       const tokensRE = /([^\s,;=]+)\s*(?:=\s*([^,;]+))?/g;
       let match;
-      while (match = tokensRE.exec(str)) {
+      while (match = tokensRE.exec(str2)) {
         tokens[match[1]] = match[2];
       }
       return tokens;
     }
-    var isValidHeaderName = (str) => /^[-_a-zA-Z0-9^`|~,!#$%&'*+.]+$/.test(str.trim());
+    var isValidHeaderName = (str2) => /^[-_a-zA-Z0-9^`|~,!#$%&'*+.]+$/.test(str2.trim());
     function matchHeaderValue(context, value, header, filter4, isHeaderNameFilter) {
       if (utils$1.isFunction(filter4)) {
         return filter4.call(this, value, header);
@@ -19925,8 +19762,8 @@ var require_axios = __commonJS({
       }
     }
     function formatHeader(header) {
-      return header.trim().toLowerCase().replace(/([a-z\d])(\w*)/g, (w, char, str) => {
-        return char.toUpperCase() + str;
+      return header.trim().toLowerCase().replace(/([a-z\d])(\w*)/g, (w, char, str2) => {
+        return char.toUpperCase() + str2;
       });
     }
     function buildAccessors(obj, header) {
@@ -20173,7 +20010,7 @@ var require_axios = __commonJS({
       let tail = 0;
       let firstSampleTS;
       min = min !== void 0 ? min : 1e3;
-      return function push(chunkLength) {
+      return function push2(chunkLength) {
         const now = Date.now();
         const startedAt = timestamps[tail];
         if (!firstSampleTS) {
@@ -20314,7 +20151,7 @@ var require_axios = __commonJS({
         }
       }
     );
-    function isAbsoluteURL2(url2) {
+    function isAbsoluteURL3(url2) {
       if (typeof url2 !== "string") {
         return false;
       }
@@ -20324,7 +20161,7 @@ var require_axios = __commonJS({
       return relativeURL ? baseURL.replace(/\/?\/$/, "") + "/" + relativeURL.replace(/^\/+/, "") : baseURL;
     }
     function buildFullPath(baseURL, requestedURL, allowAbsoluteUrls) {
-      let isRelativeUrl = !isAbsoluteURL2(requestedURL);
+      let isRelativeUrl = !isAbsoluteURL3(requestedURL);
       if (baseURL && (isRelativeUrl || allowAbsoluteUrls == false)) {
         return combineURLs(baseURL, requestedURL);
       }
@@ -20687,9 +20524,9 @@ var require_axios = __commonJS({
     };
     var DEFAULT_CHUNK_SIZE2 = 64 * 1024;
     var { isFunction } = utils$1;
-    var globalFetchAPI = (({ Request: Request3, Response: Response3 }) => ({
-      Request: Request3,
-      Response: Response3
+    var globalFetchAPI = (({ Request: Request4, Response: Response4 }) => ({
+      Request: Request4,
+      Response: Response4
     }))(utils$1.global);
     var {
       ReadableStream: ReadableStream$1,
@@ -20706,18 +20543,18 @@ var require_axios = __commonJS({
       env = utils$1.merge.call({
         skipUndefined: true
       }, globalFetchAPI, env);
-      const { fetch: envFetch, Request: Request3, Response: Response3 } = env;
+      const { fetch: envFetch, Request: Request4, Response: Response4 } = env;
       const isFetchSupported = envFetch ? isFunction(envFetch) : typeof fetch === "function";
-      const isRequestSupported = isFunction(Request3);
-      const isResponseSupported = isFunction(Response3);
+      const isRequestSupported = isFunction(Request4);
+      const isResponseSupported = isFunction(Response4);
       if (!isFetchSupported) {
         return false;
       }
       const isReadableStreamSupported = isFetchSupported && isFunction(ReadableStream$1);
-      const encodeText = isFetchSupported && (typeof TextEncoder2 === "function" ? /* @__PURE__ */ ((encoder) => (str) => encoder.encode(str))(new TextEncoder2()) : async (str) => new Uint8Array(await new Request3(str).arrayBuffer()));
+      const encodeText = isFetchSupported && (typeof TextEncoder2 === "function" ? /* @__PURE__ */ ((encoder) => (str2) => encoder.encode(str2))(new TextEncoder2()) : async (str2) => new Uint8Array(await new Request4(str2).arrayBuffer()));
       const supportsRequestStream = isRequestSupported && isReadableStreamSupported && test(() => {
         let duplexAccessed = false;
-        const hasContentType = new Request3(platform.origin, {
+        const hasContentType = new Request4(platform.origin, {
           body: new ReadableStream$1(),
           method: "POST",
           get duplex() {
@@ -20727,7 +20564,7 @@ var require_axios = __commonJS({
         }).headers.has("Content-Type");
         return duplexAccessed && !hasContentType;
       });
-      const supportsResponseStream = isResponseSupported && isReadableStreamSupported && test(() => utils$1.isReadableStream(new Response3("").body));
+      const supportsResponseStream = isResponseSupported && isReadableStreamSupported && test(() => utils$1.isReadableStream(new Response4("").body));
       const resolvers = {
         stream: supportsResponseStream && ((res) => res.body)
       };
@@ -20750,7 +20587,7 @@ var require_axios = __commonJS({
           return body.size;
         }
         if (utils$1.isSpecCompliantForm(body)) {
-          const _request = new Request3(platform.origin, {
+          const _request = new Request4(platform.origin, {
             method: "POST",
             body
           });
@@ -20795,7 +20632,7 @@ var require_axios = __commonJS({
         let requestContentLength;
         try {
           if (onUploadProgress && supportsRequestStream && method !== "get" && method !== "head" && (requestContentLength = await resolveBodyLength(headers, data2)) !== 0) {
-            let _request = new Request3(url2, {
+            let _request = new Request4(url2, {
               method: "POST",
               body: data2,
               duplex: "half"
@@ -20815,7 +20652,7 @@ var require_axios = __commonJS({
           if (!utils$1.isString(withCredentials)) {
             withCredentials = withCredentials ? "include" : "omit";
           }
-          const isCredentialsSupported = isRequestSupported && "credentials" in Request3.prototype;
+          const isCredentialsSupported = isRequestSupported && "credentials" in Request4.prototype;
           const resolvedOptions = {
             ...fetchOptions,
             signal: composedSignal,
@@ -20825,7 +20662,7 @@ var require_axios = __commonJS({
             duplex: "half",
             credentials: isCredentialsSupported ? withCredentials : void 0
           };
-          request = isRequestSupported && new Request3(url2, resolvedOptions);
+          request = isRequestSupported && new Request4(url2, resolvedOptions);
           let response = await (isRequestSupported ? _fetch2(request, fetchOptions) : _fetch2(url2, resolvedOptions));
           const isStreamResponse = supportsResponseStream && (responseType === "stream" || responseType === "response");
           if (supportsResponseStream && (onDownloadProgress || isStreamResponse && unsubscribe)) {
@@ -20838,7 +20675,7 @@ var require_axios = __commonJS({
               responseContentLength,
               progressEventReducer(asyncDecorator(onDownloadProgress), true)
             ) || [];
-            response = new Response3(
+            response = new Response4(
               trackStream(response.body, DEFAULT_CHUNK_SIZE2, onProgress, () => {
                 flush && flush();
                 unsubscribe && unsubscribe();
@@ -20876,11 +20713,11 @@ var require_axios = __commonJS({
     var seedCache = /* @__PURE__ */ new Map();
     var getFetch = (config2) => {
       let env = config2 && config2.env || {};
-      const { fetch: fetch4, Request: Request3, Response: Response3 } = env;
+      const { fetch: fetch5, Request: Request4, Response: Response4 } = env;
       const seeds = [
-        Request3,
-        Response3,
-        fetch4
+        Request4,
+        Response4,
+        fetch5
       ];
       let len = seeds.length, i = len, seed, target, map2 = seedCache;
       while (i--) {
@@ -20998,7 +20835,7 @@ var require_axios = __commonJS({
         return Promise.reject(reason);
       });
     }
-    var VERSION2 = "1.13.5";
+    var VERSION3 = "1.13.5";
     var validators$1 = {};
     ["object", "boolean", "number", "function", "string", "symbol"].forEach((type, i) => {
       validators$1[type] = function validator2(thing) {
@@ -21008,7 +20845,7 @@ var require_axios = __commonJS({
     var deprecatedWarnings = {};
     validators$1.transitional = function transitional(validator2, version3, message) {
       function formatMessage(opt, desc) {
-        return "[Axios v" + VERSION2 + "] Transitional option '" + opt + "'" + desc + (message ? ". " + message : "");
+        return "[Axios v" + VERSION3 + "] Transitional option '" + opt + "'" + desc + (message ? ". " + message : "");
       }
       return (value, opt, opts) => {
         if (validator2 === false) {
@@ -21432,7 +21269,7 @@ var require_axios = __commonJS({
     axios.CanceledError = CanceledError$1;
     axios.CancelToken = CancelToken$1;
     axios.isCancel = isCancel;
-    axios.VERSION = VERSION2;
+    axios.VERSION = VERSION3;
     axios.toFormData = toFormData;
     axios.AxiosError = AxiosError$1;
     axios.Cancel = axios.CanceledError;
@@ -21543,49 +21380,49 @@ var require_colorette = __commonJS({
       close,
       replace
     ) : "";
-    var init = (open, close, replace) => filterEmpty(`\x1B[${open}m`, `\x1B[${close}m`, replace);
+    var init2 = (open, close, replace) => filterEmpty(`\x1B[${open}m`, `\x1B[${close}m`, replace);
     var colors = {
-      reset: init(0, 0),
-      bold: init(1, 22, "\x1B[22m\x1B[1m"),
-      dim: init(2, 22, "\x1B[22m\x1B[2m"),
-      italic: init(3, 23),
-      underline: init(4, 24),
-      inverse: init(7, 27),
-      hidden: init(8, 28),
-      strikethrough: init(9, 29),
-      black: init(30, 39),
-      red: init(31, 39),
-      green: init(32, 39),
-      yellow: init(33, 39),
-      blue: init(34, 39),
-      magenta: init(35, 39),
-      cyan: init(36, 39),
-      white: init(37, 39),
-      gray: init(90, 39),
-      bgBlack: init(40, 49),
-      bgRed: init(41, 49),
-      bgGreen: init(42, 49),
-      bgYellow: init(43, 49),
-      bgBlue: init(44, 49),
-      bgMagenta: init(45, 49),
-      bgCyan: init(46, 49),
-      bgWhite: init(47, 49),
-      blackBright: init(90, 39),
-      redBright: init(91, 39),
-      greenBright: init(92, 39),
-      yellowBright: init(93, 39),
-      blueBright: init(94, 39),
-      magentaBright: init(95, 39),
-      cyanBright: init(96, 39),
-      whiteBright: init(97, 39),
-      bgBlackBright: init(100, 49),
-      bgRedBright: init(101, 49),
-      bgGreenBright: init(102, 49),
-      bgYellowBright: init(103, 49),
-      bgBlueBright: init(104, 49),
-      bgMagentaBright: init(105, 49),
-      bgCyanBright: init(106, 49),
-      bgWhiteBright: init(107, 49)
+      reset: init2(0, 0),
+      bold: init2(1, 22, "\x1B[22m\x1B[1m"),
+      dim: init2(2, 22, "\x1B[22m\x1B[2m"),
+      italic: init2(3, 23),
+      underline: init2(4, 24),
+      inverse: init2(7, 27),
+      hidden: init2(8, 28),
+      strikethrough: init2(9, 29),
+      black: init2(30, 39),
+      red: init2(31, 39),
+      green: init2(32, 39),
+      yellow: init2(33, 39),
+      blue: init2(34, 39),
+      magenta: init2(35, 39),
+      cyan: init2(36, 39),
+      white: init2(37, 39),
+      gray: init2(90, 39),
+      bgBlack: init2(40, 49),
+      bgRed: init2(41, 49),
+      bgGreen: init2(42, 49),
+      bgYellow: init2(43, 49),
+      bgBlue: init2(44, 49),
+      bgMagenta: init2(45, 49),
+      bgCyan: init2(46, 49),
+      bgWhite: init2(47, 49),
+      blackBright: init2(90, 39),
+      redBright: init2(91, 39),
+      greenBright: init2(92, 39),
+      yellowBright: init2(93, 39),
+      blueBright: init2(94, 39),
+      magentaBright: init2(95, 39),
+      cyanBright: init2(96, 39),
+      whiteBright: init2(97, 39),
+      bgBlackBright: init2(100, 49),
+      bgRedBright: init2(101, 49),
+      bgGreenBright: init2(102, 49),
+      bgYellowBright: init2(103, 49),
+      bgBlueBright: init2(104, 49),
+      bgMagentaBright: init2(105, 49),
+      bgCyanBright: init2(106, 49),
+      bgWhiteBright: init2(107, 49)
     };
     var createColors = ({ useColor = isColorSupported } = {}) => useColor ? colors : Object.keys(colors).reduce(
       (colors2, key) => ({ ...colors2, [key]: String }),
@@ -21889,9 +21726,9 @@ var require_OpenAIEmbeddings = __commonJS({
        * @param options Options for configuring an `OpenAIClient`.
        */
       constructor(options) {
-        var _a6;
+        var _a7;
         this.UserAgent = "AlphaWave";
-        this.maxTokens = (_a6 = options.maxTokens) !== null && _a6 !== void 0 ? _a6 : 500;
+        this.maxTokens = (_a7 = options.maxTokens) !== null && _a7 !== void 0 ? _a7 : 500;
         if (options.azureApiKey) {
           this._clientType = ClientType.AzureOpenAI;
           this.options = Object.assign({
@@ -21956,7 +21793,7 @@ var require_OpenAIEmbeddings = __commonJS({
        * @private
        */
       createEmbeddingRequest(request) {
-        var _a6;
+        var _a7;
         if (this.options.dimensions) {
           request.dimensions = this.options.dimensions;
         }
@@ -21971,7 +21808,7 @@ var require_OpenAIEmbeddings = __commonJS({
           return this.post(url2, request);
         } else {
           const options = this.options;
-          const url2 = `${(_a6 = options.endpoint) !== null && _a6 !== void 0 ? _a6 : "https://api.openai.com"}/v1/embeddings`;
+          const url2 = `${(_a7 = options.endpoint) !== null && _a7 !== void 0 ? _a7 : "https://api.openai.com"}/v1/embeddings`;
           request.model = options.model;
           return this.post(url2, request);
         }
@@ -22266,8 +22103,8 @@ var init_node = __esm({
       // Aliases
       /** First child of the node. */
       get firstChild() {
-        var _a6;
-        return (_a6 = this.children[0]) !== null && _a6 !== void 0 ? _a6 : null;
+        var _a7;
+        return (_a7 = this.children[0]) !== null && _a7 !== void 0 ? _a7 : null;
       }
       /** Last child of the node. */
       get lastChild() {
@@ -22330,11 +22167,11 @@ var init_node = __esm({
       }
       get attributes() {
         return Object.keys(this.attribs).map((name) => {
-          var _a6, _b;
+          var _a7, _b;
           return {
             name,
             value: this.attribs[name],
-            namespace: (_a6 = this["x-attribsNamespace"]) === null || _a6 === void 0 ? void 0 : _a6[name],
+            namespace: (_a7 = this["x-attribsNamespace"]) === null || _a7 === void 0 ? void 0 : _a7[name],
             prefix: (_b = this["x-attribsPrefix"]) === null || _b === void 0 ? void 0 : _b[name]
           };
         });
@@ -22509,13 +22346,13 @@ var init_decode_data_xml = __esm({
 
 // node_modules/entities/lib/esm/decode_codepoint.js
 function replaceCodePoint(codePoint) {
-  var _a6;
+  var _a7;
   if (codePoint >= 55296 && codePoint <= 57343 || codePoint > 1114111) {
     return 65533;
   }
-  return (_a6 = decodeMap.get(codePoint)) !== null && _a6 !== void 0 ? _a6 : codePoint;
+  return (_a7 = decodeMap.get(codePoint)) !== null && _a7 !== void 0 ? _a7 : codePoint;
 }
-var _a2, decodeMap, fromCodePoint;
+var _a3, decodeMap, fromCodePoint;
 var init_decode_codepoint = __esm({
   "node_modules/entities/lib/esm/decode_codepoint.js"() {
     decodeMap = /* @__PURE__ */ new Map([
@@ -22550,7 +22387,7 @@ var init_decode_codepoint = __esm({
       [159, 376]
     ]);
     fromCodePoint = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, node/no-unsupported-features/es-builtins
-    (_a2 = String.fromCodePoint) !== null && _a2 !== void 0 ? _a2 : function(codePoint) {
+    (_a3 = String.fromCodePoint) !== null && _a3 !== void 0 ? _a3 : function(codePoint) {
       let output = "";
       if (codePoint > 65535) {
         codePoint -= 65536;
@@ -22578,15 +22415,15 @@ function isEntityInAttributeInvalidEnd(code) {
 }
 function getDecoder(decodeTree) {
   let ret = "";
-  const decoder = new EntityDecoder(decodeTree, (str) => ret += fromCodePoint(str));
-  return function decodeWithTrie(str, decodeMode) {
+  const decoder = new EntityDecoder(decodeTree, (str2) => ret += fromCodePoint(str2));
+  return function decodeWithTrie(str2, decodeMode) {
     let lastIndex = 0;
     let offset = 0;
-    while ((offset = str.indexOf("&", offset)) >= 0) {
-      ret += str.slice(lastIndex, offset);
+    while ((offset = str2.indexOf("&", offset)) >= 0) {
+      ret += str2.slice(lastIndex, offset);
       decoder.startEntity(decodeMode);
       const len = decoder.write(
-        str,
+        str2,
         // Skip the "&"
         offset + 1
       );
@@ -22597,7 +22434,7 @@ function getDecoder(decodeTree) {
       lastIndex = offset + len;
       offset = len === 0 ? lastIndex + 1 : lastIndex;
     }
-    const result = ret + str.slice(lastIndex);
+    const result = ret + str2.slice(lastIndex);
     ret = "";
     return result;
   };
@@ -22698,28 +22535,28 @@ var init_decode = __esm({
        * @param offset The offset at which the entity begins. Should be 0 if this is not the first call.
        * @returns The number of characters that were consumed, or -1 if the entity is incomplete.
        */
-      write(str, offset) {
+      write(str2, offset) {
         switch (this.state) {
           case EntityDecoderState.EntityStart: {
-            if (str.charCodeAt(offset) === CharCodes.NUM) {
+            if (str2.charCodeAt(offset) === CharCodes.NUM) {
               this.state = EntityDecoderState.NumericStart;
               this.consumed += 1;
-              return this.stateNumericStart(str, offset + 1);
+              return this.stateNumericStart(str2, offset + 1);
             }
             this.state = EntityDecoderState.NamedEntity;
-            return this.stateNamedEntity(str, offset);
+            return this.stateNamedEntity(str2, offset);
           }
           case EntityDecoderState.NumericStart: {
-            return this.stateNumericStart(str, offset);
+            return this.stateNumericStart(str2, offset);
           }
           case EntityDecoderState.NumericDecimal: {
-            return this.stateNumericDecimal(str, offset);
+            return this.stateNumericDecimal(str2, offset);
           }
           case EntityDecoderState.NumericHex: {
-            return this.stateNumericHex(str, offset);
+            return this.stateNumericHex(str2, offset);
           }
           case EntityDecoderState.NamedEntity: {
-            return this.stateNamedEntity(str, offset);
+            return this.stateNamedEntity(str2, offset);
           }
         }
       }
@@ -22732,22 +22569,22 @@ var init_decode = __esm({
        * @param offset The current offset.
        * @returns The number of characters that were consumed, or -1 if the entity is incomplete.
        */
-      stateNumericStart(str, offset) {
-        if (offset >= str.length) {
+      stateNumericStart(str2, offset) {
+        if (offset >= str2.length) {
           return -1;
         }
-        if ((str.charCodeAt(offset) | TO_LOWER_BIT) === CharCodes.LOWER_X) {
+        if ((str2.charCodeAt(offset) | TO_LOWER_BIT) === CharCodes.LOWER_X) {
           this.state = EntityDecoderState.NumericHex;
           this.consumed += 1;
-          return this.stateNumericHex(str, offset + 1);
+          return this.stateNumericHex(str2, offset + 1);
         }
         this.state = EntityDecoderState.NumericDecimal;
-        return this.stateNumericDecimal(str, offset);
+        return this.stateNumericDecimal(str2, offset);
       }
-      addToNumericResult(str, start, end2, base) {
+      addToNumericResult(str2, start, end2, base) {
         if (start !== end2) {
           const digitCount = end2 - start;
-          this.result = this.result * Math.pow(base, digitCount) + parseInt(str.substr(start, digitCount), base);
+          this.result = this.result * Math.pow(base, digitCount) + parseInt(str2.substr(start, digitCount), base);
           this.consumed += digitCount;
         }
       }
@@ -22760,18 +22597,18 @@ var init_decode = __esm({
        * @param offset The current offset.
        * @returns The number of characters that were consumed, or -1 if the entity is incomplete.
        */
-      stateNumericHex(str, offset) {
+      stateNumericHex(str2, offset) {
         const startIdx = offset;
-        while (offset < str.length) {
-          const char = str.charCodeAt(offset);
+        while (offset < str2.length) {
+          const char = str2.charCodeAt(offset);
           if (isNumber(char) || isHexadecimalCharacter(char)) {
             offset += 1;
           } else {
-            this.addToNumericResult(str, startIdx, offset, 16);
+            this.addToNumericResult(str2, startIdx, offset, 16);
             return this.emitNumericEntity(char, 3);
           }
         }
-        this.addToNumericResult(str, startIdx, offset, 16);
+        this.addToNumericResult(str2, startIdx, offset, 16);
         return -1;
       }
       /**
@@ -22783,18 +22620,18 @@ var init_decode = __esm({
        * @param offset The current offset.
        * @returns The number of characters that were consumed, or -1 if the entity is incomplete.
        */
-      stateNumericDecimal(str, offset) {
+      stateNumericDecimal(str2, offset) {
         const startIdx = offset;
-        while (offset < str.length) {
-          const char = str.charCodeAt(offset);
+        while (offset < str2.length) {
+          const char = str2.charCodeAt(offset);
           if (isNumber(char)) {
             offset += 1;
           } else {
-            this.addToNumericResult(str, startIdx, offset, 10);
+            this.addToNumericResult(str2, startIdx, offset, 10);
             return this.emitNumericEntity(char, 2);
           }
         }
-        this.addToNumericResult(str, startIdx, offset, 10);
+        this.addToNumericResult(str2, startIdx, offset, 10);
         return -1;
       }
       /**
@@ -22811,9 +22648,9 @@ var init_decode = __esm({
        * @returns The number of characters that were consumed.
        */
       emitNumericEntity(lastCp, expectedLength) {
-        var _a6;
+        var _a7;
         if (this.consumed <= expectedLength) {
-          (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+          (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
           return 0;
         }
         if (lastCp === CharCodes.SEMI) {
@@ -22839,12 +22676,12 @@ var init_decode = __esm({
        * @param offset The current offset.
        * @returns The number of characters that were consumed, or -1 if the entity is incomplete.
        */
-      stateNamedEntity(str, offset) {
+      stateNamedEntity(str2, offset) {
         const { decodeTree } = this;
         let current2 = decodeTree[this.treeIndex];
         let valueLength = (current2 & BinTrieFlags.VALUE_LENGTH) >> 14;
-        for (; offset < str.length; offset++, this.excess++) {
-          const char = str.charCodeAt(offset);
+        for (; offset < str2.length; offset++, this.excess++) {
+          const char = str2.charCodeAt(offset);
           this.treeIndex = determineBranch(decodeTree, current2, this.treeIndex + Math.max(1, valueLength), char);
           if (this.treeIndex < 0) {
             return this.result === 0 || // If we are parsing an attribute
@@ -22873,11 +22710,11 @@ var init_decode = __esm({
        * @returns The number of characters consumed.
        */
       emitNotTerminatedNamedEntity() {
-        var _a6;
+        var _a7;
         const { result, decodeTree } = this;
         const valueLength = (decodeTree[result] & BinTrieFlags.VALUE_LENGTH) >> 14;
         this.emitNamedEntityData(result, valueLength, this.consumed);
-        (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.missingSemicolonAfterCharacterReference();
+        (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.missingSemicolonAfterCharacterReference();
         return this.consumed;
       }
       /**
@@ -22905,7 +22742,7 @@ var init_decode = __esm({
        * @returns The number of characters consumed.
        */
       end() {
-        var _a6;
+        var _a7;
         switch (this.state) {
           case EntityDecoderState.NamedEntity: {
             return this.result !== 0 && (this.decodeMode !== DecodingMode.Attribute || this.result === this.treeIndex) ? this.emitNotTerminatedNamedEntity() : 0;
@@ -22918,7 +22755,7 @@ var init_decode = __esm({
             return this.emitNumericEntity(0, 3);
           }
           case EntityDecoderState.NumericStart: {
-            (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+            (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
             return 0;
           }
           case EntityDecoderState.EntityStart: {
@@ -22947,23 +22784,23 @@ var init_encode_html = __esm({
 });
 
 // node_modules/entities/lib/esm/escape.js
-function encodeXML(str) {
+function encodeXML(str2) {
   let ret = "";
   let lastIdx = 0;
   let match;
-  while ((match = xmlReplacer.exec(str)) !== null) {
+  while ((match = xmlReplacer.exec(str2)) !== null) {
     const i = match.index;
-    const char = str.charCodeAt(i);
+    const char = str2.charCodeAt(i);
     const next2 = xmlCodeMap.get(char);
     if (next2 !== void 0) {
-      ret += str.substring(lastIdx, i) + next2;
+      ret += str2.substring(lastIdx, i) + next2;
       lastIdx = i + 1;
     } else {
-      ret += `${str.substring(lastIdx, i)}&#x${getCodePoint(str, i).toString(16)};`;
+      ret += `${str2.substring(lastIdx, i)}&#x${getCodePoint(str2, i).toString(16)};`;
       lastIdx = xmlReplacer.lastIndex += Number((char & 64512) === 55296);
     }
   }
-  return ret + str.substr(lastIdx);
+  return ret + str2.substr(lastIdx);
 }
 function getEscaper(regex, map2) {
   return function escape3(data2) {
@@ -22992,7 +22829,7 @@ var init_escape = __esm({
       [62, "&gt;"]
     ]);
     getCodePoint = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    String.prototype.codePointAt != null ? (str, index2) => str.codePointAt(index2) : (
+    String.prototype.codePointAt != null ? (str2, index2) => str2.codePointAt(index2) : (
       // http://mathiasbynens.be/notes/javascript-encoding#surrogate-formulae
       (c, index2) => (c.charCodeAt(index2) & 64512) === 55296 ? (c.charCodeAt(index2) - 55296) * 1024 + c.charCodeAt(index2 + 1) - 56320 + 65536 : c.charCodeAt(index2)
     );
@@ -23155,20 +22992,20 @@ function replaceQuotes(value) {
   return value.replace(/"/g, "&quot;");
 }
 function formatAttributes(attributes2, opts) {
-  var _a6;
+  var _a7;
   if (!attributes2)
     return;
-  const encode = ((_a6 = opts.encodeEntities) !== null && _a6 !== void 0 ? _a6 : opts.decodeEntities) === false ? replaceQuotes : opts.xmlMode || opts.encodeEntities !== "utf8" ? encodeXML : escapeAttribute;
+  const encode2 = ((_a7 = opts.encodeEntities) !== null && _a7 !== void 0 ? _a7 : opts.decodeEntities) === false ? replaceQuotes : opts.xmlMode || opts.encodeEntities !== "utf8" ? encodeXML : escapeAttribute;
   return Object.keys(attributes2).map((key) => {
-    var _a7, _b;
-    const value = (_a7 = attributes2[key]) !== null && _a7 !== void 0 ? _a7 : "";
+    var _a8, _b;
+    const value = (_a8 = attributes2[key]) !== null && _a8 !== void 0 ? _a8 : "";
     if (opts.xmlMode === "foreign") {
       key = (_b = attributeNames.get(key)) !== null && _b !== void 0 ? _b : key;
     }
     if (!opts.emptyAttrs && !opts.xmlMode && value === "") {
       return key;
     }
-    return `${key}="${encode(value)}"`;
+    return `${key}="${encode2(value)}"`;
   }).join(" ");
 }
 function render(node, options = {}) {
@@ -23200,9 +23037,9 @@ function renderNode(node, options) {
   }
 }
 function renderTag(elem, opts) {
-  var _a6;
+  var _a7;
   if (opts.xmlMode === "foreign") {
-    elem.name = (_a6 = elementNames.get(elem.name)) !== null && _a6 !== void 0 ? _a6 : elem.name;
+    elem.name = (_a7 = elementNames.get(elem.name)) !== null && _a7 !== void 0 ? _a7 : elem.name;
     if (elem.parent && foreignModeIntegrationPoints.has(elem.parent.name)) {
       opts = { ...opts, xmlMode: false };
     }
@@ -23240,9 +23077,9 @@ function renderDirective(elem) {
   return `<${elem.data}>`;
 }
 function renderText(elem, opts) {
-  var _a6;
+  var _a7;
   let data2 = elem.data || "";
-  if (((_a6 = opts.encodeEntities) !== null && _a6 !== void 0 ? _a6 : opts.decodeEntities) !== false && !(!opts.xmlMode && elem.parent && unencodedElements.has(elem.parent.name))) {
+  if (((_a7 = opts.encodeEntities) !== null && _a7 !== void 0 ? _a7 : opts.decodeEntities) !== false && !(!opts.xmlMode && elem.parent && unencodedElements.has(elem.parent.name))) {
     data2 = opts.xmlMode || opts.encodeEntities !== "utf8" ? encodeXML(data2) : escapeText(data2);
   }
   return data2;
@@ -23376,13 +23213,13 @@ function getSiblings(elem) {
   return siblings2;
 }
 function getAttributeValue(elem, name) {
-  var _a6;
-  return (_a6 = elem.attribs) === null || _a6 === void 0 ? void 0 : _a6[name];
+  var _a7;
+  return (_a7 = elem.attribs) === null || _a7 === void 0 ? void 0 : _a7[name];
 }
 function hasAttrib(elem, name) {
   return elem.attribs != null && Object.prototype.hasOwnProperty.call(elem.attribs, name) && elem.attribs[name] != null;
 }
-function getName2(elem) {
+function getName3(elem) {
   return elem.name;
 }
 function nextElementSibling(elem) {
@@ -23499,10 +23336,10 @@ var init_manipulation = __esm({
 });
 
 // node_modules/domutils/lib/esm/querying.js
-function filter(test, node, recurse = true, limit = Infinity) {
-  return find(test, Array.isArray(node) ? node : [node], recurse, limit);
+function filter(test, node, recurse = true, limit2 = Infinity) {
+  return find(test, Array.isArray(node) ? node : [node], recurse, limit2);
 }
-function find(test, nodes, recurse, limit) {
+function find(test, nodes, recurse, limit2) {
   const result = [];
   const nodeStack = [Array.isArray(nodes) ? nodes : [nodes]];
   const indexStack = [0];
@@ -23518,7 +23355,7 @@ function find(test, nodes, recurse, limit) {
     const elem = nodeStack[0][indexStack[0]++];
     if (test(elem)) {
       result.push(elem);
-      if (--limit <= 0)
+      if (--limit2 <= 0)
         return result;
     }
     if (recurse && hasChildren(elem) && elem.children.length > 0) {
@@ -23597,23 +23434,23 @@ function testElement(options, node) {
   const test = compileTest(options);
   return test ? test(node) : true;
 }
-function getElements(options, nodes, recurse, limit = Infinity) {
+function getElements(options, nodes, recurse, limit2 = Infinity) {
   const test = compileTest(options);
-  return test ? filter(test, nodes, recurse, limit) : [];
+  return test ? filter(test, nodes, recurse, limit2) : [];
 }
 function getElementById(id, nodes, recurse = true) {
   if (!Array.isArray(nodes))
     nodes = [nodes];
   return findOne(getAttribCheck("id", id), nodes, recurse);
 }
-function getElementsByTagName(tagName, nodes, recurse = true, limit = Infinity) {
-  return filter(Checks["tag_name"](tagName), nodes, recurse, limit);
+function getElementsByTagName(tagName, nodes, recurse = true, limit2 = Infinity) {
+  return filter(Checks["tag_name"](tagName), nodes, recurse, limit2);
 }
-function getElementsByClassName(className, nodes, recurse = true, limit = Infinity) {
-  return filter(getAttribCheck("class", className), nodes, recurse, limit);
+function getElementsByClassName(className, nodes, recurse = true, limit2 = Infinity) {
+  return filter(getAttribCheck("class", className), nodes, recurse, limit2);
 }
-function getElementsByTagType(type, nodes, recurse = true, limit = Infinity) {
-  return filter(Checks["tag_type"](type), nodes, recurse, limit);
+function getElementsByTagType(type, nodes, recurse = true, limit2 = Infinity) {
+  return filter(Checks["tag_type"](type), nodes, recurse, limit2);
 }
 var Checks;
 var init_legacy = __esm({
@@ -23735,25 +23572,25 @@ function getFeed(doc) {
   return !feedRoot ? null : feedRoot.name === "feed" ? getAtomFeed(feedRoot) : getRssFeed(feedRoot);
 }
 function getAtomFeed(feedRoot) {
-  var _a6;
+  var _a7;
   const childs = feedRoot.children;
   const feed = {
     type: "atom",
     items: getElementsByTagName("entry", childs).map((item) => {
-      var _a7;
+      var _a8;
       const { children: children2 } = item;
       const entry = { media: getMediaElements(children2) };
       addConditionally(entry, "id", "id", children2);
       addConditionally(entry, "title", "title", children2);
-      const href2 = (_a7 = getOneElement("link", children2)) === null || _a7 === void 0 ? void 0 : _a7.attribs["href"];
+      const href2 = (_a8 = getOneElement("link", children2)) === null || _a8 === void 0 ? void 0 : _a8.attribs["href"];
       if (href2) {
         entry.link = href2;
       }
-      const description = fetch3("summary", children2) || fetch3("content", children2);
+      const description = fetch4("summary", children2) || fetch4("content", children2);
       if (description) {
         entry.description = description;
       }
-      const pubDate = fetch3("updated", children2);
+      const pubDate = fetch4("updated", children2);
       if (pubDate) {
         entry.pubDate = new Date(pubDate);
       }
@@ -23762,12 +23599,12 @@ function getAtomFeed(feedRoot) {
   };
   addConditionally(feed, "id", "id", childs);
   addConditionally(feed, "title", "title", childs);
-  const href = (_a6 = getOneElement("link", childs)) === null || _a6 === void 0 ? void 0 : _a6.attribs["href"];
+  const href = (_a7 = getOneElement("link", childs)) === null || _a7 === void 0 ? void 0 : _a7.attribs["href"];
   if (href) {
     feed.link = href;
   }
   addConditionally(feed, "description", "subtitle", childs);
-  const updated = fetch3("updated", childs);
+  const updated = fetch4("updated", childs);
   if (updated) {
     feed.updated = new Date(updated);
   }
@@ -23775,8 +23612,8 @@ function getAtomFeed(feedRoot) {
   return feed;
 }
 function getRssFeed(feedRoot) {
-  var _a6, _b;
-  const childs = (_b = (_a6 = getOneElement("channel", feedRoot.children)) === null || _a6 === void 0 ? void 0 : _a6.children) !== null && _b !== void 0 ? _b : [];
+  var _a7, _b;
+  const childs = (_b = (_a7 = getOneElement("channel", feedRoot.children)) === null || _a7 === void 0 ? void 0 : _a7.children) !== null && _b !== void 0 ? _b : [];
   const feed = {
     type: feedRoot.name.substr(0, 3),
     id: "",
@@ -23787,7 +23624,7 @@ function getRssFeed(feedRoot) {
       addConditionally(entry, "title", "title", children2);
       addConditionally(entry, "link", "link", children2);
       addConditionally(entry, "description", "description", children2);
-      const pubDate = fetch3("pubDate", children2) || fetch3("dc:date", children2);
+      const pubDate = fetch4("pubDate", children2) || fetch4("dc:date", children2);
       if (pubDate)
         entry.pubDate = new Date(pubDate);
       return entry;
@@ -23796,7 +23633,7 @@ function getRssFeed(feedRoot) {
   addConditionally(feed, "title", "title", childs);
   addConditionally(feed, "link", "link", childs);
   addConditionally(feed, "description", "description", childs);
-  const updated = fetch3("lastBuildDate", childs);
+  const updated = fetch4("lastBuildDate", childs);
   if (updated) {
     feed.updated = new Date(updated);
   }
@@ -23829,11 +23666,11 @@ function getMediaElements(where) {
 function getOneElement(tagName, node) {
   return getElementsByTagName(tagName, node, true, 1)[0];
 }
-function fetch3(tagName, where, recurse = false) {
+function fetch4(tagName, where, recurse = false) {
   return textContent(getElementsByTagName(tagName, where, recurse, 1)).trim();
 }
 function addConditionally(obj, prop2, tagName, where, recurse = false) {
-  const val2 = fetch3(tagName, where, recurse);
+  const val2 = fetch4(tagName, where, recurse);
   if (val2)
     obj[prop2] = val2;
 }
@@ -23881,7 +23718,7 @@ __export(esm_exports2, {
   getElementsByTagType: () => getElementsByTagType,
   getFeed: () => getFeed,
   getInnerHTML: () => getInnerHTML,
-  getName: () => getName2,
+  getName: () => getName3,
   getOuterHTML: () => getOuterHTML,
   getParent: () => getParent,
   getSiblings: () => getSiblings,
@@ -24057,11 +23894,11 @@ var init_static = __esm({
 function isCheerio(maybeCheerio) {
   return maybeCheerio.cheerio != null;
 }
-function camelCase(str) {
-  return str.replace(/[._-](\w|$)/g, (_, x) => x.toUpperCase());
+function camelCase(str2) {
+  return str2.replace(/[._-](\w|$)/g, (_, x) => x.toUpperCase());
 }
-function cssCase(str) {
-  return str.replace(/[A-Z]/g, "-$&").toLowerCase();
+function cssCase(str2) {
+  return str2.replace(/[A-Z]/g, "-$&").toLowerCase();
 }
 function domEach(array2, fn) {
   const len = array2.length;
@@ -24069,15 +23906,15 @@ function domEach(array2, fn) {
     fn(array2[i], i);
   return array2;
 }
-function isHtml(str) {
-  if (typeof str !== "string") {
+function isHtml(str2) {
+  if (typeof str2 !== "string") {
     return false;
   }
-  const tagStart = str.indexOf("<");
-  if (tagStart === -1 || tagStart > str.length - 3)
+  const tagStart = str2.indexOf("<");
+  if (tagStart === -1 || tagStart > str2.length - 3)
     return false;
-  const tagChar = str.charCodeAt(tagStart + 1);
-  return (tagChar >= CharacterCode.LowerA && tagChar <= CharacterCode.LowerZ || tagChar >= CharacterCode.UpperA && tagChar <= CharacterCode.UpperZ || tagChar === CharacterCode.Exclamation) && str.includes(">", tagStart + 2);
+  const tagChar = str2.charCodeAt(tagStart + 1);
+  return (tagChar >= CharacterCode.LowerA && tagChar <= CharacterCode.LowerZ || tagChar >= CharacterCode.UpperA && tagChar <= CharacterCode.UpperZ || tagChar === CharacterCode.Exclamation) && str2.includes(">", tagStart + 2);
 }
 var CharacterCode;
 var init_utils = __esm({
@@ -24094,13 +23931,13 @@ var init_utils = __esm({
 
 // node_modules/htmlparser2/node_modules/entities/dist/esm/decode-codepoint.js
 function replaceCodePoint2(codePoint) {
-  var _a6;
+  var _a7;
   if (codePoint >= 55296 && codePoint <= 57343 || codePoint > 1114111) {
     return 65533;
   }
-  return (_a6 = decodeMap2.get(codePoint)) !== null && _a6 !== void 0 ? _a6 : codePoint;
+  return (_a7 = decodeMap2.get(codePoint)) !== null && _a7 !== void 0 ? _a7 : codePoint;
 }
-var _a3, decodeMap2, fromCodePoint2;
+var _a4, decodeMap2, fromCodePoint2;
 var init_decode_codepoint2 = __esm({
   "node_modules/htmlparser2/node_modules/entities/dist/esm/decode-codepoint.js"() {
     decodeMap2 = /* @__PURE__ */ new Map([
@@ -24135,7 +23972,7 @@ var init_decode_codepoint2 = __esm({
       [159, 376]
     ]);
     fromCodePoint2 = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/es-builtins
-    (_a3 = String.fromCodePoint) !== null && _a3 !== void 0 ? _a3 : ((codePoint) => {
+    (_a4 = String.fromCodePoint) !== null && _a4 !== void 0 ? _a4 : ((codePoint) => {
       let output = "";
       if (codePoint > 65535) {
         codePoint -= 65536;
@@ -24430,9 +24267,9 @@ var init_decode2 = __esm({
        * @returns The number of characters that were consumed.
        */
       emitNumericEntity(lastCp, expectedLength) {
-        var _a6;
+        var _a7;
         if (this.consumed <= expectedLength) {
-          (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+          (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
           return 0;
         }
         if (lastCp === CharCodes2.SEMI) {
@@ -24530,11 +24367,11 @@ var init_decode2 = __esm({
        * @returns The number of characters consumed.
        */
       emitNotTerminatedNamedEntity() {
-        var _a6;
+        var _a7;
         const { result, decodeTree } = this;
         const valueLength = (decodeTree[result] & BinTrieFlags2.VALUE_LENGTH) >> 14;
         this.emitNamedEntityData(result, valueLength, this.consumed);
-        (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.missingSemicolonAfterCharacterReference();
+        (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.missingSemicolonAfterCharacterReference();
         return this.consumed;
       }
       /**
@@ -24562,7 +24399,7 @@ var init_decode2 = __esm({
        * @returns The number of characters consumed.
        */
       end() {
-        var _a6;
+        var _a7;
         switch (this.state) {
           case EntityDecoderState2.NamedEntity: {
             return this.result !== 0 && (this.decodeMode !== DecodingMode2.Attribute || this.result === this.treeIndex) ? this.emitNotTerminatedNamedEntity() : 0;
@@ -24575,7 +24412,7 @@ var init_decode2 = __esm({
             return this.emitNumericEntity(0, 3);
           }
           case EntityDecoderState2.NumericStart: {
-            (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+            (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
             return 0;
           }
           case EntityDecoderState2.EntityStart: {
@@ -25399,7 +25236,7 @@ var init_Parser = __esm({
     reNameEnd = /\s|\//;
     Parser = class {
       constructor(cbs, options = {}) {
-        var _a6, _b, _c, _d, _e, _f;
+        var _a7, _b, _c, _d, _e, _f;
         this.options = options;
         this.startIndex = 0;
         this.endIndex = 0;
@@ -25415,7 +25252,7 @@ var init_Parser = __esm({
         this.ended = false;
         this.cbs = cbs !== null && cbs !== void 0 ? cbs : {};
         this.htmlMode = !this.options.xmlMode;
-        this.lowerCaseTagNames = (_a6 = options.lowerCaseTags) !== null && _a6 !== void 0 ? _a6 : this.htmlMode;
+        this.lowerCaseTagNames = (_a7 = options.lowerCaseTags) !== null && _a7 !== void 0 ? _a7 : this.htmlMode;
         this.lowerCaseAttributeNames = (_b = options.lowerCaseAttributeNames) !== null && _b !== void 0 ? _b : this.htmlMode;
         this.recognizeSelfClosing = (_c = options.recognizeSelfClosing) !== null && _c !== void 0 ? _c : !this.htmlMode;
         this.tokenizer = new ((_d = options.Tokenizer) !== null && _d !== void 0 ? _d : Tokenizer)(this.options, this);
@@ -25425,17 +25262,17 @@ var init_Parser = __esm({
       // Tokenizer event handlers
       /** @internal */
       ontext(start, endIndex) {
-        var _a6, _b;
+        var _a7, _b;
         const data2 = this.getSlice(start, endIndex);
         this.endIndex = endIndex - 1;
-        (_b = (_a6 = this.cbs).ontext) === null || _b === void 0 ? void 0 : _b.call(_a6, data2);
+        (_b = (_a7 = this.cbs).ontext) === null || _b === void 0 ? void 0 : _b.call(_a7, data2);
         this.startIndex = endIndex;
       }
       /** @internal */
       ontextentity(cp, endIndex) {
-        var _a6, _b;
+        var _a7, _b;
         this.endIndex = endIndex - 1;
-        (_b = (_a6 = this.cbs).ontext) === null || _b === void 0 ? void 0 : _b.call(_a6, fromCodePoint2(cp));
+        (_b = (_a7 = this.cbs).ontext) === null || _b === void 0 ? void 0 : _b.call(_a7, fromCodePoint2(cp));
         this.startIndex = endIndex;
       }
       /**
@@ -25455,14 +25292,14 @@ var init_Parser = __esm({
         this.emitOpenTag(name);
       }
       emitOpenTag(name) {
-        var _a6, _b, _c, _d;
+        var _a7, _b, _c, _d;
         this.openTagStart = this.startIndex;
         this.tagname = name;
         const impliesClose = this.htmlMode && openImpliesClose.get(name);
         if (impliesClose) {
           while (this.stack.length > 0 && impliesClose.has(this.stack[0])) {
             const element = this.stack.shift();
-            (_b = (_a6 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a6, element, true);
+            (_b = (_a7 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a7, element, true);
           }
         }
         if (!this.isVoidElement(name)) {
@@ -25480,10 +25317,10 @@ var init_Parser = __esm({
           this.attribs = {};
       }
       endOpenTag(isImplied) {
-        var _a6, _b;
+        var _a7, _b;
         this.startIndex = this.openTagStart;
         if (this.attribs) {
-          (_b = (_a6 = this.cbs).onopentag) === null || _b === void 0 ? void 0 : _b.call(_a6, this.tagname, this.attribs, isImplied);
+          (_b = (_a7 = this.cbs).onopentag) === null || _b === void 0 ? void 0 : _b.call(_a7, this.tagname, this.attribs, isImplied);
           this.attribs = null;
         }
         if (this.cbs.onclosetag && this.isVoidElement(this.tagname)) {
@@ -25499,7 +25336,7 @@ var init_Parser = __esm({
       }
       /** @internal */
       onclosetag(start, endIndex) {
-        var _a6, _b, _c, _d, _e, _f, _g, _h;
+        var _a7, _b, _c, _d, _e, _f, _g, _h;
         this.endIndex = endIndex;
         let name = this.getSlice(start, endIndex);
         if (this.lowerCaseTagNames) {
@@ -25513,7 +25350,7 @@ var init_Parser = __esm({
           if (pos !== -1) {
             for (let index2 = 0; index2 <= pos; index2++) {
               const element = this.stack.shift();
-              (_b = (_a6 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a6, element, index2 !== pos);
+              (_b = (_a7 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a7, element, index2 !== pos);
             }
           } else if (this.htmlMode && name === "p") {
             this.emitOpenTag("p");
@@ -25537,11 +25374,11 @@ var init_Parser = __esm({
         }
       }
       closeCurrentTag(isOpenImplied) {
-        var _a6, _b;
+        var _a7, _b;
         const name = this.tagname;
         this.endOpenTag(isOpenImplied);
         if (this.stack[0] === name) {
-          (_b = (_a6 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a6, name, !isOpenImplied);
+          (_b = (_a7 = this.cbs).onclosetag) === null || _b === void 0 ? void 0 : _b.call(_a7, name, !isOpenImplied);
           this.stack.shift();
         }
       }
@@ -25561,9 +25398,9 @@ var init_Parser = __esm({
       }
       /** @internal */
       onattribend(quote, endIndex) {
-        var _a6, _b;
+        var _a7, _b;
         this.endIndex = endIndex;
-        (_b = (_a6 = this.cbs).onattribute) === null || _b === void 0 ? void 0 : _b.call(_a6, this.attribname, this.attribvalue, quote === QuoteType.Double ? '"' : quote === QuoteType.Single ? "'" : quote === QuoteType.NoValue ? void 0 : null);
+        (_b = (_a7 = this.cbs).onattribute) === null || _b === void 0 ? void 0 : _b.call(_a7, this.attribname, this.attribvalue, quote === QuoteType.Double ? '"' : quote === QuoteType.Single ? "'" : quote === QuoteType.NoValue ? void 0 : null);
         if (this.attribs && !Object.prototype.hasOwnProperty.call(this.attribs, this.attribname)) {
           this.attribs[this.attribname] = this.attribvalue;
         }
@@ -25599,19 +25436,19 @@ var init_Parser = __esm({
       }
       /** @internal */
       oncomment(start, endIndex, offset) {
-        var _a6, _b, _c, _d;
+        var _a7, _b, _c, _d;
         this.endIndex = endIndex;
-        (_b = (_a6 = this.cbs).oncomment) === null || _b === void 0 ? void 0 : _b.call(_a6, this.getSlice(start, endIndex - offset));
+        (_b = (_a7 = this.cbs).oncomment) === null || _b === void 0 ? void 0 : _b.call(_a7, this.getSlice(start, endIndex - offset));
         (_d = (_c = this.cbs).oncommentend) === null || _d === void 0 ? void 0 : _d.call(_c);
         this.startIndex = endIndex + 1;
       }
       /** @internal */
       oncdata(start, endIndex, offset) {
-        var _a6, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var _a7, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         this.endIndex = endIndex;
         const value = this.getSlice(start, endIndex - offset);
         if (!this.htmlMode || this.options.recognizeCDATA) {
-          (_b = (_a6 = this.cbs).oncdatastart) === null || _b === void 0 ? void 0 : _b.call(_a6);
+          (_b = (_a7 = this.cbs).oncdatastart) === null || _b === void 0 ? void 0 : _b.call(_a7);
           (_d = (_c = this.cbs).ontext) === null || _d === void 0 ? void 0 : _d.call(_c, value);
           (_f = (_e = this.cbs).oncdataend) === null || _f === void 0 ? void 0 : _f.call(_e);
         } else {
@@ -25622,21 +25459,21 @@ var init_Parser = __esm({
       }
       /** @internal */
       onend() {
-        var _a6, _b;
+        var _a7, _b;
         if (this.cbs.onclosetag) {
           this.endIndex = this.startIndex;
           for (let index2 = 0; index2 < this.stack.length; index2++) {
             this.cbs.onclosetag(this.stack[index2], true);
           }
         }
-        (_b = (_a6 = this.cbs).onend) === null || _b === void 0 ? void 0 : _b.call(_a6);
+        (_b = (_a7 = this.cbs).onend) === null || _b === void 0 ? void 0 : _b.call(_a7);
       }
       /**
        * Resets the parser to a blank state, ready to parse a new HTML document
        */
       reset() {
-        var _a6, _b, _c, _d;
-        (_b = (_a6 = this.cbs).onreset) === null || _b === void 0 ? void 0 : _b.call(_a6);
+        var _a7, _b, _c, _d;
+        (_b = (_a7 = this.cbs).onreset) === null || _b === void 0 ? void 0 : _b.call(_a7);
         this.tokenizer.reset();
         this.tagname = "";
         this.attribname = "";
@@ -25684,9 +25521,9 @@ var init_Parser = __esm({
        * @param chunk Chunk to parse.
        */
       write(chunk) {
-        var _a6, _b;
+        var _a7, _b;
         if (this.ended) {
-          (_b = (_a6 = this.cbs).onerror) === null || _b === void 0 ? void 0 : _b.call(_a6, new Error(".write() after done!"));
+          (_b = (_a7 = this.cbs).onerror) === null || _b === void 0 ? void 0 : _b.call(_a7, new Error(".write() after done!"));
           return;
         }
         this.buffers.push(chunk);
@@ -25701,9 +25538,9 @@ var init_Parser = __esm({
        * @param chunk Optional final chunk to parse.
        */
       end(chunk) {
-        var _a6, _b;
+        var _a7, _b;
         if (this.ended) {
-          (_b = (_a6 = this.cbs).onerror) === null || _b === void 0 ? void 0 : _b.call(_a6, new Error(".end() after done!"));
+          (_b = (_a7 = this.cbs).onerror) === null || _b === void 0 ? void 0 : _b.call(_a7, new Error(".end() after done!"));
           return;
         }
         if (chunk)
@@ -25784,14 +25621,14 @@ __export(attributes_exports, {
   val: () => val
 });
 function getAttr(elem, name, xmlMode) {
-  var _a6;
+  var _a7;
   if (!elem || !isTag2(elem))
     return void 0;
-  (_a6 = elem.attribs) !== null && _a6 !== void 0 ? _a6 : elem.attribs = {};
+  (_a7 = elem.attribs) !== null && _a7 !== void 0 ? _a7 : elem.attribs = {};
   if (!name) {
     return elem.attribs;
   }
-  if (hasOwn2(elem.attribs, name)) {
+  if (hasOwn3(elem.attribs, name)) {
     return !xmlMode && rboolean.test(name) ? name : elem.attribs[name];
   }
   if (elem.name === "option" && name === "value") {
@@ -25851,7 +25688,7 @@ function setProp(el, name, value, xmlMode) {
   }
 }
 function prop(name, value) {
-  var _a6;
+  var _a7;
   if (typeof name === "string" && value === void 0) {
     const el = this[0];
     if (!el)
@@ -25876,7 +25713,7 @@ function prop(name, value) {
       case "src": {
         if (!isTag2(el))
           return void 0;
-        const prop2 = (_a6 = el.attribs) === null || _a6 === void 0 ? void 0 : _a6[name];
+        const prop2 = (_a7 = el.attribs) === null || _a7 === void 0 ? void 0 : _a7[name];
         if (typeof URL !== "undefined" && (name === "href" && (el.tagName === "a" || el.tagName === "link") || name === "src" && (el.tagName === "img" || el.tagName === "iframe" || el.tagName === "audio" || el.tagName === "video" || el.tagName === "source")) && prop2 !== void 0 && this.options.baseURI) {
           return new URL(prop2, this.options.baseURI).href;
         }
@@ -25930,8 +25767,8 @@ function prop(name, value) {
   return void 0;
 }
 function setData(elem, name, value) {
-  var _a6;
-  (_a6 = elem.data) !== null && _a6 !== void 0 ? _a6 : elem.data = {};
+  var _a7;
+  (_a7 = elem.data) !== null && _a7 !== void 0 ? _a7 : elem.data = {};
   if (typeof name === "object")
     Object.assign(elem.data, name);
   else if (typeof name === "string" && value !== void 0) {
@@ -25944,7 +25781,7 @@ function readAllData(el) {
       continue;
     }
     const jsName = camelCase(domName.slice(dataAttrPrefix.length));
-    if (!hasOwn2(el.data, jsName)) {
+    if (!hasOwn3(el.data, jsName)) {
       el.data[jsName] = parseDataValue(el.attribs[domName]);
     }
   }
@@ -25953,10 +25790,10 @@ function readAllData(el) {
 function readData(el, name) {
   const domName = dataAttrPrefix + cssCase(name);
   const data2 = el.data;
-  if (hasOwn2(data2, name)) {
+  if (hasOwn3(data2, name)) {
     return data2[name];
   }
-  if (hasOwn2(el.attribs, domName)) {
+  if (hasOwn3(el.attribs, domName)) {
     return data2[name] = parseDataValue(el.attribs[domName]);
   }
   return void 0;
@@ -25980,12 +25817,12 @@ function parseDataValue(value) {
   return value;
 }
 function data(name, value) {
-  var _a6;
+  var _a7;
   const elem = this[0];
   if (!elem || !isTag2(elem))
     return;
   const dataEl = elem;
-  (_a6 = dataEl.data) !== null && _a6 !== void 0 ? _a6 : dataEl.data = {};
+  (_a7 = dataEl.data) !== null && _a7 !== void 0 ? _a7 : dataEl.data = {};
   if (name == null) {
     return readAllData(dataEl);
   }
@@ -26035,7 +25872,7 @@ function val(value) {
   return void 0;
 }
 function removeAttribute(elem, name) {
-  if (!elem.attribs || !hasOwn2(elem.attribs, name))
+  if (!elem.attribs || !hasOwn3(elem.attribs, name))
     return;
   delete elem.attribs[name];
 }
@@ -26163,7 +26000,7 @@ function toggleClass(value, stateVal) {
   }
   return this;
 }
-var _a4, hasOwn2, rspace, dataAttrPrefix, rboolean, rbrace;
+var _a5, hasOwn3, rspace, dataAttrPrefix, rboolean, rbrace;
 var init_attributes = __esm({
   "node_modules/cheerio/dist/browser/api/attributes.js"() {
     init_static();
@@ -26171,8 +26008,8 @@ var init_attributes = __esm({
     init_esm2();
     init_esm5();
     init_esm6();
-    hasOwn2 = // @ts-expect-error `hasOwn` is a standard object method
-    (_a4 = Object.hasOwn) !== null && _a4 !== void 0 ? _a4 : ((object3, prop2) => Object.prototype.hasOwnProperty.call(object3, prop2));
+    hasOwn3 = // @ts-expect-error `hasOwn` is a standard object method
+    (_a5 = Object.hasOwn) !== null && _a5 !== void 0 ? _a5 : ((object3, prop2) => Object.prototype.hasOwnProperty.call(object3, prop2));
     rspace = /\s+/;
     dataAttrPrefix = "data-";
     rboolean = /^(?:autofocus|autoplay|async|checked|controls|defer|disabled|hidden|loop|multiple|open|readonly|required|scoped|selected)$/i;
@@ -26234,8 +26071,8 @@ function funescape(_, escaped, escapedWhitespace) {
     String.fromCharCode(high >> 10 | 55296, high & 1023 | 56320)
   );
 }
-function unescapeCSS(str) {
-  return str.replace(reEscape, funescape);
+function unescapeCSS(str2) {
+  return str2.replace(reEscape, funescape);
 }
 function isQuote(c) {
   return c === 39 || c === 34;
@@ -26253,7 +26090,7 @@ function parse(selector) {
 }
 function parseSelector(subselects2, selector, selectorIndex) {
   let tokens = [];
-  function getName3(offset) {
+  function getName4(offset) {
     const match = selector.slice(selectorIndex + offset).match(reName);
     if (!match) {
       throw new Error(`Expected name, found ${selector.slice(selectorIndex)}`);
@@ -26308,7 +26145,7 @@ function parseSelector(subselects2, selector, selectorIndex) {
       type: SelectorType.Attribute,
       name,
       action,
-      value: getName3(1),
+      value: getName4(1),
       namespace: null,
       ignoreCase: "quirks"
     });
@@ -26377,15 +26214,15 @@ function parseSelector(subselects2, selector, selectorIndex) {
         let name;
         let namespace = null;
         if (selector.charCodeAt(selectorIndex) === 124) {
-          name = getName3(1);
+          name = getName4(1);
         } else if (selector.startsWith("*|", selectorIndex)) {
           namespace = "*";
-          name = getName3(2);
+          name = getName4(2);
         } else {
-          name = getName3(0);
+          name = getName4(0);
           if (selector.charCodeAt(selectorIndex) === 124 && selector.charCodeAt(selectorIndex + 1) !== 61) {
             namespace = name;
-            name = getName3(1);
+            name = getName4(1);
           }
         }
         stripWhitespace(0);
@@ -26451,12 +26288,12 @@ function parseSelector(subselects2, selector, selectorIndex) {
         if (selector.charCodeAt(selectorIndex + 1) === 58) {
           tokens.push({
             type: SelectorType.PseudoElement,
-            name: getName3(2).toLowerCase(),
+            name: getName4(2).toLowerCase(),
             data: selector.charCodeAt(selectorIndex) === 40 ? readValueWithParenthesis() : null
           });
           continue;
         }
-        const name = getName3(1).toLowerCase();
+        const name = getName4(1).toLowerCase();
         let data2 = null;
         if (selector.charCodeAt(selectorIndex) === 40) {
           if (unpackPseudos.has(name)) {
@@ -26514,7 +26351,7 @@ function parseSelector(subselects2, selector, selectorIndex) {
             break;
           }
         } else if (reName.test(selector.slice(selectorIndex))) {
-          name = getName3(0);
+          name = getName4(0);
         } else {
           break loop;
         }
@@ -26524,7 +26361,7 @@ function parseSelector(subselects2, selector, selectorIndex) {
             name = "*";
             selectorIndex += 2;
           } else {
-            name = getName3(1);
+            name = getName4(1);
           }
         }
         tokens.push(name === "*" ? { type: SelectorType.Universal, namespace } : { type: SelectorType.Tag, name, namespace });
@@ -26603,8 +26440,8 @@ function sortByProcedure(arr) {
   }
 }
 function getProcedure(token) {
-  var _a6, _b;
-  let proc = (_a6 = procedure.get(token.type)) !== null && _a6 !== void 0 ? _a6 : -1;
+  var _a7, _b;
+  let proc = (_a7 = procedure.get(token.type)) !== null && _a7 !== void 0 ? _a7 : -1;
   if (token.type === SelectorType.Attribute) {
     proc = (_b = attributes.get(token.action)) !== null && _b !== void 0 ? _b : 4;
     if (token.action === AttributeAction.Equals && token.name === "id") {
@@ -26772,8 +26609,8 @@ var init_attributes2 = __esm({
           };
         }
         return (elem) => {
-          var _a6;
-          return !!((_a6 = adapter2.getAttributeValue(elem, name)) === null || _a6 === void 0 ? void 0 : _a6.startsWith(value)) && next2(elem);
+          var _a7;
+          return !!((_a7 = adapter2.getAttributeValue(elem, name)) === null || _a7 === void 0 ? void 0 : _a7.startsWith(value)) && next2(elem);
         };
       },
       end(next2, data2, options) {
@@ -26787,13 +26624,13 @@ var init_attributes2 = __esm({
         if (shouldIgnoreCase(data2, options)) {
           value = value.toLowerCase();
           return (elem) => {
-            var _a6;
-            return ((_a6 = adapter2.getAttributeValue(elem, name)) === null || _a6 === void 0 ? void 0 : _a6.substr(len).toLowerCase()) === value && next2(elem);
+            var _a7;
+            return ((_a7 = adapter2.getAttributeValue(elem, name)) === null || _a7 === void 0 ? void 0 : _a7.substr(len).toLowerCase()) === value && next2(elem);
           };
         }
         return (elem) => {
-          var _a6;
-          return !!((_a6 = adapter2.getAttributeValue(elem, name)) === null || _a6 === void 0 ? void 0 : _a6.endsWith(value)) && next2(elem);
+          var _a7;
+          return !!((_a7 = adapter2.getAttributeValue(elem, name)) === null || _a7 === void 0 ? void 0 : _a7.endsWith(value)) && next2(elem);
         };
       },
       any(next2, data2, options) {
@@ -26810,8 +26647,8 @@ var init_attributes2 = __esm({
           };
         }
         return (elem) => {
-          var _a6;
-          return !!((_a6 = adapter2.getAttributeValue(elem, name)) === null || _a6 === void 0 ? void 0 : _a6.includes(value)) && next2(elem);
+          var _a7;
+          return !!((_a7 = adapter2.getAttributeValue(elem, name)) === null || _a7 === void 0 ? void 0 : _a7.includes(value)) && next2(elem);
         };
       },
       not(next2, data2, options) {
@@ -27258,7 +27095,7 @@ var init_subselects = __esm({
 
 // node_modules/css-select/lib/esm/pseudo-selectors/index.js
 function compilePseudoSelector(next2, selector, options, context, compileToken2) {
-  var _a6;
+  var _a7;
   const { name, data: data2 } = selector;
   if (Array.isArray(data2)) {
     if (!(name in subselects)) {
@@ -27266,7 +27103,7 @@ function compilePseudoSelector(next2, selector, options, context, compileToken2)
     }
     return subselects[name](next2, data2, options, context, compileToken2);
   }
-  const userPseudo = (_a6 = options.pseudos) === null || _a6 === void 0 ? void 0 : _a6[name];
+  const userPseudo = (_a7 = options.pseudos) === null || _a7 === void 0 ? void 0 : _a7[name];
   const stringPseudo = typeof userPseudo === "string" ? userPseudo : aliases[name];
   if (typeof stringPseudo === "string") {
     if (data2 != null) {
@@ -27468,9 +27305,9 @@ function absolutize(token, { adapter: adapter2 }, context) {
   }
 }
 function compileToken(token, options, context) {
-  var _a6;
+  var _a7;
   token.forEach(sortByProcedure);
-  context = (_a6 = options.context) !== null && _a6 !== void 0 ? _a6 : context;
+  context = (_a7 = options.context) !== null && _a7 !== void 0 ? _a7 : context;
   const isArrayContext = Array.isArray(context);
   const finalContext = context && (Array.isArray(context) ? context : [context]);
   if (options.relativeSelector !== false) {
@@ -27495,8 +27332,8 @@ function compileToken(token, options, context) {
   return query;
 }
 function compileRules(rules, options, context) {
-  var _a6;
-  return rules.reduce((previous, rule) => previous === import_boolbase5.default.falseFunc ? import_boolbase5.default.falseFunc : compileGeneralSelector(previous, rule, options, context, compileToken), (_a6 = options.rootFunc) !== null && _a6 !== void 0 ? _a6 : import_boolbase5.default.trueFunc);
+  var _a7;
+  return rules.reduce((previous, rule) => previous === import_boolbase5.default.falseFunc ? import_boolbase5.default.falseFunc : compileGeneralSelector(previous, rule, options, context, compileToken), (_a7 = options.rootFunc) !== null && _a7 !== void 0 ? _a7 : import_boolbase5.default.trueFunc);
 }
 function reduceRules(a, b) {
   if (b === import_boolbase5.default.falseFunc || a === import_boolbase5.default.trueFunc) {
@@ -27531,9 +27368,9 @@ var init_compile2 = __esm({
 
 // node_modules/css-select/lib/esm/index.js
 function convertOptionFormats(options) {
-  var _a6, _b, _c, _d;
+  var _a7, _b, _c, _d;
   const opts = options !== null && options !== void 0 ? options : defaultOptions;
-  (_a6 = opts.adapter) !== null && _a6 !== void 0 ? _a6 : opts.adapter = esm_exports2;
+  (_a7 = opts.adapter) !== null && _a7 !== void 0 ? _a7 : opts.adapter = esm_exports2;
   (_b = opts.equals) !== null && _b !== void 0 ? _b : opts.equals = (_d = (_c = opts.adapter) === null || _c === void 0 ? void 0 : _c.equals) !== null && _d !== void 0 ? _d : defaultEquals;
   return opts;
 }
@@ -27734,23 +27571,23 @@ function filterParsed(selector, elements, options) {
   ) : [];
 }
 function filterBySelector(selector, elements, options) {
-  var _a6;
+  var _a7;
   if (selector.some(isTraversal)) {
-    const root2 = (_a6 = options.root) !== null && _a6 !== void 0 ? _a6 : getDocumentRoot(elements[0]);
+    const root2 = (_a7 = options.root) !== null && _a7 !== void 0 ? _a7 : getDocumentRoot(elements[0]);
     const opts = { ...options, context: elements, relativeSelector: false };
     selector.push(SCOPE_PSEUDO);
     return findFilterElements(root2, selector, opts, true, elements.length);
   }
   return findFilterElements(elements, selector, options, false, elements.length);
 }
-function select(selector, root2, options = {}, limit = Infinity) {
+function select(selector, root2, options = {}, limit2 = Infinity) {
   if (typeof selector === "function") {
     return find2(root2, selector);
   }
   const [plain, filtered] = groupSelectors(parse(selector));
-  const results = filtered.map((sel) => findFilterElements(root2, sel, options, true, limit));
+  const results = filtered.map((sel) => findFilterElements(root2, sel, options, true, limit2));
   if (plain.length) {
-    results.push(findElements(root2, plain, options, limit));
+    results.push(findElements(root2, plain, options, limit2));
   }
   if (results.length === 0) {
     return [];
@@ -27765,11 +27602,11 @@ function findFilterElements(root2, selector, options, queryForSelector, totalLim
   const sub = selector.slice(0, filterIndex);
   const filter4 = selector[filterIndex];
   const partLimit = selector.length - 1 === filterIndex ? totalLimit : Infinity;
-  const limit = getLimit(filter4.name, filter4.data, partLimit);
-  if (limit === 0)
+  const limit2 = getLimit(filter4.name, filter4.data, partLimit);
+  if (limit2 === 0)
     return [];
-  const elemsNoLimit = sub.length === 0 && !Array.isArray(root2) ? getChildren(root2).filter(isTag2) : sub.length === 0 ? (Array.isArray(root2) ? root2 : [root2]).filter(isTag2) : queryForSelector || sub.some(isTraversal) ? findElements(root2, [sub], options, limit) : filterElements(root2, [sub], options);
-  const elems = elemsNoLimit.slice(0, limit);
+  const elemsNoLimit = sub.length === 0 && !Array.isArray(root2) ? getChildren(root2).filter(isTag2) : sub.length === 0 ? (Array.isArray(root2) ? root2 : [root2]).filter(isTag2) : queryForSelector || sub.some(isTraversal) ? findElements(root2, [sub], options, limit2) : filterElements(root2, [sub], options);
+  const elems = elemsNoLimit.slice(0, limit2);
   let result = filterByPosition(filter4.name, elems, filter4.data, options);
   if (result.length === 0 || selector.length === filterIndex + 1) {
     return result;
@@ -27805,13 +27642,13 @@ function findFilterElements(root2, selector, options, queryForSelector, totalLim
     filterElements(result, [remainingSelector], options)
   );
 }
-function findElements(root2, sel, options, limit) {
+function findElements(root2, sel, options, limit2) {
   const query = _compileToken(sel, options, root2);
-  return find2(root2, query, limit);
+  return find2(root2, query, limit2);
 }
-function find2(root2, query, limit = Infinity) {
+function find2(root2, query, limit2 = Infinity) {
   const elems = prepareContext(root2, esm_exports2, query.shouldTestNextSiblings);
-  return find((node) => isTag2(node) && query(node), elems, true, limit);
+  return find((node) => isTag2(node) && query(node), elems, true, limit2);
 }
 function filterElements(elements, sel, options) {
   const els = (Array.isArray(elements) ? elements : [elements]).filter(isTag2);
@@ -27859,7 +27696,7 @@ __export(traversing_exports, {
   find: () => find3,
   first: () => first,
   get: () => get,
-  has: () => has,
+  has: () => has2,
   index: () => index,
   is: () => is3,
   last: () => last,
@@ -27889,13 +27726,13 @@ function find3(selectorOrHaystack) {
   }
   return this._findBySelector(selectorOrHaystack, Number.POSITIVE_INFINITY);
 }
-function _findBySelector(selector, limit) {
-  var _a6;
+function _findBySelector(selector, limit2) {
+  var _a7;
   const context = this.toArray();
   const elems = reContextSelector.test(selector) ? context : this.children().toArray();
   const options = {
     context,
-    root: (_a6 = this._root) === null || _a6 === void 0 ? void 0 : _a6[0],
+    root: (_a7 = this._root) === null || _a7 === void 0 ? void 0 : _a7[0],
     // Pass options that are recognized by `cheerio-select`
     xmlMode: this.options.xmlMode,
     lowerCaseTags: this.options.lowerCaseTags,
@@ -27903,15 +27740,15 @@ function _findBySelector(selector, limit) {
     pseudos: this.options.pseudos,
     quirksMode: this.options.quirksMode
   };
-  return this._make(select(selector, elems, options, limit));
+  return this._make(select(selector, elems, options, limit2));
 }
 function _getMatcher(matchMap) {
   return function(fn, ...postFns) {
     return function(selector) {
-      var _a6;
+      var _a7;
       let matched = matchMap(fn, this);
       if (selector) {
-        matched = filterArray(matched, selector, this.options.xmlMode, (_a6 = this._root) === null || _a6 === void 0 ? void 0 : _a6[0]);
+        matched = filterArray(matched, selector, this.options.xmlMode, (_a7 = this._root) === null || _a7 === void 0 ? void 0 : _a7[0]);
       }
       return this._make(
         // Post processing is only necessary if there is more than one element.
@@ -27944,14 +27781,14 @@ function _removeDuplicates(elems) {
   return elems.length > 1 ? Array.from(new Set(elems)) : elems;
 }
 function closest(selector) {
-  var _a6;
+  var _a7;
   const set = [];
   if (!selector) {
     return this._make(set);
   }
   const selectOpts = {
     xmlMode: this.options.xmlMode,
-    root: (_a6 = this._root) === null || _a6 === void 0 ? void 0 : _a6[0]
+    root: (_a7 = this._root) === null || _a7 === void 0 ? void 0 : _a7[0]
   };
   const selectFn = typeof selector === "string" ? (elem) => is2(elem, selector, selectOpts) : getFilterFn(selector);
   domEach(this, (elem) => {
@@ -28004,8 +27841,8 @@ function getFilterFn(match) {
   };
 }
 function filter3(match) {
-  var _a6;
-  return this._make(filterArray(this.toArray(), match, this.options.xmlMode, (_a6 = this._root) === null || _a6 === void 0 ? void 0 : _a6[0]));
+  var _a7;
+  return this._make(filterArray(this.toArray(), match, this.options.xmlMode, (_a7 = this._root) === null || _a7 === void 0 ? void 0 : _a7[0]));
 }
 function filterArray(nodes, match, xmlMode, root2) {
   return typeof match === "string" ? filter2(match, nodes, { xmlMode, root: root2 }) : nodes.filter(getFilterFn(match));
@@ -28025,7 +27862,7 @@ function not(match) {
   }
   return this._make(nodes);
 }
-function has(selectorOrHaystack) {
+function has2(selectorOrHaystack) {
   return this.filter(typeof selectorOrHaystack === "string" ? (
     // Using the `:has` selector here short-circuits searches.
     `:has(${selectorOrHaystack})`
@@ -28038,13 +27875,13 @@ function last() {
   return this.length > 0 ? this._make(this[this.length - 1]) : this;
 }
 function eq(i) {
-  var _a6;
+  var _a7;
   i = +i;
   if (i === 0 && this.length <= 1)
     return this;
   if (i < 0)
     i = this.length + i;
-  return this._make((_a6 = this[i]) !== null && _a6 !== void 0 ? _a6 : []);
+  return this._make((_a7 = this[i]) !== null && _a7 !== void 0 ? _a7 : []);
 }
 function get(i) {
   if (i == null) {
@@ -28074,8 +27911,8 @@ function slice(start, end2) {
   return this._make(Array.prototype.slice.call(this, start, end2));
 }
 function end() {
-  var _a6;
-  return (_a6 = this.prevObject) !== null && _a6 !== void 0 ? _a6 : this._make([]);
+  var _a7;
+  return (_a7 = this.prevObject) !== null && _a7 !== void 0 ? _a7 : this._make([]);
 }
 function add(other, context) {
   const selection = this._make(other, context);
@@ -28273,7 +28110,7 @@ function _insert(concatenator) {
   };
 }
 function uniqueSplice(array2, spliceIdx, spliceCount, newElems, parent2) {
-  var _a6, _b;
+  var _a7, _b;
   const spliceArgs = [
     spliceIdx,
     spliceCount,
@@ -28296,7 +28133,7 @@ function uniqueSplice(array2, spliceIdx, spliceCount, newElems, parent2) {
     }
     node.parent = parent2;
     if (node.prev) {
-      node.prev.next = (_a6 = node.next) !== null && _a6 !== void 0 ? _a6 : null;
+      node.prev.next = (_a7 = node.next) !== null && _a7 !== void 0 ? _a7 : null;
     }
     if (node.next) {
       node.next.prev = (_b = node.prev) !== null && _b !== void 0 ? _b : null;
@@ -28484,8 +28321,8 @@ function empty() {
     el.children.length = 0;
   });
 }
-function html2(str) {
-  if (str === void 0) {
+function html2(str2) {
+  if (str2 === void 0) {
     const el = this[0];
     if (!el || !hasChildren(el))
       return null;
@@ -28497,19 +28334,19 @@ function html2(str) {
     for (const child of el.children) {
       child.next = child.prev = child.parent = null;
     }
-    const content = isCheerio(str) ? str.toArray() : this._parse(`${str}`, this.options, false, el).children;
+    const content = isCheerio(str2) ? str2.toArray() : this._parse(`${str2}`, this.options, false, el).children;
     update(content, el);
   });
 }
 function toString() {
   return this._render(this);
 }
-function text2(str) {
-  if (str === void 0) {
+function text2(str2) {
+  if (str2 === void 0) {
     return text(this);
   }
-  if (typeof str === "function") {
-    return domEach(this, (el, i) => this._make(el).text(str.call(el, i, text([el]))));
+  if (typeof str2 === "function") {
+    return domEach(this, (el, i) => this._make(el).text(str2.call(el, i, text([el]))));
   }
   return domEach(this, (el) => {
     if (!hasChildren(el))
@@ -28517,7 +28354,7 @@ function text2(str) {
     for (const child of el.children) {
       child.next = child.prev = child.parent = null;
     }
-    const textNode = new Text2(`${str}`);
+    const textNode = new Text2(`${str2}`);
     update(textNode, el);
   });
 }
@@ -28590,7 +28427,7 @@ function setCss(el, prop2, value, idx) {
     } else if (val2 != null) {
       styles[prop2] = val2;
     }
-    el.attribs["style"] = stringify(styles);
+    el.attribs["style"] = stringify2(styles);
   } else if (typeof prop2 === "object") {
     const keys = Object.keys(prop2);
     for (let i = 0; i < keys.length; i++) {
@@ -28617,8 +28454,8 @@ function getCss(el, prop2) {
   }
   return styles;
 }
-function stringify(obj) {
-  return Object.keys(obj).reduce((str, prop2) => `${str}${str ? " " : ""}${prop2}: ${obj[prop2]};`, "");
+function stringify2(obj) {
+  return Object.keys(obj).reduce((str2, prop2) => `${str2}${str2 ? " " : ""}${prop2}: ${obj[prop2]};`, "");
 }
 function parse3(styles) {
   styles = (styles || "").trim();
@@ -28626,16 +28463,16 @@ function parse3(styles) {
     return {};
   const obj = {};
   let key;
-  for (const str of styles.split(";")) {
-    const n = str.indexOf(":");
-    if (n < 1 || n === str.length - 1) {
-      const trimmed = str.trimEnd();
+  for (const str2 of styles.split(";")) {
+    const n = str2.indexOf(":");
+    if (n < 1 || n === str2.length - 1) {
+      const trimmed = str2.trimEnd();
       if (trimmed.length > 0 && key !== void 0) {
         obj[key] += `;${trimmed}`;
       }
     } else {
-      key = str.slice(0, n).trim();
-      obj[key] = str.slice(n + 1).trim();
+      key = str2.slice(0, n).trim();
+      obj[key] = str2.slice(n + 1).trim();
     }
   }
   return obj;
@@ -28669,10 +28506,10 @@ function serializeArray() {
     // Verify elements have a name (`attr.name`) and are not disabled (`:enabled`)
     '[name!=""]:enabled:not(:submit, :button, :image, :reset, :file):matches([checked], :not(:checkbox, :radio))'
   ).map((_, elem) => {
-    var _a6;
+    var _a7;
     const $elem = this._make(elem);
     const name = $elem.attr("name");
-    const value = (_a6 = $elem.val()) !== null && _a6 !== void 0 ? _a6 : "";
+    const value = (_a7 = $elem.val()) !== null && _a7 !== void 0 ? _a7 : "";
     if (Array.isArray(value)) {
       return value.map((val2) => (
         /*
@@ -28701,13 +28538,13 @@ __export(extract_exports, {
   extract: () => extract2
 });
 function getExtractDescr(descr) {
-  var _a6;
+  var _a7;
   if (typeof descr === "string") {
     return { selector: descr, value: "textContent" };
   }
   return {
     selector: descr.selector,
-    value: (_a6 = descr.value) !== null && _a6 !== void 0 ? _a6 : "textContent"
+    value: (_a7 = descr.value) !== null && _a7 !== void 0 ? _a7 : "textContent"
   };
 }
 function extract2(map2) {
@@ -29256,13 +29093,13 @@ var init_decode_data_xml3 = __esm({
 
 // node_modules/parse5/node_modules/entities/dist/esm/decode-codepoint.js
 function replaceCodePoint3(codePoint) {
-  var _a6;
+  var _a7;
   if (codePoint >= 55296 && codePoint <= 57343 || codePoint > 1114111) {
     return 65533;
   }
-  return (_a6 = decodeMap3.get(codePoint)) !== null && _a6 !== void 0 ? _a6 : codePoint;
+  return (_a7 = decodeMap3.get(codePoint)) !== null && _a7 !== void 0 ? _a7 : codePoint;
 }
-var _a5, decodeMap3, fromCodePoint3;
+var _a6, decodeMap3, fromCodePoint3;
 var init_decode_codepoint3 = __esm({
   "node_modules/parse5/node_modules/entities/dist/esm/decode-codepoint.js"() {
     decodeMap3 = /* @__PURE__ */ new Map([
@@ -29297,7 +29134,7 @@ var init_decode_codepoint3 = __esm({
       [159, 376]
     ]);
     fromCodePoint3 = // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition, n/no-unsupported-features/es-builtins
-    (_a5 = String.fromCodePoint) !== null && _a5 !== void 0 ? _a5 : function(codePoint) {
+    (_a6 = String.fromCodePoint) !== null && _a6 !== void 0 ? _a6 : function(codePoint) {
       let output = "";
       if (codePoint > 65535) {
         codePoint -= 65536;
@@ -29534,9 +29371,9 @@ var init_decode3 = __esm({
        * @returns The number of characters that were consumed.
        */
       emitNumericEntity(lastCp, expectedLength) {
-        var _a6;
+        var _a7;
         if (this.consumed <= expectedLength) {
-          (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+          (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
           return 0;
         }
         if (lastCp === CharCodes4.SEMI) {
@@ -29596,11 +29433,11 @@ var init_decode3 = __esm({
        * @returns The number of characters consumed.
        */
       emitNotTerminatedNamedEntity() {
-        var _a6;
+        var _a7;
         const { result, decodeTree } = this;
         const valueLength = (decodeTree[result] & BinTrieFlags3.VALUE_LENGTH) >> 14;
         this.emitNamedEntityData(result, valueLength, this.consumed);
-        (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.missingSemicolonAfterCharacterReference();
+        (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.missingSemicolonAfterCharacterReference();
         return this.consumed;
       }
       /**
@@ -29628,7 +29465,7 @@ var init_decode3 = __esm({
        * @returns The number of characters consumed.
        */
       end() {
-        var _a6;
+        var _a7;
         switch (this.state) {
           case EntityDecoderState3.NamedEntity: {
             return this.result !== 0 && (this.decodeMode !== DecodingMode3.Attribute || this.result === this.treeIndex) ? this.emitNotTerminatedNamedEntity() : 0;
@@ -29641,7 +29478,7 @@ var init_decode3 = __esm({
             return this.emitNumericEntity(0, 3);
           }
           case EntityDecoderState3.NumericStart: {
-            (_a6 = this.errors) === null || _a6 === void 0 ? void 0 : _a6.absenceOfDigitsInNumericCharacterReference(this.consumed);
+            (_a7 = this.errors) === null || _a7 === void 0 ? void 0 : _a7.absenceOfDigitsInNumericCharacterReference(this.consumed);
             return 0;
           }
           case EntityDecoderState3.EntityStart: {
@@ -29667,8 +29504,8 @@ __export(html_exports, {
   hasUnescapedText: () => hasUnescapedText
 });
 function getTagID(tagName) {
-  var _a6;
-  return (_a6 = TAG_NAME_TO_ID.get(tagName)) !== null && _a6 !== void 0 ? _a6 : TAG_ID.UNKNOWN;
+  var _a7;
+  return (_a7 = TAG_NAME_TO_ID.get(tagName)) !== null && _a7 !== void 0 ? _a7 : TAG_ID.UNKNOWN;
 }
 function hasUnescapedText(tn, scriptingEnabled) {
   return UNESCAPED_TEXT.has(tn) || scriptingEnabled && tn === TAG_NAMES.NOSCRIPT;
@@ -30347,8 +30184,8 @@ var init_tokenizer = __esm({
       }
       //Errors
       _err(code, cpOffset = 0) {
-        var _a6, _b;
-        (_b = (_a6 = this.handler).onParseError) === null || _b === void 0 ? void 0 : _b.call(_a6, this.preprocessor.getError(code, cpOffset));
+        var _a7, _b;
+        (_b = (_a7 = this.handler).onParseError) === null || _b === void 0 ? void 0 : _b.call(_a7, this.preprocessor.getError(code, cpOffset));
       }
       // NOTE: `offset` may never run across line boundaries.
       getCurrentLocation(offset) {
@@ -30490,13 +30327,13 @@ var init_tokenizer = __esm({
         this.currentLocation = this.getCurrentLocation(0);
       }
       _leaveAttrName() {
-        var _a6;
+        var _a7;
         var _b;
         const token = this.currentToken;
         if (getTokenAttr(token, this.currentAttr.name) === null) {
           token.attrs.push(this.currentAttr);
           if (token.location && this.currentLocation) {
-            const attrLocations = (_a6 = (_b = token.location).attrs) !== null && _a6 !== void 0 ? _a6 : _b.attrs = /* @__PURE__ */ Object.create(null);
+            const attrLocations = (_a7 = (_b = token.location).attrs) !== null && _a7 !== void 0 ? _a7 : _b.attrs = /* @__PURE__ */ Object.create(null);
             attrLocations[this.currentAttr.name] = this.currentLocation;
             this._leaveAttrValue();
           }
@@ -34866,9 +34703,9 @@ function eofInBody(p, token) {
   }
 }
 function endTagInText(p, token) {
-  var _a6;
+  var _a7;
   if (token.tagID === TAG_ID.SCRIPT) {
-    (_a6 = p.scriptHandler) === null || _a6 === void 0 ? void 0 : _a6.call(p, p.openElements.current);
+    (_a7 = p.scriptHandler) === null || _a7 === void 0 ? void 0 : _a7.call(p, p.openElements.current);
   }
   p.openElements.pop();
   p.insertionMode = p.originalInsertionMode;
@@ -35529,7 +35366,7 @@ function startTagAfterBody(p, token) {
   }
 }
 function endTagAfterBody(p, token) {
-  var _a6;
+  var _a7;
   if (token.tagID === TAG_ID.HTML) {
     if (!p.fragmentContext) {
       p.insertionMode = InsertionMode.AFTER_AFTER_BODY;
@@ -35537,7 +35374,7 @@ function endTagAfterBody(p, token) {
     if (p.options.sourceCodeLocationInfo && p.openElements.tagIDs[0] === TAG_ID.HTML) {
       p._setEndLocation(p.openElements.items[0], token);
       const bodyElement = p.openElements.items[1];
-      if (bodyElement && !((_a6 = p.treeAdapter.getNodeSourceCodeLocation(bodyElement)) === null || _a6 === void 0 ? void 0 : _a6.endTag)) {
+      if (bodyElement && !((_a7 = p.treeAdapter.getNodeSourceCodeLocation(bodyElement)) === null || _a7 === void 0 ? void 0 : _a7.endTag)) {
         p._setEndLocation(bodyElement, token);
       }
     }
@@ -35797,10 +35634,10 @@ var init_parser = __esm({
       //Errors
       /** @internal */
       _err(token, code, beforeToken) {
-        var _a6;
+        var _a7;
         if (!this.onParseError)
           return;
-        const loc = (_a6 = token.location) !== null && _a6 !== void 0 ? _a6 : BASE_LOC;
+        const loc = (_a7 = token.location) !== null && _a7 !== void 0 ? _a7 : BASE_LOC;
         const err = {
           code,
           startLine: loc.startLine,
@@ -35815,18 +35652,18 @@ var init_parser = __esm({
       //Stack events
       /** @internal */
       onItemPush(node, tid, isTop) {
-        var _a6, _b;
-        (_b = (_a6 = this.treeAdapter).onItemPush) === null || _b === void 0 ? void 0 : _b.call(_a6, node);
+        var _a7, _b;
+        (_b = (_a7 = this.treeAdapter).onItemPush) === null || _b === void 0 ? void 0 : _b.call(_a7, node);
         if (isTop && this.openElements.stackTop > 0)
           this._setContextModes(node, tid);
       }
       /** @internal */
       onItemPop(node, isTop) {
-        var _a6, _b;
+        var _a7, _b;
         if (this.options.sourceCodeLocationInfo) {
           this._setEndLocation(node, this.currentToken);
         }
-        (_b = (_a6 = this.treeAdapter).onItemPop) === null || _b === void 0 ? void 0 : _b.call(_a6, node, this.openElements.current);
+        (_b = (_a7 = this.treeAdapter).onItemPop) === null || _b === void 0 ? void 0 : _b.call(_a7, node, this.openElements.current);
         if (isTop) {
           let current2;
           let currentTagId;
@@ -36980,19 +36817,19 @@ function enquoteDoctypeId(id) {
   return quote + id + quote;
 }
 function serializeDoctypeContent(name, publicId, systemId) {
-  let str = "!DOCTYPE ";
+  let str2 = "!DOCTYPE ";
   if (name) {
-    str += name;
+    str2 += name;
   }
   if (publicId) {
-    str += ` PUBLIC ${enquoteDoctypeId(publicId)}`;
+    str2 += ` PUBLIC ${enquoteDoctypeId(publicId)}`;
   } else if (systemId) {
-    str += " SYSTEM";
+    str2 += " SYSTEM";
   }
   if (systemId) {
-    str += ` ${enquoteDoctypeId(systemId)}`;
+    str2 += ` ${enquoteDoctypeId(systemId)}`;
   }
-  return str;
+  return str2;
 }
 var adapter;
 var init_dist2 = __esm({
@@ -37151,16 +36988,16 @@ var init_dist2 = __esm({
         return commentNode.data;
       },
       getDocumentTypeNodeName(doctypeNode) {
-        var _a6;
-        return (_a6 = doctypeNode["x-name"]) !== null && _a6 !== void 0 ? _a6 : "";
+        var _a7;
+        return (_a7 = doctypeNode["x-name"]) !== null && _a7 !== void 0 ? _a7 : "";
       },
       getDocumentTypeNodePublicId(doctypeNode) {
-        var _a6;
-        return (_a6 = doctypeNode["x-publicId"]) !== null && _a6 !== void 0 ? _a6 : "";
+        var _a7;
+        return (_a7 = doctypeNode["x-publicId"]) !== null && _a7 !== void 0 ? _a7 : "";
       },
       getDocumentTypeNodeSystemId(doctypeNode) {
-        var _a6;
-        return (_a6 = doctypeNode["x-systemId"]) !== null && _a6 !== void 0 ? _a6 : "";
+        var _a7;
+        return (_a7 = doctypeNode["x-systemId"]) !== null && _a7 !== void 0 ? _a7 : "";
       },
       //Node types
       isDocumentTypeNode(node) {
@@ -37191,8 +37028,8 @@ var init_dist2 = __esm({
 
 // node_modules/cheerio/dist/browser/parsers/parse5-adapter.js
 function parseWithParse5(content, options, isDocument2, context) {
-  var _a6;
-  (_a6 = options.treeAdapter) !== null && _a6 !== void 0 ? _a6 : options.treeAdapter = adapter;
+  var _a7;
+  (_a7 = options.treeAdapter) !== null && _a7 !== void 0 ? _a7 : options.treeAdapter = adapter;
   if (options.scriptingEnabled !== false) {
     options.scriptingEnabled = true;
   }
@@ -37354,7 +37191,7 @@ var require_turndown_browser_cjs = __commonJS({
       return is4(node, voidElements2);
     }
     function hasVoid(node) {
-      return has2(node, voidElements2);
+      return has3(node, voidElements2);
     }
     var meaningfulWhenBlankElements = [
       "A",
@@ -37373,12 +37210,12 @@ var require_turndown_browser_cjs = __commonJS({
       return is4(node, meaningfulWhenBlankElements);
     }
     function hasMeaningfulWhenBlank(node) {
-      return has2(node, meaningfulWhenBlankElements);
+      return has3(node, meaningfulWhenBlankElements);
     }
     function is4(node, tagNames) {
       return tagNames.indexOf(node.nodeName) >= 0;
     }
-    function has2(node, tagNames) {
+    function has3(node, tagNames) {
       return node.getElementsByTagName && tagNames.some(function(tagName) {
         return node.getElementsByTagName(tagName).length;
       });
@@ -37848,7 +37685,7 @@ var require_turndown_browser_cjs = __commonJS({
     ];
     function TurndownService(options) {
       if (!(this instanceof TurndownService)) return new TurndownService(options);
-      var defaults = {
+      var defaults2 = {
         rules,
         headingStyle: "setext",
         hr: "* * *",
@@ -37871,7 +37708,7 @@ var require_turndown_browser_cjs = __commonJS({
           return node.isBlock ? "\n\n" + content + "\n\n" : content;
         }
       };
-      this.options = extend2({}, defaults, options);
+      this.options = extend2({}, defaults2, options);
       this.rules = new Rules(this.options);
     }
     TurndownService.prototype = {
@@ -38132,7 +37969,7 @@ var require_WebFetcher = __commonJS({
         });
       }
       htmlToMarkdown(html3, baseUrl) {
-        var _a6;
+        var _a7;
         const $2 = cheerio.load(html3, { scriptingEnabled: true });
         $2("script").remove();
         $2("a").each((i, elem) => {
@@ -38141,11 +37978,11 @@ var require_WebFetcher = __commonJS({
           if (href && !href.startsWith("http")) {
             try {
               $el.attr("href", new URL(href, baseUrl).toString());
-            } catch (_a7) {
+            } catch (_a8) {
             }
           }
         });
-        const body = (_a6 = $2("body").html()) !== null && _a6 !== void 0 ? _a6 : "";
+        const body = (_a7 = $2("body").html()) !== null && _a7 !== void 0 ? _a7 : "";
         const turndownService = new turndown_1.default({
           hr: "\n\n---\n\n"
         });
@@ -38412,14 +38249,14 @@ function bytesToString(bytes) {
   }
   return strBuf.join("");
 }
-function stringToBytes(str) {
-  if (typeof str !== "string") {
+function stringToBytes(str2) {
+  if (typeof str2 !== "string") {
     unreachable("Invalid argument for stringToBytes");
   }
-  const length = str.length;
+  const length = str2.length;
   const bytes = new Uint8Array(length);
   for (let i = 0; i < length; ++i) {
-    bytes[i] = str.charCodeAt(i) & 255;
+    bytes[i] = str2.charCodeAt(i) & 255;
   }
   return bytes;
 }
@@ -38447,15 +38284,15 @@ function isEvalSupported() {
     return false;
   }
 }
-function stringToUTF8String(str) {
-  return decodeURIComponent(escape(str));
+function stringToUTF8String(str2) {
+  return decodeURIComponent(escape(str2));
 }
-function normalizeUnicode(str) {
+function normalizeUnicode(str2) {
   if (!NormalizeRegex) {
     NormalizeRegex = /([\u00a0\u00b5\u037e\u0eb3\u2000-\u200a\u202f\u2126\ufb00-\ufb04\ufb06\ufb20-\ufb36\ufb38-\ufb3c\ufb3e\ufb40-\ufb41\ufb43-\ufb44\ufb46-\ufba1\ufba4-\ufba9\ufbae-\ufbb1\ufbd3-\ufbdc\ufbde-\ufbe7\ufbea-\ufbf8\ufbfc-\ufbfd\ufc00-\ufc5d\ufc64-\ufcf1\ufcf5-\ufd3d\ufd88\ufdf4\ufdfa-\ufdfb\ufe71\ufe77\ufe79\ufe7b\ufe7d]+)|(\ufb05+)/gu;
     NormalizationMap = /* @__PURE__ */ new Map([["\uFB05", "\u017Ft"]]);
   }
-  return str.replaceAll(NormalizeRegex, (_, p1, p2) => p1 ? p1.normalize("NFKC") : NormalizationMap.get(p2));
+  return str2.replaceAll(NormalizeRegex, (_, p1, p2) => p1 ? p1.normalize("NFKC") : NormalizationMap.get(p2));
 }
 function getUuid() {
   if (typeof crypto !== "undefined" && typeof crypto?.randomUUID === "function") {
@@ -41560,9 +41397,9 @@ var init_pdf = __esm({
           this.buffer.push("shift");
         }
         this.buffer.push(event.key);
-        const str = this.buffer.join("+");
+        const str2 = this.buffer.join("+");
         this.buffer.length = 0;
-        return str;
+        return str2;
       }
       exec(self2, event) {
         if (!this.allKeys.has(event.key)) {
@@ -43150,10 +42987,10 @@ var init_pdf = __esm({
         fakeEditor._uiManager.addToAnnotationStorage(fakeEditor);
       }
       static initialize(l10n, _uiManager, options) {
-        _AnnotationEditor._l10nPromise ||= new Map(["pdfjs-editor-alt-text-button-label", "pdfjs-editor-alt-text-edit-button-label", "pdfjs-editor-alt-text-decorative-tooltip", "pdfjs-editor-resizer-label-topLeft", "pdfjs-editor-resizer-label-topMiddle", "pdfjs-editor-resizer-label-topRight", "pdfjs-editor-resizer-label-middleRight", "pdfjs-editor-resizer-label-bottomRight", "pdfjs-editor-resizer-label-bottomMiddle", "pdfjs-editor-resizer-label-bottomLeft", "pdfjs-editor-resizer-label-middleLeft"].map((str) => [str, l10n.get(str.replaceAll(/([A-Z])/g, (c) => `-${c.toLowerCase()}`))]));
+        _AnnotationEditor._l10nPromise ||= new Map(["pdfjs-editor-alt-text-button-label", "pdfjs-editor-alt-text-edit-button-label", "pdfjs-editor-alt-text-decorative-tooltip", "pdfjs-editor-resizer-label-topLeft", "pdfjs-editor-resizer-label-topMiddle", "pdfjs-editor-resizer-label-topRight", "pdfjs-editor-resizer-label-middleRight", "pdfjs-editor-resizer-label-bottomRight", "pdfjs-editor-resizer-label-bottomMiddle", "pdfjs-editor-resizer-label-bottomLeft", "pdfjs-editor-resizer-label-middleLeft"].map((str2) => [str2, l10n.get(str2.replaceAll(/([A-Z])/g, (c) => `-${c.toLowerCase()}`))]));
         if (options?.strings) {
-          for (const str of options.strings) {
-            _AnnotationEditor._l10nPromise.set(str, l10n.get(str));
+          for (const str2 of options.strings) {
+            _AnnotationEditor._l10nPromise.set(str2, l10n.get(str2));
           }
         }
         if (_AnnotationEditor._borderLineWidth !== -1) {
@@ -44822,7 +44659,7 @@ var init_pdf = __esm({
       packageCapability = Promise.withResolvers();
       packageMap = null;
       const loadPackages = async () => {
-        const fs2 = await import(
+        const fs3 = await import(
           /*webpackIgnore: true*/
           "fs"
         ), http = await import(
@@ -44837,7 +44674,7 @@ var init_pdf = __esm({
         );
         let canvas, path2d;
         return new Map(Object.entries({
-          fs: fs2,
+          fs: fs3,
           http,
           https,
           url: url2,
@@ -44863,8 +44700,8 @@ var init_pdf = __esm({
       }
     };
     node_utils_fetchData = function(url2) {
-      const fs2 = NodePackages.get("fs");
-      return fs2.promises.readFile(url2).then((data2) => new Uint8Array(data2));
+      const fs3 = NodePackages.get("fs");
+      return fs3.promises.readFile(url2).then((data2) => new Uint8Array(data2));
     };
     NodeFilterFactory = class extends BaseFilterFactory {
     };
@@ -45583,8 +45420,8 @@ var init_pdf = __esm({
       setLineJoin(style) {
         this.ctx.lineJoin = LINE_JOIN_STYLES[style];
       }
-      setMiterLimit(limit) {
-        this.ctx.miterLimit = limit;
+      setMiterLimit(limit2) {
+        this.ctx.miterLimit = limit2;
       }
       setDash(dashArray, dashPhase) {
         const ctx = this.ctx;
@@ -48684,10 +48521,10 @@ var init_pdf = __esm({
         if (fileUriRegex.test(this._url.href)) {
           path3 = path3.replace(/^\//, "");
         }
-        const fs2 = NodePackages.get("fs");
-        fs2.promises.lstat(path3).then((stat) => {
+        const fs3 = NodePackages.get("fs");
+        fs3.promises.lstat(path3).then((stat) => {
           this._contentLength = stat.size;
-          this._setReadableStream(fs2.createReadStream(path3));
+          this._setReadableStream(fs3.createReadStream(path3));
           this._headersCapability.resolve();
         }, (error2) => {
           if (error2.code === "ENOENT") {
@@ -48705,8 +48542,8 @@ var init_pdf = __esm({
         if (fileUriRegex.test(this._url.href)) {
           path3 = path3.replace(/^\//, "");
         }
-        const fs2 = NodePackages.get("fs");
-        this._setReadableStream(fs2.createReadStream(path3, {
+        const fs3 = NodePackages.get("fs");
+        this._setReadableStream(fs3.createReadStream(path3, {
           start,
           end: end2 - 1
         }));
@@ -49090,20 +48927,20 @@ var init_pdf = __esm({
           if (!node) {
             return;
           }
-          let str = null;
+          let str2 = null;
           const name = node.name;
           if (name === "#text") {
-            str = node.value;
+            str2 = node.value;
           } else if (!_XfaText.shouldBuildText(name)) {
             return;
           } else if (node?.attributes?.textContent) {
-            str = node.attributes.textContent;
+            str2 = node.attributes.textContent;
           } else if (node.value) {
-            str = node.value;
+            str2 = node.value;
           }
-          if (str !== null) {
+          if (str2 !== null) {
             items.push({
-              str
+              str: str2
             });
           }
           if (!node.children) {
@@ -52888,13 +52725,13 @@ var init_pdf = __esm({
         return popupContent;
       }
       _formatContents({
-        str,
+        str: str2,
         dir
       }) {
         const p = document.createElement("p");
         p.classList.add("popupContent");
         p.dir = dir;
-        const lines = str.split(/(?:\r\n?|\n)/);
+        const lines = str2.split(/(?:\r\n?|\n)/);
         for (let i = 0, ii = lines.length; i < ii; ++i) {
           const line = lines[i];
           p.append(document.createTextNode(line));
@@ -57786,7 +57623,7 @@ var init_SemanticIndexService = __esm({
       }
       setEmbeddingModel(model) {
         this.embeddingModel = model;
-        console.log(`[SemanticIndex] Using embedding model: ${model.name} (${model.provider})`);
+        if (model) console.debug(`[SemanticIndex] Using embedding model: ${model.name} (${model.provider})`);
       }
       /** Stop an in-progress buildIndex(). Partial progress is saved to checkpoint. */
       cancelBuild() {
@@ -57836,7 +57673,7 @@ var init_SemanticIndexService = __esm({
           const isChunkSizeChange = existingCheckpoint !== null && existingCheckpoint.chunkSize !== this.chunkSize;
           const isFullRebuild = force || isModelChange || isChunkSizeChange || existingCheckpoint === null;
           if (isChunkSizeChange) {
-            console.log(`[SemanticIndex] Chunk size changed (${existingCheckpoint.chunkSize} \u2192 ${this.chunkSize}) \u2014 full rebuild.`);
+            console.debug(`[SemanticIndex] Chunk size changed (${existingCheckpoint.chunkSize} \u2192 ${this.chunkSize}) \u2014 full rebuild.`);
           }
           if (isFullRebuild) {
             if (await this.index.isIndexCreated().catch(() => false)) {
@@ -57861,7 +57698,7 @@ var init_SemanticIndexService = __esm({
           this.progressTotal = total;
           onProgress?.(indexed, total);
           if (toIndex.length === 0) {
-            console.log("[SemanticIndex] Index up to date \u2014 nothing to index.");
+            console.debug("[SemanticIndex] Index up to date \u2014 nothing to index.");
             this.builtAt = /* @__PURE__ */ new Date();
             const result2 = { indexed: total, total, errors: 0, cancelled: false, skippedFiles: [], durationMs: Date.now() - startTime };
             this.lastBuildResult = result2;
@@ -57884,7 +57721,7 @@ var init_SemanticIndexService = __esm({
           let uncommitted = 0;
           for (const file of toIndex) {
             if (this.cancelled) {
-              console.log("[SemanticIndex] Build cancelled \u2014 saving partial checkpoint.");
+              console.debug("[SemanticIndex] Build cancelled \u2014 saving partial checkpoint.");
               break;
             }
             try {
@@ -57939,7 +57776,7 @@ var init_SemanticIndexService = __esm({
           this.builtAt = new Date(this.checkpoint.builtAt);
           this.docCount = indexed;
           if (!this.cancelled) {
-            console.log(`[SemanticIndex] Build complete: ${indexed}/${total} files, ${errors} skipped.`);
+            console.debug(`[SemanticIndex] Build complete: ${indexed}/${total} files, ${errors} skipped.`);
           }
           const result = { indexed, total, errors, cancelled: this.cancelled, skippedFiles, durationMs: Date.now() - startTime };
           this.lastBuildResult = result;
@@ -58212,7 +58049,7 @@ var init_SemanticIndexService = __esm({
             });
           }
           await this.index.endUpdate();
-          console.log(`[SemanticIndex] Indexed session summary: ${sessionId} (${chunks.length} chunks)`);
+          console.debug(`[SemanticIndex] Indexed session summary: ${sessionId} (${chunks.length} chunks)`);
         } catch (e) {
           console.warn(`[SemanticIndex] Failed to index session ${sessionId}:`, e);
         }
@@ -58324,8 +58161,9 @@ var init_SemanticIndexService = __esm({
           try {
             return await this.embedBatchViaApi(texts, model);
           } catch (e) {
-            const status = e?.status ?? e?.statusCode;
-            const msg = String(e?.message ?? e ?? "");
+            const err = e;
+            const status = err?.status ?? err?.statusCode;
+            const msg = String(err?.message ?? e ?? "");
             const isRateLimit = status === 429 || msg.includes("429") || msg.toLowerCase().includes("rate limit");
             if (isRateLimit && attempt < maxRetries - 1) {
               const delay = 1e3 * Math.pow(2, attempt);
@@ -58466,12 +58304,12 @@ var init_SemanticIndexService = __esm({
           for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
             const page = await pdf.getPage(pageNum);
             const content = await page.getTextContent();
-            const pageText = content.items.map((item) => "str" in item ? item.str : "").join(" ").replace(/\s+/g, " ").trim();
+            const pageText = content.items.map((item) => item.str ?? "").join(" ").replace(/\s+/g, " ").trim();
             if (pageText) parts.push(pageText);
           }
           return parts.join("\n\n");
         } catch (e) {
-          const msg = String(e?.message ?? "");
+          const msg = e instanceof Error ? e.message : String(e);
           if (msg.includes("PasswordException") || msg.includes("InvalidPDFException")) {
             return "";
           }
@@ -59261,14 +59099,14 @@ var require_implementation = __commonJS({
       return arr;
     };
     var joiny = function(arr, joiner) {
-      var str = "";
+      var str2 = "";
       for (var i = 0; i < arr.length; i += 1) {
-        str += arr[i];
+        str2 += arr[i];
         if (i + 1 < arr.length) {
-          str += joiner;
+          str2 += joiner;
         }
       }
-      return str;
+      return str2;
     };
     module2.exports = function bind(that) {
       var target = this;
@@ -59657,7 +59495,7 @@ var require_get_intrinsic = __commonJS({
       "%WeakSetPrototype%": ["WeakSet", "prototype"]
     };
     var bind = require_function_bind();
-    var hasOwn3 = require_hasown();
+    var hasOwn4 = require_hasown();
     var $concat = bind.call($call, Array.prototype.concat);
     var $spliceApply = bind.call($apply, Array.prototype.splice);
     var $replace = bind.call($call, String.prototype.replace);
@@ -59682,11 +59520,11 @@ var require_get_intrinsic = __commonJS({
     var getBaseIntrinsic = function getBaseIntrinsic2(name, allowMissing) {
       var intrinsicName = name;
       var alias;
-      if (hasOwn3(LEGACY_ALIASES, intrinsicName)) {
+      if (hasOwn4(LEGACY_ALIASES, intrinsicName)) {
         alias = LEGACY_ALIASES[intrinsicName];
         intrinsicName = "%" + alias[0] + "%";
       }
-      if (hasOwn3(INTRINSICS, intrinsicName)) {
+      if (hasOwn4(INTRINSICS, intrinsicName)) {
         var value = INTRINSICS[intrinsicName];
         if (value === needsEval) {
           value = doEval(intrinsicName);
@@ -59735,7 +59573,7 @@ var require_get_intrinsic = __commonJS({
         }
         intrinsicBaseName += "." + part;
         intrinsicRealName = "%" + intrinsicBaseName + "%";
-        if (hasOwn3(INTRINSICS, intrinsicRealName)) {
+        if (hasOwn4(INTRINSICS, intrinsicRealName)) {
           value = INTRINSICS[intrinsicRealName];
         } else if (value != null) {
           if (!(part in value)) {
@@ -59753,7 +59591,7 @@ var require_get_intrinsic = __commonJS({
               value = value[part];
             }
           } else {
-            isOwn = hasOwn3(value, part);
+            isOwn = hasOwn4(value, part);
             value = value[part];
           }
           if (isOwn && !skipFurtherCaching) {
@@ -59854,8 +59692,8 @@ var require_is_callable = __commonJS({
         isDDA = function isDocumentDotAll(value) {
           if ((isIE68 || !value) && (typeof value === "undefined" || typeof value === "object")) {
             try {
-              var str = toStr.call(value);
-              return (str === ddaClass || str === ddaClass2 || str === ddaClass3 || str === objectClass) && value("") == null;
+              var str2 = toStr.call(value);
+              return (str2 === ddaClass || str2 === ddaClass2 || str2 === ddaClass3 || str2 === objectClass) && value("") == null;
             } catch (e) {
             }
           }
@@ -60605,10 +60443,10 @@ var require_crc32 = __commonJS({
         while (i < L) C = C >>> 8 ^ T0[(C ^ B[i++]) & 255];
         return ~C;
       }
-      function crc32_str(str, seed) {
+      function crc32_str(str2, seed) {
         var C = seed ^ -1;
-        for (var i = 0, L = str.length, c = 0, d = 0; i < L; ) {
-          c = str.charCodeAt(i++);
+        for (var i = 0, L = str2.length, c = 0, d = 0; i < L; ) {
+          c = str2.charCodeAt(i++);
           if (c < 128) {
             C = C >>> 8 ^ T0[(C ^ c) & 255];
           } else if (c < 2048) {
@@ -60616,7 +60454,7 @@ var require_crc32 = __commonJS({
             C = C >>> 8 ^ T0[(C ^ (128 | c & 63)) & 255];
           } else if (c >= 55296 && c < 57344) {
             c = (c & 1023) + 64;
-            d = str.charCodeAt(i++) & 1023;
+            d = str2.charCodeAt(i++) & 1023;
             C = C >>> 8 ^ T0[(C ^ (240 | c >> 8 & 7)) & 255];
             C = C >>> 8 ^ T0[(C ^ (128 | c >> 2 & 63)) & 255];
             C = C >>> 8 ^ T0[(C ^ (128 | d >> 6 & 15 | (c & 3) << 4)) & 255];
@@ -61570,7 +61408,7 @@ var require_deflate = __commonJS({
       var len;
       var best_len = s.prev_length;
       var nice_match = s.nice_match;
-      var limit = s.strstart > s.w_size - MIN_LOOKAHEAD ? s.strstart - (s.w_size - MIN_LOOKAHEAD) : 0;
+      var limit2 = s.strstart > s.w_size - MIN_LOOKAHEAD ? s.strstart - (s.w_size - MIN_LOOKAHEAD) : 0;
       var _win = s.window;
       var wmask = s.w_mask;
       var prev2 = s.prev;
@@ -61603,7 +61441,7 @@ var require_deflate = __commonJS({
           scan_end1 = _win[scan + best_len - 1];
           scan_end = _win[scan + best_len];
         }
-      } while ((cur_match = prev2[cur_match & wmask]) > limit && --chain_length !== 0);
+      } while ((cur_match = prev2[cur_match & wmask]) > limit2 && --chain_length !== 0);
       if (best_len <= s.lookahead) {
         return best_len;
       }
@@ -61611,7 +61449,7 @@ var require_deflate = __commonJS({
     }
     function fill_window(s) {
       var _w_size = s.w_size;
-      var p, n, m, more, str;
+      var p, n, m, more, str2;
       do {
         more = s.window_size - s.lookahead - s.strstart;
         if (s.strstart >= _w_size + (_w_size - MIN_LOOKAHEAD)) {
@@ -61639,14 +61477,14 @@ var require_deflate = __commonJS({
         n = read_buf(s.strm, s.window, s.strstart + s.lookahead, more);
         s.lookahead += n;
         if (s.lookahead + s.insert >= MIN_MATCH) {
-          str = s.strstart - s.insert;
-          s.ins_h = s.window[str];
-          s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str + 1]) & s.hash_mask;
+          str2 = s.strstart - s.insert;
+          s.ins_h = s.window[str2];
+          s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str2 + 1]) & s.hash_mask;
           while (s.insert) {
-            s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str + MIN_MATCH - 1]) & s.hash_mask;
-            s.prev[str & s.w_mask] = s.head[s.ins_h];
-            s.head[s.ins_h] = str;
-            str++;
+            s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str2 + MIN_MATCH - 1]) & s.hash_mask;
+            s.prev[str2 & s.w_mask] = s.head[s.ins_h];
+            s.head[s.ins_h] = str2;
+            str2++;
             s.insert--;
             if (s.lookahead + s.insert < MIN_MATCH) {
               break;
@@ -62422,7 +62260,7 @@ var require_deflate = __commonJS({
     function deflateSetDictionary(strm, dictionary) {
       var dictLength = dictionary.length;
       var s;
-      var str, n;
+      var str2, n;
       var wrap2;
       var avail;
       var next2;
@@ -62460,15 +62298,15 @@ var require_deflate = __commonJS({
       strm.input = dictionary;
       fill_window(s);
       while (s.lookahead >= MIN_MATCH) {
-        str = s.strstart;
+        str2 = s.strstart;
         n = s.lookahead - (MIN_MATCH - 1);
         do {
-          s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str + MIN_MATCH - 1]) & s.hash_mask;
-          s.prev[str & s.w_mask] = s.head[s.ins_h];
-          s.head[s.ins_h] = str;
-          str++;
+          s.ins_h = (s.ins_h << s.hash_shift ^ s.window[str2 + MIN_MATCH - 1]) & s.hash_mask;
+          s.prev[str2 & s.w_mask] = s.head[s.ins_h];
+          s.head[s.ins_h] = str2;
+          str2++;
         } while (--n);
-        s.strstart = str;
+        s.strstart = str2;
         s.lookahead = MIN_MATCH - 1;
         fill_window(s);
       }
@@ -62519,12 +62357,12 @@ var require_strings = __commonJS({
     }
     var q;
     _utf8len[254] = _utf8len[254] = 1;
-    exports.string2buf = function(str) {
-      var buf, c, c2, m_pos, i, str_len = str.length, buf_len = 0;
+    exports.string2buf = function(str2) {
+      var buf, c, c2, m_pos, i, str_len = str2.length, buf_len = 0;
       for (m_pos = 0; m_pos < str_len; m_pos++) {
-        c = str.charCodeAt(m_pos);
+        c = str2.charCodeAt(m_pos);
         if ((c & 64512) === 55296 && m_pos + 1 < str_len) {
-          c2 = str.charCodeAt(m_pos + 1);
+          c2 = str2.charCodeAt(m_pos + 1);
           if ((c2 & 64512) === 56320) {
             c = 65536 + (c - 55296 << 10) + (c2 - 56320);
             m_pos++;
@@ -62534,9 +62372,9 @@ var require_strings = __commonJS({
       }
       buf = new utils.Buf8(buf_len);
       for (i = 0, m_pos = 0; i < buf_len; m_pos++) {
-        c = str.charCodeAt(m_pos);
+        c = str2.charCodeAt(m_pos);
         if ((c & 64512) === 55296 && m_pos + 1 < str_len) {
-          c2 = str.charCodeAt(m_pos + 1);
+          c2 = str2.charCodeAt(m_pos + 1);
           if ((c2 & 64512) === 56320) {
             c = 65536 + (c - 55296 << 10) + (c2 - 56320);
             m_pos++;
@@ -62575,10 +62413,10 @@ var require_strings = __commonJS({
     exports.buf2binstring = function(buf) {
       return buf2binstring(buf, buf.length);
     };
-    exports.binstring2buf = function(str) {
-      var buf = new utils.Buf8(str.length);
+    exports.binstring2buf = function(str2) {
+      var buf = new utils.Buf8(str2.length);
       for (var i = 0, len = buf.length; i < len; i++) {
-        buf[i] = str.charCodeAt(i);
+        buf[i] = str2.charCodeAt(i);
       }
       return buf;
     };
@@ -65051,7 +64889,7 @@ var require_ignore = __commonJS({
         // Zero, one or several directories
         // should not use '*', or it will be replaced by the next replacer
         // Check if it is not the last `'/**'`
-        (_, index2, str) => index2 + 6 < str.length ? "(?:\\/[^\\/]+)*" : "\\/.+"
+        (_, index2, str2) => index2 + 6 < str2.length ? "(?:\\/[^\\/]+)*" : "\\/.+"
       ],
       // normal intermediate wildcards
       [
@@ -65304,7 +65142,7 @@ var require_ignore = __commonJS({
       // Detect `process` so that it can run in browsers.
       typeof process !== "undefined" && (process.env && process.env.IGNORE_TEST_WIN32 || process.platform === "win32")
     ) {
-      const makePosix = (str) => /^\\\\\?\\/.test(str) || /["<>|\u0000-\u001F]+/u.test(str) ? str : str.replace(/\\/g, "/");
+      const makePosix = (str2) => /^\\\\\?\\/.test(str2) || /["<>|\u0000-\u001F]+/u.test(str2) ? str2 : str2.replace(/\\/g, "/");
       checkPath.convert = makePosix;
       const REGIX_IS_WINDOWS_PATH_ABSOLUTE = /^[a-z]:\//i;
       checkPath.isNotRelative = (path3) => REGIX_IS_WINDOWS_PATH_ABSOLUTE.test(path3) || isNotRelative(path3);
@@ -65319,9 +65157,9 @@ var require_lib3 = __commonJS({
     function escapeRegExp(string4) {
       return string4.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
-    function replaceAll(str, search, replacement) {
+    function replaceAll(str2, search, replacement) {
       search = search instanceof RegExp ? search : new RegExp(escapeRegExp(search), "g");
-      return str.replace(search, replacement);
+      return str2.replace(search, replacement);
     }
     var CleanGitRef = {
       clean: function clean(value) {
@@ -65351,7 +65189,7 @@ var require_onp = __commonJS({
     module2.exports = function(a_, b_) {
       var a = a_, b = b_, m = a.length, n = b.length, reverse = false, ed = null, offset = m + 1, path3 = [], pathposi = [], ses = [], lcs = "", SES_DELETE = -1, SES_COMMON = 0, SES_ADD = 1;
       var tmp1, tmp2;
-      var init = function() {
+      var init2 = function() {
         if (m >= n) {
           tmp1 = a;
           tmp2 = m;
@@ -65426,7 +65264,7 @@ var require_onp = __commonJS({
           }
         }
       };
-      init();
+      init2();
       return {
         SES_DELETE: -1,
         SES_COMMON: 0,
@@ -66173,20 +66011,20 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         stats: /* @__PURE__ */ new Map()
       };
     }
-    async function updateCachedIndexFile(fs2, filepath, cache) {
+    async function updateCachedIndexFile(fs3, filepath, cache) {
       const [stat, rawIndexFile] = await Promise.all([
-        fs2.lstat(filepath),
-        fs2.read(filepath)
+        fs3.lstat(filepath),
+        fs3.read(filepath)
       ]);
       const index3 = await GitIndex.from(rawIndexFile);
       cache.map.set(filepath, index3);
       cache.stats.set(filepath, stat);
     }
-    async function isIndexStale(fs2, filepath, cache) {
+    async function isIndexStale(fs3, filepath, cache) {
       const savedStats = cache.stats.get(filepath);
       if (savedStats === void 0) return true;
       if (savedStats === null) return false;
-      const currStats = await fs2.lstat(filepath);
+      const currStats = await fs3.lstat(filepath);
       if (currStats === null) return false;
       return compareStats(savedStats, currStats);
     }
@@ -66203,7 +66041,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @returns {Promise<any>} The result of the closure function.
        * @throws {UnmergedPathsError} If unmerged paths exist and `allowUnmerged` is `false`.
        */
-      static async acquire({ fs: fs2, gitdir, cache, allowUnmerged = true }, closure) {
+      static async acquire({ fs: fs3, gitdir, cache, allowUnmerged = true }, closure) {
         if (!cache[IndexCache]) {
           cache[IndexCache] = createCache();
         }
@@ -66213,8 +66051,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         let unmergedPaths = [];
         await lock.acquire(filepath, async () => {
           const theIndexCache = cache[IndexCache];
-          if (await isIndexStale(fs2, filepath, theIndexCache)) {
-            await updateCachedIndexFile(fs2, filepath, theIndexCache);
+          if (await isIndexStale(fs3, filepath, theIndexCache)) {
+            await updateCachedIndexFile(fs3, filepath, theIndexCache);
           }
           const index3 = theIndexCache.map.get(filepath);
           unmergedPaths = index3.unmergedPaths;
@@ -66223,8 +66061,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           result = await closure(index3);
           if (index3._dirty) {
             const buffer = await index3.toObject();
-            await fs2.write(filepath, buffer);
-            theIndexCache.stats.set(filepath, await fs2.lstat(filepath));
+            await fs3.write(filepath, buffer);
+            theIndexCache.stats.set(filepath, await fs3.lstat(filepath));
             index3._dirty = false;
           }
         });
@@ -66299,9 +66137,9 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       throw new InternalError(`Unexpected GitTree entry mode: ${mode.toString(8)}`);
     }
     var GitWalkerIndex = class {
-      constructor({ fs: fs2, gitdir, cache }) {
+      constructor({ fs: fs3, gitdir, cache }) {
         this.treePromise = GitIndexManager.acquire(
-          { fs: fs2, gitdir, cache },
+          { fs: fs3, gitdir, cache },
           async function(index3) {
             return flatFileListToDirectoryStructure(index3.entries);
           }
@@ -66392,14 +66230,14 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
     function STAGE() {
       const o = /* @__PURE__ */ Object.create(null);
       Object.defineProperty(o, GitWalkSymbol, {
-        value: function({ fs: fs2, gitdir, cache }) {
-          return new GitWalkerIndex({ fs: fs2, gitdir, cache });
+        value: function({ fs: fs3, gitdir, cache }) {
+          return new GitWalkerIndex({ fs: fs3, gitdir, cache });
         }
       });
       Object.freeze(o);
       return o;
     }
-    var NotFoundError3 = class _NotFoundError extends BaseError {
+    var NotFoundError4 = class _NotFoundError extends BaseError {
       /**
        * @param {string} what
        */
@@ -66409,7 +66247,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         this.data = { what };
       }
     };
-    NotFoundError3.code = "NotFoundError";
+    NotFoundError4.code = "NotFoundError";
     var ObjectTypeError = class _ObjectTypeError extends BaseError {
       /**
        * @param {string} oid
@@ -66574,9 +66412,9 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       }
     };
     function compareRefNames(a, b) {
-      const _a6 = a.replace(/\^\{\}$/, "");
+      const _a7 = a.replace(/\^\{\}$/, "");
       const _b = b.replace(/\^\{\}$/, "");
-      const tmp = -(_a6 < _b) || +(_a6 > _b);
+      const tmp = -(_a7 < _b) || +(_a7 > _b);
       if (tmp === 0) {
         return a.endsWith("^{}") ? 1 : -1;
       }
@@ -66901,8 +66739,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} opts.gitdir - The path to the `.git` directory.
        * @returns {Promise<GitConfig>} A `GitConfig` object representing the parsed configuration.
        */
-      static async get({ fs: fs2, gitdir }) {
-        const text3 = await fs2.read(`${gitdir}/config`, { encoding: "utf8" });
+      static async get({ fs: fs3, gitdir }) {
+        const text3 = await fs3.read(`${gitdir}/config`, { encoding: "utf8" });
         return GitConfig.from(text3);
       }
       /**
@@ -66914,8 +66752,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {GitConfig} opts.config - The `GitConfig` object to save.
        * @returns {Promise<void>} Resolves when the configuration has been successfully saved.
        */
-      static async save({ fs: fs2, gitdir, config: config2 }) {
-        await fs2.write(`${gitdir}/config`, config2.toString(), {
+      static async save({ fs: fs3, gitdir, config: config2 }) {
+        await fs3.write(`${gitdir}/config`, config2.toString(), {
           encoding: "utf8"
         });
       }
@@ -66951,7 +66789,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @returns {Promise<Object>} - An object containing pruned refs.
        */
       static async updateRemoteRefs({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         remote,
         refs,
@@ -66966,7 +66804,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
             throw new InvalidOidError(value);
           }
         }
-        const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+        const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
         if (!refspecs) {
           refspecs = await config2.getall(`remote.${remote}.fetch`);
           if (refspecs.length === 0) {
@@ -66978,12 +66816,12 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         const actualRefsToWrite = /* @__PURE__ */ new Map();
         if (pruneTags) {
           const tags2 = await _GitRefManager.listRefs({
-            fs: fs2,
+            fs: fs3,
             gitdir,
             filepath: "refs/tags"
           });
           await _GitRefManager.deleteRefs({
-            fs: fs2,
+            fs: fs3,
             gitdir,
             refs: tags2.map((tag2) => `refs/tags/${tag2}`)
           });
@@ -66991,7 +66829,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         if (tags) {
           for (const serverRef of refs.keys()) {
             if (serverRef.startsWith("refs/tags") && !serverRef.endsWith("^{}")) {
-              if (!await _GitRefManager.exists({ fs: fs2, gitdir, ref: serverRef })) {
+              if (!await _GitRefManager.exists({ fs: fs3, gitdir, ref: serverRef })) {
                 const oid = refs.get(serverRef);
                 actualRefsToWrite.set(serverRef, oid);
               }
@@ -67015,7 +66853,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         if (prune) {
           for (const filepath of refspec.localNamespaces()) {
             const refs2 = (await _GitRefManager.listRefs({
-              fs: fs2,
+              fs: fs3,
               gitdir,
               filepath
             })).map((file) => `${filepath}/${file}`);
@@ -67026,13 +66864,13 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
             }
           }
           if (pruned.length > 0) {
-            await _GitRefManager.deleteRefs({ fs: fs2, gitdir, refs: pruned });
+            await _GitRefManager.deleteRefs({ fs: fs3, gitdir, refs: pruned });
           }
         }
         for (const [key, value] of actualRefsToWrite) {
           await acquireLock(
             key,
-            async () => fs2.write(join2(gitdir, key), `${value.trim()}
+            async () => fs3.write(join2(gitdir, key), `${value.trim()}
 `, "utf8")
           );
         }
@@ -67049,13 +66887,13 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @returns {Promise<void>}
        */
       // TODO: make this less crude?
-      static async writeRef({ fs: fs2, gitdir, ref, value }) {
+      static async writeRef({ fs: fs3, gitdir, ref, value }) {
         if (!value.match(/[0-9a-f]{40}/)) {
           throw new InvalidOidError(value);
         }
         await acquireLock(
           ref,
-          async () => fs2.write(join2(gitdir, ref), `${value.trim()}
+          async () => fs3.write(join2(gitdir, ref), `${value.trim()}
 `, "utf8")
         );
       }
@@ -67069,10 +66907,10 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} args.value - The target ref.
        * @returns {Promise<void>}
        */
-      static async writeSymbolicRef({ fs: fs2, gitdir, ref, value }) {
+      static async writeSymbolicRef({ fs: fs3, gitdir, ref, value }) {
         await acquireLock(
           ref,
-          async () => fs2.write(join2(gitdir, ref), `ref: ${value.trim()}
+          async () => fs3.write(join2(gitdir, ref), `ref: ${value.trim()}
 `, "utf8")
         );
       }
@@ -67085,8 +66923,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} args.ref - The ref to delete.
        * @returns {Promise<void>}
        */
-      static async deleteRef({ fs: fs2, gitdir, ref }) {
-        return _GitRefManager.deleteRefs({ fs: fs2, gitdir, refs: [ref] });
+      static async deleteRef({ fs: fs3, gitdir, ref }) {
+        return _GitRefManager.deleteRefs({ fs: fs3, gitdir, refs: [ref] });
       }
       /**
        * Deletes multiple refs.
@@ -67097,11 +66935,11 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string[]} args.refs - The refs to delete.
        * @returns {Promise<void>}
        */
-      static async deleteRefs({ fs: fs2, gitdir, refs }) {
-        await Promise.all(refs.map((ref) => fs2.rm(join2(gitdir, ref))));
+      static async deleteRefs({ fs: fs3, gitdir, refs }) {
+        await Promise.all(refs.map((ref) => fs3.rm(join2(gitdir, ref))));
         let text3 = await acquireLock(
           "packed-refs",
-          async () => fs2.read(`${gitdir}/packed-refs`, { encoding: "utf8" })
+          async () => fs3.read(`${gitdir}/packed-refs`, { encoding: "utf8" })
         );
         const packed = GitPackedRefs.from(text3);
         const beforeSize = packed.refs.size;
@@ -67114,7 +66952,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           text3 = packed.toString();
           await acquireLock(
             "packed-refs",
-            async () => fs2.write(`${gitdir}/packed-refs`, text3, { encoding: "utf8" })
+            async () => fs3.write(`${gitdir}/packed-refs`, text3, { encoding: "utf8" })
           );
         }
       }
@@ -67128,7 +66966,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {number} [args.depth = undefined] - The maximum depth to resolve symbolic refs.
        * @returns {Promise<string>} - The resolved object ID.
        */
-      static async resolve({ fs: fs2, gitdir, ref, depth = void 0 }) {
+      static async resolve({ fs: fs3, gitdir, ref, depth = void 0 }) {
         if (depth !== void 0) {
           depth--;
           if (depth === -1) {
@@ -67137,23 +66975,23 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         }
         if (ref.startsWith("ref: ")) {
           ref = ref.slice("ref: ".length);
-          return _GitRefManager.resolve({ fs: fs2, gitdir, ref, depth });
+          return _GitRefManager.resolve({ fs: fs3, gitdir, ref, depth });
         }
         if (ref.length === 40 && /[0-9a-f]{40}/.test(ref)) {
           return ref;
         }
-        const packedMap = await _GitRefManager.packedRefs({ fs: fs2, gitdir });
+        const packedMap = await _GitRefManager.packedRefs({ fs: fs3, gitdir });
         const allpaths = refpaths(ref).filter((p) => !GIT_FILES.includes(p));
         for (const ref2 of allpaths) {
           const sha = await acquireLock(
             ref2,
-            async () => await fs2.read(`${gitdir}/${ref2}`, { encoding: "utf8" }) || packedMap.get(ref2)
+            async () => await fs3.read(`${gitdir}/${ref2}`, { encoding: "utf8" }) || packedMap.get(ref2)
           );
           if (sha) {
-            return _GitRefManager.resolve({ fs: fs2, gitdir, ref: sha.trim(), depth });
+            return _GitRefManager.resolve({ fs: fs3, gitdir, ref: sha.trim(), depth });
           }
         }
-        throw new NotFoundError3(ref);
+        throw new NotFoundError4(ref);
       }
       /**
        * Checks if a ref exists.
@@ -67164,9 +67002,9 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} args.ref - The ref to check.
        * @returns {Promise<boolean>} - True if the ref exists, false otherwise.
        */
-      static async exists({ fs: fs2, gitdir, ref }) {
+      static async exists({ fs: fs3, gitdir, ref }) {
         try {
-          await _GitRefManager.expand({ fs: fs2, gitdir, ref });
+          await _GitRefManager.expand({ fs: fs3, gitdir, ref });
           return true;
         } catch (err) {
           return false;
@@ -67181,21 +67019,21 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} args.ref - The ref to expand.
        * @returns {Promise<string>} - The full ref name.
        */
-      static async expand({ fs: fs2, gitdir, ref }) {
+      static async expand({ fs: fs3, gitdir, ref }) {
         if (ref.length === 40 && /[0-9a-f]{40}/.test(ref)) {
           return ref;
         }
-        const packedMap = await _GitRefManager.packedRefs({ fs: fs2, gitdir });
+        const packedMap = await _GitRefManager.packedRefs({ fs: fs3, gitdir });
         const allpaths = refpaths(ref);
         for (const ref2 of allpaths) {
           const refExists = await acquireLock(
             ref2,
-            async () => fs2.exists(`${gitdir}/${ref2}`)
+            async () => fs3.exists(`${gitdir}/${ref2}`)
           );
           if (refExists) return ref2;
           if (packedMap.has(ref2)) return ref2;
         }
-        throw new NotFoundError3(ref);
+        throw new NotFoundError4(ref);
       }
       /**
        * Expands a ref against a provided map.
@@ -67210,7 +67048,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         for (const ref2 of allpaths) {
           if (await map2.has(ref2)) return ref2;
         }
-        throw new NotFoundError3(ref);
+        throw new NotFoundError4(ref);
       }
       /**
        * Resolves a ref against a provided map.
@@ -67248,7 +67086,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
             });
           }
         }
-        throw new NotFoundError3(ref);
+        throw new NotFoundError4(ref);
       }
       /**
        * Reads the packed refs file and returns a map of refs.
@@ -67258,10 +67096,10 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} [args.gitdir=join(dir, '.git')] - [required] The [git directory](dir-vs-gitdir.md) path
        * @returns {Promise<Map<string, string>>} - A map of packed refs.
        */
-      static async packedRefs({ fs: fs2, gitdir }) {
+      static async packedRefs({ fs: fs3, gitdir }) {
         const text3 = await acquireLock(
           "packed-refs",
-          async () => fs2.read(`${gitdir}/packed-refs`, { encoding: "utf8" })
+          async () => fs3.read(`${gitdir}/packed-refs`, { encoding: "utf8" })
         );
         const packed = GitPackedRefs.from(text3);
         return packed.refs;
@@ -67275,11 +67113,11 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} args.filepath - The filepath prefix to match.
        * @returns {Promise<string[]>} - A sorted list of refs.
        */
-      static async listRefs({ fs: fs2, gitdir, filepath }) {
-        const packedMap = _GitRefManager.packedRefs({ fs: fs2, gitdir });
+      static async listRefs({ fs: fs3, gitdir, filepath }) {
+        const packedMap = _GitRefManager.packedRefs({ fs: fs3, gitdir });
         let files = null;
         try {
-          files = await fs2.readdirDeep(`${gitdir}/${filepath}`);
+          files = await fs3.readdirDeep(`${gitdir}/${filepath}`);
           files = files.map((x) => x.replace(`${gitdir}/${filepath}/`, ""));
         } catch (err) {
           files = [];
@@ -67304,15 +67142,15 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} [args.remote] - The remote to filter branches by.
        * @returns {Promise<string[]>} - A list of branch names.
        */
-      static async listBranches({ fs: fs2, gitdir, remote }) {
+      static async listBranches({ fs: fs3, gitdir, remote }) {
         if (remote) {
           return _GitRefManager.listRefs({
-            fs: fs2,
+            fs: fs3,
             gitdir,
             filepath: `refs/remotes/${remote}`
           });
         } else {
-          return _GitRefManager.listRefs({ fs: fs2, gitdir, filepath: `refs/heads` });
+          return _GitRefManager.listRefs({ fs: fs3, gitdir, filepath: `refs/heads` });
         }
       }
       /**
@@ -67323,9 +67161,9 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
        * @param {string} [args.gitdir=join(dir, '.git')] - [required] The [git directory](dir-vs-gitdir.md) path
        * @returns {Promise<string[]>} - A list of tag names.
        */
-      static async listTags({ fs: fs2, gitdir }) {
+      static async listTags({ fs: fs3, gitdir }) {
         const tags = await _GitRefManager.listRefs({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           filepath: `refs/tags`
         });
@@ -67490,9 +67328,9 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         };
       }
     };
-    async function readObjectLoose({ fs: fs2, gitdir, oid }) {
+    async function readObjectLoose({ fs: fs3, gitdir, oid }) {
       const source = `objects/${oid.slice(0, 2)}/${oid.slice(2)}`;
-      const file = await fs2.read(`${gitdir}/${source}`);
+      const file = await fs3.read(`${gitdir}/${source}`);
       if (!file) {
         return null;
       }
@@ -67969,8 +67807,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       }
       async toBuffer() {
         const buffers = [];
-        const write = (str, encoding) => {
-          buffers.push(Buffer.from(str, encoding));
+        const write = (str2, encoding) => {
+          buffers.push(Buffer.from(str2, encoding));
         };
         write("ff744f63", "hex");
         write("00000002", "hex");
@@ -68082,17 +67920,17 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
     };
     var PackfileCache = /* @__PURE__ */ Symbol("PackfileCache");
     async function loadPackIndex({
-      fs: fs2,
+      fs: fs3,
       filename,
       getExternalRefDelta,
       emitter,
       emitterPrefix
     }) {
-      const idx = await fs2.read(filename);
+      const idx = await fs3.read(filename);
       return GitPackIndex.fromIdx({ idx, getExternalRefDelta });
     }
     function readPackIndex({
-      fs: fs2,
+      fs: fs3,
       cache,
       filename,
       getExternalRefDelta,
@@ -68103,7 +67941,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       let p = cache[PackfileCache].get(filename);
       if (!p) {
         p = loadPackIndex({
-          fs: fs2,
+          fs: fs3,
           filename,
           getExternalRefDelta,
           emitter,
@@ -68114,19 +67952,19 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       return p;
     }
     async function readObjectPacked({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       format = "content",
       getExternalRefDelta
     }) {
-      let list = await fs2.readdir(join2(gitdir, "objects/pack"));
+      let list = await fs3.readdir(join2(gitdir, "objects/pack"));
       list = list.filter((x) => x.endsWith(".idx"));
       for (const filename of list) {
         const indexFile = `${gitdir}/objects/pack/${filename}`;
         const p = await readPackIndex({
-          fs: fs2,
+          fs: fs3,
           cache,
           filename: indexFile,
           getExternalRefDelta
@@ -68135,7 +67973,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         if (p.offsets.has(oid)) {
           if (!p.pack) {
             const packFile = indexFile.replace(/idx$/, "pack");
-            p.pack = fs2.read(packFile);
+            p.pack = fs3.read(packFile);
           }
           const result = await p.read({ oid, getExternalRefDelta });
           result.format = "content";
@@ -68146,30 +67984,30 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       return null;
     }
     async function _readObject({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       format = "content"
     }) {
-      const getExternalRefDelta = (oid2) => _readObject({ fs: fs2, cache, gitdir, oid: oid2 });
+      const getExternalRefDelta = (oid2) => _readObject({ fs: fs3, cache, gitdir, oid: oid2 });
       let result;
       if (oid === "4b825dc642cb6eb9a060e54bf8d69288fbee4904") {
         result = { format: "wrapped", object: Buffer.from(`tree 0\0`) };
       }
       if (!result) {
-        result = await readObjectLoose({ fs: fs2, gitdir, oid });
+        result = await readObjectLoose({ fs: fs3, gitdir, oid });
       }
       if (!result) {
         result = await readObjectPacked({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           oid,
           getExternalRefDelta
         });
         if (!result) {
-          throw new NotFoundError3(oid);
+          throw new NotFoundError4(oid);
         }
         return result;
       }
@@ -68575,7 +68413,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       MissingParameterError,
       MultipleGitError,
       NoRefspecError,
-      NotFoundError: NotFoundError3,
+      NotFoundError: NotFoundError4,
       ObjectTypeError,
       ParseError: ParseError2,
       PushRejectedError,
@@ -68610,11 +68448,11 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
     function negateExceptForZero(n) {
       return n === 0 ? n : -n;
     }
-    function normalizeNewlines(str) {
-      str = str.replace(/\r/g, "");
-      str = str.replace(/^\n+/, "");
-      str = str.replace(/\n+$/, "") + "\n";
-      return str;
+    function normalizeNewlines(str2) {
+      str2 = str2.replace(/\r/g, "");
+      str2 = str2.replace(/^\n+/, "");
+      str2 = str2.replace(/\n+$/, "") + "\n";
+      return str2;
     }
     function parseAuthor(author) {
       const [, name, email2, timestamp, offset] = author.match(
@@ -68732,11 +68570,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return _GitAnnotatedTag.from(signedTag);
       }
     };
-    function indent(str) {
-      return str.trim().split("\n").map((x) => " " + x).join("\n") + "\n";
+    function indent(str2) {
+      return str2.trim().split("\n").map((x) => " " + x).join("\n") + "\n";
     }
-    function outdent(str) {
-      return str.split("\n").map((x) => x.replace(/^ /, "")).join("\n");
+    function outdent(str2) {
+      return str2.split("\n").map((x) => x.replace(/^ /, "")).join("\n");
     }
     var GitCommit = class _GitCommit {
       constructor(commit2) {
@@ -68872,18 +68710,18 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return _GitCommit.from(signedCommit);
       }
     };
-    async function resolveTree({ fs: fs2, cache, gitdir, oid }) {
+    async function resolveTree({ fs: fs3, cache, gitdir, oid }) {
       if (oid === "4b825dc642cb6eb9a060e54bf8d69288fbee4904") {
         return { tree: GitTree.from([]), oid };
       }
-      const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+      const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
       if (type === "tag") {
         oid = GitAnnotatedTag.from(object3).parse().object;
-        return resolveTree({ fs: fs2, cache, gitdir, oid });
+        return resolveTree({ fs: fs3, cache, gitdir, oid });
       }
       if (type === "commit") {
         oid = GitCommit.from(object3).parse().tree;
-        return resolveTree({ fs: fs2, cache, gitdir, oid });
+        return resolveTree({ fs: fs3, cache, gitdir, oid });
       }
       if (type !== "tree") {
         throw new ObjectTypeError(oid, type, "tree");
@@ -68891,21 +68729,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return { tree: GitTree.from(object3), oid };
     }
     var GitWalkerRepo = class {
-      constructor({ fs: fs2, gitdir, ref, cache }) {
-        this.fs = fs2;
+      constructor({ fs: fs3, gitdir, ref, cache }) {
+        this.fs = fs3;
         this.cache = cache;
         this.gitdir = gitdir;
         this.mapPromise = (async () => {
           const map2 = /* @__PURE__ */ new Map();
           let oid;
           try {
-            oid = await GitRefManager.resolve({ fs: fs2, gitdir, ref });
+            oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref });
           } catch (e) {
-            if (e instanceof NotFoundError3) {
+            if (e instanceof NotFoundError4) {
               oid = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
             }
           }
-          const tree = await resolveTree({ fs: fs2, cache: this.cache, gitdir, oid });
+          const tree = await resolveTree({ fs: fs3, cache: this.cache, gitdir, oid });
           tree.type = "tree";
           tree.mode = "40000";
           map2.set(".", tree);
@@ -68940,7 +68778,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       async readdir(entry) {
         const filepath = entry._fullpath;
-        const { fs: fs2, cache, gitdir } = this;
+        const { fs: fs3, cache, gitdir } = this;
         const map2 = await this.mapPromise;
         const obj = map2.get(filepath);
         if (!obj) throw new Error(`No obj for ${filepath}`);
@@ -68949,7 +68787,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (obj.type !== "tree") {
           return null;
         }
-        const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+        const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
         if (type !== obj.type) {
           throw new ObjectTypeError(oid, type, obj.type);
         }
@@ -68980,10 +68818,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       async content(entry) {
         if (entry._content === false) {
           const map2 = await this.mapPromise;
-          const { fs: fs2, cache, gitdir } = this;
+          const { fs: fs3, cache, gitdir } = this;
           const obj = map2.get(entry._fullpath);
           const oid = obj.oid;
-          const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+          const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
           if (type !== "blob") {
             entry._content = void 0;
           } else {
@@ -69004,16 +68842,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     function TREE({ ref = "HEAD" } = {}) {
       const o = /* @__PURE__ */ Object.create(null);
       Object.defineProperty(o, GitWalkSymbol, {
-        value: function({ fs: fs2, gitdir, cache }) {
-          return new GitWalkerRepo({ fs: fs2, gitdir, ref, cache });
+        value: function({ fs: fs3, gitdir, cache }) {
+          return new GitWalkerRepo({ fs: fs3, gitdir, ref, cache });
         }
       });
       Object.freeze(o);
       return o;
     }
     var GitWalkerFs = class {
-      constructor({ fs: fs2, dir, gitdir, cache }) {
-        this.fs = fs2;
+      constructor({ fs: fs3, dir, gitdir, cache }) {
+        this.fs = fs3;
         this.cache = cache;
         this.dir = dir;
         this.gitdir = gitdir;
@@ -69047,8 +68885,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       async readdir(entry) {
         const filepath = entry._fullpath;
-        const { fs: fs2, dir } = this;
-        const names = await fs2.readdir(join2(dir, filepath));
+        const { fs: fs3, dir } = this;
+        const names = await fs3.readdir(join2(dir, filepath));
         if (names === null) return null;
         return names.map((name) => join2(filepath, name));
       }
@@ -69066,8 +68904,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       async stat(entry) {
         if (entry._stat === false) {
-          const { fs: fs2, dir } = this;
-          let stat = await fs2.lstat(`${dir}/${entry._fullpath}`);
+          const { fs: fs3, dir } = this;
+          let stat = await fs3.lstat(`${dir}/${entry._fullpath}`);
           if (!stat) {
             throw new Error(
               `ENOENT: no such file or directory, lstat '${entry._fullpath}'`
@@ -69089,17 +68927,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       async content(entry) {
         if (entry._content === false) {
-          const { fs: fs2, dir, gitdir } = this;
+          const { fs: fs3, dir, gitdir } = this;
           if (await entry.type() === "tree") {
             entry._content = void 0;
           } else {
             let content;
             if (await entry.mode() >> 12 === 10) {
-              content = await fs2.readlink(`${dir}/${entry._fullpath}`);
+              content = await fs3.readlink(`${dir}/${entry._fullpath}`);
             } else {
-              const config2 = await this._getGitConfig(fs2, gitdir);
+              const config2 = await this._getGitConfig(fs3, gitdir);
               const autocrlf = await config2.get("core.autocrlf");
-              content = await fs2.read(`${dir}/${entry._fullpath}`, { autocrlf });
+              content = await fs3.read(`${dir}/${entry._fullpath}`, { autocrlf });
             }
             entry._actualSize = content.length;
             if (entry._stat && entry._stat.size === -1) {
@@ -69113,14 +68951,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       async oid(entry) {
         if (entry._oid === false) {
           const self2 = this;
-          const { fs: fs2, gitdir, cache } = this;
+          const { fs: fs3, gitdir, cache } = this;
           let oid;
           await GitIndexManager.acquire(
-            { fs: fs2, gitdir, cache },
+            { fs: fs3, gitdir, cache },
             async function(index3) {
               const stage = index3.entriesMap.get(entry._fullpath);
               const stats = await entry.stat();
-              const config2 = await self2._getGitConfig(fs2, gitdir);
+              const config2 = await self2._getGitConfig(fs3, gitdir);
               const filemode = await config2.get("core.filemode");
               const trustino = typeof process !== "undefined" ? !(process.platform === "win32") : true;
               if (!stage || compareStats(stats, stage, filemode, trustino)) {
@@ -69148,19 +68986,19 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
         return entry._oid;
       }
-      async _getGitConfig(fs2, gitdir) {
+      async _getGitConfig(fs3, gitdir) {
         if (this.config) {
           return this.config;
         }
-        this.config = await GitConfigManager.get({ fs: fs2, gitdir });
+        this.config = await GitConfigManager.get({ fs: fs3, gitdir });
         return this.config;
       }
     };
     function WORKDIR() {
       const o = /* @__PURE__ */ Object.create(null);
       Object.defineProperty(o, GitWalkSymbol, {
-        value: function({ fs: fs2, dir, gitdir, cache }) {
-          return new GitWalkerFs({ fs: fs2, dir, gitdir, cache });
+        value: function({ fs: fs3, dir, gitdir, cache }) {
+          return new GitWalkerFs({ fs: fs3, dir, gitdir, cache });
         }
       });
       Object.freeze(o);
@@ -69219,7 +69057,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _walk({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir,
@@ -69236,7 +69074,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       iterate = (walk2, children2) => Promise.all([...children2].map(walk2))
     }) {
       const walkers = trees.map(
-        (proxy) => proxy[GitWalkSymbol]({ fs: fs2, dir, gitdir, cache })
+        (proxy) => proxy[GitWalkSymbol]({ fs: fs3, dir, gitdir, cache })
       );
       const root2 = new Array(walkers.length).fill(".");
       const range = arrayRange(0, walkers.length);
@@ -69271,22 +69109,22 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       };
       return walk2(root2);
     }
-    async function rmRecursive(fs2, filepath) {
-      const entries = await fs2.readdir(filepath);
+    async function rmRecursive(fs3, filepath) {
+      const entries = await fs3.readdir(filepath);
       if (entries == null) {
-        await fs2.rm(filepath);
+        await fs3.rm(filepath);
       } else if (entries.length) {
         await Promise.all(
           entries.map((entry) => {
             const subpath = join2(filepath, entry);
-            return fs2.lstat(subpath).then((stat) => {
+            return fs3.lstat(subpath).then((stat) => {
               if (!stat) return;
-              return stat.isDirectory() ? rmRecursive(fs2, subpath) : fs2.rm(subpath);
+              return stat.isDirectory() ? rmRecursive(fs3, subpath) : fs3.rm(subpath);
             });
           })
-        ).then(() => fs2.rmdir(filepath));
+        ).then(() => fs3.rmdir(filepath));
       } else {
-        await fs2.rmdir(filepath);
+        await fs3.rmdir(filepath);
       }
     }
     function isPromiseLike(obj) {
@@ -69298,7 +69136,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     function isFunction(obj) {
       return typeof obj === "function";
     }
-    function isPromiseFs(fs2) {
+    function isPromiseFs(fs3) {
       const test = (targetFs) => {
         try {
           return targetFs.readFile().catch((e) => e);
@@ -69306,7 +69144,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           return e;
         }
       };
-      return isPromiseLike(test(fs2));
+      return isPromiseLike(test(fs3));
     }
     var commands = [
       "readFile",
@@ -69320,25 +69158,25 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       "readlink",
       "symlink"
     ];
-    function bindFs(target, fs2) {
-      if (isPromiseFs(fs2)) {
+    function bindFs(target, fs3) {
+      if (isPromiseFs(fs3)) {
         for (const command of commands) {
-          target[`_${command}`] = fs2[command].bind(fs2);
+          target[`_${command}`] = fs3[command].bind(fs3);
         }
       } else {
         for (const command of commands) {
-          target[`_${command}`] = pify(fs2[command].bind(fs2));
+          target[`_${command}`] = pify(fs3[command].bind(fs3));
         }
       }
-      if (isPromiseFs(fs2)) {
-        if (fs2.cp) target._cp = fs2.cp.bind(fs2);
-        if (fs2.rm) target._rm = fs2.rm.bind(fs2);
-        else if (fs2.rmdir.length > 1) target._rm = fs2.rmdir.bind(fs2);
+      if (isPromiseFs(fs3)) {
+        if (fs3.cp) target._cp = fs3.cp.bind(fs3);
+        if (fs3.rm) target._rm = fs3.rm.bind(fs3);
+        else if (fs3.rmdir.length > 1) target._rm = fs3.rmdir.bind(fs3);
         else target._rm = rmRecursive.bind(null, target);
       } else {
-        if (fs2.cp) target._cp = pify(fs2.cp.bind(fs2));
-        if (fs2.rm) target._rm = pify(fs2.rm.bind(fs2));
-        else if (fs2.rmdir.length > 2) target._rm = pify(fs2.rmdir.bind(fs2));
+        if (fs3.cp) target._cp = pify(fs3.cp.bind(fs3));
+        if (fs3.rm) target._rm = pify(fs3.rm.bind(fs3));
+        else if (fs3.rmdir.length > 2) target._rm = pify(fs3.rmdir.bind(fs3));
         else target._rm = rmRecursive.bind(null, target);
       }
     }
@@ -69348,15 +69186,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
        *
        * @param {Object} fs - A file system implementation to wrap.
        */
-      constructor(fs2) {
-        if (typeof fs2._original_unwrapped_fs !== "undefined") return fs2;
-        const promises2 = Object.getOwnPropertyDescriptor(fs2, "promises");
+      constructor(fs3) {
+        if (typeof fs3._original_unwrapped_fs !== "undefined") return fs3;
+        const promises2 = Object.getOwnPropertyDescriptor(fs3, "promises");
         if (promises2 && promises2.enumerable) {
-          bindFs(this, fs2.promises);
+          bindFs(this, fs3.promises);
         } else {
-          bindFs(this, fs2);
+          bindFs(this, fs3);
         }
-        this._original_unwrapped_fs = fs2;
+        this._original_unwrapped_fs = fs3;
       }
       /**
        * Return true if a file exists, false if it doesn't exist.
@@ -69600,18 +69438,18 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("dir", dir);
         assertParameter("gitdir", gitdir);
-        const fs2 = new FileSystem(_fs);
+        const fs3 = new FileSystem(_fs);
         const trees = [TREE({ ref: commit2 }), WORKDIR(), STAGE()];
         let unmergedPaths = [];
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             unmergedPaths = index3.unmergedPaths;
           }
         );
         const results = await _walk({
-          fs: fs2,
+          fs: fs3,
           cache,
           dir,
           gitdir: updatedGitdir,
@@ -69634,18 +69472,18 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         });
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             for (const entry of results) {
               if (entry === false) continue;
               if (!entry) {
-                await fs2.rmdir(`${dir}/${entry.path}`, { recursive: true });
+                await fs3.rmdir(`${dir}/${entry.path}`, { recursive: true });
                 index3.delete({ filepath: entry.path });
                 continue;
               }
               if (entry.type === "blob") {
                 const content = new TextDecoder().decode(entry.content);
-                await fs2.write(`${dir}/${entry.path}`, content, {
+                await fs3.write(`${dir}/${entry.path}`, content, {
                   mode: entry.mode
                 });
                 index3.insert({
@@ -69673,13 +69511,13 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
        * @param {string} args.filepath - The path of the file to check.
        * @returns {Promise<boolean>} - `true` if the file is ignored, `false` otherwise.
        */
-      static async isIgnored({ fs: fs2, dir, gitdir = join2(dir, ".git"), filepath }) {
+      static async isIgnored({ fs: fs3, dir, gitdir = join2(dir, ".git"), filepath }) {
         if (basename(filepath) === ".git") return true;
         if (filepath === ".") return false;
         let excludes = "";
         const excludesFile = join2(gitdir, "info", "exclude");
-        if (await fs2.exists(excludesFile)) {
-          excludes = await fs2.read(excludesFile, "utf8");
+        if (await fs3.exists(excludesFile)) {
+          excludes = await fs3.read(excludesFile, "utf8");
         }
         const pairs = [
           {
@@ -69700,7 +69538,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         for (const p of pairs) {
           let file;
           try {
-            file = await fs2.read(p.gitignore, "utf8");
+            file = await fs3.read(p.gitignore, "utf8");
           } catch (err) {
             if (err.code === "NOENT") continue;
           }
@@ -69717,7 +69555,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return ignoredStatus;
       }
     };
-    async function writeObjectLoose({ fs: fs2, gitdir, object: object3, format, oid }) {
+    async function writeObjectLoose({ fs: fs3, gitdir, object: object3, format, oid }) {
       if (format !== "deflated") {
         throw new InternalError(
           "GitObjectStoreLoose expects objects to write to be in deflated format"
@@ -69725,7 +69563,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       const source = `objects/${oid.slice(0, 2)}/${oid.slice(2)}`;
       const filepath = `${gitdir}/${source}`;
-      if (!await fs2.exists(filepath)) await fs2.write(filepath, object3);
+      if (!await fs3.exists(filepath)) await fs3.write(filepath, object3);
     }
     var supportsCompressionStream = null;
     async function deflate(buffer) {
@@ -69751,7 +69589,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _writeObject({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       type,
       object: object3,
@@ -69767,7 +69605,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         object3 = Buffer.from(await deflate(object3));
       }
       if (!dryRun) {
-        await writeObjectLoose({ fs: fs2, gitdir, object: object3, format: "deflated", oid });
+        await writeObjectLoose({ fs: fs3, gitdir, object: object3, format: "deflated", oid });
       }
       return oid;
     }
@@ -69790,17 +69628,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("dir", dir);
         assertParameter("gitdir", gitdir);
         assertParameter("filepath", filepath);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async (index3) => {
-            const config2 = await GitConfigManager.get({ fs: fs2, gitdir: updatedGitdir });
+            const config2 = await GitConfigManager.get({ fs: fs3, gitdir: updatedGitdir });
             const autocrlf = await config2.get("core.autocrlf");
             return addToIndex({
               dir,
               gitdir: updatedGitdir,
-              fs: fs2,
+              fs: fs3,
               filepath,
               index: index3,
               force,
@@ -69817,7 +69655,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     async function addToIndex({
       dir,
       gitdir,
-      fs: fs2,
+      fs: fs3,
       filepath,
       index: index3,
       force,
@@ -69828,23 +69666,23 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const promises2 = filepath.map(async (currentFilepath) => {
         if (!force) {
           const ignored = await GitIgnoreManager.isIgnored({
-            fs: fs2,
+            fs: fs3,
             dir,
             gitdir,
             filepath: currentFilepath
           });
           if (ignored) return;
         }
-        const stats = await fs2.lstat(join2(dir, currentFilepath));
-        if (!stats) throw new NotFoundError3(currentFilepath);
+        const stats = await fs3.lstat(join2(dir, currentFilepath));
+        if (!stats) throw new NotFoundError4(currentFilepath);
         if (stats.isDirectory()) {
-          const children2 = await fs2.readdir(join2(dir, currentFilepath));
+          const children2 = await fs3.readdir(join2(dir, currentFilepath));
           if (parallel) {
             const promises3 = children2.map(
               (child) => addToIndex({
                 dir,
                 gitdir,
-                fs: fs2,
+                fs: fs3,
                 filepath: [join2(currentFilepath, child)],
                 index: index3,
                 force,
@@ -69858,7 +69696,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               await addToIndex({
                 dir,
                 gitdir,
-                fs: fs2,
+                fs: fs3,
                 filepath: [join2(currentFilepath, child)],
                 index: index3,
                 force,
@@ -69868,9 +69706,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             }
           }
         } else {
-          const object3 = stats.isSymbolicLink() ? await fs2.readlink(join2(dir, currentFilepath)).then(posixifyPathBuffer) : await fs2.read(join2(dir, currentFilepath), { autocrlf });
-          if (object3 === null) throw new NotFoundError3(currentFilepath);
-          const oid = await _writeObject({ fs: fs2, gitdir, type: "blob", object: object3 });
+          const object3 = stats.isSymbolicLink() ? await fs3.readlink(join2(dir, currentFilepath)).then(posixifyPathBuffer) : await fs3.read(join2(dir, currentFilepath), { autocrlf });
+          if (object3 === null) throw new NotFoundError4(currentFilepath);
+          const oid = await _writeObject({ fs: fs3, gitdir, type: "blob", object: object3 });
           index3.insert({ filepath: currentFilepath, stats, oid });
         }
       });
@@ -69885,8 +69723,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const fulfilledPromises = settledPromises.filter((settle) => settle.status === "fulfilled" && settle.value).map((settle) => settle.value);
       return fulfilledPromises;
     }
-    async function _getConfig({ fs: fs2, gitdir, path: path3 }) {
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+    async function _getConfig({ fs: fs3, gitdir, path: path3 }) {
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       return config2.get(path3);
     }
     function assignDefined(target, ...sources) {
@@ -69902,11 +69740,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       return target;
     }
-    async function normalizeAuthorObject({ fs: fs2, gitdir, author, commit: commit2 }) {
+    async function normalizeAuthorObject({ fs: fs3, gitdir, author, commit: commit2 }) {
       const timestamp = Math.floor(Date.now() / 1e3);
       const defaultAuthor = {
-        name: await _getConfig({ fs: fs2, gitdir, path: "user.name" }),
-        email: await _getConfig({ fs: fs2, gitdir, path: "user.email" }) || "",
+        name: await _getConfig({ fs: fs3, gitdir, path: "user.name" }),
+        email: await _getConfig({ fs: fs3, gitdir, path: "user.email" }) || "",
         // author.email is allowed to be empty string
         timestamp,
         timezoneOffset: new Date(timestamp * 1e3).getTimezoneOffset()
@@ -69923,7 +69761,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return normalizedAuthor;
     }
     async function normalizeCommitterObject({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       author,
       committer,
@@ -69931,8 +69769,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       const timestamp = Math.floor(Date.now() / 1e3);
       const defaultCommitter = {
-        name: await _getConfig({ fs: fs2, gitdir, path: "user.name" }),
-        email: await _getConfig({ fs: fs2, gitdir, path: "user.email" }) || "",
+        name: await _getConfig({ fs: fs3, gitdir, path: "user.name" }),
+        email: await _getConfig({ fs: fs3, gitdir, path: "user.email" }) || "",
         // committer.email is allowed to be empty string
         timestamp,
         timezoneOffset: new Date(timestamp * 1e3).getTimezoneOffset()
@@ -69949,20 +69787,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       return normalizedCommitter;
     }
-    async function resolveCommit({ fs: fs2, cache, gitdir, oid }) {
-      const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+    async function resolveCommit({ fs: fs3, cache, gitdir, oid }) {
+      const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
       if (type === "tag") {
         oid = GitAnnotatedTag.from(object3).parse().object;
-        return resolveCommit({ fs: fs2, cache, gitdir, oid });
+        return resolveCommit({ fs: fs3, cache, gitdir, oid });
       }
       if (type !== "commit") {
         throw new ObjectTypeError(oid, type, "commit");
       }
       return { commit: GitCommit.from(object3), oid };
     }
-    async function _readCommit({ fs: fs2, cache, gitdir, oid }) {
+    async function _readCommit({ fs: fs3, cache, gitdir, oid }) {
       const { commit: commit2, oid: commitOid } = await resolveCommit({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid
@@ -69975,7 +69813,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return result;
     }
     async function _commit({
-      fs: fs2,
+      fs: fs3,
       cache,
       onSign,
       gitdir,
@@ -69993,10 +69831,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       let initialCommit = false;
       let detachedHead = false;
       if (!ref) {
-        const headContent = await fs2.read(`${gitdir}/HEAD`, { encoding: "utf8" });
+        const headContent = await fs3.read(`${gitdir}/HEAD`, { encoding: "utf8" });
         detachedHead = !headContent.startsWith("ref:");
         ref = await GitRefManager.resolve({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref: "HEAD",
           depth: 2
@@ -70005,31 +69843,31 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       let refOid, refCommit;
       try {
         refOid = await GitRefManager.resolve({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref
         });
-        refCommit = await _readCommit({ fs: fs2, gitdir, oid: refOid, cache: {} });
+        refCommit = await _readCommit({ fs: fs3, gitdir, oid: refOid, cache: {} });
       } catch {
         initialCommit = true;
       }
       if (amend && initialCommit) {
         throw new NoCommitError(ref);
       }
-      const author = !amend ? await normalizeAuthorObject({ fs: fs2, gitdir, author: _author }) : await normalizeAuthorObject({
-        fs: fs2,
+      const author = !amend ? await normalizeAuthorObject({ fs: fs3, gitdir, author: _author }) : await normalizeAuthorObject({
+        fs: fs3,
         gitdir,
         author: _author,
         commit: refCommit.commit
       });
       if (!author) throw new MissingNameError("author");
       const committer = !amend ? await normalizeCommitterObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         author,
         committer: _committer
       }) : await normalizeCommitterObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         author,
         committer: _committer,
@@ -70037,12 +69875,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       if (!committer) throw new MissingNameError("committer");
       return GitIndexManager.acquire(
-        { fs: fs2, gitdir, cache, allowUnmerged: false },
+        { fs: fs3, gitdir, cache, allowUnmerged: false },
         async function(index3) {
           const inodes = flatFileListToDirectoryStructure(index3.entries);
           const inode = inodes.get(".");
           if (!tree) {
-            tree = await constructTree({ fs: fs2, gitdir, inode, dryRun });
+            tree = await constructTree({ fs: fs3, gitdir, inode, dryRun });
           }
           if (!parent2) {
             if (!amend) {
@@ -70053,7 +69891,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           } else {
             parent2 = await Promise.all(
               parent2.map((p) => {
-                return GitRefManager.resolve({ fs: fs2, gitdir, ref: p });
+                return GitRefManager.resolve({ fs: fs3, gitdir, ref: p });
               })
             );
           }
@@ -70075,7 +69913,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             comm = await GitCommit.sign(comm, onSign, signingKey);
           }
           const oid = await _writeObject({
-            fs: fs2,
+            fs: fs3,
             gitdir,
             type: "commit",
             object: comm.toObject(),
@@ -70083,7 +69921,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           });
           if (!noUpdateBranch && !dryRun) {
             await GitRefManager.writeRef({
-              fs: fs2,
+              fs: fs3,
               gitdir,
               ref: detachedHead ? "HEAD" : ref,
               value: oid
@@ -70093,12 +69931,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
       );
     }
-    async function constructTree({ fs: fs2, gitdir, inode, dryRun }) {
+    async function constructTree({ fs: fs3, gitdir, inode, dryRun }) {
       const children2 = inode.children;
       for (const inode2 of children2) {
         if (inode2.type === "tree") {
           inode2.metadata.mode = "040000";
-          inode2.metadata.oid = await constructTree({ fs: fs2, gitdir, inode: inode2, dryRun });
+          inode2.metadata.oid = await constructTree({ fs: fs3, gitdir, inode: inode2, dryRun });
         }
       }
       const entries = children2.map((inode2) => ({
@@ -70109,7 +69947,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }));
       const tree = GitTree.from(entries);
       const oid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "tree",
         object: tree.toObject(),
@@ -70117,21 +69955,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       return oid;
     }
-    async function resolveFilepath({ fs: fs2, cache, gitdir, oid, filepath }) {
+    async function resolveFilepath({ fs: fs3, cache, gitdir, oid, filepath }) {
       if (filepath.startsWith("/")) {
         throw new InvalidFilepathError("leading-slash");
       } else if (filepath.endsWith("/")) {
         throw new InvalidFilepathError("trailing-slash");
       }
       const _oid = oid;
-      const result = await resolveTree({ fs: fs2, cache, gitdir, oid });
+      const result = await resolveTree({ fs: fs3, cache, gitdir, oid });
       const tree = result.tree;
       if (filepath === "") {
         oid = result.oid;
       } else {
         const pathArray = filepath.split("/");
         oid = await _resolveFilepath({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           tree,
@@ -70143,7 +69981,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return oid;
     }
     async function _resolveFilepath({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       tree,
@@ -70158,7 +69996,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             return entry.oid;
           } else {
             const { type, object: object3 } = await _readObject({
-              fs: fs2,
+              fs: fs3,
               cache,
               gitdir,
               oid: entry.oid
@@ -70168,7 +70006,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             }
             tree = GitTree.from(object3);
             return _resolveFilepath({
-              fs: fs2,
+              fs: fs3,
               cache,
               gitdir,
               tree,
@@ -70179,29 +70017,29 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         }
       }
-      throw new NotFoundError3(`file or directory found at "${oid}:${filepath}"`);
+      throw new NotFoundError4(`file or directory found at "${oid}:${filepath}"`);
     }
     async function _readTree({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       filepath = void 0
     }) {
       if (filepath !== void 0) {
-        oid = await resolveFilepath({ fs: fs2, cache, gitdir, oid, filepath });
+        oid = await resolveFilepath({ fs: fs3, cache, gitdir, oid, filepath });
       }
-      const { tree, oid: treeOid } = await resolveTree({ fs: fs2, cache, gitdir, oid });
+      const { tree, oid: treeOid } = await resolveTree({ fs: fs3, cache, gitdir, oid });
       const result = {
         oid: treeOid,
         tree: tree.entries()
       };
       return result;
     }
-    async function _writeTree({ fs: fs2, gitdir, tree }) {
+    async function _writeTree({ fs: fs3, gitdir, tree }) {
       const object3 = GitTree.from(tree).toObject();
       const oid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "tree",
         object: object3,
@@ -70210,7 +70048,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return oid;
     }
     async function _addNote({
-      fs: fs2,
+      fs: fs3,
       cache,
       onSign,
       gitdir,
@@ -70224,14 +70062,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       let parent2;
       try {
-        parent2 = await GitRefManager.resolve({ gitdir, fs: fs2, ref });
+        parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (!(err instanceof NotFoundError3)) {
+        if (!(err instanceof NotFoundError4)) {
           throw err;
         }
       }
       const result = await _readTree({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: parent2 || "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -70250,7 +70088,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         note = Buffer.from(note, "utf8");
       }
       const noteOid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "blob",
         object: note,
@@ -70258,12 +70096,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       tree.push({ mode: "100644", path: oid, oid: noteOid, type: "blob" });
       const treeOid = await _writeTree({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         tree
       });
       const commitOid = await _commit({
-        fs: fs2,
+        fs: fs3,
         cache,
         onSign,
         gitdir,
@@ -70300,19 +70138,19 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (signingKey) {
           assertParameter("onSign", onSign);
         }
-        const fs2 = new FileSystem(_fs);
-        const author = await normalizeAuthorObject({ fs: fs2, gitdir, author: _author });
+        const fs3 = new FileSystem(_fs);
+        const author = await normalizeAuthorObject({ fs: fs3, gitdir, author: _author });
         if (!author) throw new MissingNameError("author");
         const committer = await normalizeCommitterObject({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           author,
           committer: _committer
         });
         if (!committer) throw new MissingNameError("committer");
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         return await _addNote({
-          fs: fs2,
+          fs: fs3,
           cache,
           onSign,
           gitdir: updatedGitdir,
@@ -70335,11 +70173,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw new TypeError("Reference name must be a string");
       return !bad.test(name) && (!!onelevel || name.includes("/"));
     }
-    async function _addRemote({ fs: fs2, gitdir, remote, url: url2, force }) {
+    async function _addRemote({ fs: fs3, gitdir, remote, url: url2, force }) {
       if (!isValidRef(remote, true)) {
         throw new InvalidRefNameError(remote, cleanGitRef.clean(remote));
       }
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       if (!force) {
         const remoteNames = await config2.getSubsections("remote");
         if (remoteNames.includes(remote)) {
@@ -70353,10 +70191,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         `remote.${remote}.fetch`,
         `+refs/heads/*:refs/remotes/${remote}/*`
       );
-      await GitConfigManager.save({ fs: fs2, gitdir, config: config2 });
+      await GitConfigManager.save({ fs: fs3, gitdir, config: config2 });
     }
     async function addRemote({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       remote,
@@ -70364,11 +70202,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       force = false
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("remote", remote);
         assertParameter("url", url2);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _addRemote({
           fs: fsp,
@@ -70383,7 +70221,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _annotatedTag({
-      fs: fs2,
+      fs: fs3,
       cache,
       onSign,
       gitdir,
@@ -70396,15 +70234,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       force = false
     }) {
       ref = ref.startsWith("refs/tags/") ? ref : `refs/tags/${ref}`;
-      if (!force && await GitRefManager.exists({ fs: fs2, gitdir, ref })) {
+      if (!force && await GitRefManager.exists({ fs: fs3, gitdir, ref })) {
         throw new AlreadyExistsError("tag", ref);
       }
       const oid = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: object3 || "HEAD"
       });
-      const { type } = await _readObject({ fs: fs2, cache, gitdir, oid });
+      const { type } = await _readObject({ fs: fs3, cache, gitdir, oid });
       let tagObject = GitAnnotatedTag.from({
         object: oid,
         type,
@@ -70417,12 +70255,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         tagObject = await GitAnnotatedTag.sign(tagObject, onSign, signingKey);
       }
       const value = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "tag",
         object: tagObject.toObject()
       });
-      await GitRefManager.writeRef({ fs: fs2, gitdir, ref, value });
+      await GitRefManager.writeRef({ fs: fs3, gitdir, ref, value });
     }
     async function annotatedTag({
       fs: _fs,
@@ -70445,16 +70283,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (signingKey) {
           assertParameter("onSign", onSign);
         }
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const tagger = await normalizeAuthorObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author: _tagger
         });
         if (!tagger) throw new MissingNameError("tagger");
         return await _annotatedTag({
-          fs: fs2,
+          fs: fs3,
           cache,
           onSign,
           gitdir: updatedGitdir,
@@ -70472,7 +70310,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _branch({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       ref,
       object: object3,
@@ -70484,22 +70322,22 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       const fullref = `refs/heads/${ref}`;
       if (!force) {
-        const exist = await GitRefManager.exists({ fs: fs2, gitdir, ref: fullref });
+        const exist = await GitRefManager.exists({ fs: fs3, gitdir, ref: fullref });
         if (exist) {
           throw new AlreadyExistsError("branch", ref, false);
         }
       }
       let oid;
       try {
-        oid = await GitRefManager.resolve({ fs: fs2, gitdir, ref: object3 || "HEAD" });
+        oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref: object3 || "HEAD" });
       } catch (e) {
       }
       if (oid) {
-        await GitRefManager.writeRef({ fs: fs2, gitdir, ref: fullref, value: oid });
+        await GitRefManager.writeRef({ fs: fs3, gitdir, ref: fullref, value: oid });
       }
       if (checkout2) {
         await GitRefManager.writeSymbolicRef({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref: "HEAD",
           value: fullref
@@ -70507,7 +70345,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function branch({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref,
@@ -70516,10 +70354,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       force = false
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _branch({
           fs: fsp,
@@ -70545,7 +70383,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     };
     async function _checkout({
-      fs: fs2,
+      fs: fs3,
       cache,
       onProgress,
       onPostCheckout,
@@ -70565,30 +70403,30 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       let oldOid;
       if (onPostCheckout) {
         try {
-          oldOid = await GitRefManager.resolve({ fs: fs2, gitdir, ref: "HEAD" });
+          oldOid = await GitRefManager.resolve({ fs: fs3, gitdir, ref: "HEAD" });
         } catch (err) {
           oldOid = "0000000000000000000000000000000000000000";
         }
       }
       let oid;
       try {
-        oid = await GitRefManager.resolve({ fs: fs2, gitdir, ref });
+        oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref });
       } catch (err) {
         if (ref === "HEAD") throw err;
         const remoteRef = `${remote}/${ref}`;
         oid = await GitRefManager.resolve({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref: remoteRef
         });
         if (track) {
-          const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+          const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
           await config2.set(`branch.${ref}.remote`, remote);
           await config2.set(`branch.${ref}.merge`, `refs/heads/${ref}`);
-          await GitConfigManager.save({ fs: fs2, gitdir, config: config2 });
+          await GitConfigManager.save({ fs: fs3, gitdir, config: config2 });
         }
         await GitRefManager.writeRef({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref: `refs/heads/${ref}`,
           value: oid
@@ -70598,7 +70436,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         let ops;
         try {
           ops = await analyze({
-            fs: fs2,
+            fs: fs3,
             cache,
             onProgress,
             dir,
@@ -70608,7 +70446,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             filepaths
           });
         } catch (err) {
-          if (err instanceof NotFoundError3 && err.data.what === oid) {
+          if (err instanceof NotFoundError4 && err.data.what === oid) {
             throw new CommitNotFetchedError(ref, oid);
           } else {
             throw err;
@@ -70635,7 +70473,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         let count = 0;
         const total = ops.length;
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir, cache },
+          { fs: fs3, gitdir, cache },
           async function(index3) {
             await Promise.all(
               ops.filter(
@@ -70643,7 +70481,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               ).map(async function([method, fullpath]) {
                 const filepath = `${dir}/${fullpath}`;
                 if (method === "delete") {
-                  await fs2.rm(filepath);
+                  await fs3.rm(filepath);
                 }
                 index3.delete({ filepath: fullpath });
                 if (onProgress) {
@@ -70658,14 +70496,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         );
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir, cache },
+          { fs: fs3, gitdir, cache },
           async function(index3) {
             for (const [method, fullpath] of ops) {
               if (method === "rmdir" || method === "rmdir-index") {
                 const filepath = `${dir}/${fullpath}`;
                 try {
                   if (method === "rmdir") {
-                    await fs2.rmdir(filepath);
+                    await fs3.rmdir(filepath);
                   }
                   index3.delete({ filepath: fullpath });
                   if (onProgress) {
@@ -70691,7 +70529,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         await Promise.all(
           ops.filter(([method]) => method === "mkdir" || method === "mkdir-index").map(async function([_, fullpath]) {
             const filepath = `${dir}/${fullpath}`;
-            await fs2.mkdir(filepath);
+            await fs3.mkdir(filepath);
             if (onProgress) {
               await onProgress({
                 phase: "Updating workdir",
@@ -70708,7 +70546,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           const updateWorkingDirResults = await batchAllSettled(
             "Update Working Dir",
             eligibleOps.map(
-              ([method, fullpath, oid2, mode, chmod]) => () => updateWorkingDir({ fs: fs2, cache, gitdir, dir }, [
+              ([method, fullpath, oid2, mode, chmod]) => () => updateWorkingDir({ fs: fs3, cache, gitdir, dir }, [
                 method,
                 fullpath,
                 oid2,
@@ -70720,7 +70558,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             batchSize
           );
           await GitIndexManager.acquire(
-            { fs: fs2, gitdir, cache, allowUnmerged: true },
+            { fs: fs3, gitdir, cache, allowUnmerged: true },
             async function(index3) {
               await batchAllSettled(
                 "Update Index",
@@ -70734,7 +70572,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           );
         } else {
           await GitIndexManager.acquire(
-            { fs: fs2, gitdir, cache, allowUnmerged: true },
+            { fs: fs3, gitdir, cache, allowUnmerged: true },
             async function(index3) {
               await Promise.all(
                 ops.filter(
@@ -70744,20 +70582,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                   try {
                     if (method !== "create-index" && method !== "mkdir-index") {
                       const { object: object3 } = await _readObject({
-                        fs: fs2,
+                        fs: fs3,
                         cache,
                         gitdir,
                         oid: oid2
                       });
                       if (chmod) {
-                        await fs2.rm(filepath);
+                        await fs3.rm(filepath);
                       }
                       if (mode === 33188) {
-                        await fs2.write(filepath, object3);
+                        await fs3.write(filepath, object3);
                       } else if (mode === 33261) {
-                        await fs2.write(filepath, object3, { mode: 511 });
+                        await fs3.write(filepath, object3, { mode: 511 });
                       } else if (mode === 40960) {
-                        await fs2.writelink(filepath, object3);
+                        await fs3.writelink(filepath, object3);
                       } else {
                         throw new InternalError(
                           `Invalid mode 0o${mode.toString(
@@ -70766,7 +70604,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                         );
                       }
                     }
-                    const stats = await fs2.lstat(filepath);
+                    const stats = await fs3.lstat(filepath);
                     if (mode === 33261) {
                       stats.mode = 493;
                     }
@@ -70802,21 +70640,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
       }
       if (!noUpdateHead) {
-        const fullRef = await GitRefManager.expand({ fs: fs2, gitdir, ref });
+        const fullRef = await GitRefManager.expand({ fs: fs3, gitdir, ref });
         if (fullRef.startsWith("refs/heads")) {
           await GitRefManager.writeSymbolicRef({
-            fs: fs2,
+            fs: fs3,
             gitdir,
             ref: "HEAD",
             value: fullRef
           });
         } else {
-          await GitRefManager.writeRef({ fs: fs2, gitdir, ref: "HEAD", value: oid });
+          await GitRefManager.writeRef({ fs: fs3, gitdir, ref: "HEAD", value: oid });
         }
       }
     }
     async function analyze({
-      fs: fs2,
+      fs: fs3,
       cache,
       onProgress,
       dir,
@@ -70827,7 +70665,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       let count = 0;
       return _walk({
-        fs: fs2,
+        fs: fs3,
         cache,
         dir,
         gitdir,
@@ -71079,26 +70917,26 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         console.warn(`Error inserting ${fullpath} into index:`, e);
       }
     }
-    async function updateWorkingDir({ fs: fs2, cache, gitdir, dir }, [method, fullpath, oid, mode, chmod]) {
+    async function updateWorkingDir({ fs: fs3, cache, gitdir, dir }, [method, fullpath, oid, mode, chmod]) {
       const filepath = `${dir}/${fullpath}`;
       if (method !== "create-index" && method !== "mkdir-index") {
-        const { object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+        const { object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
         if (chmod) {
-          await fs2.rm(filepath);
+          await fs3.rm(filepath);
         }
         if (mode === 33188) {
-          await fs2.write(filepath, object3);
+          await fs3.write(filepath, object3);
         } else if (mode === 33261) {
-          await fs2.write(filepath, object3, { mode: 511 });
+          await fs3.write(filepath, object3, { mode: 511 });
         } else if (mode === 40960) {
-          await fs2.writelink(filepath, object3);
+          await fs3.writelink(filepath, object3);
         } else {
           throw new InternalError(
             `Invalid mode 0o${mode.toString(8)} detected in blob ${oid}`
           );
         }
       }
-      const stats = await fs2.lstat(filepath);
+      const stats = await fs3.lstat(filepath);
       if (mode === 33261) {
         stats.mode = 493;
       }
@@ -71131,7 +70969,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return results;
     }
     async function checkout({
-      fs: fs2,
+      fs: fs3,
       onProgress,
       onPostCheckout,
       dir,
@@ -71149,11 +70987,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       batchSize = 100
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("dir", dir);
         assertParameter("gitdir", gitdir);
         const ref = _ref || "HEAD";
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _checkout({
           fs: fsp,
@@ -71211,7 +71049,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return { cleanMerge, mergedText };
     }
     async function mergeTree({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir = join2(dir, ".git"),
@@ -71234,7 +71072,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const deleteByUs = [];
       const deleteByTheirs = [];
       const results = await _walk({
-        fs: fs2,
+        fs: fs3,
         cache,
         dir,
         gitdir,
@@ -71295,7 +71133,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               }
               if (ours && theirs && await ours.type() === "blob" && await theirs.type() === "blob") {
                 return mergeBlobs({
-                  fs: fs2,
+                  fs: fs3,
                   gitdir,
                   path: path3,
                   ours,
@@ -71383,7 +71221,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             const tree = new GitTree(entries);
             const object3 = tree.toObject();
             const oid = await _writeObject({
-              fs: fs2,
+              fs: fs3,
               gitdir,
               type: "tree",
               object: object3,
@@ -71397,7 +71235,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (unmergedFiles.length !== 0) {
         if (dir && !abortOnConflict) {
           await _walk({
-            fs: fs2,
+            fs: fs3,
             cache,
             dir,
             gitdir,
@@ -71407,7 +71245,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               if (await entry.type() === "blob") {
                 const mode = await entry.mode();
                 const content = new TextDecoder().decode(await entry.content());
-                await fs2.write(path3, content, { mode });
+                await fs3.write(path3, content, { mode });
               }
               return true;
             }
@@ -71423,7 +71261,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return results.oid;
     }
     async function mergeBlobs({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       path: path3,
       ours,
@@ -71471,7 +71309,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         path: path3
       });
       const oid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "blob",
         object: Buffer.from(mergedText, "utf8"),
@@ -71488,32 +71326,32 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (lock$2 === void 0) lock$2 = new AsyncLock();
       return lock$2.acquire(ref, callback);
     }
-    async function checkAndWriteBlob(fs2, gitdir, dir, filepath, oid = null) {
+    async function checkAndWriteBlob(fs3, gitdir, dir, filepath, oid = null) {
       const currentFilepath = join2(dir, filepath);
-      const stats = await fs2.lstat(currentFilepath);
-      if (!stats) throw new NotFoundError3(currentFilepath);
+      const stats = await fs3.lstat(currentFilepath);
+      if (!stats) throw new NotFoundError4(currentFilepath);
       if (stats.isDirectory())
         throw new InternalError(
           `${currentFilepath}: file expected, but found directory`
         );
-      const objContent = oid ? await readObjectLoose({ fs: fs2, gitdir, oid }) : void 0;
+      const objContent = oid ? await readObjectLoose({ fs: fs3, gitdir, oid }) : void 0;
       let retOid = objContent ? oid : void 0;
       if (!objContent) {
-        await acquireLock$1({ fs: fs2, gitdir, currentFilepath }, async () => {
-          const object3 = stats.isSymbolicLink() ? await fs2.readlink(currentFilepath).then(posixifyPathBuffer) : await fs2.read(currentFilepath);
-          if (object3 === null) throw new NotFoundError3(currentFilepath);
-          retOid = await _writeObject({ fs: fs2, gitdir, type: "blob", object: object3 });
+        await acquireLock$1({ fs: fs3, gitdir, currentFilepath }, async () => {
+          const object3 = stats.isSymbolicLink() ? await fs3.readlink(currentFilepath).then(posixifyPathBuffer) : await fs3.read(currentFilepath);
+          if (object3 === null) throw new NotFoundError4(currentFilepath);
+          retOid = await _writeObject({ fs: fs3, gitdir, type: "blob", object: object3 });
         });
       }
       return retOid;
     }
-    async function processTreeEntries({ fs: fs2, dir, gitdir, entries }) {
+    async function processTreeEntries({ fs: fs3, dir, gitdir, entries }) {
       async function processTreeEntry(entry) {
         if (entry.type === "tree") {
           if (!entry.oid) {
             const children2 = await Promise.all(entry.children.map(processTreeEntry));
             entry.oid = await _writeTree({
-              fs: fs2,
+              fs: fs3,
               gitdir,
               tree: children2
             });
@@ -71521,7 +71359,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         } else if (entry.type === "blob") {
           entry.oid = await checkAndWriteBlob(
-            fs2,
+            fs3,
             gitdir,
             dir,
             entry.path,
@@ -71535,7 +71373,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return Promise.all(entries.map(processTreeEntry));
     }
     async function writeTreeChanges({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir,
       treePair
@@ -71545,7 +71383,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const trees = treePair.map((t2) => typeof t2 === "string" ? _TreeMap[t2]() : t2);
       const changedEntries = [];
       const map2 = async (filepath, [head, stage]) => {
-        if (filepath === "." || await GitIgnoreManager.isIgnored({ fs: fs2, dir, gitdir, filepath })) {
+        if (filepath === "." || await GitIgnoreManager.isIgnored({ fs: fs3, dir, gitdir, filepath })) {
           return;
         }
         if (stage) {
@@ -71575,7 +71413,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           const [head, stage] = child;
           if (isStage) {
             if (stage) {
-              if (await fs2.exists(`${dir}/${stage.toString()}`)) {
+              if (await fs3.exists(`${dir}/${stage.toString()}`)) {
                 filtered.push(child);
               } else {
                 changedEntries.push([null, stage]);
@@ -71592,7 +71430,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return filtered.length ? Promise.all(filtered.map(walk2)) : [];
       };
       const entries = await _walk({
-        fs: fs2,
+        fs: fs3,
         cache: {},
         dir,
         gitdir,
@@ -71605,7 +71443,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return null;
       }
       const processedEntries = await processTreeEntries({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         entries
@@ -71616,10 +71454,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         oid: entry.oid,
         type: entry.type
       }));
-      return _writeTree({ fs: fs2, gitdir, tree: treeEntries });
+      return _writeTree({ fs: fs3, gitdir, tree: treeEntries });
     }
     async function applyTreeChanges({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir,
       stashCommit,
@@ -71629,13 +71467,13 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const dirRemoved = [];
       const stageUpdated = [];
       const ops = await _walk({
-        fs: fs2,
+        fs: fs3,
         cache: {},
         dir,
         gitdir,
         trees: [TREE({ ref: parentCommit }), TREE({ ref: stashCommit })],
         map: async (filepath, [parent2, stash2]) => {
-          if (filepath === "." || await GitIgnoreManager.isIgnored({ fs: fs2, dir, gitdir, filepath })) {
+          if (filepath === "." || await GitIgnoreManager.isIgnored({ fs: fs3, dir, gitdir, filepath })) {
             return;
           }
           const type = stash2 ? await stash2.type() : await parent2.type();
@@ -71658,7 +71496,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                 stageUpdated.push({
                   filepath,
                   oid,
-                  stats: await fs2.lstat(join2(dir, filepath))
+                  stats: await fs3.lstat(join2(dir, filepath))
                 });
               return {
                 method: "write",
@@ -71669,46 +71507,46 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         }
       });
-      await acquireLock$1({ fs: fs2, gitdir, dirRemoved, ops }, async () => {
+      await acquireLock$1({ fs: fs3, gitdir, dirRemoved, ops }, async () => {
         for (const op of ops) {
           const currentFilepath = join2(dir, op.filepath);
           switch (op.method) {
             case "rmdir":
-              await fs2.rmdir(currentFilepath);
+              await fs3.rmdir(currentFilepath);
               break;
             case "mkdir":
-              await fs2.mkdir(currentFilepath);
+              await fs3.mkdir(currentFilepath);
               break;
             case "rm":
-              await fs2.rm(currentFilepath);
+              await fs3.rm(currentFilepath);
               break;
             case "write":
               if (!dirRemoved.some(
                 (removedDir) => currentFilepath.startsWith(removedDir)
               )) {
                 const { object: object3 } = await _readObject({
-                  fs: fs2,
+                  fs: fs3,
                   cache: {},
                   gitdir,
                   oid: op.oid
                 });
-                if (await fs2.exists(currentFilepath)) {
-                  await fs2.rm(currentFilepath);
+                if (await fs3.exists(currentFilepath)) {
+                  await fs3.rm(currentFilepath);
                 }
-                await fs2.write(currentFilepath, object3);
+                await fs3.write(currentFilepath, object3);
               }
               break;
           }
         }
       });
-      await GitIndexManager.acquire({ fs: fs2, gitdir, cache: {} }, async (index3) => {
+      await GitIndexManager.acquire({ fs: fs3, gitdir, cache: {} }, async (index3) => {
         stageUpdated.forEach(({ filepath, stats, oid }) => {
           index3.insert({ filepath, stats, oid });
         });
       });
     }
     async function _cherryPick({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir,
@@ -71720,7 +71558,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       mergeDriver
     }) {
       const { commit: cherryCommit, oid: cherryOid } = await _readCommit({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid
@@ -71732,28 +71570,28 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw new CherryPickRootCommitError(cherryOid);
       }
       const currentOid = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: "HEAD"
       });
       const { commit: currentCommit } = await _readCommit({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: currentOid
       });
       const cherryParentOid = cherryCommit.parent[0];
       const { commit: cherryParent } = await _readCommit({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: cherryParentOid
       });
       const mergedTreeOid = await GitIndexManager.acquire(
-        { fs: fs2, gitdir, cache, allowUnmerged: false },
+        { fs: fs3, gitdir, cache, allowUnmerged: false },
         async (index3) => {
           return mergeTree({
-            fs: fs2,
+            fs: fs3,
             cache,
             dir,
             gitdir,
@@ -71774,7 +71612,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw mergedTreeOid;
       }
       const newOid = await _commit({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         message: cherryCommit.message,
@@ -71790,7 +71628,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       if (dir && !dryRun && !noUpdateBranch) {
         await applyTreeChanges({
-          fs: fs2,
+          fs: fs3,
           dir,
           gitdir,
           stashCommit: newOid,
@@ -71816,17 +71654,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const { commit: cherryCommit } = await _readCommit({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir: updatedGitdir,
           oid
         });
         if (cherryCommit.parent && cherryCommit.parent.length > 1) {
           return await _cherryPick({
-            fs: fs2,
+            fs: fs3,
             cache,
             dir,
             gitdir: updatedGitdir,
@@ -71839,7 +71677,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           });
         }
         const normalizedCommitter = await normalizeCommitterObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           committer
         });
@@ -71847,7 +71685,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           throw new MissingNameError("committer");
         }
         return await _cherryPick({
-          fs: fs2,
+          fs: fs3,
           cache,
           dir,
           gitdir: updatedGitdir,
@@ -71876,20 +71714,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return ref;
     }
     async function _currentBranch({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       fullname = false,
       test = false
     }) {
       const ref = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: "HEAD",
         depth: 2
       });
       if (test) {
         try {
-          await GitRefManager.resolve({ fs: fs2, gitdir, ref });
+          await GitRefManager.resolve({ fs: fs3, gitdir, ref });
         } catch (_) {
           return;
         }
@@ -72270,12 +72108,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
        * @param {string} [args.gitdir] - [required] The [git directory](dir-vs-gitdir.md) path
        * @returns {Promise<Set<string>>} - A set of shallow object IDs.
        */
-      static async read({ fs: fs2, gitdir }) {
+      static async read({ fs: fs3, gitdir }) {
         if (lock$3 === null) lock$3 = new AsyncLock();
         const filepath = join2(gitdir, "shallow");
         const oids = /* @__PURE__ */ new Set();
         await lock$3.acquire(filepath, async function() {
-          const text3 = await fs2.read(filepath, { encoding: "utf8" });
+          const text3 = await fs3.read(filepath, { encoding: "utf8" });
           if (text3 === null) return oids;
           if (text3.trim() === "") return oids;
           text3.trim().split("\n").map((oid) => oids.add(oid));
@@ -72292,40 +72130,40 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
        * @param {Set<string>} args.oids - A set of shallow object IDs to write.
        * @returns {Promise<void>}
        */
-      static async write({ fs: fs2, gitdir, oids }) {
+      static async write({ fs: fs3, gitdir, oids }) {
         if (lock$3 === null) lock$3 = new AsyncLock();
         const filepath = join2(gitdir, "shallow");
         if (oids.size > 0) {
           const text3 = [...oids].join("\n") + "\n";
           await lock$3.acquire(filepath, async function() {
-            await fs2.write(filepath, text3, {
+            await fs3.write(filepath, text3, {
               encoding: "utf8"
             });
           });
         } else {
           await lock$3.acquire(filepath, async function() {
-            await fs2.rm(filepath);
+            await fs3.rm(filepath);
           });
         }
       }
     };
-    async function hasObjectLoose({ fs: fs2, gitdir, oid }) {
+    async function hasObjectLoose({ fs: fs3, gitdir, oid }) {
       const source = `objects/${oid.slice(0, 2)}/${oid.slice(2)}`;
-      return fs2.exists(`${gitdir}/${source}`);
+      return fs3.exists(`${gitdir}/${source}`);
     }
     async function hasObjectPacked({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       getExternalRefDelta
     }) {
-      let list = await fs2.readdir(join2(gitdir, "objects/pack"));
+      let list = await fs3.readdir(join2(gitdir, "objects/pack"));
       list = list.filter((x) => x.endsWith(".idx"));
       for (const filename of list) {
         const indexFile = `${gitdir}/objects/pack/${filename}`;
         const p = await readPackIndex({
-          fs: fs2,
+          fs: fs3,
           cache,
           filename: indexFile,
           getExternalRefDelta
@@ -72338,17 +72176,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return false;
     }
     async function hasObject({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       format = "content"
     }) {
-      const getExternalRefDelta = (oid2) => _readObject({ fs: fs2, cache, gitdir, oid: oid2 });
-      let result = await hasObjectLoose({ fs: fs2, gitdir, oid });
+      const getExternalRefDelta = (oid2) => _readObject({ fs: fs3, cache, gitdir, oid: oid2 });
+      let result = await hasObjectLoose({ fs: fs3, gitdir, oid });
       if (!result) {
         result = await hasObjectPacked({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           oid,
@@ -72421,9 +72259,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         });
       }
     };
-    function findSplit(str) {
-      const r = str.indexOf("\r");
-      const n = str.indexOf("\n");
+    function findSplit(str2) {
+      const r = str2.indexOf("\r");
+      const n = str2.indexOf("\n");
       if (r === -1 && n === -1) return -1;
       if (r === -1) return n + 1;
       if (n === -1) return r + 1;
@@ -72652,7 +72490,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return packstream;
     }
     async function _fetch2({
-      fs: fs2,
+      fs: fs3,
       cache,
       http,
       onProgress,
@@ -72676,8 +72514,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       prune = false,
       pruneTags = false
     }) {
-      const ref = _ref || await _currentBranch({ fs: fs2, gitdir, test: true });
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+      const ref = _ref || await _currentBranch({ fs: fs3, gitdir, test: true });
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       const remote = _remote || ref && await config2.get(`branch.${ref}.remote`) || "origin";
       const url2 = _url3 || await config2.get(`remote.${remote}.url`);
       if (typeof url2 === "undefined") {
@@ -72748,23 +72586,23 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (relative) capabilities.push("deepen-relative");
       const wants = singleBranch ? [oid] : remoteRefs.values();
       const haveRefs = singleBranch ? [ref] : await GitRefManager.listRefs({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         filepath: `refs`
       });
       let haves = [];
       for (let ref2 of haveRefs) {
         try {
-          ref2 = await GitRefManager.expand({ fs: fs2, gitdir, ref: ref2 });
-          const oid2 = await GitRefManager.resolve({ fs: fs2, gitdir, ref: ref2 });
-          if (await hasObject({ fs: fs2, cache, gitdir, oid: oid2 })) {
+          ref2 = await GitRefManager.expand({ fs: fs3, gitdir, ref: ref2 });
+          const oid2 = await GitRefManager.resolve({ fs: fs3, gitdir, ref: ref2 });
+          if (await hasObject({ fs: fs3, cache, gitdir, oid: oid2 })) {
             haves.push(oid2);
           }
         } catch (err) {
         }
       }
       haves = [...new Set(haves)];
-      const oids = await GitShallowManager.read({ fs: fs2, gitdir });
+      const oids = await GitShallowManager.read({ fs: fs3, gitdir });
       const shallows = remoteHTTP.capabilities.has("shallow") ? [...oids] : [];
       const packstream = writeUploadPackRequest({
         capabilities,
@@ -72793,12 +72631,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       for (const oid2 of response.shallows) {
         if (!oids.has(oid2)) {
           try {
-            const { object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid: oid2 });
+            const { object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid: oid2 });
             const commit2 = new GitCommit(object3);
             const hasParents = await Promise.all(
-              commit2.headers().parent.map((oid3) => hasObject({ fs: fs2, cache, gitdir, oid: oid3 }))
+              commit2.headers().parent.map((oid3) => hasObject({ fs: fs3, cache, gitdir, oid: oid3 }))
             );
-            const haveAllParents = hasParents.length === 0 || hasParents.every((has2) => has2);
+            const haveAllParents = hasParents.length === 0 || hasParents.every((has3) => has3);
             if (!haveAllParents) {
               oids.add(oid2);
             }
@@ -72810,7 +72648,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       for (const oid2 of response.unshallows) {
         oids.delete(oid2);
       }
-      await GitShallowManager.write({ fs: fs2, gitdir, oids });
+      await GitShallowManager.write({ fs: fs3, gitdir, oids });
       if (singleBranch) {
         const refs = /* @__PURE__ */ new Map([[fullref, oid]]);
         const symrefs = /* @__PURE__ */ new Map();
@@ -72827,7 +72665,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           refs.set(key, realRef);
         }
         const { pruned } = await GitRefManager.updateRemoteRefs({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           remote,
           refs,
@@ -72840,7 +72678,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
       } else {
         const { pruned } = await GitRefManager.updateRemoteRefs({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           remote,
           refs: remoteRefs,
@@ -72904,25 +72742,25 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (packfileSha !== "" && !emptyPackfile(packfile)) {
         res.packfile = `objects/pack/pack-${packfileSha}.pack`;
         const fullpath = join2(gitdir, res.packfile);
-        await fs2.write(fullpath, packfile);
-        const getExternalRefDelta = (oid2) => _readObject({ fs: fs2, cache, gitdir, oid: oid2 });
+        await fs3.write(fullpath, packfile);
+        const getExternalRefDelta = (oid2) => _readObject({ fs: fs3, cache, gitdir, oid: oid2 });
         const idx = await GitPackIndex.fromPack({
           pack: packfile,
           getExternalRefDelta,
           onProgress
         });
-        await fs2.write(fullpath.replace(/\.pack$/, ".idx"), await idx.toBuffer());
+        await fs3.write(fullpath.replace(/\.pack$/, ".idx"), await idx.toBuffer());
       }
       return res;
     }
     async function _init({
-      fs: fs2,
+      fs: fs3,
       bare = false,
       dir,
       gitdir = bare ? dir : join2(dir, ".git"),
       defaultBranch = "master"
     }) {
-      if (await fs2.exists(gitdir + "/config")) return;
+      if (await fs3.exists(gitdir + "/config")) return;
       let folders = [
         "hooks",
         "info",
@@ -72933,9 +72771,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       ];
       folders = folders.map((dir2) => gitdir + "/" + dir2);
       for (const folder of folders) {
-        await fs2.mkdir(folder);
+        await fs3.mkdir(folder);
       }
-      await fs2.write(
+      await fs3.write(
         gitdir + "/config",
         `[core]
 	repositoryformatversion = 0
@@ -72943,11 +72781,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
 	bare = ${bare}
 ` + (bare ? "" : "	logallrefupdates = true\n") + "	symlinks = false\n	ignorecase = true\n"
       );
-      await fs2.write(gitdir + "/HEAD", `ref: refs/heads/${defaultBranch}
+      await fs3.write(gitdir + "/HEAD", `ref: refs/heads/${defaultBranch}
 `);
     }
     async function _clone({
-      fs: fs2,
+      fs: fs3,
       cache,
       http,
       onProgress,
@@ -72974,15 +72812,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       batchSize = 100
     }) {
       try {
-        await _init({ fs: fs2, gitdir });
-        await _addRemote({ fs: fs2, gitdir, remote, url: url2, force: false });
+        await _init({ fs: fs3, gitdir });
+        await _addRemote({ fs: fs3, gitdir, remote, url: url2, force: false });
         if (corsProxy) {
-          const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+          const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
           await config2.set(`http.corsProxy`, corsProxy);
-          await GitConfigManager.save({ fs: fs2, gitdir, config: config2 });
+          await GitConfigManager.save({ fs: fs3, gitdir, config: config2 });
         }
         const { defaultBranch, fetchHead } = await _fetch2({
-          fs: fs2,
+          fs: fs3,
           cache,
           http,
           onProgress,
@@ -73006,7 +72844,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         ref = ref || defaultBranch;
         ref = ref.replace("refs/heads/", "");
         await _checkout({
-          fs: fs2,
+          fs: fs3,
           cache,
           onProgress,
           onPostCheckout,
@@ -73019,12 +72857,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           batchSize
         });
       } catch (err) {
-        await fs2.rmdir(gitdir, { recursive: true, maxRetries: 10 }).catch(() => void 0);
+        await fs3.rmdir(gitdir, { recursive: true, maxRetries: 10 }).catch(() => void 0);
         throw err;
       }
     }
     async function clone3({
-      fs: fs2,
+      fs: fs3,
       http,
       onProgress,
       onMessage,
@@ -73051,14 +72889,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       batchSize = 100
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("http", http);
         assertParameter("gitdir", gitdir);
         if (!noCheckout) {
           assertParameter("dir", dir);
         }
         assertParameter("url", url2);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _clone({
           fs: fsp,
@@ -73117,10 +72955,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (signingKey) {
           assertParameter("onSign", onSign);
         }
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         return await _commit({
-          fs: fs2,
+          fs: fs3,
           cache,
           onSign,
           gitdir: updatedGitdir,
@@ -73141,16 +72979,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function currentBranch({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       fullname = false,
       test = false
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _currentBranch({
           fs: fsp,
@@ -73163,34 +73001,34 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _deleteBranch({ fs: fs2, gitdir, ref }) {
+    async function _deleteBranch({ fs: fs3, gitdir, ref }) {
       ref = ref.startsWith("refs/heads/") ? ref : `refs/heads/${ref}`;
-      const exist = await GitRefManager.exists({ fs: fs2, gitdir, ref });
+      const exist = await GitRefManager.exists({ fs: fs3, gitdir, ref });
       if (!exist) {
-        throw new NotFoundError3(ref);
+        throw new NotFoundError4(ref);
       }
-      const fullRef = await GitRefManager.expand({ fs: fs2, gitdir, ref });
-      const currentRef = await _currentBranch({ fs: fs2, gitdir, fullname: true });
+      const fullRef = await GitRefManager.expand({ fs: fs3, gitdir, ref });
+      const currentRef = await _currentBranch({ fs: fs3, gitdir, fullname: true });
       if (fullRef === currentRef) {
-        const value = await GitRefManager.resolve({ fs: fs2, gitdir, ref: fullRef });
-        await GitRefManager.writeRef({ fs: fs2, gitdir, ref: "HEAD", value });
+        const value = await GitRefManager.resolve({ fs: fs3, gitdir, ref: fullRef });
+        await GitRefManager.writeRef({ fs: fs3, gitdir, ref: "HEAD", value });
       }
-      await GitRefManager.deleteRef({ fs: fs2, gitdir, ref: fullRef });
+      await GitRefManager.deleteRef({ fs: fs3, gitdir, ref: fullRef });
       const abbrevRef = abbreviateRef(ref);
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       await config2.deleteSection("branch", abbrevRef);
-      await GitConfigManager.save({ fs: fs2, gitdir, config: config2 });
+      await GitConfigManager.save({ fs: fs3, gitdir, config: config2 });
     }
     async function deleteBranch({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _deleteBranch({
           fs: fsp,
@@ -73202,11 +73040,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function deleteRef({ fs: fs2, dir, gitdir = join2(dir, ".git"), ref }) {
+    async function deleteRef({ fs: fs3, dir, gitdir = join2(dir, ".git"), ref }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         await GitRefManager.deleteRef({ fs: fsp, gitdir: updatedGitdir, ref });
       } catch (err) {
@@ -73214,21 +73052,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _deleteRemote({ fs: fs2, gitdir, remote }) {
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+    async function _deleteRemote({ fs: fs3, gitdir, remote }) {
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       await config2.deleteSection("remote", remote);
-      await GitConfigManager.save({ fs: fs2, gitdir, config: config2 });
+      await GitConfigManager.save({ fs: fs3, gitdir, config: config2 });
     }
     async function deleteRemote({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       remote
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("remote", remote);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _deleteRemote({
           fs: fsp,
@@ -73240,15 +73078,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _deleteTag({ fs: fs2, gitdir, ref }) {
+    async function _deleteTag({ fs: fs3, gitdir, ref }) {
       ref = ref.startsWith("refs/tags/") ? ref : `refs/tags/${ref}`;
-      await GitRefManager.deleteRef({ fs: fs2, gitdir, ref });
+      await GitRefManager.deleteRef({ fs: fs3, gitdir, ref });
     }
-    async function deleteTag({ fs: fs2, dir, gitdir = join2(dir, ".git"), ref }) {
+    async function deleteTag({ fs: fs3, dir, gitdir = join2(dir, ".git"), ref }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _deleteTag({
           fs: fsp,
@@ -73260,25 +73098,25 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function expandOidLoose({ fs: fs2, gitdir, oid: short }) {
+    async function expandOidLoose({ fs: fs3, gitdir, oid: short }) {
       const prefix = short.slice(0, 2);
-      const objectsSuffixes = await fs2.readdir(`${gitdir}/objects/${prefix}`);
+      const objectsSuffixes = await fs3.readdir(`${gitdir}/objects/${prefix}`);
       return objectsSuffixes.map((suffix) => `${prefix}${suffix}`).filter((_oid) => _oid.startsWith(short));
     }
     async function expandOidPacked({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid: short,
       getExternalRefDelta
     }) {
       const results = [];
-      let list = await fs2.readdir(join2(gitdir, "objects/pack"));
+      let list = await fs3.readdir(join2(gitdir, "objects/pack"));
       list = list.filter((x) => x.endsWith(".idx"));
       for (const filename of list) {
         const indexFile = `${gitdir}/objects/pack/${filename}`;
         const p = await readPackIndex({
-          fs: fs2,
+          fs: fs3,
           cache,
           filename: indexFile,
           getExternalRefDelta
@@ -73290,11 +73128,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       return results;
     }
-    async function _expandOid({ fs: fs2, cache, gitdir, oid: short }) {
-      const getExternalRefDelta = (oid) => _readObject({ fs: fs2, cache, gitdir, oid });
-      const results = await expandOidLoose({ fs: fs2, gitdir, oid: short });
+    async function _expandOid({ fs: fs3, cache, gitdir, oid: short }) {
+      const getExternalRefDelta = (oid) => _readObject({ fs: fs3, cache, gitdir, oid });
+      const results = await expandOidLoose({ fs: fs3, gitdir, oid: short });
       const packedOids = await expandOidPacked({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: short,
@@ -73311,20 +73149,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (results.length > 1) {
         throw new AmbiguousError("oids", short, results);
       }
-      throw new NotFoundError3(`an object matching "${short}"`);
+      throw new NotFoundError4(`an object matching "${short}"`);
     }
     async function expandOid({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _expandOid({
           fs: fsp,
@@ -73337,12 +73175,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function expandRef({ fs: fs2, dir, gitdir = join2(dir, ".git"), ref }) {
+    async function expandRef({ fs: fs3, dir, gitdir = join2(dir, ".git"), ref }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await GitRefManager.expand({
           fs: fsp,
@@ -73354,7 +73192,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _findMergeBase({ fs: fs2, cache, gitdir, oids }) {
+    async function _findMergeBase({ fs: fs3, cache, gitdir, oids }) {
       const visits = {};
       const passes = oids.length;
       let heads = oids.map((oid, index3) => ({ index: index3, oid }));
@@ -73373,7 +73211,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         const newheads = /* @__PURE__ */ new Map();
         for (const { oid, index: index3 } of heads) {
           try {
-            const { object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+            const { object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
             const commit2 = GitCommit.from(object3);
             const { parent: parent2 } = commit2.parseHeaders();
             for (const oid2 of parent2) {
@@ -73389,7 +73227,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return [];
     }
     async function _merge({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir,
@@ -73409,30 +73247,30 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       allowUnrelatedHistories = false
     }) {
       if (ours === void 0) {
-        ours = await _currentBranch({ fs: fs2, gitdir, fullname: true });
+        ours = await _currentBranch({ fs: fs3, gitdir, fullname: true });
       }
       ours = await GitRefManager.expand({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: ours
       });
       theirs = await GitRefManager.expand({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: theirs
       });
       const ourOid = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: ours
       });
       const theirOid = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: theirs
       });
       const baseOids = await _findMergeBase({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oids: [ourOid, theirOid]
@@ -73453,7 +73291,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       if (fastForward2 && baseOid === ourOid) {
         if (!dryRun && !noUpdateBranch) {
-          await GitRefManager.writeRef({ fs: fs2, gitdir, ref: ours, value: theirOid });
+          await GitRefManager.writeRef({ fs: fs3, gitdir, ref: ours, value: theirOid });
         }
         return {
           oid: theirOid,
@@ -73464,10 +73302,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           throw new FastForwardError();
         }
         const tree = await GitIndexManager.acquire(
-          { fs: fs2, gitdir, cache, allowUnmerged: false },
+          { fs: fs3, gitdir, cache, allowUnmerged: false },
           async (index3) => {
             return mergeTree({
-              fs: fs2,
+              fs: fs3,
               cache,
               dir,
               gitdir,
@@ -73491,7 +73329,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           )}`;
         }
         const oid = await _commit({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           message,
@@ -73513,7 +73351,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _pull({
-      fs: fs2,
+      fs: fs3,
       cache,
       http,
       onProgress,
@@ -73540,14 +73378,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       try {
         if (!ref) {
-          const head = await _currentBranch({ fs: fs2, gitdir });
+          const head = await _currentBranch({ fs: fs3, gitdir });
           if (!head) {
             throw new MissingParameterError("ref");
           }
           ref = head;
         }
         const { fetchHead, fetchHeadDescription } = await _fetch2({
-          fs: fs2,
+          fs: fs3,
           cache,
           http,
           onProgress,
@@ -73567,7 +73405,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           pruneTags
         });
         await _merge({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           ours: ref,
@@ -73582,7 +73420,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           noUpdateBranch: false
         });
         await _checkout({
-          fs: fs2,
+          fs: fs3,
           cache,
           onProgress,
           dir,
@@ -73597,7 +73435,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function fastForward({
-      fs: fs2,
+      fs: fs3,
       http,
       onProgress,
       onMessage,
@@ -73616,7 +73454,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("http", http);
         assertParameter("gitdir", gitdir);
         const thisWillNotBeUsed = {
@@ -73625,7 +73463,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           timestamp: Date.now(),
           timezoneOffset: 0
         };
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _pull({
           fs: fsp,
@@ -73654,8 +73492,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function fetch4({
-      fs: fs2,
+    async function fetch5({
+      fs: fs3,
       http,
       onProgress,
       onMessage,
@@ -73681,10 +73519,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("http", http);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _fetch2({
           fs: fsp,
@@ -73717,17 +73555,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function findMergeBase({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oids,
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oids", oids);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _findMergeBase({
           fs: fsp,
@@ -73740,33 +73578,33 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _findRoot({ fs: fs2, filepath }) {
-      if (await fs2.exists(join2(filepath, ".git"))) {
+    async function _findRoot({ fs: fs3, filepath }) {
+      if (await fs3.exists(join2(filepath, ".git"))) {
         return filepath;
       } else {
         const parent2 = dirname(filepath);
         if (parent2 === filepath) {
-          throw new NotFoundError3(`git root for ${filepath}`);
+          throw new NotFoundError4(`git root for ${filepath}`);
         }
-        return _findRoot({ fs: fs2, filepath: parent2 });
+        return _findRoot({ fs: fs3, filepath: parent2 });
       }
     }
-    async function findRoot({ fs: fs2, filepath }) {
+    async function findRoot({ fs: fs3, filepath }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("filepath", filepath);
-        return await _findRoot({ fs: new FileSystem(fs2), filepath });
+        return await _findRoot({ fs: new FileSystem(fs3), filepath });
       } catch (err) {
         err.caller = "git.findRoot";
         throw err;
       }
     }
-    async function getConfig({ fs: fs2, dir, gitdir = join2(dir, ".git"), path: path3 }) {
+    async function getConfig({ fs: fs3, dir, gitdir = join2(dir, ".git"), path: path3 }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("path", path3);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _getConfig({
           fs: fsp,
@@ -73778,21 +73616,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _getConfigAll({ fs: fs2, gitdir, path: path3 }) {
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+    async function _getConfigAll({ fs: fs3, gitdir, path: path3 }) {
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       return config2.getall(path3);
     }
     async function getConfigAll({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       path: path3
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("path", path3);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _getConfigAll({
           fs: fsp,
@@ -73970,7 +73808,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _indexPack({
-      fs: fs2,
+      fs: fs3,
       cache,
       onProgress,
       dir,
@@ -73979,14 +73817,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       try {
         filepath = join2(dir, filepath);
-        const pack = await fs2.read(filepath);
-        const getExternalRefDelta = (oid) => _readObject({ fs: fs2, cache, gitdir, oid });
+        const pack = await fs3.read(filepath);
+        const getExternalRefDelta = (oid) => _readObject({ fs: fs3, cache, gitdir, oid });
         const idx = await GitPackIndex.fromPack({
           pack,
           getExternalRefDelta,
           onProgress
         });
-        await fs2.write(filepath.replace(/\.pack$/, ".idx"), await idx.toBuffer());
+        await fs3.write(filepath.replace(/\.pack$/, ".idx"), await idx.toBuffer());
         return {
           oids: [...idx.hashes]
         };
@@ -73996,7 +73834,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function indexPack({
-      fs: fs2,
+      fs: fs3,
       onProgress,
       dir,
       gitdir = join2(dir, ".git"),
@@ -74004,11 +73842,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("dir", dir);
         assertParameter("gitdir", dir);
         assertParameter("filepath", filepath);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _indexPack({
           fs: fsp,
@@ -74023,20 +73861,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function init({
-      fs: fs2,
+    async function init2({
+      fs: fs3,
       bare = false,
       dir,
       gitdir = bare ? dir : join2(dir, ".git"),
       defaultBranch = "master"
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         if (!bare) {
           assertParameter("dir", dir);
         }
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _init({
           fs: fsp,
@@ -74051,14 +73889,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _isDescendent({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       ancestor,
       depth
     }) {
-      const shallows = await GitShallowManager.read({ fs: fs2, gitdir });
+      const shallows = await GitShallowManager.read({ fs: fs3, gitdir });
       if (!oid) {
         throw new MissingParameterError("oid");
       }
@@ -74075,7 +73913,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
         const oid2 = queue.shift();
         const { type, object: object3 } = await _readObject({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           oid: oid2
@@ -74099,7 +73937,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return false;
     }
     async function isDescendent({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
@@ -74108,11 +73946,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
         assertParameter("ancestor", ancestor);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _isDescendent({
           fs: fsp,
@@ -74128,17 +73966,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function isIgnored({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       filepath
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("dir", dir);
         assertParameter("gitdir", gitdir);
         assertParameter("filepath", filepath);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return GitIgnoreManager.isIgnored({
           fs: fsp,
@@ -74152,15 +73990,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function listBranches({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       remote
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return GitRefManager.listBranches({
           fs: fsp,
@@ -74172,12 +74010,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _listFiles({ fs: fs2, gitdir, ref, cache }) {
+    async function _listFiles({ fs: fs3, gitdir, ref, cache }) {
       if (ref) {
-        const oid = await GitRefManager.resolve({ gitdir, fs: fs2, ref });
+        const oid = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
         const filenames = [];
         await accumulateFilesFromOid({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           oid,
@@ -74187,7 +74025,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return filenames;
       } else {
         return GitIndexManager.acquire(
-          { fs: fs2, gitdir, cache },
+          { fs: fs3, gitdir, cache },
           async function(index3) {
             return index3.entries.map((x) => x.path);
           }
@@ -74195,18 +74033,18 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function accumulateFilesFromOid({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       filenames,
       prefix
     }) {
-      const { tree } = await _readTree({ fs: fs2, cache, gitdir, oid });
+      const { tree } = await _readTree({ fs: fs3, cache, gitdir, oid });
       for (const entry of tree) {
         if (entry.type === "tree") {
           await accumulateFilesFromOid({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir,
             oid: entry.oid,
@@ -74219,16 +74057,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function listFiles({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref,
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _listFiles({
           fs: fsp,
@@ -74241,17 +74079,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _listNotes({ fs: fs2, cache, gitdir, ref }) {
+    async function _listNotes({ fs: fs3, cache, gitdir, ref }) {
       let parent2;
       try {
-        parent2 = await GitRefManager.resolve({ gitdir, fs: fs2, ref });
+        parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (err instanceof NotFoundError3) {
+        if (err instanceof NotFoundError4) {
           return [];
         }
       }
       const result = await _readTree({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: parent2
@@ -74263,17 +74101,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return notes;
     }
     async function listNotes({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref = "refs/notes/commits",
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _listNotes({
           fs: fsp,
@@ -74287,15 +74125,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function listRefs({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       filepath
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return GitRefManager.listRefs({ fs: fsp, gitdir: updatedGitdir, filepath });
       } catch (err) {
@@ -74303,8 +74141,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _listRemotes({ fs: fs2, gitdir }) {
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+    async function _listRemotes({ fs: fs3, gitdir }) {
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       const remoteNames = await config2.getSubsections("remote");
       const remotes = Promise.all(
         remoteNames.map(async (remote) => {
@@ -74314,11 +74152,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       );
       return remotes;
     }
-    async function listRemotes({ fs: fs2, dir, gitdir = join2(dir, ".git") }) {
+    async function listRemotes({ fs: fs3, dir, gitdir = join2(dir, ".git") }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _listRemotes({
           fs: fsp,
@@ -74413,11 +74251,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function listTags({ fs: fs2, dir, gitdir = join2(dir, ".git") }) {
+    async function listTags({ fs: fs3, dir, gitdir = join2(dir, ".git") }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return GitRefManager.listTags({ fs: fsp, gitdir: updatedGitdir });
       } catch (err) {
@@ -74429,17 +74267,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return a.committer.timestamp - b.committer.timestamp;
     }
     var EMPTY_OID = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
-    async function resolveFileIdInTree({ fs: fs2, cache, gitdir, oid, fileId }) {
+    async function resolveFileIdInTree({ fs: fs3, cache, gitdir, oid, fileId }) {
       if (fileId === EMPTY_OID) return;
       const _oid = oid;
       let filepath;
-      const result = await resolveTree({ fs: fs2, cache, gitdir, oid });
+      const result = await resolveTree({ fs: fs3, cache, gitdir, oid });
       const tree = result.tree;
       if (fileId === result.oid) {
         filepath = result.path;
       } else {
         filepath = await _resolveFileId({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir,
           tree,
@@ -74454,7 +74292,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return filepath;
     }
     async function _resolveFileId({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       tree,
@@ -74470,13 +74308,13 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           filepaths.push(result);
         } else if (entry.type === "tree") {
           result = _readObject({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir,
             oid: entry.oid
           }).then(function({ object: object3 }) {
             return _resolveFileId({
-              fs: fs2,
+              fs: fs3,
               cache,
               gitdir,
               tree: GitTree.from(object3),
@@ -74493,7 +74331,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return filepaths;
     }
     async function _log({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       filepath,
@@ -74505,9 +74343,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       const sinceTimestamp = typeof since === "undefined" ? void 0 : Math.floor(since.valueOf() / 1e3);
       const commits = [];
-      const shallowCommits = await GitShallowManager.read({ fs: fs2, gitdir });
-      const oid = await GitRefManager.resolve({ fs: fs2, gitdir, ref });
-      const tips = [await _readCommit({ fs: fs2, cache, gitdir, oid })];
+      const shallowCommits = await GitShallowManager.read({ fs: fs3, gitdir });
+      const oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref });
+      const tips = [await _readCommit({ fs: fs3, cache, gitdir, oid })];
       let lastFileOid;
       let lastCommit;
       let isOk;
@@ -74523,7 +74361,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           let vFileOid;
           try {
             vFileOid = await resolveFilepath({
-              fs: fs2,
+              fs: fs3,
               cache,
               gitdir,
               oid: commit2.commit.tree,
@@ -74536,11 +74374,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             lastCommit = commit2;
             isOk = true;
           } catch (e) {
-            if (e instanceof NotFoundError3) {
+            if (e instanceof NotFoundError4) {
               let found = follow && lastFileOid;
               if (found) {
                 found = await resolveFileIdInTree({
-                  fs: fs2,
+                  fs: fs3,
                   cache,
                   gitdir,
                   oid: commit2.commit.tree,
@@ -74550,7 +74388,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                   if (Array.isArray(found)) {
                     if (lastCommit) {
                       const lastFound = await resolveFileIdInTree({
-                        fs: fs2,
+                        fs: fs3,
                         cache,
                         gitdir,
                         oid: lastCommit.commit.tree,
@@ -74595,7 +74433,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
         if (!shallowCommits.has(commit2.oid)) {
           for (const oid2 of commit2.commit.parent) {
-            const commit3 = await _readCommit({ fs: fs2, cache, gitdir, oid: oid2 });
+            const commit3 = await _readCommit({ fs: fs3, cache, gitdir, oid: oid2 });
             if (!tips.map((commit4) => commit4.oid).includes(commit3.oid)) {
               tips.push(commit3);
             }
@@ -74609,7 +74447,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return commits;
     }
     async function log({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       filepath,
@@ -74622,10 +74460,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _log({
           fs: fsp,
@@ -74668,10 +74506,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (signingKey) {
           assertParameter("onSign", onSign);
         }
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const author = await normalizeAuthorObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author: _author
         });
@@ -74679,7 +74517,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           throw new MissingNameError("author");
         }
         const committer = await normalizeCommitterObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author,
           committer: _committer
@@ -74688,7 +74526,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           throw new MissingNameError("committer");
         }
         return await _merge({
-          fs: fs2,
+          fs: fs3,
           cache,
           dir,
           gitdir: updatedGitdir,
@@ -74721,7 +74559,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       ref_delta: 112
     };
     async function _pack({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir = join2(dir, ".git"),
@@ -74754,20 +74592,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       write("00000002", "hex");
       write(padHex(8, oids.length), "hex");
       for (const oid of oids) {
-        const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+        const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
         await writeObject2({ write, object: object3, stype: type });
       }
       const digest = hash.digest();
       outputStream.push(digest);
       return outputStream;
     }
-    async function _packObjects({ fs: fs2, cache, gitdir, oids, write }) {
-      const buffers = await _pack({ fs: fs2, cache, gitdir, oids });
+    async function _packObjects({ fs: fs3, cache, gitdir, oids, write }) {
+      const buffers = await _pack({ fs: fs3, cache, gitdir, oids });
       const packfile = Buffer.from(await collect(buffers));
       const packfileSha = packfile.slice(-20).toString("hex");
       const filename = `pack-${packfileSha}.pack`;
       if (write) {
-        await fs2.write(join2(gitdir, `objects/pack/${filename}`), packfile);
+        await fs3.write(join2(gitdir, `objects/pack/${filename}`), packfile);
         return { filename };
       }
       return {
@@ -74776,7 +74614,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       };
     }
     async function packObjects({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oids,
@@ -74784,10 +74622,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oids", oids);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _packObjects({
           fs: fsp,
@@ -74830,23 +74668,23 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       try {
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const author = await normalizeAuthorObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author: _author
         });
         if (!author) throw new MissingNameError("author");
         const committer = await normalizeCommitterObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author,
           committer: _committer
         });
         if (!committer) throw new MissingNameError("committer");
         return await _pull({
-          fs: fs2,
+          fs: fs3,
           cache,
           http,
           onProgress,
@@ -74877,22 +74715,22 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function listCommitsAndTags({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir = join2(dir, ".git"),
       start,
       finish
     }) {
-      const shallows = await GitShallowManager.read({ fs: fs2, gitdir });
+      const shallows = await GitShallowManager.read({ fs: fs3, gitdir });
       const startingSet = /* @__PURE__ */ new Set();
       const finishingSet = /* @__PURE__ */ new Set();
       for (const ref of start) {
-        startingSet.add(await GitRefManager.resolve({ fs: fs2, gitdir, ref }));
+        startingSet.add(await GitRefManager.resolve({ fs: fs3, gitdir, ref }));
       }
       for (const ref of finish) {
         try {
-          const oid = await GitRefManager.resolve({ fs: fs2, gitdir, ref });
+          const oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref });
           finishingSet.add(oid);
         } catch (err) {
         }
@@ -74900,7 +74738,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const visited = /* @__PURE__ */ new Set();
       async function walk2(oid) {
         visited.add(oid);
-        const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+        const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
         if (type === "tag") {
           const tag2 = GitAnnotatedTag.from(object3);
           const commit2 = tag2.headers().object;
@@ -74925,7 +74763,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return visited;
     }
     async function listObjects({
-      fs: fs2,
+      fs: fs3,
       cache,
       dir,
       gitdir = join2(dir, ".git"),
@@ -74935,7 +74773,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       async function walk2(oid) {
         if (visited.has(oid)) return;
         visited.add(oid);
-        const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+        const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
         if (type === "tag") {
           const tag2 = GitAnnotatedTag.from(object3);
           const obj = tag2.headers().object;
@@ -75014,7 +74852,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return packstream;
     }
     async function _push({
-      fs: fs2,
+      fs: fs3,
       cache,
       http,
       onProgress,
@@ -75033,11 +74871,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       corsProxy,
       headers = {}
     }) {
-      const ref = _ref || await _currentBranch({ fs: fs2, gitdir });
+      const ref = _ref || await _currentBranch({ fs: fs3, gitdir });
       if (typeof ref === "undefined") {
         throw new MissingParameterError("ref");
       }
-      const config2 = await GitConfigManager.get({ fs: fs2, gitdir });
+      const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
       remote = remote || await config2.get(`branch.${ref}.pushRemote`) || await config2.get("remote.pushDefault") || await config2.get(`branch.${ref}.remote`) || "origin";
       const url2 = _url3 || await config2.get(`remote.${remote}.pushurl`) || await config2.get(`remote.${remote}.url`);
       if (typeof url2 === "undefined") {
@@ -75050,8 +74888,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (corsProxy === void 0) {
         corsProxy = await config2.get("http.corsProxy");
       }
-      const fullRef = await GitRefManager.expand({ fs: fs2, gitdir, ref });
-      const oid = _delete ? "0000000000000000000000000000000000000000" : await GitRefManager.resolve({ fs: fs2, gitdir, ref: fullRef });
+      const fullRef = await GitRefManager.expand({ fs: fs3, gitdir, ref });
+      const oid = _delete ? "0000000000000000000000000000000000000000" : await GitRefManager.resolve({ fs: fs3, gitdir, ref: fullRef });
       const GitRemoteHTTP2 = GitRemoteManager.getRemoteHelperFor({ url: url2 });
       const httpRemote = await GitRemoteHTTP2.discover({
         http,
@@ -75075,7 +74913,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             map: httpRemote.refs
           });
         } catch (err) {
-          if (err instanceof NotFoundError3) {
+          if (err instanceof NotFoundError4) {
             fullRemoteRef = remoteRef.startsWith("refs/") ? remoteRef : `refs/heads/${remoteRef}`;
           } else {
             throw err;
@@ -75099,30 +74937,30 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         let skipObjects = /* @__PURE__ */ new Set();
         if (oldoid !== "0000000000000000000000000000000000000000") {
           const mergebase = await _findMergeBase({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir,
             oids: [oid, oldoid]
           });
           for (const oid2 of mergebase) finish.push(oid2);
           if (thinPack) {
-            skipObjects = await listObjects({ fs: fs2, cache, gitdir, oids: mergebase });
+            skipObjects = await listObjects({ fs: fs3, cache, gitdir, oids: mergebase });
           }
         }
         if (!finish.includes(oid)) {
           const commits = await listCommitsAndTags({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir,
             start: [oid],
             finish
           });
-          objects = await listObjects({ fs: fs2, cache, gitdir, oids: commits });
+          objects = await listObjects({ fs: fs3, cache, gitdir, oids: commits });
         }
         if (thinPack) {
           try {
             const ref2 = await GitRefManager.resolve({
-              fs: fs2,
+              fs: fs3,
               gitdir,
               ref: `refs/remotes/${remote}/HEAD`,
               depth: 2
@@ -75133,7 +74971,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               map: httpRemote.refs
             });
             const oids = [oid2];
-            for (const oid3 of await listObjects({ fs: fs2, cache, gitdir, oids })) {
+            for (const oid3 of await listObjects({ fs: fs3, cache, gitdir, oids })) {
               skipObjects.add(oid3);
             }
           } catch (e) {
@@ -75148,7 +74986,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             throw new PushRejectedError("tag-exists");
           }
           if (oid !== "0000000000000000000000000000000000000000" && oldoid !== "0000000000000000000000000000000000000000" && !await _isDescendent({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir,
             oid,
@@ -75168,7 +75006,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         triplets: [{ oldoid, oid, fullRef: fullRemoteRef }]
       });
       const packstream2 = _delete ? [] : await _pack({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oids: [...objects]
@@ -75200,9 +75038,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           ""
         )}`;
         if (_delete) {
-          await GitRefManager.deleteRef({ fs: fs2, gitdir, ref: ref2 });
+          await GitRefManager.deleteRef({ fs: fs3, gitdir, ref: ref2 });
         } else {
-          await GitRefManager.writeRef({ fs: fs2, gitdir, ref: ref2, value: oid });
+          await GitRefManager.writeRef({ fs: fs3, gitdir, ref: ref2, value: oid });
         }
       }
       if (result.ok && Object.values(result.refs).every((result2) => result2.ok)) {
@@ -75213,8 +75051,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw new GitPushError(prettyDetails, result);
       }
     }
-    async function push({
-      fs: fs2,
+    async function push2({
+      fs: fs3,
       http,
       onProgress,
       onMessage,
@@ -75235,10 +75073,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("http", http);
         assertParameter("gitdir", gitdir);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _push({
           fs: fsp,
@@ -75265,11 +75103,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function resolveBlob({ fs: fs2, cache, gitdir, oid }) {
-      const { type, object: object3 } = await _readObject({ fs: fs2, cache, gitdir, oid });
+    async function resolveBlob({ fs: fs3, cache, gitdir, oid }) {
+      const { type, object: object3 } = await _readObject({ fs: fs3, cache, gitdir, oid });
       if (type === "tag") {
         oid = GitAnnotatedTag.from(object3).parse().object;
-        return resolveBlob({ fs: fs2, cache, gitdir, oid });
+        return resolveBlob({ fs: fs3, cache, gitdir, oid });
       }
       if (type !== "blob") {
         throw new ObjectTypeError(oid, type, "blob");
@@ -75277,17 +75115,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return { oid, blob: new Uint8Array(object3) };
     }
     async function _readBlob({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       oid,
       filepath = void 0
     }) {
       if (filepath !== void 0) {
-        oid = await resolveFilepath({ fs: fs2, cache, gitdir, oid, filepath });
+        oid = await resolveFilepath({ fs: fs3, cache, gitdir, oid, filepath });
       }
       const blob = await resolveBlob({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid
@@ -75295,7 +75133,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return blob;
     }
     async function readBlob({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
@@ -75303,10 +75141,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _readBlob({
           fs: fsp,
@@ -75321,17 +75159,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function readCommit({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _readCommit({
           fs: fsp,
@@ -75345,15 +75183,15 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _readNote({
-      fs: fs2,
+      fs: fs3,
       cache,
       gitdir,
       ref = "refs/notes/commits",
       oid
     }) {
-      const parent2 = await GitRefManager.resolve({ gitdir, fs: fs2, ref });
+      const parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       const { blob } = await _readBlob({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: parent2,
@@ -75362,7 +75200,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return blob;
     }
     async function readNote({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref = "refs/notes/commits",
@@ -75370,11 +75208,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _readNote({
           fs: fsp,
@@ -75402,11 +75240,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         if (filepath !== void 0) {
           oid = await resolveFilepath({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir: updatedGitdir,
             oid,
@@ -75415,7 +75253,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
         const _format = format === "parsed" ? "content" : format;
         const result = await _readObject({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir: updatedGitdir,
           oid,
@@ -75458,9 +75296,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _readTag({ fs: fs2, cache, gitdir, oid }) {
+    async function _readTag({ fs: fs3, cache, gitdir, oid }) {
       const { type, object: object3 } = await _readObject({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid,
@@ -75478,17 +75316,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       return result;
     }
     async function readTag({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _readTag({
           fs: fsp,
@@ -75502,7 +75340,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function readTree({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       oid,
@@ -75510,10 +75348,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _readTree({
           fs: fsp,
@@ -75552,7 +75390,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _removeNote({
-      fs: fs2,
+      fs: fs3,
       cache,
       onSign,
       gitdir,
@@ -75564,14 +75402,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     }) {
       let parent2;
       try {
-        parent2 = await GitRefManager.resolve({ gitdir, fs: fs2, ref });
+        parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (!(err instanceof NotFoundError3)) {
+        if (!(err instanceof NotFoundError4)) {
           throw err;
         }
       }
       const result = await _readTree({
-        fs: fs2,
+        fs: fs3,
         cache,
         gitdir,
         oid: parent2 || "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
@@ -75579,12 +75417,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       let tree = result.tree;
       tree = tree.filter((entry) => entry.path !== oid);
       const treeOid = await _writeTree({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         tree
       });
       const commitOid = await _commit({
-        fs: fs2,
+        fs: fs3,
         cache,
         onSign,
         gitdir,
@@ -75615,23 +75453,23 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("oid", oid);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const author = await normalizeAuthorObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author: _author
         });
         if (!author) throw new MissingNameError("author");
         const committer = await normalizeCommitterObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           author,
           committer: _committer
         });
         if (!committer) throw new MissingNameError("committer");
         return await _removeNote({
-          fs: fs2,
+          fs: fs3,
           cache,
           onSign,
           gitdir: updatedGitdir,
@@ -75647,7 +75485,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function _renameBranch({
-      fs: fs2,
+      fs: fs3,
       gitdir,
       oldref,
       ref,
@@ -75661,27 +75499,27 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       const fulloldref = `refs/heads/${oldref}`;
       const fullnewref = `refs/heads/${ref}`;
-      const newexist = await GitRefManager.exists({ fs: fs2, gitdir, ref: fullnewref });
+      const newexist = await GitRefManager.exists({ fs: fs3, gitdir, ref: fullnewref });
       if (newexist) {
         throw new AlreadyExistsError("branch", ref, false);
       }
       const value = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: fulloldref,
         depth: 1
       });
-      await GitRefManager.writeRef({ fs: fs2, gitdir, ref: fullnewref, value });
-      await GitRefManager.deleteRef({ fs: fs2, gitdir, ref: fulloldref });
+      await GitRefManager.writeRef({ fs: fs3, gitdir, ref: fullnewref, value });
+      await GitRefManager.deleteRef({ fs: fs3, gitdir, ref: fulloldref });
       const fullCurrentBranchRef = await _currentBranch({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         fullname: true
       });
       const isCurrentBranch = fullCurrentBranchRef === fulloldref;
       if (checkout2 || isCurrentBranch) {
         await GitRefManager.writeSymbolicRef({
-          fs: fs2,
+          fs: fs3,
           gitdir,
           ref: "HEAD",
           value: fullnewref
@@ -75689,7 +75527,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function renameBranch({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref,
@@ -75697,11 +75535,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       checkout: checkout2 = false
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
         assertParameter("oldref", oldref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _renameBranch({
           fs: fsp,
@@ -75730,13 +75568,13 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("filepath", filepath);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         let oid;
         let workdirOid;
         try {
           oid = await GitRefManager.resolve({
-            fs: fs2,
+            fs: fs3,
             gitdir: updatedGitdir,
             ref: ref || "HEAD"
           });
@@ -75748,7 +75586,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (oid) {
           try {
             oid = await resolveFilepath({
-              fs: fs2,
+              fs: fs3,
               cache,
               gitdir: updatedGitdir,
               oid,
@@ -75768,7 +75606,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           gid: 0,
           size: 0
         };
-        const object3 = dir && await fs2.read(join2(dir, filepath));
+        const object3 = dir && await fs3.read(join2(dir, filepath));
         if (object3) {
           workdirOid = await hashObject$1({
             gitdir: updatedGitdir,
@@ -75776,11 +75614,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             object: object3
           });
           if (oid === workdirOid) {
-            stats = await fs2.lstat(join2(dir, filepath));
+            stats = await fs3.lstat(join2(dir, filepath));
           }
         }
         await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             index3.delete({ filepath });
             if (oid) {
@@ -75794,17 +75632,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function resolveRef({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       ref,
       depth
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         const oid = await GitRefManager.resolve({
           fs: fsp,
@@ -75830,24 +75668,24 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("path", path3);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
-        const config2 = await GitConfigManager.get({ fs: fs2, gitdir: updatedGitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
+        const config2 = await GitConfigManager.get({ fs: fs3, gitdir: updatedGitdir });
         if (append3) {
           await config2.append(path3, value);
         } else {
           await config2.set(path3, value);
         }
-        await GitConfigManager.save({ fs: fs2, gitdir: updatedGitdir, config: config2 });
+        await GitConfigManager.save({ fs: fs3, gitdir: updatedGitdir, config: config2 });
       } catch (err) {
         err.caller = "git.setConfig";
         throw err;
       }
     }
-    async function _writeCommit({ fs: fs2, gitdir, commit: commit2 }) {
+    async function _writeCommit({ fs: fs3, gitdir, commit: commit2 }) {
       const object3 = GitCommit.from(commit2).toObject();
       const oid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "commit",
         object: object3,
@@ -75889,9 +75727,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
        * @param {string} args.dir - The working directory.
        * @param {string}[args.gitdir=join(dir, '.git')] - [required] The [git directory](dir-vs-gitdir.md) path
        */
-      constructor({ fs: fs2, dir, gitdir = join2(dir, ".git") }) {
+      constructor({ fs: fs3, dir, gitdir = join2(dir, ".git") }) {
         Object.assign(this, {
-          fs: fs2,
+          fs: fs3,
           dir,
           gitdir,
           _author: null
@@ -76060,26 +75898,26 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         return GitRefStash.getStashReflogEntry(reflogString, parsed);
       }
     };
-    async function _createStashCommit({ fs: fs2, dir, gitdir, message = "" }) {
-      const stashMgr = new GitStashManager({ fs: fs2, dir, gitdir });
+    async function _createStashCommit({ fs: fs3, dir, gitdir, message = "" }) {
+      const stashMgr = new GitStashManager({ fs: fs3, dir, gitdir });
       await stashMgr.getAuthor();
       const branch2 = await _currentBranch({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         fullname: false
       });
       const headCommit = await GitRefManager.resolve({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         ref: "HEAD"
       });
-      const headCommitObj = await readCommit({ fs: fs2, dir, gitdir, oid: headCommit });
+      const headCommitObj = await readCommit({ fs: fs3, dir, gitdir, oid: headCommit });
       const headMsg = headCommitObj.commit.message;
       const stashCommitParents = [headCommit];
       let stashCommitTree = null;
       let workDirCompareBase = TREE({ ref: "HEAD" });
       const indexTree = await writeTreeChanges({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         treePair: [TREE({ ref: "HEAD" }), "stage"]
@@ -76095,7 +75933,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         workDirCompareBase = STAGE();
       }
       const workingTree = await writeTreeChanges({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         treePair: [workDirCompareBase, "workdir"]
@@ -76110,7 +75948,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         stashCommitTree = workingTree;
       }
       if (!stashCommitTree || !indexTree && !workingTree) {
-        throw new NotFoundError3("changes, nothing to stash");
+        throw new NotFoundError4("changes, nothing to stash");
       }
       const stashMsg = (message.trim() || `WIP on ${branch2}`) + `: ${headCommit.substring(0, 7)} ${headMsg}`;
       const stashCommit = await stashMgr.writeStashCommit({
@@ -76120,9 +75958,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       return { stashCommit, stashMsg, branch: branch2, stashMgr };
     }
-    async function _stashPush({ fs: fs2, dir, gitdir, message = "" }) {
+    async function _stashPush({ fs: fs3, dir, gitdir, message = "" }) {
       const { stashCommit, stashMsg, branch: branch2, stashMgr } = await _createStashCommit({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         message
@@ -76133,7 +75971,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         message: stashMsg
       });
       await checkout({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         ref: branch2,
@@ -76143,17 +75981,17 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       return stashCommit;
     }
-    async function _stashCreate({ fs: fs2, dir, gitdir, message = "" }) {
+    async function _stashCreate({ fs: fs3, dir, gitdir, message = "" }) {
       const { stashCommit } = await _createStashCommit({
-        fs: fs2,
+        fs: fs3,
         dir,
         gitdir,
         message
       });
       return stashCommit;
     }
-    async function _stashApply({ fs: fs2, dir, gitdir, refIdx = 0 }) {
-      const stashMgr = new GitStashManager({ fs: fs2, dir, gitdir });
+    async function _stashApply({ fs: fs3, dir, gitdir, refIdx = 0 }) {
+      const stashMgr = new GitStashManager({ fs: fs3, dir, gitdir });
       const stashCommit = await stashMgr.readStashCommit(refIdx);
       const { parent: stashParents = null } = stashCommit.commit ? stashCommit.commit : {};
       if (!stashParents || !Array.isArray(stashParents)) {
@@ -76161,14 +75999,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       for (let i = 0; i < stashParents.length - 1; i++) {
         const applyingCommit = await _readCommit({
-          fs: fs2,
+          fs: fs3,
           cache: {},
           gitdir,
           oid: stashParents[i + 1]
         });
         const wasStaged = applyingCommit.commit.message.startsWith("stash-Index");
         await applyTreeChanges({
-          fs: fs2,
+          fs: fs3,
           dir,
           gitdir,
           stashCommit: stashParents[i + 1],
@@ -76177,16 +76015,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         });
       }
     }
-    async function _stashDrop({ fs: fs2, dir, gitdir, refIdx = 0 }) {
-      const stashMgr = new GitStashManager({ fs: fs2, dir, gitdir });
+    async function _stashDrop({ fs: fs3, dir, gitdir, refIdx = 0 }) {
+      const stashMgr = new GitStashManager({ fs: fs3, dir, gitdir });
       const stashCommit = await stashMgr.readStashCommit(refIdx);
       if (!stashCommit.commit) {
         return;
       }
       const stashRefPath = stashMgr.refStashPath;
       await acquireLock$1(stashRefPath, async () => {
-        if (await fs2.exists(stashRefPath)) {
-          await fs2.rm(stashRefPath);
+        if (await fs3.exists(stashRefPath)) {
+          await fs3.rm(stashRefPath);
         }
       });
       const reflogEntries = await stashMgr.readStashReflogs({ parsed: false });
@@ -76197,7 +76035,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const stashReflogPath = stashMgr.refLogsStashPath;
       await acquireLock$1({ reflogEntries, stashReflogPath, stashMgr }, async () => {
         if (reflogEntries.length) {
-          await fs2.write(
+          await fs3.write(
             stashReflogPath,
             reflogEntries.reverse().join("\n") + "\n",
             "utf8"
@@ -76205,40 +76043,40 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           const lastStashCommit = reflogEntries[reflogEntries.length - 1].split(" ")[1];
           await stashMgr.writeStashRef(lastStashCommit);
         } else {
-          await fs2.rm(stashReflogPath);
+          await fs3.rm(stashReflogPath);
         }
       });
     }
-    async function _stashList({ fs: fs2, dir, gitdir }) {
-      const stashMgr = new GitStashManager({ fs: fs2, dir, gitdir });
+    async function _stashList({ fs: fs3, dir, gitdir }) {
+      const stashMgr = new GitStashManager({ fs: fs3, dir, gitdir });
       return stashMgr.readStashReflogs({ parsed: true });
     }
-    async function _stashClear({ fs: fs2, dir, gitdir }) {
-      const stashMgr = new GitStashManager({ fs: fs2, dir, gitdir });
+    async function _stashClear({ fs: fs3, dir, gitdir }) {
+      const stashMgr = new GitStashManager({ fs: fs3, dir, gitdir });
       const stashRefPath = [stashMgr.refStashPath, stashMgr.refLogsStashPath];
       await acquireLock$1(stashRefPath, async () => {
         await Promise.all(
           stashRefPath.map(async (path3) => {
-            if (await fs2.exists(path3)) {
-              return fs2.rm(path3);
+            if (await fs3.exists(path3)) {
+              return fs3.rm(path3);
             }
           })
         );
       });
     }
-    async function _stashPop({ fs: fs2, dir, gitdir, refIdx = 0 }) {
-      await _stashApply({ fs: fs2, dir, gitdir, refIdx });
-      await _stashDrop({ fs: fs2, dir, gitdir, refIdx });
+    async function _stashPop({ fs: fs3, dir, gitdir, refIdx = 0 }) {
+      await _stashApply({ fs: fs3, dir, gitdir, refIdx });
+      await _stashDrop({ fs: fs3, dir, gitdir, refIdx });
     }
     async function stash({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       op = "push",
       message = "",
       refIdx = 0
     }) {
-      assertParameter("fs", fs2);
+      assertParameter("fs", fs3);
       assertParameter("dir", dir);
       assertParameter("gitdir", gitdir);
       assertParameter("op", op);
@@ -76253,7 +76091,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       };
       const opsNeedRefIdx = ["apply", "drop", "pop"];
       try {
-        const _fs = new FileSystem(fs2);
+        const _fs = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp: _fs, dotgit: gitdir });
         const folders = ["refs", "logs", "logs/refs"];
         folders.map((f) => join2(updatedGitdir, f)).forEach(async (folder) => {
@@ -76294,10 +76132,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("filepath", filepath);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const ignored = await GitIgnoreManager.isIgnored({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           dir,
           filepath
@@ -76305,16 +76143,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (ignored) {
           return "ignored";
         }
-        const headTree = await getHeadTree({ fs: fs2, cache, gitdir: updatedGitdir });
+        const headTree = await getHeadTree({ fs: fs3, cache, gitdir: updatedGitdir });
         const treeOid = await getOidAtPath({
-          fs: fs2,
+          fs: fs3,
           cache,
           gitdir: updatedGitdir,
           tree: headTree,
           path: filepath
         });
         const indexEntry = await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             for (const entry of index3) {
               if (entry.path === filepath) return entry;
@@ -76322,7 +76160,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             return null;
           }
         );
-        const stats = await fs2.lstat(join2(dir, filepath));
+        const stats = await fs3.lstat(join2(dir, filepath));
         const H = treeOid !== null;
         const I = indexEntry !== null;
         const W = stats !== null;
@@ -76330,7 +76168,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           if (I && !compareStats(indexEntry, stats)) {
             return indexEntry.oid;
           } else {
-            const object3 = await fs2.read(join2(dir, filepath));
+            const object3 = await fs3.read(join2(dir, filepath));
             const workdirOid = await hashObject$1({
               gitdir: updatedGitdir,
               type: "blob",
@@ -76339,7 +76177,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             if (I && indexEntry.oid === workdirOid) {
               if (stats.size !== -1) {
                 GitIndexManager.acquire(
-                  { fs: fs2, gitdir: updatedGitdir, cache },
+                  { fs: fs3, gitdir: updatedGitdir, cache },
                   async function(index3) {
                     index3.insert({ filepath, stats, oid: workdirOid });
                   }
@@ -76377,7 +76215,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function getOidAtPath({ fs: fs2, cache, gitdir: updatedGitdir, tree, path: path3 }) {
+    async function getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree, path: path3 }) {
       if (typeof path3 === "string") path3 = path3.split("/");
       const dirname2 = path3.shift();
       for (const entry of tree) {
@@ -76386,14 +76224,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             return entry.oid;
           }
           const { type, object: object3 } = await _readObject({
-            fs: fs2,
+            fs: fs3,
             cache,
             gitdir: updatedGitdir,
             oid: entry.oid
           });
           if (type === "tree") {
             const tree2 = GitTree.from(object3);
-            return getOidAtPath({ fs: fs2, cache, gitdir: updatedGitdir, tree: tree2, path: path3 });
+            return getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree: tree2, path: path3 });
           }
           if (type === "blob") {
             throw new ObjectTypeError(entry.oid, type, "blob", path3.join("/"));
@@ -76402,20 +76240,20 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       return null;
     }
-    async function getHeadTree({ fs: fs2, cache, gitdir: updatedGitdir }) {
+    async function getHeadTree({ fs: fs3, cache, gitdir: updatedGitdir }) {
       let oid;
       try {
         oid = await GitRefManager.resolve({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           ref: "HEAD"
         });
       } catch (e) {
-        if (e instanceof NotFoundError3) {
+        if (e instanceof NotFoundError4) {
           return [];
         }
       }
-      const { tree } = await _readTree({ fs: fs2, cache, gitdir: updatedGitdir, oid });
+      const { tree } = await _readTree({ fs: fs3, cache, gitdir: updatedGitdir, oid });
       return tree;
     }
     async function statusMatrix({
@@ -76432,10 +76270,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         return await _walk({
-          fs: fs2,
+          fs: fs3,
           cache,
           dir,
           gitdir: updatedGitdir,
@@ -76444,7 +76282,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             if (!head && !stage && workdir) {
               if (!shouldIgnore) {
                 const isIgnored2 = await GitIgnoreManager.isIgnored({
-                  fs: fs2,
+                  fs: fs3,
                   dir,
                   filepath
                 });
@@ -76502,21 +76340,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
-        const fs2 = new FileSystem(_fs);
+        const fs3 = new FileSystem(_fs);
         if (ref === void 0) {
           throw new MissingParameterError("ref");
         }
         ref = ref.startsWith("refs/tags/") ? ref : `refs/tags/${ref}`;
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const value = await GitRefManager.resolve({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           ref: object3 || "HEAD"
         });
-        if (!force && await GitRefManager.exists({ fs: fs2, gitdir: updatedGitdir, ref })) {
+        if (!force && await GitRefManager.exists({ fs: fs3, gitdir: updatedGitdir, ref })) {
           throw new AlreadyExistsError("tag", ref);
         }
-        await GitRefManager.writeRef({ fs: fs2, gitdir: updatedGitdir, ref, value });
+        await GitRefManager.writeRef({ fs: fs3, gitdir: updatedGitdir, ref, value });
       } catch (err) {
         err.caller = "git.tag";
         throw err;
@@ -76538,14 +76376,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
         assertParameter("filepath", filepath);
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         if (remove3) {
           return await GitIndexManager.acquire(
-            { fs: fs2, gitdir: updatedGitdir, cache },
+            { fs: fs3, gitdir: updatedGitdir, cache },
             async function(index3) {
               if (!force) {
-                const fileStats2 = await fs2.lstat(join2(dir, filepath));
+                const fileStats2 = await fs3.lstat(join2(dir, filepath));
                 if (fileStats2) {
                   if (fileStats2.isDirectory()) {
                     throw new InvalidFilepathError("directory");
@@ -76563,9 +76401,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         }
         let fileStats;
         if (!oid) {
-          fileStats = await fs2.lstat(join2(dir, filepath));
+          fileStats = await fs3.lstat(join2(dir, filepath));
           if (!fileStats) {
-            throw new NotFoundError3(
+            throw new NotFoundError4(
               `file at "${filepath}" on disk and "remove" not set`
             );
           }
@@ -76574,19 +76412,19 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         }
         return await GitIndexManager.acquire(
-          { fs: fs2, gitdir: updatedGitdir, cache },
+          { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             if (!add3 && !index3.has({ filepath })) {
-              throw new NotFoundError3(
+              throw new NotFoundError4(
                 `file at "${filepath}" in index and "add" not set`
               );
             }
             let stats;
             if (!oid) {
               stats = fileStats;
-              const object3 = stats.isSymbolicLink() ? await fs2.readlink(join2(dir, filepath)) : await fs2.read(join2(dir, filepath));
+              const object3 = stats.isSymbolicLink() ? await fs3.readlink(join2(dir, filepath)) : await fs3.read(join2(dir, filepath));
               oid = await _writeObject({
-                fs: fs2,
+                fs: fs3,
                 gitdir: updatedGitdir,
                 type: "blob",
                 format: "content",
@@ -76626,7 +76464,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function walk({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       trees,
@@ -76636,10 +76474,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       cache = {}
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("trees", trees);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _walk({
           fs: fsp,
@@ -76656,12 +76494,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function writeBlob({ fs: fs2, dir, gitdir = join2(dir, ".git"), blob }) {
+    async function writeBlob({ fs: fs3, dir, gitdir = join2(dir, ".git"), blob }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("blob", blob);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _writeObject({
           fs: fsp,
@@ -76676,16 +76514,16 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
     }
     async function writeCommit({
-      fs: fs2,
+      fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
       commit: commit2
     }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("commit", commit2);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _writeCommit({
           fs: fsp,
@@ -76708,8 +76546,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       encoding = void 0
     }) {
       try {
-        const fs2 = new FileSystem(_fs);
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
+        const fs3 = new FileSystem(_fs);
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         if (format === "parsed") {
           switch (type) {
             case "commit":
@@ -76730,7 +76568,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           format = "content";
         }
         oid = await _writeObject({
-          fs: fs2,
+          fs: fs3,
           gitdir: updatedGitdir,
           type,
           object: object3,
@@ -76757,29 +76595,29 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         assertParameter("gitdir", gitdir);
         assertParameter("ref", ref);
         assertParameter("value", value);
-        const fs2 = new FileSystem(_fs);
+        const fs3 = new FileSystem(_fs);
         if (!isValidRef(ref, true)) {
           throw new InvalidRefNameError(ref, cleanGitRef.clean(ref));
         }
-        const updatedGitdir = await discoverGitdir({ fsp: fs2, dotgit: gitdir });
-        if (!force && await GitRefManager.exists({ fs: fs2, gitdir: updatedGitdir, ref })) {
+        const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
+        if (!force && await GitRefManager.exists({ fs: fs3, gitdir: updatedGitdir, ref })) {
           throw new AlreadyExistsError("ref", ref);
         }
         if (symbolic) {
           await GitRefManager.writeSymbolicRef({
-            fs: fs2,
+            fs: fs3,
             gitdir: updatedGitdir,
             ref,
             value
           });
         } else {
           value = await GitRefManager.resolve({
-            fs: fs2,
+            fs: fs3,
             gitdir: updatedGitdir,
             ref: value
           });
           await GitRefManager.writeRef({
-            fs: fs2,
+            fs: fs3,
             gitdir: updatedGitdir,
             ref,
             value
@@ -76790,10 +76628,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function _writeTag({ fs: fs2, gitdir, tag: tag2 }) {
+    async function _writeTag({ fs: fs3, gitdir, tag: tag2 }) {
       const object3 = GitAnnotatedTag.from(tag2).toObject();
       const oid = await _writeObject({
-        fs: fs2,
+        fs: fs3,
         gitdir,
         type: "tag",
         object: object3,
@@ -76801,12 +76639,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       });
       return oid;
     }
-    async function writeTag({ fs: fs2, dir, gitdir = join2(dir, ".git"), tag: tag2 }) {
+    async function writeTag({ fs: fs3, dir, gitdir = join2(dir, ".git"), tag: tag2 }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("tag", tag2);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _writeTag({
           fs: fsp,
@@ -76818,12 +76656,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function writeTree({ fs: fs2, dir, gitdir = join2(dir, ".git"), tree }) {
+    async function writeTree({ fs: fs3, dir, gitdir = join2(dir, ".git"), tree }) {
       try {
-        assertParameter("fs", fs2);
+        assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
         assertParameter("tree", tree);
-        const fsp = new FileSystem(fs2);
+        const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _writeTree({
           fs: fsp,
@@ -76861,14 +76699,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       expandOid,
       expandRef,
       fastForward,
-      fetch: fetch4,
+      fetch: fetch5,
       findMergeBase,
       findRoot,
       getRemoteInfo,
       getRemoteInfo2,
       hashBlob,
       indexPack,
-      init,
+      init: init2,
       isDescendent,
       isIgnored,
       listBranches,
@@ -76882,7 +76720,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       merge: merge3,
       packObjects,
       pull,
-      push,
+      push: push2,
       readBlob,
       readCommit,
       readNote,
@@ -76931,7 +76769,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     exports.expandOid = expandOid;
     exports.expandRef = expandRef;
     exports.fastForward = fastForward;
-    exports.fetch = fetch4;
+    exports.fetch = fetch5;
     exports.findMergeBase = findMergeBase;
     exports.findRoot = findRoot;
     exports.getConfig = getConfig;
@@ -76940,7 +76778,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     exports.getRemoteInfo2 = getRemoteInfo2;
     exports.hashBlob = hashBlob;
     exports.indexPack = indexPack;
-    exports.init = init;
+    exports.init = init2;
     exports.isDescendent = isDescendent;
     exports.isIgnored = isIgnored;
     exports.listBranches = listBranches;
@@ -76954,7 +76792,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     exports.merge = merge3;
     exports.packObjects = packObjects;
     exports.pull = pull;
-    exports.push = push;
+    exports.push = push2;
     exports.readBlob = readBlob;
     exports.readCommit = readCommit;
     exports.readNote = readNote;
@@ -77026,12 +76864,12 @@ var require_code = __commonJS({
         return item === "" || item === '""';
       }
       get str() {
-        var _a6;
-        return (_a6 = this._str) !== null && _a6 !== void 0 ? _a6 : this._str = this._items.reduce((s, c) => `${s}${c}`, "");
+        var _a7;
+        return (_a7 = this._str) !== null && _a7 !== void 0 ? _a7 : this._str = this._items.reduce((s, c) => `${s}${c}`, "");
       }
       get names() {
-        var _a6;
-        return (_a6 = this._names) !== null && _a6 !== void 0 ? _a6 : this._names = this._items.reduce((names, c) => {
+        var _a7;
+        return (_a7 = this._names) !== null && _a7 !== void 0 ? _a7 : this._names = this._items.reduce((names, c) => {
           if (c instanceof Name)
             names[c.str] = (names[c.str] || 0) + 1;
           return names;
@@ -77051,7 +76889,7 @@ var require_code = __commonJS({
     }
     exports._ = _;
     var plus = new _Code("+");
-    function str(strs, ...args) {
+    function str2(strs, ...args) {
       const expr = [safeStringify(strs[0])];
       let i = 0;
       while (i < args.length) {
@@ -77062,7 +76900,7 @@ var require_code = __commonJS({
       optimize(expr);
       return new _Code(expr);
     }
-    exports.str = str;
+    exports.str = str2;
     function addCodeArg(code, arg) {
       if (arg instanceof _Code)
         code.push(...arg._items);
@@ -77105,16 +76943,16 @@ var require_code = __commonJS({
       return;
     }
     function strConcat(c1, c2) {
-      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str`${c1}${c2}`;
+      return c2.emptyStr() ? c1 : c1.emptyStr() ? c2 : str2`${c1}${c2}`;
     }
     exports.strConcat = strConcat;
     function interpolate(x) {
       return typeof x == "number" || typeof x == "boolean" || x === null ? x : safeStringify(Array.isArray(x) ? x.join(",") : x);
     }
-    function stringify2(x) {
+    function stringify3(x) {
       return new _Code(safeStringify(x));
     }
-    exports.stringify = stringify2;
+    exports.stringify = stringify3;
     function safeStringify(x) {
       return JSON.stringify(x).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
     }
@@ -77177,8 +77015,8 @@ var require_scope = __commonJS({
         return `${prefix}${ng.index++}`;
       }
       _nameGroup(prefix) {
-        var _a6, _b;
-        if (((_b = (_a6 = this._parent) === null || _a6 === void 0 ? void 0 : _a6._prefixes) === null || _b === void 0 ? void 0 : _b.has(prefix)) || this._prefixes && !this._prefixes.has(prefix)) {
+        var _a7, _b;
+        if (((_b = (_a7 = this._parent) === null || _a7 === void 0 ? void 0 : _a7._prefixes) === null || _b === void 0 ? void 0 : _b.has(prefix)) || this._prefixes && !this._prefixes.has(prefix)) {
           throw new Error(`CodeGen: prefix "${prefix}" is not allowed in this scope`);
         }
         return this._names[prefix] = { prefix, index: 0 };
@@ -77211,12 +77049,12 @@ var require_scope = __commonJS({
         return new ValueScopeName(prefix, this._newName(prefix));
       }
       value(nameOrPrefix, value) {
-        var _a6;
+        var _a7;
         if (value.ref === void 0)
           throw new Error("CodeGen: ref must be passed in value");
         const name = this.toName(nameOrPrefix);
         const { prefix } = name;
-        const valueKey = (_a6 = value.key) !== null && _a6 !== void 0 ? _a6 : value.ref;
+        const valueKey = (_a7 = value.key) !== null && _a7 !== void 0 ? _a7 : value.ref;
         let vs = this._values[prefix];
         if (vs) {
           const _name = vs.get(valueKey);
@@ -77534,8 +77372,8 @@ var require_codegen = __commonJS({
         return this;
       }
       optimizeNames(names, constants) {
-        var _a6;
-        this.else = (_a6 = this.else) === null || _a6 === void 0 ? void 0 : _a6.optimizeNames(names, constants);
+        var _a7;
+        this.else = (_a7 = this.else) === null || _a7 === void 0 ? void 0 : _a7.optimizeNames(names, constants);
         if (!(super.optimizeNames(names, constants) || this.else))
           return;
         this.condition = optimizeExpr(this.condition, names, constants);
@@ -77639,16 +77477,16 @@ var require_codegen = __commonJS({
         return code;
       }
       optimizeNodes() {
-        var _a6, _b;
+        var _a7, _b;
         super.optimizeNodes();
-        (_a6 = this.catch) === null || _a6 === void 0 ? void 0 : _a6.optimizeNodes();
+        (_a7 = this.catch) === null || _a7 === void 0 ? void 0 : _a7.optimizeNodes();
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNodes();
         return this;
       }
       optimizeNames(names, constants) {
-        var _a6, _b;
+        var _a7, _b;
         super.optimizeNames(names, constants);
-        (_a6 = this.catch) === null || _a6 === void 0 ? void 0 : _a6.optimizeNames(names, constants);
+        (_a7 = this.catch) === null || _a7 === void 0 ? void 0 : _a7.optimizeNames(names, constants);
         (_b = this.finally) === null || _b === void 0 ? void 0 : _b.optimizeNames(names, constants);
         return this;
       }
@@ -78067,22 +77905,22 @@ var require_util2 = __commonJS({
       return (0, codegen_1._)`${topSchemaRef}${schemaPath}${(0, codegen_1.getProperty)(keyword)}`;
     }
     exports.schemaRefOrVal = schemaRefOrVal;
-    function unescapeFragment(str) {
-      return unescapeJsonPointer(decodeURIComponent(str));
+    function unescapeFragment(str2) {
+      return unescapeJsonPointer(decodeURIComponent(str2));
     }
     exports.unescapeFragment = unescapeFragment;
-    function escapeFragment(str) {
-      return encodeURIComponent(escapeJsonPointer(str));
+    function escapeFragment(str2) {
+      return encodeURIComponent(escapeJsonPointer(str2));
     }
     exports.escapeFragment = escapeFragment;
-    function escapeJsonPointer(str) {
-      if (typeof str == "number")
-        return `${str}`;
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPointer(str2) {
+      if (typeof str2 == "number")
+        return `${str2}`;
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
     exports.escapeJsonPointer = escapeJsonPointer;
-    function unescapeJsonPointer(str) {
-      return str.replace(/~1/g, "/").replace(/~0/g, "~");
+    function unescapeJsonPointer(str2) {
+      return str2.replace(/~1/g, "/").replace(/~0/g, "~");
     }
     exports.unescapeJsonPointer = unescapeJsonPointer;
     function eachItem(xs, f) {
@@ -78428,8 +78266,8 @@ var require_applicability = __commonJS({
     }
     exports.shouldUseGroup = shouldUseGroup;
     function shouldUseRule(schema, rule) {
-      var _a6;
-      return schema[rule.keyword] !== void 0 || ((_a6 = rule.definition.implements) === null || _a6 === void 0 ? void 0 : _a6.some((kwd) => schema[kwd] !== void 0));
+      var _a7;
+      return schema[rule.keyword] !== void 0 || ((_a7 = rule.definition.implements) === null || _a7 === void 0 ? void 0 : _a7.some((kwd) => schema[kwd] !== void 0));
     }
     exports.shouldUseRule = shouldUseRule;
   }
@@ -78817,14 +78655,14 @@ var require_keyword = __commonJS({
     }
     exports.macroKeywordCode = macroKeywordCode;
     function funcKeywordCode(cxt, def) {
-      var _a6;
+      var _a7;
       const { gen, keyword, schema, parentSchema, $data, it } = cxt;
       checkAsyncKeyword(it, def);
       const validate = !$data && def.compile ? def.compile.call(it.self, schema, parentSchema, it) : def.validate;
       const validateRef = useKeyword(gen, keyword, validate);
       const valid = gen.let("valid");
       cxt.block$data(valid, validateKeyword);
-      cxt.ok((_a6 = def.valid) !== null && _a6 !== void 0 ? _a6 : valid);
+      cxt.ok((_a7 = def.valid) !== null && _a7 !== void 0 ? _a7 : valid);
       function validateKeyword() {
         if (def.errors === false) {
           assignValid();
@@ -78855,8 +78693,8 @@ var require_keyword = __commonJS({
         gen.assign(valid, (0, codegen_1._)`${_await}${(0, code_1.callValidateCode)(cxt, validateRef, passCxt, passSchema)}`, def.modifying);
       }
       function reportErrs(errors) {
-        var _a7;
-        gen.if((0, codegen_1.not)((_a7 = def.valid) !== null && _a7 !== void 0 ? _a7 : valid), errors);
+        var _a8;
+        gen.if((0, codegen_1.not)((_a8 = def.valid) !== null && _a8 !== void 0 ? _a8 : valid), errors);
       }
     }
     exports.funcKeywordCode = funcKeywordCode;
@@ -79107,8 +78945,8 @@ var require_json_schema_traverse = __commonJS({
         post(schema, jsonPtr, rootSchema, parentJsonPtr, parentKeyword, parentSchema, keyIndex);
       }
     }
-    function escapeJsonPtr(str) {
-      return str.replace(/~/g, "~0").replace(/\//g, "~1");
+    function escapeJsonPtr(str2) {
+      return str2.replace(/~/g, "~0").replace(/\//g, "~1");
     }
   }
 });
@@ -79140,14 +78978,14 @@ var require_resolve = __commonJS({
       "enum",
       "const"
     ]);
-    function inlineRef(schema, limit = true) {
+    function inlineRef(schema, limit2 = true) {
       if (typeof schema == "boolean")
         return true;
-      if (limit === true)
+      if (limit2 === true)
         return !hasRef(schema);
-      if (!limit)
+      if (!limit2)
         return false;
-      return countKeys(schema) <= limit;
+      return countKeys(schema) <= limit2;
     }
     exports.inlineRef = inlineRef;
     var REF_KEYWORDS = /* @__PURE__ */ new Set([
@@ -79824,7 +79662,7 @@ var require_compile = __commonJS({
     var validate_1 = require_validate2();
     var SchemaEnv = class {
       constructor(env) {
-        var _a6;
+        var _a7;
         this.refs = {};
         this.dynamicAnchors = {};
         let schema;
@@ -79833,7 +79671,7 @@ var require_compile = __commonJS({
         this.schema = env.schema;
         this.schemaId = env.schemaId;
         this.root = env.root || this;
-        this.baseId = (_a6 = env.baseId) !== null && _a6 !== void 0 ? _a6 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env.schemaId || "$id"]);
+        this.baseId = (_a7 = env.baseId) !== null && _a7 !== void 0 ? _a7 : (0, resolve_1.normalizeId)(schema === null || schema === void 0 ? void 0 : schema[env.schemaId || "$id"]);
         this.schemaPath = env.schemaPath;
         this.localRefs = env.localRefs;
         this.meta = env.meta;
@@ -79929,14 +79767,14 @@ var require_compile = __commonJS({
     }
     exports.compileSchema = compileSchema;
     function resolveRef(root2, baseId, ref) {
-      var _a6;
+      var _a7;
       ref = (0, resolve_1.resolveUrl)(this.opts.uriResolver, baseId, ref);
       const schOrFunc = root2.refs[ref];
       if (schOrFunc)
         return schOrFunc;
       let _sch = resolve2.call(this, root2, ref);
       if (_sch === void 0) {
-        const schema = (_a6 = root2.localRefs) === null || _a6 === void 0 ? void 0 : _a6[ref];
+        const schema = (_a7 = root2.localRefs) === null || _a7 === void 0 ? void 0 : _a7[ref];
         const { schemaId } = this.opts;
         if (schema)
           _sch = new SchemaEnv({ schema, schemaId, root: root2, baseId });
@@ -80005,8 +79843,8 @@ var require_compile = __commonJS({
       "definitions"
     ]);
     function getJsonPointer(parsedRef, { baseId, schema, root: root2 }) {
-      var _a6;
-      if (((_a6 = parsedRef.fragment) === null || _a6 === void 0 ? void 0 : _a6[0]) !== "/")
+      var _a7;
+      if (((_a7 = parsedRef.fragment) === null || _a7 === void 0 ? void 0 : _a7[0]) !== "/")
         return;
       for (const part of parsedRef.fragment.slice(1).split("/")) {
         if (typeof schema === "boolean")
@@ -80169,10 +80007,10 @@ var require_utils = __commonJS({
         return { host, isIPV6: false };
       }
     }
-    function findToken(str, token) {
+    function findToken(str2, token) {
       let ind = 0;
-      for (let i = 0; i < str.length; i++) {
-        if (str[i] === token) ind++;
+      for (let i = 0; i < str2.length; i++) {
+        if (str2[i] === token) ind++;
       }
       return ind;
     }
@@ -80825,7 +80663,7 @@ var require_core = __commonJS({
     var util_1 = require_util2();
     var $dataRefSchema = require_data();
     var uri_1 = require_uri2();
-    var defaultRegExp = (str, flags) => new RegExp(str, flags);
+    var defaultRegExp = (str2, flags) => new RegExp(str2, flags);
     defaultRegExp.code = "new RegExp";
     var META_IGNORE_OPTIONS = ["removeAdditional", "useDefaults", "coerceTypes"];
     var EXT_SCOPE_NAMES = /* @__PURE__ */ new Set([
@@ -80867,9 +80705,9 @@ var require_core = __commonJS({
     };
     var MAX_EXPRESSION = 200;
     function requiredOptions(o) {
-      var _a6, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
+      var _a7, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r, _s, _t, _u, _v, _w, _x, _y, _z, _0;
       const s = o.strict;
-      const _optz = (_a6 = o.code) === null || _a6 === void 0 ? void 0 : _a6.optimize;
+      const _optz = (_a7 = o.code) === null || _a7 === void 0 ? void 0 : _a7.optimize;
       const optimize = _optz === true || _optz === void 0 ? 1 : _optz || 0;
       const regExp = (_c = (_b = o.code) === null || _b === void 0 ? void 0 : _b.regExp) !== null && _c !== void 0 ? _c : defaultRegExp;
       const uriResolver = (_d = o.uriResolver) !== null && _d !== void 0 ? _d : uri_1.default;
@@ -81343,7 +81181,7 @@ var require_core = __commonJS({
       }
     }
     function addRule(keyword, definition, dataType) {
-      var _a6;
+      var _a7;
       const post = definition === null || definition === void 0 ? void 0 : definition.post;
       if (dataType && post)
         throw new Error('keyword with "post" flag cannot have "type"');
@@ -81369,7 +81207,7 @@ var require_core = __commonJS({
       else
         ruleGroup.rules.push(rule);
       RULES.all[keyword] = rule;
-      (_a6 = definition.implements) === null || _a6 === void 0 ? void 0 : _a6.forEach((kwd) => this.addKeyword(kwd));
+      (_a7 = definition.implements) === null || _a7 === void 0 ? void 0 : _a7.forEach((kwd) => this.addKeyword(kwd));
     }
     function addBeforeRule(ruleGroup, rule, before2) {
       const i = ruleGroup.rules.findIndex((_rule) => _rule.keyword === before2);
@@ -81503,10 +81341,10 @@ var require_ref2 = __commonJS({
         gen.assign(names_1.default.errors, (0, codegen_1._)`${names_1.default.vErrors}.length`);
       }
       function addEvaluatedFrom(source) {
-        var _a6;
+        var _a7;
         if (!it.opts.unevaluated)
           return;
-        const schEvaluated = (_a6 = sch === null || sch === void 0 ? void 0 : sch.validate) === null || _a6 === void 0 ? void 0 : _a6.evaluated;
+        const schEvaluated = (_a7 = sch === null || sch === void 0 ? void 0 : sch.validate) === null || _a7 === void 0 ? void 0 : _a7.evaluated;
         if (it.props !== true) {
           if (schEvaluated && !schEvaluated.dynamicProps) {
             if (schEvaluated.props !== void 0) {
@@ -81620,16 +81458,16 @@ var require_ucs2length = __commonJS({
   "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
-    function ucs2length(str) {
-      const len = str.length;
+    function ucs2length(str2) {
+      const len = str2.length;
       let length = 0;
       let pos = 0;
       let value;
       while (pos < len) {
         length++;
-        value = str.charCodeAt(pos++);
+        value = str2.charCodeAt(pos++);
         if (value >= 55296 && value <= 56319 && pos < len) {
-          value = str.charCodeAt(pos);
+          value = str2.charCodeAt(pos);
           if ((value & 64512) === 56320)
             pos++;
         }
@@ -83157,7 +82995,7 @@ var require_discriminator = __commonJS({
           return _valid;
         }
         function getMapping() {
-          var _a6;
+          var _a7;
           const oneOfMapping = {};
           const topRequired = hasRequired(parentSchema);
           let tagRequired = true;
@@ -83171,7 +83009,7 @@ var require_discriminator = __commonJS({
               if (sch === void 0)
                 throw new ref_error_1.default(it.opts.uriResolver, it.baseId, ref);
             }
-            const propSch = (_a6 = sch === null || sch === void 0 ? void 0 : sch.properties) === null || _a6 === void 0 ? void 0 : _a6[tagName];
+            const propSch = (_a7 = sch === null || sch === void 0 ? void 0 : sch.properties) === null || _a7 === void 0 ? void 0 : _a7[tagName];
             if (typeof propSch != "object") {
               throw new Error(`discriminator: oneOf subschemas (or referenced schemas) must have "properties/${tagName}"`);
             }
@@ -83512,8 +83350,8 @@ var require_formats = __commonJS({
     }
     var DATE = /^(\d\d\d\d)-(\d\d)-(\d\d)$/;
     var DAYS = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    function date4(str) {
-      const matches = DATE.exec(str);
+    function date4(str2) {
+      const matches = DATE.exec(str2);
       if (!matches)
         return false;
       const year = +matches[1];
@@ -83532,8 +83370,8 @@ var require_formats = __commonJS({
     }
     var TIME = /^(\d\d):(\d\d):(\d\d(?:\.\d+)?)(z|([+-])(\d\d)(?::?(\d\d))?)?$/i;
     function getTime(strictTimeZone) {
-      return function time3(str) {
-        const matches = TIME.exec(str);
+      return function time3(str2) {
+        const matches = TIME.exec(str2);
         if (!matches)
           return false;
         const hr = +matches[1];
@@ -83579,8 +83417,8 @@ var require_formats = __commonJS({
     var DATE_TIME_SEPARATOR = /t|\s/i;
     function getDateTime(strictTimeZone) {
       const time3 = getTime(strictTimeZone);
-      return function date_time(str) {
-        const dateTime = str.split(DATE_TIME_SEPARATOR);
+      return function date_time(str2) {
+        const dateTime = str2.split(DATE_TIME_SEPARATOR);
         return dateTime.length === 2 && date4(dateTime[0]) && time3(dateTime[1]);
       };
     }
@@ -83605,13 +83443,13 @@ var require_formats = __commonJS({
     }
     var NOT_URI_FRAGMENT = /\/|:/;
     var URI = /^(?:[a-z][a-z0-9+\-.]*:)(?:\/?\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::\d*)?(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|\/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:\/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$/i;
-    function uri(str) {
-      return NOT_URI_FRAGMENT.test(str) && URI.test(str);
+    function uri(str2) {
+      return NOT_URI_FRAGMENT.test(str2) && URI.test(str2);
     }
     var BYTE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/gm;
-    function byte(str) {
+    function byte(str2) {
       BYTE.lastIndex = 0;
-      return BYTE.test(str);
+      return BYTE.test(str2);
     }
     var MIN_INT32 = -(2 ** 31);
     var MAX_INT32 = 2 ** 31 - 1;
@@ -83625,11 +83463,11 @@ var require_formats = __commonJS({
       return true;
     }
     var Z_ANCHOR = /[^\\]\\Z/;
-    function regex(str) {
-      if (Z_ANCHOR.test(str))
+    function regex(str2) {
+      if (Z_ANCHOR.test(str2))
         return false;
       try {
-        new RegExp(str);
+        new RegExp(str2);
         return true;
       } catch (e) {
         return false;
@@ -83739,12 +83577,12 @@ var require_dist2 = __commonJS({
         throw new Error(`Unknown format "${name}"`);
       return f;
     };
-    function addFormats(ajv, list, fs2, exportName) {
-      var _a6;
+    function addFormats(ajv, list, fs3, exportName) {
+      var _a7;
       var _b;
-      (_a6 = (_b = ajv.opts.code).formats) !== null && _a6 !== void 0 ? _a6 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
+      (_a7 = (_b = ajv.opts.code).formats) !== null && _a7 !== void 0 ? _a7 : _b.formats = (0, codegen_1._)`require("ajv-formats/dist/formats").${exportName}`;
       for (const f of list)
-        ajv.addFormat(f, fs2[f]);
+        ajv.addFormat(f, fs3[f]);
     }
     module2.exports = exports = formatsPlugin;
     Object.defineProperty(exports, "__esModule", { value: true });
@@ -83757,7 +83595,7 @@ var require_windows = __commonJS({
   "node_modules/isexe/windows.js"(exports, module2) {
     module2.exports = isexe;
     isexe.sync = sync;
-    var fs2 = require("fs");
+    var fs3 = require("fs");
     function checkPathExt(path3, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
@@ -83782,12 +83620,12 @@ var require_windows = __commonJS({
       return checkPathExt(path3, options);
     }
     function isexe(path3, options, cb) {
-      fs2.stat(path3, function(er, stat) {
+      fs3.stat(path3, function(er, stat) {
         cb(er, er ? false : checkStat(stat, path3, options));
       });
     }
     function sync(path3, options) {
-      return checkStat(fs2.statSync(path3), path3, options);
+      return checkStat(fs3.statSync(path3), path3, options);
     }
   }
 });
@@ -83797,14 +83635,14 @@ var require_mode = __commonJS({
   "node_modules/isexe/mode.js"(exports, module2) {
     module2.exports = isexe;
     isexe.sync = sync;
-    var fs2 = require("fs");
+    var fs3 = require("fs");
     function isexe(path3, options, cb) {
-      fs2.stat(path3, function(er, stat) {
+      fs3.stat(path3, function(er, stat) {
         cb(er, er ? false : checkStat(stat, options));
       });
     }
     function sync(path3, options) {
-      return checkStat(fs2.statSync(path3), options);
+      return checkStat(fs3.statSync(path3), options);
     }
     function checkStat(stat, options) {
       return stat.isFile() && checkMode(stat, options);
@@ -83828,7 +83666,7 @@ var require_mode = __commonJS({
 // node_modules/isexe/index.js
 var require_isexe = __commonJS({
   "node_modules/isexe/index.js"(exports, module2) {
-    var fs2 = require("fs");
+    var fs3 = require("fs");
     var core;
     if (process.platform === "win32" || global.TESTING_WINDOWS) {
       core = require_windows();
@@ -84092,16 +83930,16 @@ var require_shebang_command = __commonJS({
 var require_readShebang = __commonJS({
   "node_modules/cross-spawn/lib/util/readShebang.js"(exports, module2) {
     "use strict";
-    var fs2 = require("fs");
+    var fs3 = require("fs");
     var shebangCommand = require_shebang_command();
     function readShebang(command) {
       const size = 150;
       const buffer = Buffer.alloc(size);
       let fd;
       try {
-        fd = fs2.openSync(command, "r");
-        fs2.readSync(fd, buffer, 0, size, 0);
-        fs2.closeSync(fd);
+        fd = fs3.openSync(command, "r");
+        fs3.readSync(fd, buffer, 0, size, 0);
+        fs3.closeSync(fd);
       } catch (e) {
       }
       return shebangCommand(buffer.toString());
@@ -84229,7 +84067,7 @@ var require_cross_spawn = __commonJS({
     var cp = require("child_process");
     var parse8 = require_parse2();
     var enoent = require_enoent();
-    function spawn2(command, args, options) {
+    function spawn3(command, args, options) {
       const parsed = parse8(command, args, options);
       const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
       enoent.hookChildProcess(spawned, parsed);
@@ -84241,8 +84079,8 @@ var require_cross_spawn = __commonJS({
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
       return result;
     }
-    module2.exports = spawn2;
-    module2.exports.spawn = spawn2;
+    module2.exports = spawn3;
+    module2.exports.spawn = spawn3;
     module2.exports.sync = spawnSync;
     module2.exports._parse = parse8;
     module2.exports._enoent = enoent;
@@ -84842,7 +84680,7 @@ var ToolExecutionPipeline = class _ToolExecutionPipeline {
       });
     } else {
       if (this.plugin.settings.debugMode) {
-        console.log(`[Pipeline] ${toolCall.name} \u2014 ${success ? "ok" : "error"} (${durationMs}ms)`);
+        console.debug(`[Pipeline] ${toolCall.name} \u2014 ${success ? "ok" : "error"} (${durationMs}ms)`);
       }
     }
   }
@@ -84970,8 +84808,153 @@ var ToolRepetitionDetector = class {
   }
 };
 
-// src/core/systemPrompt.ts
-init_builtinModes();
+// src/core/modes/builtinModes.ts
+var TOOL_GROUP_MAP = {
+  read: ["read_file", "list_files", "search_files"],
+  vault: ["get_frontmatter", "search_by_tag", "get_vault_stats", "get_linked_notes", "get_daily_note", "open_note", "semantic_search", "query_base"],
+  edit: ["write_file", "edit_file", "append_to_file", "create_folder", "delete_file", "move_file", "update_frontmatter", "generate_canvas", "create_excalidraw", "create_base", "update_base"],
+  web: ["web_fetch", "web_search"],
+  agent: ["ask_followup_question", "attempt_completion", "update_todo_list", "new_task", "switch_mode", "update_settings", "configure_model"],
+  mcp: ["use_mcp_tool"],
+  skill: ["execute_command", "execute_recipe", "call_plugin_api", "resolve_capability_gap", "enable_plugin"]
+};
+var BUILT_IN_MODES = [
+  {
+    slug: "ask",
+    name: "Ask",
+    icon: "circle-help",
+    description: "Conversational vault assistant. Search, explore, and get answers \u2014 read-only.",
+    whenToUse: "Use for questions, searches, and exploration of your vault content. Also answers questions about how Obsidian and Obsilo work. Does not modify any files.",
+    toolGroups: ["read", "vault", "agent"],
+    source: "built-in",
+    roleDefinition: `You are Obsilo in Ask mode \u2014 read-only access to the vault. You answer questions, explore ideas, and think with the user \u2014 without modifying any files.
+
+## Core principles
+
+- ANSWER DIRECTLY. If the vault context or conversation already contains the answer, write it immediately without calling any tools.
+- YOUR TEXT IS THE ANSWER. After searching, write the full substantive answer as text. Never write process summaries like "Found N notes about X" or "Synthesized results into..." \u2014 the user needs the actual content, not a report of what you did.
+- THINK, DON'T JUST RETRIEVE. For complex or open-ended questions, synthesize across multiple notes. Highlight connections the user hasn't made. Offer your own analysis and perspective. Challenge assumptions if warranted.
+- PARALLEL SEARCH. When a question spans multiple topics, call semantic_search for each in parallel rather than sequentially.
+- BE HONEST. If the vault doesn't contain relevant information, say so clearly. Don't pad answers with generic knowledge when the user asked about their own notes.
+- LEARN FROM FEEDBACK. When the user corrects you or wants different depth/style, adapt immediately and apply the preference going forward.
+
+## How you search
+
+IMPORTANT: If the user asks for internet/web/online information ("search the internet", "latest news", "aktuell", "neueste"), this is NOT a vault question \u2014 escalate to Agent mode via switch_mode so web_search can be used. Do NOT search the vault for external information.
+
+Search strategy for VAULT content (in this order):
+1. semantic_search(query) \u2014 Start here for any topic or concept query. Finds notes by meaning, not just keywords. Use this first whenever the Semantic Index is available.
+2. search_by_tag(tags) \u2014 For tag-based lookups (e.g., "find all meeting notes").
+3. search_files(path, pattern) \u2014 For exact keyword or regex when semantic_search is not sufficient.
+4. read_file(path) \u2014 Only for files you have already identified via search. Do not speculatively read files.
+
+## What you can help with
+
+- **Vault content questions**: "What do I know about X?", "Find my notes on Y", "Summarize everything about Z"
+- **Obsidian questions**: How wikilinks, tags, frontmatter, Canvas, Bases, and Daily Notes work
+- **Obsilo questions**: What tools are available, how modes work, how to use features, what capabilities exist
+- **Knowledge synthesis**: Combine information from multiple notes into a coherent answer
+- **Discovery**: Surface connections and gaps the user hasn't noticed
+- **Hybrid search**: Use both semantic similarity and keyword matching for comprehensive results
+
+## How you format answers
+
+- ALWAYS structure longer answers with ## and ### headings. Never write walls of text.
+- Prefer well-structured prose over tables. Bold key terms on first mention.
+- Cite vault sources with [1], [2] markers and a [sources]...[/sources] block at the end.
+- If useful follow-ups exist, add a [followups]...[/followups] block at the very end.
+
+## Mode escalation
+
+You are read-only. You never create, edit, move, or delete files.
+When the user picks an action that requires writing, use switch_mode to escalate to Agent mode.`
+  },
+  {
+    slug: "agent",
+    name: "Agent",
+    icon: "zap",
+    description: "Fully capable autonomous agent. Reads, writes, searches, browses the web, and delegates to sub-agents.",
+    whenToUse: "Use for any task that requires action: writing notes, editing content, reorganizing structure, web research, or complex multi-step workflows. Can spawn sub-agents for parallel or sequential delegation.",
+    toolGroups: ["read", "vault", "edit", "web", "agent", "mcp", "skill"],
+    source: "built-in",
+    roleDefinition: `You are Obsilo in Agent mode \u2014 fully autonomous with access to all tools: vault read/write, web research, sub-agents, MCP, and plugin skills.
+
+## Core principles
+
+- GET IT DONE. Your goal is to accomplish the task, not discuss it. Execute tools, deliver results. Do not ask for permission to do things you can just do.
+- ACT, DON'T NARRATE. Never describe what you plan to do or did \u2014 just do it and write the result. Never write "Synthesized results...", "Created summary note...", "Found N notes..." as your answer.
+- PARALLEL WHEN POSSIBLE. Call independent tools together. Read multiple files at once, search while reading, fetch web content while searching the vault.
+- RESULT FIRST. Your text response must contain the substantive answer or outcome. The user already saw tool calls \u2014 they know what you did.
+- THINK WITH THE USER. For creative, strategic, or reflective tasks: don't just execute mechanically. Offer your own perspective, challenge assumptions, suggest alternatives, and connect to existing vault knowledge the user may not have considered.
+- BE HONEST. If a request doesn't make sense, say so. If there's a better approach, propose it. If you're uncertain, say "I'm not sure" rather than fabricating an answer.
+- LEARN AND ADAPT. Pay attention to how the user responds \u2014 their corrections, preferences, and the level of detail they want. Adapt immediately within the session. When the user corrects your search approach (e.g., "no, look for notes tagged Meeting-Notiz"), save that preference to memory so you use it for future similar queries without asking again.
+
+## Work style
+
+- For multi-step tasks (3+ steps): use update_todo_list to show progress.
+- Always read_file before editing an existing note.
+- Use edit_file for targeted changes; write_file for new notes or complete rewrites.
+- INTERNET vs VAULT: When the user asks for internet/web/online information \u2192 web_search directly, no vault search. When looking for related notes in the vault \u2192 semantic_search.
+- Use web_search + web_fetch for tasks requiring external information. If web_search is unavailable, enable it yourself via update_settings.
+- Open notes with open_note after creating or editing.
+
+## Complete the job
+
+Your task is not done until the user has a USABLE result. Always verify that prerequisites are met:
+- Writing content that depends on a plugin (Dataview query, Kanban board, Mermaid diagram, Tasks query, etc.)? Check if the plugin is enabled. If not, call enable_plugin before or after writing the content. If approval is required, ask for it \u2014 don't silently deliver broken content.
+- Creating a note that references other notes? Verify the linked notes exist or create them.
+- Configuring a plugin? Verify it's enabled first.
+
+Never leave the user with output that looks correct but doesn't work.
+
+## How you format answers
+
+- ALWAYS structure longer answers with ## and ### headings. Never write walls of text.
+- Prefer well-structured prose over tables. Bold key terms on first mention.
+- Cite vault sources with [1], [2] markers and a [sources]...[/sources] block at the end.
+- If useful follow-ups exist, add a [followups]...[/followups] block at the very end.
+
+## Obsidian conventions
+
+- Internal links: [[Note Name]] (not markdown links)
+- Tags: lowercase, hyphenated \u2014 "machine-learning" not "Machine Learning"
+- Frontmatter: ---\\ntitle: ...\\ntags: [...]\\ncreated: YYYY-MM-DD\\n---
+- Headers: ## main sections, ### subsections
+- Callouts: > [!note], > [!tip], > [!warning]
+
+## Direct execution (default)
+
+You have all the tools needed for most tasks. Use them directly:
+- File conversion (PDF, DOCX) \u2192 execute_recipe (pandoc-pdf, pandoc-docx, pandoc-convert)
+- Plugin data (Dataview, Omnisearch, MetaEdit) \u2192 call_plugin_api
+- Plugin commands \u2192 execute_command
+- Vault read/write \u2192 read_file, write_file, edit_file
+- Web research \u2192 web_search + web_fetch
+- Knowledge queries \u2192 semantic_search
+
+NEVER delegate to a sub-agent what you can do directly in 1-4 tool calls.
+
+## Sub-agent delegation (only when direct execution is insufficient)
+
+Before spawning a sub-agent with new_task, verify ALL of these conditions:
+1. The task requires 5+ steps across different specialties
+2. Context isolation genuinely helps (e.g., deep research into many files where intermediate results would bloat your context)
+3. You cannot accomplish it with your current tools in a reasonable number of calls
+
+Available modes: agent (full capabilities), ask (read-only vault queries).
+Sub-agents must NOT spawn further sub-agents. Maximum nesting depth: 1.
+Always pass all necessary context in the message \u2014 the sub-agent cannot see this conversation.
+
+Patterns: Prompt Chaining (sequential steps) | Orchestrator-Worker (parallel independent subtasks) | Routing (ask for reads, agent for writes).`
+  }
+];
+function expandToolGroups(groups) {
+  const names = [];
+  for (const group of groups) {
+    names.push(...TOOL_GROUP_MAP[group] ?? []);
+  }
+  return [...new Set(names)];
+}
 
 // src/core/prompts/sections/dateTime.ts
 function getDateTimeSection(includeTime) {
@@ -85516,7 +85499,7 @@ function getToolRulesSection() {
 }
 
 // src/core/prompts/sections/toolDecisionGuidelines.ts
-function getToolDecisionGuidelinesSection() {
+function getToolDecisionGuidelinesSection(configDir = ".obsidian") {
   return `Tool decision guidelines:
 1. PLUGIN TOOL ROUTING \u2014 Use the right tool for each plugin type:
    (a) Plugin wraps an external CLI tool (Pandoc, Mermaid, ffmpeg, LaTeX, PlantUML):
@@ -85534,7 +85517,7 @@ function getToolDecisionGuidelinesSection() {
    (b) Read data.json \u2014 if it doesn't exist, create it. The plugin just uses defaults.
    (c) Write the config with the values needed for the current task.
    (d) Check dependencies (e.g. Pandoc) \u2014 enable/install what's needed.
-   Config paths: Community: .obsidian/plugins/{id}/data.json | Core: .obsidian/{id}.json
+   Config paths: Community: ${configDir}/plugins/{id}/data.json | Core: ${configDir}/{id}.json
    NEVER ask the user to configure via Settings UI. Write data.json yourself.
 1c. PLUGIN FILE FORMATS \u2014 Use dedicated tools for complex plugin formats:
    For .excalidraw.md files: ALWAYS use create_excalidraw (never write_file).
@@ -85729,7 +85712,7 @@ function getRulesSection(rulesContent) {
 }
 
 // src/core/systemPrompt.ts
-function buildSystemPromptForMode(mode, allModes, globalCustomInstructions, includeTime, rulesContent, skillsSection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection, isSubtask = false, webEnabled, recipesSection) {
+function buildSystemPromptForMode(mode, allModes, globalCustomInstructions, includeTime, rulesContent, skillsSection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection, isSubtask = false, webEnabled, recipesSection, configDir = ".obsidian") {
   const sections = [
     // 1. Date/time + 2. Vault context (combined at top)
     getDateTimeSection(includeTime) + getVaultContextSection(),
@@ -85748,7 +85731,7 @@ function buildSystemPromptForMode(mode, allModes, globalCustomInstructions, incl
     getToolRulesSection(),
     "",
     // 8. Tool decision guidelines
-    getToolDecisionGuidelinesSection(),
+    getToolDecisionGuidelinesSection(configDir),
     "",
     // 9. Objective (task decomposition)
     getObjectiveSection(),
@@ -85929,7 +85912,7 @@ var AgentTask = class _AgentTask {
     try {
       for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
         if (abortSignal?.aborted) {
-          console.log("[AgentTask] Abort signal detected at iteration start");
+          console.debug("[AgentTask] Abort signal detected at iteration start");
           break;
         }
         if (pendingModeSwitch !== null) {
@@ -86050,7 +86033,7 @@ Continue the task.`
               console.error(`[AgentTask] Tool error in ${toolName}:`, error2);
             },
             log: (message) => {
-              console.log(`[AgentTask] ${message}`);
+              console.debug(`[AgentTask] ${message}`);
             }
           };
           const toolCall = {
@@ -86187,7 +86170,7 @@ Continue the task.`
       const isAbort = error2 instanceof Error && error2.name === "AbortError";
       const isAbortedSignal = abortSignal?.aborted === true;
       if (isAbort || isAbortedSignal) {
-        console.log("[AgentTask] Task cancelled by user");
+        console.debug("[AgentTask] Task cancelled by user");
         this.taskCallbacks.onComplete();
         return;
       }
@@ -86222,8 +86205,8 @@ Continue the task.`
     for (const m of messages) {
       const content = Array.isArray(m.content) ? m.content.map((b) => {
         const block = b;
-        if (typeof block.text === "string") return block.text;
-        if (typeof block.content === "string") return block.content;
+        if ("text" in block && typeof block.text === "string") return block.text;
+        if ("content" in block && typeof block.content === "string") return block.content;
         return "";
       }).join("") : typeof m.content === "string" ? m.content : "";
       count += Math.ceil(content.length / 4);
@@ -86232,7 +86215,7 @@ Continue the task.`
   }
   /** Approximate context window for the active model (tokens). */
   getModelContextWindow() {
-    const model = this.api.getModel?.();
+    const model = this.api.getModel();
     const modelId = typeof model === "string" ? model : model?.id ?? "";
     if (model?.info?.contextWindow) return model.info.contextWindow;
     if (modelId.includes("claude")) return 2e5;
@@ -86283,7 +86266,7 @@ ${summary.trim()}` }]
       },
       ...tail
     );
-    console.log(`[AgentTask] Context condensed: ${history.length} messages remain.`);
+    console.debug(`[AgentTask] Context condensed: ${history.length} messages remain.`);
   }
   /** Resolve a mode slug or ModeConfig to a ModeConfig */
   resolveMode(mode) {
@@ -86291,28 +86274,24 @@ ${summary.trim()}` }]
     if (this.modeService) {
       return this.modeService.getMode(mode) ?? this.modeService.getActiveMode();
     }
-    const { BUILT_IN_MODES: BUILT_IN_MODES2 } = (init_builtinModes(), __toCommonJS(builtinModes_exports));
-    return BUILT_IN_MODES2.find((m) => m.slug === mode) ?? BUILT_IN_MODES2[0];
+    return BUILT_IN_MODES.find((m) => m.slug === mode) ?? BUILT_IN_MODES[0];
   }
 };
 
-// src/core/modes/ModeService.ts
-init_builtinModes();
-
 // src/core/storage/GlobalFileService.ts
-var fsModule = require("fs");
-var osModule = require("os");
-var pathModule = require("path");
+var import_fs = __toESM(require("fs"));
+var import_os = __toESM(require("os"));
+var import_path = __toESM(require("path"));
 var GLOBAL_DIR_NAME = ".obsidian-agent";
 var GlobalFileService = class {
   root;
   constructor() {
-    this.root = pathModule.join(osModule.homedir(), GLOBAL_DIR_NAME);
+    this.root = import_path.default.join(import_os.default.homedir(), GLOBAL_DIR_NAME);
   }
   // ── Helpers ──────────────────────────────────────────────────────────────
   /** Resolve a relative path to an absolute path under the root. */
   resolvePath(relativePath) {
-    return pathModule.join(this.root, relativePath);
+    return import_path.default.join(this.root, relativePath);
   }
   /** Return the root directory path (~/.obsidian-agent/). */
   getRoot() {
@@ -86321,27 +86300,27 @@ var GlobalFileService = class {
   // ── FileAdapter implementation ───────────────────────────────────────────
   async exists(p) {
     try {
-      await fsModule.promises.access(this.resolvePath(p));
+      await import_fs.default.promises.access(this.resolvePath(p));
       return true;
     } catch {
       return false;
     }
   }
   async read(p) {
-    return fsModule.promises.readFile(this.resolvePath(p), "utf-8");
+    return import_fs.default.promises.readFile(this.resolvePath(p), "utf-8");
   }
   async write(p, data2) {
     const abs = this.resolvePath(p);
-    await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-    await fsModule.promises.writeFile(abs, data2, "utf-8");
+    await import_fs.default.promises.mkdir(import_path.default.dirname(abs), { recursive: true });
+    await import_fs.default.promises.writeFile(abs, data2, "utf-8");
   }
   async mkdir(p) {
-    await fsModule.promises.mkdir(this.resolvePath(p), { recursive: true });
+    await import_fs.default.promises.mkdir(this.resolvePath(p), { recursive: true });
   }
   async list(p) {
     const abs = this.resolvePath(p);
     try {
-      const entries = await fsModule.promises.readdir(abs, { withFileTypes: true });
+      const entries = await import_fs.default.promises.readdir(abs, { withFileTypes: true });
       const files = [];
       const folders = [];
       for (const entry of entries) {
@@ -86362,22 +86341,22 @@ var GlobalFileService = class {
   }
   async remove(p) {
     const abs = this.resolvePath(p);
-    const stat = await fsModule.promises.stat(abs).catch(() => null);
+    const stat = await import_fs.default.promises.stat(abs).catch(() => null);
     if (!stat) return;
     if (stat.isDirectory()) {
-      await fsModule.promises.rm(abs, { recursive: true, force: true });
+      await import_fs.default.promises.rm(abs, { recursive: true, force: true });
     } else {
-      await fsModule.promises.unlink(abs);
+      await import_fs.default.promises.unlink(abs);
     }
   }
   async append(p, data2) {
     const abs = this.resolvePath(p);
-    await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-    await fsModule.promises.appendFile(abs, data2, "utf-8");
+    await import_fs.default.promises.mkdir(import_path.default.dirname(abs), { recursive: true });
+    await import_fs.default.promises.appendFile(abs, data2, "utf-8");
   }
   async stat(p) {
     try {
-      const s = await fsModule.promises.stat(this.resolvePath(p));
+      const s = await import_fs.default.promises.stat(this.resolvePath(p));
       return { mtime: s.mtimeMs, size: s.size };
     } catch {
       return null;
@@ -86392,17 +86371,17 @@ function getFs() {
   if (!_globalFs) _globalFs = new GlobalFileService();
   return _globalFs;
 }
-function setGlobalModeStoreFs(fs2) {
-  _globalFs = fs2;
+function setGlobalModeStoreFs(fs3) {
+  _globalFs = fs3;
 }
 var GlobalModeStore = {
   /** Read all global modes. Returns [] if file is missing or unparseable. */
   async loadModes() {
     try {
-      const fs2 = getFs();
-      const exists = await fs2.exists(MODES_FILE);
+      const fs3 = getFs();
+      const exists = await fs3.exists(MODES_FILE);
       if (!exists) return [];
-      const raw = await fs2.read(MODES_FILE);
+      const raw = await fs3.read(MODES_FILE);
       if (raw.length > 5e5) return [];
       let parsed;
       try {
@@ -86412,7 +86391,10 @@ var GlobalModeStore = {
       }
       if (!Array.isArray(parsed)) return [];
       return parsed.filter(
-        (m) => m !== null && typeof m === "object" && typeof m.slug === "string" && typeof m.name === "string" && typeof m.roleDefinition === "string"
+        (m) => {
+          const obj = m;
+          return m !== null && typeof m === "object" && typeof obj.slug === "string" && typeof obj.name === "string" && typeof obj.roleDefinition === "string";
+        }
       );
     } catch {
       return [];
@@ -86420,8 +86402,8 @@ var GlobalModeStore = {
   },
   /** Overwrite the full list of global modes. */
   async saveModes(modes) {
-    const fs2 = getFs();
-    await fs2.write(
+    const fs3 = getFs();
+    await fs3.write(
       MODES_FILE,
       JSON.stringify(
         modes.map((m) => ({ ...m, source: "global" })),
@@ -87043,12 +87025,12 @@ var SSEDecoder = class {
     return null;
   }
 };
-function partition(str, delimiter) {
-  const index2 = str.indexOf(delimiter);
+function partition(str2, delimiter) {
+  const index2 = str2.indexOf(delimiter);
   if (index2 !== -1) {
-    return [str.substring(0, index2), delimiter, str.substring(index2 + delimiter.length)];
+    return [str2.substring(0, index2), delimiter, str2.substring(index2 + delimiter.length)];
   }
-  return [str, "", ""];
+  return [str2, "", ""];
 }
 function readableStreamAsyncIterable(stream) {
   if (stream[Symbol.asyncIterator])
@@ -87138,16 +87120,16 @@ var isAsyncIterableIterator = (value) => value != null && typeof value === "obje
 var isMultipartBody = (body) => body && typeof body === "object" && body.body && body[Symbol.toStringTag] === "MultipartBody";
 
 // node_modules/@anthropic-ai/sdk/core.mjs
-var __classPrivateFieldSet = function(receiver, state, value, kind2, f) {
-  if (kind2 === "m") throw new TypeError("Private method is not writable");
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet = function(receiver, state, kind2, f) {
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _AbstractPage_client;
 async function defaultParseResponse(props) {
@@ -87177,12 +87159,12 @@ async function defaultParseResponse(props) {
   return text3;
 }
 var APIPromise = class _APIPromise extends Promise {
-  constructor(responsePromise, parseResponse = defaultParseResponse) {
+  constructor(responsePromise, parseResponse2 = defaultParseResponse) {
     super((resolve2) => {
       resolve2(null);
     });
     this.responsePromise = responsePromise;
-    this.parseResponse = parseResponse;
+    this.parseResponse = parseResponse2;
   }
   _thenUnwrap(transform2) {
     return new _APIPromise(this.responsePromise, async (props) => transform2(await this.parseResponse(props), props));
@@ -87300,8 +87282,8 @@ var APIClient = class {
       return { method, path: path3, ...opts2, body };
     }));
   }
-  getAPIList(path3, Page2, opts) {
-    return this.requestAPIList(Page2, { method: "get", path: path3, ...opts });
+  getAPIList(path3, Page3, opts) {
+    return this.requestAPIList(Page3, { method: "get", path: path3, ...opts });
   }
   calculateContentLength(body) {
     if (typeof body === "string") {
@@ -87431,9 +87413,9 @@ var APIClient = class {
     }
     return { response, options, controller };
   }
-  requestAPIList(Page2, options) {
+  requestAPIList(Page3, options) {
     const request = this.makeRequest(options, null);
-    return new PagePromise(this, request, Page2);
+    return new PagePromise(this, request, Page3);
   }
   buildURL(path3, query) {
     const url2 = isAbsoluteURL(path3) ? new URL(path3) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
@@ -87457,8 +87439,8 @@ var APIClient = class {
       throw new AnthropicError(`Cannot stringify type ${typeof value}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
     }).join("&");
   }
-  async fetchWithTimeout(url2, init, ms, controller) {
-    const { signal, ...options } = init || {};
+  async fetchWithTimeout(url2, init2, ms, controller) {
+    const { signal, ...options } = init2 || {};
     if (signal)
       signal.addEventListener("abort", () => controller.abort());
     const timeout = setTimeout(() => controller.abort(), ms);
@@ -87571,8 +87553,8 @@ var AbstractPage = class {
   }
 };
 var PagePromise = class extends APIPromise {
-  constructor(client, request, Page2) {
-    super(request, async (props) => new Page2(client, props.response, await defaultParseResponse(props), props.options));
+  constructor(client, request, Page3) {
+    super(request, async (props) => new Page3(client, props.response, await defaultParseResponse(props), props.options));
   }
   /**
    * Allow auto-paginating iteration on an unawaited list call, eg:
@@ -88128,8 +88110,8 @@ var Batches = class extends APIResource {
 };
 var BetaMessageBatchesPage = class extends Page {
 };
-(function(Batches2) {
-  Batches2.BetaMessageBatchesPage = BetaMessageBatchesPage;
+(function(Batches3) {
+  Batches3.BetaMessageBatchesPage = BetaMessageBatchesPage;
 })(Batches || (Batches = {}));
 
 // node_modules/@anthropic-ai/sdk/resources/beta/messages/messages.mjs
@@ -88152,9 +88134,9 @@ var Messages = class extends APIResource {
     });
   }
 };
-(function(Messages4) {
-  Messages4.Batches = Batches;
-  Messages4.BetaMessageBatchesPage = BetaMessageBatchesPage;
+(function(Messages6) {
+  Messages6.Batches = Batches;
+  Messages6.BetaMessageBatchesPage = BetaMessageBatchesPage;
 })(Messages || (Messages = {}));
 
 // node_modules/@anthropic-ai/sdk/_vendor/partial-json-parser/parser.mjs
@@ -88378,16 +88360,16 @@ var generate = (tokens) => {
 var partialParse = (input) => JSON.parse(generate(unstrip(strip(tokenize(input)))));
 
 // node_modules/@anthropic-ai/sdk/lib/PromptCachingBetaMessageStream.mjs
-var __classPrivateFieldSet2 = function(receiver, state, value, kind2, f) {
-  if (kind2 === "m") throw new TypeError("Private method is not writable");
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet2 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet2 = function(receiver, state, kind2, f) {
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet2 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _PromptCachingBetaMessageStream_instances;
 var _PromptCachingBetaMessageStream_currentMessageSnapshot;
@@ -88855,7 +88837,7 @@ var Messages2 = class extends APIResource {
     return PromptCachingBetaMessageStream.createMessage(this, body, options);
   }
 };
-/* @__PURE__ */ (function(Messages4) {
+/* @__PURE__ */ (function(Messages6) {
 })(Messages2 || (Messages2 = {}));
 
 // node_modules/@anthropic-ai/sdk/resources/beta/prompt-caching/prompt-caching.mjs
@@ -88877,9 +88859,9 @@ var Beta = class extends APIResource {
     this.promptCaching = new PromptCaching(this._client);
   }
 };
-(function(Beta2) {
-  Beta2.Messages = Messages;
-  Beta2.PromptCaching = PromptCaching;
+(function(Beta3) {
+  Beta3.Messages = Messages;
+  Beta3.PromptCaching = PromptCaching;
 })(Beta || (Beta = {}));
 
 // node_modules/@anthropic-ai/sdk/resources/completions.mjs
@@ -88893,20 +88875,20 @@ var Completions = class extends APIResource {
     });
   }
 };
-/* @__PURE__ */ (function(Completions2) {
+/* @__PURE__ */ (function(Completions5) {
 })(Completions || (Completions = {}));
 
 // node_modules/@anthropic-ai/sdk/lib/MessageStream.mjs
-var __classPrivateFieldSet3 = function(receiver, state, value, kind2, f) {
-  if (kind2 === "m") throw new TypeError("Private method is not writable");
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet3 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet3 = function(receiver, state, kind2, f) {
-  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet3 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _MessageStream_instances;
 var _MessageStream_currentMessageSnapshot;
@@ -89380,7 +89362,7 @@ var DEPRECATED_MODELS = {
   "claude-instant-1.1-100k": "November 6th, 2024",
   "claude-instant-1.2": "November 6th, 2024"
 };
-/* @__PURE__ */ (function(Messages4) {
+/* @__PURE__ */ (function(Messages6) {
 })(Messages3 || (Messages3 = {}));
 
 // node_modules/@anthropic-ai/sdk/index.mjs
@@ -89576,10 +89558,11 @@ var AnthropicProvider = class {
           const tool = toolAccumulator.get(event.index);
           if (tool) tool.inputJson += event.delta.partial_json;
         }
-        if (event.delta.type === "thinking_delta") {
+        const delta = event.delta;
+        if (delta.type === "thinking_delta") {
           const thinking = thinkingAccumulator.get(event.index);
           if (thinking) {
-            const chunk = event.delta.thinking;
+            const chunk = delta.thinking;
             thinking.text += chunk;
             yield { type: "thinking", text: chunk };
           }
@@ -89664,6 +89647,6297 @@ var AnthropicProvider = class {
   }
 };
 
+// node_modules/openai/internal/qs/formats.mjs
+var default_format = "RFC3986";
+var formatters = {
+  RFC1738: (v) => String(v).replace(/%20/g, "+"),
+  RFC3986: (v) => String(v)
+};
+var RFC1738 = "RFC1738";
+
+// node_modules/openai/internal/qs/utils.mjs
+var is_array = Array.isArray;
+var hex_table = (() => {
+  const array2 = [];
+  for (let i = 0; i < 256; ++i) {
+    array2.push("%" + ((i < 16 ? "0" : "") + i.toString(16)).toUpperCase());
+  }
+  return array2;
+})();
+var limit = 1024;
+var encode = (str2, _defaultEncoder, charset, _kind, format) => {
+  if (str2.length === 0) {
+    return str2;
+  }
+  let string4 = str2;
+  if (typeof str2 === "symbol") {
+    string4 = Symbol.prototype.toString.call(str2);
+  } else if (typeof str2 !== "string") {
+    string4 = String(str2);
+  }
+  if (charset === "iso-8859-1") {
+    return escape(string4).replace(/%u[0-9a-f]{4}/gi, function($0) {
+      return "%26%23" + parseInt($0.slice(2), 16) + "%3B";
+    });
+  }
+  let out = "";
+  for (let j = 0; j < string4.length; j += limit) {
+    const segment = string4.length >= limit ? string4.slice(j, j + limit) : string4;
+    const arr = [];
+    for (let i = 0; i < segment.length; ++i) {
+      let c = segment.charCodeAt(i);
+      if (c === 45 || // -
+      c === 46 || // .
+      c === 95 || // _
+      c === 126 || // ~
+      c >= 48 && c <= 57 || // 0-9
+      c >= 65 && c <= 90 || // a-z
+      c >= 97 && c <= 122 || // A-Z
+      format === RFC1738 && (c === 40 || c === 41)) {
+        arr[arr.length] = segment.charAt(i);
+        continue;
+      }
+      if (c < 128) {
+        arr[arr.length] = hex_table[c];
+        continue;
+      }
+      if (c < 2048) {
+        arr[arr.length] = hex_table[192 | c >> 6] + hex_table[128 | c & 63];
+        continue;
+      }
+      if (c < 55296 || c >= 57344) {
+        arr[arr.length] = hex_table[224 | c >> 12] + hex_table[128 | c >> 6 & 63] + hex_table[128 | c & 63];
+        continue;
+      }
+      i += 1;
+      c = 65536 + ((c & 1023) << 10 | segment.charCodeAt(i) & 1023);
+      arr[arr.length] = hex_table[240 | c >> 18] + hex_table[128 | c >> 12 & 63] + hex_table[128 | c >> 6 & 63] + hex_table[128 | c & 63];
+    }
+    out += arr.join("");
+  }
+  return out;
+};
+function is_buffer(obj) {
+  if (!obj || typeof obj !== "object") {
+    return false;
+  }
+  return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
+}
+function maybe_map(val2, fn) {
+  if (is_array(val2)) {
+    const mapped = [];
+    for (let i = 0; i < val2.length; i += 1) {
+      mapped.push(fn(val2[i]));
+    }
+    return mapped;
+  }
+  return fn(val2);
+}
+
+// node_modules/openai/internal/qs/stringify.mjs
+var has = Object.prototype.hasOwnProperty;
+var array_prefix_generators = {
+  brackets(prefix) {
+    return String(prefix) + "[]";
+  },
+  comma: "comma",
+  indices(prefix, key) {
+    return String(prefix) + "[" + key + "]";
+  },
+  repeat(prefix) {
+    return String(prefix);
+  }
+};
+var is_array2 = Array.isArray;
+var push = Array.prototype.push;
+var push_to_array = function(arr, value_or_array) {
+  push.apply(arr, is_array2(value_or_array) ? value_or_array : [value_or_array]);
+};
+var to_ISO = Date.prototype.toISOString;
+var defaults = {
+  addQueryPrefix: false,
+  allowDots: false,
+  allowEmptyArrays: false,
+  arrayFormat: "indices",
+  charset: "utf-8",
+  charsetSentinel: false,
+  delimiter: "&",
+  encode: true,
+  encodeDotInKeys: false,
+  encoder: encode,
+  encodeValuesOnly: false,
+  format: default_format,
+  formatter: formatters[default_format],
+  /** @deprecated */
+  indices: false,
+  serializeDate(date4) {
+    return to_ISO.call(date4);
+  },
+  skipNulls: false,
+  strictNullHandling: false
+};
+function is_non_nullish_primitive(v) {
+  return typeof v === "string" || typeof v === "number" || typeof v === "boolean" || typeof v === "symbol" || typeof v === "bigint";
+}
+var sentinel = {};
+function inner_stringify(object3, prefix, generateArrayPrefix, commaRoundTrip, allowEmptyArrays, strictNullHandling, skipNulls, encodeDotInKeys, encoder, filter4, sort, allowDots, serializeDate, format, formatter, encodeValuesOnly, charset, sideChannel) {
+  let obj = object3;
+  let tmp_sc = sideChannel;
+  let step = 0;
+  let find_flag = false;
+  while ((tmp_sc = tmp_sc.get(sentinel)) !== void 0 && !find_flag) {
+    const pos = tmp_sc.get(object3);
+    step += 1;
+    if (typeof pos !== "undefined") {
+      if (pos === step) {
+        throw new RangeError("Cyclic object value");
+      } else {
+        find_flag = true;
+      }
+    }
+    if (typeof tmp_sc.get(sentinel) === "undefined") {
+      step = 0;
+    }
+  }
+  if (typeof filter4 === "function") {
+    obj = filter4(prefix, obj);
+  } else if (obj instanceof Date) {
+    obj = serializeDate?.(obj);
+  } else if (generateArrayPrefix === "comma" && is_array2(obj)) {
+    obj = maybe_map(obj, function(value) {
+      if (value instanceof Date) {
+        return serializeDate?.(value);
+      }
+      return value;
+    });
+  }
+  if (obj === null) {
+    if (strictNullHandling) {
+      return encoder && !encodeValuesOnly ? (
+        // @ts-expect-error
+        encoder(prefix, defaults.encoder, charset, "key", format)
+      ) : prefix;
+    }
+    obj = "";
+  }
+  if (is_non_nullish_primitive(obj) || is_buffer(obj)) {
+    if (encoder) {
+      const key_value = encodeValuesOnly ? prefix : encoder(prefix, defaults.encoder, charset, "key", format);
+      return [
+        formatter?.(key_value) + "=" + // @ts-expect-error
+        formatter?.(encoder(obj, defaults.encoder, charset, "value", format))
+      ];
+    }
+    return [formatter?.(prefix) + "=" + formatter?.(String(obj))];
+  }
+  const values = [];
+  if (typeof obj === "undefined") {
+    return values;
+  }
+  let obj_keys;
+  if (generateArrayPrefix === "comma" && is_array2(obj)) {
+    if (encodeValuesOnly && encoder) {
+      obj = maybe_map(obj, encoder);
+    }
+    obj_keys = [{ value: obj.length > 0 ? obj.join(",") || null : void 0 }];
+  } else if (is_array2(filter4)) {
+    obj_keys = filter4;
+  } else {
+    const keys = Object.keys(obj);
+    obj_keys = sort ? keys.sort(sort) : keys;
+  }
+  const encoded_prefix = encodeDotInKeys ? String(prefix).replace(/\./g, "%2E") : String(prefix);
+  const adjusted_prefix = commaRoundTrip && is_array2(obj) && obj.length === 1 ? encoded_prefix + "[]" : encoded_prefix;
+  if (allowEmptyArrays && is_array2(obj) && obj.length === 0) {
+    return adjusted_prefix + "[]";
+  }
+  for (let j = 0; j < obj_keys.length; ++j) {
+    const key = obj_keys[j];
+    const value = (
+      // @ts-ignore
+      typeof key === "object" && typeof key.value !== "undefined" ? key.value : obj[key]
+    );
+    if (skipNulls && value === null) {
+      continue;
+    }
+    const encoded_key = allowDots && encodeDotInKeys ? key.replace(/\./g, "%2E") : key;
+    const key_prefix = is_array2(obj) ? typeof generateArrayPrefix === "function" ? generateArrayPrefix(adjusted_prefix, encoded_key) : adjusted_prefix : adjusted_prefix + (allowDots ? "." + encoded_key : "[" + encoded_key + "]");
+    sideChannel.set(object3, step);
+    const valueSideChannel = /* @__PURE__ */ new WeakMap();
+    valueSideChannel.set(sentinel, sideChannel);
+    push_to_array(values, inner_stringify(
+      value,
+      key_prefix,
+      generateArrayPrefix,
+      commaRoundTrip,
+      allowEmptyArrays,
+      strictNullHandling,
+      skipNulls,
+      encodeDotInKeys,
+      // @ts-ignore
+      generateArrayPrefix === "comma" && encodeValuesOnly && is_array2(obj) ? null : encoder,
+      filter4,
+      sort,
+      allowDots,
+      serializeDate,
+      format,
+      formatter,
+      encodeValuesOnly,
+      charset,
+      valueSideChannel
+    ));
+  }
+  return values;
+}
+function normalize_stringify_options(opts = defaults) {
+  if (typeof opts.allowEmptyArrays !== "undefined" && typeof opts.allowEmptyArrays !== "boolean") {
+    throw new TypeError("`allowEmptyArrays` option can only be `true` or `false`, when provided");
+  }
+  if (typeof opts.encodeDotInKeys !== "undefined" && typeof opts.encodeDotInKeys !== "boolean") {
+    throw new TypeError("`encodeDotInKeys` option can only be `true` or `false`, when provided");
+  }
+  if (opts.encoder !== null && typeof opts.encoder !== "undefined" && typeof opts.encoder !== "function") {
+    throw new TypeError("Encoder has to be a function.");
+  }
+  const charset = opts.charset || defaults.charset;
+  if (typeof opts.charset !== "undefined" && opts.charset !== "utf-8" && opts.charset !== "iso-8859-1") {
+    throw new TypeError("The charset option must be either utf-8, iso-8859-1, or undefined");
+  }
+  let format = default_format;
+  if (typeof opts.format !== "undefined") {
+    if (!has.call(formatters, opts.format)) {
+      throw new TypeError("Unknown format option provided.");
+    }
+    format = opts.format;
+  }
+  const formatter = formatters[format];
+  let filter4 = defaults.filter;
+  if (typeof opts.filter === "function" || is_array2(opts.filter)) {
+    filter4 = opts.filter;
+  }
+  let arrayFormat;
+  if (opts.arrayFormat && opts.arrayFormat in array_prefix_generators) {
+    arrayFormat = opts.arrayFormat;
+  } else if ("indices" in opts) {
+    arrayFormat = opts.indices ? "indices" : "repeat";
+  } else {
+    arrayFormat = defaults.arrayFormat;
+  }
+  if ("commaRoundTrip" in opts && typeof opts.commaRoundTrip !== "boolean") {
+    throw new TypeError("`commaRoundTrip` must be a boolean, or absent");
+  }
+  const allowDots = typeof opts.allowDots === "undefined" ? !!opts.encodeDotInKeys === true ? true : defaults.allowDots : !!opts.allowDots;
+  return {
+    addQueryPrefix: typeof opts.addQueryPrefix === "boolean" ? opts.addQueryPrefix : defaults.addQueryPrefix,
+    // @ts-ignore
+    allowDots,
+    allowEmptyArrays: typeof opts.allowEmptyArrays === "boolean" ? !!opts.allowEmptyArrays : defaults.allowEmptyArrays,
+    arrayFormat,
+    charset,
+    charsetSentinel: typeof opts.charsetSentinel === "boolean" ? opts.charsetSentinel : defaults.charsetSentinel,
+    commaRoundTrip: !!opts.commaRoundTrip,
+    delimiter: typeof opts.delimiter === "undefined" ? defaults.delimiter : opts.delimiter,
+    encode: typeof opts.encode === "boolean" ? opts.encode : defaults.encode,
+    encodeDotInKeys: typeof opts.encodeDotInKeys === "boolean" ? opts.encodeDotInKeys : defaults.encodeDotInKeys,
+    encoder: typeof opts.encoder === "function" ? opts.encoder : defaults.encoder,
+    encodeValuesOnly: typeof opts.encodeValuesOnly === "boolean" ? opts.encodeValuesOnly : defaults.encodeValuesOnly,
+    filter: filter4,
+    format,
+    formatter,
+    serializeDate: typeof opts.serializeDate === "function" ? opts.serializeDate : defaults.serializeDate,
+    skipNulls: typeof opts.skipNulls === "boolean" ? opts.skipNulls : defaults.skipNulls,
+    // @ts-ignore
+    sort: typeof opts.sort === "function" ? opts.sort : null,
+    strictNullHandling: typeof opts.strictNullHandling === "boolean" ? opts.strictNullHandling : defaults.strictNullHandling
+  };
+}
+function stringify(object3, opts = {}) {
+  let obj = object3;
+  const options = normalize_stringify_options(opts);
+  let obj_keys;
+  let filter4;
+  if (typeof options.filter === "function") {
+    filter4 = options.filter;
+    obj = filter4("", obj);
+  } else if (is_array2(options.filter)) {
+    filter4 = options.filter;
+    obj_keys = filter4;
+  }
+  const keys = [];
+  if (typeof obj !== "object" || obj === null) {
+    return "";
+  }
+  const generateArrayPrefix = array_prefix_generators[options.arrayFormat];
+  const commaRoundTrip = generateArrayPrefix === "comma" && options.commaRoundTrip;
+  if (!obj_keys) {
+    obj_keys = Object.keys(obj);
+  }
+  if (options.sort) {
+    obj_keys.sort(options.sort);
+  }
+  const sideChannel = /* @__PURE__ */ new WeakMap();
+  for (let i = 0; i < obj_keys.length; ++i) {
+    const key = obj_keys[i];
+    if (options.skipNulls && obj[key] === null) {
+      continue;
+    }
+    push_to_array(keys, inner_stringify(
+      obj[key],
+      key,
+      // @ts-expect-error
+      generateArrayPrefix,
+      commaRoundTrip,
+      options.allowEmptyArrays,
+      options.strictNullHandling,
+      options.skipNulls,
+      options.encodeDotInKeys,
+      options.encode ? options.encoder : null,
+      options.filter,
+      options.sort,
+      options.allowDots,
+      options.serializeDate,
+      options.format,
+      options.formatter,
+      options.encodeValuesOnly,
+      options.charset,
+      sideChannel
+    ));
+  }
+  const joined = keys.join(options.delimiter);
+  let prefix = options.addQueryPrefix === true ? "?" : "";
+  if (options.charsetSentinel) {
+    if (options.charset === "iso-8859-1") {
+      prefix += "utf8=%26%2310003%3B&";
+    } else {
+      prefix += "utf8=%E2%9C%93&";
+    }
+  }
+  return joined.length > 0 ? prefix + joined : "";
+}
+
+// node_modules/openai/version.mjs
+var VERSION2 = "4.104.0";
+
+// node_modules/openai/_shims/registry.mjs
+var auto2 = false;
+var kind2 = void 0;
+var fetch3 = void 0;
+var Request3 = void 0;
+var Response3 = void 0;
+var Headers3 = void 0;
+var FormData3 = void 0;
+var Blob3 = void 0;
+var File3 = void 0;
+var ReadableStream3 = void 0;
+var getMultipartRequestOptions2 = void 0;
+var getDefaultAgent2 = void 0;
+var fileFromPath2 = void 0;
+var isFsReadStream2 = void 0;
+function setShims2(shims, options = { auto: false }) {
+  if (auto2) {
+    throw new Error(`you must \`import 'openai/shims/${shims.kind}'\` before importing anything else from openai`);
+  }
+  if (kind2) {
+    throw new Error(`can't \`import 'openai/shims/${shims.kind}'\` after \`import 'openai/shims/${kind2}'\``);
+  }
+  auto2 = options.auto;
+  kind2 = shims.kind;
+  fetch3 = shims.fetch;
+  Request3 = shims.Request;
+  Response3 = shims.Response;
+  Headers3 = shims.Headers;
+  FormData3 = shims.FormData;
+  Blob3 = shims.Blob;
+  File3 = shims.File;
+  ReadableStream3 = shims.ReadableStream;
+  getMultipartRequestOptions2 = shims.getMultipartRequestOptions;
+  getDefaultAgent2 = shims.getDefaultAgent;
+  fileFromPath2 = shims.fileFromPath;
+  isFsReadStream2 = shims.isFsReadStream;
+}
+
+// node_modules/openai/_shims/MultipartBody.mjs
+var MultipartBody2 = class {
+  constructor(body) {
+    this.body = body;
+  }
+  get [Symbol.toStringTag]() {
+    return "MultipartBody";
+  }
+};
+
+// node_modules/openai/_shims/web-runtime.mjs
+function getRuntime2({ manuallyImported } = {}) {
+  const recommendation = manuallyImported ? `You may need to use polyfills` : `Add one of these imports before your first \`import \u2026 from 'openai'\`:
+- \`import 'openai/shims/node'\` (if you're running on Node)
+- \`import 'openai/shims/web'\` (otherwise)
+`;
+  let _fetch2, _Request, _Response, _Headers;
+  try {
+    _fetch2 = fetch;
+    _Request = Request;
+    _Response = Response;
+    _Headers = Headers;
+  } catch (error2) {
+    throw new Error(`this environment is missing the following Web Fetch API type: ${error2.message}. ${recommendation}`);
+  }
+  return {
+    kind: "web",
+    fetch: _fetch2,
+    Request: _Request,
+    Response: _Response,
+    Headers: _Headers,
+    FormData: (
+      // @ts-ignore
+      typeof FormData !== "undefined" ? FormData : class FormData {
+        // @ts-ignore
+        constructor() {
+          throw new Error(`file uploads aren't supported in this environment yet as 'FormData' is undefined. ${recommendation}`);
+        }
+      }
+    ),
+    Blob: typeof Blob !== "undefined" ? Blob : class Blob {
+      constructor() {
+        throw new Error(`file uploads aren't supported in this environment yet as 'Blob' is undefined. ${recommendation}`);
+      }
+    },
+    File: (
+      // @ts-ignore
+      typeof File !== "undefined" ? File : class File {
+        // @ts-ignore
+        constructor() {
+          throw new Error(`file uploads aren't supported in this environment yet as 'File' is undefined. ${recommendation}`);
+        }
+      }
+    ),
+    ReadableStream: (
+      // @ts-ignore
+      typeof ReadableStream !== "undefined" ? ReadableStream : class ReadableStream {
+        // @ts-ignore
+        constructor() {
+          throw new Error(`streaming isn't supported in this environment yet as 'ReadableStream' is undefined. ${recommendation}`);
+        }
+      }
+    ),
+    getMultipartRequestOptions: async (form, opts) => ({
+      ...opts,
+      body: new MultipartBody2(form)
+    }),
+    getDefaultAgent: (url2) => void 0,
+    fileFromPath: () => {
+      throw new Error("The `fileFromPath` function is only supported in Node. See the README for more details: https://www.github.com/openai/openai-node#file-uploads");
+    },
+    isFsReadStream: (value) => false
+  };
+}
+
+// node_modules/openai/_shims/index.mjs
+var init = () => {
+  if (!kind2) setShims2(getRuntime2(), { auto: true });
+};
+init();
+
+// node_modules/openai/error.mjs
+var OpenAIError = class extends Error {
+};
+var APIError3 = class _APIError extends OpenAIError {
+  constructor(status, error2, message, headers) {
+    super(`${_APIError.makeMessage(status, error2, message)}`);
+    this.status = status;
+    this.headers = headers;
+    this.request_id = headers?.["x-request-id"];
+    this.error = error2;
+    const data2 = error2;
+    this.code = data2?.["code"];
+    this.param = data2?.["param"];
+    this.type = data2?.["type"];
+  }
+  static makeMessage(status, error2, message) {
+    const msg = error2?.message ? typeof error2.message === "string" ? error2.message : JSON.stringify(error2.message) : error2 ? JSON.stringify(error2) : message;
+    if (status && msg) {
+      return `${status} ${msg}`;
+    }
+    if (status) {
+      return `${status} status code (no body)`;
+    }
+    if (msg) {
+      return msg;
+    }
+    return "(no status code or body)";
+  }
+  static generate(status, errorResponse, message, headers) {
+    if (!status || !headers) {
+      return new APIConnectionError3({ message, cause: castToError2(errorResponse) });
+    }
+    const error2 = errorResponse?.["error"];
+    if (status === 400) {
+      return new BadRequestError3(status, error2, message, headers);
+    }
+    if (status === 401) {
+      return new AuthenticationError3(status, error2, message, headers);
+    }
+    if (status === 403) {
+      return new PermissionDeniedError3(status, error2, message, headers);
+    }
+    if (status === 404) {
+      return new NotFoundError3(status, error2, message, headers);
+    }
+    if (status === 409) {
+      return new ConflictError3(status, error2, message, headers);
+    }
+    if (status === 422) {
+      return new UnprocessableEntityError3(status, error2, message, headers);
+    }
+    if (status === 429) {
+      return new RateLimitError3(status, error2, message, headers);
+    }
+    if (status >= 500) {
+      return new InternalServerError3(status, error2, message, headers);
+    }
+    return new _APIError(status, error2, message, headers);
+  }
+};
+var APIUserAbortError3 = class extends APIError3 {
+  constructor({ message } = {}) {
+    super(void 0, void 0, message || "Request was aborted.", void 0);
+  }
+};
+var APIConnectionError3 = class extends APIError3 {
+  constructor({ message, cause }) {
+    super(void 0, void 0, message || "Connection error.", void 0);
+    if (cause)
+      this.cause = cause;
+  }
+};
+var APIConnectionTimeoutError3 = class extends APIConnectionError3 {
+  constructor({ message } = {}) {
+    super({ message: message ?? "Request timed out." });
+  }
+};
+var BadRequestError3 = class extends APIError3 {
+};
+var AuthenticationError3 = class extends APIError3 {
+};
+var PermissionDeniedError3 = class extends APIError3 {
+};
+var NotFoundError3 = class extends APIError3 {
+};
+var ConflictError3 = class extends APIError3 {
+};
+var UnprocessableEntityError3 = class extends APIError3 {
+};
+var RateLimitError3 = class extends APIError3 {
+};
+var InternalServerError3 = class extends APIError3 {
+};
+var LengthFinishReasonError = class extends OpenAIError {
+  constructor() {
+    super(`Could not parse response content as the length limit was reached`);
+  }
+};
+var ContentFilterFinishReasonError = class extends OpenAIError {
+  constructor() {
+    super(`Could not parse response content as the request was rejected by the content filter`);
+  }
+};
+
+// node_modules/openai/internal/decoders/line.mjs
+var __classPrivateFieldSet4 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var __classPrivateFieldGet4 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _LineDecoder_carriageReturnIndex;
+var LineDecoder2 = class {
+  constructor() {
+    _LineDecoder_carriageReturnIndex.set(this, void 0);
+    this.buffer = new Uint8Array();
+    __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+  }
+  decode(chunk) {
+    if (chunk == null) {
+      return [];
+    }
+    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+    let newData = new Uint8Array(this.buffer.length + binaryChunk.length);
+    newData.set(this.buffer);
+    newData.set(binaryChunk, this.buffer.length);
+    this.buffer = newData;
+    const lines = [];
+    let patternIndex;
+    while ((patternIndex = findNewlineIndex(this.buffer, __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f"))) != null) {
+      if (patternIndex.carriage && __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") == null) {
+        __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, patternIndex.index, "f");
+        continue;
+      }
+      if (__classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") != null && (patternIndex.index !== __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") + 1 || patternIndex.carriage)) {
+        lines.push(this.decodeText(this.buffer.slice(0, __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") - 1)));
+        this.buffer = this.buffer.slice(__classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f"));
+        __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+        continue;
+      }
+      const endIndex = __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
+      const line = this.decodeText(this.buffer.slice(0, endIndex));
+      lines.push(line);
+      this.buffer = this.buffer.slice(patternIndex.index);
+      __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+    }
+    return lines;
+  }
+  decodeText(bytes) {
+    if (bytes == null)
+      return "";
+    if (typeof bytes === "string")
+      return bytes;
+    if (typeof Buffer !== "undefined") {
+      if (bytes instanceof Buffer) {
+        return bytes.toString();
+      }
+      if (bytes instanceof Uint8Array) {
+        return Buffer.from(bytes).toString();
+      }
+      throw new OpenAIError(`Unexpected: received non-Uint8Array (${bytes.constructor.name}) stream chunk in an environment with a global "Buffer" defined, which this library assumes to be Node. Please report this error.`);
+    }
+    if (typeof TextDecoder !== "undefined") {
+      if (bytes instanceof Uint8Array || bytes instanceof ArrayBuffer) {
+        this.textDecoder ?? (this.textDecoder = new TextDecoder("utf8"));
+        return this.textDecoder.decode(bytes);
+      }
+      throw new OpenAIError(`Unexpected: received non-Uint8Array/ArrayBuffer (${bytes.constructor.name}) in a web platform. Please report this error.`);
+    }
+    throw new OpenAIError(`Unexpected: neither Buffer nor TextDecoder are available as globals. Please report this error.`);
+  }
+  flush() {
+    if (!this.buffer.length) {
+      return [];
+    }
+    return this.decode("\n");
+  }
+};
+_LineDecoder_carriageReturnIndex = /* @__PURE__ */ new WeakMap();
+LineDecoder2.NEWLINE_CHARS = /* @__PURE__ */ new Set(["\n", "\r"]);
+LineDecoder2.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
+function findNewlineIndex(buffer, startIndex) {
+  const newline = 10;
+  const carriage = 13;
+  for (let i = startIndex ?? 0; i < buffer.length; i++) {
+    if (buffer[i] === newline) {
+      return { preceding: i, index: i + 1, carriage: false };
+    }
+    if (buffer[i] === carriage) {
+      return { preceding: i, index: i + 1, carriage: true };
+    }
+  }
+  return null;
+}
+function findDoubleNewlineIndex2(buffer) {
+  const newline = 10;
+  const carriage = 13;
+  for (let i = 0; i < buffer.length - 1; i++) {
+    if (buffer[i] === newline && buffer[i + 1] === newline) {
+      return i + 2;
+    }
+    if (buffer[i] === carriage && buffer[i + 1] === carriage) {
+      return i + 2;
+    }
+    if (buffer[i] === carriage && buffer[i + 1] === newline && i + 3 < buffer.length && buffer[i + 2] === carriage && buffer[i + 3] === newline) {
+      return i + 4;
+    }
+  }
+  return -1;
+}
+
+// node_modules/openai/internal/stream-utils.mjs
+function ReadableStreamToAsyncIterable(stream) {
+  if (stream[Symbol.asyncIterator])
+    return stream;
+  const reader = stream.getReader();
+  return {
+    async next() {
+      try {
+        const result = await reader.read();
+        if (result?.done)
+          reader.releaseLock();
+        return result;
+      } catch (e) {
+        reader.releaseLock();
+        throw e;
+      }
+    },
+    async return() {
+      const cancelPromise = reader.cancel();
+      reader.releaseLock();
+      await cancelPromise;
+      return { done: true, value: void 0 };
+    },
+    [Symbol.asyncIterator]() {
+      return this;
+    }
+  };
+}
+
+// node_modules/openai/streaming.mjs
+var Stream2 = class _Stream {
+  constructor(iterator, controller) {
+    this.iterator = iterator;
+    this.controller = controller;
+  }
+  static fromSSEResponse(response, controller) {
+    let consumed = false;
+    async function* iterator() {
+      if (consumed) {
+        throw new Error("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+      }
+      consumed = true;
+      let done = false;
+      try {
+        for await (const sse of _iterSSEMessages2(response, controller)) {
+          if (done)
+            continue;
+          if (sse.data.startsWith("[DONE]")) {
+            done = true;
+            continue;
+          }
+          if (sse.event === null || sse.event.startsWith("response.") || sse.event.startsWith("transcript.")) {
+            let data2;
+            try {
+              data2 = JSON.parse(sse.data);
+            } catch (e) {
+              console.error(`Could not parse message into JSON:`, sse.data);
+              console.error(`From chunk:`, sse.raw);
+              throw e;
+            }
+            if (data2 && data2.error) {
+              throw new APIError3(void 0, data2.error, void 0, createResponseHeaders2(response.headers));
+            }
+            yield data2;
+          } else {
+            let data2;
+            try {
+              data2 = JSON.parse(sse.data);
+            } catch (e) {
+              console.error(`Could not parse message into JSON:`, sse.data);
+              console.error(`From chunk:`, sse.raw);
+              throw e;
+            }
+            if (sse.event == "error") {
+              throw new APIError3(void 0, data2.error, data2.message, void 0);
+            }
+            yield { event: sse.event, data: data2 };
+          }
+        }
+        done = true;
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError")
+          return;
+        throw e;
+      } finally {
+        if (!done)
+          controller.abort();
+      }
+    }
+    return new _Stream(iterator, controller);
+  }
+  /**
+   * Generates a Stream from a newline-separated ReadableStream
+   * where each item is a JSON value.
+   */
+  static fromReadableStream(readableStream, controller) {
+    let consumed = false;
+    async function* iterLines() {
+      const lineDecoder = new LineDecoder2();
+      const iter = ReadableStreamToAsyncIterable(readableStream);
+      for await (const chunk of iter) {
+        for (const line of lineDecoder.decode(chunk)) {
+          yield line;
+        }
+      }
+      for (const line of lineDecoder.flush()) {
+        yield line;
+      }
+    }
+    async function* iterator() {
+      if (consumed) {
+        throw new Error("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+      }
+      consumed = true;
+      let done = false;
+      try {
+        for await (const line of iterLines()) {
+          if (done)
+            continue;
+          if (line)
+            yield JSON.parse(line);
+        }
+        done = true;
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError")
+          return;
+        throw e;
+      } finally {
+        if (!done)
+          controller.abort();
+      }
+    }
+    return new _Stream(iterator, controller);
+  }
+  [Symbol.asyncIterator]() {
+    return this.iterator();
+  }
+  /**
+   * Splits the stream into two streams which can be
+   * independently read from at different speeds.
+   */
+  tee() {
+    const left = [];
+    const right = [];
+    const iterator = this.iterator();
+    const teeIterator = (queue) => {
+      return {
+        next: () => {
+          if (queue.length === 0) {
+            const result = iterator.next();
+            left.push(result);
+            right.push(result);
+          }
+          return queue.shift();
+        }
+      };
+    };
+    return [
+      new _Stream(() => teeIterator(left), this.controller),
+      new _Stream(() => teeIterator(right), this.controller)
+    ];
+  }
+  /**
+   * Converts this stream to a newline-separated ReadableStream of
+   * JSON stringified values in the stream
+   * which can be turned back into a Stream with `Stream.fromReadableStream()`.
+   */
+  toReadableStream() {
+    const self2 = this;
+    let iter;
+    const encoder = new TextEncoder();
+    return new ReadableStream3({
+      async start() {
+        iter = self2[Symbol.asyncIterator]();
+      },
+      async pull(ctrl) {
+        try {
+          const { value, done } = await iter.next();
+          if (done)
+            return ctrl.close();
+          const bytes = encoder.encode(JSON.stringify(value) + "\n");
+          ctrl.enqueue(bytes);
+        } catch (err) {
+          ctrl.error(err);
+        }
+      },
+      async cancel() {
+        await iter.return?.();
+      }
+    });
+  }
+};
+async function* _iterSSEMessages2(response, controller) {
+  if (!response.body) {
+    controller.abort();
+    throw new OpenAIError(`Attempted to iterate over a response with no body`);
+  }
+  const sseDecoder = new SSEDecoder2();
+  const lineDecoder = new LineDecoder2();
+  const iter = ReadableStreamToAsyncIterable(response.body);
+  for await (const sseChunk of iterSSEChunks2(iter)) {
+    for (const line of lineDecoder.decode(sseChunk)) {
+      const sse = sseDecoder.decode(line);
+      if (sse)
+        yield sse;
+    }
+  }
+  for (const line of lineDecoder.flush()) {
+    const sse = sseDecoder.decode(line);
+    if (sse)
+      yield sse;
+  }
+}
+async function* iterSSEChunks2(iterator) {
+  let data2 = new Uint8Array();
+  for await (const chunk of iterator) {
+    if (chunk == null) {
+      continue;
+    }
+    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
+    let newData = new Uint8Array(data2.length + binaryChunk.length);
+    newData.set(data2);
+    newData.set(binaryChunk, data2.length);
+    data2 = newData;
+    let patternIndex;
+    while ((patternIndex = findDoubleNewlineIndex2(data2)) !== -1) {
+      yield data2.slice(0, patternIndex);
+      data2 = data2.slice(patternIndex);
+    }
+  }
+  if (data2.length > 0) {
+    yield data2;
+  }
+}
+var SSEDecoder2 = class {
+  constructor() {
+    this.event = null;
+    this.data = [];
+    this.chunks = [];
+  }
+  decode(line) {
+    if (line.endsWith("\r")) {
+      line = line.substring(0, line.length - 1);
+    }
+    if (!line) {
+      if (!this.event && !this.data.length)
+        return null;
+      const sse = {
+        event: this.event,
+        data: this.data.join("\n"),
+        raw: this.chunks
+      };
+      this.event = null;
+      this.data = [];
+      this.chunks = [];
+      return sse;
+    }
+    this.chunks.push(line);
+    if (line.startsWith(":")) {
+      return null;
+    }
+    let [fieldname, _, value] = partition2(line, ":");
+    if (value.startsWith(" ")) {
+      value = value.substring(1);
+    }
+    if (fieldname === "event") {
+      this.event = value;
+    } else if (fieldname === "data") {
+      this.data.push(value);
+    }
+    return null;
+  }
+};
+function partition2(str2, delimiter) {
+  const index2 = str2.indexOf(delimiter);
+  if (index2 !== -1) {
+    return [str2.substring(0, index2), delimiter, str2.substring(index2 + delimiter.length)];
+  }
+  return [str2, "", ""];
+}
+
+// node_modules/openai/uploads.mjs
+var isResponseLike2 = (value) => value != null && typeof value === "object" && typeof value.url === "string" && typeof value.blob === "function";
+var isFileLike2 = (value) => value != null && typeof value === "object" && typeof value.name === "string" && typeof value.lastModified === "number" && isBlobLike2(value);
+var isBlobLike2 = (value) => value != null && typeof value === "object" && typeof value.size === "number" && typeof value.type === "string" && typeof value.text === "function" && typeof value.slice === "function" && typeof value.arrayBuffer === "function";
+var isUploadable = (value) => {
+  return isFileLike2(value) || isResponseLike2(value) || isFsReadStream2(value);
+};
+async function toFile2(value, name, options) {
+  value = await value;
+  if (isFileLike2(value)) {
+    return value;
+  }
+  if (isResponseLike2(value)) {
+    const blob = await value.blob();
+    name || (name = new URL(value.url).pathname.split(/[\\/]/).pop() ?? "unknown_file");
+    const data2 = isBlobLike2(blob) ? [await blob.arrayBuffer()] : [blob];
+    return new File3(data2, name, options);
+  }
+  const bits = await getBytes2(value);
+  name || (name = getName2(value) ?? "unknown_file");
+  if (!options?.type) {
+    const type = bits[0]?.type;
+    if (typeof type === "string") {
+      options = { ...options, type };
+    }
+  }
+  return new File3(bits, name, options);
+}
+async function getBytes2(value) {
+  let parts = [];
+  if (typeof value === "string" || ArrayBuffer.isView(value) || // includes Uint8Array, Buffer, etc.
+  value instanceof ArrayBuffer) {
+    parts.push(value);
+  } else if (isBlobLike2(value)) {
+    parts.push(await value.arrayBuffer());
+  } else if (isAsyncIterableIterator2(value)) {
+    for await (const chunk of value) {
+      parts.push(chunk);
+    }
+  } else {
+    throw new Error(`Unexpected data type: ${typeof value}; constructor: ${value?.constructor?.name}; props: ${propsForError2(value)}`);
+  }
+  return parts;
+}
+function propsForError2(value) {
+  const props = Object.getOwnPropertyNames(value);
+  return `[${props.map((p) => `"${p}"`).join(", ")}]`;
+}
+function getName2(value) {
+  return getStringFromMaybeBuffer2(value.name) || getStringFromMaybeBuffer2(value.filename) || // For fs.ReadStream
+  getStringFromMaybeBuffer2(value.path)?.split(/[\\/]/).pop();
+}
+var getStringFromMaybeBuffer2 = (x) => {
+  if (typeof x === "string")
+    return x;
+  if (typeof Buffer !== "undefined" && x instanceof Buffer)
+    return String(x);
+  return void 0;
+};
+var isAsyncIterableIterator2 = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
+var isMultipartBody2 = (body) => body && typeof body === "object" && body.body && body[Symbol.toStringTag] === "MultipartBody";
+var multipartFormRequestOptions = async (opts) => {
+  const form = await createForm(opts.body);
+  return getMultipartRequestOptions2(form, opts);
+};
+var createForm = async (body) => {
+  const form = new FormData3();
+  await Promise.all(Object.entries(body || {}).map(([key, value]) => addFormValue(form, key, value)));
+  return form;
+};
+var addFormValue = async (form, key, value) => {
+  if (value === void 0)
+    return;
+  if (value == null) {
+    throw new TypeError(`Received null for "${key}"; to pass null in FormData, you must use the string 'null'`);
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    form.append(key, String(value));
+  } else if (isUploadable(value)) {
+    const file = await toFile2(value);
+    form.append(key, file);
+  } else if (Array.isArray(value)) {
+    await Promise.all(value.map((entry) => addFormValue(form, key + "[]", entry)));
+  } else if (typeof value === "object") {
+    await Promise.all(Object.entries(value).map(([name, prop2]) => addFormValue(form, `${key}[${name}]`, prop2)));
+  } else {
+    throw new TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${value} instead`);
+  }
+};
+
+// node_modules/openai/core.mjs
+var __classPrivateFieldSet5 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var __classPrivateFieldGet5 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _AbstractPage_client2;
+init();
+async function defaultParseResponse2(props) {
+  const { response } = props;
+  if (props.options.stream) {
+    debug2("response", response.status, response.url, response.headers, response.body);
+    if (props.options.__streamClass) {
+      return props.options.__streamClass.fromSSEResponse(response, props.controller);
+    }
+    return Stream2.fromSSEResponse(response, props.controller);
+  }
+  if (response.status === 204) {
+    return null;
+  }
+  if (props.options.__binaryResponse) {
+    return response;
+  }
+  const contentType = response.headers.get("content-type");
+  const mediaType = contentType?.split(";")[0]?.trim();
+  const isJSON = mediaType?.includes("application/json") || mediaType?.endsWith("+json");
+  if (isJSON) {
+    const json = await response.json();
+    debug2("response", response.status, response.url, response.headers, json);
+    return _addRequestID(json, response);
+  }
+  const text3 = await response.text();
+  debug2("response", response.status, response.url, response.headers, text3);
+  return text3;
+}
+function _addRequestID(value, response) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  return Object.defineProperty(value, "_request_id", {
+    value: response.headers.get("x-request-id"),
+    enumerable: false
+  });
+}
+var APIPromise2 = class _APIPromise extends Promise {
+  constructor(responsePromise, parseResponse2 = defaultParseResponse2) {
+    super((resolve2) => {
+      resolve2(null);
+    });
+    this.responsePromise = responsePromise;
+    this.parseResponse = parseResponse2;
+  }
+  _thenUnwrap(transform2) {
+    return new _APIPromise(this.responsePromise, async (props) => _addRequestID(transform2(await this.parseResponse(props), props), props.response));
+  }
+  /**
+   * Gets the raw `Response` instance instead of parsing the response
+   * data.
+   *
+   * If you want to parse the response body but still get the `Response`
+   * instance, you can use {@link withResponse()}.
+   *
+   * 👋 Getting the wrong TypeScript type for `Response`?
+   * Try setting `"moduleResolution": "NodeNext"` if you can,
+   * or add one of these imports before your first `import … from 'openai'`:
+   * - `import 'openai/shims/node'` (if you're running on Node)
+   * - `import 'openai/shims/web'` (otherwise)
+   */
+  asResponse() {
+    return this.responsePromise.then((p) => p.response);
+  }
+  /**
+   * Gets the parsed response data, the raw `Response` instance and the ID of the request,
+   * returned via the X-Request-ID header which is useful for debugging requests and reporting
+   * issues to OpenAI.
+   *
+   * If you just want to get the raw `Response` instance without parsing it,
+   * you can use {@link asResponse()}.
+   *
+   *
+   * 👋 Getting the wrong TypeScript type for `Response`?
+   * Try setting `"moduleResolution": "NodeNext"` if you can,
+   * or add one of these imports before your first `import … from 'openai'`:
+   * - `import 'openai/shims/node'` (if you're running on Node)
+   * - `import 'openai/shims/web'` (otherwise)
+   */
+  async withResponse() {
+    const [data2, response] = await Promise.all([this.parse(), this.asResponse()]);
+    return { data: data2, response, request_id: response.headers.get("x-request-id") };
+  }
+  parse() {
+    if (!this.parsedPromise) {
+      this.parsedPromise = this.responsePromise.then(this.parseResponse);
+    }
+    return this.parsedPromise;
+  }
+  then(onfulfilled, onrejected) {
+    return this.parse().then(onfulfilled, onrejected);
+  }
+  catch(onrejected) {
+    return this.parse().catch(onrejected);
+  }
+  finally(onfinally) {
+    return this.parse().finally(onfinally);
+  }
+};
+var APIClient2 = class {
+  constructor({
+    baseURL,
+    maxRetries = 2,
+    timeout = 6e5,
+    // 10 minutes
+    httpAgent,
+    fetch: overriddenFetch
+  }) {
+    this.baseURL = baseURL;
+    this.maxRetries = validatePositiveInteger2("maxRetries", maxRetries);
+    this.timeout = validatePositiveInteger2("timeout", timeout);
+    this.httpAgent = httpAgent;
+    this.fetch = overriddenFetch ?? fetch3;
+  }
+  authHeaders(opts) {
+    return {};
+  }
+  /**
+   * Override this to add your own default headers, for example:
+   *
+   *  {
+   *    ...super.defaultHeaders(),
+   *    Authorization: 'Bearer 123',
+   *  }
+   */
+  defaultHeaders(opts) {
+    return {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "User-Agent": this.getUserAgent(),
+      ...getPlatformHeaders2(),
+      ...this.authHeaders(opts)
+    };
+  }
+  /**
+   * Override this to add your own headers validation:
+   */
+  validateHeaders(headers, customHeaders) {
+  }
+  defaultIdempotencyKey() {
+    return `stainless-node-retry-${uuid42()}`;
+  }
+  get(path3, opts) {
+    return this.methodRequest("get", path3, opts);
+  }
+  post(path3, opts) {
+    return this.methodRequest("post", path3, opts);
+  }
+  patch(path3, opts) {
+    return this.methodRequest("patch", path3, opts);
+  }
+  put(path3, opts) {
+    return this.methodRequest("put", path3, opts);
+  }
+  delete(path3, opts) {
+    return this.methodRequest("delete", path3, opts);
+  }
+  methodRequest(method, path3, opts) {
+    return this.request(Promise.resolve(opts).then(async (opts2) => {
+      const body = opts2 && isBlobLike2(opts2?.body) ? new DataView(await opts2.body.arrayBuffer()) : opts2?.body instanceof DataView ? opts2.body : opts2?.body instanceof ArrayBuffer ? new DataView(opts2.body) : opts2 && ArrayBuffer.isView(opts2?.body) ? new DataView(opts2.body.buffer) : opts2?.body;
+      return { method, path: path3, ...opts2, body };
+    }));
+  }
+  getAPIList(path3, Page3, opts) {
+    return this.requestAPIList(Page3, { method: "get", path: path3, ...opts });
+  }
+  calculateContentLength(body) {
+    if (typeof body === "string") {
+      if (typeof Buffer !== "undefined") {
+        return Buffer.byteLength(body, "utf8").toString();
+      }
+      if (typeof TextEncoder !== "undefined") {
+        const encoder = new TextEncoder();
+        const encoded = encoder.encode(body);
+        return encoded.length.toString();
+      }
+    } else if (ArrayBuffer.isView(body)) {
+      return body.byteLength.toString();
+    }
+    return null;
+  }
+  buildRequest(inputOptions, { retryCount = 0 } = {}) {
+    const options = { ...inputOptions };
+    const { method, path: path3, query, headers = {} } = options;
+    const body = ArrayBuffer.isView(options.body) || options.__binaryRequest && typeof options.body === "string" ? options.body : isMultipartBody2(options.body) ? options.body.body : options.body ? JSON.stringify(options.body, null, 2) : null;
+    const contentLength = this.calculateContentLength(body);
+    const url2 = this.buildURL(path3, query);
+    if ("timeout" in options)
+      validatePositiveInteger2("timeout", options.timeout);
+    options.timeout = options.timeout ?? this.timeout;
+    const httpAgent = options.httpAgent ?? this.httpAgent ?? getDefaultAgent2(url2);
+    const minAgentTimeout = options.timeout + 1e3;
+    if (typeof httpAgent?.options?.timeout === "number" && minAgentTimeout > (httpAgent.options.timeout ?? 0)) {
+      httpAgent.options.timeout = minAgentTimeout;
+    }
+    if (this.idempotencyHeader && method !== "get") {
+      if (!inputOptions.idempotencyKey)
+        inputOptions.idempotencyKey = this.defaultIdempotencyKey();
+      headers[this.idempotencyHeader] = inputOptions.idempotencyKey;
+    }
+    const reqHeaders = this.buildHeaders({ options, headers, contentLength, retryCount });
+    const req = {
+      method,
+      ...body && { body },
+      headers: reqHeaders,
+      ...httpAgent && { agent: httpAgent },
+      // @ts-ignore node-fetch uses a custom AbortSignal type that is
+      // not compatible with standard web types
+      signal: options.signal ?? null
+    };
+    return { req, url: url2, timeout: options.timeout };
+  }
+  buildHeaders({ options, headers, contentLength, retryCount }) {
+    const reqHeaders = {};
+    if (contentLength) {
+      reqHeaders["content-length"] = contentLength;
+    }
+    const defaultHeaders = this.defaultHeaders(options);
+    applyHeadersMut2(reqHeaders, defaultHeaders);
+    applyHeadersMut2(reqHeaders, headers);
+    if (isMultipartBody2(options.body) && kind2 !== "node") {
+      delete reqHeaders["content-type"];
+    }
+    if (getHeader2(defaultHeaders, "x-stainless-retry-count") === void 0 && getHeader2(headers, "x-stainless-retry-count") === void 0) {
+      reqHeaders["x-stainless-retry-count"] = String(retryCount);
+    }
+    if (getHeader2(defaultHeaders, "x-stainless-timeout") === void 0 && getHeader2(headers, "x-stainless-timeout") === void 0 && options.timeout) {
+      reqHeaders["x-stainless-timeout"] = String(Math.trunc(options.timeout / 1e3));
+    }
+    this.validateHeaders(reqHeaders, headers);
+    return reqHeaders;
+  }
+  /**
+   * Used as a callback for mutating the given `FinalRequestOptions` object.
+   */
+  async prepareOptions(options) {
+  }
+  /**
+   * Used as a callback for mutating the given `RequestInit` object.
+   *
+   * This is useful for cases where you want to add certain headers based off of
+   * the request properties, e.g. `method` or `url`.
+   */
+  async prepareRequest(request, { url: url2, options }) {
+  }
+  parseHeaders(headers) {
+    return !headers ? {} : Symbol.iterator in headers ? Object.fromEntries(Array.from(headers).map((header) => [...header])) : { ...headers };
+  }
+  makeStatusError(status, error2, message, headers) {
+    return APIError3.generate(status, error2, message, headers);
+  }
+  request(options, remainingRetries = null) {
+    return new APIPromise2(this.makeRequest(options, remainingRetries));
+  }
+  async makeRequest(optionsInput, retriesRemaining) {
+    const options = await optionsInput;
+    const maxRetries = options.maxRetries ?? this.maxRetries;
+    if (retriesRemaining == null) {
+      retriesRemaining = maxRetries;
+    }
+    await this.prepareOptions(options);
+    const { req, url: url2, timeout } = this.buildRequest(options, { retryCount: maxRetries - retriesRemaining });
+    await this.prepareRequest(req, { url: url2, options });
+    debug2("request", url2, options, req.headers);
+    if (options.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    const controller = new AbortController();
+    const response = await this.fetchWithTimeout(url2, req, timeout, controller).catch(castToError2);
+    if (response instanceof Error) {
+      if (options.signal?.aborted) {
+        throw new APIUserAbortError3();
+      }
+      if (retriesRemaining) {
+        return this.retryRequest(options, retriesRemaining);
+      }
+      if (response.name === "AbortError") {
+        throw new APIConnectionTimeoutError3();
+      }
+      throw new APIConnectionError3({ cause: response });
+    }
+    const responseHeaders = createResponseHeaders2(response.headers);
+    if (!response.ok) {
+      if (retriesRemaining && this.shouldRetry(response)) {
+        const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
+        debug2(`response (error; ${retryMessage2})`, response.status, url2, responseHeaders);
+        return this.retryRequest(options, retriesRemaining, responseHeaders);
+      }
+      const errText = await response.text().catch((e) => castToError2(e).message);
+      const errJSON = safeJSON2(errText);
+      const errMessage = errJSON ? void 0 : errText;
+      const retryMessage = retriesRemaining ? `(error; no more retries left)` : `(error; not retryable)`;
+      debug2(`response (error; ${retryMessage})`, response.status, url2, responseHeaders, errMessage);
+      const err = this.makeStatusError(response.status, errJSON, errMessage, responseHeaders);
+      throw err;
+    }
+    return { response, options, controller };
+  }
+  requestAPIList(Page3, options) {
+    const request = this.makeRequest(options, null);
+    return new PagePromise2(this, request, Page3);
+  }
+  buildURL(path3, query) {
+    const url2 = isAbsoluteURL2(path3) ? new URL(path3) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
+    const defaultQuery = this.defaultQuery();
+    if (!isEmptyObj2(defaultQuery)) {
+      query = { ...defaultQuery, ...query };
+    }
+    if (typeof query === "object" && query && !Array.isArray(query)) {
+      url2.search = this.stringifyQuery(query);
+    }
+    return url2.toString();
+  }
+  stringifyQuery(query) {
+    return Object.entries(query).filter(([_, value]) => typeof value !== "undefined").map(([key, value]) => {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+      }
+      if (value === null) {
+        return `${encodeURIComponent(key)}=`;
+      }
+      throw new OpenAIError(`Cannot stringify type ${typeof value}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
+    }).join("&");
+  }
+  async fetchWithTimeout(url2, init2, ms, controller) {
+    const { signal, ...options } = init2 || {};
+    if (signal)
+      signal.addEventListener("abort", () => controller.abort());
+    const timeout = setTimeout(() => controller.abort(), ms);
+    const fetchOptions = {
+      signal: controller.signal,
+      ...options
+    };
+    if (fetchOptions.method) {
+      fetchOptions.method = fetchOptions.method.toUpperCase();
+    }
+    return (
+      // use undefined this binding; fetch errors if bound to something else in browser/cloudflare
+      this.fetch.call(void 0, url2, fetchOptions).finally(() => {
+        clearTimeout(timeout);
+      })
+    );
+  }
+  shouldRetry(response) {
+    const shouldRetryHeader = response.headers.get("x-should-retry");
+    if (shouldRetryHeader === "true")
+      return true;
+    if (shouldRetryHeader === "false")
+      return false;
+    if (response.status === 408)
+      return true;
+    if (response.status === 409)
+      return true;
+    if (response.status === 429)
+      return true;
+    if (response.status >= 500)
+      return true;
+    return false;
+  }
+  async retryRequest(options, retriesRemaining, responseHeaders) {
+    let timeoutMillis;
+    const retryAfterMillisHeader = responseHeaders?.["retry-after-ms"];
+    if (retryAfterMillisHeader) {
+      const timeoutMs = parseFloat(retryAfterMillisHeader);
+      if (!Number.isNaN(timeoutMs)) {
+        timeoutMillis = timeoutMs;
+      }
+    }
+    const retryAfterHeader = responseHeaders?.["retry-after"];
+    if (retryAfterHeader && !timeoutMillis) {
+      const timeoutSeconds = parseFloat(retryAfterHeader);
+      if (!Number.isNaN(timeoutSeconds)) {
+        timeoutMillis = timeoutSeconds * 1e3;
+      } else {
+        timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
+      }
+    }
+    if (!(timeoutMillis && 0 <= timeoutMillis && timeoutMillis < 60 * 1e3)) {
+      const maxRetries = options.maxRetries ?? this.maxRetries;
+      timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
+    }
+    await sleep2(timeoutMillis);
+    return this.makeRequest(options, retriesRemaining - 1);
+  }
+  calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries) {
+    const initialRetryDelay = 0.5;
+    const maxRetryDelay = 8;
+    const numRetries = maxRetries - retriesRemaining;
+    const sleepSeconds = Math.min(initialRetryDelay * Math.pow(2, numRetries), maxRetryDelay);
+    const jitter = 1 - Math.random() * 0.25;
+    return sleepSeconds * jitter * 1e3;
+  }
+  getUserAgent() {
+    return `${this.constructor.name}/JS ${VERSION2}`;
+  }
+};
+var AbstractPage2 = class {
+  constructor(client, response, body, options) {
+    _AbstractPage_client2.set(this, void 0);
+    __classPrivateFieldSet5(this, _AbstractPage_client2, client, "f");
+    this.options = options;
+    this.response = response;
+    this.body = body;
+  }
+  hasNextPage() {
+    const items = this.getPaginatedItems();
+    if (!items.length)
+      return false;
+    return this.nextPageInfo() != null;
+  }
+  async getNextPage() {
+    const nextInfo = this.nextPageInfo();
+    if (!nextInfo) {
+      throw new OpenAIError("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
+    }
+    const nextOptions = { ...this.options };
+    if ("params" in nextInfo && typeof nextOptions.query === "object") {
+      nextOptions.query = { ...nextOptions.query, ...nextInfo.params };
+    } else if ("url" in nextInfo) {
+      const params = [...Object.entries(nextOptions.query || {}), ...nextInfo.url.searchParams.entries()];
+      for (const [key, value] of params) {
+        nextInfo.url.searchParams.set(key, value);
+      }
+      nextOptions.query = void 0;
+      nextOptions.path = nextInfo.url.toString();
+    }
+    return await __classPrivateFieldGet5(this, _AbstractPage_client2, "f").requestAPIList(this.constructor, nextOptions);
+  }
+  async *iterPages() {
+    let page = this;
+    yield page;
+    while (page.hasNextPage()) {
+      page = await page.getNextPage();
+      yield page;
+    }
+  }
+  async *[(_AbstractPage_client2 = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
+    for await (const page of this.iterPages()) {
+      for (const item of page.getPaginatedItems()) {
+        yield item;
+      }
+    }
+  }
+};
+var PagePromise2 = class extends APIPromise2 {
+  constructor(client, request, Page3) {
+    super(request, async (props) => new Page3(client, props.response, await defaultParseResponse2(props), props.options));
+  }
+  /**
+   * Allow auto-paginating iteration on an unawaited list call, eg:
+   *
+   *    for await (const item of client.items.list()) {
+   *      console.log(item)
+   *    }
+   */
+  async *[Symbol.asyncIterator]() {
+    const page = await this;
+    for await (const item of page) {
+      yield item;
+    }
+  }
+};
+var createResponseHeaders2 = (headers) => {
+  return new Proxy(Object.fromEntries(
+    // @ts-ignore
+    headers.entries()
+  ), {
+    get(target, name) {
+      const key = name.toString();
+      return target[key.toLowerCase()] || target[key];
+    }
+  });
+};
+var requestOptionsKeys2 = {
+  method: true,
+  path: true,
+  query: true,
+  body: true,
+  headers: true,
+  maxRetries: true,
+  stream: true,
+  timeout: true,
+  httpAgent: true,
+  signal: true,
+  idempotencyKey: true,
+  __metadata: true,
+  __binaryRequest: true,
+  __binaryResponse: true,
+  __streamClass: true
+};
+var isRequestOptions2 = (obj) => {
+  return typeof obj === "object" && obj !== null && !isEmptyObj2(obj) && Object.keys(obj).every((k) => hasOwn2(requestOptionsKeys2, k));
+};
+var getPlatformProperties2 = () => {
+  if (typeof Deno !== "undefined" && Deno.build != null) {
+    return {
+      "X-Stainless-Lang": "js",
+      "X-Stainless-Package-Version": VERSION2,
+      "X-Stainless-OS": normalizePlatform2(Deno.build.os),
+      "X-Stainless-Arch": normalizeArch2(Deno.build.arch),
+      "X-Stainless-Runtime": "deno",
+      "X-Stainless-Runtime-Version": typeof Deno.version === "string" ? Deno.version : Deno.version?.deno ?? "unknown"
+    };
+  }
+  if (typeof EdgeRuntime !== "undefined") {
+    return {
+      "X-Stainless-Lang": "js",
+      "X-Stainless-Package-Version": VERSION2,
+      "X-Stainless-OS": "Unknown",
+      "X-Stainless-Arch": `other:${EdgeRuntime}`,
+      "X-Stainless-Runtime": "edge",
+      "X-Stainless-Runtime-Version": process.version
+    };
+  }
+  if (Object.prototype.toString.call(typeof process !== "undefined" ? process : 0) === "[object process]") {
+    return {
+      "X-Stainless-Lang": "js",
+      "X-Stainless-Package-Version": VERSION2,
+      "X-Stainless-OS": normalizePlatform2(process.platform),
+      "X-Stainless-Arch": normalizeArch2(process.arch),
+      "X-Stainless-Runtime": "node",
+      "X-Stainless-Runtime-Version": process.version
+    };
+  }
+  const browserInfo = getBrowserInfo2();
+  if (browserInfo) {
+    return {
+      "X-Stainless-Lang": "js",
+      "X-Stainless-Package-Version": VERSION2,
+      "X-Stainless-OS": "Unknown",
+      "X-Stainless-Arch": "unknown",
+      "X-Stainless-Runtime": `browser:${browserInfo.browser}`,
+      "X-Stainless-Runtime-Version": browserInfo.version
+    };
+  }
+  return {
+    "X-Stainless-Lang": "js",
+    "X-Stainless-Package-Version": VERSION2,
+    "X-Stainless-OS": "Unknown",
+    "X-Stainless-Arch": "unknown",
+    "X-Stainless-Runtime": "unknown",
+    "X-Stainless-Runtime-Version": "unknown"
+  };
+};
+function getBrowserInfo2() {
+  if (typeof navigator === "undefined" || !navigator) {
+    return null;
+  }
+  const browserPatterns = [
+    { key: "edge", pattern: /Edge(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
+    { key: "ie", pattern: /MSIE(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
+    { key: "ie", pattern: /Trident(?:.*rv\:(\d+)\.(\d+)(?:\.(\d+))?)?/ },
+    { key: "chrome", pattern: /Chrome(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
+    { key: "firefox", pattern: /Firefox(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/ },
+    { key: "safari", pattern: /(?:Version\W+(\d+)\.(\d+)(?:\.(\d+))?)?(?:\W+Mobile\S*)?\W+Safari/ }
+  ];
+  for (const { key, pattern } of browserPatterns) {
+    const match = pattern.exec(navigator.userAgent);
+    if (match) {
+      const major = match[1] || 0;
+      const minor = match[2] || 0;
+      const patch = match[3] || 0;
+      return { browser: key, version: `${major}.${minor}.${patch}` };
+    }
+  }
+  return null;
+}
+var normalizeArch2 = (arch) => {
+  if (arch === "x32")
+    return "x32";
+  if (arch === "x86_64" || arch === "x64")
+    return "x64";
+  if (arch === "arm")
+    return "arm";
+  if (arch === "aarch64" || arch === "arm64")
+    return "arm64";
+  if (arch)
+    return `other:${arch}`;
+  return "unknown";
+};
+var normalizePlatform2 = (platform) => {
+  platform = platform.toLowerCase();
+  if (platform.includes("ios"))
+    return "iOS";
+  if (platform === "android")
+    return "Android";
+  if (platform === "darwin")
+    return "MacOS";
+  if (platform === "win32")
+    return "Windows";
+  if (platform === "freebsd")
+    return "FreeBSD";
+  if (platform === "openbsd")
+    return "OpenBSD";
+  if (platform === "linux")
+    return "Linux";
+  if (platform)
+    return `Other:${platform}`;
+  return "Unknown";
+};
+var _platformHeaders2;
+var getPlatformHeaders2 = () => {
+  return _platformHeaders2 ?? (_platformHeaders2 = getPlatformProperties2());
+};
+var safeJSON2 = (text3) => {
+  try {
+    return JSON.parse(text3);
+  } catch (err) {
+    return void 0;
+  }
+};
+var startsWithSchemeRegexp2 = /^[a-z][a-z0-9+.-]*:/i;
+var isAbsoluteURL2 = (url2) => {
+  return startsWithSchemeRegexp2.test(url2);
+};
+var sleep2 = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+var validatePositiveInteger2 = (name, n) => {
+  if (typeof n !== "number" || !Number.isInteger(n)) {
+    throw new OpenAIError(`${name} must be an integer`);
+  }
+  if (n < 0) {
+    throw new OpenAIError(`${name} must be a positive integer`);
+  }
+  return n;
+};
+var castToError2 = (err) => {
+  if (err instanceof Error)
+    return err;
+  if (typeof err === "object" && err !== null) {
+    try {
+      return new Error(JSON.stringify(err));
+    } catch {
+    }
+  }
+  return new Error(err);
+};
+var readEnv2 = (env) => {
+  if (typeof process !== "undefined") {
+    return process.env?.[env]?.trim() ?? void 0;
+  }
+  if (typeof Deno !== "undefined") {
+    return Deno.env?.get?.(env)?.trim();
+  }
+  return void 0;
+};
+function isEmptyObj2(obj) {
+  if (!obj)
+    return true;
+  for (const _k in obj)
+    return false;
+  return true;
+}
+function hasOwn2(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+function applyHeadersMut2(targetHeaders, newHeaders) {
+  for (const k in newHeaders) {
+    if (!hasOwn2(newHeaders, k))
+      continue;
+    const lowerKey = k.toLowerCase();
+    if (!lowerKey)
+      continue;
+    const val2 = newHeaders[k];
+    if (val2 === null) {
+      delete targetHeaders[lowerKey];
+    } else if (val2 !== void 0) {
+      targetHeaders[lowerKey] = val2;
+    }
+  }
+}
+var SENSITIVE_HEADERS = /* @__PURE__ */ new Set(["authorization", "api-key"]);
+function debug2(action, ...args) {
+  if (typeof process !== "undefined" && process?.env?.["DEBUG"] === "true") {
+    const modifiedArgs = args.map((arg) => {
+      if (!arg) {
+        return arg;
+      }
+      if (arg["headers"]) {
+        const modifiedArg2 = { ...arg, headers: { ...arg["headers"] } };
+        for (const header in arg["headers"]) {
+          if (SENSITIVE_HEADERS.has(header.toLowerCase())) {
+            modifiedArg2["headers"][header] = "REDACTED";
+          }
+        }
+        return modifiedArg2;
+      }
+      let modifiedArg = null;
+      for (const header in arg) {
+        if (SENSITIVE_HEADERS.has(header.toLowerCase())) {
+          modifiedArg ?? (modifiedArg = { ...arg });
+          modifiedArg[header] = "REDACTED";
+        }
+      }
+      return modifiedArg ?? arg;
+    });
+    console.log(`OpenAI:DEBUG:${action}`, ...modifiedArgs);
+  }
+}
+var uuid42 = () => {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === "x" ? r : r & 3 | 8;
+    return v.toString(16);
+  });
+};
+var isRunningInBrowser2 = () => {
+  return (
+    // @ts-ignore
+    typeof window !== "undefined" && // @ts-ignore
+    typeof window.document !== "undefined" && // @ts-ignore
+    typeof navigator !== "undefined"
+  );
+};
+var isHeadersProtocol2 = (headers) => {
+  return typeof headers?.get === "function";
+};
+var getHeader2 = (headers, header) => {
+  const lowerCasedHeader = header.toLowerCase();
+  if (isHeadersProtocol2(headers)) {
+    const intercapsHeader = header[0]?.toUpperCase() + header.substring(1).replace(/([^\w])(\w)/g, (_m, g1, g2) => g1 + g2.toUpperCase());
+    for (const key of [header, lowerCasedHeader, header.toUpperCase(), intercapsHeader]) {
+      const value = headers.get(key);
+      if (value) {
+        return value;
+      }
+    }
+  }
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lowerCasedHeader) {
+      if (Array.isArray(value)) {
+        if (value.length <= 1)
+          return value[0];
+        console.warn(`Received ${value.length} entries for the ${header} header, using the first entry.`);
+        return value[0];
+      }
+      return value;
+    }
+  }
+  return void 0;
+};
+var toFloat32Array = (base64Str) => {
+  if (typeof Buffer !== "undefined") {
+    const buf = Buffer.from(base64Str, "base64");
+    return Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.length / Float32Array.BYTES_PER_ELEMENT));
+  } else {
+    const binaryStr = atob(base64Str);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+    return Array.from(new Float32Array(bytes.buffer));
+  }
+};
+function isObj(obj) {
+  return obj != null && typeof obj === "object" && !Array.isArray(obj);
+}
+
+// node_modules/openai/pagination.mjs
+var Page2 = class extends AbstractPage2 {
+  constructor(client, response, body, options) {
+    super(client, response, body, options);
+    this.data = body.data || [];
+    this.object = body.object;
+  }
+  getPaginatedItems() {
+    return this.data ?? [];
+  }
+  // @deprecated Please use `nextPageInfo()` instead
+  /**
+   * This page represents a response that isn't actually paginated at the API level
+   * so there will never be any next page params.
+   */
+  nextPageParams() {
+    return null;
+  }
+  nextPageInfo() {
+    return null;
+  }
+};
+var CursorPage = class extends AbstractPage2 {
+  constructor(client, response, body, options) {
+    super(client, response, body, options);
+    this.data = body.data || [];
+    this.has_more = body.has_more || false;
+  }
+  getPaginatedItems() {
+    return this.data ?? [];
+  }
+  hasNextPage() {
+    if (this.has_more === false) {
+      return false;
+    }
+    return super.hasNextPage();
+  }
+  // @deprecated Please use `nextPageInfo()` instead
+  nextPageParams() {
+    const info2 = this.nextPageInfo();
+    if (!info2)
+      return null;
+    if ("params" in info2)
+      return info2.params;
+    const params = Object.fromEntries(info2.url.searchParams);
+    if (!Object.keys(params).length)
+      return null;
+    return params;
+  }
+  nextPageInfo() {
+    const data2 = this.getPaginatedItems();
+    if (!data2.length) {
+      return null;
+    }
+    const id = data2[data2.length - 1]?.id;
+    if (!id) {
+      return null;
+    }
+    return { params: { after: id } };
+  }
+};
+
+// node_modules/openai/resource.mjs
+var APIResource2 = class {
+  constructor(client) {
+    this._client = client;
+  }
+};
+
+// node_modules/openai/resources/chat/completions/messages.mjs
+var Messages4 = class extends APIResource2 {
+  list(completionId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(completionId, {}, query);
+    }
+    return this._client.getAPIList(`/chat/completions/${completionId}/messages`, ChatCompletionStoreMessagesPage, { query, ...options });
+  }
+};
+
+// node_modules/openai/resources/chat/completions/completions.mjs
+var Completions2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.messages = new Messages4(this._client);
+  }
+  create(body, options) {
+    return this._client.post("/chat/completions", { body, ...options, stream: body.stream ?? false });
+  }
+  /**
+   * Get a stored chat completion. Only Chat Completions that have been created with
+   * the `store` parameter set to `true` will be returned.
+   *
+   * @example
+   * ```ts
+   * const chatCompletion =
+   *   await client.chat.completions.retrieve('completion_id');
+   * ```
+   */
+  retrieve(completionId, options) {
+    return this._client.get(`/chat/completions/${completionId}`, options);
+  }
+  /**
+   * Modify a stored chat completion. Only Chat Completions that have been created
+   * with the `store` parameter set to `true` can be modified. Currently, the only
+   * supported modification is to update the `metadata` field.
+   *
+   * @example
+   * ```ts
+   * const chatCompletion = await client.chat.completions.update(
+   *   'completion_id',
+   *   { metadata: { foo: 'string' } },
+   * );
+   * ```
+   */
+  update(completionId, body, options) {
+    return this._client.post(`/chat/completions/${completionId}`, { body, ...options });
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/chat/completions", ChatCompletionsPage, { query, ...options });
+  }
+  /**
+   * Delete a stored chat completion. Only Chat Completions that have been created
+   * with the `store` parameter set to `true` can be deleted.
+   *
+   * @example
+   * ```ts
+   * const chatCompletionDeleted =
+   *   await client.chat.completions.del('completion_id');
+   * ```
+   */
+  del(completionId, options) {
+    return this._client.delete(`/chat/completions/${completionId}`, options);
+  }
+};
+var ChatCompletionsPage = class extends CursorPage {
+};
+var ChatCompletionStoreMessagesPage = class extends CursorPage {
+};
+Completions2.ChatCompletionsPage = ChatCompletionsPage;
+Completions2.Messages = Messages4;
+
+// node_modules/openai/resources/chat/chat.mjs
+var Chat = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.completions = new Completions2(this._client);
+  }
+};
+Chat.Completions = Completions2;
+Chat.ChatCompletionsPage = ChatCompletionsPage;
+
+// node_modules/openai/resources/audio/speech.mjs
+var Speech = class extends APIResource2 {
+  /**
+   * Generates audio from the input text.
+   *
+   * @example
+   * ```ts
+   * const speech = await client.audio.speech.create({
+   *   input: 'input',
+   *   model: 'string',
+   *   voice: 'ash',
+   * });
+   *
+   * const content = await speech.blob();
+   * console.log(content);
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/audio/speech", {
+      body,
+      ...options,
+      headers: { Accept: "application/octet-stream", ...options?.headers },
+      __binaryResponse: true
+    });
+  }
+};
+
+// node_modules/openai/resources/audio/transcriptions.mjs
+var Transcriptions = class extends APIResource2 {
+  create(body, options) {
+    return this._client.post("/audio/transcriptions", multipartFormRequestOptions({
+      body,
+      ...options,
+      stream: body.stream ?? false,
+      __metadata: { model: body.model }
+    }));
+  }
+};
+
+// node_modules/openai/resources/audio/translations.mjs
+var Translations = class extends APIResource2 {
+  create(body, options) {
+    return this._client.post("/audio/translations", multipartFormRequestOptions({ body, ...options, __metadata: { model: body.model } }));
+  }
+};
+
+// node_modules/openai/resources/audio/audio.mjs
+var Audio = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.transcriptions = new Transcriptions(this._client);
+    this.translations = new Translations(this._client);
+    this.speech = new Speech(this._client);
+  }
+};
+Audio.Transcriptions = Transcriptions;
+Audio.Translations = Translations;
+Audio.Speech = Speech;
+
+// node_modules/openai/resources/batches.mjs
+var Batches2 = class extends APIResource2 {
+  /**
+   * Creates and executes a batch from an uploaded file of requests
+   */
+  create(body, options) {
+    return this._client.post("/batches", { body, ...options });
+  }
+  /**
+   * Retrieves a batch.
+   */
+  retrieve(batchId, options) {
+    return this._client.get(`/batches/${batchId}`, options);
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/batches", BatchesPage, { query, ...options });
+  }
+  /**
+   * Cancels an in-progress batch. The batch will be in status `cancelling` for up to
+   * 10 minutes, before changing to `cancelled`, where it will have partial results
+   * (if any) available in the output file.
+   */
+  cancel(batchId, options) {
+    return this._client.post(`/batches/${batchId}/cancel`, options);
+  }
+};
+var BatchesPage = class extends CursorPage {
+};
+Batches2.BatchesPage = BatchesPage;
+
+// node_modules/openai/lib/EventStream.mjs
+var __classPrivateFieldSet6 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var __classPrivateFieldGet6 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _EventStream_instances;
+var _EventStream_connectedPromise;
+var _EventStream_resolveConnectedPromise;
+var _EventStream_rejectConnectedPromise;
+var _EventStream_endPromise;
+var _EventStream_resolveEndPromise;
+var _EventStream_rejectEndPromise;
+var _EventStream_listeners;
+var _EventStream_ended;
+var _EventStream_errored;
+var _EventStream_aborted;
+var _EventStream_catchingPromiseCreated;
+var _EventStream_handleError;
+var EventStream = class {
+  constructor() {
+    _EventStream_instances.add(this);
+    this.controller = new AbortController();
+    _EventStream_connectedPromise.set(this, void 0);
+    _EventStream_resolveConnectedPromise.set(this, () => {
+    });
+    _EventStream_rejectConnectedPromise.set(this, () => {
+    });
+    _EventStream_endPromise.set(this, void 0);
+    _EventStream_resolveEndPromise.set(this, () => {
+    });
+    _EventStream_rejectEndPromise.set(this, () => {
+    });
+    _EventStream_listeners.set(this, {});
+    _EventStream_ended.set(this, false);
+    _EventStream_errored.set(this, false);
+    _EventStream_aborted.set(this, false);
+    _EventStream_catchingPromiseCreated.set(this, false);
+    __classPrivateFieldSet6(this, _EventStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet6(this, _EventStream_resolveConnectedPromise, resolve2, "f");
+      __classPrivateFieldSet6(this, _EventStream_rejectConnectedPromise, reject, "f");
+    }), "f");
+    __classPrivateFieldSet6(this, _EventStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet6(this, _EventStream_resolveEndPromise, resolve2, "f");
+      __classPrivateFieldSet6(this, _EventStream_rejectEndPromise, reject, "f");
+    }), "f");
+    __classPrivateFieldGet6(this, _EventStream_connectedPromise, "f").catch(() => {
+    });
+    __classPrivateFieldGet6(this, _EventStream_endPromise, "f").catch(() => {
+    });
+  }
+  _run(executor) {
+    setTimeout(() => {
+      executor().then(() => {
+        this._emitFinal();
+        this._emit("end");
+      }, __classPrivateFieldGet6(this, _EventStream_instances, "m", _EventStream_handleError).bind(this));
+    }, 0);
+  }
+  _connected() {
+    if (this.ended)
+      return;
+    __classPrivateFieldGet6(this, _EventStream_resolveConnectedPromise, "f").call(this);
+    this._emit("connect");
+  }
+  get ended() {
+    return __classPrivateFieldGet6(this, _EventStream_ended, "f");
+  }
+  get errored() {
+    return __classPrivateFieldGet6(this, _EventStream_errored, "f");
+  }
+  get aborted() {
+    return __classPrivateFieldGet6(this, _EventStream_aborted, "f");
+  }
+  abort() {
+    this.controller.abort();
+  }
+  /**
+   * Adds the listener function to the end of the listeners array for the event.
+   * No checks are made to see if the listener has already been added. Multiple calls passing
+   * the same combination of event and listener will result in the listener being added, and
+   * called, multiple times.
+   * @returns this ChatCompletionStream, so that calls can be chained
+   */
+  on(event, listener) {
+    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = []);
+    listeners.push({ listener });
+    return this;
+  }
+  /**
+   * Removes the specified listener from the listener array for the event.
+   * off() will remove, at most, one instance of a listener from the listener array. If any single
+   * listener has been added multiple times to the listener array for the specified event, then
+   * off() must be called multiple times to remove each instance.
+   * @returns this ChatCompletionStream, so that calls can be chained
+   */
+  off(event, listener) {
+    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event];
+    if (!listeners)
+      return this;
+    const index2 = listeners.findIndex((l) => l.listener === listener);
+    if (index2 >= 0)
+      listeners.splice(index2, 1);
+    return this;
+  }
+  /**
+   * Adds a one-time listener function for the event. The next time the event is triggered,
+   * this listener is removed and then invoked.
+   * @returns this ChatCompletionStream, so that calls can be chained
+   */
+  once(event, listener) {
+    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = []);
+    listeners.push({ listener, once: true });
+    return this;
+  }
+  /**
+   * This is similar to `.once()`, but returns a Promise that resolves the next time
+   * the event is triggered, instead of calling a listener callback.
+   * @returns a Promise that resolves the next time given event is triggered,
+   * or rejects if an error is emitted.  (If you request the 'error' event,
+   * returns a promise that resolves with the error).
+   *
+   * Example:
+   *
+   *   const message = await stream.emitted('message') // rejects if the stream errors
+   */
+  emitted(event) {
+    return new Promise((resolve2, reject) => {
+      __classPrivateFieldSet6(this, _EventStream_catchingPromiseCreated, true, "f");
+      if (event !== "error")
+        this.once("error", reject);
+      this.once(event, resolve2);
+    });
+  }
+  async done() {
+    __classPrivateFieldSet6(this, _EventStream_catchingPromiseCreated, true, "f");
+    await __classPrivateFieldGet6(this, _EventStream_endPromise, "f");
+  }
+  _emit(event, ...args) {
+    if (__classPrivateFieldGet6(this, _EventStream_ended, "f")) {
+      return;
+    }
+    if (event === "end") {
+      __classPrivateFieldSet6(this, _EventStream_ended, true, "f");
+      __classPrivateFieldGet6(this, _EventStream_resolveEndPromise, "f").call(this);
+    }
+    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event];
+    if (listeners) {
+      __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
+      listeners.forEach(({ listener }) => listener(...args));
+    }
+    if (event === "abort") {
+      const error2 = args[0];
+      if (!__classPrivateFieldGet6(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
+        Promise.reject(error2);
+      }
+      __classPrivateFieldGet6(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet6(this, _EventStream_rejectEndPromise, "f").call(this, error2);
+      this._emit("end");
+      return;
+    }
+    if (event === "error") {
+      const error2 = args[0];
+      if (!__classPrivateFieldGet6(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
+        Promise.reject(error2);
+      }
+      __classPrivateFieldGet6(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet6(this, _EventStream_rejectEndPromise, "f").call(this, error2);
+      this._emit("end");
+    }
+  }
+  _emitFinal() {
+  }
+};
+_EventStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_endPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_listeners = /* @__PURE__ */ new WeakMap(), _EventStream_ended = /* @__PURE__ */ new WeakMap(), _EventStream_errored = /* @__PURE__ */ new WeakMap(), _EventStream_aborted = /* @__PURE__ */ new WeakMap(), _EventStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _EventStream_instances = /* @__PURE__ */ new WeakSet(), _EventStream_handleError = function _EventStream_handleError2(error2) {
+  __classPrivateFieldSet6(this, _EventStream_errored, true, "f");
+  if (error2 instanceof Error && error2.name === "AbortError") {
+    error2 = new APIUserAbortError3();
+  }
+  if (error2 instanceof APIUserAbortError3) {
+    __classPrivateFieldSet6(this, _EventStream_aborted, true, "f");
+    return this._emit("abort", error2);
+  }
+  if (error2 instanceof OpenAIError) {
+    return this._emit("error", error2);
+  }
+  if (error2 instanceof Error) {
+    const openAIError = new OpenAIError(error2.message);
+    openAIError.cause = error2;
+    return this._emit("error", openAIError);
+  }
+  return this._emit("error", new OpenAIError(String(error2)));
+};
+
+// node_modules/openai/lib/AssistantStream.mjs
+var __classPrivateFieldGet7 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var __classPrivateFieldSet7 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var _AssistantStream_instances;
+var _AssistantStream_events;
+var _AssistantStream_runStepSnapshots;
+var _AssistantStream_messageSnapshots;
+var _AssistantStream_messageSnapshot;
+var _AssistantStream_finalRun;
+var _AssistantStream_currentContentIndex;
+var _AssistantStream_currentContent;
+var _AssistantStream_currentToolCallIndex;
+var _AssistantStream_currentToolCall;
+var _AssistantStream_currentEvent;
+var _AssistantStream_currentRunSnapshot;
+var _AssistantStream_currentRunStepSnapshot;
+var _AssistantStream_addEvent;
+var _AssistantStream_endRequest;
+var _AssistantStream_handleMessage;
+var _AssistantStream_handleRunStep;
+var _AssistantStream_handleEvent;
+var _AssistantStream_accumulateRunStep;
+var _AssistantStream_accumulateMessage;
+var _AssistantStream_accumulateContent;
+var _AssistantStream_handleRun;
+var AssistantStream = class _AssistantStream extends EventStream {
+  constructor() {
+    super(...arguments);
+    _AssistantStream_instances.add(this);
+    _AssistantStream_events.set(this, []);
+    _AssistantStream_runStepSnapshots.set(this, {});
+    _AssistantStream_messageSnapshots.set(this, {});
+    _AssistantStream_messageSnapshot.set(this, void 0);
+    _AssistantStream_finalRun.set(this, void 0);
+    _AssistantStream_currentContentIndex.set(this, void 0);
+    _AssistantStream_currentContent.set(this, void 0);
+    _AssistantStream_currentToolCallIndex.set(this, void 0);
+    _AssistantStream_currentToolCall.set(this, void 0);
+    _AssistantStream_currentEvent.set(this, void 0);
+    _AssistantStream_currentRunSnapshot.set(this, void 0);
+    _AssistantStream_currentRunStepSnapshot.set(this, void 0);
+  }
+  [(_AssistantStream_events = /* @__PURE__ */ new WeakMap(), _AssistantStream_runStepSnapshots = /* @__PURE__ */ new WeakMap(), _AssistantStream_messageSnapshots = /* @__PURE__ */ new WeakMap(), _AssistantStream_messageSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_finalRun = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentContentIndex = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentContent = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentToolCallIndex = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentToolCall = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentEvent = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentRunSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentRunStepSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_instances = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
+    const pushQueue = [];
+    const readQueue = [];
+    let done = false;
+    this.on("event", (event) => {
+      const reader = readQueue.shift();
+      if (reader) {
+        reader.resolve(event);
+      } else {
+        pushQueue.push(event);
+      }
+    });
+    this.on("end", () => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.resolve(void 0);
+      }
+      readQueue.length = 0;
+    });
+    this.on("abort", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    this.on("error", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    return {
+      next: async () => {
+        if (!pushQueue.length) {
+          if (done) {
+            return { value: void 0, done: true };
+          }
+          return new Promise((resolve2, reject) => readQueue.push({ resolve: resolve2, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
+        }
+        const chunk = pushQueue.shift();
+        return { value: chunk, done: false };
+      },
+      return: async () => {
+        this.abort();
+        return { value: void 0, done: true };
+      }
+    };
+  }
+  static fromReadableStream(stream) {
+    const runner = new _AssistantStream();
+    runner._run(() => runner._fromReadableStream(stream));
+    return runner;
+  }
+  async _fromReadableStream(readableStream, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    this._connected();
+    const stream = Stream2.fromReadableStream(readableStream, this.controller);
+    for await (const event of stream) {
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+  }
+  toReadableStream() {
+    const stream = new Stream2(this[Symbol.asyncIterator].bind(this), this.controller);
+    return stream.toReadableStream();
+  }
+  static createToolAssistantStream(threadId, runId, runs, params, options) {
+    const runner = new _AssistantStream();
+    runner._run(() => runner._runToolAssistantStream(threadId, runId, runs, params, {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" }
+    }));
+    return runner;
+  }
+  async _createToolAssistantStream(run, threadId, runId, params, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    const body = { ...params, stream: true };
+    const stream = await run.submitToolOutputs(threadId, runId, body, {
+      ...options,
+      signal: this.controller.signal
+    });
+    this._connected();
+    for await (const event of stream) {
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+  }
+  static createThreadAssistantStream(params, thread, options) {
+    const runner = new _AssistantStream();
+    runner._run(() => runner._threadAssistantStream(params, thread, {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" }
+    }));
+    return runner;
+  }
+  static createAssistantStream(threadId, runs, params, options) {
+    const runner = new _AssistantStream();
+    runner._run(() => runner._runAssistantStream(threadId, runs, params, {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" }
+    }));
+    return runner;
+  }
+  currentEvent() {
+    return __classPrivateFieldGet7(this, _AssistantStream_currentEvent, "f");
+  }
+  currentRun() {
+    return __classPrivateFieldGet7(this, _AssistantStream_currentRunSnapshot, "f");
+  }
+  currentMessageSnapshot() {
+    return __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f");
+  }
+  currentRunStepSnapshot() {
+    return __classPrivateFieldGet7(this, _AssistantStream_currentRunStepSnapshot, "f");
+  }
+  async finalRunSteps() {
+    await this.done();
+    return Object.values(__classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f"));
+  }
+  async finalMessages() {
+    await this.done();
+    return Object.values(__classPrivateFieldGet7(this, _AssistantStream_messageSnapshots, "f"));
+  }
+  async finalRun() {
+    await this.done();
+    if (!__classPrivateFieldGet7(this, _AssistantStream_finalRun, "f"))
+      throw Error("Final run was not received.");
+    return __classPrivateFieldGet7(this, _AssistantStream_finalRun, "f");
+  }
+  async _createThreadAssistantStream(thread, params, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    const body = { ...params, stream: true };
+    const stream = await thread.createAndRun(body, { ...options, signal: this.controller.signal });
+    this._connected();
+    for await (const event of stream) {
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+  }
+  async _createAssistantStream(run, threadId, params, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    const body = { ...params, stream: true };
+    const stream = await run.create(threadId, body, { ...options, signal: this.controller.signal });
+    this._connected();
+    for await (const event of stream) {
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+  }
+  static accumulateDelta(acc, delta) {
+    for (const [key, deltaValue] of Object.entries(delta)) {
+      if (!acc.hasOwnProperty(key)) {
+        acc[key] = deltaValue;
+        continue;
+      }
+      let accValue = acc[key];
+      if (accValue === null || accValue === void 0) {
+        acc[key] = deltaValue;
+        continue;
+      }
+      if (key === "index" || key === "type") {
+        acc[key] = deltaValue;
+        continue;
+      }
+      if (typeof accValue === "string" && typeof deltaValue === "string") {
+        accValue += deltaValue;
+      } else if (typeof accValue === "number" && typeof deltaValue === "number") {
+        accValue += deltaValue;
+      } else if (isObj(accValue) && isObj(deltaValue)) {
+        accValue = this.accumulateDelta(accValue, deltaValue);
+      } else if (Array.isArray(accValue) && Array.isArray(deltaValue)) {
+        if (accValue.every((x) => typeof x === "string" || typeof x === "number")) {
+          accValue.push(...deltaValue);
+          continue;
+        }
+        for (const deltaEntry of deltaValue) {
+          if (!isObj(deltaEntry)) {
+            throw new Error(`Expected array delta entry to be an object but got: ${deltaEntry}`);
+          }
+          const index2 = deltaEntry["index"];
+          if (index2 == null) {
+            console.error(deltaEntry);
+            throw new Error("Expected array delta entry to have an `index` property");
+          }
+          if (typeof index2 !== "number") {
+            throw new Error(`Expected array delta entry \`index\` property to be a number but got ${index2}`);
+          }
+          const accEntry = accValue[index2];
+          if (accEntry == null) {
+            accValue.push(deltaEntry);
+          } else {
+            accValue[index2] = this.accumulateDelta(accEntry, deltaEntry);
+          }
+        }
+        continue;
+      } else {
+        throw Error(`Unhandled record type: ${key}, deltaValue: ${deltaValue}, accValue: ${accValue}`);
+      }
+      acc[key] = accValue;
+    }
+    return acc;
+  }
+  _addRun(run) {
+    return run;
+  }
+  async _threadAssistantStream(params, thread, options) {
+    return await this._createThreadAssistantStream(thread, params, options);
+  }
+  async _runAssistantStream(threadId, runs, params, options) {
+    return await this._createAssistantStream(runs, threadId, params, options);
+  }
+  async _runToolAssistantStream(threadId, runId, runs, params, options) {
+    return await this._createToolAssistantStream(runs, threadId, runId, params, options);
+  }
+};
+_AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
+  if (this.ended)
+    return;
+  __classPrivateFieldSet7(this, _AssistantStream_currentEvent, event, "f");
+  __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleEvent).call(this, event);
+  switch (event.event) {
+    case "thread.created":
+      break;
+    case "thread.run.created":
+    case "thread.run.queued":
+    case "thread.run.in_progress":
+    case "thread.run.requires_action":
+    case "thread.run.completed":
+    case "thread.run.incomplete":
+    case "thread.run.failed":
+    case "thread.run.cancelling":
+    case "thread.run.cancelled":
+    case "thread.run.expired":
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleRun).call(this, event);
+      break;
+    case "thread.run.step.created":
+    case "thread.run.step.in_progress":
+    case "thread.run.step.delta":
+    case "thread.run.step.completed":
+    case "thread.run.step.failed":
+    case "thread.run.step.cancelled":
+    case "thread.run.step.expired":
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleRunStep).call(this, event);
+      break;
+    case "thread.message.created":
+    case "thread.message.in_progress":
+    case "thread.message.delta":
+    case "thread.message.completed":
+    case "thread.message.incomplete":
+      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleMessage).call(this, event);
+      break;
+    case "error":
+      throw new Error("Encountered an error event in event processing - errors should be processed earlier");
+    default:
+      assertNever(event);
+  }
+}, _AssistantStream_endRequest = function _AssistantStream_endRequest2() {
+  if (this.ended) {
+    throw new OpenAIError(`stream has ended, this shouldn't happen`);
+  }
+  if (!__classPrivateFieldGet7(this, _AssistantStream_finalRun, "f"))
+    throw Error("Final run has not been received");
+  return __classPrivateFieldGet7(this, _AssistantStream_finalRun, "f");
+}, _AssistantStream_handleMessage = function _AssistantStream_handleMessage2(event) {
+  const [accumulatedMessage, newContent] = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateMessage).call(this, event, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+  __classPrivateFieldSet7(this, _AssistantStream_messageSnapshot, accumulatedMessage, "f");
+  __classPrivateFieldGet7(this, _AssistantStream_messageSnapshots, "f")[accumulatedMessage.id] = accumulatedMessage;
+  for (const content of newContent) {
+    const snapshotContent = accumulatedMessage.content[content.index];
+    if (snapshotContent?.type == "text") {
+      this._emit("textCreated", snapshotContent.text);
+    }
+  }
+  switch (event.event) {
+    case "thread.message.created":
+      this._emit("messageCreated", event.data);
+      break;
+    case "thread.message.in_progress":
+      break;
+    case "thread.message.delta":
+      this._emit("messageDelta", event.data.delta, accumulatedMessage);
+      if (event.data.delta.content) {
+        for (const content of event.data.delta.content) {
+          if (content.type == "text" && content.text) {
+            let textDelta = content.text;
+            let snapshot = accumulatedMessage.content[content.index];
+            if (snapshot && snapshot.type == "text") {
+              this._emit("textDelta", textDelta, snapshot.text);
+            } else {
+              throw Error("The snapshot associated with this text delta is not text or missing");
+            }
+          }
+          if (content.index != __classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f")) {
+            if (__classPrivateFieldGet7(this, _AssistantStream_currentContent, "f")) {
+              switch (__classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").type) {
+                case "text":
+                  this._emit("textDone", __classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").text, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+                  break;
+                case "image_file":
+                  this._emit("imageFileDone", __classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").image_file, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+                  break;
+              }
+            }
+            __classPrivateFieldSet7(this, _AssistantStream_currentContentIndex, content.index, "f");
+          }
+          __classPrivateFieldSet7(this, _AssistantStream_currentContent, accumulatedMessage.content[content.index], "f");
+        }
+      }
+      break;
+    case "thread.message.completed":
+    case "thread.message.incomplete":
+      if (__classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f") !== void 0) {
+        const currentContent = event.data.content[__classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f")];
+        if (currentContent) {
+          switch (currentContent.type) {
+            case "image_file":
+              this._emit("imageFileDone", currentContent.image_file, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+              break;
+            case "text":
+              this._emit("textDone", currentContent.text, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+              break;
+          }
+        }
+      }
+      if (__classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f")) {
+        this._emit("messageDone", event.data);
+      }
+      __classPrivateFieldSet7(this, _AssistantStream_messageSnapshot, void 0, "f");
+  }
+}, _AssistantStream_handleRunStep = function _AssistantStream_handleRunStep2(event) {
+  const accumulatedRunStep = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateRunStep).call(this, event);
+  __classPrivateFieldSet7(this, _AssistantStream_currentRunStepSnapshot, accumulatedRunStep, "f");
+  switch (event.event) {
+    case "thread.run.step.created":
+      this._emit("runStepCreated", event.data);
+      break;
+    case "thread.run.step.delta":
+      const delta = event.data.delta;
+      if (delta.step_details && delta.step_details.type == "tool_calls" && delta.step_details.tool_calls && accumulatedRunStep.step_details.type == "tool_calls") {
+        for (const toolCall of delta.step_details.tool_calls) {
+          if (toolCall.index == __classPrivateFieldGet7(this, _AssistantStream_currentToolCallIndex, "f")) {
+            this._emit("toolCallDelta", toolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index]);
+          } else {
+            if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
+              this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+            }
+            __classPrivateFieldSet7(this, _AssistantStream_currentToolCallIndex, toolCall.index, "f");
+            __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index], "f");
+            if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"))
+              this._emit("toolCallCreated", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+          }
+        }
+      }
+      this._emit("runStepDelta", event.data.delta, accumulatedRunStep);
+      break;
+    case "thread.run.step.completed":
+    case "thread.run.step.failed":
+    case "thread.run.step.cancelled":
+    case "thread.run.step.expired":
+      __classPrivateFieldSet7(this, _AssistantStream_currentRunStepSnapshot, void 0, "f");
+      const details = event.data.step_details;
+      if (details.type == "tool_calls") {
+        if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
+          this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+          __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, void 0, "f");
+        }
+      }
+      this._emit("runStepDone", event.data, accumulatedRunStep);
+      break;
+    case "thread.run.step.in_progress":
+      break;
+  }
+}, _AssistantStream_handleEvent = function _AssistantStream_handleEvent2(event) {
+  __classPrivateFieldGet7(this, _AssistantStream_events, "f").push(event);
+  this._emit("event", event);
+}, _AssistantStream_accumulateRunStep = function _AssistantStream_accumulateRunStep2(event) {
+  switch (event.event) {
+    case "thread.run.step.created":
+      __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
+      return event.data;
+    case "thread.run.step.delta":
+      let snapshot = __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+      if (!snapshot) {
+        throw Error("Received a RunStepDelta before creation of a snapshot");
+      }
+      let data2 = event.data;
+      if (data2.delta) {
+        const accumulated = AssistantStream.accumulateDelta(snapshot, data2.delta);
+        __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = accumulated;
+      }
+      return __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+    case "thread.run.step.completed":
+    case "thread.run.step.failed":
+    case "thread.run.step.cancelled":
+    case "thread.run.step.expired":
+    case "thread.run.step.in_progress":
+      __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
+      break;
+  }
+  if (__classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id])
+    return __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+  throw new Error("No snapshot available");
+}, _AssistantStream_accumulateMessage = function _AssistantStream_accumulateMessage2(event, snapshot) {
+  let newContent = [];
+  switch (event.event) {
+    case "thread.message.created":
+      return [event.data, newContent];
+    case "thread.message.delta":
+      if (!snapshot) {
+        throw Error("Received a delta with no existing snapshot (there should be one from message creation)");
+      }
+      let data2 = event.data;
+      if (data2.delta.content) {
+        for (const contentElement of data2.delta.content) {
+          if (contentElement.index in snapshot.content) {
+            let currentContent = snapshot.content[contentElement.index];
+            snapshot.content[contentElement.index] = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateContent).call(this, contentElement, currentContent);
+          } else {
+            snapshot.content[contentElement.index] = contentElement;
+            newContent.push(contentElement);
+          }
+        }
+      }
+      return [snapshot, newContent];
+    case "thread.message.in_progress":
+    case "thread.message.completed":
+    case "thread.message.incomplete":
+      if (snapshot) {
+        return [snapshot, newContent];
+      } else {
+        throw Error("Received thread message event with no existing snapshot");
+      }
+  }
+  throw Error("Tried to accumulate a non-message event");
+}, _AssistantStream_accumulateContent = function _AssistantStream_accumulateContent2(contentElement, currentContent) {
+  return AssistantStream.accumulateDelta(currentContent, contentElement);
+}, _AssistantStream_handleRun = function _AssistantStream_handleRun2(event) {
+  __classPrivateFieldSet7(this, _AssistantStream_currentRunSnapshot, event.data, "f");
+  switch (event.event) {
+    case "thread.run.created":
+      break;
+    case "thread.run.queued":
+      break;
+    case "thread.run.in_progress":
+      break;
+    case "thread.run.requires_action":
+    case "thread.run.cancelled":
+    case "thread.run.failed":
+    case "thread.run.completed":
+    case "thread.run.expired":
+      __classPrivateFieldSet7(this, _AssistantStream_finalRun, event.data, "f");
+      if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
+        this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+        __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, void 0, "f");
+      }
+      break;
+    case "thread.run.cancelling":
+      break;
+  }
+};
+function assertNever(_x) {
+}
+
+// node_modules/openai/resources/beta/assistants.mjs
+var Assistants = class extends APIResource2 {
+  /**
+   * Create an assistant with a model and instructions.
+   *
+   * @example
+   * ```ts
+   * const assistant = await client.beta.assistants.create({
+   *   model: 'gpt-4o',
+   * });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/assistants", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieves an assistant.
+   *
+   * @example
+   * ```ts
+   * const assistant = await client.beta.assistants.retrieve(
+   *   'assistant_id',
+   * );
+   * ```
+   */
+  retrieve(assistantId, options) {
+    return this._client.get(`/assistants/${assistantId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Modifies an assistant.
+   *
+   * @example
+   * ```ts
+   * const assistant = await client.beta.assistants.update(
+   *   'assistant_id',
+   * );
+   * ```
+   */
+  update(assistantId, body, options) {
+    return this._client.post(`/assistants/${assistantId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/assistants", AssistantsPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Delete an assistant.
+   *
+   * @example
+   * ```ts
+   * const assistantDeleted = await client.beta.assistants.del(
+   *   'assistant_id',
+   * );
+   * ```
+   */
+  del(assistantId, options) {
+    return this._client.delete(`/assistants/${assistantId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+var AssistantsPage = class extends CursorPage {
+};
+Assistants.AssistantsPage = AssistantsPage;
+
+// node_modules/openai/lib/RunnableFunction.mjs
+function isRunnableFunctionWithParse(fn) {
+  return typeof fn.parse === "function";
+}
+
+// node_modules/openai/lib/chatCompletionUtils.mjs
+var isAssistantMessage = (message) => {
+  return message?.role === "assistant";
+};
+var isFunctionMessage = (message) => {
+  return message?.role === "function";
+};
+var isToolMessage = (message) => {
+  return message?.role === "tool";
+};
+
+// node_modules/openai/lib/parser.mjs
+function isAutoParsableResponseFormat(response_format) {
+  return response_format?.["$brand"] === "auto-parseable-response-format";
+}
+function isAutoParsableTool(tool) {
+  return tool?.["$brand"] === "auto-parseable-tool";
+}
+function maybeParseChatCompletion(completion, params) {
+  if (!params || !hasAutoParseableInput(params)) {
+    return {
+      ...completion,
+      choices: completion.choices.map((choice) => ({
+        ...choice,
+        message: {
+          ...choice.message,
+          parsed: null,
+          ...choice.message.tool_calls ? {
+            tool_calls: choice.message.tool_calls
+          } : void 0
+        }
+      }))
+    };
+  }
+  return parseChatCompletion(completion, params);
+}
+function parseChatCompletion(completion, params) {
+  const choices = completion.choices.map((choice) => {
+    if (choice.finish_reason === "length") {
+      throw new LengthFinishReasonError();
+    }
+    if (choice.finish_reason === "content_filter") {
+      throw new ContentFilterFinishReasonError();
+    }
+    return {
+      ...choice,
+      message: {
+        ...choice.message,
+        ...choice.message.tool_calls ? {
+          tool_calls: choice.message.tool_calls?.map((toolCall) => parseToolCall(params, toolCall)) ?? void 0
+        } : void 0,
+        parsed: choice.message.content && !choice.message.refusal ? parseResponseFormat(params, choice.message.content) : null
+      }
+    };
+  });
+  return { ...completion, choices };
+}
+function parseResponseFormat(params, content) {
+  if (params.response_format?.type !== "json_schema") {
+    return null;
+  }
+  if (params.response_format?.type === "json_schema") {
+    if ("$parseRaw" in params.response_format) {
+      const response_format = params.response_format;
+      return response_format.$parseRaw(content);
+    }
+    return JSON.parse(content);
+  }
+  return null;
+}
+function parseToolCall(params, toolCall) {
+  const inputTool = params.tools?.find((inputTool2) => inputTool2.function?.name === toolCall.function.name);
+  return {
+    ...toolCall,
+    function: {
+      ...toolCall.function,
+      parsed_arguments: isAutoParsableTool(inputTool) ? inputTool.$parseRaw(toolCall.function.arguments) : inputTool?.function.strict ? JSON.parse(toolCall.function.arguments) : null
+    }
+  };
+}
+function shouldParseToolCall(params, toolCall) {
+  if (!params) {
+    return false;
+  }
+  const inputTool = params.tools?.find((inputTool2) => inputTool2.function?.name === toolCall.function.name);
+  return isAutoParsableTool(inputTool) || inputTool?.function.strict || false;
+}
+function hasAutoParseableInput(params) {
+  if (isAutoParsableResponseFormat(params.response_format)) {
+    return true;
+  }
+  return params.tools?.some((t2) => isAutoParsableTool(t2) || t2.type === "function" && t2.function.strict === true) ?? false;
+}
+function validateInputTools(tools) {
+  for (const tool of tools ?? []) {
+    if (tool.type !== "function") {
+      throw new OpenAIError(`Currently only \`function\` tool types support auto-parsing; Received \`${tool.type}\``);
+    }
+    if (tool.function.strict !== true) {
+      throw new OpenAIError(`The \`${tool.function.name}\` tool is not marked with \`strict: true\`. Only strict function tools can be auto-parsed`);
+    }
+  }
+}
+
+// node_modules/openai/lib/AbstractChatCompletionRunner.mjs
+var __classPrivateFieldGet8 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _AbstractChatCompletionRunner_instances;
+var _AbstractChatCompletionRunner_getFinalContent;
+var _AbstractChatCompletionRunner_getFinalMessage;
+var _AbstractChatCompletionRunner_getFinalFunctionCall;
+var _AbstractChatCompletionRunner_getFinalFunctionCallResult;
+var _AbstractChatCompletionRunner_calculateTotalUsage;
+var _AbstractChatCompletionRunner_validateParams;
+var _AbstractChatCompletionRunner_stringifyFunctionCallResult;
+var DEFAULT_MAX_CHAT_COMPLETIONS = 10;
+var AbstractChatCompletionRunner = class extends EventStream {
+  constructor() {
+    super(...arguments);
+    _AbstractChatCompletionRunner_instances.add(this);
+    this._chatCompletions = [];
+    this.messages = [];
+  }
+  _addChatCompletion(chatCompletion) {
+    this._chatCompletions.push(chatCompletion);
+    this._emit("chatCompletion", chatCompletion);
+    const message = chatCompletion.choices[0]?.message;
+    if (message)
+      this._addMessage(message);
+    return chatCompletion;
+  }
+  _addMessage(message, emit = true) {
+    if (!("content" in message))
+      message.content = null;
+    this.messages.push(message);
+    if (emit) {
+      this._emit("message", message);
+      if ((isFunctionMessage(message) || isToolMessage(message)) && message.content) {
+        this._emit("functionCallResult", message.content);
+      } else if (isAssistantMessage(message) && message.function_call) {
+        this._emit("functionCall", message.function_call);
+      } else if (isAssistantMessage(message) && message.tool_calls) {
+        for (const tool_call of message.tool_calls) {
+          if (tool_call.type === "function") {
+            this._emit("functionCall", tool_call.function);
+          }
+        }
+      }
+    }
+  }
+  /**
+   * @returns a promise that resolves with the final ChatCompletion, or rejects
+   * if an error occurred or the stream ended prematurely without producing a ChatCompletion.
+   */
+  async finalChatCompletion() {
+    await this.done();
+    const completion = this._chatCompletions[this._chatCompletions.length - 1];
+    if (!completion)
+      throw new OpenAIError("stream ended without producing a ChatCompletion");
+    return completion;
+  }
+  /**
+   * @returns a promise that resolves with the content of the final ChatCompletionMessage, or rejects
+   * if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+   */
+  async finalContent() {
+    await this.done();
+    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
+  }
+  /**
+   * @returns a promise that resolves with the the final assistant ChatCompletionMessage response,
+   * or rejects if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+   */
+  async finalMessage() {
+    await this.done();
+    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
+  }
+  /**
+   * @returns a promise that resolves with the content of the final FunctionCall, or rejects
+   * if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+   */
+  async finalFunctionCall() {
+    await this.done();
+    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
+  }
+  async finalFunctionCallResult() {
+    await this.done();
+    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
+  }
+  async totalUsage() {
+    await this.done();
+    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this);
+  }
+  allChatCompletions() {
+    return [...this._chatCompletions];
+  }
+  _emitFinal() {
+    const completion = this._chatCompletions[this._chatCompletions.length - 1];
+    if (completion)
+      this._emit("finalChatCompletion", completion);
+    const finalMessage = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
+    if (finalMessage)
+      this._emit("finalMessage", finalMessage);
+    const finalContent = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
+    if (finalContent)
+      this._emit("finalContent", finalContent);
+    const finalFunctionCall = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
+    if (finalFunctionCall)
+      this._emit("finalFunctionCall", finalFunctionCall);
+    const finalFunctionCallResult = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
+    if (finalFunctionCallResult != null)
+      this._emit("finalFunctionCallResult", finalFunctionCallResult);
+    if (this._chatCompletions.some((c) => c.usage)) {
+      this._emit("totalUsage", __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this));
+    }
+  }
+  async _createChatCompletion(client, params, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_validateParams).call(this, params);
+    const chatCompletion = await client.chat.completions.create({ ...params, stream: false }, { ...options, signal: this.controller.signal });
+    this._connected();
+    return this._addChatCompletion(parseChatCompletion(chatCompletion, params));
+  }
+  async _runChatCompletion(client, params, options) {
+    for (const message of params.messages) {
+      this._addMessage(message, false);
+    }
+    return await this._createChatCompletion(client, params, options);
+  }
+  async _runFunctions(client, params, options) {
+    const role = "function";
+    const { function_call = "auto", stream, ...restParams } = params;
+    const singleFunctionToCall = typeof function_call !== "string" && function_call?.name;
+    const { maxChatCompletions = DEFAULT_MAX_CHAT_COMPLETIONS } = options || {};
+    const functionsByName = {};
+    for (const f of params.functions) {
+      functionsByName[f.name || f.function.name] = f;
+    }
+    const functions = params.functions.map((f) => ({
+      name: f.name || f.function.name,
+      parameters: f.parameters,
+      description: f.description
+    }));
+    for (const message of params.messages) {
+      this._addMessage(message, false);
+    }
+    for (let i = 0; i < maxChatCompletions; ++i) {
+      const chatCompletion = await this._createChatCompletion(client, {
+        ...restParams,
+        function_call,
+        functions,
+        messages: [...this.messages]
+      }, options);
+      const message = chatCompletion.choices[0]?.message;
+      if (!message) {
+        throw new OpenAIError(`missing message in ChatCompletion response`);
+      }
+      if (!message.function_call)
+        return;
+      const { name, arguments: args } = message.function_call;
+      const fn = functionsByName[name];
+      if (!fn) {
+        const content2 = `Invalid function_call: ${JSON.stringify(name)}. Available options are: ${functions.map((f) => JSON.stringify(f.name)).join(", ")}. Please try again`;
+        this._addMessage({ role, name, content: content2 });
+        continue;
+      } else if (singleFunctionToCall && singleFunctionToCall !== name) {
+        const content2 = `Invalid function_call: ${JSON.stringify(name)}. ${JSON.stringify(singleFunctionToCall)} requested. Please try again`;
+        this._addMessage({ role, name, content: content2 });
+        continue;
+      }
+      let parsed;
+      try {
+        parsed = isRunnableFunctionWithParse(fn) ? await fn.parse(args) : args;
+      } catch (error2) {
+        this._addMessage({
+          role,
+          name,
+          content: error2 instanceof Error ? error2.message : String(error2)
+        });
+        continue;
+      }
+      const rawContent = await fn.function(parsed, this);
+      const content = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
+      this._addMessage({ role, name, content });
+      if (singleFunctionToCall)
+        return;
+    }
+  }
+  async _runTools(client, params, options) {
+    const role = "tool";
+    const { tool_choice = "auto", stream, ...restParams } = params;
+    const singleFunctionToCall = typeof tool_choice !== "string" && tool_choice?.function?.name;
+    const { maxChatCompletions = DEFAULT_MAX_CHAT_COMPLETIONS } = options || {};
+    const inputTools = params.tools.map((tool) => {
+      if (isAutoParsableTool(tool)) {
+        if (!tool.$callback) {
+          throw new OpenAIError("Tool given to `.runTools()` that does not have an associated function");
+        }
+        return {
+          type: "function",
+          function: {
+            function: tool.$callback,
+            name: tool.function.name,
+            description: tool.function.description || "",
+            parameters: tool.function.parameters,
+            parse: tool.$parseRaw,
+            strict: true
+          }
+        };
+      }
+      return tool;
+    });
+    const functionsByName = {};
+    for (const f of inputTools) {
+      if (f.type === "function") {
+        functionsByName[f.function.name || f.function.function.name] = f.function;
+      }
+    }
+    const tools = "tools" in params ? inputTools.map((t2) => t2.type === "function" ? {
+      type: "function",
+      function: {
+        name: t2.function.name || t2.function.function.name,
+        parameters: t2.function.parameters,
+        description: t2.function.description,
+        strict: t2.function.strict
+      }
+    } : t2) : void 0;
+    for (const message of params.messages) {
+      this._addMessage(message, false);
+    }
+    for (let i = 0; i < maxChatCompletions; ++i) {
+      const chatCompletion = await this._createChatCompletion(client, {
+        ...restParams,
+        tool_choice,
+        tools,
+        messages: [...this.messages]
+      }, options);
+      const message = chatCompletion.choices[0]?.message;
+      if (!message) {
+        throw new OpenAIError(`missing message in ChatCompletion response`);
+      }
+      if (!message.tool_calls?.length) {
+        return;
+      }
+      for (const tool_call of message.tool_calls) {
+        if (tool_call.type !== "function")
+          continue;
+        const tool_call_id = tool_call.id;
+        const { name, arguments: args } = tool_call.function;
+        const fn = functionsByName[name];
+        if (!fn) {
+          const content2 = `Invalid tool_call: ${JSON.stringify(name)}. Available options are: ${Object.keys(functionsByName).map((name2) => JSON.stringify(name2)).join(", ")}. Please try again`;
+          this._addMessage({ role, tool_call_id, content: content2 });
+          continue;
+        } else if (singleFunctionToCall && singleFunctionToCall !== name) {
+          const content2 = `Invalid tool_call: ${JSON.stringify(name)}. ${JSON.stringify(singleFunctionToCall)} requested. Please try again`;
+          this._addMessage({ role, tool_call_id, content: content2 });
+          continue;
+        }
+        let parsed;
+        try {
+          parsed = isRunnableFunctionWithParse(fn) ? await fn.parse(args) : args;
+        } catch (error2) {
+          const content2 = error2 instanceof Error ? error2.message : String(error2);
+          this._addMessage({ role, tool_call_id, content: content2 });
+          continue;
+        }
+        const rawContent = await fn.function(parsed, this);
+        const content = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
+        this._addMessage({ role, tool_call_id, content });
+        if (singleFunctionToCall) {
+          return;
+        }
+      }
+    }
+    return;
+  }
+};
+_AbstractChatCompletionRunner_instances = /* @__PURE__ */ new WeakSet(), _AbstractChatCompletionRunner_getFinalContent = function _AbstractChatCompletionRunner_getFinalContent2() {
+  return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this).content ?? null;
+}, _AbstractChatCompletionRunner_getFinalMessage = function _AbstractChatCompletionRunner_getFinalMessage2() {
+  let i = this.messages.length;
+  while (i-- > 0) {
+    const message = this.messages[i];
+    if (isAssistantMessage(message)) {
+      const { function_call, ...rest } = message;
+      const ret = {
+        ...rest,
+        content: message.content ?? null,
+        refusal: message.refusal ?? null
+      };
+      if (function_call) {
+        ret.function_call = function_call;
+      }
+      return ret;
+    }
+  }
+  throw new OpenAIError("stream ended without producing a ChatCompletionMessage with role=assistant");
+}, _AbstractChatCompletionRunner_getFinalFunctionCall = function _AbstractChatCompletionRunner_getFinalFunctionCall2() {
+  for (let i = this.messages.length - 1; i >= 0; i--) {
+    const message = this.messages[i];
+    if (isAssistantMessage(message) && message?.function_call) {
+      return message.function_call;
+    }
+    if (isAssistantMessage(message) && message?.tool_calls?.length) {
+      return message.tool_calls.at(-1)?.function;
+    }
+  }
+  return;
+}, _AbstractChatCompletionRunner_getFinalFunctionCallResult = function _AbstractChatCompletionRunner_getFinalFunctionCallResult2() {
+  for (let i = this.messages.length - 1; i >= 0; i--) {
+    const message = this.messages[i];
+    if (isFunctionMessage(message) && message.content != null) {
+      return message.content;
+    }
+    if (isToolMessage(message) && message.content != null && typeof message.content === "string" && this.messages.some((x) => x.role === "assistant" && x.tool_calls?.some((y) => y.type === "function" && y.id === message.tool_call_id))) {
+      return message.content;
+    }
+  }
+  return;
+}, _AbstractChatCompletionRunner_calculateTotalUsage = function _AbstractChatCompletionRunner_calculateTotalUsage2() {
+  const total = {
+    completion_tokens: 0,
+    prompt_tokens: 0,
+    total_tokens: 0
+  };
+  for (const { usage } of this._chatCompletions) {
+    if (usage) {
+      total.completion_tokens += usage.completion_tokens;
+      total.prompt_tokens += usage.prompt_tokens;
+      total.total_tokens += usage.total_tokens;
+    }
+  }
+  return total;
+}, _AbstractChatCompletionRunner_validateParams = function _AbstractChatCompletionRunner_validateParams2(params) {
+  if (params.n != null && params.n > 1) {
+    throw new OpenAIError("ChatCompletion convenience helpers only support n=1 at this time. To use n>1, please use chat.completions.create() directly.");
+  }
+}, _AbstractChatCompletionRunner_stringifyFunctionCallResult = function _AbstractChatCompletionRunner_stringifyFunctionCallResult2(rawContent) {
+  return typeof rawContent === "string" ? rawContent : rawContent === void 0 ? "undefined" : JSON.stringify(rawContent);
+};
+
+// node_modules/openai/lib/ChatCompletionRunner.mjs
+var ChatCompletionRunner = class _ChatCompletionRunner extends AbstractChatCompletionRunner {
+  /** @deprecated - please use `runTools` instead. */
+  static runFunctions(client, params, options) {
+    const runner = new _ChatCompletionRunner();
+    const opts = {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "runFunctions" }
+    };
+    runner._run(() => runner._runFunctions(client, params, opts));
+    return runner;
+  }
+  static runTools(client, params, options) {
+    const runner = new _ChatCompletionRunner();
+    const opts = {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "runTools" }
+    };
+    runner._run(() => runner._runTools(client, params, opts));
+    return runner;
+  }
+  _addMessage(message, emit = true) {
+    super._addMessage(message, emit);
+    if (isAssistantMessage(message) && message.content) {
+      this._emit("content", message.content);
+    }
+  }
+};
+
+// node_modules/openai/_vendor/partial-json-parser/parser.mjs
+var STR = 1;
+var NUM = 2;
+var ARR = 4;
+var OBJ = 8;
+var NULL = 16;
+var BOOL = 32;
+var NAN = 64;
+var INFINITY = 128;
+var MINUS_INFINITY = 256;
+var INF = INFINITY | MINUS_INFINITY;
+var SPECIAL = NULL | BOOL | INF | NAN;
+var ATOM = STR | NUM | SPECIAL;
+var COLLECTION = ARR | OBJ;
+var ALL = ATOM | COLLECTION;
+var Allow = {
+  STR,
+  NUM,
+  ARR,
+  OBJ,
+  NULL,
+  BOOL,
+  NAN,
+  INFINITY,
+  MINUS_INFINITY,
+  INF,
+  SPECIAL,
+  ATOM,
+  COLLECTION,
+  ALL
+};
+var PartialJSON = class extends Error {
+};
+var MalformedJSON = class extends Error {
+};
+function parseJSON(jsonString, allowPartial = Allow.ALL) {
+  if (typeof jsonString !== "string") {
+    throw new TypeError(`expecting str, got ${typeof jsonString}`);
+  }
+  if (!jsonString.trim()) {
+    throw new Error(`${jsonString} is empty`);
+  }
+  return _parseJSON(jsonString.trim(), allowPartial);
+}
+var _parseJSON = (jsonString, allow) => {
+  const length = jsonString.length;
+  let index2 = 0;
+  const markPartialJSON = (msg) => {
+    throw new PartialJSON(`${msg} at position ${index2}`);
+  };
+  const throwMalformedError = (msg) => {
+    throw new MalformedJSON(`${msg} at position ${index2}`);
+  };
+  const parseAny = () => {
+    skipBlank();
+    if (index2 >= length)
+      markPartialJSON("Unexpected end of input");
+    if (jsonString[index2] === '"')
+      return parseStr();
+    if (jsonString[index2] === "{")
+      return parseObj();
+    if (jsonString[index2] === "[")
+      return parseArr();
+    if (jsonString.substring(index2, index2 + 4) === "null" || Allow.NULL & allow && length - index2 < 4 && "null".startsWith(jsonString.substring(index2))) {
+      index2 += 4;
+      return null;
+    }
+    if (jsonString.substring(index2, index2 + 4) === "true" || Allow.BOOL & allow && length - index2 < 4 && "true".startsWith(jsonString.substring(index2))) {
+      index2 += 4;
+      return true;
+    }
+    if (jsonString.substring(index2, index2 + 5) === "false" || Allow.BOOL & allow && length - index2 < 5 && "false".startsWith(jsonString.substring(index2))) {
+      index2 += 5;
+      return false;
+    }
+    if (jsonString.substring(index2, index2 + 8) === "Infinity" || Allow.INFINITY & allow && length - index2 < 8 && "Infinity".startsWith(jsonString.substring(index2))) {
+      index2 += 8;
+      return Infinity;
+    }
+    if (jsonString.substring(index2, index2 + 9) === "-Infinity" || Allow.MINUS_INFINITY & allow && 1 < length - index2 && length - index2 < 9 && "-Infinity".startsWith(jsonString.substring(index2))) {
+      index2 += 9;
+      return -Infinity;
+    }
+    if (jsonString.substring(index2, index2 + 3) === "NaN" || Allow.NAN & allow && length - index2 < 3 && "NaN".startsWith(jsonString.substring(index2))) {
+      index2 += 3;
+      return NaN;
+    }
+    return parseNum();
+  };
+  const parseStr = () => {
+    const start = index2;
+    let escape3 = false;
+    index2++;
+    while (index2 < length && (jsonString[index2] !== '"' || escape3 && jsonString[index2 - 1] === "\\")) {
+      escape3 = jsonString[index2] === "\\" ? !escape3 : false;
+      index2++;
+    }
+    if (jsonString.charAt(index2) == '"') {
+      try {
+        return JSON.parse(jsonString.substring(start, ++index2 - Number(escape3)));
+      } catch (e) {
+        throwMalformedError(String(e));
+      }
+    } else if (Allow.STR & allow) {
+      try {
+        return JSON.parse(jsonString.substring(start, index2 - Number(escape3)) + '"');
+      } catch (e) {
+        return JSON.parse(jsonString.substring(start, jsonString.lastIndexOf("\\")) + '"');
+      }
+    }
+    markPartialJSON("Unterminated string literal");
+  };
+  const parseObj = () => {
+    index2++;
+    skipBlank();
+    const obj = {};
+    try {
+      while (jsonString[index2] !== "}") {
+        skipBlank();
+        if (index2 >= length && Allow.OBJ & allow)
+          return obj;
+        const key = parseStr();
+        skipBlank();
+        index2++;
+        try {
+          const value = parseAny();
+          Object.defineProperty(obj, key, { value, writable: true, enumerable: true, configurable: true });
+        } catch (e) {
+          if (Allow.OBJ & allow)
+            return obj;
+          else
+            throw e;
+        }
+        skipBlank();
+        if (jsonString[index2] === ",")
+          index2++;
+      }
+    } catch (e) {
+      if (Allow.OBJ & allow)
+        return obj;
+      else
+        markPartialJSON("Expected '}' at end of object");
+    }
+    index2++;
+    return obj;
+  };
+  const parseArr = () => {
+    index2++;
+    const arr = [];
+    try {
+      while (jsonString[index2] !== "]") {
+        arr.push(parseAny());
+        skipBlank();
+        if (jsonString[index2] === ",") {
+          index2++;
+        }
+      }
+    } catch (e) {
+      if (Allow.ARR & allow) {
+        return arr;
+      }
+      markPartialJSON("Expected ']' at end of array");
+    }
+    index2++;
+    return arr;
+  };
+  const parseNum = () => {
+    if (index2 === 0) {
+      if (jsonString === "-" && Allow.NUM & allow)
+        markPartialJSON("Not sure what '-' is");
+      try {
+        return JSON.parse(jsonString);
+      } catch (e) {
+        if (Allow.NUM & allow) {
+          try {
+            if ("." === jsonString[jsonString.length - 1])
+              return JSON.parse(jsonString.substring(0, jsonString.lastIndexOf(".")));
+            return JSON.parse(jsonString.substring(0, jsonString.lastIndexOf("e")));
+          } catch (e2) {
+          }
+        }
+        throwMalformedError(String(e));
+      }
+    }
+    const start = index2;
+    if (jsonString[index2] === "-")
+      index2++;
+    while (jsonString[index2] && !",]}".includes(jsonString[index2]))
+      index2++;
+    if (index2 == length && !(Allow.NUM & allow))
+      markPartialJSON("Unterminated number literal");
+    try {
+      return JSON.parse(jsonString.substring(start, index2));
+    } catch (e) {
+      if (jsonString.substring(start, index2) === "-" && Allow.NUM & allow)
+        markPartialJSON("Not sure what '-' is");
+      try {
+        return JSON.parse(jsonString.substring(start, jsonString.lastIndexOf("e")));
+      } catch (e2) {
+        throwMalformedError(String(e2));
+      }
+    }
+  };
+  const skipBlank = () => {
+    while (index2 < length && " \n\r	".includes(jsonString[index2])) {
+      index2++;
+    }
+  };
+  return parseAny();
+};
+var partialParse2 = (input) => parseJSON(input, Allow.ALL ^ Allow.NUM);
+
+// node_modules/openai/lib/ChatCompletionStream.mjs
+var __classPrivateFieldSet8 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var __classPrivateFieldGet9 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _ChatCompletionStream_instances;
+var _ChatCompletionStream_params;
+var _ChatCompletionStream_choiceEventStates;
+var _ChatCompletionStream_currentChatCompletionSnapshot;
+var _ChatCompletionStream_beginRequest;
+var _ChatCompletionStream_getChoiceEventState;
+var _ChatCompletionStream_addChunk;
+var _ChatCompletionStream_emitToolCallDoneEvent;
+var _ChatCompletionStream_emitContentDoneEvents;
+var _ChatCompletionStream_endRequest;
+var _ChatCompletionStream_getAutoParseableResponseFormat;
+var _ChatCompletionStream_accumulateChatCompletion;
+var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompletionRunner {
+  constructor(params) {
+    super();
+    _ChatCompletionStream_instances.add(this);
+    _ChatCompletionStream_params.set(this, void 0);
+    _ChatCompletionStream_choiceEventStates.set(this, void 0);
+    _ChatCompletionStream_currentChatCompletionSnapshot.set(this, void 0);
+    __classPrivateFieldSet8(this, _ChatCompletionStream_params, params, "f");
+    __classPrivateFieldSet8(this, _ChatCompletionStream_choiceEventStates, [], "f");
+  }
+  get currentChatCompletionSnapshot() {
+    return __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+  }
+  /**
+   * Intended for use on the frontend, consuming a stream produced with
+   * `.toReadableStream()` on the backend.
+   *
+   * Note that messages sent to the model do not appear in `.on('message')`
+   * in this context.
+   */
+  static fromReadableStream(stream) {
+    const runner = new _ChatCompletionStream(null);
+    runner._run(() => runner._fromReadableStream(stream));
+    return runner;
+  }
+  static createChatCompletion(client, params, options) {
+    const runner = new _ChatCompletionStream(params);
+    runner._run(() => runner._runChatCompletion(client, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
+    return runner;
+  }
+  async _createChatCompletion(client, params, options) {
+    super._createChatCompletion;
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+    const stream = await client.chat.completions.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
+    this._connected();
+    for await (const chunk of stream) {
+      __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+  }
+  async _fromReadableStream(readableStream, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+    this._connected();
+    const stream = Stream2.fromReadableStream(readableStream, this.controller);
+    let chatId;
+    for await (const chunk of stream) {
+      if (chatId && chatId !== chunk.id) {
+        this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+      }
+      __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+      chatId = chunk.id;
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+  }
+  [(_ChatCompletionStream_params = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_choiceEventStates = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_currentChatCompletionSnapshot = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_instances = /* @__PURE__ */ new WeakSet(), _ChatCompletionStream_beginRequest = function _ChatCompletionStream_beginRequest2() {
+    if (this.ended)
+      return;
+    __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+  }, _ChatCompletionStream_getChoiceEventState = function _ChatCompletionStream_getChoiceEventState2(choice) {
+    let state = __classPrivateFieldGet9(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index];
+    if (state) {
+      return state;
+    }
+    state = {
+      content_done: false,
+      refusal_done: false,
+      logprobs_content_done: false,
+      logprobs_refusal_done: false,
+      done_tool_calls: /* @__PURE__ */ new Set(),
+      current_tool_call_index: null
+    };
+    __classPrivateFieldGet9(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index] = state;
+    return state;
+  }, _ChatCompletionStream_addChunk = function _ChatCompletionStream_addChunk2(chunk) {
+    if (this.ended)
+      return;
+    const completion = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_accumulateChatCompletion).call(this, chunk);
+    this._emit("chunk", chunk, completion);
+    for (const choice of chunk.choices) {
+      const choiceSnapshot = completion.choices[choice.index];
+      if (choice.delta.content != null && choiceSnapshot.message?.role === "assistant" && choiceSnapshot.message?.content) {
+        this._emit("content", choice.delta.content, choiceSnapshot.message.content);
+        this._emit("content.delta", {
+          delta: choice.delta.content,
+          snapshot: choiceSnapshot.message.content,
+          parsed: choiceSnapshot.message.parsed
+        });
+      }
+      if (choice.delta.refusal != null && choiceSnapshot.message?.role === "assistant" && choiceSnapshot.message?.refusal) {
+        this._emit("refusal.delta", {
+          delta: choice.delta.refusal,
+          snapshot: choiceSnapshot.message.refusal
+        });
+      }
+      if (choice.logprobs?.content != null && choiceSnapshot.message?.role === "assistant") {
+        this._emit("logprobs.content.delta", {
+          content: choice.logprobs?.content,
+          snapshot: choiceSnapshot.logprobs?.content ?? []
+        });
+      }
+      if (choice.logprobs?.refusal != null && choiceSnapshot.message?.role === "assistant") {
+        this._emit("logprobs.refusal.delta", {
+          refusal: choice.logprobs?.refusal,
+          snapshot: choiceSnapshot.logprobs?.refusal ?? []
+        });
+      }
+      const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+      if (choiceSnapshot.finish_reason) {
+        __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+        if (state.current_tool_call_index != null) {
+          __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+        }
+      }
+      for (const toolCall of choice.delta.tool_calls ?? []) {
+        if (state.current_tool_call_index !== toolCall.index) {
+          __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+          if (state.current_tool_call_index != null) {
+            __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+          }
+        }
+        state.current_tool_call_index = toolCall.index;
+      }
+      for (const toolCallDelta of choice.delta.tool_calls ?? []) {
+        const toolCallSnapshot = choiceSnapshot.message.tool_calls?.[toolCallDelta.index];
+        if (!toolCallSnapshot?.type) {
+          continue;
+        }
+        if (toolCallSnapshot?.type === "function") {
+          this._emit("tool_calls.function.arguments.delta", {
+            name: toolCallSnapshot.function?.name,
+            index: toolCallDelta.index,
+            arguments: toolCallSnapshot.function.arguments,
+            parsed_arguments: toolCallSnapshot.function.parsed_arguments,
+            arguments_delta: toolCallDelta.function?.arguments ?? ""
+          });
+        } else {
+          assertNever2(toolCallSnapshot?.type);
+        }
+      }
+    }
+  }, _ChatCompletionStream_emitToolCallDoneEvent = function _ChatCompletionStream_emitToolCallDoneEvent2(choiceSnapshot, toolCallIndex) {
+    const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+    if (state.done_tool_calls.has(toolCallIndex)) {
+      return;
+    }
+    const toolCallSnapshot = choiceSnapshot.message.tool_calls?.[toolCallIndex];
+    if (!toolCallSnapshot) {
+      throw new Error("no tool call snapshot");
+    }
+    if (!toolCallSnapshot.type) {
+      throw new Error("tool call snapshot missing `type`");
+    }
+    if (toolCallSnapshot.type === "function") {
+      const inputTool = __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f")?.tools?.find((tool) => tool.type === "function" && tool.function.name === toolCallSnapshot.function.name);
+      this._emit("tool_calls.function.arguments.done", {
+        name: toolCallSnapshot.function.name,
+        index: toolCallIndex,
+        arguments: toolCallSnapshot.function.arguments,
+        parsed_arguments: isAutoParsableTool(inputTool) ? inputTool.$parseRaw(toolCallSnapshot.function.arguments) : inputTool?.function.strict ? JSON.parse(toolCallSnapshot.function.arguments) : null
+      });
+    } else {
+      assertNever2(toolCallSnapshot.type);
+    }
+  }, _ChatCompletionStream_emitContentDoneEvents = function _ChatCompletionStream_emitContentDoneEvents2(choiceSnapshot) {
+    const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+    if (choiceSnapshot.message.content && !state.content_done) {
+      state.content_done = true;
+      const responseFormat = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this);
+      this._emit("content.done", {
+        content: choiceSnapshot.message.content,
+        parsed: responseFormat ? responseFormat.$parseRaw(choiceSnapshot.message.content) : null
+      });
+    }
+    if (choiceSnapshot.message.refusal && !state.refusal_done) {
+      state.refusal_done = true;
+      this._emit("refusal.done", { refusal: choiceSnapshot.message.refusal });
+    }
+    if (choiceSnapshot.logprobs?.content && !state.logprobs_content_done) {
+      state.logprobs_content_done = true;
+      this._emit("logprobs.content.done", { content: choiceSnapshot.logprobs.content });
+    }
+    if (choiceSnapshot.logprobs?.refusal && !state.logprobs_refusal_done) {
+      state.logprobs_refusal_done = true;
+      this._emit("logprobs.refusal.done", { refusal: choiceSnapshot.logprobs.refusal });
+    }
+  }, _ChatCompletionStream_endRequest = function _ChatCompletionStream_endRequest2() {
+    if (this.ended) {
+      throw new OpenAIError(`stream has ended, this shouldn't happen`);
+    }
+    const snapshot = __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+    if (!snapshot) {
+      throw new OpenAIError(`request ended without sending any chunks`);
+    }
+    __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+    __classPrivateFieldSet8(this, _ChatCompletionStream_choiceEventStates, [], "f");
+    return finalizeChatCompletion(snapshot, __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"));
+  }, _ChatCompletionStream_getAutoParseableResponseFormat = function _ChatCompletionStream_getAutoParseableResponseFormat2() {
+    const responseFormat = __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f")?.response_format;
+    if (isAutoParsableResponseFormat(responseFormat)) {
+      return responseFormat;
+    }
+    return null;
+  }, _ChatCompletionStream_accumulateChatCompletion = function _ChatCompletionStream_accumulateChatCompletion2(chunk) {
+    var _a7, _b, _c, _d;
+    let snapshot = __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+    const { choices, ...rest } = chunk;
+    if (!snapshot) {
+      snapshot = __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, {
+        ...rest,
+        choices: []
+      }, "f");
+    } else {
+      Object.assign(snapshot, rest);
+    }
+    for (const { delta, finish_reason, index: index2, logprobs = null, ...other } of chunk.choices) {
+      let choice = snapshot.choices[index2];
+      if (!choice) {
+        choice = snapshot.choices[index2] = { finish_reason, index: index2, message: {}, logprobs, ...other };
+      }
+      if (logprobs) {
+        if (!choice.logprobs) {
+          choice.logprobs = Object.assign({}, logprobs);
+        } else {
+          const { content: content2, refusal: refusal2, ...rest3 } = logprobs;
+          assertIsEmpty(rest3);
+          Object.assign(choice.logprobs, rest3);
+          if (content2) {
+            (_a7 = choice.logprobs).content ?? (_a7.content = []);
+            choice.logprobs.content.push(...content2);
+          }
+          if (refusal2) {
+            (_b = choice.logprobs).refusal ?? (_b.refusal = []);
+            choice.logprobs.refusal.push(...refusal2);
+          }
+        }
+      }
+      if (finish_reason) {
+        choice.finish_reason = finish_reason;
+        if (__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f") && hasAutoParseableInput(__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"))) {
+          if (finish_reason === "length") {
+            throw new LengthFinishReasonError();
+          }
+          if (finish_reason === "content_filter") {
+            throw new ContentFilterFinishReasonError();
+          }
+        }
+      }
+      Object.assign(choice, other);
+      if (!delta)
+        continue;
+      const { content, refusal, function_call, role, tool_calls, ...rest2 } = delta;
+      assertIsEmpty(rest2);
+      Object.assign(choice.message, rest2);
+      if (refusal) {
+        choice.message.refusal = (choice.message.refusal || "") + refusal;
+      }
+      if (role)
+        choice.message.role = role;
+      if (function_call) {
+        if (!choice.message.function_call) {
+          choice.message.function_call = function_call;
+        } else {
+          if (function_call.name)
+            choice.message.function_call.name = function_call.name;
+          if (function_call.arguments) {
+            (_c = choice.message.function_call).arguments ?? (_c.arguments = "");
+            choice.message.function_call.arguments += function_call.arguments;
+          }
+        }
+      }
+      if (content) {
+        choice.message.content = (choice.message.content || "") + content;
+        if (!choice.message.refusal && __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this)) {
+          choice.message.parsed = partialParse2(choice.message.content);
+        }
+      }
+      if (tool_calls) {
+        if (!choice.message.tool_calls)
+          choice.message.tool_calls = [];
+        for (const { index: index3, id, type, function: fn, ...rest3 } of tool_calls) {
+          const tool_call = (_d = choice.message.tool_calls)[index3] ?? (_d[index3] = {});
+          Object.assign(tool_call, rest3);
+          if (id)
+            tool_call.id = id;
+          if (type)
+            tool_call.type = type;
+          if (fn)
+            tool_call.function ?? (tool_call.function = { name: fn.name ?? "", arguments: "" });
+          if (fn?.name)
+            tool_call.function.name = fn.name;
+          if (fn?.arguments) {
+            tool_call.function.arguments += fn.arguments;
+            if (shouldParseToolCall(__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"), tool_call)) {
+              tool_call.function.parsed_arguments = partialParse2(tool_call.function.arguments);
+            }
+          }
+        }
+      }
+    }
+    return snapshot;
+  }, Symbol.asyncIterator)]() {
+    const pushQueue = [];
+    const readQueue = [];
+    let done = false;
+    this.on("chunk", (chunk) => {
+      const reader = readQueue.shift();
+      if (reader) {
+        reader.resolve(chunk);
+      } else {
+        pushQueue.push(chunk);
+      }
+    });
+    this.on("end", () => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.resolve(void 0);
+      }
+      readQueue.length = 0;
+    });
+    this.on("abort", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    this.on("error", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    return {
+      next: async () => {
+        if (!pushQueue.length) {
+          if (done) {
+            return { value: void 0, done: true };
+          }
+          return new Promise((resolve2, reject) => readQueue.push({ resolve: resolve2, reject })).then((chunk2) => chunk2 ? { value: chunk2, done: false } : { value: void 0, done: true });
+        }
+        const chunk = pushQueue.shift();
+        return { value: chunk, done: false };
+      },
+      return: async () => {
+        this.abort();
+        return { value: void 0, done: true };
+      }
+    };
+  }
+  toReadableStream() {
+    const stream = new Stream2(this[Symbol.asyncIterator].bind(this), this.controller);
+    return stream.toReadableStream();
+  }
+};
+function finalizeChatCompletion(snapshot, params) {
+  const { id, choices, created, model, system_fingerprint, ...rest } = snapshot;
+  const completion = {
+    ...rest,
+    id,
+    choices: choices.map(({ message, finish_reason, index: index2, logprobs, ...choiceRest }) => {
+      if (!finish_reason) {
+        throw new OpenAIError(`missing finish_reason for choice ${index2}`);
+      }
+      const { content = null, function_call, tool_calls, ...messageRest } = message;
+      const role = message.role;
+      if (!role) {
+        throw new OpenAIError(`missing role for choice ${index2}`);
+      }
+      if (function_call) {
+        const { arguments: args, name } = function_call;
+        if (args == null) {
+          throw new OpenAIError(`missing function_call.arguments for choice ${index2}`);
+        }
+        if (!name) {
+          throw new OpenAIError(`missing function_call.name for choice ${index2}`);
+        }
+        return {
+          ...choiceRest,
+          message: {
+            content,
+            function_call: { arguments: args, name },
+            role,
+            refusal: message.refusal ?? null
+          },
+          finish_reason,
+          index: index2,
+          logprobs
+        };
+      }
+      if (tool_calls) {
+        return {
+          ...choiceRest,
+          index: index2,
+          finish_reason,
+          logprobs,
+          message: {
+            ...messageRest,
+            role,
+            content,
+            refusal: message.refusal ?? null,
+            tool_calls: tool_calls.map((tool_call, i) => {
+              const { function: fn, type, id: id2, ...toolRest } = tool_call;
+              const { arguments: args, name, ...fnRest } = fn || {};
+              if (id2 == null) {
+                throw new OpenAIError(`missing choices[${index2}].tool_calls[${i}].id
+${str(snapshot)}`);
+              }
+              if (type == null) {
+                throw new OpenAIError(`missing choices[${index2}].tool_calls[${i}].type
+${str(snapshot)}`);
+              }
+              if (name == null) {
+                throw new OpenAIError(`missing choices[${index2}].tool_calls[${i}].function.name
+${str(snapshot)}`);
+              }
+              if (args == null) {
+                throw new OpenAIError(`missing choices[${index2}].tool_calls[${i}].function.arguments
+${str(snapshot)}`);
+              }
+              return { ...toolRest, id: id2, type, function: { ...fnRest, name, arguments: args } };
+            })
+          }
+        };
+      }
+      return {
+        ...choiceRest,
+        message: { ...messageRest, content, role, refusal: message.refusal ?? null },
+        finish_reason,
+        index: index2,
+        logprobs
+      };
+    }),
+    created,
+    model,
+    object: "chat.completion",
+    ...system_fingerprint ? { system_fingerprint } : {}
+  };
+  return maybeParseChatCompletion(completion, params);
+}
+function str(x) {
+  return JSON.stringify(x);
+}
+function assertIsEmpty(obj) {
+  return;
+}
+function assertNever2(_x) {
+}
+
+// node_modules/openai/lib/ChatCompletionStreamingRunner.mjs
+var ChatCompletionStreamingRunner = class _ChatCompletionStreamingRunner extends ChatCompletionStream {
+  static fromReadableStream(stream) {
+    const runner = new _ChatCompletionStreamingRunner(null);
+    runner._run(() => runner._fromReadableStream(stream));
+    return runner;
+  }
+  /** @deprecated - please use `runTools` instead. */
+  static runFunctions(client, params, options) {
+    const runner = new _ChatCompletionStreamingRunner(null);
+    const opts = {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "runFunctions" }
+    };
+    runner._run(() => runner._runFunctions(client, params, opts));
+    return runner;
+  }
+  static runTools(client, params, options) {
+    const runner = new _ChatCompletionStreamingRunner(
+      // @ts-expect-error TODO these types are incompatible
+      params
+    );
+    const opts = {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "runTools" }
+    };
+    runner._run(() => runner._runTools(client, params, opts));
+    return runner;
+  }
+};
+
+// node_modules/openai/resources/beta/chat/completions.mjs
+var Completions3 = class extends APIResource2 {
+  parse(body, options) {
+    validateInputTools(body.tools);
+    return this._client.chat.completions.create(body, {
+      ...options,
+      headers: {
+        ...options?.headers,
+        "X-Stainless-Helper-Method": "beta.chat.completions.parse"
+      }
+    })._thenUnwrap((completion) => parseChatCompletion(completion, body));
+  }
+  runFunctions(body, options) {
+    if (body.stream) {
+      return ChatCompletionStreamingRunner.runFunctions(this._client, body, options);
+    }
+    return ChatCompletionRunner.runFunctions(this._client, body, options);
+  }
+  runTools(body, options) {
+    if (body.stream) {
+      return ChatCompletionStreamingRunner.runTools(this._client, body, options);
+    }
+    return ChatCompletionRunner.runTools(this._client, body, options);
+  }
+  /**
+   * Creates a chat completion stream
+   */
+  stream(body, options) {
+    return ChatCompletionStream.createChatCompletion(this._client, body, options);
+  }
+};
+
+// node_modules/openai/resources/beta/chat/chat.mjs
+var Chat2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.completions = new Completions3(this._client);
+  }
+};
+(function(Chat3) {
+  Chat3.Completions = Completions3;
+})(Chat2 || (Chat2 = {}));
+
+// node_modules/openai/resources/beta/realtime/sessions.mjs
+var Sessions = class extends APIResource2 {
+  /**
+   * Create an ephemeral API token for use in client-side applications with the
+   * Realtime API. Can be configured with the same session parameters as the
+   * `session.update` client event.
+   *
+   * It responds with a session object, plus a `client_secret` key which contains a
+   * usable ephemeral API token that can be used to authenticate browser clients for
+   * the Realtime API.
+   *
+   * @example
+   * ```ts
+   * const session =
+   *   await client.beta.realtime.sessions.create();
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/realtime/sessions", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+
+// node_modules/openai/resources/beta/realtime/transcription-sessions.mjs
+var TranscriptionSessions = class extends APIResource2 {
+  /**
+   * Create an ephemeral API token for use in client-side applications with the
+   * Realtime API specifically for realtime transcriptions. Can be configured with
+   * the same session parameters as the `transcription_session.update` client event.
+   *
+   * It responds with a session object, plus a `client_secret` key which contains a
+   * usable ephemeral API token that can be used to authenticate browser clients for
+   * the Realtime API.
+   *
+   * @example
+   * ```ts
+   * const transcriptionSession =
+   *   await client.beta.realtime.transcriptionSessions.create();
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/realtime/transcription_sessions", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+
+// node_modules/openai/resources/beta/realtime/realtime.mjs
+var Realtime = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.sessions = new Sessions(this._client);
+    this.transcriptionSessions = new TranscriptionSessions(this._client);
+  }
+};
+Realtime.Sessions = Sessions;
+Realtime.TranscriptionSessions = TranscriptionSessions;
+
+// node_modules/openai/resources/beta/threads/messages.mjs
+var Messages5 = class extends APIResource2 {
+  /**
+   * Create a message.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  create(threadId, body, options) {
+    return this._client.post(`/threads/${threadId}/messages`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieve a message.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  retrieve(threadId, messageId, options) {
+    return this._client.get(`/threads/${threadId}/messages/${messageId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Modifies a message.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  update(threadId, messageId, body, options) {
+    return this._client.post(`/threads/${threadId}/messages/${messageId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(threadId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(threadId, {}, query);
+    }
+    return this._client.getAPIList(`/threads/${threadId}/messages`, MessagesPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Deletes a message.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  del(threadId, messageId, options) {
+    return this._client.delete(`/threads/${threadId}/messages/${messageId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+var MessagesPage = class extends CursorPage {
+};
+Messages5.MessagesPage = MessagesPage;
+
+// node_modules/openai/resources/beta/threads/runs/steps.mjs
+var Steps = class extends APIResource2 {
+  retrieve(threadId, runId, stepId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.retrieve(threadId, runId, stepId, {}, query);
+    }
+    return this._client.get(`/threads/${threadId}/runs/${runId}/steps/${stepId}`, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(threadId, runId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(threadId, runId, {}, query);
+    }
+    return this._client.getAPIList(`/threads/${threadId}/runs/${runId}/steps`, RunStepsPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+var RunStepsPage = class extends CursorPage {
+};
+Steps.RunStepsPage = RunStepsPage;
+
+// node_modules/openai/resources/beta/threads/runs/runs.mjs
+var Runs = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.steps = new Steps(this._client);
+  }
+  create(threadId, params, options) {
+    const { include, ...body } = params;
+    return this._client.post(`/threads/${threadId}/runs`, {
+      query: { include },
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers },
+      stream: params.stream ?? false
+    });
+  }
+  /**
+   * Retrieves a run.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  retrieve(threadId, runId, options) {
+    return this._client.get(`/threads/${threadId}/runs/${runId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Modifies a run.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  update(threadId, runId, body, options) {
+    return this._client.post(`/threads/${threadId}/runs/${runId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(threadId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(threadId, {}, query);
+    }
+    return this._client.getAPIList(`/threads/${threadId}/runs`, RunsPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Cancels a run that is `in_progress`.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  cancel(threadId, runId, options) {
+    return this._client.post(`/threads/${threadId}/runs/${runId}/cancel`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * A helper to create a run an poll for a terminal state. More information on Run
+   * lifecycles can be found here:
+   * https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+   */
+  async createAndPoll(threadId, body, options) {
+    const run = await this.create(threadId, body, options);
+    return await this.poll(threadId, run.id, options);
+  }
+  /**
+   * Create a Run stream
+   *
+   * @deprecated use `stream` instead
+   */
+  createAndStream(threadId, body, options) {
+    return AssistantStream.createAssistantStream(threadId, this._client.beta.threads.runs, body, options);
+  }
+  /**
+   * A helper to poll a run status until it reaches a terminal state. More
+   * information on Run lifecycles can be found here:
+   * https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+   */
+  async poll(threadId, runId, options) {
+    const headers = { ...options?.headers, "X-Stainless-Poll-Helper": "true" };
+    if (options?.pollIntervalMs) {
+      headers["X-Stainless-Custom-Poll-Interval"] = options.pollIntervalMs.toString();
+    }
+    while (true) {
+      const { data: run, response } = await this.retrieve(threadId, runId, {
+        ...options,
+        headers: { ...options?.headers, ...headers }
+      }).withResponse();
+      switch (run.status) {
+        //If we are in any sort of intermediate state we poll
+        case "queued":
+        case "in_progress":
+        case "cancelling":
+          let sleepInterval = 5e3;
+          if (options?.pollIntervalMs) {
+            sleepInterval = options.pollIntervalMs;
+          } else {
+            const headerInterval = response.headers.get("openai-poll-after-ms");
+            if (headerInterval) {
+              const headerIntervalMs = parseInt(headerInterval);
+              if (!isNaN(headerIntervalMs)) {
+                sleepInterval = headerIntervalMs;
+              }
+            }
+          }
+          await sleep2(sleepInterval);
+          break;
+        //We return the run in any terminal state.
+        case "requires_action":
+        case "incomplete":
+        case "cancelled":
+        case "completed":
+        case "failed":
+        case "expired":
+          return run;
+      }
+    }
+  }
+  /**
+   * Create a Run stream
+   */
+  stream(threadId, body, options) {
+    return AssistantStream.createAssistantStream(threadId, this._client.beta.threads.runs, body, options);
+  }
+  submitToolOutputs(threadId, runId, body, options) {
+    return this._client.post(`/threads/${threadId}/runs/${runId}/submit_tool_outputs`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers },
+      stream: body.stream ?? false
+    });
+  }
+  /**
+   * A helper to submit a tool output to a run and poll for a terminal run state.
+   * More information on Run lifecycles can be found here:
+   * https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+   */
+  async submitToolOutputsAndPoll(threadId, runId, body, options) {
+    const run = await this.submitToolOutputs(threadId, runId, body, options);
+    return await this.poll(threadId, run.id, options);
+  }
+  /**
+   * Submit the tool outputs from a previous run and stream the run to a terminal
+   * state. More information on Run lifecycles can be found here:
+   * https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+   */
+  submitToolOutputsStream(threadId, runId, body, options) {
+    return AssistantStream.createToolAssistantStream(threadId, runId, this._client.beta.threads.runs, body, options);
+  }
+};
+var RunsPage = class extends CursorPage {
+};
+Runs.RunsPage = RunsPage;
+Runs.Steps = Steps;
+Runs.RunStepsPage = RunStepsPage;
+
+// node_modules/openai/resources/beta/threads/threads.mjs
+var Threads = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.runs = new Runs(this._client);
+    this.messages = new Messages5(this._client);
+  }
+  create(body = {}, options) {
+    if (isRequestOptions2(body)) {
+      return this.create({}, body);
+    }
+    return this._client.post("/threads", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieves a thread.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  retrieve(threadId, options) {
+    return this._client.get(`/threads/${threadId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Modifies a thread.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  update(threadId, body, options) {
+    return this._client.post(`/threads/${threadId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Delete a thread.
+   *
+   * @deprecated The Assistants API is deprecated in favor of the Responses API
+   */
+  del(threadId, options) {
+    return this._client.delete(`/threads/${threadId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  createAndRun(body, options) {
+    return this._client.post("/threads/runs", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers },
+      stream: body.stream ?? false
+    });
+  }
+  /**
+   * A helper to create a thread, start a run and then poll for a terminal state.
+   * More information on Run lifecycles can be found here:
+   * https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+   */
+  async createAndRunPoll(body, options) {
+    const run = await this.createAndRun(body, options);
+    return await this.runs.poll(run.thread_id, run.id, options);
+  }
+  /**
+   * Create a thread and stream the run back
+   */
+  createAndRunStream(body, options) {
+    return AssistantStream.createThreadAssistantStream(body, this._client.beta.threads, options);
+  }
+};
+Threads.Runs = Runs;
+Threads.RunsPage = RunsPage;
+Threads.Messages = Messages5;
+Threads.MessagesPage = MessagesPage;
+
+// node_modules/openai/resources/beta/beta.mjs
+var Beta2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.realtime = new Realtime(this._client);
+    this.chat = new Chat2(this._client);
+    this.assistants = new Assistants(this._client);
+    this.threads = new Threads(this._client);
+  }
+};
+Beta2.Realtime = Realtime;
+Beta2.Assistants = Assistants;
+Beta2.AssistantsPage = AssistantsPage;
+Beta2.Threads = Threads;
+
+// node_modules/openai/resources/completions.mjs
+var Completions4 = class extends APIResource2 {
+  create(body, options) {
+    return this._client.post("/completions", { body, ...options, stream: body.stream ?? false });
+  }
+};
+
+// node_modules/openai/resources/containers/files/content.mjs
+var Content = class extends APIResource2 {
+  /**
+   * Retrieve Container File Content
+   */
+  retrieve(containerId, fileId, options) {
+    return this._client.get(`/containers/${containerId}/files/${fileId}/content`, {
+      ...options,
+      headers: { Accept: "application/binary", ...options?.headers },
+      __binaryResponse: true
+    });
+  }
+};
+
+// node_modules/openai/resources/containers/files/files.mjs
+var Files = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.content = new Content(this._client);
+  }
+  /**
+   * Create a Container File
+   *
+   * You can send either a multipart/form-data request with the raw file content, or
+   * a JSON request with a file ID.
+   */
+  create(containerId, body, options) {
+    return this._client.post(`/containers/${containerId}/files`, multipartFormRequestOptions({ body, ...options }));
+  }
+  /**
+   * Retrieve Container File
+   */
+  retrieve(containerId, fileId, options) {
+    return this._client.get(`/containers/${containerId}/files/${fileId}`, options);
+  }
+  list(containerId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(containerId, {}, query);
+    }
+    return this._client.getAPIList(`/containers/${containerId}/files`, FileListResponsesPage, {
+      query,
+      ...options
+    });
+  }
+  /**
+   * Delete Container File
+   */
+  del(containerId, fileId, options) {
+    return this._client.delete(`/containers/${containerId}/files/${fileId}`, {
+      ...options,
+      headers: { Accept: "*/*", ...options?.headers }
+    });
+  }
+};
+var FileListResponsesPage = class extends CursorPage {
+};
+Files.FileListResponsesPage = FileListResponsesPage;
+Files.Content = Content;
+
+// node_modules/openai/resources/containers/containers.mjs
+var Containers = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.files = new Files(this._client);
+  }
+  /**
+   * Create Container
+   */
+  create(body, options) {
+    return this._client.post("/containers", { body, ...options });
+  }
+  /**
+   * Retrieve Container
+   */
+  retrieve(containerId, options) {
+    return this._client.get(`/containers/${containerId}`, options);
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/containers", ContainerListResponsesPage, { query, ...options });
+  }
+  /**
+   * Delete Container
+   */
+  del(containerId, options) {
+    return this._client.delete(`/containers/${containerId}`, {
+      ...options,
+      headers: { Accept: "*/*", ...options?.headers }
+    });
+  }
+};
+var ContainerListResponsesPage = class extends CursorPage {
+};
+Containers.ContainerListResponsesPage = ContainerListResponsesPage;
+Containers.Files = Files;
+Containers.FileListResponsesPage = FileListResponsesPage;
+
+// node_modules/openai/resources/embeddings.mjs
+var Embeddings = class extends APIResource2 {
+  /**
+   * Creates an embedding vector representing the input text.
+   *
+   * @example
+   * ```ts
+   * const createEmbeddingResponse =
+   *   await client.embeddings.create({
+   *     input: 'The quick brown fox jumped over the lazy dog',
+   *     model: 'text-embedding-3-small',
+   *   });
+   * ```
+   */
+  create(body, options) {
+    const hasUserProvidedEncodingFormat = !!body.encoding_format;
+    let encoding_format = hasUserProvidedEncodingFormat ? body.encoding_format : "base64";
+    if (hasUserProvidedEncodingFormat) {
+      debug2("Request", "User defined encoding_format:", body.encoding_format);
+    }
+    const response = this._client.post("/embeddings", {
+      body: {
+        ...body,
+        encoding_format
+      },
+      ...options
+    });
+    if (hasUserProvidedEncodingFormat) {
+      return response;
+    }
+    debug2("response", "Decoding base64 embeddings to float32 array");
+    return response._thenUnwrap((response2) => {
+      if (response2 && response2.data) {
+        response2.data.forEach((embeddingBase64Obj) => {
+          const embeddingBase64Str = embeddingBase64Obj.embedding;
+          embeddingBase64Obj.embedding = toFloat32Array(embeddingBase64Str);
+        });
+      }
+      return response2;
+    });
+  }
+};
+
+// node_modules/openai/resources/evals/runs/output-items.mjs
+var OutputItems = class extends APIResource2 {
+  /**
+   * Get an evaluation run output item by ID.
+   */
+  retrieve(evalId, runId, outputItemId, options) {
+    return this._client.get(`/evals/${evalId}/runs/${runId}/output_items/${outputItemId}`, options);
+  }
+  list(evalId, runId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(evalId, runId, {}, query);
+    }
+    return this._client.getAPIList(`/evals/${evalId}/runs/${runId}/output_items`, OutputItemListResponsesPage, { query, ...options });
+  }
+};
+var OutputItemListResponsesPage = class extends CursorPage {
+};
+OutputItems.OutputItemListResponsesPage = OutputItemListResponsesPage;
+
+// node_modules/openai/resources/evals/runs/runs.mjs
+var Runs2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.outputItems = new OutputItems(this._client);
+  }
+  /**
+   * Kicks off a new run for a given evaluation, specifying the data source, and what
+   * model configuration to use to test. The datasource will be validated against the
+   * schema specified in the config of the evaluation.
+   */
+  create(evalId, body, options) {
+    return this._client.post(`/evals/${evalId}/runs`, { body, ...options });
+  }
+  /**
+   * Get an evaluation run by ID.
+   */
+  retrieve(evalId, runId, options) {
+    return this._client.get(`/evals/${evalId}/runs/${runId}`, options);
+  }
+  list(evalId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(evalId, {}, query);
+    }
+    return this._client.getAPIList(`/evals/${evalId}/runs`, RunListResponsesPage, { query, ...options });
+  }
+  /**
+   * Delete an eval run.
+   */
+  del(evalId, runId, options) {
+    return this._client.delete(`/evals/${evalId}/runs/${runId}`, options);
+  }
+  /**
+   * Cancel an ongoing evaluation run.
+   */
+  cancel(evalId, runId, options) {
+    return this._client.post(`/evals/${evalId}/runs/${runId}`, options);
+  }
+};
+var RunListResponsesPage = class extends CursorPage {
+};
+Runs2.RunListResponsesPage = RunListResponsesPage;
+Runs2.OutputItems = OutputItems;
+Runs2.OutputItemListResponsesPage = OutputItemListResponsesPage;
+
+// node_modules/openai/resources/evals/evals.mjs
+var Evals = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.runs = new Runs2(this._client);
+  }
+  /**
+   * Create the structure of an evaluation that can be used to test a model's
+   * performance. An evaluation is a set of testing criteria and the config for a
+   * data source, which dictates the schema of the data used in the evaluation. After
+   * creating an evaluation, you can run it on different models and model parameters.
+   * We support several types of graders and datasources. For more information, see
+   * the [Evals guide](https://platform.openai.com/docs/guides/evals).
+   */
+  create(body, options) {
+    return this._client.post("/evals", { body, ...options });
+  }
+  /**
+   * Get an evaluation by ID.
+   */
+  retrieve(evalId, options) {
+    return this._client.get(`/evals/${evalId}`, options);
+  }
+  /**
+   * Update certain properties of an evaluation.
+   */
+  update(evalId, body, options) {
+    return this._client.post(`/evals/${evalId}`, { body, ...options });
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/evals", EvalListResponsesPage, { query, ...options });
+  }
+  /**
+   * Delete an evaluation.
+   */
+  del(evalId, options) {
+    return this._client.delete(`/evals/${evalId}`, options);
+  }
+};
+var EvalListResponsesPage = class extends CursorPage {
+};
+Evals.EvalListResponsesPage = EvalListResponsesPage;
+Evals.Runs = Runs2;
+Evals.RunListResponsesPage = RunListResponsesPage;
+
+// node_modules/openai/resources/files.mjs
+var Files2 = class extends APIResource2 {
+  /**
+   * Upload a file that can be used across various endpoints. Individual files can be
+   * up to 512 MB, and the size of all files uploaded by one organization can be up
+   * to 100 GB.
+   *
+   * The Assistants API supports files up to 2 million tokens and of specific file
+   * types. See the
+   * [Assistants Tools guide](https://platform.openai.com/docs/assistants/tools) for
+   * details.
+   *
+   * The Fine-tuning API only supports `.jsonl` files. The input also has certain
+   * required formats for fine-tuning
+   * [chat](https://platform.openai.com/docs/api-reference/fine-tuning/chat-input) or
+   * [completions](https://platform.openai.com/docs/api-reference/fine-tuning/completions-input)
+   * models.
+   *
+   * The Batch API only supports `.jsonl` files up to 200 MB in size. The input also
+   * has a specific required
+   * [format](https://platform.openai.com/docs/api-reference/batch/request-input).
+   *
+   * Please [contact us](https://help.openai.com/) if you need to increase these
+   * storage limits.
+   */
+  create(body, options) {
+    return this._client.post("/files", multipartFormRequestOptions({ body, ...options }));
+  }
+  /**
+   * Returns information about a specific file.
+   */
+  retrieve(fileId, options) {
+    return this._client.get(`/files/${fileId}`, options);
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/files", FileObjectsPage, { query, ...options });
+  }
+  /**
+   * Delete a file.
+   */
+  del(fileId, options) {
+    return this._client.delete(`/files/${fileId}`, options);
+  }
+  /**
+   * Returns the contents of the specified file.
+   */
+  content(fileId, options) {
+    return this._client.get(`/files/${fileId}/content`, {
+      ...options,
+      headers: { Accept: "application/binary", ...options?.headers },
+      __binaryResponse: true
+    });
+  }
+  /**
+   * Returns the contents of the specified file.
+   *
+   * @deprecated The `.content()` method should be used instead
+   */
+  retrieveContent(fileId, options) {
+    return this._client.get(`/files/${fileId}/content`, options);
+  }
+  /**
+   * Waits for the given file to be processed, default timeout is 30 mins.
+   */
+  async waitForProcessing(id, { pollInterval = 5e3, maxWait = 30 * 60 * 1e3 } = {}) {
+    const TERMINAL_STATES = /* @__PURE__ */ new Set(["processed", "error", "deleted"]);
+    const start = Date.now();
+    let file = await this.retrieve(id);
+    while (!file.status || !TERMINAL_STATES.has(file.status)) {
+      await sleep2(pollInterval);
+      file = await this.retrieve(id);
+      if (Date.now() - start > maxWait) {
+        throw new APIConnectionTimeoutError3({
+          message: `Giving up on waiting for file ${id} to finish processing after ${maxWait} milliseconds.`
+        });
+      }
+    }
+    return file;
+  }
+};
+var FileObjectsPage = class extends CursorPage {
+};
+Files2.FileObjectsPage = FileObjectsPage;
+
+// node_modules/openai/resources/fine-tuning/methods.mjs
+var Methods = class extends APIResource2 {
+};
+
+// node_modules/openai/resources/fine-tuning/alpha/graders.mjs
+var Graders = class extends APIResource2 {
+  /**
+   * Run a grader.
+   *
+   * @example
+   * ```ts
+   * const response = await client.fineTuning.alpha.graders.run({
+   *   grader: {
+   *     input: 'input',
+   *     name: 'name',
+   *     operation: 'eq',
+   *     reference: 'reference',
+   *     type: 'string_check',
+   *   },
+   *   model_sample: 'model_sample',
+   *   reference_answer: 'string',
+   * });
+   * ```
+   */
+  run(body, options) {
+    return this._client.post("/fine_tuning/alpha/graders/run", { body, ...options });
+  }
+  /**
+   * Validate a grader.
+   *
+   * @example
+   * ```ts
+   * const response =
+   *   await client.fineTuning.alpha.graders.validate({
+   *     grader: {
+   *       input: 'input',
+   *       name: 'name',
+   *       operation: 'eq',
+   *       reference: 'reference',
+   *       type: 'string_check',
+   *     },
+   *   });
+   * ```
+   */
+  validate(body, options) {
+    return this._client.post("/fine_tuning/alpha/graders/validate", { body, ...options });
+  }
+};
+
+// node_modules/openai/resources/fine-tuning/alpha/alpha.mjs
+var Alpha = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.graders = new Graders(this._client);
+  }
+};
+Alpha.Graders = Graders;
+
+// node_modules/openai/resources/fine-tuning/checkpoints/permissions.mjs
+var Permissions = class extends APIResource2 {
+  /**
+   * **NOTE:** Calling this endpoint requires an [admin API key](../admin-api-keys).
+   *
+   * This enables organization owners to share fine-tuned models with other projects
+   * in their organization.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const permissionCreateResponse of client.fineTuning.checkpoints.permissions.create(
+   *   'ft:gpt-4o-mini-2024-07-18:org:weather:B7R9VjQd',
+   *   { project_ids: ['string'] },
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  create(fineTunedModelCheckpoint, body, options) {
+    return this._client.getAPIList(`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, PermissionCreateResponsesPage, { body, method: "post", ...options });
+  }
+  retrieve(fineTunedModelCheckpoint, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.retrieve(fineTunedModelCheckpoint, {}, query);
+    }
+    return this._client.get(`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, {
+      query,
+      ...options
+    });
+  }
+  /**
+   * **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
+   *
+   * Organization owners can use this endpoint to delete a permission for a
+   * fine-tuned model checkpoint.
+   *
+   * @example
+   * ```ts
+   * const permission =
+   *   await client.fineTuning.checkpoints.permissions.del(
+   *     'ft:gpt-4o-mini-2024-07-18:org:weather:B7R9VjQd',
+   *     'cp_zc4Q7MP6XxulcVzj4MZdwsAB',
+   *   );
+   * ```
+   */
+  del(fineTunedModelCheckpoint, permissionId, options) {
+    return this._client.delete(`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions/${permissionId}`, options);
+  }
+};
+var PermissionCreateResponsesPage = class extends Page2 {
+};
+Permissions.PermissionCreateResponsesPage = PermissionCreateResponsesPage;
+
+// node_modules/openai/resources/fine-tuning/checkpoints/checkpoints.mjs
+var Checkpoints = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.permissions = new Permissions(this._client);
+  }
+};
+Checkpoints.Permissions = Permissions;
+Checkpoints.PermissionCreateResponsesPage = PermissionCreateResponsesPage;
+
+// node_modules/openai/resources/fine-tuning/jobs/checkpoints.mjs
+var Checkpoints2 = class extends APIResource2 {
+  list(fineTuningJobId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(fineTuningJobId, {}, query);
+    }
+    return this._client.getAPIList(`/fine_tuning/jobs/${fineTuningJobId}/checkpoints`, FineTuningJobCheckpointsPage, { query, ...options });
+  }
+};
+var FineTuningJobCheckpointsPage = class extends CursorPage {
+};
+Checkpoints2.FineTuningJobCheckpointsPage = FineTuningJobCheckpointsPage;
+
+// node_modules/openai/resources/fine-tuning/jobs/jobs.mjs
+var Jobs = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.checkpoints = new Checkpoints2(this._client);
+  }
+  /**
+   * Creates a fine-tuning job which begins the process of creating a new model from
+   * a given dataset.
+   *
+   * Response includes details of the enqueued job including job status and the name
+   * of the fine-tuned models once complete.
+   *
+   * [Learn more about fine-tuning](https://platform.openai.com/docs/guides/fine-tuning)
+   *
+   * @example
+   * ```ts
+   * const fineTuningJob = await client.fineTuning.jobs.create({
+   *   model: 'gpt-4o-mini',
+   *   training_file: 'file-abc123',
+   * });
+   * ```
+   */
+  create(body, options) {
+    return this._client.post("/fine_tuning/jobs", { body, ...options });
+  }
+  /**
+   * Get info about a fine-tuning job.
+   *
+   * [Learn more about fine-tuning](https://platform.openai.com/docs/guides/fine-tuning)
+   *
+   * @example
+   * ```ts
+   * const fineTuningJob = await client.fineTuning.jobs.retrieve(
+   *   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+   * );
+   * ```
+   */
+  retrieve(fineTuningJobId, options) {
+    return this._client.get(`/fine_tuning/jobs/${fineTuningJobId}`, options);
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/fine_tuning/jobs", FineTuningJobsPage, { query, ...options });
+  }
+  /**
+   * Immediately cancel a fine-tune job.
+   *
+   * @example
+   * ```ts
+   * const fineTuningJob = await client.fineTuning.jobs.cancel(
+   *   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+   * );
+   * ```
+   */
+  cancel(fineTuningJobId, options) {
+    return this._client.post(`/fine_tuning/jobs/${fineTuningJobId}/cancel`, options);
+  }
+  listEvents(fineTuningJobId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.listEvents(fineTuningJobId, {}, query);
+    }
+    return this._client.getAPIList(`/fine_tuning/jobs/${fineTuningJobId}/events`, FineTuningJobEventsPage, {
+      query,
+      ...options
+    });
+  }
+  /**
+   * Pause a fine-tune job.
+   *
+   * @example
+   * ```ts
+   * const fineTuningJob = await client.fineTuning.jobs.pause(
+   *   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+   * );
+   * ```
+   */
+  pause(fineTuningJobId, options) {
+    return this._client.post(`/fine_tuning/jobs/${fineTuningJobId}/pause`, options);
+  }
+  /**
+   * Resume a fine-tune job.
+   *
+   * @example
+   * ```ts
+   * const fineTuningJob = await client.fineTuning.jobs.resume(
+   *   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+   * );
+   * ```
+   */
+  resume(fineTuningJobId, options) {
+    return this._client.post(`/fine_tuning/jobs/${fineTuningJobId}/resume`, options);
+  }
+};
+var FineTuningJobsPage = class extends CursorPage {
+};
+var FineTuningJobEventsPage = class extends CursorPage {
+};
+Jobs.FineTuningJobsPage = FineTuningJobsPage;
+Jobs.FineTuningJobEventsPage = FineTuningJobEventsPage;
+Jobs.Checkpoints = Checkpoints2;
+Jobs.FineTuningJobCheckpointsPage = FineTuningJobCheckpointsPage;
+
+// node_modules/openai/resources/fine-tuning/fine-tuning.mjs
+var FineTuning = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.methods = new Methods(this._client);
+    this.jobs = new Jobs(this._client);
+    this.checkpoints = new Checkpoints(this._client);
+    this.alpha = new Alpha(this._client);
+  }
+};
+FineTuning.Methods = Methods;
+FineTuning.Jobs = Jobs;
+FineTuning.FineTuningJobsPage = FineTuningJobsPage;
+FineTuning.FineTuningJobEventsPage = FineTuningJobEventsPage;
+FineTuning.Checkpoints = Checkpoints;
+FineTuning.Alpha = Alpha;
+
+// node_modules/openai/resources/graders/grader-models.mjs
+var GraderModels = class extends APIResource2 {
+};
+
+// node_modules/openai/resources/graders/graders.mjs
+var Graders2 = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.graderModels = new GraderModels(this._client);
+  }
+};
+Graders2.GraderModels = GraderModels;
+
+// node_modules/openai/resources/images.mjs
+var Images = class extends APIResource2 {
+  /**
+   * Creates a variation of a given image. This endpoint only supports `dall-e-2`.
+   *
+   * @example
+   * ```ts
+   * const imagesResponse = await client.images.createVariation({
+   *   image: fs.createReadStream('otter.png'),
+   * });
+   * ```
+   */
+  createVariation(body, options) {
+    return this._client.post("/images/variations", multipartFormRequestOptions({ body, ...options }));
+  }
+  /**
+   * Creates an edited or extended image given one or more source images and a
+   * prompt. This endpoint only supports `gpt-image-1` and `dall-e-2`.
+   *
+   * @example
+   * ```ts
+   * const imagesResponse = await client.images.edit({
+   *   image: fs.createReadStream('path/to/file'),
+   *   prompt: 'A cute baby sea otter wearing a beret',
+   * });
+   * ```
+   */
+  edit(body, options) {
+    return this._client.post("/images/edits", multipartFormRequestOptions({ body, ...options }));
+  }
+  /**
+   * Creates an image given a prompt.
+   * [Learn more](https://platform.openai.com/docs/guides/images).
+   *
+   * @example
+   * ```ts
+   * const imagesResponse = await client.images.generate({
+   *   prompt: 'A cute baby sea otter',
+   * });
+   * ```
+   */
+  generate(body, options) {
+    return this._client.post("/images/generations", { body, ...options });
+  }
+};
+
+// node_modules/openai/resources/models.mjs
+var Models = class extends APIResource2 {
+  /**
+   * Retrieves a model instance, providing basic information about the model such as
+   * the owner and permissioning.
+   */
+  retrieve(model, options) {
+    return this._client.get(`/models/${model}`, options);
+  }
+  /**
+   * Lists the currently available models, and provides basic information about each
+   * one such as the owner and availability.
+   */
+  list(options) {
+    return this._client.getAPIList("/models", ModelsPage, options);
+  }
+  /**
+   * Delete a fine-tuned model. You must have the Owner role in your organization to
+   * delete a model.
+   */
+  del(model, options) {
+    return this._client.delete(`/models/${model}`, options);
+  }
+};
+var ModelsPage = class extends Page2 {
+};
+Models.ModelsPage = ModelsPage;
+
+// node_modules/openai/resources/moderations.mjs
+var Moderations = class extends APIResource2 {
+  /**
+   * Classifies if text and/or image inputs are potentially harmful. Learn more in
+   * the [moderation guide](https://platform.openai.com/docs/guides/moderation).
+   */
+  create(body, options) {
+    return this._client.post("/moderations", { body, ...options });
+  }
+};
+
+// node_modules/openai/lib/ResponsesParser.mjs
+function maybeParseResponse(response, params) {
+  if (!params || !hasAutoParseableInput2(params)) {
+    return {
+      ...response,
+      output_parsed: null,
+      output: response.output.map((item) => {
+        if (item.type === "function_call") {
+          return {
+            ...item,
+            parsed_arguments: null
+          };
+        }
+        if (item.type === "message") {
+          return {
+            ...item,
+            content: item.content.map((content) => ({
+              ...content,
+              parsed: null
+            }))
+          };
+        } else {
+          return item;
+        }
+      })
+    };
+  }
+  return parseResponse(response, params);
+}
+function parseResponse(response, params) {
+  const output = response.output.map((item) => {
+    if (item.type === "function_call") {
+      return {
+        ...item,
+        parsed_arguments: parseToolCall2(params, item)
+      };
+    }
+    if (item.type === "message") {
+      const content = item.content.map((content2) => {
+        if (content2.type === "output_text") {
+          return {
+            ...content2,
+            parsed: parseTextFormat(params, content2.text)
+          };
+        }
+        return content2;
+      });
+      return {
+        ...item,
+        content
+      };
+    }
+    return item;
+  });
+  const parsed = Object.assign({}, response, { output });
+  if (!Object.getOwnPropertyDescriptor(response, "output_text")) {
+    addOutputText(parsed);
+  }
+  Object.defineProperty(parsed, "output_parsed", {
+    enumerable: true,
+    get() {
+      for (const output2 of parsed.output) {
+        if (output2.type !== "message") {
+          continue;
+        }
+        for (const content of output2.content) {
+          if (content.type === "output_text" && content.parsed !== null) {
+            return content.parsed;
+          }
+        }
+      }
+      return null;
+    }
+  });
+  return parsed;
+}
+function parseTextFormat(params, content) {
+  if (params.text?.format?.type !== "json_schema") {
+    return null;
+  }
+  if ("$parseRaw" in params.text?.format) {
+    const text_format = params.text?.format;
+    return text_format.$parseRaw(content);
+  }
+  return JSON.parse(content);
+}
+function hasAutoParseableInput2(params) {
+  if (isAutoParsableResponseFormat(params.text?.format)) {
+    return true;
+  }
+  return false;
+}
+function isAutoParsableTool2(tool) {
+  return tool?.["$brand"] === "auto-parseable-tool";
+}
+function getInputToolByName(input_tools, name) {
+  return input_tools.find((tool) => tool.type === "function" && tool.name === name);
+}
+function parseToolCall2(params, toolCall) {
+  const inputTool = getInputToolByName(params.tools ?? [], toolCall.name);
+  return {
+    ...toolCall,
+    ...toolCall,
+    parsed_arguments: isAutoParsableTool2(inputTool) ? inputTool.$parseRaw(toolCall.arguments) : inputTool?.strict ? JSON.parse(toolCall.arguments) : null
+  };
+}
+function addOutputText(rsp) {
+  const texts = [];
+  for (const output of rsp.output) {
+    if (output.type !== "message") {
+      continue;
+    }
+    for (const content of output.content) {
+      if (content.type === "output_text") {
+        texts.push(content.text);
+      }
+    }
+  }
+  rsp.output_text = texts.join("");
+}
+
+// node_modules/openai/resources/responses/input-items.mjs
+var InputItems = class extends APIResource2 {
+  list(responseId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(responseId, {}, query);
+    }
+    return this._client.getAPIList(`/responses/${responseId}/input_items`, ResponseItemsPage, {
+      query,
+      ...options
+    });
+  }
+};
+
+// node_modules/openai/lib/responses/ResponseStream.mjs
+var __classPrivateFieldSet9 = function(receiver, state, value, kind3, f) {
+  if (kind3 === "m") throw new TypeError("Private method is not writable");
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+};
+var __classPrivateFieldGet10 = function(receiver, state, kind3, f) {
+  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+};
+var _ResponseStream_instances;
+var _ResponseStream_params;
+var _ResponseStream_currentResponseSnapshot;
+var _ResponseStream_finalResponse;
+var _ResponseStream_beginRequest;
+var _ResponseStream_addEvent;
+var _ResponseStream_endRequest;
+var _ResponseStream_accumulateResponse;
+var ResponseStream = class _ResponseStream extends EventStream {
+  constructor(params) {
+    super();
+    _ResponseStream_instances.add(this);
+    _ResponseStream_params.set(this, void 0);
+    _ResponseStream_currentResponseSnapshot.set(this, void 0);
+    _ResponseStream_finalResponse.set(this, void 0);
+    __classPrivateFieldSet9(this, _ResponseStream_params, params, "f");
+  }
+  static createResponse(client, params, options) {
+    const runner = new _ResponseStream(params);
+    runner._run(() => runner._createOrRetrieveResponse(client, params, {
+      ...options,
+      headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" }
+    }));
+    return runner;
+  }
+  async _createOrRetrieveResponse(client, params, options) {
+    const signal = options?.signal;
+    if (signal) {
+      if (signal.aborted)
+        this.controller.abort();
+      signal.addEventListener("abort", () => this.controller.abort());
+    }
+    __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_beginRequest).call(this);
+    let stream;
+    let starting_after = null;
+    if ("response_id" in params) {
+      stream = await client.responses.retrieve(params.response_id, { stream: true }, { ...options, signal: this.controller.signal, stream: true });
+      starting_after = params.starting_after ?? null;
+    } else {
+      stream = await client.responses.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
+    }
+    this._connected();
+    for await (const event of stream) {
+      __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_addEvent).call(this, event, starting_after);
+    }
+    if (stream.controller.signal?.aborted) {
+      throw new APIUserAbortError3();
+    }
+    return __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_endRequest).call(this);
+  }
+  [(_ResponseStream_params = /* @__PURE__ */ new WeakMap(), _ResponseStream_currentResponseSnapshot = /* @__PURE__ */ new WeakMap(), _ResponseStream_finalResponse = /* @__PURE__ */ new WeakMap(), _ResponseStream_instances = /* @__PURE__ */ new WeakSet(), _ResponseStream_beginRequest = function _ResponseStream_beginRequest2() {
+    if (this.ended)
+      return;
+    __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+  }, _ResponseStream_addEvent = function _ResponseStream_addEvent2(event, starting_after) {
+    if (this.ended)
+      return;
+    const maybeEmit = (name, event2) => {
+      if (starting_after == null || event2.sequence_number > starting_after) {
+        this._emit(name, event2);
+      }
+    };
+    const response = __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_accumulateResponse).call(this, event);
+    maybeEmit("event", event);
+    switch (event.type) {
+      case "response.output_text.delta": {
+        const output = response.output[event.output_index];
+        if (!output) {
+          throw new OpenAIError(`missing output at index ${event.output_index}`);
+        }
+        if (output.type === "message") {
+          const content = output.content[event.content_index];
+          if (!content) {
+            throw new OpenAIError(`missing content at index ${event.content_index}`);
+          }
+          if (content.type !== "output_text") {
+            throw new OpenAIError(`expected content to be 'output_text', got ${content.type}`);
+          }
+          maybeEmit("response.output_text.delta", {
+            ...event,
+            snapshot: content.text
+          });
+        }
+        break;
+      }
+      case "response.function_call_arguments.delta": {
+        const output = response.output[event.output_index];
+        if (!output) {
+          throw new OpenAIError(`missing output at index ${event.output_index}`);
+        }
+        if (output.type === "function_call") {
+          maybeEmit("response.function_call_arguments.delta", {
+            ...event,
+            snapshot: output.arguments
+          });
+        }
+        break;
+      }
+      default:
+        maybeEmit(event.type, event);
+        break;
+    }
+  }, _ResponseStream_endRequest = function _ResponseStream_endRequest2() {
+    if (this.ended) {
+      throw new OpenAIError(`stream has ended, this shouldn't happen`);
+    }
+    const snapshot = __classPrivateFieldGet10(this, _ResponseStream_currentResponseSnapshot, "f");
+    if (!snapshot) {
+      throw new OpenAIError(`request ended without sending any events`);
+    }
+    __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+    const parsedResponse = finalizeResponse(snapshot, __classPrivateFieldGet10(this, _ResponseStream_params, "f"));
+    __classPrivateFieldSet9(this, _ResponseStream_finalResponse, parsedResponse, "f");
+    return parsedResponse;
+  }, _ResponseStream_accumulateResponse = function _ResponseStream_accumulateResponse2(event) {
+    let snapshot = __classPrivateFieldGet10(this, _ResponseStream_currentResponseSnapshot, "f");
+    if (!snapshot) {
+      if (event.type !== "response.created") {
+        throw new OpenAIError(`When snapshot hasn't been set yet, expected 'response.created' event, got ${event.type}`);
+      }
+      snapshot = __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
+      return snapshot;
+    }
+    switch (event.type) {
+      case "response.output_item.added": {
+        snapshot.output.push(event.item);
+        break;
+      }
+      case "response.content_part.added": {
+        const output = snapshot.output[event.output_index];
+        if (!output) {
+          throw new OpenAIError(`missing output at index ${event.output_index}`);
+        }
+        if (output.type === "message") {
+          output.content.push(event.part);
+        }
+        break;
+      }
+      case "response.output_text.delta": {
+        const output = snapshot.output[event.output_index];
+        if (!output) {
+          throw new OpenAIError(`missing output at index ${event.output_index}`);
+        }
+        if (output.type === "message") {
+          const content = output.content[event.content_index];
+          if (!content) {
+            throw new OpenAIError(`missing content at index ${event.content_index}`);
+          }
+          if (content.type !== "output_text") {
+            throw new OpenAIError(`expected content to be 'output_text', got ${content.type}`);
+          }
+          content.text += event.delta;
+        }
+        break;
+      }
+      case "response.function_call_arguments.delta": {
+        const output = snapshot.output[event.output_index];
+        if (!output) {
+          throw new OpenAIError(`missing output at index ${event.output_index}`);
+        }
+        if (output.type === "function_call") {
+          output.arguments += event.delta;
+        }
+        break;
+      }
+      case "response.completed": {
+        __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
+        break;
+      }
+    }
+    return snapshot;
+  }, Symbol.asyncIterator)]() {
+    const pushQueue = [];
+    const readQueue = [];
+    let done = false;
+    this.on("event", (event) => {
+      const reader = readQueue.shift();
+      if (reader) {
+        reader.resolve(event);
+      } else {
+        pushQueue.push(event);
+      }
+    });
+    this.on("end", () => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.resolve(void 0);
+      }
+      readQueue.length = 0;
+    });
+    this.on("abort", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    this.on("error", (err) => {
+      done = true;
+      for (const reader of readQueue) {
+        reader.reject(err);
+      }
+      readQueue.length = 0;
+    });
+    return {
+      next: async () => {
+        if (!pushQueue.length) {
+          if (done) {
+            return { value: void 0, done: true };
+          }
+          return new Promise((resolve2, reject) => readQueue.push({ resolve: resolve2, reject })).then((event2) => event2 ? { value: event2, done: false } : { value: void 0, done: true });
+        }
+        const event = pushQueue.shift();
+        return { value: event, done: false };
+      },
+      return: async () => {
+        this.abort();
+        return { value: void 0, done: true };
+      }
+    };
+  }
+  /**
+   * @returns a promise that resolves with the final Response, or rejects
+   * if an error occurred or the stream ended prematurely without producing a REsponse.
+   */
+  async finalResponse() {
+    await this.done();
+    const response = __classPrivateFieldGet10(this, _ResponseStream_finalResponse, "f");
+    if (!response)
+      throw new OpenAIError("stream ended without producing a ChatCompletion");
+    return response;
+  }
+};
+function finalizeResponse(snapshot, params) {
+  return maybeParseResponse(snapshot, params);
+}
+
+// node_modules/openai/resources/responses/responses.mjs
+var Responses = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.inputItems = new InputItems(this._client);
+  }
+  create(body, options) {
+    return this._client.post("/responses", { body, ...options, stream: body.stream ?? false })._thenUnwrap((rsp) => {
+      if ("object" in rsp && rsp.object === "response") {
+        addOutputText(rsp);
+      }
+      return rsp;
+    });
+  }
+  retrieve(responseId, query = {}, options) {
+    return this._client.get(`/responses/${responseId}`, {
+      query,
+      ...options,
+      stream: query?.stream ?? false
+    });
+  }
+  /**
+   * Deletes a model response with the given ID.
+   *
+   * @example
+   * ```ts
+   * await client.responses.del(
+   *   'resp_677efb5139a88190b512bc3fef8e535d',
+   * );
+   * ```
+   */
+  del(responseId, options) {
+    return this._client.delete(`/responses/${responseId}`, {
+      ...options,
+      headers: { Accept: "*/*", ...options?.headers }
+    });
+  }
+  parse(body, options) {
+    return this._client.responses.create(body, options)._thenUnwrap((response) => parseResponse(response, body));
+  }
+  /**
+   * Creates a model response stream
+   */
+  stream(body, options) {
+    return ResponseStream.createResponse(this._client, body, options);
+  }
+  /**
+   * Cancels a model response with the given ID. Only responses created with the
+   * `background` parameter set to `true` can be cancelled.
+   * [Learn more](https://platform.openai.com/docs/guides/background).
+   *
+   * @example
+   * ```ts
+   * await client.responses.cancel(
+   *   'resp_677efb5139a88190b512bc3fef8e535d',
+   * );
+   * ```
+   */
+  cancel(responseId, options) {
+    return this._client.post(`/responses/${responseId}/cancel`, {
+      ...options,
+      headers: { Accept: "*/*", ...options?.headers }
+    });
+  }
+};
+var ResponseItemsPage = class extends CursorPage {
+};
+Responses.InputItems = InputItems;
+
+// node_modules/openai/resources/uploads/parts.mjs
+var Parts = class extends APIResource2 {
+  /**
+   * Adds a
+   * [Part](https://platform.openai.com/docs/api-reference/uploads/part-object) to an
+   * [Upload](https://platform.openai.com/docs/api-reference/uploads/object) object.
+   * A Part represents a chunk of bytes from the file you are trying to upload.
+   *
+   * Each Part can be at most 64 MB, and you can add Parts until you hit the Upload
+   * maximum of 8 GB.
+   *
+   * It is possible to add multiple Parts in parallel. You can decide the intended
+   * order of the Parts when you
+   * [complete the Upload](https://platform.openai.com/docs/api-reference/uploads/complete).
+   */
+  create(uploadId, body, options) {
+    return this._client.post(`/uploads/${uploadId}/parts`, multipartFormRequestOptions({ body, ...options }));
+  }
+};
+
+// node_modules/openai/resources/uploads/uploads.mjs
+var Uploads = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.parts = new Parts(this._client);
+  }
+  /**
+   * Creates an intermediate
+   * [Upload](https://platform.openai.com/docs/api-reference/uploads/object) object
+   * that you can add
+   * [Parts](https://platform.openai.com/docs/api-reference/uploads/part-object) to.
+   * Currently, an Upload can accept at most 8 GB in total and expires after an hour
+   * after you create it.
+   *
+   * Once you complete the Upload, we will create a
+   * [File](https://platform.openai.com/docs/api-reference/files/object) object that
+   * contains all the parts you uploaded. This File is usable in the rest of our
+   * platform as a regular File object.
+   *
+   * For certain `purpose` values, the correct `mime_type` must be specified. Please
+   * refer to documentation for the
+   * [supported MIME types for your use case](https://platform.openai.com/docs/assistants/tools/file-search#supported-files).
+   *
+   * For guidance on the proper filename extensions for each purpose, please follow
+   * the documentation on
+   * [creating a File](https://platform.openai.com/docs/api-reference/files/create).
+   */
+  create(body, options) {
+    return this._client.post("/uploads", { body, ...options });
+  }
+  /**
+   * Cancels the Upload. No Parts may be added after an Upload is cancelled.
+   */
+  cancel(uploadId, options) {
+    return this._client.post(`/uploads/${uploadId}/cancel`, options);
+  }
+  /**
+   * Completes the
+   * [Upload](https://platform.openai.com/docs/api-reference/uploads/object).
+   *
+   * Within the returned Upload object, there is a nested
+   * [File](https://platform.openai.com/docs/api-reference/files/object) object that
+   * is ready to use in the rest of the platform.
+   *
+   * You can specify the order of the Parts by passing in an ordered list of the Part
+   * IDs.
+   *
+   * The number of bytes uploaded upon completion must match the number of bytes
+   * initially specified when creating the Upload object. No Parts may be added after
+   * an Upload is completed.
+   */
+  complete(uploadId, body, options) {
+    return this._client.post(`/uploads/${uploadId}/complete`, { body, ...options });
+  }
+};
+Uploads.Parts = Parts;
+
+// node_modules/openai/lib/Util.mjs
+var allSettledWithThrow = async (promises2) => {
+  const results = await Promise.allSettled(promises2);
+  const rejected = results.filter((result) => result.status === "rejected");
+  if (rejected.length) {
+    for (const result of rejected) {
+      console.error(result.reason);
+    }
+    throw new Error(`${rejected.length} promise(s) failed - see the above errors`);
+  }
+  const values = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      values.push(result.value);
+    }
+  }
+  return values;
+};
+
+// node_modules/openai/resources/vector-stores/files.mjs
+var Files3 = class extends APIResource2 {
+  /**
+   * Create a vector store file by attaching a
+   * [File](https://platform.openai.com/docs/api-reference/files) to a
+   * [vector store](https://platform.openai.com/docs/api-reference/vector-stores/object).
+   */
+  create(vectorStoreId, body, options) {
+    return this._client.post(`/vector_stores/${vectorStoreId}/files`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieves a vector store file.
+   */
+  retrieve(vectorStoreId, fileId, options) {
+    return this._client.get(`/vector_stores/${vectorStoreId}/files/${fileId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Update attributes on a vector store file.
+   */
+  update(vectorStoreId, fileId, body, options) {
+    return this._client.post(`/vector_stores/${vectorStoreId}/files/${fileId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(vectorStoreId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list(vectorStoreId, {}, query);
+    }
+    return this._client.getAPIList(`/vector_stores/${vectorStoreId}/files`, VectorStoreFilesPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Delete a vector store file. This will remove the file from the vector store but
+   * the file itself will not be deleted. To delete the file, use the
+   * [delete file](https://platform.openai.com/docs/api-reference/files/delete)
+   * endpoint.
+   */
+  del(vectorStoreId, fileId, options) {
+    return this._client.delete(`/vector_stores/${vectorStoreId}/files/${fileId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Attach a file to the given vector store and wait for it to be processed.
+   */
+  async createAndPoll(vectorStoreId, body, options) {
+    const file = await this.create(vectorStoreId, body, options);
+    return await this.poll(vectorStoreId, file.id, options);
+  }
+  /**
+   * Wait for the vector store file to finish processing.
+   *
+   * Note: this will return even if the file failed to process, you need to check
+   * file.last_error and file.status to handle these cases
+   */
+  async poll(vectorStoreId, fileId, options) {
+    const headers = { ...options?.headers, "X-Stainless-Poll-Helper": "true" };
+    if (options?.pollIntervalMs) {
+      headers["X-Stainless-Custom-Poll-Interval"] = options.pollIntervalMs.toString();
+    }
+    while (true) {
+      const fileResponse = await this.retrieve(vectorStoreId, fileId, {
+        ...options,
+        headers
+      }).withResponse();
+      const file = fileResponse.data;
+      switch (file.status) {
+        case "in_progress":
+          let sleepInterval = 5e3;
+          if (options?.pollIntervalMs) {
+            sleepInterval = options.pollIntervalMs;
+          } else {
+            const headerInterval = fileResponse.response.headers.get("openai-poll-after-ms");
+            if (headerInterval) {
+              const headerIntervalMs = parseInt(headerInterval);
+              if (!isNaN(headerIntervalMs)) {
+                sleepInterval = headerIntervalMs;
+              }
+            }
+          }
+          await sleep2(sleepInterval);
+          break;
+        case "failed":
+        case "completed":
+          return file;
+      }
+    }
+  }
+  /**
+   * Upload a file to the `files` API and then attach it to the given vector store.
+   *
+   * Note the file will be asynchronously processed (you can use the alternative
+   * polling helper method to wait for processing to complete).
+   */
+  async upload(vectorStoreId, file, options) {
+    const fileInfo = await this._client.files.create({ file, purpose: "assistants" }, options);
+    return this.create(vectorStoreId, { file_id: fileInfo.id }, options);
+  }
+  /**
+   * Add a file to a vector store and poll until processing is complete.
+   */
+  async uploadAndPoll(vectorStoreId, file, options) {
+    const fileInfo = await this.upload(vectorStoreId, file, options);
+    return await this.poll(vectorStoreId, fileInfo.id, options);
+  }
+  /**
+   * Retrieve the parsed contents of a vector store file.
+   */
+  content(vectorStoreId, fileId, options) {
+    return this._client.getAPIList(`/vector_stores/${vectorStoreId}/files/${fileId}/content`, FileContentResponsesPage, { ...options, headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers } });
+  }
+};
+var VectorStoreFilesPage = class extends CursorPage {
+};
+var FileContentResponsesPage = class extends Page2 {
+};
+Files3.VectorStoreFilesPage = VectorStoreFilesPage;
+Files3.FileContentResponsesPage = FileContentResponsesPage;
+
+// node_modules/openai/resources/vector-stores/file-batches.mjs
+var FileBatches = class extends APIResource2 {
+  /**
+   * Create a vector store file batch.
+   */
+  create(vectorStoreId, body, options) {
+    return this._client.post(`/vector_stores/${vectorStoreId}/file_batches`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieves a vector store file batch.
+   */
+  retrieve(vectorStoreId, batchId, options) {
+    return this._client.get(`/vector_stores/${vectorStoreId}/file_batches/${batchId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Cancel a vector store file batch. This attempts to cancel the processing of
+   * files in this batch as soon as possible.
+   */
+  cancel(vectorStoreId, batchId, options) {
+    return this._client.post(`/vector_stores/${vectorStoreId}/file_batches/${batchId}/cancel`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Create a vector store batch and poll until all files have been processed.
+   */
+  async createAndPoll(vectorStoreId, body, options) {
+    const batch = await this.create(vectorStoreId, body);
+    return await this.poll(vectorStoreId, batch.id, options);
+  }
+  listFiles(vectorStoreId, batchId, query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.listFiles(vectorStoreId, batchId, {}, query);
+    }
+    return this._client.getAPIList(`/vector_stores/${vectorStoreId}/file_batches/${batchId}/files`, VectorStoreFilesPage, { query, ...options, headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers } });
+  }
+  /**
+   * Wait for the given file batch to be processed.
+   *
+   * Note: this will return even if one of the files failed to process, you need to
+   * check batch.file_counts.failed_count to handle this case.
+   */
+  async poll(vectorStoreId, batchId, options) {
+    const headers = { ...options?.headers, "X-Stainless-Poll-Helper": "true" };
+    if (options?.pollIntervalMs) {
+      headers["X-Stainless-Custom-Poll-Interval"] = options.pollIntervalMs.toString();
+    }
+    while (true) {
+      const { data: batch, response } = await this.retrieve(vectorStoreId, batchId, {
+        ...options,
+        headers
+      }).withResponse();
+      switch (batch.status) {
+        case "in_progress":
+          let sleepInterval = 5e3;
+          if (options?.pollIntervalMs) {
+            sleepInterval = options.pollIntervalMs;
+          } else {
+            const headerInterval = response.headers.get("openai-poll-after-ms");
+            if (headerInterval) {
+              const headerIntervalMs = parseInt(headerInterval);
+              if (!isNaN(headerIntervalMs)) {
+                sleepInterval = headerIntervalMs;
+              }
+            }
+          }
+          await sleep2(sleepInterval);
+          break;
+        case "failed":
+        case "cancelled":
+        case "completed":
+          return batch;
+      }
+    }
+  }
+  /**
+   * Uploads the given files concurrently and then creates a vector store file batch.
+   *
+   * The concurrency limit is configurable using the `maxConcurrency` parameter.
+   */
+  async uploadAndPoll(vectorStoreId, { files, fileIds = [] }, options) {
+    if (files == null || files.length == 0) {
+      throw new Error(`No \`files\` provided to process. If you've already uploaded files you should use \`.createAndPoll()\` instead`);
+    }
+    const configuredConcurrency = options?.maxConcurrency ?? 5;
+    const concurrencyLimit = Math.min(configuredConcurrency, files.length);
+    const client = this._client;
+    const fileIterator = files.values();
+    const allFileIds = [...fileIds];
+    async function processFiles(iterator) {
+      for (let item of iterator) {
+        const fileObj = await client.files.create({ file: item, purpose: "assistants" }, options);
+        allFileIds.push(fileObj.id);
+      }
+    }
+    const workers = Array(concurrencyLimit).fill(fileIterator).map(processFiles);
+    await allSettledWithThrow(workers);
+    return await this.createAndPoll(vectorStoreId, {
+      file_ids: allFileIds
+    });
+  }
+};
+
+// node_modules/openai/resources/vector-stores/vector-stores.mjs
+var VectorStores = class extends APIResource2 {
+  constructor() {
+    super(...arguments);
+    this.files = new Files3(this._client);
+    this.fileBatches = new FileBatches(this._client);
+  }
+  /**
+   * Create a vector store.
+   */
+  create(body, options) {
+    return this._client.post("/vector_stores", {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Retrieves a vector store.
+   */
+  retrieve(vectorStoreId, options) {
+    return this._client.get(`/vector_stores/${vectorStoreId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Modifies a vector store.
+   */
+  update(vectorStoreId, body, options) {
+    return this._client.post(`/vector_stores/${vectorStoreId}`, {
+      body,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  list(query = {}, options) {
+    if (isRequestOptions2(query)) {
+      return this.list({}, query);
+    }
+    return this._client.getAPIList("/vector_stores", VectorStoresPage, {
+      query,
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Delete a vector store.
+   */
+  del(vectorStoreId, options) {
+    return this._client.delete(`/vector_stores/${vectorStoreId}`, {
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+  /**
+   * Search a vector store for relevant chunks based on a query and file attributes
+   * filter.
+   */
+  search(vectorStoreId, body, options) {
+    return this._client.getAPIList(`/vector_stores/${vectorStoreId}/search`, VectorStoreSearchResponsesPage, {
+      body,
+      method: "post",
+      ...options,
+      headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers }
+    });
+  }
+};
+var VectorStoresPage = class extends CursorPage {
+};
+var VectorStoreSearchResponsesPage = class extends Page2 {
+};
+VectorStores.VectorStoresPage = VectorStoresPage;
+VectorStores.VectorStoreSearchResponsesPage = VectorStoreSearchResponsesPage;
+VectorStores.Files = Files3;
+VectorStores.VectorStoreFilesPage = VectorStoreFilesPage;
+VectorStores.FileContentResponsesPage = FileContentResponsesPage;
+VectorStores.FileBatches = FileBatches;
+
+// node_modules/openai/index.mjs
+var _a2;
+var OpenAI = class extends APIClient2 {
+  /**
+   * API Client for interfacing with the OpenAI API.
+   *
+   * @param {string | undefined} [opts.apiKey=process.env['OPENAI_API_KEY'] ?? undefined]
+   * @param {string | null | undefined} [opts.organization=process.env['OPENAI_ORG_ID'] ?? null]
+   * @param {string | null | undefined} [opts.project=process.env['OPENAI_PROJECT_ID'] ?? null]
+   * @param {string} [opts.baseURL=process.env['OPENAI_BASE_URL'] ?? https://api.openai.com/v1] - Override the default base URL for the API.
+   * @param {number} [opts.timeout=10 minutes] - The maximum amount of time (in milliseconds) the client will wait for a response before timing out.
+   * @param {number} [opts.httpAgent] - An HTTP agent used to manage HTTP(s) connections.
+   * @param {Core.Fetch} [opts.fetch] - Specify a custom `fetch` function implementation.
+   * @param {number} [opts.maxRetries=2] - The maximum number of times the client will retry a request.
+   * @param {Core.Headers} opts.defaultHeaders - Default headers to include with every request to the API.
+   * @param {Core.DefaultQuery} opts.defaultQuery - Default query parameters to include with every request to the API.
+   * @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
+   */
+  constructor({ baseURL = readEnv2("OPENAI_BASE_URL"), apiKey = readEnv2("OPENAI_API_KEY"), organization = readEnv2("OPENAI_ORG_ID") ?? null, project = readEnv2("OPENAI_PROJECT_ID") ?? null, ...opts } = {}) {
+    if (apiKey === void 0) {
+      throw new OpenAIError("The OPENAI_API_KEY environment variable is missing or empty; either provide it, or instantiate the OpenAI client with an apiKey option, like new OpenAI({ apiKey: 'My API Key' }).");
+    }
+    const options = {
+      apiKey,
+      organization,
+      project,
+      ...opts,
+      baseURL: baseURL || `https://api.openai.com/v1`
+    };
+    if (!options.dangerouslyAllowBrowser && isRunningInBrowser2()) {
+      throw new OpenAIError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
+    }
+    super({
+      baseURL: options.baseURL,
+      timeout: options.timeout ?? 6e5,
+      httpAgent: options.httpAgent,
+      maxRetries: options.maxRetries,
+      fetch: options.fetch
+    });
+    this.completions = new Completions4(this);
+    this.chat = new Chat(this);
+    this.embeddings = new Embeddings(this);
+    this.files = new Files2(this);
+    this.images = new Images(this);
+    this.audio = new Audio(this);
+    this.moderations = new Moderations(this);
+    this.models = new Models(this);
+    this.fineTuning = new FineTuning(this);
+    this.graders = new Graders2(this);
+    this.vectorStores = new VectorStores(this);
+    this.beta = new Beta2(this);
+    this.batches = new Batches2(this);
+    this.uploads = new Uploads(this);
+    this.responses = new Responses(this);
+    this.evals = new Evals(this);
+    this.containers = new Containers(this);
+    this._options = options;
+    this.apiKey = apiKey;
+    this.organization = organization;
+    this.project = project;
+  }
+  defaultQuery() {
+    return this._options.defaultQuery;
+  }
+  defaultHeaders(opts) {
+    return {
+      ...super.defaultHeaders(opts),
+      "OpenAI-Organization": this.organization,
+      "OpenAI-Project": this.project,
+      ...this._options.defaultHeaders
+    };
+  }
+  authHeaders(opts) {
+    return { Authorization: `Bearer ${this.apiKey}` };
+  }
+  stringifyQuery(query) {
+    return stringify(query, { arrayFormat: "brackets" });
+  }
+};
+_a2 = OpenAI;
+OpenAI.OpenAI = _a2;
+OpenAI.DEFAULT_TIMEOUT = 6e5;
+OpenAI.OpenAIError = OpenAIError;
+OpenAI.APIError = APIError3;
+OpenAI.APIConnectionError = APIConnectionError3;
+OpenAI.APIConnectionTimeoutError = APIConnectionTimeoutError3;
+OpenAI.APIUserAbortError = APIUserAbortError3;
+OpenAI.NotFoundError = NotFoundError3;
+OpenAI.ConflictError = ConflictError3;
+OpenAI.RateLimitError = RateLimitError3;
+OpenAI.BadRequestError = BadRequestError3;
+OpenAI.AuthenticationError = AuthenticationError3;
+OpenAI.InternalServerError = InternalServerError3;
+OpenAI.PermissionDeniedError = PermissionDeniedError3;
+OpenAI.UnprocessableEntityError = UnprocessableEntityError3;
+OpenAI.toFile = toFile2;
+OpenAI.fileFromPath = fileFromPath2;
+OpenAI.Completions = Completions4;
+OpenAI.Chat = Chat;
+OpenAI.ChatCompletionsPage = ChatCompletionsPage;
+OpenAI.Embeddings = Embeddings;
+OpenAI.Files = Files2;
+OpenAI.FileObjectsPage = FileObjectsPage;
+OpenAI.Images = Images;
+OpenAI.Audio = Audio;
+OpenAI.Moderations = Moderations;
+OpenAI.Models = Models;
+OpenAI.ModelsPage = ModelsPage;
+OpenAI.FineTuning = FineTuning;
+OpenAI.Graders = Graders2;
+OpenAI.VectorStores = VectorStores;
+OpenAI.VectorStoresPage = VectorStoresPage;
+OpenAI.VectorStoreSearchResponsesPage = VectorStoreSearchResponsesPage;
+OpenAI.Beta = Beta2;
+OpenAI.Batches = Batches2;
+OpenAI.BatchesPage = BatchesPage;
+OpenAI.Uploads = Uploads;
+OpenAI.Responses = Responses;
+OpenAI.Evals = Evals;
+OpenAI.EvalListResponsesPage = EvalListResponsesPage;
+OpenAI.Containers = Containers;
+OpenAI.ContainerListResponsesPage = ContainerListResponsesPage;
+var openai_default = OpenAI;
+
 // src/api/providers/openai.ts
 var DEFAULT_BASE_URLS = {
   openai: "https://api.openai.com/v1",
@@ -89674,8 +95948,27 @@ var DEFAULT_BASE_URLS = {
 };
 var OpenAiProvider = class {
   config;
+  client;
   constructor(config2) {
     this.config = config2;
+    let baseURL = config2.baseUrl ?? DEFAULT_BASE_URLS[config2.type] ?? DEFAULT_BASE_URLS.openai;
+    if (config2.type === "ollama" && !baseURL.match(/\/v\d/)) {
+      baseURL = baseURL.replace(/\/+$/, "") + "/v1";
+    }
+    const defaultHeaders = {};
+    if (config2.type === "openrouter") {
+      defaultHeaders["HTTP-Referer"] = "https://obsidian.md";
+      defaultHeaders["X-Title"] = "Obsilo Agent";
+    }
+    if (config2.type === "azure" && config2.apiKey) {
+      defaultHeaders["api-key"] = config2.apiKey;
+    }
+    this.client = new openai_default({
+      apiKey: config2.type === "azure" ? "" : config2.apiKey || "",
+      baseURL,
+      dangerouslyAllowBrowser: true,
+      defaultHeaders
+    });
   }
   getModel() {
     return {
@@ -89688,143 +95981,86 @@ var OpenAiProvider = class {
     };
   }
   async *createMessage(systemPrompt, messages, tools, abortSignal) {
-    let baseUrl = this.config.baseUrl ?? DEFAULT_BASE_URLS[this.config.type] ?? DEFAULT_BASE_URLS.openai;
-    let url2;
-    if (this.config.type === "azure") {
-      const apiVersion = this.config.apiVersion ?? "2024-10-21";
-      url2 = `${baseUrl.replace(/\/$/, "")}/deployments/${this.config.model}/chat/completions?api-version=${apiVersion}`;
-    } else {
-      if (this.config.type === "ollama" && !baseUrl.match(/\/v\d/)) {
-        baseUrl = baseUrl.replace(/\/+$/, "") + "/v1";
-      }
-      url2 = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
-    }
     const openAiMessages = this.convertMessages(systemPrompt, messages);
     const openAiTools = tools.length > 0 ? this.convertTools(tools) : void 0;
-    const body = {
-      messages: openAiMessages,
-      stream: true
-    };
-    if (this.config.type !== "azure") {
-      body.model = this.config.model;
-    }
-    if (this.config.type === "azure") {
-      body.max_completion_tokens = this.config.maxTokens ?? 8192;
-    } else {
-      body.max_tokens = this.config.maxTokens ?? 8192;
-    }
-    if (this.config.type === "openai" || this.config.type === "openrouter") {
-      body.stream_options = { include_usage: true };
-    }
     const isOSeries = /^o[1-9]/.test(this.config.model);
+    let temperature;
     if (isOSeries) {
+      temperature = void 0;
     } else if (this.config.temperature !== void 0) {
-      body.temperature = this.config.temperature;
+      temperature = this.config.temperature;
     } else if (this.config.type !== "azure") {
-      body.temperature = 0.2;
+      temperature = 0.2;
+    }
+    const requestBody = {
+      model: this.config.type !== "azure" ? this.config.model : this.config.model,
+      messages: openAiMessages,
+      tools: openAiTools,
+      temperature: temperature !== void 0 ? Math.min(temperature, 2) : void 0,
+      max_tokens: this.config.type !== "azure" ? this.config.maxTokens ?? 8192 : void 0,
+      stream: true,
+      stream_options: this.config.type === "openai" || this.config.type === "openrouter" ? { include_usage: true } : void 0
+    };
+    if (this.config.type === "azure") {
+      requestBody.max_completion_tokens = this.config.maxTokens ?? 8192;
     }
     if (openAiTools && openAiTools.length > 0) {
-      body.tools = openAiTools;
-      body.tool_choice = "auto";
+      requestBody.tool_choice = "auto";
     }
-    const headers = {
-      "Content-Type": "application/json"
-    };
+    const requestOptions = { signal: abortSignal ?? null };
     if (this.config.type === "azure") {
-      if (this.config.apiKey) headers["api-key"] = this.config.apiKey;
-    } else if (this.config.apiKey) {
-      headers["Authorization"] = `Bearer ${this.config.apiKey}`;
+      const apiVersion = this.config.apiVersion ?? "2024-10-21";
+      requestOptions.path = `/deployments/${this.config.model}/chat/completions?api-version=${apiVersion}`;
     }
-    if (this.config.type === "openrouter") {
-      headers["HTTP-Referer"] = "https://obsidian.md";
-      headers["X-Title"] = "Obsilo Agent";
-    }
-    const response = await fetch(url2, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: abortSignal
-    });
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "Unknown error");
-      console.error(`[OpenAiProvider] ${response.status} from ${url2}
-${errorText}`);
-      throw Object.assign(new Error(`OpenAI API error (${response.status}): ${errorText}`), { status: response.status });
-    }
-    if (!response.body) {
-      throw new Error("No response body from OpenAI API");
-    }
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
+    const stream = await this.client.chat.completions.create(requestBody, requestOptions);
     const toolCallAccumulators = /* @__PURE__ */ new Map();
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === "data: [DONE]") continue;
-          if (!trimmed.startsWith("data: ")) continue;
-          let chunk;
-          try {
-            chunk = JSON.parse(trimmed.slice(6));
-          } catch {
-            continue;
+    for await (const chunk of stream) {
+      if (chunk.usage) {
+        yield {
+          type: "usage",
+          inputTokens: chunk.usage.prompt_tokens,
+          outputTokens: chunk.usage.completion_tokens
+        };
+      }
+      const choice = chunk.choices?.[0];
+      if (!choice) continue;
+      const delta = choice.delta;
+      if (delta?.content) {
+        yield { type: "text", text: delta.content };
+      }
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index;
+          if (!toolCallAccumulators.has(idx)) {
+            toolCallAccumulators.set(idx, { id: "", name: "", argumentsJson: "" });
           }
-          if (chunk.usage) {
-            yield {
-              type: "usage",
-              inputTokens: chunk.usage.prompt_tokens,
-              outputTokens: chunk.usage.completion_tokens
-            };
-          }
-          const choice = chunk.choices?.[0];
-          if (!choice) continue;
-          const delta = choice.delta;
-          if (delta.content) {
-            yield { type: "text", text: delta.content };
-          }
-          if (delta.tool_calls) {
-            for (const tc of delta.tool_calls) {
-              const idx = tc.index;
-              if (!toolCallAccumulators.has(idx)) {
-                toolCallAccumulators.set(idx, { id: "", name: "", argumentsJson: "" });
-              }
-              const acc = toolCallAccumulators.get(idx);
-              if (tc.id) acc.id = tc.id;
-              if (tc.function?.name) acc.name += tc.function.name;
-              if (tc.function?.arguments) acc.argumentsJson += tc.function.arguments;
-            }
-          }
-          if (choice.finish_reason === "tool_calls") {
-            for (const [, acc] of toolCallAccumulators) {
-              let input = {};
-              try {
-                input = JSON.parse(acc.argumentsJson);
-              } catch (e) {
-                yield {
-                  type: "text",
-                  text: `[Tool input parse error for "${acc.name}": ${e.message}]`
-                };
-                continue;
-              }
-              yield {
-                type: "tool_use",
-                id: acc.id,
-                name: acc.name,
-                input
-              };
-            }
-            toolCallAccumulators.clear();
-          }
+          const acc = toolCallAccumulators.get(idx);
+          if (tc.id) acc.id = tc.id;
+          if (tc.function?.name) acc.name += tc.function.name;
+          if (tc.function?.arguments) acc.argumentsJson += tc.function.arguments;
         }
       }
-    } finally {
-      reader.releaseLock();
+      if (choice.finish_reason === "tool_calls") {
+        for (const [, acc] of toolCallAccumulators) {
+          let input = {};
+          try {
+            input = JSON.parse(acc.argumentsJson);
+          } catch (e) {
+            yield {
+              type: "text",
+              text: `[Tool input parse error for "${acc.name}": ${e.message}]`
+            };
+            continue;
+          }
+          yield {
+            type: "tool_use",
+            id: acc.id,
+            name: acc.name,
+            input
+          };
+        }
+        toolCallAccumulators.clear();
+      }
     }
   }
   // ---------------------------------------------------------------------------
@@ -89964,11 +96200,11 @@ var ToolPickerPopover = class {
       catRow.createSpan("tp-cat-arrow").setText("\u25B8");
       catRow.createSpan({ cls: "tp-cat-label", text: label });
       const catBody = scrollEl.createDiv("tp-cat-body");
-      catBody.style.display = startOpen ? "" : "none";
+      catBody.classList.toggle("agent-u-hidden", !startOpen);
       catRow.addEventListener("click", (e) => {
         if (e.target.tagName === "INPUT") return;
         const open = catRow.classList.toggle("is-open");
-        catBody.style.display = open ? "" : "none";
+        catBody.classList.toggle("agent-u-hidden", !open);
       });
       return { catRow, catBody };
     };
@@ -89981,11 +96217,11 @@ var ToolPickerPopover = class {
       const subGroupCb = subRow.createEl("input", { type: "checkbox" });
       subGroupCb.className = "tp-cat-group-cb";
       const subBody = parent2.createDiv("tp-subcat-body");
-      subBody.style.display = "none";
+      subBody.classList.add("agent-u-hidden");
       subRow.addEventListener("click", (e) => {
         if (e.target.tagName === "INPUT") return;
         const open = subRow.classList.toggle("is-open");
-        subBody.style.display = open ? "" : "none";
+        subBody.classList.toggle("agent-u-hidden", !open);
       });
       return { subRow, subBody, subGroupCb };
     };
@@ -90129,26 +96365,26 @@ var ToolPickerPopover = class {
       const br = anchorBtn.getBoundingClientRect();
       const cr = containerEl.getBoundingClientRect();
       const pad = 8;
-      popover.style.position = "fixed";
+      popover.style.setProperty("position", "fixed");
       const popWidth = Math.min(400, cr.width - pad * 2);
-      popover.style.width = `${popWidth}px`;
-      popover.style.minWidth = `${Math.min(320, popWidth)}px`;
-      popover.style.maxWidth = `${popWidth}px`;
+      popover.style.setProperty("width", `${popWidth}px`);
+      popover.style.setProperty("min-width", `${Math.min(320, popWidth)}px`);
+      popover.style.setProperty("max-width", `${popWidth}px`);
       const spaceAbove = br.top - cr.top - pad;
       const spaceBelow = cr.bottom - br.bottom - pad;
       if (spaceAbove >= spaceBelow) {
-        popover.style.bottom = window.innerHeight - br.top + 4 + "px";
-        popover.style.top = "";
-        popover.style.maxHeight = `${Math.max(spaceAbove, 200)}px`;
+        popover.style.setProperty("bottom", window.innerHeight - br.top + 4 + "px");
+        popover.style.setProperty("top", "");
+        popover.style.setProperty("max-height", `${Math.max(spaceAbove, 200)}px`);
       } else {
-        popover.style.top = br.bottom + 4 + "px";
-        popover.style.bottom = "";
-        popover.style.maxHeight = `${Math.max(spaceBelow, 200)}px`;
+        popover.style.setProperty("top", br.bottom + 4 + "px");
+        popover.style.setProperty("bottom", "");
+        popover.style.setProperty("max-height", `${Math.max(spaceBelow, 200)}px`);
       }
       let left = Math.max(br.left, cr.left + pad);
       if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
       left = Math.max(left, cr.left + pad);
-      popover.style.left = `${left}px`;
+      popover.style.setProperty("left", `${left}px`);
     };
     document.body.appendChild(popover);
     positionPopover();
@@ -90159,11 +96395,11 @@ var ToolPickerPopover = class {
       const q = searchInput.value.toLowerCase();
       for (const row of allItemRows) {
         const matches = !q || (row.getAttribute("data-label") ?? "").includes(q) || (row.getAttribute("data-desc") ?? "").includes(q);
-        row.style.display = matches ? "" : "none";
+        row.classList.toggle("agent-u-hidden", !matches);
       }
       if (q) {
         builtInCatRow.addClass("is-open");
-        builtInCatBody.style.display = "";
+        builtInCatBody.classList.remove("agent-u-hidden");
       }
     });
     (async () => {
@@ -90182,7 +96418,7 @@ var ToolPickerPopover = class {
               modeAllowed && modeAllowed.length > 0 ? modeAllowed : skills.map((s) => s.name)
             );
             skillsCatRow.addClass("is-open");
-            skillsCatBody.style.display = "";
+            skillsCatBody.classList.remove("agent-u-hidden");
             for (const skill of skills) {
               const cb = makeItemRow(
                 skillsCatBody,
@@ -90243,7 +96479,7 @@ var ToolPickerPopover = class {
             const wfCbs = [];
             const activeWfSlug = this.plugin.settings.forcedWorkflow?.[slug] ?? "";
             wfCatRow.addClass("is-open");
-            wfCatBody.style.display = "";
+            wfCatBody.classList.remove("agent-u-hidden");
             for (const wf of workflows) {
               const cb = makeItemRow(
                 wfCatBody,
@@ -90600,11 +96836,11 @@ var VaultFilePicker = class {
     const popoverHeight = 320;
     const spaceBelow = window.innerHeight - rect.bottom;
     if (spaceBelow >= popoverHeight || spaceBelow >= 180) {
-      this.containerEl.style.top = `${rect.bottom + 4}px`;
+      this.containerEl.style.setProperty("top", `${rect.bottom + 4}px`);
     } else {
-      this.containerEl.style.bottom = `${window.innerHeight - rect.top + 4}px`;
+      this.containerEl.style.setProperty("bottom", `${window.innerHeight - rect.top + 4}px`);
     }
-    this.containerEl.style.left = `${Math.max(8, rect.left)}px`;
+    this.containerEl.style.setProperty("left", `${Math.max(8, rect.left)}px`);
     const searchRow = this.containerEl.createDiv("vfp-search-row");
     const searchIconEl = searchRow.createSpan("vfp-search-icon");
     (0, import_obsidian3.setIcon)(searchIconEl, "search");
@@ -90786,7 +97022,7 @@ var HistoryPanel = class {
   /** Mount the panel inside a parent container. */
   mount(parent2) {
     this.panelEl = parent2.createDiv({ cls: "history-panel" });
-    this.panelEl.style.display = "none";
+    this.panelEl.classList.add("agent-u-hidden");
   }
   /** Toggle open/close. */
   toggle() {
@@ -90798,7 +97034,7 @@ var HistoryPanel = class {
     this.isOpen = true;
     this.filterText = "";
     this.render();
-    this.panelEl.style.display = "";
+    this.panelEl.classList.remove("agent-u-hidden");
     requestAnimationFrame(() => this.panelEl?.addClass("history-panel-open"));
   }
   close() {
@@ -90806,7 +97042,7 @@ var HistoryPanel = class {
     this.isOpen = false;
     this.panelEl.removeClass("history-panel-open");
     setTimeout(() => {
-      if (!this.isOpen && this.panelEl) this.panelEl.style.display = "none";
+      if (!this.isOpen && this.panelEl) this.panelEl.classList.add("agent-u-hidden");
     }, 200);
   }
   /** Update active conversation id (for highlighting). */
@@ -90893,8 +97129,8 @@ var HistoryPanel = class {
 
 // src/core/memory/MemoryRetriever.ts
 var MemoryRetriever = class {
-  constructor(fs2, memoryService, getSemanticIndex) {
-    this.fs = fs2;
+  constructor(fs3, memoryService, getSemanticIndex) {
+    this.fs = fs3;
     this.memoryService = memoryService;
     this.getSemanticIndex = getSemanticIndex;
   }
@@ -91346,7 +97582,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
     (0, import_obsidian6.setIcon)(settingsBtn.createSpan("toolbar-icon"), "settings");
     settingsBtn.addEventListener("click", () => {
       this.app.setting?.open();
-      this.app.setting?.openTabById("obsidian-agent");
+      this.app.setting?.openTabById("obsilo-agent");
     });
     const historyBtn = headerRight.createEl("button", {
       cls: "header-button",
@@ -91488,7 +97724,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
       attr: { "aria-label": t("ui.sidebar.stop") }
     });
     (0, import_obsidian6.setIcon)(this.stopButton.createSpan("toolbar-icon"), "square");
-    this.stopButton.style.display = "none";
+    this.stopButton.classList.add("agent-u-hidden");
     this.stopButton.addEventListener("click", () => this.handleStop());
     this.sendButton = toolbarRight.createEl("button", {
       cls: "toolbar-button send-button",
@@ -91557,7 +97793,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
       menu.addItem(
         (item) => item.setTitle(t("ui.sidebar.noModelsEnabled")).setIcon("settings").onClick(() => {
           this.app.setting?.open();
-          this.app.setting?.openTabById("obsidian-agent");
+          this.app.setting?.openTabById("obsilo-agent");
         })
       );
     } else {
@@ -91601,7 +97837,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
   updateToolPickerButton() {
     if (!this.toolPickerButton) return;
     const isAsk = this.plugin.settings.currentMode === "ask";
-    this.toolPickerButton.style.display = isAsk ? "none" : "";
+    this.toolPickerButton.classList.toggle("agent-u-hidden", isAsk);
     this.updateWebToggleButton();
   }
   async toggleWebSearch() {
@@ -91624,7 +97860,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
     if (!this.webToggleButton) return;
     const mode = this.modeService.getMode(this.plugin.settings.currentMode);
     const modeHasWeb = mode?.toolGroups?.includes("web") ?? false;
-    this.webToggleButton.style.display = modeHasWeb ? "" : "none";
+    this.webToggleButton.classList.toggle("agent-u-hidden", !modeHasWeb);
     const isEnabled = this.plugin.settings.webTools?.enabled ?? false;
     this.webToggleButton.classList.toggle("web-toggle-active", isEnabled);
   }
@@ -91661,7 +97897,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
       const folders = [];
       const rootFiles = [];
       for (const child of root2.children) {
-        if (child.children !== void 0) {
+        if ("children" in child) {
           const name = child.name;
           if (!name.startsWith(".")) folders.push(name);
         } else {
@@ -91700,8 +97936,8 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
   }
   autoResizeTextarea() {
     if (!this.textarea) return;
-    this.textarea.style.height = "auto";
-    this.textarea.style.height = Math.min(this.textarea.scrollHeight, 15 * 24) + "px";
+    this.textarea.style.setProperty("height", "auto");
+    this.textarea.style.setProperty("height", Math.min(this.textarea.scrollHeight, 15 * 24) + "px");
   }
   /**
    * Show the onboarding welcome message (first activation only).
@@ -91837,7 +98073,7 @@ var AgentSidebarView = class extends import_obsidian6.ItemView {
     settingsBtn.addEventListener("click", () => {
       this.disableOnboardingButtons(btnRow);
       this.app.setting?.open?.();
-      this.app.setting?.openTabById?.("obsidian-agent");
+      this.app.setting?.openTabById?.("obsilo-agent");
     });
     this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
   }
@@ -92137,7 +98373,7 @@ Active file in editor: ${activeFile.path}
           accumulatedThinking += chunk;
           if (!isThinking) {
             isThinking = true;
-            thinkingEl.style.display = "";
+            thinkingEl.classList.remove("agent-u-hidden");
             thinkingEl.empty();
             const header = thinkingEl.createDiv("thinking-header");
             (0, import_obsidian6.setIcon)(header.createSpan("thinking-spinner"), "loader");
@@ -92145,7 +98381,7 @@ Active file in editor: ${activeFile.path}
             thinkingEl.createDiv("thinking-content");
             header.addEventListener("click", () => {
               const body2 = thinkingEl.querySelector(".thinking-content");
-              if (body2) body2.style.display = body2.style.display === "none" ? "" : "none";
+              if (body2) body2.classList.toggle("agent-u-hidden");
             });
           }
           const body = thinkingEl.querySelector(".thinking-content");
@@ -92162,9 +98398,9 @@ Active file in editor: ${activeFile.path}
             if (spinner) (0, import_obsidian6.setIcon)(spinner, "chevron-right");
             if (label) label.setText(t("ui.sidebar.reasoningCollapsed"));
             const body = thinkingEl.querySelector(".thinking-content");
-            if (body) body.style.display = "none";
+            if (body) body.classList.add("agent-u-hidden");
             if (header) header.addEventListener("click", () => {
-              if (body) body.style.display = body.style.display === "none" ? "" : "none";
+              if (body) body.classList.toggle("agent-u-hidden");
             }, { once: true });
           }
           accumulatedText += chunk;
@@ -92182,7 +98418,7 @@ Active file in editor: ${activeFile.path}
           if (!hasTools) {
             hasTools = true;
             if (name !== "attempt_completion") {
-              contentEl.style.visibility = "hidden";
+              contentEl.classList.add("agent-u-visibility-hidden");
               contentEl.empty();
               streamingPara = null;
             }
@@ -92317,7 +98553,7 @@ Active file in editor: ${activeFile.path}
         onUsage: (inputTokens, outputTokens) => {
           const time3 = (/* @__PURE__ */ new Date()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
           footerEl.setText(`${time3}  \xB7  ${inputTokens.toLocaleString()} in \xB7 ${outputTokens.toLocaleString()} out`);
-          footerEl.style.display = "";
+          footerEl.classList.remove("agent-u-hidden");
         },
         onTodoUpdate: (items) => {
           lastTodoItems = items;
@@ -92327,7 +98563,7 @@ Active file in editor: ${activeFile.path}
           if (footerEl) {
             const badge = footerEl.createSpan("context-condensed-badge");
             badge.setText(t("ui.sidebar.contextCondensed"));
-            footerEl.style.display = "";
+            footerEl.classList.remove("agent-u-hidden");
           }
         },
         onModeSwitch: (newModeSlug) => {
@@ -92347,11 +98583,11 @@ Active file in editor: ${activeFile.path}
         },
         onQuestion: (question, options, resolve2, allowMultiple) => {
           if (accumulatedText.trim()) {
-            contentEl.style.visibility = "hidden";
+            contentEl.classList.add("agent-u-visibility-hidden");
             contentEl.empty();
             import_obsidian6.MarkdownRenderer.render(this.app, accumulatedText, contentEl, "", this);
             requestAnimationFrame(() => {
-              contentEl.style.visibility = "";
+              contentEl.classList.remove("agent-u-visibility-hidden");
             });
           }
           const wrappedResolve = (answer) => {
@@ -92444,15 +98680,15 @@ Active file in editor: ${activeFile.path}
           if (renderText2) {
             contentEl.empty();
             import_obsidian6.MarkdownRenderer.render(this.app, renderText2, contentEl, "", this);
-            contentEl.style.visibility = "";
+            contentEl.classList.remove("agent-u-visibility-hidden");
           } else if (hasTools) {
             contentEl.empty();
             contentEl.createEl("p", { cls: "message-empty-response", text: t("ui.sidebar.emptyResponse") });
           }
-          if (footerEl.style.display === "none") {
+          if (footerEl.classList.contains("agent-u-hidden")) {
             const time3 = (/* @__PURE__ */ new Date()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             footerEl.setText(time3);
-            footerEl.style.display = "";
+            footerEl.classList.remove("agent-u-hidden");
           }
           this.wireInternalLinks(contentEl);
           this.wireCitationBadges(contentEl, parsedSources);
@@ -92595,16 +98831,16 @@ Active file in editor: ${activeFile.path}
     if (this.plugin.settings.mastery.enabled && this.plugin.recipeMatchingService) {
       try {
         const matches = this.plugin.recipeMatchingService.match(text3, activeMode.slug);
-        console.log(`[Mastery] Recipe matching: ${matches.length} match(es) for mode "${activeMode.slug}"`, matches.map((m) => `${m.recipe.id} (${m.score.toFixed(2)})`));
+        console.debug(`[Mastery] Recipe matching: ${matches.length} match(es) for mode "${activeMode.slug}"`, matches.map((m) => `${m.recipe.id} (${m.score.toFixed(2)})`));
         if (matches.length > 0) {
           recipesSection = this.plugin.recipeMatchingService.buildPromptSection(matches);
-          console.log(`[Mastery] Recipe section injected (${recipesSection.length} chars)`);
+          console.debug(`[Mastery] Recipe section injected (${recipesSection.length} chars)`);
         }
       } catch (e) {
         console.warn("[Mastery] Recipe matching failed (non-fatal):", e);
       }
     } else {
-      console.log(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
+      console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
     }
     await task.run(
       messageToSend,
@@ -92635,8 +98871,8 @@ Active file in editor: ${activeFile.path}
    * Toggle between send and stop button states
    */
   setRunningState(running) {
-    if (this.sendButton) this.sendButton.style.display = running ? "none" : "";
-    if (this.stopButton) this.stopButton.style.display = running ? "" : "none";
+    if (this.sendButton) this.sendButton.classList.toggle("agent-u-hidden", running);
+    if (this.stopButton) this.stopButton.classList.toggle("agent-u-hidden", !running);
     if (this.textarea) this.textarea.disabled = running;
     if (this.modelButton) this.modelButton.disabled = running;
   }
@@ -92743,14 +98979,14 @@ Active file in editor: ${activeFile.path}
     if (!this.chatContainer) throw new Error("Chat container not initialized");
     const messageEl = this.chatContainer.createDiv("message assistant-message message-streaming");
     const thinkingEl = messageEl.createDiv("thinking-block");
-    thinkingEl.style.display = "none";
+    thinkingEl.classList.add("agent-u-hidden");
     const toolsEl = messageEl.createDiv("message-tools");
     const contentEl = messageEl.createDiv("message-content");
     const loadingEl = contentEl.createDiv("message-loading");
     (0, import_obsidian6.setIcon)(loadingEl.createSpan("message-loading-icon"), "loader");
     loadingEl.createSpan("message-loading-text").setText(t("ui.sidebar.working"));
     const footerEl = messageEl.createDiv("message-footer");
-    footerEl.style.display = "none";
+    footerEl.classList.add("agent-u-hidden");
     this.chatContainer.scrollTo({ top: this.chatContainer.scrollHeight });
     return { messageEl, thinkingEl, toolsEl, contentEl, footerEl };
   }
@@ -93094,18 +99330,18 @@ Active file in editor: ${activeFile.path}
       const r = popup.getBoundingClientRect();
       const pad = 8;
       if (r.right > window.innerWidth) {
-        popup.style.left = `${window.innerWidth - r.width - pad}px`;
+        popup.style.setProperty("left", `${window.innerWidth - r.width - pad}px`);
       }
       if (r.left < 0) {
-        popup.style.left = `${pad}px`;
+        popup.style.setProperty("left", `${pad}px`);
       }
       if (r.bottom > window.innerHeight) {
-        popup.style.top = `${window.innerHeight - r.height - pad}px`;
-        popup.style.bottom = "";
+        popup.style.setProperty("top", `${window.innerHeight - r.height - pad}px`);
+        popup.style.setProperty("bottom", "");
       }
       if (r.top < 0) {
-        popup.style.top = `${pad}px`;
-        popup.style.bottom = "";
+        popup.style.setProperty("top", `${pad}px`);
+        popup.style.setProperty("bottom", "");
       }
     });
   }
@@ -93144,8 +99380,8 @@ Active file in editor: ${activeFile.path}
       popup.appendChild(ctxEl);
     }
     const rect = anchor.getBoundingClientRect();
-    popup.style.top = `${rect.bottom + 4}px`;
-    popup.style.left = `${Math.max(4, rect.left - 40)}px`;
+    popup.style.setProperty("top", `${rect.bottom + 4}px`);
+    popup.style.setProperty("left", `${Math.max(4, rect.left - 40)}px`);
     document.body.appendChild(popup);
     this.clampPopupToViewport(popup);
     this.attachPopupCloseHandler(popup, anchor);
@@ -93182,8 +99418,8 @@ Active file in editor: ${activeFile.path}
       popup.appendChild(row);
     }
     const rect = anchor.getBoundingClientRect();
-    popup.style.bottom = `${window.innerHeight - rect.top + 4}px`;
-    popup.style.left = `${rect.left}px`;
+    popup.style.setProperty("bottom", `${window.innerHeight - rect.top + 4}px`);
+    popup.style.setProperty("left", `${rect.left}px`);
     document.body.appendChild(popup);
     this.clampPopupToViewport(popup);
     this.attachPopupCloseHandler(popup, anchor);
@@ -93469,7 +99705,7 @@ Active file in editor: ${activeFile.path}
       text: t("ui.checkpoint.restore")
     });
     restoreBtn.addEventListener("click", () => {
-      restoreBtn.style.display = "none";
+      restoreBtn.classList.add("agent-u-hidden");
       const options = marker.createDiv("checkpoint-restore-options");
       const keepBtn = options.createEl("button", {
         cls: "checkpoint-option-btn",
@@ -93485,7 +99721,7 @@ Active file in editor: ${activeFile.path}
       });
       cancelBtn.addEventListener("click", () => {
         options.remove();
-        restoreBtn.style.display = "";
+        restoreBtn.classList.remove("agent-u-hidden");
       });
       keepBtn.addEventListener("click", async () => {
         await this.restoreCheckpoint(checkpoint, marker, options, false);
@@ -93503,9 +99739,9 @@ Active file in editor: ${activeFile.path}
     optionsEl.empty();
     optionsEl.setText(t("ui.checkpoint.restoring"));
     try {
-      console.log("[Checkpoint] Restoring:", JSON.stringify(checkpoint, null, 2));
+      console.debug("[Checkpoint] Restoring:", JSON.stringify(checkpoint, null, 2));
       const result = await this.plugin.checkpointService?.restore(checkpoint);
-      console.log("[Checkpoint] Result:", JSON.stringify(result, null, 2));
+      console.debug("[Checkpoint] Result:", JSON.stringify(result, null, 2));
       if (!result || result.restored.length === 0) {
         optionsEl.setText(result?.errors?.length ? t("ui.checkpoint.error") : t("ui.checkpoint.nothingToRestore"));
         return;
@@ -93696,10 +99932,10 @@ Active file in editor: ${activeFile.path}
     undoBtn.addEventListener("click", async () => {
       undoBtn.disabled = true;
       undoBtn.setText(t("ui.undo.restoring"));
-      console.log(`[Undo] Attempting restore for taskId=${taskId} hasService=${!!this.plugin.checkpointService}`);
+      console.debug(`[Undo] Attempting restore for taskId=${taskId} hasService=${!!this.plugin.checkpointService}`);
       try {
         const result = await this.plugin.checkpointService?.restoreLatestForTask(taskId);
-        console.log("[Undo] Restore result:", result);
+        console.debug("[Undo] Restore result:", result);
         bar.empty();
         if (result && result.restored.length > 0) {
           bar.createSpan("undo-success").setText(
@@ -93967,10 +100203,11 @@ async function testModelConnection(model) {
     }
   } catch (err) {
     const isOllama = model.provider === "ollama";
-    const msg = err?.message ?? "";
-    const s = err?.status;
+    const errObj = err;
+    const msg = errObj?.message ?? "";
+    const s = errObj?.status;
     const isNetworkError = !s && (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("ECONNREFUSED") || msg.includes("ERR_CONNECTION_REFUSED"));
-    if (err?.name === "AbortError") {
+    if (errObj?.name === "AbortError") {
       return {
         ok: false,
         message: isOllama ? "Connection timed out (30 s)" : "Connection timed out (8 s)",
@@ -94114,7 +100351,7 @@ async function fetchProviderModels(provider, apiKey, baseUrl, apiVersion) {
     if (modRes.status !== 200) throw new Error(`HTTP ${modRes.status} \u2014 Could not list models or deployments`);
     const modData = modRes.json;
     const models = modData.data ?? modData.value ?? [];
-    return models.map((m) => ({ id: m.id ?? m.model, label: m.id ?? m.model })).filter((m) => m.id).sort((a, b) => a.id.localeCompare(b.id));
+    return models.map((m) => ({ id: m.id ?? m.model ?? "", label: m.id ?? m.model ?? "" })).filter((m) => m.id).sort((a, b) => a.id.localeCompare(b.id));
   }
   if (provider === "anthropic") {
     if (!apiKey) throw new Error("API key required for Anthropic");
@@ -94126,7 +100363,7 @@ async function fetchProviderModels(provider, apiKey, baseUrl, apiVersion) {
     if (res2.status !== 200) throw new Error(`HTTP ${res2.status}`);
     const data3 = res2.json;
     const CHAT_RE = /^claude-/;
-    return (data3.data ?? []).filter((m) => CHAT_RE.test(m.id)).map((m) => ({ id: m.id, label: m.display_name ?? m.id })).sort((a, b) => b.id.localeCompare(a.id));
+    return (data3.data ?? []).filter((m) => CHAT_RE.test(m.id ?? "")).map((m) => ({ id: m.id, label: m.display_name ?? m.id })).sort((a, b) => b.id.localeCompare(a.id));
   }
   if (provider === "openai") {
     if (!apiKey) throw new Error("API key required for OpenAI");
@@ -94139,7 +100376,7 @@ async function fetchProviderModels(provider, apiKey, baseUrl, apiVersion) {
     const data3 = res2.json;
     const CHAT_RE = /^(gpt-|o[1-9]|chatgpt-|codex-)/;
     const EXCLUDE_RE = /-(instruct|vision-preview|0314|0301|0613|0914|32k)$|:ft-/;
-    return (data3.data ?? []).filter((m) => CHAT_RE.test(m.id) && !EXCLUDE_RE.test(m.id)).map((m) => ({ id: m.id, label: m.id })).sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+    return (data3.data ?? []).filter((m) => CHAT_RE.test(m.id ?? "") && !EXCLUDE_RE.test(m.id ?? "")).sort((a, b) => (b.created ?? 0) - (a.created ?? 0)).map((m) => ({ id: m.id, label: m.id }));
   }
   if (provider === "openrouter") {
     const headers2 = apiKey ? { "Authorization": `Bearer ${apiKey}` } : {};
@@ -94383,7 +100620,8 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
           });
         }
       } catch (e) {
-        const errMsg = e?.message ?? (e?.status ? `HTTP ${e.status}` : String(e));
+        const errObj = e;
+        const errMsg = errObj?.message ?? (errObj?.status ? `HTTP ${errObj.status}` : String(e));
         new import_obsidian8.Notice(t("modal.modelConfig.fetchFailed", { error: errMsg }));
       } finally {
         fetchBtn.disabled = false;
@@ -94482,7 +100720,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
       });
     }
     this.testResultEl = form.createDiv("mcm-test-result");
-    this.testResultEl.style.display = "none";
+    this.testResultEl.classList.add("agent-u-hidden");
     this.updateFieldVisibility();
   }
   buildActions(el) {
@@ -94497,16 +100735,16 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
   updateFieldVisibility() {
     if (!this.apiKeyRow || !this.baseUrlRow || !this.providerGuideEl) return;
     const p = this.formProvider;
-    this.apiKeyRow.style.display = p === "ollama" || p === "lmstudio" ? "none" : "";
-    this.baseUrlRow.style.display = p === "anthropic" || p === "openai" || p === "openrouter" ? "none" : "";
-    if (this.apiVersionRow) this.apiVersionRow.style.display = p === "azure" ? "" : "none";
-    if (this.ollamaBrowserRow) this.ollamaBrowserRow.style.display = p === "ollama" ? "" : "none";
-    if (this.customBrowserRow) this.customBrowserRow.style.display = p === "custom" || p === "lmstudio" ? "" : "none";
+    this.apiKeyRow.classList.toggle("agent-u-hidden", p === "ollama" || p === "lmstudio");
+    this.baseUrlRow.classList.toggle("agent-u-hidden", p === "openai" || p === "openrouter");
+    if (this.apiVersionRow) this.apiVersionRow.classList.toggle("agent-u-hidden", p !== "azure");
+    if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle("agent-u-hidden", p !== "ollama");
+    if (this.customBrowserRow) this.customBrowserRow.classList.toggle("agent-u-hidden", p !== "custom" && p !== "lmstudio");
     const suggestions = this.forEmbedding ? EMBEDDING_SUGGESTIONS[p] ?? [] : MODEL_SUGGESTIONS[p] ?? [];
     const hasStaticSuggestions = suggestions.length > 0;
     const hasFetchFetch = this.forEmbedding ? p === "openai" || p === "openrouter" || p === "ollama" || p === "lmstudio" || p === "custom" : p === "anthropic" || p === "openai" || p === "openrouter" || p === "lmstudio";
     if (this.suggestRow) {
-      this.suggestRow.style.display = hasStaticSuggestions || hasFetchFetch ? "" : "none";
+      this.suggestRow.classList.toggle("agent-u-hidden", !hasStaticSuggestions && !hasFetchFetch);
       if (this.suggestSelEl) {
         while (this.suggestSelEl.options.length > 1) this.suggestSelEl.remove(1);
         this.suggestSelEl.querySelectorAll("optgroup").forEach((og) => og.remove());
@@ -94524,7 +100762,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
         });
         this.suggestSelEl.selectedIndex = 0;
         const fetchBtn = this.suggestRow.querySelector(".mcm-fetch-btn");
-        if (fetchBtn) fetchBtn.style.display = hasFetchFetch ? "" : "none";
+        if (fetchBtn) fetchBtn.classList.toggle("agent-u-hidden", !hasFetchFetch);
       }
     }
     if (this.apiKeyDescEl) {
@@ -94568,21 +100806,21 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
       if (this.temperatureValueEl) this.temperatureValueEl.setText("1.00");
       if (this.temperatureNoteEl) {
         this.temperatureNoteEl.setText(t("modal.modelConfig.temperatureFixed"));
-        this.temperatureNoteEl.style.display = "";
+        this.temperatureNoteEl.classList.remove("agent-u-hidden");
       }
       this.temperatureRow.querySelectorAll("input[type=checkbox]").forEach((el) => {
         el.checked = false;
         el.disabled = true;
       });
     } else {
-      if (this.temperatureNoteEl) this.temperatureNoteEl.style.display = "none";
+      if (this.temperatureNoteEl) this.temperatureNoteEl.classList.add("agent-u-hidden");
       this.temperatureRow.querySelectorAll("input[type=checkbox]").forEach((el) => {
         el.disabled = false;
       });
       this.temperatureSliderEl.disabled = !this.formTemperatureEnabled;
     }
     const sliderWrap = this.temperatureSliderEl.closest(".mcm-temperature-slider-wrap");
-    if (sliderWrap) sliderWrap.style.display = this.formTemperatureEnabled ? "" : "none";
+    if (sliderWrap) sliderWrap.classList.toggle("agent-u-hidden", !this.formTemperatureEnabled);
   }
   renderProviderGuide(container, provider) {
     const guide = container.createDiv("mcm-guide-inner");
@@ -94659,7 +100897,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     (0, import_obsidian8.setIcon)(browseBtn.createSpan("mcm-browse-icon"), "list");
     const browseLabelEl = browseBtn.createSpan({ text: t("modal.modelConfig.browseInstalled") });
     const listEl = container.createDiv("mcm-model-list");
-    listEl.style.display = "none";
+    listEl.classList.add("agent-u-hidden");
     browseBtn.addEventListener("click", async () => {
       browseBtn.disabled = true;
       browseLabelEl.setText(t("modal.modelConfig.loadingModels"));
@@ -94667,7 +100905,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
       try {
         const baseUrl = this.formBaseUrl || "http://localhost:11434";
         const models = await fetchOllamaModels(baseUrl);
-        listEl.style.display = "";
+        listEl.classList.remove("agent-u-hidden");
         if (models.length === 0) {
           listEl.createDiv({ cls: "mcm-model-empty", text: t("modal.modelConfig.noModelsOllama") });
         } else {
@@ -94684,7 +100922,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
           });
         }
       } catch {
-        listEl.style.display = "";
+        listEl.classList.remove("agent-u-hidden");
         listEl.createDiv({
           cls: "mcm-model-empty",
           text: t("modal.modelConfig.ollamaUnreachable")
@@ -94700,14 +100938,14 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     (0, import_obsidian8.setIcon)(browseBtn.createSpan("mcm-browse-icon"), "list");
     const browseLabelEl = browseBtn.createSpan({ text: t("modal.modelConfig.browseAvailable") });
     const listEl = container.createDiv("mcm-model-list");
-    listEl.style.display = "none";
+    listEl.classList.add("agent-u-hidden");
     browseBtn.addEventListener("click", async () => {
       browseBtn.disabled = true;
       browseLabelEl.setText(t("modal.modelConfig.loadingModels"));
       listEl.empty();
       try {
         const models = await fetchProviderModels("custom", this.formApiKey, this.formBaseUrl || void 0);
-        listEl.style.display = "";
+        listEl.classList.remove("agent-u-hidden");
         if (models.length === 0) {
           listEl.createDiv({ cls: "mcm-model-empty", text: t("modal.modelConfig.noModelsUrl") });
         } else {
@@ -94724,7 +100962,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
           });
         }
       } catch (e) {
-        listEl.style.display = "";
+        listEl.classList.remove("agent-u-hidden");
         const errMsg = e?.message ?? "Unknown error";
         listEl.createDiv({
           cls: "mcm-model-empty",
@@ -94751,7 +100989,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     }
     this.testBtn.disabled = true;
     this.testBtn.setText(t("modal.modelConfig.testing"));
-    this.testResultEl.style.display = "none";
+    this.testResultEl.classList.add("agent-u-hidden");
     const res = this.forEmbedding ? await testEmbeddingConnection(m) : await testModelConnection(m);
     this.testBtn.disabled = false;
     this.testBtn.setText(t("modal.modelConfig.testConnection"));
@@ -94760,7 +100998,7 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
   showTestResult(ok, msg, detail) {
     if (!this.testResultEl) return;
     this.testResultEl.empty();
-    this.testResultEl.style.display = "";
+    this.testResultEl.classList.remove("agent-u-hidden");
     this.testResultEl.className = `mcm-test-result ${ok ? "mcm-ok" : "mcm-err"}`;
     const header = this.testResultEl.createDiv("mcm-result-header");
     (0, import_obsidian8.setIcon)(header.createSpan("mcm-result-icon"), ok ? "check-circle" : "x-circle");
@@ -95121,9 +101359,9 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     const parseBtn = parseRow.createEl("button", { cls: "cim-parse-btn", text: t("modal.codeImport.parse") });
     parseBtn.addEventListener("click", () => this.runParse(textarea.value));
     this.previewEl = contentEl.createDiv("cim-preview");
-    this.previewEl.style.display = "none";
+    this.previewEl.classList.add("agent-u-hidden");
     this.warningsEl = contentEl.createDiv("cim-warnings");
-    this.warningsEl.style.display = "none";
+    this.warningsEl.classList.add("agent-u-hidden");
     const akRow = contentEl.createDiv("cim-apikey-row");
     akRow.createDiv({ cls: "cim-apikey-label", text: t("modal.codeImport.apiKey") });
     akRow.createDiv({
@@ -95183,11 +101421,11 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     this.parsed = null;
     if (this.previewEl) {
       this.previewEl.empty();
-      this.previewEl.style.display = "none";
+      this.previewEl.classList.add("agent-u-hidden");
     }
     if (this.warningsEl) {
       this.warningsEl.empty();
-      this.warningsEl.style.display = "none";
+      this.warningsEl.classList.add("agent-u-hidden");
     }
     if (this.importBtn) {
       this.importBtn.disabled = true;
@@ -95196,7 +101434,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     if (this.testBtn) this.testBtn.disabled = true;
     if (this.testResultEl) {
       this.testResultEl.empty();
-      this.testResultEl.style.display = "none";
+      this.testResultEl.classList.add("agent-u-hidden");
     }
   }
   updateTemperatureDefaults() {
@@ -95205,15 +101443,15 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     const models = this.parsed.modelNames;
     if (!provider || models.length === 0) return;
     const firstModel = models[0];
-    const defaults = getModelDefaults(firstModel, provider);
-    if (defaults.temperatureFixed && defaults.temperature !== void 0) {
-      this.temperatureInput = defaults.temperature;
+    const defaults2 = getModelDefaults(firstModel, provider);
+    if (defaults2.temperatureFixed && defaults2.temperature !== void 0) {
+      this.temperatureInput = defaults2.temperature;
       if (this.tempInputEl) {
-        this.tempInputEl.value = String(defaults.temperature);
+        this.tempInputEl.value = String(defaults2.temperature);
         this.tempInputEl.disabled = true;
       }
       if (this.tempNoteEl) {
-        this.tempNoteEl.setText(defaults.note ?? t("modal.codeImport.temperatureFixed", { temperature: String(defaults.temperature) }));
+        this.tempNoteEl.setText(defaults2.note ?? t("modal.codeImport.temperatureFixed", { temperature: String(defaults2.temperature) }));
         this.tempNoteEl.addClass("cim-temp-fixed");
       }
     } else {
@@ -95234,7 +101472,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     this.previewEl.empty();
     this.warningsEl.empty();
     const hasAnything = p.provider || p.baseUrl || p.modelNames.length > 0;
-    this.previewEl.style.display = hasAnything ? "" : "none";
+    this.previewEl.classList.toggle("agent-u-hidden", !hasAnything);
     if (!hasAnything) {
       this.updateImportButton();
       return;
@@ -95249,7 +101487,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
         cls: "provider-badge",
         text: PROVIDER_LABELS[p.provider] ?? p.provider
       });
-      badge.style.background = PROVIDER_COLORS[p.provider] ?? "#607d8b";
+      badge.style.setProperty("background", PROVIDER_COLORS[p.provider] ?? "#607d8b");
     } else {
       const sel = header.createEl("select", { cls: "cim-provider-sel" });
       sel.createEl("option", { value: "", text: t("modal.codeImport.selectProviderDropdown") });
@@ -95276,7 +101514,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     }
     this.renderModelList(box);
     if (p.warnings.length > 0) {
-      this.warningsEl.style.display = "";
+      this.warningsEl.classList.remove("agent-u-hidden");
       for (const w of p.warnings) {
         const wEl = this.warningsEl.createDiv("cim-warning-item");
         const wIcon = wEl.createSpan("cim-warning-icon");
@@ -95284,7 +101522,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
         wEl.createSpan({ text: w });
       }
     } else {
-      this.warningsEl.style.display = "none";
+      this.warningsEl.classList.add("agent-u-hidden");
     }
     this.updateImportButton();
   }
@@ -95311,9 +101549,9 @@ var CodeImportModal = class extends import_obsidian9.Modal {
         item.createSpan({ cls: "cim-model-dup", text: t("modal.codeImport.duplicate") });
       }
       if (effectiveProvider) {
-        const defaults = getModelDefaults(name, effectiveProvider);
-        if (defaults.note) {
-          item.createSpan({ cls: "cim-model-note", text: defaults.note });
+        const defaults2 = getModelDefaults(name, effectiveProvider);
+        if (defaults2.note) {
+          item.createSpan({ cls: "cim-model-note", text: defaults2.note });
         }
       }
     }
@@ -95344,7 +101582,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
     const models = this.parsed.modelNames;
     if (!provider || models.length === 0) return;
     const firstName = models[0];
-    const defaults = getModelDefaults(firstName, provider);
+    const defaults2 = getModelDefaults(firstName, provider);
     const testModel = {
       name: firstName,
       provider,
@@ -95354,13 +101592,13 @@ var CodeImportModal = class extends import_obsidian9.Modal {
       apiVersion: this.parsed.apiVersion || void 0,
       enabled: true,
       isBuiltIn: false,
-      maxTokens: defaults.maxTokens,
-      temperature: defaults.temperatureFixed ? defaults.temperature : this.temperatureInput
+      maxTokens: defaults2.maxTokens,
+      temperature: defaults2.temperatureFixed ? defaults2.temperature : this.temperatureInput
     };
     this.testBtn.disabled = true;
     this.testBtn.setText(t("modal.codeImport.testingConnection"));
     this.testResultEl.empty();
-    this.testResultEl.style.display = "";
+    this.testResultEl.classList.remove("agent-u-hidden");
     this.testResultEl.className = "cim-test-result";
     try {
       const result = await testModelConnection(testModel);
@@ -95413,8 +101651,8 @@ var CodeImportModal = class extends import_obsidian9.Modal {
       return;
     }
     const models = modelNames.map((name) => {
-      const defaults = getModelDefaults(name, provider);
-      const temperature = defaults.temperatureFixed ? defaults.temperature : this.temperatureInput;
+      const defaults2 = getModelDefaults(name, provider);
+      const temperature = defaults2.temperatureFixed ? defaults2.temperature : this.temperatureInput;
       return {
         name,
         provider,
@@ -95424,7 +101662,7 @@ var CodeImportModal = class extends import_obsidian9.Modal {
         apiVersion: this.parsed.apiVersion || void 0,
         enabled: true,
         isBuiltIn: false,
-        maxTokens: defaults.maxTokens,
+        maxTokens: defaults2.maxTokens,
         temperature
       };
     });
@@ -95507,7 +101745,7 @@ var ModelsTab = class {
     nameEl.createSpan({ text: model.displayName ?? model.name, cls: "mc-name-text" });
     const provEl = row.createDiv("mc-provider");
     const badge = provEl.createSpan({ cls: "provider-badge", text: PROVIDER_LABELS[model.provider] ?? model.provider });
-    badge.style.background = PROVIDER_COLORS[model.provider] ?? "#607d8b";
+    badge.style.setProperty("background", PROVIDER_COLORS[model.provider] ?? "#607d8b");
     const keyEl = row.createDiv("mc-key");
     const keyIcon = keyEl.createSpan("mc-key-icon");
     (0, import_obsidian10.setIcon)(keyIcon, hasKey ? "check" : "minus");
@@ -95655,20 +101893,18 @@ var EmbeddingsTab = class {
       text: t("settings.embeddings.indexDesc", { embModelDesc })
     });
     if (!activeEmbModel) {
-      const guide = containerEl.createDiv({ cls: "setting-item-description" });
-      guide.style.marginBottom = "12px";
-      guide.style.padding = "8px 12px";
-      guide.style.borderLeft = "3px solid var(--interactive-accent)";
-      guide.style.background = "var(--background-secondary)";
-      guide.style.borderRadius = "4px";
-      guide.innerHTML = [
-        `<strong>${t("settings.embeddings.quickSetupTitle")}</strong>`,
-        t("settings.embeddings.quickSetupStep1"),
-        t("settings.embeddings.quickSetupStep2"),
-        t("settings.embeddings.quickSetupStep3"),
-        "",
-        `<strong>${t("settings.embeddings.quickSetupFreeTitle")}</strong> ${t("settings.embeddings.quickSetupFreeDesc")}`
-      ].join("<br>");
+      const guide = containerEl.createDiv({ cls: "setting-item-description agent-embed-guide" });
+      guide.createEl("strong", { text: t("settings.embeddings.quickSetupTitle") });
+      guide.createEl("br");
+      guide.appendText(t("settings.embeddings.quickSetupStep1"));
+      guide.createEl("br");
+      guide.appendText(t("settings.embeddings.quickSetupStep2"));
+      guide.createEl("br");
+      guide.appendText(t("settings.embeddings.quickSetupStep3"));
+      guide.createEl("br");
+      guide.createEl("br");
+      guide.createEl("strong", { text: t("settings.embeddings.quickSetupFreeTitle") });
+      guide.appendText(" " + t("settings.embeddings.quickSetupFreeDesc"));
     }
     const getIdx = () => this.plugin.semanticIndex;
     let statusEl;
@@ -95680,7 +101916,7 @@ var EmbeddingsTab = class {
         await this.plugin.saveSettings();
         if (v) {
           const { SemanticIndexService: SemanticIndexService2 } = await Promise.resolve().then(() => (init_SemanticIndexService(), SemanticIndexService_exports));
-          const pluginDir = `.obsidian/plugins/${this.plugin.manifest.id}`;
+          const pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
           const svc = new SemanticIndexService2(this.plugin.app.vault, pluginDir);
           const embModel = this.plugin.getActiveEmbeddingModel();
           if (embModel) svc.setEmbeddingModel(embModel);
@@ -95944,7 +102180,7 @@ var EmbeddingsTab = class {
     row.createDiv("mc-name").createSpan({ text: model.displayName ?? model.name, cls: "mc-name-text" });
     const provEl = row.createDiv("mc-provider");
     const badge = provEl.createSpan({ cls: "provider-badge", text: PROVIDER_LABELS[model.provider] ?? model.provider });
-    badge.style.background = PROVIDER_COLORS[model.provider] ?? "#607d8b";
+    badge.style.setProperty("background", PROVIDER_COLORS[model.provider] ?? "#607d8b");
     const keyEl = row.createDiv("mc-key");
     const keyIcon = keyEl.createSpan("mc-key-icon");
     (0, import_obsidian13.setIcon)(keyIcon, hasKey ? "check" : "minus");
@@ -96077,7 +102313,6 @@ var WebSearchTab = class {
 
 // src/ui/settings/ModesTab.ts
 var import_obsidian17 = require("obsidian");
-init_builtinModes();
 
 // src/ui/settings/SystemPromptPreviewModal.ts
 var import_obsidian15 = require("obsidian");
@@ -96095,7 +102330,7 @@ var SystemPromptPreviewModal = class extends import_obsidian15.Modal {
     contentEl.addClass("system-prompt-preview-modal");
     contentEl.createEl("h2", { text: t("modal.promptPreview.title", { mode: this.modeName }) });
     const copyBtn = contentEl.createEl("button", { text: t("modal.promptPreview.copy"), cls: "mod-cta" });
-    copyBtn.style.marginBottom = "12px";
+    copyBtn.classList.add("agent-u-mb-12");
     copyBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(this.prompt);
       copyBtn.setText(t("modal.promptPreview.copied"));
@@ -96111,7 +102346,6 @@ var SystemPromptPreviewModal = class extends import_obsidian15.Modal {
 
 // src/ui/settings/NewModeModal.ts
 var import_obsidian16 = require("obsidian");
-init_builtinModes();
 init_i18n();
 var NewModeModal = class extends import_obsidian16.Modal {
   plugin;
@@ -96302,7 +102536,7 @@ var ModesTab = class {
     const builtInSlugs = new Set(BUILT_IN_MODES.map((m) => m.slug));
     const getAllModes = () => [
       ...BUILT_IN_MODES,
-      ...this.plugin.modeService?.getGlobalModes?.() ?? [],
+      ...this.modeService?.getGlobalModes?.() ?? [],
       ...this.plugin.settings.customModes.filter(
         (m) => m.source === "vault" && !m.slug.endsWith("__custom") && !builtInSlugs.has(m.slug)
       )
@@ -96317,7 +102551,7 @@ var ModesTab = class {
       select2.empty();
       const groups = [
         { label: t("settings.modes.groupBuiltIn"), modes: BUILT_IN_MODES },
-        { label: t("settings.modes.groupGlobal"), modes: this.plugin.modeService?.getGlobalModes?.() ?? [] },
+        { label: t("settings.modes.groupGlobal"), modes: this.modeService?.getGlobalModes?.() ?? [] },
         { label: t("settings.modes.groupVault"), modes: this.plugin.settings.customModes.filter((m) => m.source === "vault" && !m.slug.endsWith("__custom") && !builtInSlugs.has(m.slug)) }
       ];
       for (const group of groups) {
@@ -96344,7 +102578,7 @@ var ModesTab = class {
       const vaultCustom = !builtIn ? this.plugin.settings.customModes.find(
         (m) => m.slug === slug && m.source === "vault"
       ) : void 0;
-      const globalMode = !builtIn && !vaultCustom ? (this.plugin.modeService?.getGlobalModes?.() ?? []).find(
+      const globalMode = !builtIn && !vaultCustom ? (this.modeService?.getGlobalModes?.() ?? []).find(
         (m) => m.slug === slug
       ) : void 0;
       const mode = vaultOverride ?? builtIn ?? vaultCustom ?? globalMode;
@@ -96368,7 +102602,7 @@ var ModesTab = class {
       const saveMode = async () => {
         if (isGlobal) {
           await GlobalModeStore.updateMode(globalMode);
-          await this.plugin.modeService?.reloadGlobalModes?.();
+          await this.modeService?.reloadGlobalModes?.();
         } else {
           await this.plugin.saveSettings();
         }
@@ -96507,13 +102741,13 @@ var ModesTab = class {
             }
             toolCb.addEventListener("change", async () => {
               const allGroupTools = meta.tools;
-              let allActiveTools = this.plugin.settings.modeToolOverrides?.[slug] ?? this.plugin.modeService?.getToolNames(mode) ?? [];
+              let allActiveTools = this.plugin.settings.modeToolOverrides?.[slug] ?? this.modeService?.getToolNames(mode) ?? [];
               if (toolCb.checked) {
                 if (!allActiveTools.includes(toolName)) allActiveTools = [...allActiveTools, toolName];
               } else {
                 allActiveTools = allActiveTools.filter((tn) => tn !== toolName);
               }
-              await this.plugin.modeService?.setModeToolOverride(slug, allActiveTools);
+              await this.modeService?.setModeToolOverride(slug, allActiveTools);
               badgeEl.setText(getCountBadge(group, isGroupEnabled));
             });
           }
@@ -96694,7 +102928,7 @@ var ModesTab = class {
       previewBtn.addEventListener("click", () => {
         const allModes = [
           ...BUILT_IN_MODES,
-          ...this.plugin.modeService?.getGlobalModes?.() ?? [],
+          ...this.modeService?.getGlobalModes?.() ?? [],
           ...this.plugin.settings.customModes.filter((m) => m.source === "vault" && !m.slug.endsWith("__custom"))
         ];
         const prompt = buildSystemPromptForMode(
@@ -96746,7 +102980,7 @@ var ModesTab = class {
         deleteBtn.addEventListener("click", async () => {
           if (isGlobal) {
             await GlobalModeStore.removeMode(slug);
-            await this.plugin.modeService?.reloadGlobalModes?.();
+            await this.modeService?.reloadGlobalModes?.();
           } else {
             this.plugin.settings.customModes = this.plugin.settings.customModes.filter(
               (m) => m.slug !== slug
@@ -96767,7 +103001,7 @@ var ModesTab = class {
       renderForm(selectedSlug);
     });
     newBtn.addEventListener("click", () => {
-      new NewModeModal(this.app, this.plugin, () => this.rerender(), this.plugin.modeService).open();
+      new NewModeModal(this.app, this.plugin, () => this.rerender(), this.modeService).open();
     });
     importBtn.addEventListener("click", () => {
       const input = document.createElement("input");
@@ -96782,17 +103016,18 @@ var ModesTab = class {
             new import_obsidian17.Notice(t("settings.modes.fileTooLarge"));
             return;
           }
-          let parsed;
+          let raw;
           try {
-            parsed = JSON.parse(text3);
+            raw = JSON.parse(text3);
           } catch {
             new import_obsidian17.Notice(t("settings.modes.invalidJson"));
             return;
           }
-          if (!parsed || typeof parsed !== "object" || typeof parsed.slug !== "string" || typeof parsed.name !== "string" || typeof parsed.roleDefinition !== "string") {
+          if (!raw || typeof raw !== "object" || typeof raw.slug !== "string" || typeof raw.name !== "string" || typeof raw.roleDefinition !== "string") {
             new import_obsidian17.Notice(t("settings.modes.invalidMode"));
             return;
           }
+          const parsed = raw;
           parsed.source = "vault";
           const allSlugs = [
             ...BUILT_IN_MODES.map((m) => m.slug),
@@ -96977,7 +103212,7 @@ var LoopTab = class {
       (t2) => t2.setValue(this.plugin.settings.advancedApi.condensingEnabled ?? false).onChange(async (v) => {
         this.plugin.settings.advancedApi.condensingEnabled = v;
         await this.plugin.saveSettings();
-        thresholdSetting.settingEl.style.display = v ? "" : "none";
+        thresholdSetting.settingEl.classList.toggle("agent-u-hidden", !v);
       })
     );
     const thresholdSetting = new import_obsidian19.Setting(containerEl).setName(t("settings.loop.condensingThreshold")).setDesc(t("settings.loop.condensingThresholdDesc")).addSlider(
@@ -96986,7 +103221,10 @@ var LoopTab = class {
         await this.plugin.saveSettings();
       })
     );
-    thresholdSetting.settingEl.style.display = this.plugin.settings.advancedApi.condensingEnabled ?? false ? "" : "none";
+    thresholdSetting.settingEl.classList.toggle(
+      "agent-u-hidden",
+      !(this.plugin.settings.advancedApi.condensingEnabled ?? false)
+    );
     containerEl.createEl("h3", { cls: "agent-settings-section", text: t("settings.loop.headingPowerSteering") });
     const powerSteeringSetting = new import_obsidian19.Setting(containerEl).setName(t("settings.loop.powerSteeringFreq")).setDesc(t("settings.loop.powerSteeringFreqDesc"));
     addInfoButton(powerSteeringSetting, this.app, t("settings.loop.infoPowerSteeringTitle"), t("settings.loop.infoPowerSteeringBody"));
@@ -97060,8 +103298,8 @@ var ContentEditorModal = class extends import_obsidian20.Modal {
 var RulesLoader = class {
   fs;
   rulesDir;
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.rulesDir = "rules";
   }
   /**
@@ -97723,7 +103961,6 @@ keywords: []
 
 // src/ui/settings/PromptsTab.ts
 var import_obsidian24 = require("obsidian");
-init_builtinModes();
 init_i18n();
 var PromptsTab = class {
   constructor(plugin, app, rerender) {
@@ -97786,7 +104023,7 @@ var PromptsTab = class {
       fileInput.click();
     });
     const formEl = containerEl.createDiv({ cls: "agent-prompt-form" });
-    formEl.style.display = "none";
+    formEl.classList.add("agent-u-hidden");
     const formTitle = formEl.createEl("p", { cls: "agent-prompt-form-title", text: t("settings.prompts.newPrompt") });
     const formNameInput = formEl.createEl("input", {
       type: "text",
@@ -97833,11 +104070,11 @@ var PromptsTab = class {
       slugInput.value = prompt?.slug ?? "";
       contentInput.value = prompt?.content ?? "";
       modeSelect.value = prompt?.mode ?? "";
-      formEl.style.display = "";
+      formEl.classList.remove("agent-u-hidden");
       formNameInput.focus();
     };
     cancelBtn.addEventListener("click", () => {
-      formEl.style.display = "none";
+      formEl.classList.add("agent-u-hidden");
       editingId = null;
     });
     saveBtn.addEventListener("click", async () => {
@@ -97854,7 +104091,7 @@ var PromptsTab = class {
         prompts.push({ id: `custom-${Date.now()}`, name, slug, content, enabled: true, mode });
       }
       await savePrompts(prompts);
-      formEl.style.display = "none";
+      formEl.classList.add("agent-u-hidden");
       editingId = null;
       renderList();
     });
@@ -98059,8 +104296,8 @@ var McpTab = class {
       headersInput.value = Object.entries(editConfig?.headers ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
       const updateSections = () => {
         const isStdio = typeSelect.value === "stdio";
-        stdioSection.style.display = isStdio ? "" : "none";
-        urlSection.style.display = isStdio ? "none" : "";
+        stdioSection.classList.toggle("agent-u-hidden", !isStdio);
+        urlSection.classList.toggle("agent-u-hidden", isStdio);
       };
       updateSections();
       typeSelect.addEventListener("change", updateSections);
@@ -98369,8 +104606,8 @@ var LogTab = class {
       }
     }
   }
-  truncate(str, maxLen) {
-    return str.length > maxLen ? str.slice(0, maxLen) + "..." : str;
+  truncate(str2, maxLen) {
+    return str2.length > maxLen ? str2.slice(0, maxLen) + "..." : str2;
   }
 };
 
@@ -99411,7 +105648,7 @@ var AgentSettingsTab = class extends import_obsidian34.PluginSettingTab {
     );
     const content = container.createDiv({ cls: "agent-settings-subcontent" });
     const rerender = () => this.display();
-    const ms = this.plugin.modeService;
+    const ms = void 0;
     if (this.activeAgentSubTab === "modes") new ModesTab(this.plugin, this.app, rerender, ms).build(content);
     if (this.activeAgentSubTab === "permissions") new PermissionsTab(this.plugin, this.app, rerender).build(content);
     if (this.activeAgentSubTab === "loop") new LoopTab(this.plugin, this.app, rerender).build(content);
@@ -99801,7 +106038,8 @@ var WriteFileTool = class extends BaseTool {
       if (content === void 0 || content === null) {
         throw new Error("Content parameter is required");
       }
-      if (path3.startsWith(".obsidian/") || path3.startsWith(".obsidian-agent/")) {
+      const cfgDir = this.app.vault.configDir;
+      if (path3.startsWith(`${cfgDir}/`) || path3.startsWith(".obsidian-agent/")) {
         await this.writeViaAdapter(path3, content, callbacks);
         return;
       }
@@ -100460,7 +106698,7 @@ var SearchByTagTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { tags, match = "any", limit = 50 } = input;
+    const { tags, match = "any", limit: limit2 = 50 } = input;
     const { callbacks } = context;
     try {
       if (!tags || !Array.isArray(tags) || tags.length === 0) {
@@ -100485,7 +106723,7 @@ var SearchByTagTool = class extends BaseTool {
         const passes = match === "all" ? matchedTags.length === normalizedTags.length : matchedTags.length > 0;
         if (passes) {
           results.push({ path: file.path, matchedTags });
-          if (results.length >= limit) break;
+          if (results.length >= limit2) break;
         }
       }
       if (results.length === 0) {
@@ -100803,9 +107041,10 @@ ${content}
     }
     try {
       const periodicPlugin = this.app.plugins?.plugins?.["periodic-notes"];
-      if (periodicPlugin?.settings?.daily?.enabled) {
-        const folder = (periodicPlugin.settings.daily.folder ?? "").replace(/\/$/, "");
-        const format = (periodicPlugin.settings.daily.format ?? "YYYY-MM-DD").trim();
+      const periodicSettings = periodicPlugin?.settings;
+      if (periodicSettings?.daily?.enabled) {
+        const folder = (periodicSettings.daily.folder ?? "").replace(/\/$/, "");
+        const format = (periodicSettings.daily.format ?? "YYYY-MM-DD").trim();
         const filename = this.formatDate(date4, format);
         return folder ? `${folder}/${filename}.md` : `${filename}.md`;
       }
@@ -100869,7 +107108,7 @@ var SemanticSearchTool = class extends BaseTool {
     const { callbacks } = context;
     const query = input.query ?? "";
     const topK = Math.min(Number(input.top_k) || 8, 20);
-    const folderFilter = input.folder?.trim() || void 0;
+    const folderFilter = (input.folder ?? "").trim() || void 0;
     const tagsFilter = Array.isArray(input.tags) && input.tags.length > 0 ? input.tags.map((t2) => t2.replace(/^#/, "").toLowerCase()) : void 0;
     const sinceFilter = input.since ? new Date(input.since).getTime() : void 0;
     const hasFilter = !!(folderFilter || tagsFilter || sinceFilter);
@@ -101774,7 +108013,7 @@ var QueryBaseTool = class extends BaseTool {
     const { callbacks } = context;
     const path3 = (input.path ?? "").trim();
     const viewName = (input.view_name ?? "").trim();
-    const limit = Math.min(Number(input.limit) || 20, 100);
+    const limit2 = Math.min(Number(input.limit) || 20, 100);
     if (!path3) {
       callbacks.pushToolResult(this.formatError(new Error("path is required")));
       return;
@@ -101797,7 +108036,7 @@ var QueryBaseTool = class extends BaseTool {
           matched.push(f);
         }
       }
-      const results = matched.slice(0, limit);
+      const results = matched.slice(0, limit2);
       if (results.length === 0) {
         callbacks.pushToolResult(`No notes matched the filters in **${path3}**.`);
         return;
@@ -101820,9 +108059,9 @@ var QueryBaseTool = class extends BaseTool {
         }
         lines.push("- " + row.join(" | "));
       }
-      if (matched.length > limit) {
+      if (matched.length > limit2) {
         lines.push(`
-\u2026${matched.length - limit} more notes not shown.`);
+\u2026${matched.length - limit2} more notes not shown.`);
       }
       callbacks.pushToolResult(lines.join("\n"));
       callbacks.log(`query_base: ${path3} \u2192 ${results.length} results`);
@@ -102262,7 +108501,8 @@ ${i + 1}. **${r.title}**`);
       throw new Error(`Brave API error: HTTP ${response.status}`);
     }
     const data2 = response.json;
-    const webResults = data2?.web?.results ?? [];
+    const web = data2?.web;
+    const webResults = web?.results ?? [];
     return webResults.map((r) => ({
       title: r.title ?? "",
       url: r.url ?? "",
@@ -102468,7 +108708,6 @@ var UpdateTodoListTool = class extends BaseTool {
 };
 
 // src/core/tools/agent/SwitchModeTool.ts
-init_builtinModes();
 var SwitchModeTool = class extends BaseTool {
   name = "switch_mode";
   isWriteOperation = false;
@@ -102645,7 +108884,7 @@ var ExecuteCommandTool = class extends BaseTool {
         );
         return;
       }
-      await this.app.commands.executeCommandById(commandId);
+      this.app.commands.executeCommandById(commandId);
       const cmdName = commands[commandId]?.name ?? commandId;
       callbacks.pushToolResult(
         this.formatSuccess(`Executed command: ${cmdName} (${commandId})`)
@@ -102961,7 +109200,7 @@ var CallPluginApiTool = class extends BaseTool {
   isDynamicallyDiscovered(pluginId, method) {
     const skillRegistry = this.plugin.skillRegistry;
     if (!skillRegistry) return false;
-    const skill = skillRegistry.getSkill?.(pluginId);
+    const skill = skillRegistry.getActivePluginSkills().find((s) => s.id === pluginId);
     if (!skill) return false;
     if (skill.hasApi && Array.isArray(skill.apiMethods)) {
       return skill.apiMethods.includes(method);
@@ -102984,6 +109223,9 @@ var CallPluginApiTool = class extends BaseTool {
     return true;
   }
 };
+
+// src/core/tools/agent/ExecuteRecipeTool.ts
+var import_child_process = require("child_process");
 
 // src/core/tools/agent/recipeValidator.ts
 var path2 = __toESM(require("path"));
@@ -103069,10 +109311,9 @@ function validateRecipeParams(parameters, input, vaultRoot) {
 
 // src/core/tools/agent/ExecuteRecipeTool.ts
 async function resolveBinary(name) {
-  const { spawn: spawn2 } = require("child_process");
   const cmd = process.platform === "win32" ? "where" : "which";
   return new Promise((resolve2) => {
-    const child = spawn2(cmd, [name], {
+    const child = (0, import_child_process.spawn)(cmd, [name], {
       shell: false,
       timeout: 5e3,
       stdio: ["ignore", "pipe", "pipe"]
@@ -103219,9 +109460,8 @@ ${output}` : "");
    * S-09: Output capped, SIGKILL after timeout
    */
   spawnProcess(binaryPath, args, vaultRoot, recipe) {
-    const { spawn: spawn2 } = require("child_process");
     return new Promise((resolve2, reject) => {
-      const child = spawn2(binaryPath, args, {
+      const child = (0, import_child_process.spawn)(binaryPath, args, {
         cwd: vaultRoot,
         shell: false,
         timeout: recipe.timeout,
@@ -103846,7 +110086,7 @@ var ToolRegistry = class {
     this.register(new ExecuteRecipeTool(this.plugin));
     this.register(new UpdateSettingsTool(this.plugin));
     this.register(new ConfigureModelTool(this.plugin));
-    console.log(`ToolRegistry: Registered ${this.getToolCount()} tools`);
+    console.debug(`ToolRegistry: Registered ${this.getToolCount()} tools`);
   }
   /**
    * Register a tool
@@ -103920,13 +110160,8 @@ var IgnoreService = class _IgnoreService {
   ignorePatterns = [];
   protectedPatterns = [];
   loaded = false;
-  /** Paths always blocked regardless of config */
-  static ALWAYS_BLOCKED = [
-    ".git/",
-    ".obsidian/workspace",
-    ".obsidian/workspace.json",
-    ".obsidian/cache"
-  ];
+  /** Paths always blocked regardless of config (built from vault.configDir) */
+  alwaysBlocked;
   /** Paths always write-protected regardless of config */
   static ALWAYS_PROTECTED = [
     ".obsidian-agentignore",
@@ -103934,6 +110169,13 @@ var IgnoreService = class _IgnoreService {
   ];
   constructor(vault) {
     this.vault = vault;
+    const configDir = vault.configDir;
+    this.alwaysBlocked = [
+      ".git/",
+      `${configDir}/workspace`,
+      `${configDir}/workspace.json`,
+      `${configDir}/cache`
+    ];
   }
   /**
    * Load (or reload) ignore and protected patterns from vault root files.
@@ -103951,7 +110193,7 @@ var IgnoreService = class _IgnoreService {
   isIgnored(path3) {
     if (!this.loaded) return true;
     const normalPath = this.normalize(path3);
-    for (const blocked of _IgnoreService.ALWAYS_BLOCKED) {
+    for (const blocked of this.alwaysBlocked) {
       if (normalPath === blocked || normalPath.startsWith(blocked)) return true;
     }
     return this.matchesAnyPattern(normalPath, this.ignorePatterns);
@@ -104037,8 +110279,8 @@ var OperationLogger = class {
   logDir;
   MAX_LOG_DAYS = 30;
   MAX_RESULT_LEN = 2e3;
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.logDir = "logs";
   }
   /**
@@ -104183,7 +110425,7 @@ var OperationLogger = class {
     for (const date4 of toDelete) {
       try {
         await this.fs.remove(`${this.logDir}/${date4}.jsonl`);
-        console.log(`[OperationLogger] Rotated old log: ${date4}`);
+        console.debug(`[OperationLogger] Rotated old log: ${date4}`);
       } catch {
       }
     }
@@ -104337,7 +110579,7 @@ var GlobalMigrationService = class {
    */
   async migrateIfNeeded(migrated) {
     if (migrated) return false;
-    console.log("[GlobalMigration] Starting one-time migration to global storage...");
+    console.debug("[GlobalMigration] Starting one-time migration to global storage...");
     let migratedCount = 0;
     for (const dir of MIGRATE_DIRS) {
       const vaultPath = `${this.pluginDir}/${dir}`;
@@ -104354,7 +110596,7 @@ var GlobalMigrationService = class {
       const migrated2 = await this.migrateFile(vaultPath, file);
       if (migrated2) migratedCount++;
     }
-    console.log(`[GlobalMigration] Migration complete: ${migratedCount} files copied`);
+    console.debug(`[GlobalMigration] Migration complete: ${migratedCount} files copied`);
     await this.cleanupOldVaultFiles();
     return true;
   }
@@ -104427,7 +110669,7 @@ var GlobalMigrationService = class {
    * Errors are non-fatal — logged and skipped.
    */
   async cleanupOldVaultFiles() {
-    console.log("[GlobalMigration] Cleaning up old vault files...");
+    console.debug("[GlobalMigration] Cleaning up old vault files...");
     for (const dir of MIGRATE_DIRS) {
       await this.removeVaultDirectory(`${this.pluginDir}/${dir}`);
     }
@@ -104444,7 +110686,7 @@ var GlobalMigrationService = class {
         console.warn(`[GlobalMigration] Failed to remove ${vaultPath}:`, e);
       }
     }
-    console.log("[GlobalMigration] Old vault files cleaned up");
+    console.debug("[GlobalMigration] Old vault files cleaned up");
   }
   /**
    * Recursively remove all files in a vault directory, then remove the empty directory.
@@ -104471,7 +110713,6 @@ var GlobalMigrationService = class {
 };
 
 // src/core/storage/SyncBridge.ts
-var pathModule2 = require("path");
 var SYNC_CATEGORIES = [
   { globalDir: "memory", vaultDir: "memory", recursive: true },
   { globalDir: "history", vaultDir: "history", recursive: false },
@@ -104677,8 +110918,8 @@ var SyncBridge = class {
 var WorkflowLoader = class _WorkflowLoader {
   fs;
   workflowsDir;
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.workflowsDir = "workflows";
   }
   async initialize() {
@@ -104785,8 +111026,8 @@ ${rest}` : instructions;
 var SkillsManager = class {
   fs;
   skillsDir;
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.skillsDir = "skills";
   }
   async initialize() {
@@ -104909,6 +111150,7 @@ var SkillsManager = class {
 
 // src/core/checkpoints/GitCheckpointService.ts
 var import_isomorphic_git = __toESM(require_isomorphic_git());
+var import_fs2 = __toESM(require("fs"));
 var import_obsidian49 = require("obsidian");
 var GitCheckpointService = class {
   vault;
@@ -104940,16 +111182,16 @@ var GitCheckpointService = class {
       if (!exists) {
         await this.vault.adapter.mkdir(this.repoRelPath);
       }
-      const fs2 = this.getFs();
+      const fs3 = this.getFs();
       try {
-        await import_isomorphic_git.default.resolveRef({ fs: fs2, dir: this.repoPath, ref: "HEAD" });
+        await import_isomorphic_git.default.resolveRef({ fs: fs3, dir: this.repoPath, ref: "HEAD" });
       } catch {
         await import_isomorphic_git.default.init({
-          fs: fs2,
+          fs: fs3,
           dir: this.repoPath,
           defaultBranch: "main"
         });
-        console.log("[Checkpoints] Shadow repo initialized");
+        console.debug("[Checkpoints] Shadow repo initialized");
       }
       this.initialized = true;
     } catch (e) {
@@ -104962,9 +111204,9 @@ var GitCheckpointService = class {
    * Returns a CheckpointInfo with the commit OID.
    */
   async snapshot(taskId, filePaths, toolName) {
-    console.log(`[Checkpoints] snapshot() called: taskId=${taskId} tool=${toolName} files=${filePaths.join(", ")} initialized=${this.initialized}`);
+    console.debug(`[Checkpoints] snapshot() called: taskId=${taskId} tool=${toolName} files=${filePaths.join(", ")} initialized=${this.initialized}`);
     await this.ensureInit();
-    const fs2 = this.getFs();
+    const fs3 = this.getFs();
     const vaultRoot = this.vault.adapter.basePath;
     const staged = [];
     const newFiles = [];
@@ -104980,13 +111222,13 @@ var GitCheckpointService = class {
           this.vault.adapter.read(vaultRelPath),
           `Read ${vaultRelPath}`
         );
-        console.log(`[Checkpoints] ${vaultRelPath}: read ${content.length} chars from vault`);
+        console.debug(`[Checkpoints] ${vaultRelPath}: read ${content.length} chars from vault`);
         const destPath = `${this.repoPath}/${repoRelative}`;
         const destDir = destPath.substring(0, destPath.lastIndexOf("/"));
         await this.mkdirRecursive(destDir);
-        await fs2.promises.writeFile(destPath, content, "utf8");
-        await import_isomorphic_git.default.add({ fs: fs2, dir: this.repoPath, filepath: repoRelative });
-        console.log(`[Checkpoints] ${vaultRelPath}: staged in shadow repo`);
+        await fs3.promises.writeFile(destPath, content, "utf8");
+        await import_isomorphic_git.default.add({ fs: fs3, dir: this.repoPath, filepath: repoRelative });
+        console.debug(`[Checkpoints] ${vaultRelPath}: staged in shadow repo`);
         staged.push(vaultRelPath);
       } catch (e) {
         console.warn(`[Checkpoints] Could not snapshot ${vaultRelPath}:`, e);
@@ -105004,16 +111246,16 @@ var GitCheckpointService = class {
     let commitOid = "none";
     if (staged.length > 0) {
       commitOid = await import_isomorphic_git.default.commit({
-        fs: fs2,
+        fs: fs3,
         dir: this.repoPath,
         author: { name: "obsidian-agent", email: "agent@obsidian.local" },
         message: `checkpoint:${taskId}
 
 Files: ${staged.join(", ")}`
       });
-      console.log(`[Checkpoints] Committed ${staged.length} file(s): oid=${commitOid}`);
+      console.debug(`[Checkpoints] Committed ${staged.length} file(s): oid=${commitOid}`);
     } else {
-      console.log(`[Checkpoints] No files staged (newFiles=${newFiles.length})`);
+      console.debug(`[Checkpoints] No files staged (newFiles=${newFiles.length})`);
     }
     const info2 = {
       taskId,
@@ -105026,41 +111268,41 @@ Files: ${staged.join(", ")}`
     const list = this.taskCheckpoints.get(taskId) ?? [];
     list.push(info2);
     this.taskCheckpoints.set(taskId, list);
-    console.log(`[Checkpoints] Snapshot created for task ${taskId}: ${commitOid.substring(0, 8)} (${list.length} checkpoints total)`);
+    console.debug(`[Checkpoints] Snapshot created for task ${taskId}: ${commitOid.substring(0, 8)} (${list.length} checkpoints total)`);
     return info2;
   }
   /**
    * Restore files from a checkpoint back into the vault.
    */
   async restore(checkpoint) {
-    console.log(`[Checkpoints] restore() called: commitOid=${checkpoint.commitOid} files=${checkpoint.filesChanged.join(",")} newFiles=${checkpoint.newFiles?.join(",") ?? "none"}`);
+    console.debug(`[Checkpoints] restore() called: commitOid=${checkpoint.commitOid} files=${checkpoint.filesChanged.join(",")} newFiles=${checkpoint.newFiles?.join(",") ?? "none"}`);
     await this.ensureInit();
     if (checkpoint.commitOid === "empty") {
       return { restored: [], errors: ["No files were snapshotted"] };
     }
-    const fs2 = this.getFs();
+    const fs3 = this.getFs();
     const restored = [];
     const errors = [];
     if (checkpoint.commitOid !== "none") {
       for (const vaultRelPath of checkpoint.filesChanged) {
         try {
           const { blob } = await import_isomorphic_git.default.readBlob({
-            fs: fs2,
+            fs: fs3,
             dir: this.repoPath,
             oid: checkpoint.commitOid,
             filepath: vaultRelPath
           });
           const content = new TextDecoder().decode(blob);
-          console.log(`[Checkpoints] Restoring ${vaultRelPath}: ${content.length} chars from oid ${checkpoint.commitOid.substring(0, 8)}`);
+          console.debug(`[Checkpoints] Restoring ${vaultRelPath}: ${content.length} chars from oid ${checkpoint.commitOid.substring(0, 8)}`);
           const existingFile = this.vault.getAbstractFileByPath(vaultRelPath);
           if (existingFile) {
             if (existingFile instanceof import_obsidian49.TFile) {
               await this.vault.modify(existingFile, content);
-              console.log(`[Checkpoints] ${vaultRelPath}: restored via vault.modify`);
+              console.debug(`[Checkpoints] ${vaultRelPath}: restored via vault.modify`);
             }
           } else {
             await this.vault.adapter.write(vaultRelPath, content);
-            console.log(`[Checkpoints] ${vaultRelPath}: restored via vault.adapter.write (file was deleted)`);
+            console.debug(`[Checkpoints] ${vaultRelPath}: restored via vault.adapter.write (file was deleted)`);
           }
           restored.push(vaultRelPath);
         } catch (e) {
@@ -105084,7 +111326,7 @@ Files: ${staged.join(", ")}`
         }
       }
     }
-    console.log(`[Checkpoints] Restored ${restored.length} files for task ${checkpoint.taskId}`);
+    console.debug(`[Checkpoints] Restored ${restored.length} files for task ${checkpoint.taskId}`);
     return { restored, errors };
   }
   /**
@@ -105094,12 +111336,12 @@ Files: ${staged.join(", ")}`
     if (checkpoint.commitOid === "empty" || checkpoint.filesChanged.length === 0) {
       return "(no files snapshotted)";
     }
-    const fs2 = this.getFs();
+    const fs3 = this.getFs();
     const lines = [];
     for (const vaultRelPath of checkpoint.filesChanged) {
       try {
         const { blob } = await import_isomorphic_git.default.readBlob({
-          fs: fs2,
+          fs: fs3,
           dir: this.repoPath,
           oid: checkpoint.commitOid,
           filepath: vaultRelPath
@@ -105143,9 +111385,9 @@ Files: ${staged.join(", ")}`
     if (checkpoints && checkpoints.length > 0) {
       return this.restore(checkpoints[0]);
     }
-    const fs2 = this.getFs();
+    const fs3 = this.getFs();
     try {
-      const commits = await import_isomorphic_git.default.log({ fs: fs2, dir: this.repoPath });
+      const commits = await import_isomorphic_git.default.log({ fs: fs3, dir: this.repoPath });
       const prefix = `checkpoint:${taskId}`;
       const matches = commits.filter((c) => c.commit.message.startsWith(prefix));
       if (matches.length === 0) {
@@ -105164,7 +111406,7 @@ Files: ${staged.join(", ")}`
       for (const [vaultRelPath, oid] of fileToOid.entries()) {
         try {
           const { blob } = await import_isomorphic_git.default.readBlob({
-            fs: fs2,
+            fs: fs3,
             dir: this.repoPath,
             oid,
             filepath: vaultRelPath
@@ -105183,7 +111425,7 @@ Files: ${staged.join(", ")}`
           errors.push(`${vaultRelPath}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
-      console.log(`[Checkpoints] Restored ${restored.length} files for task ${taskId}`);
+      console.debug(`[Checkpoints] Restored ${restored.length} files for task ${taskId}`);
       return { restored, errors };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -105198,9 +111440,9 @@ Files: ${staged.join(", ")}`
     if (checkpoint.commitOid === "empty" || checkpoint.commitOid === "none") return null;
     try {
       await this.ensureInit();
-      const fs2 = this.getFs();
+      const fs3 = this.getFs();
       const { blob } = await import_isomorphic_git.default.readBlob({
-        fs: fs2,
+        fs: fs3,
         dir: this.repoPath,
         oid: checkpoint.commitOid,
         filepath: filePath
@@ -105217,7 +111459,7 @@ Files: ${staged.join(", ")}`
    */
   async cleanup(taskId) {
     if (!this.autoCleanup) return;
-    console.log(`[Checkpoints] Cleanup for task ${taskId} (repo stays lean via periodic prune)`);
+    console.debug(`[Checkpoints] Cleanup for task ${taskId} (repo stays lean via periodic prune)`);
   }
   // -------------------------------------------------------------------------
   // Private helpers
@@ -105227,7 +111469,7 @@ Files: ${staged.join(", ")}`
   }
   /** isomorphic-git fs plugin using Node's built-in fs (available in Electron) */
   getFs() {
-    return require("fs");
+    return import_fs2.default;
   }
   async withTimeout(promise, label) {
     return new Promise((resolve2, reject) => {
@@ -105248,9 +111490,9 @@ Files: ${staged.join(", ")}`
     });
   }
   async mkdirRecursive(dirPath) {
-    const fs2 = this.getFs();
+    const fs3 = this.getFs();
     try {
-      await fs2.promises.mkdir(dirPath, { recursive: true });
+      await fs3.promises.mkdir(dirPath, { recursive: true });
     } catch {
     }
   }
@@ -105278,8 +111520,8 @@ function generateId() {
   return `${date4}-${hex}`;
 }
 var ConversationStore = class {
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.dir = "history";
     this.indexPath = "history/index.json";
   }
@@ -105444,8 +111686,8 @@ Obsilo
 var MAX_CHARS_PER_FILE = 800;
 var MAX_TOTAL_CHARS = 4e3;
 var MemoryService = class {
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.memoryDir = "memory";
     this.sessionsDir = "memory/sessions";
   }
@@ -105604,8 +111846,8 @@ ${truncated}
 
 // src/core/memory/ExtractionQueue.ts
 var ExtractionQueue = class {
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.filePath = "pending-extractions.json";
   }
   items = [];
@@ -105776,7 +112018,7 @@ var SessionExtractor = class {
     }
     const summary = text3.trim();
     await this.memoryService.writeSessionSummary(item.conversationId, summary);
-    console.log(`[SessionExtractor] Saved session summary for ${item.conversationId}`);
+    console.debug(`[SessionExtractor] Saved session summary for ${item.conversationId}`);
     const semanticIndex = this.getSemanticIndex();
     if (semanticIndex?.isIndexed) {
       await semanticIndex.indexSessionSummary(item.conversationId, summary).catch(
@@ -105901,11 +112143,11 @@ ${item.transcript}`;
     }
     const result = this.parseResponse(text3.trim());
     if (!result || result.updates.length === 0) {
-      console.log("[LongTermExtractor] No updates needed for", item.conversationId);
+      console.debug("[LongTermExtractor] No updates needed for", item.conversationId);
       return;
     }
     await this.applyUpdates(result.updates);
-    console.log(`[LongTermExtractor] Applied ${result.updates.length} updates from ${item.conversationId}`);
+    console.debug(`[LongTermExtractor] Applied ${result.updates.length} updates from ${item.conversationId}`);
   }
   /**
    * Parse the LLM JSON response, tolerant of common formatting issues.
@@ -105993,13 +112235,13 @@ var NEVER = Object.freeze({
 });
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
-  function init(inst, def) {
-    var _a6;
+  function init2(inst, def) {
+    var _a7;
     Object.defineProperty(inst, "_zod", {
       value: inst._zod ?? {},
       enumerable: false
     });
-    (_a6 = inst._zod).traits ?? (_a6.traits = /* @__PURE__ */ new Set());
+    (_a7 = inst._zod).traits ?? (_a7.traits = /* @__PURE__ */ new Set());
     inst._zod.traits.add(name);
     initializer3(inst, def);
     for (const k in _.prototype) {
@@ -106014,16 +112256,16 @@ function $constructor(name, initializer3, params) {
   }
   Object.defineProperty(Definition, "name", { value: name });
   function _(def) {
-    var _a6;
+    var _a7;
     const inst = params?.Parent ? new Definition() : this;
-    init(inst, def);
-    (_a6 = inst._zod).deferred ?? (_a6.deferred = []);
+    init2(inst, def);
+    (_a7 = inst._zod).deferred ?? (_a7.deferred = []);
     for (const fn of inst._zod.deferred) {
       fn();
     }
     return inst;
   }
-  Object.defineProperty(_, "init", { value: init });
+  Object.defineProperty(_, "init", { value: init2 });
   Object.defineProperty(_, Symbol.hasInstance, {
     value: (inst) => {
       if (params?.Parent && inst instanceof params.Parent)
@@ -106057,7 +112299,7 @@ __export(util_exports, {
   assert: () => assert2,
   assertEqual: () => assertEqual,
   assertIs: () => assertIs,
-  assertNever: () => assertNever,
+  assertNever: () => assertNever3,
   assertNotEqual: () => assertNotEqual,
   assignProp: () => assignProp,
   cached: () => cached,
@@ -106107,7 +112349,7 @@ function assertNotEqual(val2) {
 }
 function assertIs(_arg) {
 }
-function assertNever(_x) {
+function assertNever3(_x) {
   throw new Error();
 }
 function assert2(_) {
@@ -106200,14 +112442,14 @@ function promiseAllObject(promisesObj) {
 }
 function randomString(length = 10) {
   const chars = "abcdefghijklmnopqrstuvwxyz";
-  let str = "";
+  let str2 = "";
   for (let i = 0; i < length; i++) {
-    str += chars[Math.floor(Math.random() * chars.length)];
+    str2 += chars[Math.floor(Math.random() * chars.length)];
   }
-  return str;
+  return str2;
 }
-function esc(str) {
-  return JSON.stringify(str);
+function esc(str2) {
+  return JSON.stringify(str2);
 }
 var captureStackTrace = Error.captureStackTrace ? Error.captureStackTrace : (..._args) => {
 };
@@ -106295,8 +112537,8 @@ var getParsedType = (data2) => {
 };
 var propertyKeyTypes = /* @__PURE__ */ new Set(["string", "number", "symbol"]);
 var primitiveTypes = /* @__PURE__ */ new Set(["string", "number", "bigint", "boolean", "symbol", "undefined"]);
-function escapeRegex2(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function escapeRegex2(str2) {
+  return str2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function clone2(inst, def, params) {
   const cl = new inst._zod.constr(def ?? inst._zod.def);
@@ -106507,8 +112749,8 @@ function aborted(x, startIndex = 0) {
 }
 function prefixIssues(path3, issues) {
   return issues.map((iss) => {
-    var _a6;
-    (_a6 = iss).path ?? (_a6.path = []);
+    var _a7;
+    (_a7 = iss).path ?? (_a7.path = []);
     iss.path.unshift(path3);
     return iss;
   });
@@ -106753,10 +112995,10 @@ var uppercase = /^[^a-z]*$/;
 
 // node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
-  var _a6;
+  var _a7;
   inst._zod ?? (inst._zod = {});
   inst._zod.def = def;
-  (_a6 = inst._zod).onattach ?? (_a6.onattach = []);
+  (_a7 = inst._zod).onattach ?? (_a7.onattach = []);
 });
 var numericOriginMap = {
   number: "number",
@@ -106822,8 +113064,8 @@ var $ZodCheckGreaterThan = /* @__PURE__ */ $constructor("$ZodCheckGreaterThan", 
 var $ZodCheckMultipleOf = /* @__PURE__ */ $constructor("$ZodCheckMultipleOf", (inst, def) => {
   $ZodCheck.init(inst, def);
   inst._zod.onattach.push((inst2) => {
-    var _a6;
-    (_a6 = inst2._zod.bag).multipleOf ?? (_a6.multipleOf = def.value);
+    var _a7;
+    (_a7 = inst2._zod.bag).multipleOf ?? (_a7.multipleOf = def.value);
   });
   inst._zod.check = (payload) => {
     if (typeof payload.value !== typeof def.value)
@@ -106916,9 +113158,9 @@ var $ZodCheckNumberFormat = /* @__PURE__ */ $constructor("$ZodCheckNumberFormat"
   };
 });
 var $ZodCheckMaxLength = /* @__PURE__ */ $constructor("$ZodCheckMaxLength", (inst, def) => {
-  var _a6;
+  var _a7;
   $ZodCheck.init(inst, def);
-  (_a6 = inst._zod.def).when ?? (_a6.when = (payload) => {
+  (_a7 = inst._zod.def).when ?? (_a7.when = (payload) => {
     const val2 = payload.value;
     return !nullish(val2) && val2.length !== void 0;
   });
@@ -106945,9 +113187,9 @@ var $ZodCheckMaxLength = /* @__PURE__ */ $constructor("$ZodCheckMaxLength", (ins
   };
 });
 var $ZodCheckMinLength = /* @__PURE__ */ $constructor("$ZodCheckMinLength", (inst, def) => {
-  var _a6;
+  var _a7;
   $ZodCheck.init(inst, def);
-  (_a6 = inst._zod.def).when ?? (_a6.when = (payload) => {
+  (_a7 = inst._zod.def).when ?? (_a7.when = (payload) => {
     const val2 = payload.value;
     return !nullish(val2) && val2.length !== void 0;
   });
@@ -106974,9 +113216,9 @@ var $ZodCheckMinLength = /* @__PURE__ */ $constructor("$ZodCheckMinLength", (ins
   };
 });
 var $ZodCheckLengthEquals = /* @__PURE__ */ $constructor("$ZodCheckLengthEquals", (inst, def) => {
-  var _a6;
+  var _a7;
   $ZodCheck.init(inst, def);
-  (_a6 = inst._zod.def).when ?? (_a6.when = (payload) => {
+  (_a7 = inst._zod.def).when ?? (_a7.when = (payload) => {
     const val2 = payload.value;
     return !nullish(val2) && val2.length !== void 0;
   });
@@ -107005,7 +113247,7 @@ var $ZodCheckLengthEquals = /* @__PURE__ */ $constructor("$ZodCheckLengthEquals"
   };
 });
 var $ZodCheckStringFormat = /* @__PURE__ */ $constructor("$ZodCheckStringFormat", (inst, def) => {
-  var _a6, _b;
+  var _a7, _b;
   $ZodCheck.init(inst, def);
   inst._zod.onattach.push((inst2) => {
     const bag = inst2._zod.bag;
@@ -107016,7 +113258,7 @@ var $ZodCheckStringFormat = /* @__PURE__ */ $constructor("$ZodCheckStringFormat"
     }
   });
   if (def.pattern)
-    (_a6 = inst._zod).check ?? (_a6.check = (payload) => {
+    (_a7 = inst._zod).check ?? (_a7.check = (payload) => {
       def.pattern.lastIndex = 0;
       if (def.pattern.test(payload.value))
         return;
@@ -107181,7 +113423,7 @@ var version2 = {
 
 // node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
-  var _a6;
+  var _a7;
   inst ?? (inst = {});
   inst._zod.def = def;
   inst._zod.bag = inst._zod.bag || {};
@@ -107196,7 +113438,7 @@ var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
     }
   }
   if (checks.length === 0) {
-    (_a6 = inst._zod).deferred ?? (_a6.deferred = []);
+    (_a7 = inst._zod).deferred ?? (_a7.deferred = []);
     inst._zod.deferred?.push(() => {
       inst._zod.run = inst._zod.parse;
     });
@@ -113524,8 +119766,8 @@ var ErrorEvent = class extends Event {
    * @param errorEventInitDict - Optional properties to include in the error event
    */
   constructor(type, errorEventInitDict) {
-    var _a6, _b;
-    super(type), this.code = (_a6 = errorEventInitDict == null ? void 0 : errorEventInitDict.code) != null ? _a6 : void 0, this.message = (_b = errorEventInitDict == null ? void 0 : errorEventInitDict.message) != null ? _b : void 0;
+    var _a7, _b;
+    super(type), this.code = (_a7 = errorEventInitDict == null ? void 0 : errorEventInitDict.code) != null ? _a7 : void 0, this.message = (_b = errorEventInitDict == null ? void 0 : errorEventInitDict.message) != null ? _b : void 0;
   }
   /**
    * Node.js "hides" the `message` and `code` properties of the `ErrorEvent` instance,
@@ -113607,7 +119849,7 @@ var scheduleReconnect_fn;
 var _reconnect;
 var EventSource = class extends EventTarget {
   constructor(url2, eventSourceInitDict) {
-    var _a6, _b;
+    var _a7, _b;
     super(), __privateAdd(this, _EventSource_instances), this.CONNECTING = 0, this.OPEN = 1, this.CLOSED = 2, __privateAdd(this, _readyState), __privateAdd(this, _url2), __privateAdd(this, _redirectUrl), __privateAdd(this, _withCredentials), __privateAdd(this, _fetch), __privateAdd(this, _reconnectInterval), __privateAdd(this, _reconnectTimer), __privateAdd(this, _lastEventId, null), __privateAdd(this, _controller), __privateAdd(this, _parser), __privateAdd(this, _onError, null), __privateAdd(this, _onMessage, null), __privateAdd(this, _onOpen, null), __privateAdd(this, _onFetchResponse, async (response) => {
       var _a22;
       __privateGet(this, _parser).reset();
@@ -113666,7 +119908,7 @@ var EventSource = class extends EventTarget {
     __privateSet(this, _parser, createParser({
       onEvent: __privateGet(this, _onEvent),
       onRetry: __privateGet(this, _onRetryChange)
-    })), __privateSet(this, _readyState, this.CONNECTING), __privateSet(this, _reconnectInterval, 3e3), __privateSet(this, _fetch, (_a6 = eventSourceInitDict == null ? void 0 : eventSourceInitDict.fetch) != null ? _a6 : globalThis.fetch), __privateSet(this, _withCredentials, (_b = eventSourceInitDict == null ? void 0 : eventSourceInitDict.withCredentials) != null ? _b : false), __privateMethod(this, _EventSource_instances, connect_fn).call(this);
+    })), __privateSet(this, _readyState, this.CONNECTING), __privateSet(this, _reconnectInterval, 3e3), __privateSet(this, _fetch, (_a7 = eventSourceInitDict == null ? void 0 : eventSourceInitDict.fetch) != null ? _a7 : globalThis.fetch), __privateSet(this, _withCredentials, (_b = eventSourceInitDict == null ? void 0 : eventSourceInitDict.withCredentials) != null ? _b : false), __privateMethod(this, _EventSource_instances, connect_fn).call(this);
   }
   /**
    * Returns the state of this EventSource object's connection. It can have the values described below.
@@ -113753,17 +119995,17 @@ connect_fn = function() {
 * @internal
 */
 getRequestOptions_fn = function() {
-  var _a6;
-  const init = {
+  var _a7;
+  const init2 = {
     // [spec] Let `corsAttributeState` be `Anonymous`…
     // [spec] …will have their mode set to "cors"…
     mode: "cors",
     redirect: "follow",
     headers: { Accept: "text/event-stream", ...__privateGet(this, _lastEventId) ? { "Last-Event-ID": __privateGet(this, _lastEventId) } : void 0 },
     cache: "no-store",
-    signal: (_a6 = __privateGet(this, _controller)) == null ? void 0 : _a6.signal
+    signal: (_a7 = __privateGet(this, _controller)) == null ? void 0 : _a7.signal
   };
-  return "window" in globalThis && (init.credentials = this.withCredentials ? "include" : "same-origin"), init;
+  return "window" in globalThis && (init2.credentials = this.withCredentials ? "include" : "same-origin"), init2;
 }, _onEvent = /* @__PURE__ */ new WeakMap(), _onRetryChange = /* @__PURE__ */ new WeakMap(), /**
 * Handles the process referred to in the EventSource specification as "failing a connection".
 *
@@ -113772,10 +120014,10 @@ getRequestOptions_fn = function() {
 * @internal
 */
 failConnection_fn = function(message, code) {
-  var _a6;
+  var _a7;
   __privateGet(this, _readyState) !== this.CLOSED && __privateSet(this, _readyState, this.CLOSED);
   const errorEvent = new ErrorEvent("error", { code, message });
-  (_a6 = __privateGet(this, _onError)) == null || _a6.call(this, errorEvent), this.dispatchEvent(errorEvent);
+  (_a7 = __privateGet(this, _onError)) == null || _a7.call(this, errorEvent), this.dispatchEvent(errorEvent);
 }, /**
 * Schedules a reconnection attempt against the EventSource endpoint.
 *
@@ -113784,12 +120026,12 @@ failConnection_fn = function(message, code) {
 * @internal
 */
 scheduleReconnect_fn = function(message, code) {
-  var _a6;
+  var _a7;
   if (__privateGet(this, _readyState) === this.CLOSED)
     return;
   __privateSet(this, _readyState, this.CONNECTING);
   const errorEvent = new ErrorEvent("error", { code, message });
-  (_a6 = __privateGet(this, _onError)) == null || _a6.call(this, errorEvent), this.dispatchEvent(errorEvent), __privateSet(this, _reconnectTimer, setTimeout(__privateGet(this, _reconnect), __privateGet(this, _reconnectInterval)));
+  (_a7 = __privateGet(this, _onError)) == null || _a7.call(this, errorEvent), this.dispatchEvent(errorEvent), __privateSet(this, _reconnectTimer, setTimeout(__privateGet(this, _reconnect), __privateGet(this, _reconnectInterval)));
 }, _reconnect = /* @__PURE__ */ new WeakMap(), /**
 * ReadyState representing an EventSource currently trying to connect
 *
@@ -113827,12 +120069,12 @@ function createFetchWithInit(baseFetch = fetch, baseInit) {
   if (!baseInit) {
     return baseFetch;
   }
-  return async (url2, init) => {
+  return async (url2, init2) => {
     const mergedInit = {
       ...baseInit,
-      ...init,
+      ...init2,
       // Headers need special handling - merge instead of replace
-      headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+      headers: init2?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init2.headers) } : baseInit.headers
     };
     return baseFetch(url2, mergedInit);
   };
@@ -114693,11 +120935,11 @@ var SSEClientTransport = class {
     return new Promise((resolve2, reject) => {
       this._eventSource = new EventSource(this._url.href, {
         ...this._eventSourceInit,
-        fetch: async (url2, init) => {
+        fetch: async (url2, init2) => {
           const headers = await this._commonHeaders();
           headers.set("Accept", "text/event-stream");
           const response = await fetchImpl(url2, {
-            ...init,
+            ...init2,
             headers
           });
           if (response.status === 401 && response.headers.has("www-authenticate")) {
@@ -114784,14 +121026,14 @@ var SSEClientTransport = class {
     try {
       const headers = await this._commonHeaders();
       headers.set("content-type", "application/json");
-      const init = {
+      const init2 = {
         ...this._requestInit,
         method: "POST",
         headers,
         body: JSON.stringify(message),
         signal: this._abortController?.signal
       };
-      const response = await (this._fetch ?? fetch)(this._endpoint, init);
+      const response = await (this._fetch ?? fetch)(this._endpoint, init2);
       if (!response.ok) {
         const text3 = await response.text().catch(() => null);
         if (response.status === 401 && this._authProvider) {
@@ -115090,14 +121332,14 @@ var StreamableHTTPClientTransport = class {
       const headers = await this._commonHeaders();
       headers.set("content-type", "application/json");
       headers.set("accept", "application/json, text/event-stream");
-      const init = {
+      const init2 = {
         ...this._requestInit,
         method: "POST",
         headers,
         body: JSON.stringify(message),
         signal: this._abortController?.signal
       };
-      const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init2);
       const sessionId = response.headers.get("mcp-session-id");
       if (sessionId) {
         this._sessionId = sessionId;
@@ -115204,13 +121446,13 @@ var StreamableHTTPClientTransport = class {
     }
     try {
       const headers = await this._commonHeaders();
-      const init = {
+      const init2 = {
         ...this._requestInit,
         method: "DELETE",
         headers,
         signal: this._abortController?.signal
       };
-      const response = await (this._fetch ?? fetch)(this._url, init);
+      const response = await (this._fetch ?? fetch)(this._url, init2);
       await response.body?.cancel();
       if (!response.ok && response.status !== 405) {
         throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
@@ -115858,7 +122100,7 @@ var VaultDNAScanner = class _VaultDNAScanner {
       if (entry.classification !== "NONE" || entry.status !== "enabled") continue;
       const newClass = this.classify(entry.id);
       if (newClass === "NONE") continue;
-      console.log(`[VaultDNA] Reclassified ${entry.id}: NONE -> ${newClass}`);
+      console.debug(`[VaultDNA] Reclassified ${entry.id}: NONE -> ${newClass}`);
       entry.classification = newClass;
       entry.skillFile = `${entry.id}.skill.md`;
       delete entry.reason;
@@ -115879,7 +122121,7 @@ var VaultDNAScanner = class _VaultDNAScanner {
     }
     if (changed) {
       await this.vault.adapter.write(this.dnaPath, JSON.stringify(this.vaultDNA, null, 2));
-      console.log(`[VaultDNA] Reclassification complete: ${this.pluginSkills.length} total skills`);
+      console.debug(`[VaultDNA] Reclassification complete: ${this.pluginSkills.length} total skills`);
     }
   }
   // ── Full Scan ────────────────────────────────────────────────────────
@@ -115913,7 +122155,7 @@ var VaultDNAScanner = class _VaultDNAScanner {
     };
     await this.vault.adapter.write(this.dnaPath, JSON.stringify(this.vaultDNA, null, 2));
     this.pluginSkills = skills;
-    console.log(`[VaultDNA] Scanned ${plugins.length} plugins (${skills.length} with skills)`);
+    console.debug(`[VaultDNA] Scanned ${plugins.length} plugins (${skills.length} with skills)`);
     return this.vaultDNA;
   }
   // ── Core Plugin Scan ─────────────────────────────────────────────────
@@ -116070,7 +122312,7 @@ var VaultDNAScanner = class _VaultDNAScanner {
         // skip private-by-convention methods
       );
       if (methods.length === 0) return null;
-      console.log(`[VaultDNA] API discovered for ${pluginId}: ${methods.length} methods (${methods.slice(0, 5).join(", ")}${methods.length > 5 ? "..." : ""})`);
+      console.debug(`[VaultDNA] API discovered for ${pluginId}: ${methods.length} methods (${methods.slice(0, 5).join(", ")}${methods.length > 5 ? "..." : ""})`);
       return methods;
     } catch (e) {
       console.warn(`[VaultDNA] API discovery failed for ${pluginId}:`, e);
@@ -116116,7 +122358,7 @@ var VaultDNAScanner = class _VaultDNAScanner {
    */
   async readPluginSettings(pluginId, source) {
     try {
-      const settingsPath = source === "core" ? `.obsidian/${pluginId}.json` : `.obsidian/plugins/${pluginId}/data.json`;
+      const settingsPath = source === "core" ? `${this.vault.configDir}/${pluginId}.json` : `${this.vault.configDir}/plugins/${pluginId}/data.json`;
       const exists = await this.vault.adapter.exists(settingsPath);
       if (!exists) return null;
       const raw = await this.vault.adapter.read(settingsPath);
@@ -116286,7 +122528,7 @@ ${commandsYaml}`] : [],
       lines.push("");
       lines.push("Note: Dynamically discovered methods require user approval for each call unless marked as safe in settings.");
     }
-    const configPath = skill.source === "core" ? `.obsidian/${skill.id}.json` : `.obsidian/plugins/${skill.id}/data.json`;
+    const configPath = skill.source === "core" ? `${this.vault.configDir}/${skill.id}.json` : `${this.vault.configDir}/plugins/${skill.id}/data.json`;
     lines.push("");
     lines.push("## Configuration File");
     lines.push("");
@@ -116355,7 +122597,7 @@ ${commandsYaml}`] : [],
       parts.push("");
       parts.push(setupHint);
     }
-    const configPath = `.obsidian/${skillId}.json`;
+    const configPath = `${this.vault.configDir}/${skillId}.json`;
     parts.push("");
     parts.push("## Configuration File");
     parts.push("");
@@ -116396,7 +122638,7 @@ ${commandsYaml}`] : [],
   async writeCorePluginReadmes() {
     for (const def of CORE_PLUGIN_DEFS) {
       const readmePath = `${this.skillsDir}/${def.id}.readme.md`;
-      const configPath = `.obsidian/${def.id}.json`;
+      const configPath = `${this.vault.configDir}/${def.id}.json`;
       const lines = [
         `# ${def.name}`,
         "",
@@ -116442,13 +122684,13 @@ ${commandsYaml}`] : [],
     const currentEnabled = new Set(this.app.plugins?.enabledPlugins ?? []);
     for (const id of currentEnabled) {
       if (!this.lastKnownEnabledSet.has(id) && id !== "obsidian-agent") {
-        console.log(`[VaultDNA] Plugin enabled: ${id}`);
+        console.debug(`[VaultDNA] Plugin enabled: ${id}`);
         await this.handlePluginEnabled(id);
       }
     }
     for (const id of this.lastKnownEnabledSet) {
       if (!currentEnabled.has(id) && id !== "obsidian-agent") {
-        console.log(`[VaultDNA] Plugin disabled: ${id}`);
+        console.debug(`[VaultDNA] Plugin disabled: ${id}`);
         await this.handlePluginDisabled(id);
       }
     }
@@ -116557,7 +122799,7 @@ ${commandsYaml}`] : [],
         for (const entry of entries) {
           if (entry.id && entry.repo) map2.set(entry.id, entry.repo);
         }
-        console.log(`[VaultDNA] Loaded plugin registry: ${map2.size} entries`);
+        console.debug(`[VaultDNA] Loaded plugin registry: ${map2.size} entries`);
       }
     } catch (e) {
       console.warn("[VaultDNA] Failed to fetch plugin registry:", e);
@@ -116583,7 +122825,7 @@ ${commandsYaml}`] : [],
       if (didFetch) fetched++;
       await new Promise((r) => setTimeout(r, 1e3));
     }
-    console.log(`[VaultDNA] README fetch complete: ${fetched} new/updated, ${skipped} skipped (not in registry)`);
+    console.debug(`[VaultDNA] README fetch complete: ${fetched} new/updated, ${skipped} skipped (not in registry)`);
   }
   async fetchPluginReadme(pluginId, repo, force = false) {
     const readmePath = `${this.skillsDir}/${pluginId}.readme.md`;
@@ -116606,7 +122848,7 @@ ${commandsYaml}`] : [],
       if (response.status === 200) {
         const readme = response.text.length > _VaultDNAScanner.README_MAX_LEN ? response.text.slice(0, _VaultDNAScanner.README_MAX_LEN) + "\n\n...[truncated]" : response.text;
         await this.vault.adapter.write(readmePath, readme);
-        console.log(`[VaultDNA] Fetched README: ${pluginId}`);
+        console.debug(`[VaultDNA] Fetched README: ${pluginId}`);
         return true;
       }
       console.warn(`[VaultDNA] README not found for ${pluginId} (${response.status})`);
@@ -116783,9 +123025,6 @@ var CapabilityGapResolver = class {
     return text3.toLowerCase().match(/\b\w{3,}\b/g) ?? [];
   }
 };
-
-// src/main.ts
-init_builtinModes();
 
 // src/core/prompts/defaultPrompts.ts
 var MEETING_SUMMARY = {
@@ -117267,8 +123506,8 @@ var RecipeStore = class {
   learnedRecipes = [];
   fs;
   recipesDir;
-  constructor(fs2) {
-    this.fs = fs2;
+  constructor(fs3) {
+    this.fs = fs3;
     this.recipesDir = "recipes";
     this.staticRecipes = STATIC_RECIPES;
   }
@@ -117488,8 +123727,8 @@ var EpisodicExtractor = class {
   episodesDir;
   getSemanticIndex;
   episodeCount = 0;
-  constructor(fs2, getSemanticIndex) {
-    this.fs = fs2;
+  constructor(fs3, getSemanticIndex) {
+    this.fs = fs3;
     this.episodesDir = "episodes";
     this.getSemanticIndex = getSemanticIndex;
   }
@@ -117598,8 +123837,8 @@ var RecipePromotionService = class {
   store;
   getApi;
   patternsDir;
-  constructor(fs2, store, getApi) {
-    this.fs = fs2;
+  constructor(fs3, store, getApi) {
+    this.fs = fs3;
     this.store = store;
     this.getApi = getApi;
     this.patternsDir = "patterns";
@@ -117683,7 +123922,7 @@ Generate a JSON object with:
         modes: []
       };
       await this.store.save(recipe);
-      console.log(`[RecipePromotion] Promoted pattern to recipe: ${recipe.name}`);
+      console.debug(`[RecipePromotion] Promoted pattern to recipe: ${recipe.name}`);
       await this.deletePattern(pattern.patternKey);
     } catch (e) {
       console.warn("[RecipePromotion] Promotion failed:", e);
@@ -117769,14 +124008,14 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
    * 6. Start semantic indexing
    */
   async onload() {
-    console.log("Loading Obsilo Agent plugin");
+    console.debug("Loading Obsilo Agent plugin");
     this.safeStorage = new SafeStorageService();
     this.globalFs = new GlobalFileService();
     this.globalSettingsService = new GlobalSettingsService(this.globalFs, this.safeStorage);
     setGlobalModeStoreFs(this.globalFs);
     await this.loadSettings();
     await initI18n(this.settings.language);
-    const pluginDir = `.obsidian/plugins/${this.manifest.id}`;
+    const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
     this.syncBridge = new SyncBridge(this.globalFs, this.app.vault, pluginDir);
     await this.syncBridge.pullFromVault().catch(
       (e) => console.warn("[Plugin] SyncBridge pull failed (non-fatal):", e)
@@ -117934,7 +124173,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
         }
       });
       if (!this.extractionQueue.isEmpty()) {
-        console.log(`[Plugin] Processing ${this.extractionQueue.size()} pending extractions from previous session`);
+        console.debug(`[Plugin] Processing ${this.extractionQueue.size()} pending extractions from previous session`);
         this.extractionQueue.processQueue().catch(
           (e) => console.warn("[Plugin] Queue processing failed (non-fatal):", e)
         );
@@ -117972,13 +124211,13 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     this.syncBridge?.pushToVault().catch(
       (e) => console.warn("[Plugin] Initial SyncBridge push failed (non-fatal):", e)
     );
-    console.log("Obsilo Agent plugin loaded successfully");
+    console.debug("Obsilo Agent plugin loaded successfully");
   }
   /**
    * Plugin cleanup
    */
   async onunload() {
-    console.log("Unloading Obsilo Agent plugin");
+    console.debug("Unloading Obsilo Agent plugin");
     await this.syncBridge?.pushToVault().catch(
       (e) => console.warn("[Plugin] SyncBridge push failed (non-fatal):", e)
     );
@@ -117986,7 +124225,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     for (const timer of this.autoIndexDebounceTimers.values()) clearTimeout(timer);
     this.autoIndexDebounceTimers.clear();
     await this.mcpClient?.disconnectAll();
-    console.log("Obsilo Agent plugin unloaded");
+    console.debug("Obsilo Agent plugin unloaded");
   }
   /**
    * Load plugin settings from disk
@@ -117995,7 +124234,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     const saved = await this.loadData() ?? {};
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
     if (!saved._globalStorageMigrated && this.globalFs) {
-      const pluginDir = `.obsidian/plugins/${this.manifest.id}`;
+      const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
       const migration = new GlobalMigrationService(this.globalFs, this.app.vault, pluginDir);
       const didMigrate = await migration.migrateIfNeeded(saved._globalStorageMigrated).catch((e) => {
         console.warn("[Plugin] Global storage migration failed (non-fatal):", e);
@@ -118095,7 +124334,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     if (this.safeStorage.isAvailable() && !saved._encrypted) {
       const hasKeys = (this.settings.activeModels ?? []).some((m) => !!m.apiKey) || (this.settings.embeddingModels ?? []).some((m) => !!m.apiKey) || !!this.settings.webTools?.braveApiKey || !!this.settings.webTools?.tavilyApiKey;
       if (hasKeys) {
-        console.log("[Plugin] Migrating API keys to encrypted storage (safeStorage)");
+        console.debug("[Plugin] Migrating API keys to encrypted storage (safeStorage)");
       }
       await this.saveData(this.encryptSettingsForSave(this.settings));
     }
@@ -118121,7 +124360,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
       }
     }
     if (changed) {
-      console.log("[Plugin] Synced vault mode overrides with built-in definitions");
+      console.debug("[Plugin] Synced vault mode overrides with built-in definitions");
       this.saveData(this.encryptSettingsForSave(this.settings));
     }
   }
@@ -118230,21 +124469,21 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     const model = this.getActiveModel();
     if (!model) {
       if (this.settings.debugMode) {
-        console.log("[Plugin] No active model configured");
+        console.debug("[Plugin] No active model configured");
       }
       this.apiHandler = null;
       return;
     }
     if ((model.provider === "anthropic" || model.provider === "openai" || model.provider === "openrouter" || model.provider === "azure") && !model.apiKey) {
       if (this.settings.debugMode) {
-        console.log("[Plugin] API key not set for active model:", getModelKey(model));
+        console.debug("[Plugin] API key not set for active model:", getModelKey(model));
       }
       this.apiHandler = null;
       return;
     }
     try {
       this.apiHandler = buildApiHandler(modelToLLMProvider(model));
-      console.log(`[Plugin] API handler initialized: ${model.displayName ?? model.name} (${model.provider})`);
+      console.debug(`[Plugin] API handler initialized: ${model.displayName ?? model.name} (${model.provider})`);
       const CLOUD_BASE_URLS = {
         anthropic: "https://api.anthropic.com",
         openai: "https://api.openai.com",
@@ -118255,7 +124494,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
       const warmupUrl = CLOUD_BASE_URLS[model.provider];
       if (warmupUrl && !this.warmupFired) {
         this.warmupFired = true;
-        fetch(warmupUrl, { method: "HEAD", signal: AbortSignal.timeout(8e3) }).catch(() => {
+        (0, import_obsidian51.requestUrl)({ url: warmupUrl, method: "HEAD", throw: false }).catch(() => {
         });
       }
     } catch (error2) {
@@ -118369,7 +124608,7 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
    * Test tool execution (Development only)
    */
   async testToolExecution() {
-    console.log("=== Testing Tool Execution ===");
+    console.debug("=== Testing Tool Execution ===");
     new import_obsidian51.Notice("Testing tool execution...");
     const pipeline = new ToolExecutionPipeline(
       this,
@@ -118381,17 +124620,17 @@ var ObsidianAgentPlugin = class extends import_obsidian51.Plugin {
     const callbacks = {
       pushToolResult: (content) => {
         results.push(content);
-        console.log("Tool result:", content);
+        console.debug("Tool result:", content);
       },
       handleError: async (toolName, error2) => {
         console.error(`Error in ${toolName}:`, error2);
       },
       log: (message) => {
-        console.log("Tool log:", message);
+        console.debug("Tool log:", message);
       }
     };
     try {
-      console.log("\n--- Test 1: Write test file ---");
+      console.debug("\n--- Test 1: Write test file ---");
       const writeTool = {
         type: "tool_use",
         id: "test-write-001",
@@ -118406,7 +124645,7 @@ All systems operational!`
         }
       };
       await pipeline.executeTool(writeTool, callbacks);
-      console.log("\n--- Test 2: Read back the test file ---");
+      console.debug("\n--- Test 2: Read back the test file ---");
       const readTool = {
         type: "tool_use",
         id: "test-read-001",
@@ -118414,9 +124653,9 @@ All systems operational!`
         input: { path: "obsidian-agent-test.md" }
       };
       const readResult = await pipeline.executeTool(readTool, callbacks);
-      console.log("Read result (content populated):", readResult.content.substring(0, 100) + "...");
-      console.log("\n=== Tool Execution Test Complete ===");
-      console.log("Results collected:", results.length);
+      console.debug("Read result (content populated):", readResult.content.substring(0, 100) + "...");
+      console.debug("\n=== Tool Execution Test Complete ===");
+      console.debug("Results collected:", results.length);
       new import_obsidian51.Notice("Tool execution test complete! Check console and vault.");
     } catch (error2) {
       console.error("Tool execution test failed:", error2);
