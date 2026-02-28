@@ -13,18 +13,6 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, ContentBlock, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 
-/**
- * Extended thinking types -- not yet in the SDK's public type definitions.
- * These are runtime-only types for content blocks with type === 'thinking'.
- */
-interface ThinkingContentBlock {
-    type: 'thinking';
-}
-interface ThinkingDelta {
-    type: 'thinking_delta';
-    thinking: string;
-}
-
 export class AnthropicProvider implements ApiHandler {
     private client: Anthropic;
     private config: LLMProvider;
@@ -65,16 +53,61 @@ export class AnthropicProvider implements ApiHandler {
             input_schema: tool.input_schema as Anthropic.Tool.InputSchema,
         }));
 
+        // Prompt caching: mark the last user message with cache_control
+        if (this.config.promptCachingEnabled && anthropicMessages.length > 0) {
+            for (let i = anthropicMessages.length - 1; i >= 0; i--) {
+                if (anthropicMessages[i].role === 'user') {
+                    const lastUser = anthropicMessages[i];
+                    if (typeof lastUser.content === 'string') {
+                        anthropicMessages[i] = {
+                            role: 'user',
+                            content: [{
+                                type: 'text' as const,
+                                text: lastUser.content,
+                                cache_control: { type: 'ephemeral' as const },
+                            }],
+                        };
+                    } else if (Array.isArray(lastUser.content) && lastUser.content.length > 0) {
+                        const blocks = [...lastUser.content] as Anthropic.Messages.ContentBlockParam[];
+                        const lastBlock = blocks[blocks.length - 1];
+                        if ('type' in lastBlock && lastBlock.type === 'text') {
+                            blocks[blocks.length - 1] = { ...lastBlock, cache_control: { type: 'ephemeral' as const } };
+                            anthropicMessages[i] = { role: 'user', content: blocks };
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Build system prompt: use array form with cache_control when caching is enabled
+        const systemParam: string | Anthropic.Messages.TextBlockParam[] = this.config.promptCachingEnabled
+            ? [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }]
+            : systemPrompt;
+
+        // Extended thinking: when enabled, temperature MUST be 1, max_tokens >= budget_tokens
+        const thinkingEnabled = this.config.thinkingEnabled ?? false;
+        const budgetTokens = this.config.thinkingBudgetTokens ?? 10000;
+        const effectiveTemperature = thinkingEnabled
+            ? 1
+            : Math.min(this.config.temperature ?? 0.2, 1.0);
+        const effectiveMaxTokens = thinkingEnabled
+            ? Math.max(this.config.maxTokens ?? 16384, budgetTokens)
+            : (this.config.maxTokens ?? 8192);
+
         // Create streaming request (pass abort signal for cancellation support)
         const stream = await this.client.messages.stream(
             {
                 model: this.config.model,
-                max_tokens: this.config.maxTokens ?? 8192,
-                temperature: Math.min(this.config.temperature ?? 0.2, 1.0),
-                system: systemPrompt,
+                max_tokens: effectiveMaxTokens,
+                temperature: effectiveTemperature,
+                system: systemParam,
                 messages: anthropicMessages,
                 tools: anthropicTools.length > 0 ? anthropicTools : undefined,
                 tool_choice: anthropicTools.length > 0 ? { type: 'auto' } : undefined,
+                ...(thinkingEnabled
+                    ? { thinking: { type: 'enabled' as const, budget_tokens: budgetTokens } }
+                    : {}),
             },
             { signal: abortSignal },
         );
@@ -90,10 +123,14 @@ export class AnthropicProvider implements ApiHandler {
 
         let inputTokens = 0;
         let outputTokens = 0;
+        let cacheReadTokens = 0;
+        let cacheCreationTokens = 0;
 
         for await (const event of stream) {
             if (event.type === 'message_start') {
                 inputTokens = event.message.usage.input_tokens;
+                cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+                cacheCreationTokens = event.message.usage.cache_creation_input_tokens ?? 0;
             }
 
             if (event.type === 'message_delta') {
@@ -107,7 +144,7 @@ export class AnthropicProvider implements ApiHandler {
                         name: event.content_block.name,
                         inputJson: '',
                     });
-                } else if ((event.content_block as unknown as ThinkingContentBlock).type === 'thinking') {
+                } else if (event.content_block.type === 'thinking') {
                     thinkingAccumulator.set(event.index, { text: '' });
                 }
             }
@@ -123,11 +160,10 @@ export class AnthropicProvider implements ApiHandler {
                 }
 
                 // Anthropic extended thinking delta
-                const delta = event.delta as unknown as ThinkingDelta;
-                if (delta.type === 'thinking_delta') {
+                if (event.delta.type === 'thinking_delta') {
                     const thinking = thinkingAccumulator.get(event.index);
                     if (thinking) {
-                        const chunk = delta.thinking;
+                        const chunk = event.delta.thinking;
                         thinking.text += chunk;
                         yield { type: 'thinking', text: chunk } satisfies ApiStreamChunk;
                     }
@@ -145,8 +181,10 @@ export class AnthropicProvider implements ApiHandler {
                         parsedInput = tool.inputJson ? JSON.parse(tool.inputJson) : {};
                     } catch (e) {
                         yield {
-                            type: 'text',
-                            text: `[Tool input parse error for "${tool.name}": ${(e as Error).message}]`,
+                            type: 'tool_error',
+                            id: tool.id,
+                            name: tool.name,
+                            error: `Tool input parse error: ${(e as Error).message}`,
                         } satisfies ApiStreamChunk;
                         toolAccumulator.delete(event.index);
                         continue;
@@ -170,6 +208,8 @@ export class AnthropicProvider implements ApiHandler {
                 type: 'usage',
                 inputTokens,
                 outputTokens,
+                cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
+                cacheCreationTokens: cacheCreationTokens > 0 ? cacheCreationTokens : undefined,
             } satisfies ApiStreamChunk;
         }
     }

@@ -42,7 +42,7 @@
     "typescript-eslint": "^8.56.1"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.30.0",
+    "@anthropic-ai/sdk": "^0.78.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@orama/orama": "^2.0.0",
     "delay": "^5.0.0",

@@ -945,6 +945,14 @@ var init_en = __esm({
       "modal.modelConfig.temperatureDesc": "Randomness of responses (0 = deterministic, higher = creative)",
       "modal.modelConfig.customTemperature": "Custom temperature",
       "modal.modelConfig.temperatureFixed": "This model only accepts temperature = 1.0 (enforced by the API).",
+      "modal.modelConfig.promptCaching": "Prompt Caching",
+      "modal.modelConfig.promptCachingDesc": "Cache system prompt and recent messages to reduce API costs (Anthropic only)",
+      "modal.modelConfig.thinking": "Extended Thinking",
+      "modal.modelConfig.thinkingDesc": "Let the model reason before answering. Improves quality on hard tasks (Anthropic only)",
+      "modal.modelConfig.thinkingNote": "When enabled, temperature is forced to 1 by the Anthropic API.",
+      "modal.modelConfig.thinkingBudget": "Thinking Budget",
+      "modal.modelConfig.thinkingBudgetDesc": "Maximum tokens for internal reasoning (1,024 - 128,000)",
+      "modal.modelConfig.temperatureThinkingNote": "Temperature is locked to 1.0 because Extended Thinking is enabled.",
       "modal.modelConfig.testConnection": "Test Connection",
       "modal.modelConfig.testing": "Testing\u2026",
       "modal.modelConfig.add": "Add",
@@ -2035,6 +2043,14 @@ var init_de = __esm({
       "modal.modelConfig.temperatureDesc": "Zufaelligkeit der Antworten (0 = deterministisch, hoeher = kreativer)",
       "modal.modelConfig.customTemperature": "Benutzerdefinierte Temperatur",
       "modal.modelConfig.temperatureFixed": "Dieses Modell akzeptiert nur temperature = 1.0 (von der API erzwungen).",
+      "modal.modelConfig.promptCaching": "Prompt-Caching",
+      "modal.modelConfig.promptCachingDesc": "System-Prompt und letzte Nachrichten cachen, um API-Kosten zu senken (nur Anthropic)",
+      "modal.modelConfig.thinking": "Extended Thinking",
+      "modal.modelConfig.thinkingDesc": "Das Modell denkt vor der Antwort nach. Verbessert die Qualitaet bei schwierigen Aufgaben (nur Anthropic)",
+      "modal.modelConfig.thinkingNote": "Wenn aktiviert, wird die Temperatur von der Anthropic API auf 1 erzwungen.",
+      "modal.modelConfig.thinkingBudget": "Thinking-Budget",
+      "modal.modelConfig.thinkingBudgetDesc": "Maximale Tokens fuer internes Reasoning (1.024 - 128.000)",
+      "modal.modelConfig.temperatureThinkingNote": "Temperatur ist auf 1.0 gesperrt, weil Extended Thinking aktiviert ist.",
       "modal.modelConfig.testConnection": "Verbindung testen",
       "modal.modelConfig.testing": "Wird getestet\u2026",
       "modal.modelConfig.add": "Hinzufuegen",
@@ -3125,6 +3141,14 @@ var init_es = __esm({
       "modal.modelConfig.temperatureDesc": "Aleatoriedad de las respuestas (0 = determinista, mayor = creativo)",
       "modal.modelConfig.customTemperature": "Temperatura personalizada",
       "modal.modelConfig.temperatureFixed": "Este modelo solo acepta temperatura = 1.0 (impuesta por la API).",
+      "modal.modelConfig.promptCaching": "Prompt Caching",
+      "modal.modelConfig.promptCachingDesc": "Cachear prompt del sistema y mensajes recientes para reducir costos de API (solo Anthropic)",
+      "modal.modelConfig.thinking": "Extended Thinking",
+      "modal.modelConfig.thinkingDesc": "Deja que el modelo razone antes de responder. Mejora la calidad en tareas dificiles (solo Anthropic)",
+      "modal.modelConfig.thinkingNote": "Cuando esta activado, la temperatura se fuerza a 1 por la API de Anthropic.",
+      "modal.modelConfig.thinkingBudget": "Presupuesto de Thinking",
+      "modal.modelConfig.thinkingBudgetDesc": "Tokens maximos para razonamiento interno (1.024 - 128.000)",
+      "modal.modelConfig.temperatureThinkingNote": "La temperatura esta bloqueada en 1.0 porque Extended Thinking esta activado.",
       "modal.modelConfig.testConnection": "Probar conexion",
       "modal.modelConfig.testing": "Probando\u2026",
       "modal.modelConfig.add": "Agregar",
@@ -4215,6 +4239,14 @@ var init_ja = __esm({
       "modal.modelConfig.temperatureDesc": "\u5FDC\u7B54\u306E\u30E9\u30F3\u30C0\u30E0\u6027\uFF080 = \u6C7A\u5B9A\u8AD6\u7684\u3001\u9AD8\u3044 = \u5275\u9020\u7684\uFF09",
       "modal.modelConfig.customTemperature": "\u30AB\u30B9\u30BF\u30E0\u6E29\u5EA6",
       "modal.modelConfig.temperatureFixed": "\u3053\u306E\u30E2\u30C7\u30EB\u306F\u6E29\u5EA6 = 1.0 \u306E\u307F\u53D7\u3051\u4ED8\u3051\u307E\u3059\uFF08API\u306B\u3088\u308B\u5236\u7D04\uFF09\u3002",
+      "modal.modelConfig.promptCaching": "\u30D7\u30ED\u30F3\u30D7\u30C8\u30AD\u30E3\u30C3\u30B7\u30E5",
+      "modal.modelConfig.promptCachingDesc": "\u30B7\u30B9\u30C6\u30E0\u30D7\u30ED\u30F3\u30D7\u30C8\u3068\u6700\u8FD1\u306E\u30E1\u30C3\u30BB\u30FC\u30B8\u3092\u30AD\u30E3\u30C3\u30B7\u30E5\u3057\u3066API\u30B3\u30B9\u30C8\u3092\u524A\u6E1B\uFF08Anthropic\u306E\u307F\uFF09",
+      "modal.modelConfig.thinking": "\u62E1\u5F35\u601D\u8003",
+      "modal.modelConfig.thinkingDesc": "\u30E2\u30C7\u30EB\u304C\u56DE\u7B54\u524D\u306B\u63A8\u8AD6\u3057\u307E\u3059\u3002\u96E3\u3057\u3044\u30BF\u30B9\u30AF\u306E\u54C1\u8CEA\u304C\u5411\u4E0A\u3057\u307E\u3059\uFF08Anthropic\u306E\u307F\uFF09",
+      "modal.modelConfig.thinkingNote": "\u6709\u52B9\u306B\u3059\u308B\u3068\u3001Anthropic API\u306B\u3088\u308A\u6E29\u5EA6\u304C1\u306B\u5F37\u5236\u3055\u308C\u307E\u3059\u3002",
+      "modal.modelConfig.thinkingBudget": "\u601D\u8003\u30D0\u30B8\u30A7\u30C3\u30C8",
+      "modal.modelConfig.thinkingBudgetDesc": "\u5185\u90E8\u63A8\u8AD6\u306E\u6700\u5927\u30C8\u30FC\u30AF\u30F3\u6570\uFF081,024 - 128,000\uFF09",
+      "modal.modelConfig.temperatureThinkingNote": "\u62E1\u5F35\u601D\u8003\u304C\u6709\u52B9\u306A\u305F\u3081\u3001\u6E29\u5EA6\u306F1.0\u306B\u56FA\u5B9A\u3055\u308C\u3066\u3044\u307E\u3059\u3002",
       "modal.modelConfig.testConnection": "\u63A5\u7D9A\u30C6\u30B9\u30C8",
       "modal.modelConfig.testing": "\u30C6\u30B9\u30C8\u4E2D\u2026",
       "modal.modelConfig.add": "\u8FFD\u52A0",
@@ -5305,6 +5337,14 @@ var init_zh_CN = __esm({
       "modal.modelConfig.temperatureDesc": "\u54CD\u5E94\u7684\u968F\u673A\u6027\uFF080 = \u786E\u5B9A\u6027\uFF0C\u8D8A\u9AD8\u8D8A\u6709\u521B\u9020\u6027\uFF09",
       "modal.modelConfig.customTemperature": "\u81EA\u5B9A\u4E49\u6E29\u5EA6",
       "modal.modelConfig.temperatureFixed": "\u6B64\u6A21\u578B\u4EC5\u63A5\u53D7 temperature = 1.0\uFF08\u7531 API \u5F3A\u5236\uFF09\u3002",
+      "modal.modelConfig.promptCaching": "\u63D0\u793A\u7F13\u5B58",
+      "modal.modelConfig.promptCachingDesc": "\u7F13\u5B58\u7CFB\u7EDF\u63D0\u793A\u548C\u6700\u8FD1\u7684\u6D88\u606F\u4EE5\u964D\u4F4E API \u6210\u672C\uFF08\u4EC5\u9650 Anthropic\uFF09",
+      "modal.modelConfig.thinking": "\u6269\u5C55\u601D\u8003",
+      "modal.modelConfig.thinkingDesc": "\u8BA9\u6A21\u578B\u5728\u56DE\u7B54\u524D\u8FDB\u884C\u63A8\u7406\u3002\u63D0\u9AD8\u56F0\u96BE\u4EFB\u52A1\u7684\u8D28\u91CF\uFF08\u4EC5\u9650 Anthropic\uFF09",
+      "modal.modelConfig.thinkingNote": "\u542F\u7528\u540E\uFF0CAnthropic API \u5C06\u5F3A\u5236\u6E29\u5EA6\u4E3A 1\u3002",
+      "modal.modelConfig.thinkingBudget": "\u601D\u8003\u9884\u7B97",
+      "modal.modelConfig.thinkingBudgetDesc": "\u5185\u90E8\u63A8\u7406\u7684\u6700\u5927 token \u6570\uFF081,024 - 128,000\uFF09",
+      "modal.modelConfig.temperatureThinkingNote": "\u6E29\u5EA6\u5DF2\u9501\u5B9A\u4E3A 1.0\uFF0C\u56E0\u4E3A\u6269\u5C55\u601D\u8003\u5DF2\u542F\u7528\u3002",
       "modal.modelConfig.testConnection": "\u6D4B\u8BD5\u8FDE\u63A5",
       "modal.modelConfig.testing": "\u6D4B\u8BD5\u4E2D\u2026",
       "modal.modelConfig.add": "\u6DFB\u52A0",
@@ -6546,7 +6586,7 @@ var require_FileFetcher = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.FileFetcher = void 0;
     var fs3 = __importStar(require("fs/promises"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var FileFetcher = class {
       fetch(uri, onDocument) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -6560,7 +6600,7 @@ var require_FileFetcher = __commonJS({
           if (isDirectory) {
             const files = yield fs3.readdir(uri);
             for (const file of files) {
-              const filePath = path3.join(uri, file);
+              const filePath = path4.join(uri, file);
               yield this.fetch(filePath, onDocument);
             }
             return true;
@@ -9162,7 +9202,7 @@ var require_LocalDocument = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalDocument = void 0;
     var fs3 = __importStar(require("fs/promises"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var LocalDocument = class {
       /**
        * Creates a new `LocalDocument` instance.
@@ -9216,7 +9256,7 @@ var require_LocalDocument = __commonJS({
       hasMetadata() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs3.access(path3.join(this.folderPath, `${this.id}.json`));
+            yield fs3.access(path4.join(this.folderPath, `${this.id}.json`));
             return true;
           } catch (err) {
             return false;
@@ -9232,7 +9272,7 @@ var require_LocalDocument = __commonJS({
           if (this._metadata == void 0) {
             let json;
             try {
-              json = (yield fs3.readFile(path3.join(this.folderPath, `${this.id}.json`))).toString();
+              json = (yield fs3.readFile(path4.join(this.folderPath, `${this.id}.json`))).toString();
             } catch (err) {
               throw new Error(`Error reading metadata for document "${this.uri}": ${err.toString()}`);
             }
@@ -9253,7 +9293,7 @@ var require_LocalDocument = __commonJS({
         return __awaiter(this, void 0, void 0, function* () {
           if (this._text == void 0) {
             try {
-              this._text = (yield fs3.readFile(path3.join(this.folderPath, `${this.id}.txt`))).toString();
+              this._text = (yield fs3.readFile(path4.join(this.folderPath, `${this.id}.txt`))).toString();
             } catch (err) {
               throw new Error(`Error reading text file for document "${this.uri}": ${err.toString()}`);
             }
@@ -15859,7 +15899,7 @@ var require_wn_verb_exceptions = __commonJS({
     var dap = "dap";
     var deal = "deal";
     var debar = "debar";
-    var debug3 = "debug";
+    var debug2 = "debug";
     var debus = "debus";
     var decalcify = "decalcify";
     var declassify = "declassify";
@@ -16967,7 +17007,7 @@ var require_wn_verb_exceptions = __commonJS({
     var zap = "zap";
     var zigzag = "zigzag";
     var zip = "zip";
-    exceptions.abetted = abet, exceptions.abetting = abet, exceptions.abhorred = abhor, exceptions.abhorring = abhor, exceptions.abode = abide, exceptions.abought = aby, exceptions.abutted = abut, exceptions.abutting = abut, exceptions.abye = aby, exceptions.accompanied = accompany, exceptions.acetified = acetify, exceptions.acidified = acidify, exceptions.acquitted = acquit, exceptions.acquitting = acquit, exceptions.addrest = address, exceptions.admitted = admit, exceptions.admitting = admit, exceptions.aerified = aerify, exceptions.airdropped = airdrop, exceptions.airdropping = airdrop, exceptions.alkalified = alkalify, exceptions.allied = ally, exceptions.allotted = allot, exceptions.allotting = allot, exceptions.am = be, exceptions.ammonified = ammonify, exceptions.amnestied = amnesty, exceptions.amplified = amplify, exceptions.anglified = anglify, exceptions.annulled = annul, exceptions.annulling = annul, exceptions.appalled = appal, exceptions.appalling = appal, exceptions.applied = apply, exceptions.arcked = arc, exceptions.arcking = arc, exceptions.are = be, exceptions.argufied = argufy, exceptions.arisen = arise, exceptions.arose = arise, exceptions.ate = eat, exceptions.atrophied = atrophy, exceptions.averred = aver, exceptions.averring = aver, exceptions.awoke = awake, exceptions.awoken = awake, exceptions.babied = baby, exceptions.backbit = backbite, exceptions.backbitten = backbite, exceptions.backslid = backslide, exceptions.backslidden = backslide, exceptions.bade = bid, exceptions.bagged = bag, exceptions.bagging = bag, exceptions.ballyragged = ballyrag, exceptions.ballyragging = ballyrag, exceptions.bandied = bandy, exceptions.banned = ban, exceptions.banning = ban, exceptions.barred = bar, exceptions.barrelled = barrel, exceptions.barrelling = barrel, exceptions.barring = bar, exceptions.basified = basify, exceptions.batted = bat, exceptions.batting = bat, exceptions.bayonetted = bayonet, exceptions.bayonetting = bayonet, exceptions.beaten = beat, exceptions.beatified = beatify, exceptions.beautified = beautify, exceptions.became = become, exceptions.bed = bed, exceptions.bedded = bed, exceptions.bedding = bed, exceptions.bedevilled = bedevil, exceptions.bedevilling = bedevil, exceptions.bedimmed = bedim, exceptions.bedimming = bedim, exceptions.been = be, exceptions.befallen = befall, exceptions.befell = befall, exceptions.befitted = befit, exceptions.befitting = befit, exceptions.befogged = befog, exceptions.befogging = befog, exceptions.began = begin, exceptions.begat = beget, exceptions.begetting = beget, exceptions.begged = beg, exceptions.begging = beg, exceptions.beginning = begin, exceptions.begirt = begird, exceptions.begot = beget, exceptions.begotten = beget, exceptions.begun = begin, exceptions.beheld = behold, exceptions.beholden = behold, exceptions.bejewelled = bejewel, exceptions.bejewelling = bejewel, exceptions.bellied = belly, exceptions.belying = belie, exceptions.benefitted = benefit, exceptions.benefitting = benefit, exceptions.benempt = bename, exceptions.bent = bend, exceptions.berried = berry, exceptions.besetting = beset, exceptions.besought = beseech, exceptions.bespoke = bespeak, exceptions.bespoken = bespeak, exceptions.bestirred = bestir, exceptions.bestirring = bestir, exceptions.bestrewn = bestrew, exceptions.bestrid = bestride, exceptions.bestridden = bestride, exceptions.bestrode = bestride, exceptions.betaken = betake, exceptions.bethought = bethink, exceptions.betook = betake, exceptions.betted = bet, exceptions.betting = bet, exceptions.bevelled = bevel, exceptions.bevelling = bevel, exceptions.biassed = bias, exceptions.biassing = bias, exceptions.bidden = bid, exceptions.bidding = bid, exceptions.bing = bing, exceptions.binned = bin, exceptions.binning = bin, exceptions.bit = bite, exceptions.bitted = bit, exceptions.bitten = bite, exceptions.bitting = bit, exceptions.bivouacked = bivouac, exceptions.bivouacking = bivouac, exceptions.blabbed = blab, exceptions.blabbing = blab, exceptions.blackberried = blackberry, exceptions.blacklegged = blackleg, exceptions.blacklegging = blackleg, exceptions.blatted = blat, exceptions.blatting = blat, exceptions.bled = bleed, exceptions.blest = bless, exceptions.blew = blow, exceptions.blipped = blip, exceptions.blipping = blip, exceptions.blobbed = blob, exceptions.blobbing = blob, exceptions.bloodied = bloody, exceptions.blotted = blot, exceptions.blotting = blot, exceptions.blown = blow, exceptions.blubbed = blub, exceptions.blubbing = blub, exceptions.blurred = blur, exceptions.blurring = blur, exceptions.bobbed = bob, exceptions.bobbing = bob, exceptions.bodied = body, exceptions.bootlegged = bootleg, exceptions.bootlegging = bootleg, exceptions.bopped = bop, exceptions.bopping = bop, exceptions.bore = bear, exceptions.born = bear, exceptions.borne = bear, exceptions.bought = buy, exceptions.bound = bind, exceptions.bragged = brag, exceptions.bragging = brag, exceptions.bred = breed, exceptions.brevetted = brevet, exceptions.brevetting = brevet, exceptions.brimmed = brim, exceptions.brimming = brim, exceptions.broke = break1, exceptions.broken = break1, exceptions.brought = bring, exceptions.browbeaten = browbeat, exceptions.brutified = brutify, exceptions.budded = bud, exceptions.budding = bud, exceptions.bugged = bug, exceptions.bugging = bug, exceptions.built = build2, exceptions.bulldogging = bulldog, exceptions.bullied = bully, exceptions.bullshitted = bullshit, exceptions.bullshitting = bullshit, exceptions.bullwhipped = bullwhip, exceptions.bullwhipping = bullwhip, exceptions.bullyragged = bullyrag, exceptions.bullyragging = bullyrag, exceptions.bummed = bum, exceptions.bumming = bum, exceptions.buried = bury, exceptions.burnt = burn, exceptions.burred = bur, exceptions.burring = bur, exceptions.bushelled = bushel, exceptions.bushelling = bushel, exceptions.busied = busy, exceptions.bypast = bypass, exceptions.caballed = cabal, exceptions.caballing = cabal, exceptions.caddied = caddy, exceptions.caddies = caddy, exceptions.caddying = caddy, exceptions.calcified = calcify, exceptions.came = come, exceptions.canalled = canal, exceptions.canalling = canal, exceptions.cancelled = cancel, exceptions.cancelling = cancel, exceptions.candied = candy, exceptions.canned = can, exceptions.canning = can, exceptions.canopied = canopy, exceptions.capped = cap, exceptions.capping = cap, exceptions.carburetted = carburet, exceptions.carburetting = carburet, exceptions.carillonned = carillon, exceptions.carillonning = carillon, exceptions.carnied = carny, exceptions.carnified = carnify, exceptions.carolled = carol, exceptions.carolling = carol, exceptions.carried = carry, exceptions.casefied = casefy, exceptions.catnapped = catnap, exceptions.catnapping = catnap, exceptions.catted = cat, exceptions.catting = cat, exceptions.caught = catch1, exceptions.cavilled = cavil, exceptions.cavilling = cavil, exceptions.certified = certify, exceptions.channelled = channel, exceptions.channelling = channel, exceptions.chapped = chap, exceptions.chapping = chap, exceptions.charred = char, exceptions.charring = char, exceptions.chatted = chat, exceptions.chatting = chat, exceptions.chevied = chivy, exceptions.chevies = chivy, exceptions.chevying = chivy, exceptions.chid = chide, exceptions.chidden = chide, exceptions.chinned = chin, exceptions.chinning = chin, exceptions.chipped = chip, exceptions.chipping = chip, exceptions.chiselled = chisel, exceptions.chiselling = chisel, exceptions.chitchatted = chitchat, exceptions.chitchatting = chitchat, exceptions.chivied = chivy, exceptions.chivved = chiv, exceptions.chivvied = chivy, exceptions.chivvies = chivy, exceptions.chivving = chiv, exceptions.chivvying = chivy, exceptions.chondrified = chondrify, exceptions.chopped = chop, exceptions.chopping = chop, exceptions.chose = choose, exceptions.chosen = choose, exceptions.chugged = chug, exceptions.chugging = chug, exceptions.chummed = chum, exceptions.chumming = chum, exceptions.citified = citify, exceptions.clad = clothe, exceptions.cladded = clad, exceptions.cladding = clad, exceptions.clammed = clam, exceptions.clamming = clam, exceptions.clapped = clap, exceptions.clapping = clap, exceptions.clarified = clarify, exceptions.classified = classify, exceptions.cleft = cleave, exceptions.clemmed = clem, exceptions.clemming = clem, exceptions.clept = clepe, exceptions.clipped = clip, exceptions.clipping = clip, exceptions.clogged = clog, exceptions.clogging = clog, exceptions.clopped = clop, exceptions.clopping = clop, exceptions.clotted = clot, exceptions.clotting = clot, exceptions.clove = cleave, exceptions.cloven = cleave, exceptions.clubbed = club, exceptions.clubbing = club, exceptions.clung = cling, exceptions.cockneyfied = cockneyfy, exceptions.codded = cod, exceptions.codding = cod, exceptions.codified = codify, exceptions.cogged = cog, exceptions.cogging = cog, exceptions.coiffed = coif, exceptions.coiffing = coif, exceptions.collied = colly, exceptions.combatted = combat, exceptions.combatting = combat, exceptions.committed = commit, exceptions.committing = commit, exceptions.compelled = compel, exceptions.compelling = compel, exceptions.complied = comply, exceptions.complotted = complot, exceptions.complotting = complot, exceptions.concurred = concur, exceptions.concurring = concur, exceptions.confabbed = confab, exceptions.confabbing = confab, exceptions.conferred = confer, exceptions.conferring = confer, exceptions.conned = con, exceptions.conning = con, exceptions.controlled = control, exceptions.controlling = control, exceptions.copied = copy, exceptions.copped = cop, exceptions.copping = cop, exceptions.coquetted = coquet, exceptions.coquetting = coquet, exceptions.corralled = corral, exceptions.corralling = corral, exceptions.could = can, exceptions.counselled = counsel, exceptions.counselling = counsel, exceptions.counterplotted = counterplot, exceptions.counterplotting = counterplot, exceptions.countersank = countersink, exceptions.countersunk = countersink, exceptions.crabbed = crab, exceptions.crabbing = crab, exceptions.crammed = cram, exceptions.cramming = cram, exceptions.crapped = crap, exceptions.crapping = crap, exceptions.creeped = creep, exceptions.crept = creep, exceptions.cribbed = crib, exceptions.cribbing = crib, exceptions.cried = cry, exceptions.cropped = crop, exceptions.cropping = crop, exceptions.crossbred = crossbreed, exceptions.crosscutting = crosscut, exceptions.crucified = crucify, exceptions.cubbed = cub, exceptions.cubbing = cub, exceptions.cudgelled = cudgel, exceptions.cudgelling = cudgel, exceptions.cupelled = cupel, exceptions.cupelling = cupel, exceptions.cupped = cup, exceptions.cupping = cup, exceptions.curetted = curet, exceptions.curettes = curet, exceptions.curetting = curet, exceptions.curried = curry, exceptions.curst = curse, exceptions.curtsied = curtsy, exceptions.curvetted = curvet, exceptions.curvetting = curvet, exceptions.cutting = cut, exceptions.dabbed = dab, exceptions.dabbing = dab, exceptions.dagged = dag, exceptions.dagging = dag, exceptions.dallied = dally, exceptions.dammed = dam, exceptions.damming = dam, exceptions.damnified = damnify, exceptions.dandified = dandify, exceptions.dapped = dap, exceptions.dapping = dap, exceptions.dealt = deal, exceptions.debarred = debar, exceptions.debarring = debar, exceptions.debugged = debug3, exceptions.debugging = debug3, exceptions.debussed = debus, exceptions.debusses = debus, exceptions.debussing = debus, exceptions.decalcified = decalcify, exceptions.declassified = declassify, exceptions.decontrolled = decontrol, exceptions.decontrolling = decontrol, exceptions.decried = decry, exceptions.deferred = defer, exceptions.deferring = defer, exceptions.defied = defy, exceptions.degassed = degas, exceptions.degasses = degas, exceptions.degassing = degas, exceptions.dehumidified = dehumidify, exceptions.deified = deify, exceptions.demitted = demit, exceptions.demitting = demit, exceptions.demobbed = demob, exceptions.demobbing = demob, exceptions.demulsified = demulsify, exceptions.demurred = demur, exceptions.demurring = demur, exceptions.demystified = demystify, exceptions.denazified = denazify, exceptions.denied = deny, exceptions.denitrified = denitrify, exceptions.denned = den, exceptions.denning = den, exceptions.descried = descry, exceptions.deterred = deter, exceptions.deterring = deter, exceptions.detoxified = detoxify, exceptions.devilled = devil, exceptions.devilling = devil, exceptions.devitrified = devitrify, exceptions.diagrammed = diagram, exceptions.diagramming = diagram, exceptions.dialled = dial, exceptions.dialling = dial, exceptions.dibbed = dib, exceptions.dibbing = dib, exceptions.did = do1, exceptions.digging = dig, exceptions.dignified = dignify, exceptions.dimmed = dim, exceptions.dimming = dim, exceptions.dinned = din, exceptions.dinning = din, exceptions.dipped = dip, exceptions.dipping = dip, exceptions.dirtied = dirty, exceptions.disannulled = disannul, exceptions.disannulling = disannul, exceptions.disbarred = disbar, exceptions.disbarring = disbar, exceptions.disbudded = disbud, exceptions.disbudding = disbud, exceptions.disembodied = disembody, exceptions.disembowelled = disembowel, exceptions.disembowelling = disembowel, exceptions.disenthralled = disenthral, exceptions.disenthralling = disenthral, exceptions.disenthralls = disenthral, exceptions.disenthrals = disenthrall, exceptions.dishevelled = dishevel, exceptions.dishevelling = dishevel, exceptions.disinterred = disinter, exceptions.disinterring = disinter, exceptions.dispelled = dispel, exceptions.dispelling = dispel, exceptions.disqualified = disqualify, exceptions.dissatisfied = dissatisfy, exceptions.distilled = distil, exceptions.distilling = distil, exceptions.diversified = diversify, exceptions.divvied = divvy, exceptions.dizzied = dizzy, exceptions.does = do1, exceptions.dogged = dog, exceptions.dogging = dog, exceptions.doglegged = dogleg, exceptions.doglegging = dogleg, exceptions.dollied = dolly, exceptions.done = do1, exceptions.donned = don, exceptions.donning = don, exceptions.dotted = dot, exceptions.dotting = dot, exceptions.dought = dow, exceptions.dove = dive, exceptions.drabbed = drab, exceptions.drabbing = drab, exceptions.dragged = drag, exceptions.dragging = drag, exceptions.drank = drink, exceptions.drawn = draw, exceptions.dreamt = dream, exceptions.drew = draw, exceptions.dried = dry, exceptions.dripped = drip, exceptions.dripping = drip, exceptions.drivelled = drivel, exceptions.drivelling = drivel, exceptions.driven = drive, exceptions.dropped = drop, exceptions.dropping = drop, exceptions.drove = drive, exceptions.drubbed = drub, exceptions.drubbing = drub, exceptions.drugged = drug, exceptions.drugging = drug, exceptions.drummed = drum, exceptions.drumming = drum, exceptions.drunk = drink, exceptions.dubbed = dub, exceptions.dubbing = dub, exceptions.duelled = duel, exceptions.duelling = duel, exceptions.dug = dig, exceptions.dulcified = dulcify, exceptions.dummied = dummy, exceptions.dunned = dun, exceptions.dunning = dun, exceptions.dwelt = dwell, exceptions.dying = die, exceptions.easied = easy, exceptions.eaten = eat, exceptions.eavesdropped = eavesdrop, exceptions.eavesdropping = eavesdrop, exceptions.eddied = eddy, exceptions.edified = edify, exceptions.electrified = electrify, exceptions.embedded = embed, exceptions.embedding = embed, exceptions.embodied = embody, exceptions.embussed = embus, exceptions.embusses = embus, exceptions.embussing = embus, exceptions.emitted = emit, exceptions.emitting = emit, exceptions.empanelled = empanel, exceptions.empanelling = empanel, exceptions.emptied = empty2, exceptions.emulsified = emulsify, exceptions.enamelled = enamel, exceptions.enamelling = enamel, exceptions.englutted = englut, exceptions.englutting = englut, exceptions.enrolled = enrol, exceptions.enrolling = enrol, exceptions.enthralled = enthral, exceptions.enthralling = enthral, exceptions.entrammelled = entrammel, exceptions.entrammelling = entrammel, exceptions.entrapped = entrap, exceptions.entrapping = entrap, exceptions.envied = envy, exceptions.enwound = enwind, exceptions.enwrapped = enwrap, exceptions.enwrapping = enwrap, exceptions.equalled = equal, exceptions.equalling = equal, exceptions.equipped = equip, exceptions.equipping = equip, exceptions.espied = espy, exceptions.esterified = esterify, exceptions.estopped = estop, exceptions.estopping = estop, exceptions.etherified = etherify, exceptions.excelled = excel, exceptions.excelling = excel, exceptions.exemplified = exemplify, exceptions.expelled = expel, exceptions.expelling = expel, exceptions.extolled = extol, exceptions.extolling = extol, exceptions.facetted = facet, exceptions.facetting = facet, exceptions.fagged = fag, exceptions.fagging = fag, exceptions.fallen = fall, exceptions.falsified = falsify, exceptions.fancied = fancy, exceptions.fanned = fan, exceptions.fanning = fan, exceptions.fantasied = fantasy, exceptions.fatted = fat, exceptions.fatting = fat, exceptions.featherbedded = featherbed, exceptions.featherbedding = featherbed, exceptions.fed = feed, exceptions.feed = feed, exceptions.fell = fall, exceptions.felt = feel, exceptions.ferried = ferry, exceptions.fibbed = fib, exceptions.fibbing = fib, exceptions.figged = fig, exceptions.figging = fig, exceptions.finned = fin, exceptions.finning = fin, exceptions.fitted = fit, exceptions.fitting = fit, exceptions.flagged = flag, exceptions.flagging = flag, exceptions.flammed = flam, exceptions.flamming = flam, exceptions.flannelled = flannel, exceptions.flannelling = flannel, exceptions.flapped = flap, exceptions.flapping = flap, exceptions.flatted = flat, exceptions.flatting = flat, exceptions.fled = flee, exceptions.flew = fly, exceptions.flimflammed = flimflam, exceptions.flimflamming = flimflam, exceptions.flipped = flip, exceptions.flipping = flip, exceptions.flitted = flit, exceptions.flitting = flit, exceptions.flogged = flog, exceptions.flogging = flog, exceptions.floodlit = floodlight, exceptions.flopped = flop, exceptions.flopping = flop, exceptions.flown = fly, exceptions.flubbed = flub, exceptions.flubbing = flub, exceptions.flung = fling, exceptions.flurried = flurry, exceptions.flyblew = flyblow, exceptions.flyblown = flyblow, exceptions.fobbed = fob, exceptions.fobbing = fob, exceptions.fogged = fog, exceptions.fogging = fog, exceptions.footslogged = footslog, exceptions.footslogging = footslog, exceptions.forbad = forbid, exceptions.forbade = forbid, exceptions.forbidden = forbid, exceptions.forbidding = forbid, exceptions.forbore = forbear, exceptions.forborne = forbear, exceptions.fordid = fordo, exceptions.fordone = fordo, exceptions.foredid = foredo, exceptions.foredone = foredo, exceptions.foregone = forego, exceptions.foreknew = foreknow, exceptions.foreknown = foreknow, exceptions.foreran = forerun, exceptions.forerunning = forerun, exceptions.foresaw = foresee, exceptions.foreseen = foresee, exceptions.foreshown = foreshow, exceptions.forespoke = forespeak, exceptions.forespoken = forespeak, exceptions.foretold = foretell, exceptions.forewent = forego, exceptions.forgave = forgive, exceptions.forgetting = forget, exceptions.forgiven = forgive, exceptions.forgone = forgo, exceptions.forgot = forget, exceptions.forgotten = forget, exceptions.formatted = format, exceptions.formatting = format, exceptions.forsaken = forsake, exceptions.forsook = forsake, exceptions.forspoke = forspeak, exceptions.forspoken = forspeak, exceptions.forswore = forswear, exceptions.forsworn = forswear, exceptions.fortified = fortify, exceptions.forwent = forgo, exceptions.fought = fight, exceptions.found = find4, exceptions.foxtrotted = foxtrot, exceptions.foxtrotting = foxtrot, exceptions.frapped = frap, exceptions.frapping = frap, exceptions.frenchified = frenchify, exceptions.frenzied = frenzy, exceptions.fretted = fret, exceptions.fretting = fret, exceptions.fried = fry, exceptions.frigged = frig, exceptions.frigging = frig, exceptions.fritted = frit, exceptions.fritting = frit, exceptions.frivolled = frivol, exceptions.frivolling = frivol, exceptions.frogged = frog, exceptions.frogging = frog, exceptions.frolicked = frolic, exceptions.frolicking = frolic, exceptions.froze = freeze, exceptions.frozen = freeze, exceptions.fructified = fructify, exceptions.fuelled = fuel, exceptions.fuelling = fuel, exceptions.fulfilled = fulfil, exceptions.fulfilling = fulfil, exceptions.funned = fun, exceptions.funnelled = funnel, exceptions.funnelling = funnel, exceptions.funning = fun, exceptions.furred = fur, exceptions.furring = fur, exceptions.gadded = gad, exceptions.gadding = gad, exceptions.gagged = gag, exceptions.gagging = gag, exceptions.gainsaid = gainsay, exceptions.gambolled = gambol, exceptions.gambolling = gambol, exceptions.gammed = gam, exceptions.gamming = gam, exceptions.gan = gin, exceptions.ganned = gan, exceptions.ganning = gan, exceptions.gapped = gap, exceptions.gapping = gap, exceptions.gasified = gasify, exceptions.gassed = gas, exceptions.gasses = gas, exceptions.gassing = gas, exceptions.gave = give, exceptions.gelled = gel, exceptions.gelling = gel, exceptions.gelt = geld, exceptions.gemmed = gem, exceptions.gemming = gem, exceptions.getting = get2, exceptions.ghostwritten = ghostwrite, exceptions.ghostwrote = ghostwrite, exceptions.gibbed = gib, exceptions.gibbing = gib, exceptions.giddied = giddy, exceptions.giftwrapped = giftwrap, exceptions.giftwrapping = giftwrap, exceptions.gigged = gig, exceptions.gigging = gig, exceptions.gilt = gild, exceptions.ginned = gin, exceptions.ginning = gin, exceptions.gipped = gip, exceptions.gipping = gip, exceptions.girt = gird, exceptions.given = give, exceptions.glommed = glom, exceptions.glomming = glom, exceptions.gloried = glory, exceptions.glorified = glorify, exceptions.glutted = glut, exceptions.glutting = glut, exceptions.gnawn = gnaw, exceptions.gollied = golly, exceptions.gone = go, exceptions.got = get2, exceptions.gotten = get2, exceptions.grabbed = grab, exceptions.grabbing = grab, exceptions.gratified = gratify, exceptions.gravelled = gravel, exceptions.gravelling = gravel, exceptions.graven = grave, exceptions.grew = grow, exceptions.grinned = grin, exceptions.grinning = grin, exceptions.gripped = grip, exceptions.gripping = grip, exceptions.gript = grip, exceptions.gritted = grit, exceptions.gritting = grit, exceptions.ground = grind, exceptions.grovelled = grovel, exceptions.grovelling = grovel, exceptions.grown = grow, exceptions.grubbed = grub, exceptions.grubbing = grub, exceptions.guarantied = guaranty, exceptions.gullied = gully, exceptions.gummed = gum, exceptions.gumming = gum, exceptions.gunned = gun, exceptions.gunning = gun, exceptions.gypped = gyp, exceptions.gypping = gyp, exceptions.hacksawn = hacksaw, exceptions.had = have, exceptions.hammed = ham, exceptions.hamming = ham, exceptions.hamstrung = hamstring, exceptions.handfed = handfeed, exceptions.handicapped = handicap, exceptions.handicapping = handicap, exceptions.handselled = handsel, exceptions.handselling = handsel, exceptions.harried = harry, exceptions.has = have, exceptions.hatchelled = hatchel;
+    exceptions.abetted = abet, exceptions.abetting = abet, exceptions.abhorred = abhor, exceptions.abhorring = abhor, exceptions.abode = abide, exceptions.abought = aby, exceptions.abutted = abut, exceptions.abutting = abut, exceptions.abye = aby, exceptions.accompanied = accompany, exceptions.acetified = acetify, exceptions.acidified = acidify, exceptions.acquitted = acquit, exceptions.acquitting = acquit, exceptions.addrest = address, exceptions.admitted = admit, exceptions.admitting = admit, exceptions.aerified = aerify, exceptions.airdropped = airdrop, exceptions.airdropping = airdrop, exceptions.alkalified = alkalify, exceptions.allied = ally, exceptions.allotted = allot, exceptions.allotting = allot, exceptions.am = be, exceptions.ammonified = ammonify, exceptions.amnestied = amnesty, exceptions.amplified = amplify, exceptions.anglified = anglify, exceptions.annulled = annul, exceptions.annulling = annul, exceptions.appalled = appal, exceptions.appalling = appal, exceptions.applied = apply, exceptions.arcked = arc, exceptions.arcking = arc, exceptions.are = be, exceptions.argufied = argufy, exceptions.arisen = arise, exceptions.arose = arise, exceptions.ate = eat, exceptions.atrophied = atrophy, exceptions.averred = aver, exceptions.averring = aver, exceptions.awoke = awake, exceptions.awoken = awake, exceptions.babied = baby, exceptions.backbit = backbite, exceptions.backbitten = backbite, exceptions.backslid = backslide, exceptions.backslidden = backslide, exceptions.bade = bid, exceptions.bagged = bag, exceptions.bagging = bag, exceptions.ballyragged = ballyrag, exceptions.ballyragging = ballyrag, exceptions.bandied = bandy, exceptions.banned = ban, exceptions.banning = ban, exceptions.barred = bar, exceptions.barrelled = barrel, exceptions.barrelling = barrel, exceptions.barring = bar, exceptions.basified = basify, exceptions.batted = bat, exceptions.batting = bat, exceptions.bayonetted = bayonet, exceptions.bayonetting = bayonet, exceptions.beaten = beat, exceptions.beatified = beatify, exceptions.beautified = beautify, exceptions.became = become, exceptions.bed = bed, exceptions.bedded = bed, exceptions.bedding = bed, exceptions.bedevilled = bedevil, exceptions.bedevilling = bedevil, exceptions.bedimmed = bedim, exceptions.bedimming = bedim, exceptions.been = be, exceptions.befallen = befall, exceptions.befell = befall, exceptions.befitted = befit, exceptions.befitting = befit, exceptions.befogged = befog, exceptions.befogging = befog, exceptions.began = begin, exceptions.begat = beget, exceptions.begetting = beget, exceptions.begged = beg, exceptions.begging = beg, exceptions.beginning = begin, exceptions.begirt = begird, exceptions.begot = beget, exceptions.begotten = beget, exceptions.begun = begin, exceptions.beheld = behold, exceptions.beholden = behold, exceptions.bejewelled = bejewel, exceptions.bejewelling = bejewel, exceptions.bellied = belly, exceptions.belying = belie, exceptions.benefitted = benefit, exceptions.benefitting = benefit, exceptions.benempt = bename, exceptions.bent = bend, exceptions.berried = berry, exceptions.besetting = beset, exceptions.besought = beseech, exceptions.bespoke = bespeak, exceptions.bespoken = bespeak, exceptions.bestirred = bestir, exceptions.bestirring = bestir, exceptions.bestrewn = bestrew, exceptions.bestrid = bestride, exceptions.bestridden = bestride, exceptions.bestrode = bestride, exceptions.betaken = betake, exceptions.bethought = bethink, exceptions.betook = betake, exceptions.betted = bet, exceptions.betting = bet, exceptions.bevelled = bevel, exceptions.bevelling = bevel, exceptions.biassed = bias, exceptions.biassing = bias, exceptions.bidden = bid, exceptions.bidding = bid, exceptions.bing = bing, exceptions.binned = bin, exceptions.binning = bin, exceptions.bit = bite, exceptions.bitted = bit, exceptions.bitten = bite, exceptions.bitting = bit, exceptions.bivouacked = bivouac, exceptions.bivouacking = bivouac, exceptions.blabbed = blab, exceptions.blabbing = blab, exceptions.blackberried = blackberry, exceptions.blacklegged = blackleg, exceptions.blacklegging = blackleg, exceptions.blatted = blat, exceptions.blatting = blat, exceptions.bled = bleed, exceptions.blest = bless, exceptions.blew = blow, exceptions.blipped = blip, exceptions.blipping = blip, exceptions.blobbed = blob, exceptions.blobbing = blob, exceptions.bloodied = bloody, exceptions.blotted = blot, exceptions.blotting = blot, exceptions.blown = blow, exceptions.blubbed = blub, exceptions.blubbing = blub, exceptions.blurred = blur, exceptions.blurring = blur, exceptions.bobbed = bob, exceptions.bobbing = bob, exceptions.bodied = body, exceptions.bootlegged = bootleg, exceptions.bootlegging = bootleg, exceptions.bopped = bop, exceptions.bopping = bop, exceptions.bore = bear, exceptions.born = bear, exceptions.borne = bear, exceptions.bought = buy, exceptions.bound = bind, exceptions.bragged = brag, exceptions.bragging = brag, exceptions.bred = breed, exceptions.brevetted = brevet, exceptions.brevetting = brevet, exceptions.brimmed = brim, exceptions.brimming = brim, exceptions.broke = break1, exceptions.broken = break1, exceptions.brought = bring, exceptions.browbeaten = browbeat, exceptions.brutified = brutify, exceptions.budded = bud, exceptions.budding = bud, exceptions.bugged = bug, exceptions.bugging = bug, exceptions.built = build2, exceptions.bulldogging = bulldog, exceptions.bullied = bully, exceptions.bullshitted = bullshit, exceptions.bullshitting = bullshit, exceptions.bullwhipped = bullwhip, exceptions.bullwhipping = bullwhip, exceptions.bullyragged = bullyrag, exceptions.bullyragging = bullyrag, exceptions.bummed = bum, exceptions.bumming = bum, exceptions.buried = bury, exceptions.burnt = burn, exceptions.burred = bur, exceptions.burring = bur, exceptions.bushelled = bushel, exceptions.bushelling = bushel, exceptions.busied = busy, exceptions.bypast = bypass, exceptions.caballed = cabal, exceptions.caballing = cabal, exceptions.caddied = caddy, exceptions.caddies = caddy, exceptions.caddying = caddy, exceptions.calcified = calcify, exceptions.came = come, exceptions.canalled = canal, exceptions.canalling = canal, exceptions.cancelled = cancel, exceptions.cancelling = cancel, exceptions.candied = candy, exceptions.canned = can, exceptions.canning = can, exceptions.canopied = canopy, exceptions.capped = cap, exceptions.capping = cap, exceptions.carburetted = carburet, exceptions.carburetting = carburet, exceptions.carillonned = carillon, exceptions.carillonning = carillon, exceptions.carnied = carny, exceptions.carnified = carnify, exceptions.carolled = carol, exceptions.carolling = carol, exceptions.carried = carry, exceptions.casefied = casefy, exceptions.catnapped = catnap, exceptions.catnapping = catnap, exceptions.catted = cat, exceptions.catting = cat, exceptions.caught = catch1, exceptions.cavilled = cavil, exceptions.cavilling = cavil, exceptions.certified = certify, exceptions.channelled = channel, exceptions.channelling = channel, exceptions.chapped = chap, exceptions.chapping = chap, exceptions.charred = char, exceptions.charring = char, exceptions.chatted = chat, exceptions.chatting = chat, exceptions.chevied = chivy, exceptions.chevies = chivy, exceptions.chevying = chivy, exceptions.chid = chide, exceptions.chidden = chide, exceptions.chinned = chin, exceptions.chinning = chin, exceptions.chipped = chip, exceptions.chipping = chip, exceptions.chiselled = chisel, exceptions.chiselling = chisel, exceptions.chitchatted = chitchat, exceptions.chitchatting = chitchat, exceptions.chivied = chivy, exceptions.chivved = chiv, exceptions.chivvied = chivy, exceptions.chivvies = chivy, exceptions.chivving = chiv, exceptions.chivvying = chivy, exceptions.chondrified = chondrify, exceptions.chopped = chop, exceptions.chopping = chop, exceptions.chose = choose, exceptions.chosen = choose, exceptions.chugged = chug, exceptions.chugging = chug, exceptions.chummed = chum, exceptions.chumming = chum, exceptions.citified = citify, exceptions.clad = clothe, exceptions.cladded = clad, exceptions.cladding = clad, exceptions.clammed = clam, exceptions.clamming = clam, exceptions.clapped = clap, exceptions.clapping = clap, exceptions.clarified = clarify, exceptions.classified = classify, exceptions.cleft = cleave, exceptions.clemmed = clem, exceptions.clemming = clem, exceptions.clept = clepe, exceptions.clipped = clip, exceptions.clipping = clip, exceptions.clogged = clog, exceptions.clogging = clog, exceptions.clopped = clop, exceptions.clopping = clop, exceptions.clotted = clot, exceptions.clotting = clot, exceptions.clove = cleave, exceptions.cloven = cleave, exceptions.clubbed = club, exceptions.clubbing = club, exceptions.clung = cling, exceptions.cockneyfied = cockneyfy, exceptions.codded = cod, exceptions.codding = cod, exceptions.codified = codify, exceptions.cogged = cog, exceptions.cogging = cog, exceptions.coiffed = coif, exceptions.coiffing = coif, exceptions.collied = colly, exceptions.combatted = combat, exceptions.combatting = combat, exceptions.committed = commit, exceptions.committing = commit, exceptions.compelled = compel, exceptions.compelling = compel, exceptions.complied = comply, exceptions.complotted = complot, exceptions.complotting = complot, exceptions.concurred = concur, exceptions.concurring = concur, exceptions.confabbed = confab, exceptions.confabbing = confab, exceptions.conferred = confer, exceptions.conferring = confer, exceptions.conned = con, exceptions.conning = con, exceptions.controlled = control, exceptions.controlling = control, exceptions.copied = copy, exceptions.copped = cop, exceptions.copping = cop, exceptions.coquetted = coquet, exceptions.coquetting = coquet, exceptions.corralled = corral, exceptions.corralling = corral, exceptions.could = can, exceptions.counselled = counsel, exceptions.counselling = counsel, exceptions.counterplotted = counterplot, exceptions.counterplotting = counterplot, exceptions.countersank = countersink, exceptions.countersunk = countersink, exceptions.crabbed = crab, exceptions.crabbing = crab, exceptions.crammed = cram, exceptions.cramming = cram, exceptions.crapped = crap, exceptions.crapping = crap, exceptions.creeped = creep, exceptions.crept = creep, exceptions.cribbed = crib, exceptions.cribbing = crib, exceptions.cried = cry, exceptions.cropped = crop, exceptions.cropping = crop, exceptions.crossbred = crossbreed, exceptions.crosscutting = crosscut, exceptions.crucified = crucify, exceptions.cubbed = cub, exceptions.cubbing = cub, exceptions.cudgelled = cudgel, exceptions.cudgelling = cudgel, exceptions.cupelled = cupel, exceptions.cupelling = cupel, exceptions.cupped = cup, exceptions.cupping = cup, exceptions.curetted = curet, exceptions.curettes = curet, exceptions.curetting = curet, exceptions.curried = curry, exceptions.curst = curse, exceptions.curtsied = curtsy, exceptions.curvetted = curvet, exceptions.curvetting = curvet, exceptions.cutting = cut, exceptions.dabbed = dab, exceptions.dabbing = dab, exceptions.dagged = dag, exceptions.dagging = dag, exceptions.dallied = dally, exceptions.dammed = dam, exceptions.damming = dam, exceptions.damnified = damnify, exceptions.dandified = dandify, exceptions.dapped = dap, exceptions.dapping = dap, exceptions.dealt = deal, exceptions.debarred = debar, exceptions.debarring = debar, exceptions.debugged = debug2, exceptions.debugging = debug2, exceptions.debussed = debus, exceptions.debusses = debus, exceptions.debussing = debus, exceptions.decalcified = decalcify, exceptions.declassified = declassify, exceptions.decontrolled = decontrol, exceptions.decontrolling = decontrol, exceptions.decried = decry, exceptions.deferred = defer, exceptions.deferring = defer, exceptions.defied = defy, exceptions.degassed = degas, exceptions.degasses = degas, exceptions.degassing = degas, exceptions.dehumidified = dehumidify, exceptions.deified = deify, exceptions.demitted = demit, exceptions.demitting = demit, exceptions.demobbed = demob, exceptions.demobbing = demob, exceptions.demulsified = demulsify, exceptions.demurred = demur, exceptions.demurring = demur, exceptions.demystified = demystify, exceptions.denazified = denazify, exceptions.denied = deny, exceptions.denitrified = denitrify, exceptions.denned = den, exceptions.denning = den, exceptions.descried = descry, exceptions.deterred = deter, exceptions.deterring = deter, exceptions.detoxified = detoxify, exceptions.devilled = devil, exceptions.devilling = devil, exceptions.devitrified = devitrify, exceptions.diagrammed = diagram, exceptions.diagramming = diagram, exceptions.dialled = dial, exceptions.dialling = dial, exceptions.dibbed = dib, exceptions.dibbing = dib, exceptions.did = do1, exceptions.digging = dig, exceptions.dignified = dignify, exceptions.dimmed = dim, exceptions.dimming = dim, exceptions.dinned = din, exceptions.dinning = din, exceptions.dipped = dip, exceptions.dipping = dip, exceptions.dirtied = dirty, exceptions.disannulled = disannul, exceptions.disannulling = disannul, exceptions.disbarred = disbar, exceptions.disbarring = disbar, exceptions.disbudded = disbud, exceptions.disbudding = disbud, exceptions.disembodied = disembody, exceptions.disembowelled = disembowel, exceptions.disembowelling = disembowel, exceptions.disenthralled = disenthral, exceptions.disenthralling = disenthral, exceptions.disenthralls = disenthral, exceptions.disenthrals = disenthrall, exceptions.dishevelled = dishevel, exceptions.dishevelling = dishevel, exceptions.disinterred = disinter, exceptions.disinterring = disinter, exceptions.dispelled = dispel, exceptions.dispelling = dispel, exceptions.disqualified = disqualify, exceptions.dissatisfied = dissatisfy, exceptions.distilled = distil, exceptions.distilling = distil, exceptions.diversified = diversify, exceptions.divvied = divvy, exceptions.dizzied = dizzy, exceptions.does = do1, exceptions.dogged = dog, exceptions.dogging = dog, exceptions.doglegged = dogleg, exceptions.doglegging = dogleg, exceptions.dollied = dolly, exceptions.done = do1, exceptions.donned = don, exceptions.donning = don, exceptions.dotted = dot, exceptions.dotting = dot, exceptions.dought = dow, exceptions.dove = dive, exceptions.drabbed = drab, exceptions.drabbing = drab, exceptions.dragged = drag, exceptions.dragging = drag, exceptions.drank = drink, exceptions.drawn = draw, exceptions.dreamt = dream, exceptions.drew = draw, exceptions.dried = dry, exceptions.dripped = drip, exceptions.dripping = drip, exceptions.drivelled = drivel, exceptions.drivelling = drivel, exceptions.driven = drive, exceptions.dropped = drop, exceptions.dropping = drop, exceptions.drove = drive, exceptions.drubbed = drub, exceptions.drubbing = drub, exceptions.drugged = drug, exceptions.drugging = drug, exceptions.drummed = drum, exceptions.drumming = drum, exceptions.drunk = drink, exceptions.dubbed = dub, exceptions.dubbing = dub, exceptions.duelled = duel, exceptions.duelling = duel, exceptions.dug = dig, exceptions.dulcified = dulcify, exceptions.dummied = dummy, exceptions.dunned = dun, exceptions.dunning = dun, exceptions.dwelt = dwell, exceptions.dying = die, exceptions.easied = easy, exceptions.eaten = eat, exceptions.eavesdropped = eavesdrop, exceptions.eavesdropping = eavesdrop, exceptions.eddied = eddy, exceptions.edified = edify, exceptions.electrified = electrify, exceptions.embedded = embed, exceptions.embedding = embed, exceptions.embodied = embody, exceptions.embussed = embus, exceptions.embusses = embus, exceptions.embussing = embus, exceptions.emitted = emit, exceptions.emitting = emit, exceptions.empanelled = empanel, exceptions.empanelling = empanel, exceptions.emptied = empty2, exceptions.emulsified = emulsify, exceptions.enamelled = enamel, exceptions.enamelling = enamel, exceptions.englutted = englut, exceptions.englutting = englut, exceptions.enrolled = enrol, exceptions.enrolling = enrol, exceptions.enthralled = enthral, exceptions.enthralling = enthral, exceptions.entrammelled = entrammel, exceptions.entrammelling = entrammel, exceptions.entrapped = entrap, exceptions.entrapping = entrap, exceptions.envied = envy, exceptions.enwound = enwind, exceptions.enwrapped = enwrap, exceptions.enwrapping = enwrap, exceptions.equalled = equal, exceptions.equalling = equal, exceptions.equipped = equip, exceptions.equipping = equip, exceptions.espied = espy, exceptions.esterified = esterify, exceptions.estopped = estop, exceptions.estopping = estop, exceptions.etherified = etherify, exceptions.excelled = excel, exceptions.excelling = excel, exceptions.exemplified = exemplify, exceptions.expelled = expel, exceptions.expelling = expel, exceptions.extolled = extol, exceptions.extolling = extol, exceptions.facetted = facet, exceptions.facetting = facet, exceptions.fagged = fag, exceptions.fagging = fag, exceptions.fallen = fall, exceptions.falsified = falsify, exceptions.fancied = fancy, exceptions.fanned = fan, exceptions.fanning = fan, exceptions.fantasied = fantasy, exceptions.fatted = fat, exceptions.fatting = fat, exceptions.featherbedded = featherbed, exceptions.featherbedding = featherbed, exceptions.fed = feed, exceptions.feed = feed, exceptions.fell = fall, exceptions.felt = feel, exceptions.ferried = ferry, exceptions.fibbed = fib, exceptions.fibbing = fib, exceptions.figged = fig, exceptions.figging = fig, exceptions.finned = fin, exceptions.finning = fin, exceptions.fitted = fit, exceptions.fitting = fit, exceptions.flagged = flag, exceptions.flagging = flag, exceptions.flammed = flam, exceptions.flamming = flam, exceptions.flannelled = flannel, exceptions.flannelling = flannel, exceptions.flapped = flap, exceptions.flapping = flap, exceptions.flatted = flat, exceptions.flatting = flat, exceptions.fled = flee, exceptions.flew = fly, exceptions.flimflammed = flimflam, exceptions.flimflamming = flimflam, exceptions.flipped = flip, exceptions.flipping = flip, exceptions.flitted = flit, exceptions.flitting = flit, exceptions.flogged = flog, exceptions.flogging = flog, exceptions.floodlit = floodlight, exceptions.flopped = flop, exceptions.flopping = flop, exceptions.flown = fly, exceptions.flubbed = flub, exceptions.flubbing = flub, exceptions.flung = fling, exceptions.flurried = flurry, exceptions.flyblew = flyblow, exceptions.flyblown = flyblow, exceptions.fobbed = fob, exceptions.fobbing = fob, exceptions.fogged = fog, exceptions.fogging = fog, exceptions.footslogged = footslog, exceptions.footslogging = footslog, exceptions.forbad = forbid, exceptions.forbade = forbid, exceptions.forbidden = forbid, exceptions.forbidding = forbid, exceptions.forbore = forbear, exceptions.forborne = forbear, exceptions.fordid = fordo, exceptions.fordone = fordo, exceptions.foredid = foredo, exceptions.foredone = foredo, exceptions.foregone = forego, exceptions.foreknew = foreknow, exceptions.foreknown = foreknow, exceptions.foreran = forerun, exceptions.forerunning = forerun, exceptions.foresaw = foresee, exceptions.foreseen = foresee, exceptions.foreshown = foreshow, exceptions.forespoke = forespeak, exceptions.forespoken = forespeak, exceptions.foretold = foretell, exceptions.forewent = forego, exceptions.forgave = forgive, exceptions.forgetting = forget, exceptions.forgiven = forgive, exceptions.forgone = forgo, exceptions.forgot = forget, exceptions.forgotten = forget, exceptions.formatted = format, exceptions.formatting = format, exceptions.forsaken = forsake, exceptions.forsook = forsake, exceptions.forspoke = forspeak, exceptions.forspoken = forspeak, exceptions.forswore = forswear, exceptions.forsworn = forswear, exceptions.fortified = fortify, exceptions.forwent = forgo, exceptions.fought = fight, exceptions.found = find4, exceptions.foxtrotted = foxtrot, exceptions.foxtrotting = foxtrot, exceptions.frapped = frap, exceptions.frapping = frap, exceptions.frenchified = frenchify, exceptions.frenzied = frenzy, exceptions.fretted = fret, exceptions.fretting = fret, exceptions.fried = fry, exceptions.frigged = frig, exceptions.frigging = frig, exceptions.fritted = frit, exceptions.fritting = frit, exceptions.frivolled = frivol, exceptions.frivolling = frivol, exceptions.frogged = frog, exceptions.frogging = frog, exceptions.frolicked = frolic, exceptions.frolicking = frolic, exceptions.froze = freeze, exceptions.frozen = freeze, exceptions.fructified = fructify, exceptions.fuelled = fuel, exceptions.fuelling = fuel, exceptions.fulfilled = fulfil, exceptions.fulfilling = fulfil, exceptions.funned = fun, exceptions.funnelled = funnel, exceptions.funnelling = funnel, exceptions.funning = fun, exceptions.furred = fur, exceptions.furring = fur, exceptions.gadded = gad, exceptions.gadding = gad, exceptions.gagged = gag, exceptions.gagging = gag, exceptions.gainsaid = gainsay, exceptions.gambolled = gambol, exceptions.gambolling = gambol, exceptions.gammed = gam, exceptions.gamming = gam, exceptions.gan = gin, exceptions.ganned = gan, exceptions.ganning = gan, exceptions.gapped = gap, exceptions.gapping = gap, exceptions.gasified = gasify, exceptions.gassed = gas, exceptions.gasses = gas, exceptions.gassing = gas, exceptions.gave = give, exceptions.gelled = gel, exceptions.gelling = gel, exceptions.gelt = geld, exceptions.gemmed = gem, exceptions.gemming = gem, exceptions.getting = get2, exceptions.ghostwritten = ghostwrite, exceptions.ghostwrote = ghostwrite, exceptions.gibbed = gib, exceptions.gibbing = gib, exceptions.giddied = giddy, exceptions.giftwrapped = giftwrap, exceptions.giftwrapping = giftwrap, exceptions.gigged = gig, exceptions.gigging = gig, exceptions.gilt = gild, exceptions.ginned = gin, exceptions.ginning = gin, exceptions.gipped = gip, exceptions.gipping = gip, exceptions.girt = gird, exceptions.given = give, exceptions.glommed = glom, exceptions.glomming = glom, exceptions.gloried = glory, exceptions.glorified = glorify, exceptions.glutted = glut, exceptions.glutting = glut, exceptions.gnawn = gnaw, exceptions.gollied = golly, exceptions.gone = go, exceptions.got = get2, exceptions.gotten = get2, exceptions.grabbed = grab, exceptions.grabbing = grab, exceptions.gratified = gratify, exceptions.gravelled = gravel, exceptions.gravelling = gravel, exceptions.graven = grave, exceptions.grew = grow, exceptions.grinned = grin, exceptions.grinning = grin, exceptions.gripped = grip, exceptions.gripping = grip, exceptions.gript = grip, exceptions.gritted = grit, exceptions.gritting = grit, exceptions.ground = grind, exceptions.grovelled = grovel, exceptions.grovelling = grovel, exceptions.grown = grow, exceptions.grubbed = grub, exceptions.grubbing = grub, exceptions.guarantied = guaranty, exceptions.gullied = gully, exceptions.gummed = gum, exceptions.gumming = gum, exceptions.gunned = gun, exceptions.gunning = gun, exceptions.gypped = gyp, exceptions.gypping = gyp, exceptions.hacksawn = hacksaw, exceptions.had = have, exceptions.hammed = ham, exceptions.hamming = ham, exceptions.hamstrung = hamstring, exceptions.handfed = handfeed, exceptions.handicapped = handicap, exceptions.handicapping = handicap, exceptions.handselled = handsel, exceptions.handselling = handsel, exceptions.harried = harry, exceptions.has = have, exceptions.hatchelled = hatchel;
     exceptions.hatchelling = hatchel, exceptions.hatted = hat, exceptions.hatting = hat, exceptions.heard = hear, exceptions.hedgehopped = hedgehop, exceptions.hedgehopping = hedgehop, exceptions.held = hold, exceptions.hemmed = hem, exceptions.hemming = hem, exceptions.hewn = hew, exceptions.hiccupped = hiccup, exceptions.hiccupping = hiccup, exceptions.hid = hide, exceptions.hidden = hide, exceptions.hinnied = hinny, exceptions.hitting = hit, exceptions.hobbed = hob, exceptions.hobbing = hob, exceptions.hobnobbed = hobnob, exceptions.hobnobbing = hobnob, exceptions.hocussed = hocus, exceptions.hocussing = hocus, exceptions.hogged = hog, exceptions.hogging = hog, exceptions.hogtying = hogtie, exceptions.honied = honey, exceptions.hopped = hop, exceptions.hopping = hop, exceptions.horrified = horrify, exceptions.horsewhipped = horsewhip, exceptions.horsewhipping = horsewhip, exceptions.houselled = housel, exceptions.houselling = housel, exceptions.hove = heave, exceptions.hovelled = hovel, exceptions.hovelling = hovel, exceptions.hugged = hug, exceptions.hugging = hug, exceptions.humbugged = humbug, exceptions.humbugging = humbug, exceptions.humidified = humidify, exceptions.hummed = hum, exceptions.humming = hum, exceptions.hung = hang, exceptions.hurried = hurry, exceptions.hypertrophied = hypertrophy, exceptions.identified = identify, exceptions.imbedded = imbed, exceptions.imbedding = imbed, exceptions.impanelled = impanel, exceptions.impanelling = impanel, exceptions.impelled = impel, exceptions.impelling = impel, exceptions.implied = imply, exceptions.inbred = inbreed, exceptions.incurred = incur, exceptions.incurring = incur, exceptions.indemnified = indemnify, exceptions.indwelt = indwell, exceptions.inferred = infer, exceptions.inferring = infer, exceptions.initialled = initial, exceptions.initialling = initial, exceptions.inlaid = inlay, exceptions.insetting = inset, exceptions.inspanned = inspan, exceptions.inspanning = inspan, exceptions.installed = install, exceptions.installing = install, exceptions.intensified = intensify, exceptions.interbred = interbreed, exceptions.intercropped = intercrop, exceptions.intercropping = intercrop, exceptions.intercutting = intercut, exceptions.interlaid = interlay, exceptions.interlapped = interlap, exceptions.interlapping = interlap, exceptions.intermarried = intermarry, exceptions.intermitted = intermit, exceptions.intermitting = intermit, exceptions.interpled = interplead, exceptions.interred = inter, exceptions.interring = inter, exceptions.interstratified = interstratify, exceptions.interwove = interweave, exceptions.interwoven = interweave, exceptions.intromitted = intromit, exceptions.intromitting = intromit, exceptions.inwove = inweave, exceptions.inwoven = inweave, exceptions.inwrapped = inwrap, exceptions.inwrapping = inwrap, exceptions.is = be, exceptions.jabbed = jab, exceptions.jabbing = jab, exceptions.jagged = jag, exceptions.jagging = jag, exceptions.jammed = jam, exceptions.jamming = jam, exceptions.japanned = japan, exceptions.japanning = japan, exceptions.jarred = jar, exceptions.jarring = jar, exceptions.jellied = jelly, exceptions.jellified = jellify, exceptions.jemmied = jemmy, exceptions.jetted = jet, exceptions.jetting = jet, exceptions.jewelled = jewel, exceptions.jewelling = jewel, exceptions.jibbed = jib, exceptions.jibbing = jib, exceptions.jigged = jig, exceptions.jigging = jig, exceptions.jimmied = jimmy, exceptions.jitterbugged = jitterbug, exceptions.jitterbugging = jitterbug, exceptions.jobbed = job, exceptions.jobbing = job, exceptions.jogged = jog, exceptions.jogging = jog, exceptions.jollied = jolly, exceptions.jollified = jollify, exceptions.jotted = jot, exceptions.jotting = jot, exceptions.joypopped = joypop, exceptions.joypopping = joypop, exceptions.jugged = jug, exceptions.jugging = jug, exceptions.justified = justify, exceptions.jutted = jut, exceptions.jutting = jut, exceptions.kenned = ken, exceptions.kennelled = kennel, exceptions.kennelling = kennel, exceptions.kenning = ken, exceptions.kent = ken, exceptions.kept = keep, exceptions.kernelled = kernel, exceptions.kernelling = kernel, exceptions.kidded = kid, exceptions.kidding = kid, exceptions.kidnapped = kidnap, exceptions.kidnapping = kidnap, exceptions.kipped = kip, exceptions.kipping = kip, exceptions.knapped = knap, exceptions.knapping = knap, exceptions.kneecapped = kneecap, exceptions.kneecapping = kneecap, exceptions.knelt = kneel, exceptions.knew = know, exceptions.knitted = knit, exceptions.knitting = knit, exceptions.knobbed = knob, exceptions.knobbing = knob, exceptions.knotted = knot, exceptions.knotting = knot, exceptions.known = know, exceptions.labelled = label, exceptions.labelling = label, exceptions.laden = lade, exceptions.ladyfied = ladify, exceptions.ladyfies = ladify, exceptions.ladyfying = ladify, exceptions.lagged = lag, exceptions.lagging = lag, exceptions.laid = lay, exceptions.lain = lie, exceptions.lallygagged = lallygag, exceptions.lallygagging = lallygag, exceptions.lammed = lam, exceptions.lamming = lam, exceptions.lapidified = lapidify, exceptions.lapped = lap, exceptions.lapping = lap, exceptions.laurelled = laurel, exceptions.laurelling = laurel, exceptions.lay = lie, exceptions.leant = lean, exceptions.leapfrogged = leapfrog, exceptions.leapfrogging = leapfrog, exceptions.leapt = leap, exceptions.learnt = learn, exceptions.led = lead, exceptions.left = leave, exceptions.lent = lend, exceptions.letting = let1, exceptions.levelled = level, exceptions.levelling = level, exceptions.levied = levy, exceptions.libelled = libel, exceptions.libelling = libel, exceptions.lignified = lignify, exceptions.lipped = lip, exceptions.lipping = lip, exceptions.liquefied = liquefy, exceptions.liquified = liquify, exceptions.lit = light, exceptions.lobbed = lob, exceptions.lobbied = lobby, exceptions.lobbing = lob, exceptions.logged = log, exceptions.logging = log, exceptions.lopped = lop, exceptions.lopping = lop, exceptions.lost = lose, exceptions.lotted = lot, exceptions.lotting = lot, exceptions.lugged = lug, exceptions.lugging = lug, exceptions.lullabied = lullaby, exceptions.lying = lie, exceptions.madded = mad, exceptions.madding = mad, exceptions.made = make, exceptions.magnified = magnify, exceptions.manned = man, exceptions.manning = man, exceptions.manumitted = manumit, exceptions.manumitting = manumit, exceptions.mapped = map2, exceptions.mapping = map2, exceptions.marcelled = marcel, exceptions.marcelling = marcel, exceptions.marred = mar, exceptions.married = marry, exceptions.marring = mar, exceptions.marshalled = marshal, exceptions.marshalling = marshal, exceptions.marvelled = marvel, exceptions.marvelling = marvel, exceptions.matted = mat, exceptions.matting = mat, exceptions.meant = mean, exceptions.medalled = medal, exceptions.medalling = medal, exceptions.met = meet, exceptions.metalled = metal, exceptions.metalling = metal, exceptions.metrified = metrify, exceptions.might = may, exceptions.mimicked = mimic, exceptions.mimicking = mimic, exceptions.minified = minify, exceptions.misapplied = misapply, exceptions.misbecame = misbecome, exceptions.miscarried = miscarry, exceptions.misdealt = misdeal, exceptions.misfitted = misfit, exceptions.misfitting = misfit, exceptions.misgave = misgive, exceptions.misgiven = misgive, exceptions.mishitting = mishit, exceptions.mislaid = mislay, exceptions.misled = mislead, exceptions.mispled = misplead, exceptions.misspelt = misspell, exceptions.misspent = misspend, exceptions.mistaken = mistake, exceptions.mistook = mistake, exceptions.misunderstood = misunderstand, exceptions.mobbed = mob, exceptions.mobbing = mob, exceptions.modelled = model, exceptions.modelling = model, exceptions.modified = modify, exceptions.mollified = mollify, exceptions.molten = melt, exceptions.mopped = mop, exceptions.mopping = mop, exceptions.mortified = mortify, exceptions.mown = mow, exceptions.mudded = mud, exceptions.muddied = muddy, exceptions.mudding = mud, exceptions.mugged = mug, exceptions.mugging = mug, exceptions.multiplied = multiply, exceptions.mummed = mum, exceptions.mummified = mummify, exceptions.mumming = mum, exceptions.mutinied = mutiny, exceptions.mystified = mystify, exceptions.nabbed = nab, exceptions.nabbing = nab, exceptions.nagged = nag, exceptions.nagging = nag, exceptions.napped = nap, exceptions.napping = nap, exceptions.netted = net, exceptions.netting = net, exceptions.nibbed = nib, exceptions.nibbing = nib, exceptions.nickelled = nickel, exceptions.nickelling = nickel, exceptions.nidified = nidify, exceptions.nigrified = nigrify, exceptions.nipped = nip, exceptions.nipping = nip, exceptions.nitrified = nitrify, exceptions.nodded = nod, exceptions.nodding = nod, exceptions.nonplussed = nonplus, exceptions.nonplusses = nonplus, exceptions.nonplussing = nonplus, exceptions.notified = notify, exceptions.nullified = nullify, exceptions.nutted = nut, exceptions.nutting = nut, exceptions.objectified = objectify, exceptions.occupied = occupy, exceptions.occurred = occur, exceptions.occurring = occur, exceptions.offsetting = offset, exceptions.omitted = omit2, exceptions.omitting = omit2, exceptions.ossified = ossify, exceptions.outbidden = outbid, exceptions.outbidding = outbid, exceptions.outbred = outbreed, exceptions.outcried = outcry, exceptions.outcropped = outcrop, exceptions.outcropping = outcrop, exceptions.outdid = outdo, exceptions.outdone = outdo, exceptions.outdrawn = outdraw, exceptions.outdrew = outdraw, exceptions.outfitted = outfit, exceptions.outfitting = outfit, exceptions.outfought = outfight, exceptions.outgassed = outgas, exceptions.outgasses = outgas, exceptions.outgassing = outgas, exceptions.outgeneralled = outgeneral, exceptions.outgeneralling = outgeneral, exceptions.outgone = outgo, exceptions.outgrew = outgrow, exceptions.outgrown = outgrow, exceptions.outlaid = outlay, exceptions.outmanned = outman, exceptions.outmanning = outman, exceptions.outputted = output, exceptions.outputting = output, exceptions.outran = outrun, exceptions.outridden = outride, exceptions.outrode = outride, exceptions.outrunning = outrun, exceptions.outshone = outshine, exceptions.outshot = outshoot, exceptions.outsold = outsell, exceptions.outspanned = outspan, exceptions.outspanning = outspan, exceptions.outstood = outstand, exceptions.outstripped = outstrip, exceptions.outstripping = outstrip, exceptions.outthought = outthink, exceptions.outwent = outgo, exceptions.outwitted = outwit, exceptions.outwitting = outwit, exceptions.outwore = outwear, exceptions.outworn = outwear, exceptions.overbidden = overbid, exceptions.overbidding = overbid, exceptions.overblew = overblow, exceptions.overblown = overblow, exceptions.overbore = overbear, exceptions.overborne = overbear, exceptions.overbuilt = overbuild, exceptions.overcame = overcome, exceptions.overcropped = overcrop, exceptions.overcropping = overcrop, exceptions.overdid = overdo, exceptions.overdone = overdo, exceptions.overdrawn = overdraw, exceptions.overdrew = overdraw, exceptions.overdriven = overdrive, exceptions.overdrove = overdrive, exceptions.overflew = overfly, exceptions.overflown = overflow, exceptions.overgrew = overgrow, exceptions.overgrown = overgrow, exceptions.overheard = overhear, exceptions.overhung = overhang, exceptions.overlaid = overlay, exceptions.overlain = overlie, exceptions.overlapped = overlap, exceptions.overlapping = overlap, exceptions.overlay = overlie, exceptions.overlying = overlie, exceptions.overmanned = overman, exceptions.overmanning = overman, exceptions.overpaid = overpay, exceptions.overpast = overpass, exceptions.overran = overrun, exceptions.overridden = override, exceptions.overrode = override, exceptions.overrunning = overrun, exceptions.oversaw = oversee, exceptions.overseen = oversee, exceptions.oversetting = overset, exceptions.oversewn = oversew, exceptions.overshot = overshoot, exceptions.oversimplified = oversimplify, exceptions.overslept = oversleep, exceptions.oversold = oversell, exceptions.overspent = overspend, exceptions.overspilt = overspill, exceptions.overstepped = overstep, exceptions.overstepping = overstep, exceptions.overtaken = overtake, exceptions.overthrew = overthrow, exceptions.overthrown = overthrow, exceptions.overtook = overtake, exceptions.overtopped = overtop, exceptions.overtopping = overtop, exceptions.overwound = overwind, exceptions.overwritten = overwrite, exceptions.overwrote = overwrite, exceptions.pacified = pacify, exceptions.padded = pad, exceptions.padding = pad, exceptions.paid = pay, exceptions.palled = pal, exceptions.palling = pal, exceptions.palsied = palsy, exceptions.pandied = pandy, exceptions.panelled = panel, exceptions.panelling = panel, exceptions.panicked = panic, exceptions.panicking = panic, exceptions.panned = pan, exceptions.panning = pan, exceptions.parallelled = parallel, exceptions.parallelling = parallel, exceptions.parcelled = parcel, exceptions.parcelling = parcel, exceptions.parodied = parody, exceptions.parried = parry, exceptions.partaken = partake, exceptions.partook = partake, exceptions.pasquil = pasquinade, exceptions.pasquilled = pasquinade, exceptions.pasquilling = pasquinade, exceptions.pasquils = pasquinade, exceptions.patrolled = patrol, exceptions.patrolling = patrol, exceptions.patted = pat, exceptions.patting = pat, exceptions.pedalled = pedal, exceptions.pedalling = pedal, exceptions.pegged = peg, exceptions.pegging = peg, exceptions.pencilled = pencil, exceptions.pencilling = pencil, exceptions.penned = pen, exceptions.penning = pen, exceptions.pent = pen, exceptions.pepped = pep, exceptions.pepping = pep, exceptions.permitted = permit, exceptions.permitting = permit, exceptions.personified = personify, exceptions.petrified = petrify, exceptions.petted = pet, exceptions.pettifogged = pettifog, exceptions.pettifogging = pettifog, exceptions.petting = pet, exceptions.phantasied = phantasy, exceptions.photocopied = photocopy, exceptions.photomapped = photomap, exceptions.photomapping = photomap, exceptions.photosetting = photoset, exceptions.physicked = physic, exceptions.physicking = physic, exceptions.picnicked = picnic, exceptions.picnicking = picnic, exceptions.pigged = pig, exceptions.pigging = pig, exceptions.pilloried = pillory, exceptions.pinned = pin, exceptions.pinning = pin, exceptions.pipped = pip, exceptions.pipping = pip, exceptions.pistolled = pistol, exceptions.pistolling = pistol, exceptions.pitapatted = pitapat, exceptions.pitapatting = pitapat, exceptions.pitied = pity, exceptions.pitted = pit, exceptions.pitting = pit, exceptions.planned = plan, exceptions.planning = plan, exceptions.platted = plat, exceptions.platting = plat, exceptions.pled = plead, exceptions.plied = ply, exceptions.plodded = plod, exceptions.plodding = plod, exceptions.plopped = plop, exceptions.plopping = plop, exceptions.plotted = plot, exceptions.plotting = plot, exceptions.plugged = plug, exceptions.plugging = plug, exceptions.podded = pod, exceptions.podding = pod, exceptions.pommelled = pommel, exceptions.pommelling = pommel, exceptions.popes = popes, exceptions.popped = pop, exceptions.popping = pop, exceptions.potted = pot, exceptions.potting = pot, exceptions.preachified = preachify, exceptions.precancelled = precancel, exceptions.precancelling = precancel, exceptions.preferred = prefer, exceptions.preferring = prefer, exceptions.preoccupied = preoccupy, exceptions.prepaid = prepay, exceptions.presignified = presignify, exceptions.pretermitted = pretermit, exceptions.pretermitting = pretermit, exceptions.prettied = pretty, exceptions.prettified = prettify, exceptions.pried = pry, exceptions.prigged = prig, exceptions.prigging = prig, exceptions.primmed = prim, exceptions.primming = prim, exceptions.prodded = prod, exceptions.prodding = prod, exceptions.programmed = program, exceptions.programmes = program, exceptions.programming = program, exceptions.prologed = prologue, exceptions.prologing = prologue, exceptions.prologs = prologue, exceptions.propelled = propel, exceptions.propelling = propel, exceptions.prophesied = prophesy, exceptions.propped = prop2, exceptions.propping = prop2, exceptions.proven = prove, exceptions.pubbed = pub, exceptions.pubbing = pub, exceptions.pugged = pug, exceptions.pugging = pug, exceptions.pummelled = pummel, exceptions.pummelling = pummel, exceptions.punned = pun, exceptions.punning = pun, exceptions.pupped = pup, exceptions.pupping = pup, exceptions.purified = purify, exceptions.putrefied = putrefy, exceptions.puttied = putty, exceptions.putting = put, exceptions.qualified = qualify, exceptions.quantified = quantify, exceptions.quarrelled = quarrel, exceptions.quarrelling = quarrel, exceptions.quarried = quarry, exceptions.quartersawn = quartersaw, exceptions.queried = query, exceptions.quickstepped = quickstep, exceptions.quickstepping = quickstep, exceptions.quipped = quip, exceptions.quipping = quip, exceptions.quitted = quit, exceptions.quitting = quit, exceptions.quizzed = quiz, exceptions.quizzes = quiz, exceptions.quizzing = quiz, exceptions.ragged = rag, exceptions.ragging = rag, exceptions.rallied = rally, exceptions.ramified = ramify, exceptions.rammed = ram, exceptions.ramming = ram, exceptions.ran = run, exceptions.rang = ring, exceptions.rapped = rap, exceptions.rappelled = rappel, exceptions.rappelling = rappel, exceptions.rapping = rap, exceptions.rarefied = rarefy, exceptions.ratified = ratify, exceptions.ratted = rat, exceptions.ratting = rat, exceptions.ravelled = ravel, exceptions.ravelling = ravel, exceptions.rebelled = rebel, exceptions.rebelling = rebel, exceptions.rebuilt = rebuild, exceptions.rebutted = rebut, exceptions.rebutting = rebut, exceptions.recapped = recap, exceptions.recapping = recap, exceptions.reclassified = reclassify, exceptions.recommitted = recommit, exceptions.recommitting = recommit, exceptions.recopied = recopy, exceptions.rectified = rectify, exceptions.recurred = recur, exceptions.recurring = recur, exceptions.red = red, exceptions.redded = red, exceptions.redding = red, exceptions.redid = redo, exceptions.redone = redo, exceptions.referred = refer, exceptions.referring = refer, exceptions.refitted = refit, exceptions.refitting = refit, exceptions.reft = reave, exceptions.refuelled = refuel, exceptions.refuelling = refuel, exceptions.regretted = regret, exceptions.regretting = regret, exceptions.reheard = rehear, exceptions.reified = reify, exceptions.relied = rely, exceptions.remade = remake, exceptions.remarried = remarry, exceptions.remitted = remit, exceptions.remitting = remit, exceptions.rent = rend, exceptions.repaid = repay, exceptions.repelled = repel, exceptions.repelling = repel, exceptions.replevied = replevy, exceptions.replied = reply, exceptions.repotted = repot, exceptions.repotting = repot, exceptions.reran = rerun, exceptions.rerunning = rerun, exceptions.resat = resit, exceptions.resetting = reset, exceptions.resewn = resew, exceptions.resitting = resit, exceptions.retaken = retake, exceptions.rethought = rethink, exceptions.retold = retell, exceptions.retook = retake, exceptions.retransmitted = retransmit, exceptions.retransmitting = retransmit, exceptions.retried = retry, exceptions.retrofitted = retrofit, exceptions.retrofitting = retrofit, exceptions.retted = ret, exceptions.retting = ret, exceptions.reunified = reunify, exceptions.revelled = revel, exceptions.revelling = revel, exceptions.revetted = revet, exceptions.revetting = revet, exceptions.revivified = revivify, exceptions.revved = rev, exceptions.revving = rev, exceptions.rewound = rewind, exceptions.rewritten = rewrite, exceptions.rewrote = rewrite, exceptions.ribbed = rib, exceptions.ribbing = rib, exceptions.ricochetted = ricochet, exceptions.ricochetting = ricochet, exceptions.ridded = rid, exceptions.ridden = ride, exceptions.ridding = rid, exceptions.rigged = rig, exceptions.rigging = rig, exceptions.rigidified = rigidify, exceptions.rimmed = rim, exceptions.rimming = rim, exceptions.ripped = rip, exceptions.ripping = rip, exceptions.risen = rise, exceptions.rivalled = rival, exceptions.rivalling = rival, exceptions.riven = rive, exceptions.robbed = rob, exceptions.robbing = rob, exceptions.rode = ride, exceptions.rose = rise, exceptions.rotted = rot, exceptions.rotting = rot, exceptions.rove = reeve, exceptions.rowelled = rowel, exceptions.rowelling = rowel, exceptions.rubbed = rub, exceptions.rubbing = rub, exceptions.rung = ring, exceptions.running = run, exceptions.rutted = rut, exceptions.rutting = rut, exceptions.saccharified = saccharify, exceptions.sagged = sag, exceptions.sagging = sag, exceptions.said = say, exceptions.salaried = salary, exceptions.salified = salify, exceptions.sallied = sally, exceptions.sanctified = sanctify, exceptions.sandbagged = sandbag, exceptions.sandbagging = sandbag, exceptions.sang = sing, exceptions.sank = sink, exceptions.saponified = saponify, exceptions.sapped = sap, exceptions.sapping = sap, exceptions.sat = sit, exceptions.satisfied = satisfy, exceptions.savvied = savvy, exceptions.saw = see, exceptions.sawn = saw, exceptions.scagged = scag, exceptions.scagging = scag, exceptions.scanned = scan, exceptions.scanning = scan, exceptions.scarified = scarify, exceptions.scarred = scar, exceptions.scarring = scar, exceptions.scatted = scat, exceptions.scatting = scat, exceptions.scorified = scorify, exceptions.scragged = scrag, exceptions.scragging = scrag, exceptions.scrammed = scram, exceptions.scramming = scram, exceptions.scrapped = scrap, exceptions.scrapping = scrap, exceptions.scried = scry, exceptions.scrubbed = scrub, exceptions.scrubbing = scrub, exceptions.scrummed = scrum, exceptions.scrumming = scrum, exceptions.scudded = scud, exceptions.scudding = scud, exceptions.scummed = scum, exceptions.scumming = scum, exceptions.scurried = scurry, exceptions.seed = seed, exceptions.seen = see, exceptions.sent = send, exceptions.setting = set, exceptions.sewn = sew, exceptions.shagged = shag, exceptions.shagging = shag, exceptions.shaken = shake, exceptions.shammed = sham, exceptions.shamming = sham, exceptions.sharecropped = sharecrop, exceptions.sharecropping = sharecrop, exceptions.shat = shit, exceptions.shaven = shave, exceptions.shorn = shear, exceptions.shed = shed, exceptions.shedding = shed, exceptions.shellacked = shellac, exceptions.shellacking = shellac, exceptions.shent = shend, exceptions.shewn = shew, exceptions.shied = shy, exceptions.shikarred = shikar, exceptions.shikarring = shikar, exceptions.shillyshallied = shillyshally, exceptions.shimmed = shim, exceptions.shimmied = shimmy, exceptions.shimming = shim, exceptions.shinned = shin, exceptions.shinning = shin, exceptions.shipped = ship, exceptions.shipping = ship, exceptions.shitted = shit, exceptions.shitting = shit, exceptions.shod = shoe, exceptions.shone = shine, exceptions.shook = shake, exceptions.shopped = shop, exceptions.shopping = shop, exceptions.shot = shoot, exceptions.shotgunned = shotgun, exceptions.shotgunning = shotgun, exceptions.shotted = shot, exceptions.shotting = shot, exceptions.shovelled = shovel, exceptions.shovelling = shovel, exceptions.shown = show, exceptions.shrank = shrink, exceptions.shredded = shred, exceptions.shredding = shred, exceptions.shrivelled = shrivel, exceptions.shrivelling = shrivel, exceptions.shriven = shrive, exceptions.shrove = shrive, exceptions.shrugged = shrug, exceptions.shrugging = shrug, exceptions.shrunk = shrink;
     exceptions.shrunken = shrink, exceptions.shunned = shun, exceptions.shunning = shun, exceptions.shutting = shut, exceptions.sicked = sic, exceptions.sicking = sic, exceptions.sideslipped = sideslip, exceptions.sideslipping = sideslip, exceptions.sidestepped = sidestep, exceptions.sidestepping = sidestep, exceptions.sightsaw = sightsee, exceptions.sightseen = sightsee, exceptions.signalled = signal, exceptions.signalling = signal, exceptions.signified = signify, exceptions.silicified = silicify, exceptions.simplified = simplify, exceptions.singing = sing, exceptions.sinned = sin, exceptions.sinning = sin, exceptions.sipped = sip, exceptions.sipping = sip, exceptions.sitting = sit, exceptions.skellied = skelly, exceptions.skenned = sken, exceptions.skenning = sken, exceptions.sketted = sket, exceptions.sketting = sket, exceptions.skidded = skid, exceptions.skidding = skid, exceptions.skimmed = skim, exceptions.skimming = skim, exceptions.skinned = skin, exceptions.skinning = skin, exceptions.skipped = skip, exceptions.skipping = skip, exceptions.skivvied = skivvy, exceptions.skydove = skydive, exceptions.slabbed = slab, exceptions.slabbing = slab, exceptions.slagged = slag, exceptions.slagging = slag, exceptions.slain = slay, exceptions.slammed = slam, exceptions.slamming = slam, exceptions.slapped = slap, exceptions.slapping = slap, exceptions.slatted = slat, exceptions.slatting = slat, exceptions.sledding = sled, exceptions.slept = sleep3, exceptions.slew = slay, exceptions.slid = slide, exceptions.slidden = slide, exceptions.slipped = slip, exceptions.slipping = slip, exceptions.slitting = slit, exceptions.slogged = slog, exceptions.slogging = slog, exceptions.slopped = slop, exceptions.slopping = slop, exceptions.slotted = slot, exceptions.slotting = slot, exceptions.slugged = slug, exceptions.slugging = slug, exceptions.slummed = slum, exceptions.slumming = slum, exceptions.slung = sling, exceptions.slunk = slink, exceptions.slurred = slur, exceptions.slurring = slur, exceptions.smelt = smell, exceptions.smit = smite, exceptions.smitten = smite, exceptions.smote = smite, exceptions.smutted = smut, exceptions.smutting = smut, exceptions.snagged = snag, exceptions.snagging = snag, exceptions.snapped = snap, exceptions.snapping = snap, exceptions.snedded = sned, exceptions.snedding = sned, exceptions.snipped = snip, exceptions.snipping = snip, exceptions.snivelled = snivel, exceptions.snivelling = snivel, exceptions.snogged = snog, exceptions.snogging = snog, exceptions.snubbed = snub, exceptions.snubbing = snub, exceptions.snuck = sneak, exceptions.snugged = snug, exceptions.snugging = snug, exceptions.sobbed = sob, exceptions.sobbing = sob, exceptions.sodded = sod, exceptions.sodding = sod, exceptions.sold = sell, exceptions.solemnified = solemnify, exceptions.solidified = solidify, exceptions.soothsaid = soothsay, exceptions.sopped = sop, exceptions.sopping = sop, exceptions.sought = seek, exceptions.sown = sow, exceptions.spagged = spag, exceptions.spagging = spag, exceptions.spancelled = spancel, exceptions.spancelling = spancel, exceptions.spanned = span, exceptions.spanning = span, exceptions.sparred = spar, exceptions.sparring = spar, exceptions.spat = spit, exceptions.spatted = spat, exceptions.spatting = spat, exceptions.specified = specify, exceptions.sped = speed, exceptions.speechified = speechify, exceptions.spellbound = spellbind, exceptions.spelt = spell, exceptions.spent = spend, exceptions.spied = spy, exceptions.spilt = spill, exceptions.spinning = spin, exceptions.spiralled = spiral, exceptions.spiralling = spiral, exceptions.spitted = spit, exceptions.spitting = spit, exceptions.splitting = split, exceptions.spoilt = spoil, exceptions.spoke = speak, exceptions.spoken = speak, exceptions.spotlit = spotlight, exceptions.spotted = spot, exceptions.spotting = spot, exceptions.sprang = spring, exceptions.sprigged = sprig, exceptions.sprigging = sprig, exceptions.sprung = spring, exceptions.spudded = spud, exceptions.spudding = spud, exceptions.spun = spin, exceptions.spurred = spur, exceptions.spurring = spur, exceptions.squatted = squat, exceptions.squatting = squat, exceptions.squibbed = squib, exceptions.squibbing = squib, exceptions.squidded = squid, exceptions.squidding = squid, exceptions.squilgee = squeegee, exceptions.stabbed = stab, exceptions.stabbing = stab, exceptions.stank = stink, exceptions.starred = star, exceptions.starring = star, exceptions.steadied = steady, exceptions.stellified = stellify, exceptions.stemmed = stem, exceptions.stemming = stem, exceptions.stencilled = stencil, exceptions.stencilling = stencil, exceptions.stepped = step, exceptions.stepping = step, exceptions.stetted = stet, exceptions.stetting = stet, exceptions.stied = sty, exceptions.stilettoeing = stiletto, exceptions.stirred = stir, exceptions.stirring = stir, exceptions.stole = steal, exceptions.stolen = steal, exceptions.stood = stand, exceptions.stopped = stop, exceptions.stopping = stop, exceptions.storied = story, exceptions.stotted = stot, exceptions.stotting = stot, exceptions.stove = stave, exceptions.strapped = strap, exceptions.strapping = strap, exceptions.stratified = stratify, exceptions.strewn = strew, exceptions.stridden = stride, exceptions.stripped = strip2, exceptions.stripping = strip2, exceptions.striven = strive, exceptions.strode = stride, exceptions.stropped = strop, exceptions.stropping = strop, exceptions.strove = strive, exceptions.strown = strow, exceptions.stricken = strike, exceptions.struck = strike, exceptions.strummed = strum, exceptions.strumming = strum, exceptions.strung = string4, exceptions.strutted = strut, exceptions.strutting = strut, exceptions.stubbed = stub, exceptions.stubbing = stub, exceptions.stuck = stick, exceptions.studded = stud, exceptions.studding = stud, exceptions.studied = study, exceptions.stultified = stultify, exceptions.stummed = stum, exceptions.stumming = stum, exceptions.stung = sting, exceptions.stunk = stink, exceptions.stunned = stun, exceptions.stunning = stun, exceptions.stupefied = stupefy, exceptions.stymying = stymie, exceptions.subbed = sub, exceptions.subbing = sub, exceptions.subjectified = subjectify, exceptions.subletting = sublet, exceptions.submitted = submit, exceptions.submitting = submit, exceptions.subtotalled = subtotal, exceptions.subtotalling = subtotal, exceptions.sullied = sully, exceptions.sulphuretted = sulphuret, exceptions.sulphuretting = sulphuret, exceptions.summed = sum, exceptions.summing = sum, exceptions.sung = sing, exceptions.sunk = sink, exceptions.sunken = sink, exceptions.sunned = sun, exceptions.sunning = sun, exceptions.supped = sup, exceptions.supping = sup, exceptions.supplied = supply, exceptions.swabbed = swab, exceptions.swabbing = swab, exceptions.swagged = swag, exceptions.swagging = swag, exceptions.swam = swim, exceptions.swapped = swap, exceptions.swapping = swap, exceptions.swatted = swat, exceptions.swatting = swat, exceptions.swept = sweep, exceptions.swigged = swig, exceptions.swigging = swig, exceptions.swimming = swim, exceptions.swivelled = swivel, exceptions.swivelling = swivel, exceptions.swollen = swell, exceptions.swopped = swap, exceptions.swopping = swap, exceptions.swops = swap, exceptions.swore = swear, exceptions.sworn = swear, exceptions.swotted = swot, exceptions.swotting = swot, exceptions.swum = swim, exceptions.swung = swing, exceptions.syllabified = syllabify, exceptions.symbolled = symbol, exceptions.symbolling = symbol, exceptions.tabbed = tab, exceptions.tabbing = tab, exceptions.tagged = tag, exceptions.tagging = tag, exceptions.taken = take, exceptions.talcked = talc, exceptions.talcking = talc, exceptions.tallied = tally, exceptions.tammied = tammy, exceptions.tanned = tan, exceptions.tanning = tan, exceptions.tapped = tap, exceptions.tapping = tap, exceptions.tarred = tar, exceptions.tarried = tarry, exceptions.tarring = tar, exceptions.tasselled = tassel, exceptions.tasselling = tassel, exceptions.tatted = tat, exceptions.tatting = tat, exceptions.taught = teach, exceptions.taxis = taxis, exceptions.taxying = taxi, exceptions.teaselled = teasel, exceptions.teaselling = teasel, exceptions.tedded = ted, exceptions.tedding = ted, exceptions.tepefied = tepefy, exceptions.terrified = terrify, exceptions.testes = testes, exceptions.testified = testify, exceptions.thinned = thin, exceptions.thinning = thin, exceptions.thought = think, exceptions.threw = throw1, exceptions.thriven = thrive, exceptions.throbbed = throb, exceptions.throbbing = throb, exceptions.throve = thrive, exceptions.thrown = throw1, exceptions.thrummed = thrum, exceptions.thrumming = thrum, exceptions.thudded = thud, exceptions.thudding = thud, exceptions.tidied = tidy, exceptions.tinned = tin, exceptions.tinning = tin, exceptions.tinselled = tinsel, exceptions.tinselling = tinsel, exceptions.tipped = tip, exceptions.tipping = tip, exceptions.tittupped = tittup, exceptions.tittupping = tittup, exceptions.toadied = toady, exceptions.togged = tog, exceptions.togging = tog, exceptions.told = tell, exceptions.took = take, exceptions.topped = top, exceptions.topping = top, exceptions.tore = tear, exceptions.torn = tear, exceptions.torrefied = torrefy, exceptions.torrify = torrefy, exceptions.totalled = total, exceptions.totalling = total, exceptions.totted = tot, exceptions.totting = tot, exceptions.towelled = towel, exceptions.towelling = towel, exceptions.trafficked = traffic, exceptions.trafficking = traffic, exceptions.trameled = trammel, exceptions.trameling = trammel, exceptions.tramelled = trammel, exceptions.tramelling = trammel, exceptions.tramels = trammel, exceptions.trammed = tram, exceptions.tramming = tram, exceptions.transferred = transfer, exceptions.transferring = transfer, exceptions.transfixt = transfix, exceptions.tranship = transship, exceptions.transhipped = tranship, exceptions.transhipping = tranship, exceptions.transmitted = transmit, exceptions.transmitting = transmit, exceptions.transmogrified = transmogrify, exceptions.transshipped = transship, exceptions.transshipping = transship, exceptions.trapanned = trapan, exceptions.trapanning = trapan, exceptions.trapped = trap, exceptions.trapping = trap, exceptions.travelled = travel, exceptions.travelling = travel, exceptions.travestied = travesty, exceptions.trekked = trek, exceptions.trekking = trek, exceptions.trepanned = trepan, exceptions.trepanning = trepan, exceptions.tried = try1, exceptions.trigged = trig, exceptions.trigging = trig, exceptions.trimmed = trim, exceptions.trimming = trim, exceptions.tripped = trip, exceptions.tripping = trip, exceptions.trod = tread, exceptions.trodden = tread, exceptions.trogged = trog, exceptions.trogging = trog, exceptions.trotted = trot, exceptions.trotting = trot, exceptions.trowelled = trowel, exceptions.trowelling = trowel, exceptions.tugged = tug, exceptions.tugging = tug, exceptions.tumefied = tumefy, exceptions.tunned = tun, exceptions.tunnelled = tunnel, exceptions.tunnelling = tunnel, exceptions.tunning = tun, exceptions.tupped = tup, exceptions.tupping = tup, exceptions.twigged = twig, exceptions.twigging = twig, exceptions.twinned = twin, exceptions.twinning = twin, exceptions.twitted = twit, exceptions.twitting = twit, exceptions.tying = tie, exceptions.typesetting = typeset, exceptions.typewritten = typewrite, exceptions.typewrote = typewrite, exceptions.typified = typify, exceptions.uglified = uglify, exceptions.unbarred = unbar, exceptions.unbarring = unbar, exceptions.unbent = unbend, exceptions.unbound = unbind, exceptions.uncapped = uncap, exceptions.uncapping = uncap, exceptions.unclad = unclothe, exceptions.unclogged = unclog, exceptions.unclogging = unclog, exceptions.underbidding = underbid, exceptions.underbought = underbuy, exceptions.undercutting = undercut, exceptions.underfed = underfeed, exceptions.undergirt = undergird, exceptions.undergone = undergo, exceptions.underlaid = underlay, exceptions.underlain = underlie, exceptions.underlay = underlie, exceptions.underletting = underlet, exceptions.underlying = underlie, exceptions.underpaid = underpay, exceptions.underpinned = underpin, exceptions.underpinning = underpin, exceptions.underpropped = underprop, exceptions.underpropping = underprop, exceptions.undersetting = underset, exceptions.undershot = undershoot, exceptions.undersold = undersell, exceptions.understood = understand, exceptions.understudied = understudy, exceptions.undertaken = undertake, exceptions.undertook = undertake, exceptions.underwent = undergo, exceptions.underwritten = underwrite, exceptions.underwrote = underwrite, exceptions.undid = undo, exceptions.undone = undo, exceptions.unfitted = unfit, exceptions.unfitting = unfit, exceptions.unfroze = unfreeze, exceptions.unfrozen = unfreeze, exceptions.unified = unify, exceptions.unkennelled = unkennel, exceptions.unkennelling = unkennel, exceptions.unknitted = unknit, exceptions.unknitting = unknit, exceptions.unlaid = unlay, exceptions.unlearnt = unlearn, exceptions.unmade = unmake, exceptions.unmanned = unman, exceptions.unmanning = unman, exceptions.unpegged = unpeg, exceptions.unpegging = unpeg, exceptions.unpinned = unpin, exceptions.unpinning = unpin, exceptions.unplugged = unplug, exceptions.unplugging = unplug, exceptions.unravelled = unravel, exceptions.unravelling = unravel, exceptions.unrigged = unrig, exceptions.unrigging = unrig, exceptions.unripped = unrip, exceptions.unripping = unrip, exceptions.unrove = unreeve, exceptions.unsaid = unsay, exceptions.unshipped = unship, exceptions.unshipping = unship, exceptions.unslung = unsling, exceptions.unsnapped = unsnap, exceptions.unsnapping = unsnap, exceptions.unspoke = unspeak, exceptions.unspoken = unspeak, exceptions.unsteadied = unsteady, exceptions.unstepped = unstep, exceptions.unstepping = unstep, exceptions.unstopped = unstop, exceptions.unstopping = unstop, exceptions.unstrung = unstring, exceptions.unstuck = unstick, exceptions.unswore = unswear, exceptions.unsworn = unswear, exceptions.untaught = unteach, exceptions.unthought = unthink, exceptions.untidied = untidy, exceptions.untrod = untread, exceptions.untrodden = untread, exceptions.untying = untie, exceptions.unwound = unwind, exceptions.unwrapped = unwrap2, exceptions.unwrapping = unwrap2, exceptions.unzipped = unzip, exceptions.unzipping = unzip, exceptions.upbuilt = upbuild, exceptions.upheld = uphold, exceptions.uphove = upheave, exceptions.upped = up, exceptions.uppercutting = uppercut, exceptions.upping = up, exceptions.uprisen = uprise, exceptions.uprose = uprise, exceptions.upsetting = upset, exceptions.upsprang = upspring, exceptions.upsprung = upspring, exceptions.upswept = upsweep, exceptions.upswollen = upswell, exceptions.upswung = upswing, exceptions.vagged = vag, exceptions.vagging = vag, exceptions.varied = vary, exceptions.vatted = vat, exceptions.vatting = vat, exceptions.verbified = verbify, exceptions.verified = verify, exceptions.versified = versify, exceptions.vetted = vet, exceptions.vetting = vet, exceptions.victualled = victual, exceptions.victualling = victual, exceptions.vilified = vilify, exceptions.vitrified = vitrify, exceptions.vitriolled = vitriol, exceptions.vitriolling = vitriol, exceptions.vivified = vivify, exceptions.vying = vie, exceptions.wadded = wad, exceptions.waddied = waddy, exceptions.wadding = wad, exceptions.wadsetted = wadset, exceptions.wadsetting = wadset, exceptions.wagged = wag, exceptions.wagging = wag, exceptions.wanned = wan, exceptions.wanning = wan, exceptions.warred = war, exceptions.warring = war, exceptions.was = be, exceptions.waylaid = waylay, exceptions.wearied = weary, exceptions.weatherstripped = weatherstrip, exceptions.weatherstripping = weatherstrip, exceptions.webbed = web, exceptions.webbing = web, exceptions.wedded = wed, exceptions.wedding = wed, exceptions.weed = weed, exceptions.went = go, exceptions.wept = weep, exceptions.were = be, exceptions.wetted = wet, exceptions.wetting = wet, exceptions.whammed = wham, exceptions.whamming = wham, exceptions.whapped = whap, exceptions.whapping = whap, exceptions.whetted = whet, exceptions.whetting = whet, exceptions.whinnied = whinny, exceptions.whipped = whip, exceptions.whipping = whip, exceptions.whipsawn = whipsaw, exceptions.whirred = whir, exceptions.whirring = whir, exceptions.whizzed = whiz, exceptions.whizzes = whiz, exceptions.whizzing = whiz, exceptions.whopped = whop, exceptions.whopping = whop, exceptions.wigged = wig, exceptions.wigging = wig, exceptions.wigwagged = wigwag, exceptions.wigwagging = wigwag, exceptions.wildcatted = wildcat, exceptions.wildcatting = wildcat, exceptions.winning = win, exceptions.winterfed = winterfeed, exceptions.wiredrawn = wiredraw, exceptions.wiredrew = wiredraw, exceptions.withdrawn = withdraw, exceptions.withdrew = withdraw, exceptions.withheld = withhold, exceptions.withstood = withstand, exceptions.woke = wake, exceptions.woken = wake, exceptions.won = win, exceptions.wonned = won, exceptions.wonning = won, exceptions.wore = wear, exceptions.worn = wear, exceptions.worried = worry, exceptions.worshipped = worship, exceptions.worshipping = worship, exceptions.wound = wind, exceptions.wove = weave, exceptions.woven = weave, exceptions.wrapped = wrap2, exceptions.wrapping = wrap2, exceptions.wried = wry, exceptions.written = write, exceptions.wrote = write, exceptions.wrought = work, exceptions.wrung = wring, exceptions.would = will, exceptions.yakked = yak, exceptions.yakking = yak, exceptions.yapped = yap, exceptions.yapping = yap, exceptions.ycleped = clepe, exceptions.yclept = clepe, exceptions.yenned = yen, exceptions.yenning = yen, exceptions.yodelled = yodel, exceptions.yodelling = yodel, exceptions.zapped = zap, exceptions.zapping = zap, exceptions.zigzagged = zigzag, exceptions.zigzagging = zigzag, exceptions.zipped = zip, exceptions.zipping = zip, module2.exports = exceptions;
   }
@@ -17160,7 +17200,7 @@ var require_LocalIndex = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalIndex = void 0;
     var fs3 = __importStar(require("fs/promises"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var uuid_1 = require_cjs_browser();
     var ItemSelector_1 = require_ItemSelector();
     var LocalDocument_1 = require_LocalDocument();
@@ -17234,7 +17274,7 @@ var require_LocalIndex = __commonJS({
               metadata_config: (_a7 = config2.metadata_config) !== null && _a7 !== void 0 ? _a7 : {},
               items: []
             };
-            yield fs3.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._data));
+            yield fs3.writeFile(path4.join(this._folderPath, this._indexName), JSON.stringify(this._data));
           } catch (err) {
             yield this.deleteIndex();
             throw new Error("Error creating index");
@@ -17285,7 +17325,7 @@ var require_LocalIndex = __commonJS({
             throw new Error("No update in progress");
           }
           try {
-            yield fs3.writeFile(path3.join(this._folderPath, this._indexName), JSON.stringify(this._update));
+            yield fs3.writeFile(path4.join(this._folderPath, this._indexName), JSON.stringify(this._update));
             this._data = this._update;
             this._update = void 0;
           } catch (err) {
@@ -17370,7 +17410,7 @@ var require_LocalIndex = __commonJS({
       isIndexCreated() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs3.access(path3.join(this._folderPath, this.indexName));
+            yield fs3.access(path4.join(this._folderPath, this.indexName));
             return true;
           } catch (err) {
             return false;
@@ -17437,7 +17477,7 @@ var require_LocalIndex = __commonJS({
           });
           for (const item of top) {
             if (item.item.metadataFile) {
-              const metadataPath = path3.join(this._folderPath, item.item.metadataFile);
+              const metadataPath = path4.join(this._folderPath, item.item.metadataFile);
               const metadata = yield fs3.readFile(metadataPath);
               item.item.metadata = JSON.parse(metadata.toString());
             }
@@ -17503,7 +17543,7 @@ var require_LocalIndex = __commonJS({
           if (!(yield this.isIndexCreated())) {
             throw new Error("Index does not exist");
           }
-          const data2 = yield fs3.readFile(path3.join(this._folderPath, this.indexName));
+          const data2 = yield fs3.readFile(path4.join(this._folderPath, this.indexName));
           this._data = JSON.parse(data2.toString());
         });
       }
@@ -17529,7 +17569,7 @@ var require_LocalIndex = __commonJS({
               }
             }
             metadataFile = `${(0, uuid_1.v4)()}.json`;
-            const metadataPath = path3.join(this._folderPath, metadataFile);
+            const metadataPath = path4.join(this._folderPath, metadataFile);
             yield fs3.writeFile(metadataPath, JSON.stringify(item.metadata));
           } else if (item.metadata) {
             metadata = item.metadata;
@@ -18403,7 +18443,7 @@ var require_LocalDocumentIndex = __commonJS({
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LocalDocumentIndex = void 0;
     var fs3 = __importStar(require("fs/promises"));
-    var path3 = __importStar(require("path"));
+    var path4 = __importStar(require("path"));
     var uuid_1 = require_cjs_browser();
     var GPT3Tokenizer_1 = require_GPT3Tokenizer();
     var LocalIndex_1 = require_LocalIndex();
@@ -18445,7 +18485,7 @@ var require_LocalDocumentIndex = __commonJS({
       isCatalogCreated() {
         return __awaiter(this, void 0, void 0, function* () {
           try {
-            yield fs3.access(path3.join(this.folderPath, "catalog.json"));
+            yield fs3.access(path4.join(this.folderPath, "catalog.json"));
             return true;
           } catch (err) {
             return false;
@@ -18516,12 +18556,12 @@ var require_LocalDocumentIndex = __commonJS({
             throw new Error(`Error deleting document "${uri}": ${err.toString()}`);
           }
           try {
-            yield fs3.unlink(path3.join(this.folderPath, `${documentId}.txt`));
+            yield fs3.unlink(path4.join(this.folderPath, `${documentId}.txt`));
           } catch (err) {
             throw new Error(`Error removing text file for document "${uri}" from disk: ${err.toString()}`);
           }
           try {
-            yield fs3.unlink(path3.join(this.folderPath, `${documentId}.json`));
+            yield fs3.unlink(path4.join(this.folderPath, `${documentId}.json`));
           } catch (err) {
           }
         });
@@ -18605,9 +18645,9 @@ var require_LocalDocumentIndex = __commonJS({
               });
             }
             if (metadata != void 0) {
-              yield fs3.writeFile(path3.join(this.folderPath, `${documentId}.json`), JSON.stringify(metadata));
+              yield fs3.writeFile(path4.join(this.folderPath, `${documentId}.json`), JSON.stringify(metadata));
             }
-            yield fs3.writeFile(path3.join(this.folderPath, `${documentId}.txt`), text3);
+            yield fs3.writeFile(path4.join(this.folderPath, `${documentId}.txt`), text3);
             this._newCatalog.uriToId[uri] = documentId;
             this._newCatalog.idToUri[documentId] = uri;
             this._newCatalog.count++;
@@ -18718,7 +18758,7 @@ var require_LocalDocumentIndex = __commonJS({
         return __awaiter(this, void 0, void 0, function* () {
           yield _super.endUpdate.call(this);
           try {
-            yield fs3.writeFile(path3.join(this.folderPath, "catalog.json"), JSON.stringify(this._newCatalog));
+            yield fs3.writeFile(path4.join(this.folderPath, "catalog.json"), JSON.stringify(this._newCatalog));
             this._catalog = this._newCatalog;
             this._newCatalog = void 0;
           } catch (err) {
@@ -18735,7 +18775,7 @@ var require_LocalDocumentIndex = __commonJS({
           if (this._catalog) {
             return;
           }
-          const catalogPath = path3.join(this.folderPath, "catalog.json");
+          const catalogPath = path4.join(this.folderPath, "catalog.json");
           if (yield this.isCatalogCreated()) {
             const buffer = yield fs3.readFile(catalogPath);
             this._catalog = JSON.parse(buffer.toString());
@@ -18780,7 +18820,7 @@ var require_axios = __commonJS({
       return (thing) => kindOf(thing) === type;
     };
     var typeOfTest = (type) => (thing) => typeof thing === type;
-    var { isArray } = Array;
+    var { isArray: isArray2 } = Array;
     var isUndefined = typeOfTest("undefined");
     function isBuffer(val2) {
       return val2 !== null && !isUndefined(val2) && val2.constructor !== null && !isUndefined(val2.constructor) && isFunction$1(val2.constructor.isBuffer) && val2.constructor.isBuffer(val2);
@@ -18823,9 +18863,9 @@ var require_axios = __commonJS({
     var isFileList = kindOfTest("FileList");
     var isStream = (val2) => isObject2(val2) && isFunction$1(val2.pipe);
     var isFormData = (thing) => {
-      let kind3;
-      return thing && (typeof FormData === "function" && thing instanceof FormData || isFunction$1(thing.append) && ((kind3 = kindOf(thing)) === "formdata" || // detect form-data instance
-      kind3 === "object" && isFunction$1(thing.toString) && thing.toString() === "[object FormData]"));
+      let kind2;
+      return thing && (typeof FormData === "function" && thing instanceof FormData || isFunction$1(thing.append) && ((kind2 = kindOf(thing)) === "formdata" || // detect form-data instance
+      kind2 === "object" && isFunction$1(thing.toString) && thing.toString() === "[object FormData]"));
     };
     var isURLSearchParams = kindOfTest("URLSearchParams");
     var [isReadableStream, isRequest, isResponse, isHeaders] = [
@@ -18844,7 +18884,7 @@ var require_axios = __commonJS({
       if (typeof obj !== "object") {
         obj = [obj];
       }
-      if (isArray(obj)) {
+      if (isArray2(obj)) {
         for (i = 0, l = obj.length; i < l; i++) {
           fn.call(null, obj[i], i, obj);
         }
@@ -18894,7 +18934,7 @@ var require_axios = __commonJS({
           result[targetKey] = merge3(result[targetKey], val2);
         } else if (isPlainObject3(val2)) {
           result[targetKey] = merge3({}, val2);
-        } else if (isArray(val2)) {
+        } else if (isArray2(val2)) {
           result[targetKey] = val2.slice();
         } else if (!skipUndefined || !isUndefined(val2)) {
           result[targetKey] = val2;
@@ -18983,7 +19023,7 @@ var require_axios = __commonJS({
     };
     var toArray2 = (thing) => {
       if (!thing) return null;
-      if (isArray(thing)) return thing;
+      if (isArray2(thing)) return thing;
       let i = thing.length;
       if (!isNumber4(i)) return null;
       const arr = new Array(i);
@@ -19059,10 +19099,10 @@ var require_axios = __commonJS({
           obj[value] = true;
         });
       };
-      isArray(arrayOrString) ? define2(arrayOrString) : define2(String(arrayOrString).split(delimiter));
+      isArray2(arrayOrString) ? define2(arrayOrString) : define2(String(arrayOrString).split(delimiter));
       return obj;
     };
-    var noop2 = () => {
+    var noop3 = () => {
     };
     var toFiniteNumber = (value, defaultValue) => {
       return value != null && Number.isFinite(value = +value) ? value : defaultValue;
@@ -19082,7 +19122,7 @@ var require_axios = __commonJS({
           }
           if (!("toJSON" in source)) {
             stack[i] = source;
-            const target = isArray(source) ? [] : {};
+            const target = isArray2(source) ? [] : {};
             forEach(source, (value, key) => {
               const reducedValue = visit(value, i + 1);
               !isUndefined(reducedValue) && (target[key] = reducedValue);
@@ -19120,7 +19160,7 @@ var require_axios = __commonJS({
     var asap = typeof queueMicrotask !== "undefined" ? queueMicrotask.bind(_global) : typeof process !== "undefined" && process.nextTick || _setImmediate;
     var isIterable = (thing) => thing != null && isFunction$1(thing[iterator]);
     var utils$1 = {
-      isArray,
+      isArray: isArray2,
       isArrayBuffer,
       isBuffer,
       isFormData,
@@ -19166,7 +19206,7 @@ var require_axios = __commonJS({
       freezeMethods,
       toObjectSet,
       toCamelCase,
-      noop: noop2,
+      noop: noop3,
       toFiniteNumber,
       findKey,
       global: _global,
@@ -19250,9 +19290,9 @@ var require_axios = __commonJS({
     function removeBrackets(key) {
       return utils$1.endsWith(key, "[]") ? key.slice(0, -2) : key;
     }
-    function renderKey(path3, key, dots) {
-      if (!path3) return key;
-      return path3.concat(key).map(function each2(token, i) {
+    function renderKey(path4, key, dots) {
+      if (!path4) return key;
+      return path4.concat(key).map(function each2(token, i) {
         token = removeBrackets(token);
         return !dots && i ? "[" + token + "]" : token;
       }).join(dots ? "." : "");
@@ -19300,9 +19340,9 @@ var require_axios = __commonJS({
         }
         return value;
       }
-      function defaultVisitor(value, key, path3) {
+      function defaultVisitor(value, key, path4) {
         let arr = value;
-        if (value && !path3 && typeof value === "object") {
+        if (value && !path4 && typeof value === "object") {
           if (utils$1.endsWith(key, "{}")) {
             key = metaTokens ? key : key.slice(0, -2);
             value = JSON.stringify(value);
@@ -19321,7 +19361,7 @@ var require_axios = __commonJS({
         if (isVisitable(value)) {
           return true;
         }
-        formData.append(renderKey(path3, key, dots), convertValue(value));
+        formData.append(renderKey(path4, key, dots), convertValue(value));
         return false;
       }
       const stack = [];
@@ -19330,10 +19370,10 @@ var require_axios = __commonJS({
         convertValue,
         isVisitable
       });
-      function build2(value, path3) {
+      function build2(value, path4) {
         if (utils$1.isUndefined(value)) return;
         if (stack.indexOf(value) !== -1) {
-          throw Error("Circular reference detected in " + path3.join("."));
+          throw Error("Circular reference detected in " + path4.join("."));
         }
         stack.push(value);
         utils$1.forEach(value, function each2(el, key) {
@@ -19341,11 +19381,11 @@ var require_axios = __commonJS({
             formData,
             el,
             utils$1.isString(key) ? key.trim() : key,
-            path3,
+            path4,
             exposedHelpers
           );
           if (result === true) {
-            build2(el, path3 ? path3.concat(key) : [key]);
+            build2(el, path4 ? path4.concat(key) : [key]);
           }
         });
         stack.pop();
@@ -19516,7 +19556,7 @@ var require_axios = __commonJS({
     };
     function toURLEncodedForm(data2, options) {
       return toFormData(data2, new platform.classes.URLSearchParams(), {
-        visitor: function(value, key, path3, helpers) {
+        visitor: function(value, key, path4, helpers) {
           if (platform.isNode && utils$1.isBuffer(value)) {
             this.append(key, value.toString("base64"));
             return false;
@@ -19544,11 +19584,11 @@ var require_axios = __commonJS({
       return obj;
     }
     function formDataToJSON(formData) {
-      function buildPath(path3, value, target, index2) {
-        let name = path3[index2++];
+      function buildPath(path4, value, target, index2) {
+        let name = path4[index2++];
         if (name === "__proto__") return true;
         const isNumericKey = Number.isFinite(+name);
-        const isLast = index2 >= path3.length;
+        const isLast = index2 >= path4.length;
         name = !name && utils$1.isArray(target) ? target.length : name;
         if (isLast) {
           if (utils$1.hasOwnProp(target, name)) {
@@ -19561,7 +19601,7 @@ var require_axios = __commonJS({
         if (!target[name] || !utils$1.isObject(target[name])) {
           target[name] = [];
         }
-        const result = buildPath(path3, value, target[name], index2);
+        const result = buildPath(path4, value, target[name], index2);
         if (result && utils$1.isArray(target[name])) {
           target[name] = arrayToObject(target[name]);
         }
@@ -20110,14 +20150,14 @@ var require_axios = __commonJS({
     var cookies = platform.hasStandardBrowserEnv ? (
       // Standard browser envs support document.cookie
       {
-        write(name, value, expires, path3, domain, secure, sameSite) {
+        write(name, value, expires, path4, domain, secure, sameSite) {
           if (typeof document === "undefined") return;
           const cookie = [`${name}=${encodeURIComponent(value)}`];
           if (utils$1.isNumber(expires)) {
             cookie.push(`expires=${new Date(expires).toUTCString()}`);
           }
-          if (utils$1.isString(path3)) {
-            cookie.push(`path=${path3}`);
+          if (utils$1.isString(path4)) {
+            cookie.push(`path=${path4}`);
           }
           if (utils$1.isString(domain)) {
             cookie.push(`domain=${domain}`);
@@ -20524,9 +20564,9 @@ var require_axios = __commonJS({
     };
     var DEFAULT_CHUNK_SIZE2 = 64 * 1024;
     var { isFunction } = utils$1;
-    var globalFetchAPI = (({ Request: Request4, Response: Response4 }) => ({
-      Request: Request4,
-      Response: Response4
+    var globalFetchAPI = (({ Request: Request3, Response: Response3 }) => ({
+      Request: Request3,
+      Response: Response3
     }))(utils$1.global);
     var {
       ReadableStream: ReadableStream$1,
@@ -20543,18 +20583,18 @@ var require_axios = __commonJS({
       env = utils$1.merge.call({
         skipUndefined: true
       }, globalFetchAPI, env);
-      const { fetch: envFetch, Request: Request4, Response: Response4 } = env;
+      const { fetch: envFetch, Request: Request3, Response: Response3 } = env;
       const isFetchSupported = envFetch ? isFunction(envFetch) : typeof fetch === "function";
-      const isRequestSupported = isFunction(Request4);
-      const isResponseSupported = isFunction(Response4);
+      const isRequestSupported = isFunction(Request3);
+      const isResponseSupported = isFunction(Response3);
       if (!isFetchSupported) {
         return false;
       }
       const isReadableStreamSupported = isFetchSupported && isFunction(ReadableStream$1);
-      const encodeText = isFetchSupported && (typeof TextEncoder2 === "function" ? /* @__PURE__ */ ((encoder) => (str2) => encoder.encode(str2))(new TextEncoder2()) : async (str2) => new Uint8Array(await new Request4(str2).arrayBuffer()));
+      const encodeText = isFetchSupported && (typeof TextEncoder2 === "function" ? /* @__PURE__ */ ((encoder) => (str2) => encoder.encode(str2))(new TextEncoder2()) : async (str2) => new Uint8Array(await new Request3(str2).arrayBuffer()));
       const supportsRequestStream = isRequestSupported && isReadableStreamSupported && test(() => {
         let duplexAccessed = false;
-        const hasContentType = new Request4(platform.origin, {
+        const hasContentType = new Request3(platform.origin, {
           body: new ReadableStream$1(),
           method: "POST",
           get duplex() {
@@ -20564,7 +20604,7 @@ var require_axios = __commonJS({
         }).headers.has("Content-Type");
         return duplexAccessed && !hasContentType;
       });
-      const supportsResponseStream = isResponseSupported && isReadableStreamSupported && test(() => utils$1.isReadableStream(new Response4("").body));
+      const supportsResponseStream = isResponseSupported && isReadableStreamSupported && test(() => utils$1.isReadableStream(new Response3("").body));
       const resolvers = {
         stream: supportsResponseStream && ((res) => res.body)
       };
@@ -20587,7 +20627,7 @@ var require_axios = __commonJS({
           return body.size;
         }
         if (utils$1.isSpecCompliantForm(body)) {
-          const _request = new Request4(platform.origin, {
+          const _request = new Request3(platform.origin, {
             method: "POST",
             body
           });
@@ -20632,7 +20672,7 @@ var require_axios = __commonJS({
         let requestContentLength;
         try {
           if (onUploadProgress && supportsRequestStream && method !== "get" && method !== "head" && (requestContentLength = await resolveBodyLength(headers, data2)) !== 0) {
-            let _request = new Request4(url2, {
+            let _request = new Request3(url2, {
               method: "POST",
               body: data2,
               duplex: "half"
@@ -20652,7 +20692,7 @@ var require_axios = __commonJS({
           if (!utils$1.isString(withCredentials)) {
             withCredentials = withCredentials ? "include" : "omit";
           }
-          const isCredentialsSupported = isRequestSupported && "credentials" in Request4.prototype;
+          const isCredentialsSupported = isRequestSupported && "credentials" in Request3.prototype;
           const resolvedOptions = {
             ...fetchOptions,
             signal: composedSignal,
@@ -20662,7 +20702,7 @@ var require_axios = __commonJS({
             duplex: "half",
             credentials: isCredentialsSupported ? withCredentials : void 0
           };
-          request = isRequestSupported && new Request4(url2, resolvedOptions);
+          request = isRequestSupported && new Request3(url2, resolvedOptions);
           let response = await (isRequestSupported ? _fetch2(request, fetchOptions) : _fetch2(url2, resolvedOptions));
           const isStreamResponse = supportsResponseStream && (responseType === "stream" || responseType === "response");
           if (supportsResponseStream && (onDownloadProgress || isStreamResponse && unsubscribe)) {
@@ -20675,7 +20715,7 @@ var require_axios = __commonJS({
               responseContentLength,
               progressEventReducer(asyncDecorator(onDownloadProgress), true)
             ) || [];
-            response = new Response4(
+            response = new Response3(
               trackStream(response.body, DEFAULT_CHUNK_SIZE2, onProgress, () => {
                 flush && flush();
                 unsubscribe && unsubscribe();
@@ -20713,11 +20753,11 @@ var require_axios = __commonJS({
     var seedCache = /* @__PURE__ */ new Map();
     var getFetch = (config2) => {
       let env = config2 && config2.env || {};
-      const { fetch: fetch5, Request: Request4, Response: Response4 } = env;
+      const { fetch: fetch4, Request: Request3, Response: Response3 } = env;
       const seeds = [
-        Request4,
-        Response4,
-        fetch5
+        Request3,
+        Response3,
+        fetch4
       ];
       let len = seeds.length, i = len, seed, target, map2 = seedCache;
       while (i--) {
@@ -23586,11 +23626,11 @@ function getAtomFeed(feedRoot) {
       if (href2) {
         entry.link = href2;
       }
-      const description = fetch4("summary", children2) || fetch4("content", children2);
+      const description = fetch3("summary", children2) || fetch3("content", children2);
       if (description) {
         entry.description = description;
       }
-      const pubDate = fetch4("updated", children2);
+      const pubDate = fetch3("updated", children2);
       if (pubDate) {
         entry.pubDate = new Date(pubDate);
       }
@@ -23604,7 +23644,7 @@ function getAtomFeed(feedRoot) {
     feed.link = href;
   }
   addConditionally(feed, "description", "subtitle", childs);
-  const updated = fetch4("updated", childs);
+  const updated = fetch3("updated", childs);
   if (updated) {
     feed.updated = new Date(updated);
   }
@@ -23624,7 +23664,7 @@ function getRssFeed(feedRoot) {
       addConditionally(entry, "title", "title", children2);
       addConditionally(entry, "link", "link", children2);
       addConditionally(entry, "description", "description", children2);
-      const pubDate = fetch4("pubDate", children2) || fetch4("dc:date", children2);
+      const pubDate = fetch3("pubDate", children2) || fetch3("dc:date", children2);
       if (pubDate)
         entry.pubDate = new Date(pubDate);
       return entry;
@@ -23633,7 +23673,7 @@ function getRssFeed(feedRoot) {
   addConditionally(feed, "title", "title", childs);
   addConditionally(feed, "link", "link", childs);
   addConditionally(feed, "description", "description", childs);
-  const updated = fetch4("lastBuildDate", childs);
+  const updated = fetch3("lastBuildDate", childs);
   if (updated) {
     feed.updated = new Date(updated);
   }
@@ -23666,11 +23706,11 @@ function getMediaElements(where) {
 function getOneElement(tagName, node) {
   return getElementsByTagName(tagName, node, true, 1)[0];
 }
-function fetch4(tagName, where, recurse = false) {
+function fetch3(tagName, where, recurse = false) {
   return textContent(getElementsByTagName(tagName, where, recurse, 1)).trim();
 }
 function addConditionally(obj, prop2, tagName, where, recurse = false) {
-  const val2 = fetch4(tagName, where, recurse);
+  const val2 = fetch3(tagName, where, recurse);
   if (val2)
     obj[prop2] = val2;
 }
@@ -28551,10 +28591,10 @@ function extract2(map2) {
   const ret = {};
   for (const key in map2) {
     const descr = map2[key];
-    const isArray = Array.isArray(descr);
-    const { selector, value } = getExtractDescr(isArray ? descr[0] : descr);
+    const isArray2 = Array.isArray(descr);
+    const { selector, value } = getExtractDescr(isArray2 ? descr[0] : descr);
     const fn = typeof value === "function" ? value : typeof value === "string" ? (el) => this._make(el).prop(value) : (el) => this._make(el).extract(value);
-    if (isArray) {
+    if (isArray2) {
       ret[key] = this._findBySelector(selector, Number.POSITIVE_INFINITY).map((_, el) => fn(el, key, ret)).get();
     } else {
       const $2 = this._findBySelector(selector, 1);
@@ -38894,7 +38934,7 @@ function compileType3Glyph(imgData) {
     return null;
   }
   const steps = new Int32Array([0, width1, -1, 0, -width1, 0, 0, 0, 1]);
-  const path3 = new Path2D();
+  const path4 = new Path2D();
   for (i = 0; count && i <= height; i++) {
     let p = i * width1;
     const end2 = p + width;
@@ -38904,7 +38944,7 @@ function compileType3Glyph(imgData) {
     if (p === end2) {
       continue;
     }
-    path3.moveTo(p % width1, i);
+    path4.moveTo(p % width1, i);
     const p0 = p;
     let type = points[p];
     do {
@@ -38920,7 +38960,7 @@ function compileType3Glyph(imgData) {
         type = pp & 51 * type >> 4;
         points[p] &= type >> 2 | type << 2;
       }
-      path3.lineTo(p % width1, p / width1 | 0);
+      path4.lineTo(p % width1, p / width1 | 0);
       if (!points[p]) {
         --count;
       }
@@ -38933,7 +38973,7 @@ function compileType3Glyph(imgData) {
     c.save();
     c.scale(1 / width, -1 / height);
     c.translate(0, -height);
-    c.fill(path3);
+    c.fill(path4);
     c.beginPath();
     c.restore();
   };
@@ -45814,10 +45854,10 @@ var init_pdf = __esm({
         }
         ctx.save();
         ctx.beginPath();
-        for (const path3 of paths) {
-          ctx.setTransform(...path3.transform);
-          ctx.translate(path3.x, path3.y);
-          path3.addToPath(ctx, path3.fontSize);
+        for (const path4 of paths) {
+          ctx.setTransform(...path4.transform);
+          ctx.translate(path4.x, path4.y);
+          path4.addToPath(ctx, path4.fontSize);
         }
         ctx.restore();
         ctx.clip();
@@ -48517,18 +48557,18 @@ var init_pdf = __esm({
     PDFNodeStreamFsFullReader = class extends BaseFullReader {
       constructor(stream) {
         super(stream);
-        let path3 = decodeURIComponent(this._url.path);
+        let path4 = decodeURIComponent(this._url.path);
         if (fileUriRegex.test(this._url.href)) {
-          path3 = path3.replace(/^\//, "");
+          path4 = path4.replace(/^\//, "");
         }
         const fs3 = NodePackages.get("fs");
-        fs3.promises.lstat(path3).then((stat) => {
+        fs3.promises.lstat(path4).then((stat) => {
           this._contentLength = stat.size;
-          this._setReadableStream(fs3.createReadStream(path3));
+          this._setReadableStream(fs3.createReadStream(path4));
           this._headersCapability.resolve();
         }, (error2) => {
           if (error2.code === "ENOENT") {
-            error2 = new MissingPDFException(`Missing PDF "${path3}".`);
+            error2 = new MissingPDFException(`Missing PDF "${path4}".`);
           }
           this._storedError = error2;
           this._headersCapability.reject(error2);
@@ -48538,12 +48578,12 @@ var init_pdf = __esm({
     PDFNodeStreamFsRangeReader = class extends BaseRangeReader {
       constructor(stream, start, end2) {
         super(stream);
-        let path3 = decodeURIComponent(this._url.path);
+        let path4 = decodeURIComponent(this._url.path);
         if (fileUriRegex.test(this._url.href)) {
-          path3 = path3.replace(/^\//, "");
+          path4 = path4.replace(/^\//, "");
         }
         const fs3 = NodePackages.get("fs");
-        this._setReadableStream(fs3.createReadStream(path3, {
+        this._setReadableStream(fs3.createReadStream(path4, {
           start,
           end: end2 - 1
         }));
@@ -55832,8 +55872,8 @@ var init_pdf = __esm({
         } = this;
         ctx.save();
         ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        for (const path3 of this.bezierPath2D) {
-          ctx.stroke(path3);
+        for (const path4 of this.bezierPath2D) {
+          ctx.stroke(path4);
         }
         ctx.stroke(this.#currentPath2D);
         ctx.restore();
@@ -55846,16 +55886,16 @@ var init_pdf = __esm({
         path2D.bezierCurveTo(prevX + 2 * (x1 - prevX) / 3, prevY + 2 * (y1 - prevY) / 3, x3 + 2 * (x1 - x3) / 3, y3 + 2 * (y1 - y3) / 3, x3, y3);
       }
       #generateBezierPoints() {
-        const path3 = this.currentPath;
-        if (path3.length <= 2) {
-          return [[path3[0], path3[0], path3.at(-1), path3.at(-1)]];
+        const path4 = this.currentPath;
+        if (path4.length <= 2) {
+          return [[path4[0], path4[0], path4.at(-1), path4.at(-1)]];
         }
         const bezierPoints = [];
         let i;
-        let [x0, y0] = path3[0];
-        for (i = 1; i < path3.length - 2; i++) {
-          const [x12, y12] = path3[i];
-          const [x22, y22] = path3[i + 1];
+        let [x0, y0] = path4[0];
+        for (i = 1; i < path4.length - 2; i++) {
+          const [x12, y12] = path4[i];
+          const [x22, y22] = path4[i + 1];
           const x3 = (x12 + x22) / 2;
           const y3 = (y12 + y22) / 2;
           const control12 = [x0 + 2 * (x12 - x0) / 3, y0 + 2 * (y12 - y0) / 3];
@@ -55863,8 +55903,8 @@ var init_pdf = __esm({
           bezierPoints.push([[x0, y0], control12, control22, [x3, y3]]);
           [x0, y0] = [x3, y3];
         }
-        const [x1, y1] = path3[i];
-        const [x2, y2] = path3[i + 1];
+        const [x1, y1] = path4[i];
+        const [x2, y2] = path4[i + 1];
         const control1 = [x0 + 2 * (x1 - x0) / 3, y0 + 2 * (y1 - y0) / 3];
         const control2 = [x2 + 2 * (x1 - x2) / 3, y2 + 2 * (y1 - y2) / 3];
         bezierPoints.push([[x0, y0], control1, control2, [x2, y2]]);
@@ -55883,8 +55923,8 @@ var init_pdf = __esm({
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         this.#updateTransform();
-        for (const path3 of this.bezierPath2D) {
-          ctx.stroke(path3);
+        for (const path4 of this.bezierPath2D) {
+          ctx.stroke(path4);
         }
       }
       commit() {
@@ -56177,8 +56217,8 @@ var init_pdf = __esm({
         let xMax = -Infinity;
         let yMin = Infinity;
         let yMax = -Infinity;
-        for (const path3 of this.paths) {
-          for (const [first2, control1, control2, second] of path3) {
+        for (const path4 of this.paths) {
+          for (const [first2, control1, control2, second] of path4) {
             const bbox = Util.bezierBoundingBox(...first2, ...control1, ...control2, ...second);
             xMin = Math.min(xMin, bbox[0]);
             yMin = Math.min(yMin, bbox[1]);
@@ -56246,8 +56286,8 @@ var init_pdf = __esm({
           bezier
         } of paths) {
           bezier = _InkEditor.#fromPDFCoordinates(bezier, rect, rotation);
-          const path3 = [];
-          editor.paths.push(path3);
+          const path4 = [];
+          editor.paths.push(path4);
           let p0 = scaleFactor * (bezier[0] - padding);
           let p1 = scaleFactor * (bezier[1] - padding);
           for (let i = 2, ii = bezier.length; i < ii; i += 6) {
@@ -56257,11 +56297,11 @@ var init_pdf = __esm({
             const p21 = scaleFactor * (bezier[i + 3] - padding);
             const p30 = scaleFactor * (bezier[i + 4] - padding);
             const p31 = scaleFactor * (bezier[i + 5] - padding);
-            path3.push([[p0, p1], [p10, p11], [p20, p21], [p30, p31]]);
+            path4.push([[p0, p1], [p10, p11], [p20, p21], [p30, p31]]);
             p0 = p30;
             p1 = p31;
           }
-          const path2D = this.#buildPath2D(path3);
+          const path2D = this.#buildPath2D(path4);
           editor.bezierPath2D.push(path2D);
         }
         const bbox = editor.#getBbox();
@@ -57375,13 +57415,13 @@ var init_pdf = __esm({
         }
         const defs = _DrawLayer._svgFactory.createElement("defs");
         root2.append(defs);
-        const path3 = _DrawLayer._svgFactory.createElement("path");
-        defs.append(path3);
+        const path4 = _DrawLayer._svgFactory.createElement("path");
+        defs.append(path4);
         const pathId = `path_p${this.pageIndex}_${id}`;
-        path3.setAttribute("id", pathId);
-        path3.setAttribute("d", outlines.toSVGPath());
+        path4.setAttribute("id", pathId);
+        path4.setAttribute("d", outlines.toSVGPath());
         if (isPathUpdatable) {
-          this.#toUpdate.set(id, path3);
+          this.#toUpdate.set(id, path4);
         }
         const clipPathId = this.#createClipPath(defs, pathId);
         const use = _DrawLayer._svgFactory.createElement("use");
@@ -57401,12 +57441,12 @@ var init_pdf = __esm({
         root2.classList.add("highlightOutline");
         const defs = _DrawLayer._svgFactory.createElement("defs");
         root2.append(defs);
-        const path3 = _DrawLayer._svgFactory.createElement("path");
-        defs.append(path3);
+        const path4 = _DrawLayer._svgFactory.createElement("path");
+        defs.append(path4);
         const pathId = `path_p${this.pageIndex}_${id}`;
-        path3.setAttribute("id", pathId);
-        path3.setAttribute("d", outlines.toSVGPath());
-        path3.setAttribute("vector-effect", "non-scaling-stroke");
+        path4.setAttribute("id", pathId);
+        path4.setAttribute("d", outlines.toSVGPath());
+        path4.setAttribute("vector-effect", "non-scaling-stroke");
         let maskId;
         if (outlines.free) {
           root2.classList.add("free");
@@ -57442,16 +57482,16 @@ var init_pdf = __esm({
         return id;
       }
       finalizeLine(id, line) {
-        const path3 = this.#toUpdate.get(id);
+        const path4 = this.#toUpdate.get(id);
         this.#toUpdate.delete(id);
         this.updateBox(id, line.box);
-        path3.setAttribute("d", line.toSVGPath());
+        path4.setAttribute("d", line.toSVGPath());
       }
       updateLine(id, line) {
         const root2 = this.#mapping.get(id);
         const defs = root2.firstChild;
-        const path3 = defs.firstChild;
-        path3.setAttribute("d", line.toSVGPath());
+        const path4 = defs.firstChild;
+        path4.setAttribute("d", line.toSVGPath());
       }
       removeFreeHighlight(id) {
         this.remove(id);
@@ -57550,12 +57590,12 @@ var SemanticIndexService_exports = {};
 __export(SemanticIndexService_exports, {
   SemanticIndexService: () => SemanticIndexService
 });
-var import_obsidian12, import_vectra, path, fs, CHECKPOINT_VERSION, DEFAULT_CHUNK_SIZE, DEFAULT_COMMIT_EVERY, DEFAULT_EMBED_BATCH, SemanticIndexService;
+var import_obsidian12, import_vectra, path2, fs, CHECKPOINT_VERSION, DEFAULT_CHUNK_SIZE, DEFAULT_COMMIT_EVERY, DEFAULT_EMBED_BATCH, SemanticIndexService;
 var init_SemanticIndexService = __esm({
   "src/core/semantic/SemanticIndexService.ts"() {
     import_obsidian12 = require("obsidian");
     import_vectra = __toESM(require_lib());
-    path = __toESM(require("path"));
+    path2 = __toESM(require("path"));
     fs = __toESM(require("fs"));
     CHECKPOINT_VERSION = 1;
     DEFAULT_CHUNK_SIZE = 2e3;
@@ -57599,7 +57639,7 @@ var init_SemanticIndexService = __esm({
         this.indexPdfs = options.indexPdfs ?? false;
         this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
         const basePath = vault.adapter.getBasePath?.() ?? "";
-        this.indexDir = options.storageLocation === "local" ? path.join(basePath, ".obsidian-agent", "semantic-index") : path.join(basePath, pluginDir, "semantic-index");
+        this.indexDir = options.storageLocation === "local" ? path2.join(basePath, ".obsidian-agent", "semantic-index") : path2.join(basePath, pluginDir, "semantic-index");
         this.index = new import_vectra.LocalIndex(this.indexDir);
       }
       // -----------------------------------------------------------------------
@@ -57847,9 +57887,9 @@ var init_SemanticIndexService = __esm({
         while (this.autoUpdateQueue.size > 0) {
           const paths = [...this.autoUpdateQueue];
           this.autoUpdateQueue.clear();
-          for (const path3 of paths) {
-            await this.updateFile(path3).catch(
-              (e) => console.warn(`[SemanticIndex] Auto-update failed for ${path3}:`, e)
+          for (const path4 of paths) {
+            await this.updateFile(path4).catch(
+              (e) => console.warn(`[SemanticIndex] Auto-update failed for ${path4}:`, e)
             );
             await this.sleep(2e3);
           }
@@ -58228,7 +58268,7 @@ var init_SemanticIndexService = __esm({
       // Checkpoint management
       // -----------------------------------------------------------------------
       checkpointPath() {
-        return path.join(this.indexDir, "index-meta.json");
+        return path2.join(this.indexDir, "index-meta.json");
       }
       newCheckpoint(modelKey) {
         return {
@@ -58296,7 +58336,7 @@ var init_SemanticIndexService = __esm({
             pdfjsLib.GlobalWorkerOptions.workerSrc = "";
           }
           const basePath = this.vault.adapter.getBasePath?.() ?? "";
-          const absPath = path.join(basePath, filePath);
+          const absPath = path2.join(basePath, filePath);
           const data2 = new Uint8Array(await fs.promises.readFile(absPath));
           const loadingTask = pdfjsLib.getDocument({ data: data2, useWorkerFetch: false });
           const pdf = await loadingTask.promise;
@@ -58421,8 +58461,8 @@ var init_ChatHistoryService = __esm({
           savedAt: (/* @__PURE__ */ new Date()).toISOString(),
           messages
         };
-        const path3 = `${this.folder}/${id}.json`;
-        await this.vault.adapter.write(path3, JSON.stringify(conv, null, 2));
+        const path4 = `${this.folder}/${id}.json`;
+        await this.vault.adapter.write(path4, JSON.stringify(conv, null, 2));
       }
       async list() {
         if (!this.folder) return [];
@@ -58443,18 +58483,18 @@ var init_ChatHistoryService = __esm({
         }
       }
       async load(id) {
-        const path3 = `${this.folder}/${id}.json`;
+        const path4 = `${this.folder}/${id}.json`;
         try {
-          const raw = await this.vault.adapter.read(path3);
+          const raw = await this.vault.adapter.read(path4);
           return JSON.parse(raw);
         } catch {
           return null;
         }
       }
       async delete(id) {
-        const path3 = `${this.folder}/${id}.json`;
+        const path4 = `${this.folder}/${id}.json`;
         try {
-          await this.vault.adapter.remove(path3);
+          await this.vault.adapter.remove(path4);
         } catch {
         }
       }
@@ -59783,7 +59823,7 @@ var require_for_each = __commonJS({
         }
       }
     };
-    function isArray(x) {
+    function isArray2(x) {
       return toStr.call(x) === "[object Array]";
     }
     module2.exports = function forEach(list, iterator, thisArg) {
@@ -59794,7 +59834,7 @@ var require_for_each = __commonJS({
       if (arguments.length >= 3) {
         receiver = thisArg;
       }
-      if (isArray(list)) {
+      if (isArray2(list)) {
         forEachArray(list, iterator, receiver);
       } else if (typeof list === "string") {
         forEachString(list, iterator, receiver);
@@ -60170,7 +60210,7 @@ var require_to_buffer = __commonJS({
   "node_modules/to-buffer/index.js"(exports, module2) {
     "use strict";
     var Buffer2 = require_safe_buffer().Buffer;
-    var isArray = require_isarray();
+    var isArray2 = require_isarray();
     var typedArrayBuffer = require_typed_array_buffer();
     var isView = ArrayBuffer.isView || function isView2(obj) {
       try {
@@ -60212,7 +60252,7 @@ var require_to_buffer = __commonJS({
       if (useUint8Array && data2 instanceof Uint8Array) {
         return Buffer2.from(data2);
       }
-      var isArr = isArray(data2);
+      var isArr = isArray2(data2);
       if (isArr) {
         for (var i = 0; i < data2.length; i += 1) {
           var x = data2[i];
@@ -64769,7 +64809,7 @@ var require_ignore = __commonJS({
     function makeArray(subject) {
       return Array.isArray(subject) ? subject : [subject];
     }
-    var EMPTY = "";
+    var EMPTY2 = "";
     var SPACE = " ";
     var ESCAPE = "\\";
     var REGEX_TEST_BLANK_LINE = /^\s+$/;
@@ -64789,7 +64829,7 @@ var require_ignore = __commonJS({
     var RETURN_FALSE = () => false;
     var sanitizeRange = (range) => range.replace(
       REGEX_REGEXP_RANGE,
-      (match, from, to) => from.charCodeAt(0) <= to.charCodeAt(0) ? match : EMPTY
+      (match, from, to) => from.charCodeAt(0) <= to.charCodeAt(0) ? match : EMPTY2
     );
     var cleanRangeBackSlash = (slashes) => {
       const { length } = slashes;
@@ -64801,7 +64841,7 @@ var require_ignore = __commonJS({
         // TODO:
         // Other similar zero-width characters?
         /^\uFEFF/,
-        () => EMPTY
+        () => EMPTY2
       ],
       // > Trailing spaces are ignored unless they are quoted with backslash ("\")
       [
@@ -64810,7 +64850,7 @@ var require_ignore = __commonJS({
         // (a ) -> (a)
         // (a \ ) -> (a  )
         /((?:\\\\)*?)(\\?\s+)$/,
-        (_, m1, m2) => m1 + (m2.indexOf("\\") === 0 ? SPACE : EMPTY)
+        (_, m1, m2) => m1 + (m2.indexOf("\\") === 0 ? SPACE : EMPTY2)
       ],
       // replace (\ ) with ' '
       // (\ ) -> ' '
@@ -64993,17 +65033,17 @@ var require_ignore = __commonJS({
     var throwError = (message, Ctor) => {
       throw new Ctor(message);
     };
-    var checkPath = (path3, originalPath, doThrow) => {
-      if (!isString(path3)) {
+    var checkPath = (path4, originalPath, doThrow) => {
+      if (!isString(path4)) {
         return doThrow(
           `path must be a string, but got \`${originalPath}\``,
           TypeError
         );
       }
-      if (!path3) {
+      if (!path4) {
         return doThrow(`path must not be empty`, TypeError);
       }
-      if (checkPath.isNotRelative(path3)) {
+      if (checkPath.isNotRelative(path4)) {
         const r = "`path.relative()`d";
         return doThrow(
           `path should be a ${r} string, but got "${originalPath}"`,
@@ -65012,7 +65052,7 @@ var require_ignore = __commonJS({
       }
       return true;
     };
-    var isNotRelative = (path3) => REGEX_TEST_INVALID_PATH.test(path3);
+    var isNotRelative = (path4) => REGEX_TEST_INVALID_PATH.test(path4);
     checkPath.isNotRelative = isNotRelative;
     checkPath.convert = (p) => p;
     var Ignore = class {
@@ -65071,7 +65111,7 @@ var require_ignore = __commonJS({
       //   setting `checkUnignored` to `false` could reduce additional
       //   path matching.
       // @returns {TestResult} true if a file is ignored
-      _testOne(path3, checkUnignored) {
+      _testOne(path4, checkUnignored) {
         let ignored = false;
         let unignored = false;
         this._rules.forEach((rule) => {
@@ -65079,7 +65119,7 @@ var require_ignore = __commonJS({
           if (unignored === negative && ignored !== unignored || negative && !ignored && !unignored && !checkUnignored) {
             return;
           }
-          const matched = rule.regex.test(path3);
+          const matched = rule.regex.test(path4);
           if (matched) {
             ignored = !negative;
             unignored = negative;
@@ -65092,24 +65132,24 @@ var require_ignore = __commonJS({
       }
       // @returns {TestResult}
       _test(originalPath, cache, checkUnignored, slices) {
-        const path3 = originalPath && checkPath.convert(originalPath);
+        const path4 = originalPath && checkPath.convert(originalPath);
         checkPath(
-          path3,
+          path4,
           originalPath,
           this._allowRelativePaths ? RETURN_FALSE : throwError
         );
-        return this._t(path3, cache, checkUnignored, slices);
+        return this._t(path4, cache, checkUnignored, slices);
       }
-      _t(path3, cache, checkUnignored, slices) {
-        if (path3 in cache) {
-          return cache[path3];
+      _t(path4, cache, checkUnignored, slices) {
+        if (path4 in cache) {
+          return cache[path4];
         }
         if (!slices) {
-          slices = path3.split(SLASH);
+          slices = path4.split(SLASH);
         }
         slices.pop();
         if (!slices.length) {
-          return cache[path3] = this._testOne(path3, checkUnignored);
+          return cache[path4] = this._testOne(path4, checkUnignored);
         }
         const parent2 = this._t(
           slices.join(SLASH) + SLASH,
@@ -65117,24 +65157,24 @@ var require_ignore = __commonJS({
           checkUnignored,
           slices
         );
-        return cache[path3] = parent2.ignored ? parent2 : this._testOne(path3, checkUnignored);
+        return cache[path4] = parent2.ignored ? parent2 : this._testOne(path4, checkUnignored);
       }
-      ignores(path3) {
-        return this._test(path3, this._ignoreCache, false).ignored;
+      ignores(path4) {
+        return this._test(path4, this._ignoreCache, false).ignored;
       }
       createFilter() {
-        return (path3) => !this.ignores(path3);
+        return (path4) => !this.ignores(path4);
       }
       filter(paths) {
         return makeArray(paths).filter(this.createFilter());
       }
       // @returns {TestResult}
-      test(path3) {
-        return this._test(path3, this._testCache, true);
+      test(path4) {
+        return this._test(path4, this._testCache, true);
       }
     };
     var factory = (options) => new Ignore(options);
-    var isPathValid = (path3) => checkPath(path3 && checkPath.convert(path3), path3, RETURN_FALSE);
+    var isPathValid = (path4) => checkPath(path4 && checkPath.convert(path4), path4, RETURN_FALSE);
     factory.isPathValid = isPathValid;
     factory.default = factory;
     module2.exports = factory;
@@ -65145,7 +65185,7 @@ var require_ignore = __commonJS({
       const makePosix = (str2) => /^\\\\\?\\/.test(str2) || /["<>|\u0000-\u001F]+/u.test(str2) ? str2 : str2.replace(/\\/g, "/");
       checkPath.convert = makePosix;
       const REGIX_IS_WINDOWS_PATH_ABSOLUTE = /^[a-z]:\//i;
-      checkPath.isNotRelative = (path3) => REGIX_IS_WINDOWS_PATH_ABSOLUTE.test(path3) || isNotRelative(path3);
+      checkPath.isNotRelative = (path4) => REGIX_IS_WINDOWS_PATH_ABSOLUTE.test(path4) || isNotRelative(path4);
     }
   }
 });
@@ -65187,7 +65227,7 @@ var require_lib3 = __commonJS({
 var require_onp = __commonJS({
   "node_modules/diff3/onp.js"(exports, module2) {
     module2.exports = function(a_, b_) {
-      var a = a_, b = b_, m = a.length, n = b.length, reverse = false, ed = null, offset = m + 1, path3 = [], pathposi = [], ses = [], lcs = "", SES_DELETE = -1, SES_COMMON = 0, SES_ADD = 1;
+      var a = a_, b = b_, m = a.length, n = b.length, reverse = false, ed = null, offset = m + 1, path4 = [], pathposi = [], ses = [], lcs = "", SES_DELETE = -1, SES_COMMON = 0, SES_ADD = 1;
       var tmp1, tmp2;
       var init2 = function() {
         if (m >= n) {
@@ -65217,9 +65257,9 @@ var require_onp = __commonJS({
       var snake = function(k, p, pp) {
         var r, x, y;
         if (p > pp) {
-          r = path3[k - 1 + offset];
+          r = path4[k - 1 + offset];
         } else {
-          r = path3[k + 1 + offset];
+          r = path4[k + 1 + offset];
         }
         y = Math.max(p, pp);
         x = y - k;
@@ -65227,7 +65267,7 @@ var require_onp = __commonJS({
           ++x;
           ++y;
         }
-        path3[k + offset] = pathposi.length;
+        path4[k + offset] = pathposi.length;
         pathposi[pathposi.length] = new P(x, y, r);
         return y;
       };
@@ -65285,7 +65325,7 @@ var require_onp = __commonJS({
           fp = {};
           for (i = 0; i < size; ++i) {
             fp[i] = -1;
-            path3[i] = -1;
+            path4[i] = -1;
           }
           p = -1;
           do {
@@ -65299,7 +65339,7 @@ var require_onp = __commonJS({
             fp[delta + offset] = snake(delta, fp[delta - 1 + offset] + 1, fp[delta + 1 + offset]);
           } while (fp[delta + offset] !== n);
           ed = delta + 2 * p;
-          r = path3[delta + offset];
+          r = path4[delta + offset];
           epc = [];
           while (r !== -1) {
             epc[epc.length] = new P(pathposi[r].x, pathposi[r].y, null);
@@ -66069,18 +66109,18 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         return result;
       }
     };
-    function basename(path3) {
-      const last2 = Math.max(path3.lastIndexOf("/"), path3.lastIndexOf("\\"));
+    function basename(path4) {
+      const last2 = Math.max(path4.lastIndexOf("/"), path4.lastIndexOf("\\"));
       if (last2 > -1) {
-        path3 = path3.slice(last2 + 1);
+        path4 = path4.slice(last2 + 1);
       }
-      return path3;
+      return path4;
     }
-    function dirname(path3) {
-      const last2 = Math.max(path3.lastIndexOf("/"), path3.lastIndexOf("\\"));
+    function dirname(path4) {
+      const last2 = Math.max(path4.lastIndexOf("/"), path4.lastIndexOf("\\"));
       if (last2 === -1) return ".";
       if (last2 === 0) return "/";
-      return path3.slice(0, last2);
+      return path4.slice(0, last2);
     }
     function flatFileListToDirectoryStructure(files) {
       const inodes = /* @__PURE__ */ new Map();
@@ -66237,7 +66277,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       Object.freeze(o);
       return o;
     }
-    var NotFoundError4 = class _NotFoundError extends BaseError {
+    var NotFoundError3 = class _NotFoundError extends BaseError {
       /**
        * @param {string} what
        */
@@ -66247,7 +66287,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         this.data = { what };
       }
     };
-    NotFoundError4.code = "NotFoundError";
+    NotFoundError3.code = "NotFoundError";
     var ObjectTypeError = class _ObjectTypeError extends BaseError {
       /**
        * @param {string} oid
@@ -66420,14 +66460,14 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       }
       return tmp;
     }
-    function normalizeString(path3, aar) {
+    function normalizeString(path4, aar) {
       let res = "";
       let lastSegmentLength = 0;
       let lastSlash = -1;
       let dots = 0;
       let char = "\0";
-      for (let i = 0; i <= path3.length; ++i) {
-        if (i < path3.length) char = path3[i];
+      for (let i = 0; i <= path4.length; ++i) {
+        if (i < path4.length) char = path4[i];
         else if (char === "/") break;
         else char = "/";
         if (char === "/") {
@@ -66459,8 +66499,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
               lastSegmentLength = 2;
             }
           } else {
-            if (res.length > 0) res += "/" + path3.slice(lastSlash + 1, i);
-            else res = path3.slice(lastSlash + 1, i);
+            if (res.length > 0) res += "/" + path4.slice(lastSlash + 1, i);
+            else res = path4.slice(lastSlash + 1, i);
             lastSegmentLength = i - lastSlash - 1;
           }
           lastSlash = i;
@@ -66473,17 +66513,17 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       }
       return res;
     }
-    function normalize(path3) {
-      if (!path3.length) return ".";
-      const isAbsolute2 = path3[0] === "/";
-      const trailingSeparator = path3.at(-1) === "/";
-      path3 = normalizeString(path3, !isAbsolute2);
-      if (!path3.length) {
+    function normalize(path4) {
+      if (!path4.length) return ".";
+      const isAbsolute2 = path4[0] === "/";
+      const trailingSeparator = path4.at(-1) === "/";
+      path4 = normalizeString(path4, !isAbsolute2);
+      if (!path4.length) {
         if (isAbsolute2) return "/";
         return trailingSeparator ? "./" : ".";
       }
-      if (trailingSeparator) path3 += "/";
-      return isAbsolute2 ? `/${path3}` : path3;
+      if (trailingSeparator) path4 += "/";
+      return isAbsolute2 ? `/${path4}` : path4;
     }
     function join2(...args) {
       if (args.length === 0) return ".";
@@ -66584,8 +66624,8 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
     var getPath = (section, subsection, name) => {
       return [lower(section), subsection, lower(name)].filter((a) => a != null).join(".");
     };
-    var normalizePath = (path3) => {
-      const pathSegments = path3.split(".");
+    var normalizePath = (path4) => {
+      const pathSegments = path4.split(".");
       const section = pathSegments.shift();
       const name = pathSegments.pop();
       const subsection = pathSegments.length ? pathSegments.join(".") : void 0;
@@ -66624,23 +66664,23 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
               [name, value] = extractedVariable;
             }
           }
-          const path3 = getPath(section, subsection, name);
-          return { line, isSection, section, subsection, name, value, path: path3 };
+          const path4 = getPath(section, subsection, name);
+          return { line, isSection, section, subsection, name, value, path: path4 };
         }) : [];
       }
       static from(text3) {
         return new _GitConfig(text3);
       }
-      async get(path3, getall = false) {
-        const normalizedPath = normalizePath(path3).path;
+      async get(path4, getall = false) {
+        const normalizedPath = normalizePath(path4).path;
         const allValues = this.parsedConfig.filter((config2) => config2.path === normalizedPath).map(({ section, name, value }) => {
           const fn = schema[section] && schema[section][name];
           return fn ? fn(value) : value;
         });
         return getall ? allValues : allValues.pop();
       }
-      async getall(path3) {
-        return this.get(path3, true);
+      async getall(path4) {
+        return this.get(path4, true);
       }
       async getSubsections(section) {
         return this.parsedConfig.filter((config2) => config2.isSection && config2.section === section).map((config2) => config2.subsection);
@@ -66650,10 +66690,10 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           (config2) => !(config2.section === section && config2.subsection === subsection)
         );
       }
-      async append(path3, value) {
-        return this.set(path3, value, true);
+      async append(path4, value) {
+        return this.set(path4, value, true);
       }
-      async set(path3, value, append3 = false) {
+      async set(path4, value, append3 = false) {
         const {
           section,
           subsection,
@@ -66661,7 +66701,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           path: normalizedPath,
           sectionPath,
           isSection
-        } = normalizePath(path3);
+        } = normalizePath(path4);
         const configIndex = findLastIndex(
           this.parsedConfig,
           (config2) => config2.path === normalizedPath
@@ -66991,7 +67031,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
             return _GitRefManager.resolve({ fs: fs3, gitdir, ref: sha.trim(), depth });
           }
         }
-        throw new NotFoundError4(ref);
+        throw new NotFoundError3(ref);
       }
       /**
        * Checks if a ref exists.
@@ -67033,7 +67073,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           if (refExists) return ref2;
           if (packedMap.has(ref2)) return ref2;
         }
-        throw new NotFoundError4(ref);
+        throw new NotFoundError3(ref);
       }
       /**
        * Expands a ref against a provided map.
@@ -67048,7 +67088,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         for (const ref2 of allpaths) {
           if (await map2.has(ref2)) return ref2;
         }
-        throw new NotFoundError4(ref);
+        throw new NotFoundError3(ref);
       }
       /**
        * Resolves a ref against a provided map.
@@ -67086,7 +67126,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
             });
           }
         }
-        throw new NotFoundError4(ref);
+        throw new NotFoundError3(ref);
       }
       /**
        * Reads the packed refs file and returns a map of refs.
@@ -67210,13 +67250,13 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
         let mode = buffer.slice(cursor, space).toString("utf8");
         if (mode === "40000") mode = "040000";
         const type = mode2type$1(mode);
-        const path3 = buffer.slice(space + 1, nullchar).toString("utf8");
-        if (path3.includes("\\") || path3.includes("/")) {
-          throw new UnsafeFilepathError(path3);
+        const path4 = buffer.slice(space + 1, nullchar).toString("utf8");
+        if (path4.includes("\\") || path4.includes("/")) {
+          throw new UnsafeFilepathError(path4);
         }
         const oid = buffer.slice(nullchar + 1, nullchar + 21).toString("hex");
         cursor = nullchar + 21;
-        _entries.push({ mode, path: path3, oid, type });
+        _entries.push({ mode, path: path4, oid, type });
       }
       return _entries;
     }
@@ -67265,10 +67305,10 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           entries.map((entry) => {
             const mode = Buffer.from(entry.mode.replace(/^0/, ""));
             const space = Buffer.from(" ");
-            const path3 = Buffer.from(entry.path, "utf8");
+            const path4 = Buffer.from(entry.path, "utf8");
             const nullchar = Buffer.from([0]);
             const oid = Buffer.from(entry.oid, "hex");
-            return Buffer.concat([mode, space, path3, nullchar, oid]);
+            return Buffer.concat([mode, space, path4, nullchar, oid]);
           })
         );
       }
@@ -68007,7 +68047,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
           getExternalRefDelta
         });
         if (!result) {
-          throw new NotFoundError4(oid);
+          throw new NotFoundError3(oid);
         }
         return result;
       }
@@ -68413,7 +68453,7 @@ Please file a bug report at https://github.com/isomorphic-git/isomorphic-git/iss
       MissingParameterError,
       MultipleGitError,
       NoRefspecError,
-      NotFoundError: NotFoundError4,
+      NotFoundError: NotFoundError3,
       ObjectTypeError,
       ParseError: ParseError2,
       PushRejectedError,
@@ -68739,7 +68779,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           try {
             oid = await GitRefManager.resolve({ fs: fs3, gitdir, ref });
           } catch (e) {
-            if (e instanceof NotFoundError4) {
+            if (e instanceof NotFoundError3) {
               oid = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
             }
           }
@@ -69454,13 +69494,13 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           dir,
           gitdir: updatedGitdir,
           trees,
-          map: async function(path3, [head, workdir, index3]) {
+          map: async function(path4, [head, workdir, index3]) {
             const staged = !await modified(workdir, index3);
-            const unmerged = unmergedPaths.includes(path3);
+            const unmerged = unmergedPaths.includes(path4);
             const unmodified = !await modified(index3, head);
             if (staged || unmerged) {
               return head ? {
-                path: path3,
+                path: path4,
                 mode: await head.mode(),
                 oid: await head.oid(),
                 type: await head.type(),
@@ -69468,7 +69508,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               } : void 0;
             }
             if (unmodified) return false;
-            else throw new IndexResetError(path3);
+            else throw new IndexResetError(path4);
           }
         });
         await GitIndexManager.acquire(
@@ -69674,7 +69714,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           if (ignored) return;
         }
         const stats = await fs3.lstat(join2(dir, currentFilepath));
-        if (!stats) throw new NotFoundError4(currentFilepath);
+        if (!stats) throw new NotFoundError3(currentFilepath);
         if (stats.isDirectory()) {
           const children2 = await fs3.readdir(join2(dir, currentFilepath));
           if (parallel) {
@@ -69707,7 +69747,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         } else {
           const object3 = stats.isSymbolicLink() ? await fs3.readlink(join2(dir, currentFilepath)).then(posixifyPathBuffer) : await fs3.read(join2(dir, currentFilepath), { autocrlf });
-          if (object3 === null) throw new NotFoundError4(currentFilepath);
+          if (object3 === null) throw new NotFoundError3(currentFilepath);
           const oid = await _writeObject({ fs: fs3, gitdir, type: "blob", object: object3 });
           index3.insert({ filepath: currentFilepath, stats, oid });
         }
@@ -69723,9 +69763,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const fulfilledPromises = settledPromises.filter((settle) => settle.status === "fulfilled" && settle.value).map((settle) => settle.value);
       return fulfilledPromises;
     }
-    async function _getConfig({ fs: fs3, gitdir, path: path3 }) {
+    async function _getConfig({ fs: fs3, gitdir, path: path4 }) {
       const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
-      return config2.get(path3);
+      return config2.get(path4);
     }
     function assignDefined(target, ...sources) {
       for (const source of sources) {
@@ -70017,7 +70057,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           }
         }
       }
-      throw new NotFoundError4(`file or directory found at "${oid}:${filepath}"`);
+      throw new NotFoundError3(`file or directory found at "${oid}:${filepath}"`);
     }
     async function _readTree({
       fs: fs3,
@@ -70064,7 +70104,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       try {
         parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (!(err instanceof NotFoundError4)) {
+        if (!(err instanceof NotFoundError3)) {
           throw err;
         }
       }
@@ -70446,7 +70486,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             filepaths
           });
         } catch (err) {
-          if (err instanceof NotFoundError4 && err.data.what === oid) {
+          if (err instanceof NotFoundError3 && err.data.what === oid) {
             throw new CommitNotFetchedError(ref, oid);
           } else {
             throw err;
@@ -71078,14 +71118,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         gitdir,
         trees: [ourTree, baseTree, theirTree],
         map: async function(filepath, [ours, base, theirs]) {
-          const path3 = basename(filepath);
+          const path4 = basename(filepath);
           const ourChange = await modified(ours, base);
           const theirChange = await modified(theirs, base);
           switch (`${ourChange}-${theirChange}`) {
             case "false-false": {
               return {
                 mode: await base.mode(),
-                path: path3,
+                path: path4,
                 oid: await base.oid(),
                 type: await base.type()
               };
@@ -71094,14 +71134,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               if (!theirs && await ours.type() === "tree") {
                 return {
                   mode: await ours.mode(),
-                  path: path3,
+                  path: path4,
                   oid: await ours.oid(),
                   type: await ours.type()
                 };
               }
               return theirs ? {
                 mode: await theirs.mode(),
-                path: path3,
+                path: path4,
                 oid: await theirs.oid(),
                 type: await theirs.type()
               } : void 0;
@@ -71110,14 +71150,14 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               if (!ours && await theirs.type() === "tree") {
                 return {
                   mode: await theirs.mode(),
-                  path: path3,
+                  path: path4,
                   oid: await theirs.oid(),
                   type: await theirs.type()
                 };
               }
               return ours ? {
                 mode: await ours.mode(),
-                path: path3,
+                path: path4,
                 oid: await ours.oid(),
                 type: await ours.type()
               } : void 0;
@@ -71126,7 +71166,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
               if (ours && theirs && await ours.type() === "tree" && await theirs.type() === "tree") {
                 return {
                   mode: await ours.mode(),
-                  path: path3,
+                  path: path4,
                   oid: await ours.oid(),
                   type: "tree"
                 };
@@ -71135,7 +71175,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                 return mergeBlobs({
                   fs: fs3,
                   gitdir,
-                  path: path3,
+                  path: path4,
                   ours,
                   base,
                   theirs,
@@ -71181,7 +71221,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                   mode: await theirs.mode(),
                   oid: await theirs.oid(),
                   type: "blob",
-                  path: path3
+                  path: path4
                 };
               }
               if (base && ours && !theirs && await base.type() === "blob" && await ours.type() === "blob") {
@@ -71198,7 +71238,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
                   mode: await ours.mode(),
                   oid: await ours.oid(),
                   type: "blob",
-                  path: path3
+                  path: path4
                 };
               }
               if (base && !ours && !theirs && (await base.type() === "blob" || await base.type() === "tree")) {
@@ -71241,11 +71281,11 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             gitdir,
             trees: [TREE({ ref: results.oid })],
             map: async function(filepath, [entry]) {
-              const path3 = `${dir}/${filepath}`;
+              const path4 = `${dir}/${filepath}`;
               if (await entry.type() === "blob") {
                 const mode = await entry.mode();
                 const content = new TextDecoder().decode(await entry.content());
-                await fs3.write(path3, content, { mode });
+                await fs3.write(path4, content, { mode });
               }
               return true;
             }
@@ -71263,7 +71303,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     async function mergeBlobs({
       fs: fs3,
       gitdir,
-      path: path3,
+      path: path4,
       ours,
       base,
       theirs,
@@ -71286,19 +71326,19 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (await ours.oid() === await theirs.oid()) {
         return {
           cleanMerge: true,
-          mergeResult: { mode, path: path3, oid: await ours.oid(), type }
+          mergeResult: { mode, path: path4, oid: await ours.oid(), type }
         };
       }
       if (await ours.oid() === baseOid) {
         return {
           cleanMerge: true,
-          mergeResult: { mode, path: path3, oid: await theirs.oid(), type }
+          mergeResult: { mode, path: path4, oid: await theirs.oid(), type }
         };
       }
       if (await theirs.oid() === baseOid) {
         return {
           cleanMerge: true,
-          mergeResult: { mode, path: path3, oid: await ours.oid(), type }
+          mergeResult: { mode, path: path4, oid: await ours.oid(), type }
         };
       }
       const ourContent = Buffer.from(await ours.content()).toString("utf8");
@@ -71306,7 +71346,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const { mergedText, cleanMerge } = await mergeDriver({
         branches: [baseName, ourName, theirName],
         contents: [baseContent, ourContent, theirContent],
-        path: path3
+        path: path4
       });
       const oid = await _writeObject({
         fs: fs3,
@@ -71315,7 +71355,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         object: Buffer.from(mergedText, "utf8"),
         dryRun
       });
-      return { cleanMerge, mergeResult: { mode, path: path3, oid, type } };
+      return { cleanMerge, mergeResult: { mode, path: path4, oid, type } };
     }
     var _TreeMap = {
       stage: STAGE,
@@ -71329,7 +71369,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     async function checkAndWriteBlob(fs3, gitdir, dir, filepath, oid = null) {
       const currentFilepath = join2(dir, filepath);
       const stats = await fs3.lstat(currentFilepath);
-      if (!stats) throw new NotFoundError4(currentFilepath);
+      if (!stats) throw new NotFoundError3(currentFilepath);
       if (stats.isDirectory())
         throw new InternalError(
           `${currentFilepath}: file expected, but found directory`
@@ -71339,7 +71379,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (!objContent) {
         await acquireLock$1({ fs: fs3, gitdir, currentFilepath }, async () => {
           const object3 = stats.isSymbolicLink() ? await fs3.readlink(currentFilepath).then(posixifyPathBuffer) : await fs3.read(currentFilepath);
-          if (object3 === null) throw new NotFoundError4(currentFilepath);
+          if (object3 === null) throw new NotFoundError3(currentFilepath);
           retOid = await _writeObject({ fs: fs3, gitdir, type: "blob", object: object3 });
         });
       }
@@ -73005,7 +73045,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       ref = ref.startsWith("refs/heads/") ? ref : `refs/heads/${ref}`;
       const exist = await GitRefManager.exists({ fs: fs3, gitdir, ref });
       if (!exist) {
-        throw new NotFoundError4(ref);
+        throw new NotFoundError3(ref);
       }
       const fullRef = await GitRefManager.expand({ fs: fs3, gitdir, ref });
       const currentRef = await _currentBranch({ fs: fs3, gitdir, fullname: true });
@@ -73149,7 +73189,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       if (results.length > 1) {
         throw new AmbiguousError("oids", short, results);
       }
-      throw new NotFoundError4(`an object matching "${short}"`);
+      throw new NotFoundError3(`an object matching "${short}"`);
     }
     async function expandOid({
       fs: fs3,
@@ -73492,7 +73532,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function fetch5({
+    async function fetch4({
       fs: fs3,
       http,
       onProgress,
@@ -73584,7 +73624,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       } else {
         const parent2 = dirname(filepath);
         if (parent2 === filepath) {
-          throw new NotFoundError4(`git root for ${filepath}`);
+          throw new NotFoundError3(`git root for ${filepath}`);
         }
         return _findRoot({ fs: fs3, filepath: parent2 });
       }
@@ -73599,43 +73639,43 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function getConfig({ fs: fs3, dir, gitdir = join2(dir, ".git"), path: path3 }) {
+    async function getConfig({ fs: fs3, dir, gitdir = join2(dir, ".git"), path: path4 }) {
       try {
         assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        assertParameter("path", path3);
+        assertParameter("path", path4);
         const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _getConfig({
           fs: fsp,
           gitdir: updatedGitdir,
-          path: path3
+          path: path4
         });
       } catch (err) {
         err.caller = "git.getConfig";
         throw err;
       }
     }
-    async function _getConfigAll({ fs: fs3, gitdir, path: path3 }) {
+    async function _getConfigAll({ fs: fs3, gitdir, path: path4 }) {
       const config2 = await GitConfigManager.get({ fs: fs3, gitdir });
-      return config2.getall(path3);
+      return config2.getall(path4);
     }
     async function getConfigAll({
       fs: fs3,
       dir,
       gitdir = join2(dir, ".git"),
-      path: path3
+      path: path4
     }) {
       try {
         assertParameter("fs", fs3);
         assertParameter("gitdir", gitdir);
-        assertParameter("path", path3);
+        assertParameter("path", path4);
         const fsp = new FileSystem(fs3);
         const updatedGitdir = await discoverGitdir({ fsp, dotgit: gitdir });
         return await _getConfigAll({
           fs: fsp,
           gitdir: updatedGitdir,
-          path: path3
+          path: path4
         });
       } catch (err) {
         err.caller = "git.getConfigAll";
@@ -74084,7 +74124,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       try {
         parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (err instanceof NotFoundError4) {
+        if (err instanceof NotFoundError3) {
           return [];
         }
       }
@@ -74374,7 +74414,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             lastCommit = commit2;
             isOk = true;
           } catch (e) {
-            if (e instanceof NotFoundError4) {
+            if (e instanceof NotFoundError3) {
               let found = follow && lastFileOid;
               if (found) {
                 found = await resolveFileIdInTree({
@@ -74913,7 +74953,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
             map: httpRemote.refs
           });
         } catch (err) {
-          if (err instanceof NotFoundError4) {
+          if (err instanceof NotFoundError3) {
             fullRemoteRef = remoteRef.startsWith("refs/") ? remoteRef : `refs/heads/${remoteRef}`;
           } else {
             throw err;
@@ -75404,7 +75444,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       try {
         parent2 = await GitRefManager.resolve({ gitdir, fs: fs3, ref });
       } catch (err) {
-        if (!(err instanceof NotFoundError4)) {
+        if (!(err instanceof NotFoundError3)) {
           throw err;
         }
       }
@@ -75660,21 +75700,21 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       fs: _fs,
       dir,
       gitdir = join2(dir, ".git"),
-      path: path3,
+      path: path4,
       value,
       append: append3 = false
     }) {
       try {
         assertParameter("fs", _fs);
         assertParameter("gitdir", gitdir);
-        assertParameter("path", path3);
+        assertParameter("path", path4);
         const fs3 = new FileSystem(_fs);
         const updatedGitdir = await discoverGitdir({ fsp: fs3, dotgit: gitdir });
         const config2 = await GitConfigManager.get({ fs: fs3, gitdir: updatedGitdir });
         if (append3) {
-          await config2.append(path3, value);
+          await config2.append(path4, value);
         } else {
-          await config2.set(path3, value);
+          await config2.set(path4, value);
         }
         await GitConfigManager.save({ fs: fs3, gitdir: updatedGitdir, config: config2 });
       } catch (err) {
@@ -75948,7 +75988,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         stashCommitTree = workingTree;
       }
       if (!stashCommitTree || !indexTree && !workingTree) {
-        throw new NotFoundError4("changes, nothing to stash");
+        throw new NotFoundError3("changes, nothing to stash");
       }
       const stashMsg = (message.trim() || `WIP on ${branch2}`) + `: ${headCommit.substring(0, 7)} ${headMsg}`;
       const stashCommit = await stashMgr.writeStashCommit({
@@ -76056,9 +76096,9 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       const stashRefPath = [stashMgr.refStashPath, stashMgr.refLogsStashPath];
       await acquireLock$1(stashRefPath, async () => {
         await Promise.all(
-          stashRefPath.map(async (path3) => {
-            if (await fs3.exists(path3)) {
-              return fs3.rm(path3);
+          stashRefPath.map(async (path4) => {
+            if (await fs3.exists(path4)) {
+              return fs3.rm(path4);
             }
           })
         );
@@ -76215,12 +76255,12 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         throw err;
       }
     }
-    async function getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree, path: path3 }) {
-      if (typeof path3 === "string") path3 = path3.split("/");
-      const dirname2 = path3.shift();
+    async function getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree, path: path4 }) {
+      if (typeof path4 === "string") path4 = path4.split("/");
+      const dirname2 = path4.shift();
       for (const entry of tree) {
         if (entry.path === dirname2) {
-          if (path3.length === 0) {
+          if (path4.length === 0) {
             return entry.oid;
           }
           const { type, object: object3 } = await _readObject({
@@ -76231,10 +76271,10 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           });
           if (type === "tree") {
             const tree2 = GitTree.from(object3);
-            return getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree: tree2, path: path3 });
+            return getOidAtPath({ fs: fs3, cache, gitdir: updatedGitdir, tree: tree2, path: path4 });
           }
           if (type === "blob") {
-            throw new ObjectTypeError(entry.oid, type, "blob", path3.join("/"));
+            throw new ObjectTypeError(entry.oid, type, "blob", path4.join("/"));
           }
         }
       }
@@ -76249,7 +76289,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           ref: "HEAD"
         });
       } catch (e) {
-        if (e instanceof NotFoundError4) {
+        if (e instanceof NotFoundError3) {
           return [];
         }
       }
@@ -76403,7 +76443,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
         if (!oid) {
           fileStats = await fs3.lstat(join2(dir, filepath));
           if (!fileStats) {
-            throw new NotFoundError4(
+            throw new NotFoundError3(
               `file at "${filepath}" on disk and "remove" not set`
             );
           }
@@ -76415,7 +76455,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
           { fs: fs3, gitdir: updatedGitdir, cache },
           async function(index3) {
             if (!add3 && !index3.has({ filepath })) {
-              throw new NotFoundError4(
+              throw new NotFoundError3(
                 `file at "${filepath}" in index and "add" not set`
               );
             }
@@ -76699,7 +76739,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       expandOid,
       expandRef,
       fastForward,
-      fetch: fetch5,
+      fetch: fetch4,
       findMergeBase,
       findRoot,
       getRemoteInfo,
@@ -76769,7 +76809,7 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
     exports.expandOid = expandOid;
     exports.expandRef = expandRef;
     exports.fastForward = fastForward;
-    exports.fetch = fetch5;
+    exports.fetch = fetch4;
     exports.findMergeBase = findMergeBase;
     exports.findRoot = findRoot;
     exports.getConfig = getConfig;
@@ -80014,8 +80054,8 @@ var require_utils = __commonJS({
       }
       return ind;
     }
-    function removeDotSegments(path3) {
-      let input = path3;
+    function removeDotSegments(path4) {
+      let input = path4;
       const output = [];
       let nextSlash = -1;
       let len = 0;
@@ -80214,8 +80254,8 @@ var require_schemes = __commonJS({
         wsComponent.secure = void 0;
       }
       if (wsComponent.resourceName) {
-        const [path3, query] = wsComponent.resourceName.split("?");
-        wsComponent.path = path3 && path3 !== "/" ? path3 : void 0;
+        const [path4, query] = wsComponent.resourceName.split("?");
+        wsComponent.path = path4 && path4 !== "/" ? path4 : void 0;
         wsComponent.query = query;
         wsComponent.resourceName = void 0;
       }
@@ -83596,7 +83636,7 @@ var require_windows = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs3 = require("fs");
-    function checkPathExt(path3, options) {
+    function checkPathExt(path4, options) {
       var pathext = options.pathExt !== void 0 ? options.pathExt : process.env.PATHEXT;
       if (!pathext) {
         return true;
@@ -83607,25 +83647,25 @@ var require_windows = __commonJS({
       }
       for (var i = 0; i < pathext.length; i++) {
         var p = pathext[i].toLowerCase();
-        if (p && path3.substr(-p.length).toLowerCase() === p) {
+        if (p && path4.substr(-p.length).toLowerCase() === p) {
           return true;
         }
       }
       return false;
     }
-    function checkStat(stat, path3, options) {
+    function checkStat(stat, path4, options) {
       if (!stat.isSymbolicLink() && !stat.isFile()) {
         return false;
       }
-      return checkPathExt(path3, options);
+      return checkPathExt(path4, options);
     }
-    function isexe(path3, options, cb) {
-      fs3.stat(path3, function(er, stat) {
-        cb(er, er ? false : checkStat(stat, path3, options));
+    function isexe(path4, options, cb) {
+      fs3.stat(path4, function(er, stat) {
+        cb(er, er ? false : checkStat(stat, path4, options));
       });
     }
-    function sync(path3, options) {
-      return checkStat(fs3.statSync(path3), path3, options);
+    function sync(path4, options) {
+      return checkStat(fs3.statSync(path4), path4, options);
     }
   }
 });
@@ -83636,13 +83676,13 @@ var require_mode = __commonJS({
     module2.exports = isexe;
     isexe.sync = sync;
     var fs3 = require("fs");
-    function isexe(path3, options, cb) {
-      fs3.stat(path3, function(er, stat) {
+    function isexe(path4, options, cb) {
+      fs3.stat(path4, function(er, stat) {
         cb(er, er ? false : checkStat(stat, options));
       });
     }
-    function sync(path3, options) {
-      return checkStat(fs3.statSync(path3), options);
+    function sync(path4, options) {
+      return checkStat(fs3.statSync(path4), options);
     }
     function checkStat(stat, options) {
       return stat.isFile() && checkMode(stat, options);
@@ -83675,7 +83715,7 @@ var require_isexe = __commonJS({
     }
     module2.exports = isexe;
     isexe.sync = sync;
-    function isexe(path3, options, cb) {
+    function isexe(path4, options, cb) {
       if (typeof options === "function") {
         cb = options;
         options = {};
@@ -83685,7 +83725,7 @@ var require_isexe = __commonJS({
           throw new TypeError("callback not provided");
         }
         return new Promise(function(resolve2, reject) {
-          isexe(path3, options || {}, function(er, is4) {
+          isexe(path4, options || {}, function(er, is4) {
             if (er) {
               reject(er);
             } else {
@@ -83694,7 +83734,7 @@ var require_isexe = __commonJS({
           });
         });
       }
-      core(path3, options || {}, function(er, is4) {
+      core(path4, options || {}, function(er, is4) {
         if (er) {
           if (er.code === "EACCES" || options && options.ignoreErrors) {
             er = null;
@@ -83704,9 +83744,9 @@ var require_isexe = __commonJS({
         cb(er, is4);
       });
     }
-    function sync(path3, options) {
+    function sync(path4, options) {
       try {
-        return core.sync(path3, options || {});
+        return core.sync(path4, options || {});
       } catch (er) {
         if (options && options.ignoreErrors || er.code === "EACCES") {
           return false;
@@ -83722,7 +83762,7 @@ var require_isexe = __commonJS({
 var require_which = __commonJS({
   "node_modules/which/which.js"(exports, module2) {
     var isWindows = process.platform === "win32" || process.env.OSTYPE === "cygwin" || process.env.OSTYPE === "msys";
-    var path3 = require("path");
+    var path4 = require("path");
     var COLON = isWindows ? ";" : ":";
     var isexe = require_isexe();
     var getNotFoundError = (cmd) => Object.assign(new Error(`not found: ${cmd}`), { code: "ENOENT" });
@@ -83760,7 +83800,7 @@ var require_which = __commonJS({
           return opt.all && found.length ? resolve2(found) : reject(getNotFoundError(cmd));
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path3.join(pathPart, cmd);
+        const pCmd = path4.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         resolve2(subStep(p, i, 0));
       });
@@ -83787,7 +83827,7 @@ var require_which = __commonJS({
       for (let i = 0; i < pathEnv.length; i++) {
         const ppRaw = pathEnv[i];
         const pathPart = /^".*"$/.test(ppRaw) ? ppRaw.slice(1, -1) : ppRaw;
-        const pCmd = path3.join(pathPart, cmd);
+        const pCmd = path4.join(pathPart, cmd);
         const p = !pathPart && /^\.[\\\/]/.test(cmd) ? cmd.slice(0, 2) + pCmd : pCmd;
         for (let j = 0; j < pathExt.length; j++) {
           const cur = p + pathExt[j];
@@ -83835,7 +83875,7 @@ var require_path_key = __commonJS({
 var require_resolveCommand = __commonJS({
   "node_modules/cross-spawn/lib/util/resolveCommand.js"(exports, module2) {
     "use strict";
-    var path3 = require("path");
+    var path4 = require("path");
     var which = require_which();
     var getPathKey = require_path_key();
     function resolveCommandAttempt(parsed, withoutPathExt) {
@@ -83853,7 +83893,7 @@ var require_resolveCommand = __commonJS({
       try {
         resolved = which.sync(parsed.command, {
           path: env[getPathKey({ env })],
-          pathExt: withoutPathExt ? path3.delimiter : void 0
+          pathExt: withoutPathExt ? path4.delimiter : void 0
         });
       } catch (e) {
       } finally {
@@ -83862,7 +83902,7 @@ var require_resolveCommand = __commonJS({
         }
       }
       if (resolved) {
-        resolved = path3.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
+        resolved = path4.resolve(hasCustomCwd ? parsed.options.cwd : "", resolved);
       }
       return resolved;
     }
@@ -83916,8 +83956,8 @@ var require_shebang_command = __commonJS({
       if (!match) {
         return null;
       }
-      const [path3, argument] = match[0].replace(/#! ?/, "").split(" ");
-      const binary = path3.split("/").pop();
+      const [path4, argument] = match[0].replace(/#! ?/, "").split(" ");
+      const binary = path4.split("/").pop();
       if (binary === "env") {
         return argument;
       }
@@ -83952,7 +83992,7 @@ var require_readShebang = __commonJS({
 var require_parse2 = __commonJS({
   "node_modules/cross-spawn/lib/parse.js"(exports, module2) {
     "use strict";
-    var path3 = require("path");
+    var path4 = require("path");
     var resolveCommand = require_resolveCommand();
     var escape3 = require_escape();
     var readShebang = require_readShebang();
@@ -83977,7 +84017,7 @@ var require_parse2 = __commonJS({
       const needsShell = !isExecutableRegExp.test(commandFile);
       if (parsed.options.forceShell || needsShell) {
         const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-        parsed.command = path3.normalize(parsed.command);
+        parsed.command = path4.normalize(parsed.command);
         parsed.command = escape3.command(parsed.command);
         parsed.args = parsed.args.map((arg) => escape3.argument(arg, needsDoubleEscapeMetaChars));
         const shellCommand = [parsed.command].concat(parsed.args).join(" ");
@@ -84223,7 +84263,10 @@ function modelToLLMProvider(model) {
     baseUrl: model.baseUrl,
     maxTokens: model.maxTokens,
     temperature: model.temperature,
-    apiVersion: model.apiVersion
+    apiVersion: model.apiVersion,
+    promptCachingEnabled: model.promptCachingEnabled,
+    thinkingEnabled: model.thinkingEnabled,
+    thinkingBudgetTokens: model.thinkingBudgetTokens
   };
 }
 var DEFAULT_SETTINGS = {
@@ -84554,12 +84597,12 @@ var ToolExecutionPipeline = class _ToolExecutionPipeline {
         }
       }
       if (tool.isWriteOperation && (this.plugin.settings.enableCheckpoints ?? true)) {
-        const path3 = toolCall.input?.path;
-        if (path3) {
+        const path4 = toolCall.input?.path;
+        if (path4) {
           try {
             const cp = await this.plugin.checkpointService?.snapshot(
               this.taskId,
-              [path3],
+              [path4],
               toolCall.name
             );
             if (cp && cp.commitOid !== "empty" && extensions?.onCheckpoint) {
@@ -84622,13 +84665,13 @@ var ToolExecutionPipeline = class _ToolExecutionPipeline {
   validatePaths(toolCall, isWrite) {
     const ignoreService = this.plugin.ignoreService;
     if (!ignoreService) return { allowed: true };
-    const path3 = toolCall.input?.path;
-    if (!path3) return { allowed: true };
-    if (ignoreService.isIgnored(path3)) {
-      return { allowed: false, reason: ignoreService.getDenialReason(path3) };
+    const path4 = toolCall.input?.path;
+    if (!path4) return { allowed: true };
+    if (ignoreService.isIgnored(path4)) {
+      return { allowed: false, reason: ignoreService.getDenialReason(path4) };
     }
-    if (isWrite && ignoreService.isProtected(path3)) {
-      return { allowed: false, reason: ignoreService.getDenialReason(path3) };
+    if (isWrite && ignoreService.isProtected(path4)) {
+      return { allowed: false, reason: ignoreService.getDenialReason(path4) };
     }
     return { allowed: true };
   }
@@ -85816,6 +85859,8 @@ var AgentTask = class _AgentTask {
     const MAX_ITERATIONS = this.maxIterations;
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheReadTokens = 0;
+    let totalCacheCreationTokens = 0;
     let completionResult = null;
     let hasStreamedText = false;
     let hasRetriedEmpty = false;
@@ -85856,8 +85901,8 @@ var AgentTask = class _AgentTask {
           onError: (err) => {
             throw err;
           },
-          onUsage: (i, o) => {
-            this.taskCallbacks.onUsage?.(i, o);
+          onUsage: (i, o, cr, cc) => {
+            this.taskCallbacks.onUsage?.(i, o, cr, cc);
           },
           // K-1: Forward parent approval callback so subtask write ops are not
           // auto-rejected by the fail-closed fallback in ToolExecutionPipeline.
@@ -85957,6 +86002,7 @@ Continue the task.`
         const tools = cachedTools;
         const toolUses = [];
         const textParts = [];
+        const toolErrorIds = /* @__PURE__ */ new Set();
         for await (const chunk of this.api.createMessage(systemPrompt, history, tools, abortSignal)) {
           if (chunk.type === "thinking") {
             this.taskCallbacks.onThinking?.(chunk.text);
@@ -85972,9 +86018,16 @@ Continue the task.`
               input: chunk.input
             });
             this.taskCallbacks.onToolStart(chunk.name, chunk.input);
+          } else if (chunk.type === "tool_error") {
+            toolErrorIds.add(chunk.id);
+            toolUses.push({ type: "tool_use", id: chunk.id, name: chunk.name, input: {} });
+            this.taskCallbacks.onToolStart(chunk.name, {});
+            this.taskCallbacks.onToolResult(chunk.name, chunk.error, true);
           } else if (chunk.type === "usage") {
             totalInputTokens += chunk.inputTokens;
             totalOutputTokens += chunk.outputTokens;
+            totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+            totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
           }
         }
         const assistantContent = [];
@@ -86019,7 +86072,7 @@ Continue the task.`
           "open_note"
         ]);
         const validToolUses = toolUses.filter(
-          (t2) => t2.type === "tool_use"
+          (t2) => t2.type === "tool_use" && !toolErrorIds.has(t2.id)
         );
         const runTool = async (toolUse) => {
           const repCheck = repetitionDetector.check(toolUse.name, toolUse.input);
@@ -86065,6 +86118,14 @@ Continue the task.`
         };
         const allParallelSafe = validToolUses.length > 1 && validToolUses.every((t2) => PARALLEL_SAFE.has(t2.name));
         const toolResultBlocks = [];
+        for (const errId of toolErrorIds) {
+          toolResultBlocks.push({
+            type: "tool_result",
+            tool_use_id: errId,
+            content: "Tool input could not be parsed. Please retry with valid JSON.",
+            is_error: true
+          });
+        }
         if (allParallelSafe) {
           const results = await Promise.all(validToolUses.map(runTool));
           for (let i = 0; i < validToolUses.length; i++) {
@@ -86148,6 +86209,8 @@ Continue the task.`
               } else if (chunk.type === "usage") {
                 totalInputTokens += chunk.inputTokens;
                 totalOutputTokens += chunk.outputTokens;
+                totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+                totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
               }
             }
           } catch (e) {
@@ -86156,7 +86219,12 @@ Continue the task.`
         }
       }
       if (totalInputTokens > 0 || totalOutputTokens > 0) {
-        this.taskCallbacks.onUsage?.(totalInputTokens, totalOutputTokens);
+        this.taskCallbacks.onUsage?.(
+          totalInputTokens,
+          totalOutputTokens,
+          totalCacheReadTokens > 0 ? totalCacheReadTokens : void 0,
+          totalCacheCreationTokens > 0 ? totalCacheCreationTokens : void 0
+        );
       }
       const toolSeq = repetitionDetector.getToolSequence();
       if (toolSeq.length > 0) {
@@ -86564,1044 +86632,227 @@ var ModeService = class {
   }
 };
 
-// node_modules/@anthropic-ai/sdk/error.mjs
-var error_exports = {};
-__export(error_exports, {
-  APIConnectionError: () => APIConnectionError,
-  APIConnectionTimeoutError: () => APIConnectionTimeoutError,
-  APIError: () => APIError,
-  APIUserAbortError: () => APIUserAbortError,
-  AnthropicError: () => AnthropicError,
-  AuthenticationError: () => AuthenticationError,
-  BadRequestError: () => BadRequestError,
-  ConflictError: () => ConflictError,
-  InternalServerError: () => InternalServerError,
-  NotFoundError: () => NotFoundError,
-  PermissionDeniedError: () => PermissionDeniedError,
-  RateLimitError: () => RateLimitError,
-  UnprocessableEntityError: () => UnprocessableEntityError
-});
-
-// node_modules/@anthropic-ai/sdk/version.mjs
-var VERSION = "0.30.1";
-
-// node_modules/@anthropic-ai/sdk/_shims/registry.mjs
-var auto = false;
-var kind = void 0;
-var fetch2 = void 0;
-var Request2 = void 0;
-var Response2 = void 0;
-var Headers2 = void 0;
-var FormData2 = void 0;
-var Blob2 = void 0;
-var File2 = void 0;
-var ReadableStream2 = void 0;
-var getMultipartRequestOptions = void 0;
-var getDefaultAgent = void 0;
-var fileFromPath = void 0;
-var isFsReadStream = void 0;
-function setShims(shims, options = { auto: false }) {
-  if (auto) {
-    throw new Error(`you must \`import '@anthropic-ai/sdk/shims/${shims.kind}'\` before importing anything else from @anthropic-ai/sdk`);
-  }
-  if (kind) {
-    throw new Error(`can't \`import '@anthropic-ai/sdk/shims/${shims.kind}'\` after \`import '@anthropic-ai/sdk/shims/${kind}'\``);
-  }
-  auto = options.auto;
-  kind = shims.kind;
-  fetch2 = shims.fetch;
-  Request2 = shims.Request;
-  Response2 = shims.Response;
-  Headers2 = shims.Headers;
-  FormData2 = shims.FormData;
-  Blob2 = shims.Blob;
-  File2 = shims.File;
-  ReadableStream2 = shims.ReadableStream;
-  getMultipartRequestOptions = shims.getMultipartRequestOptions;
-  getDefaultAgent = shims.getDefaultAgent;
-  fileFromPath = shims.fileFromPath;
-  isFsReadStream = shims.isFsReadStream;
+// node_modules/@anthropic-ai/sdk/internal/tslib.mjs
+function __classPrivateFieldSet(receiver, state, value, kind2, f) {
+  if (kind2 === "m")
+    throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f)
+    throw new TypeError("Private accessor was defined without a setter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver))
+    throw new TypeError("Cannot write private member to an object whose class did not declare it");
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+}
+function __classPrivateFieldGet(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f)
+    throw new TypeError("Private accessor was defined without a getter");
+  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver))
+    throw new TypeError("Cannot read private member from an object whose class did not declare it");
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 }
 
-// node_modules/@anthropic-ai/sdk/_shims/MultipartBody.mjs
-var MultipartBody = class {
-  constructor(body) {
-    this.body = body;
+// node_modules/@anthropic-ai/sdk/internal/utils/uuid.mjs
+var uuid4 = function() {
+  const { crypto: crypto3 } = globalThis;
+  if (crypto3?.randomUUID) {
+    uuid4 = crypto3.randomUUID.bind(crypto3);
+    return crypto3.randomUUID();
   }
-  get [Symbol.toStringTag]() {
-    return "MultipartBody";
-  }
+  const u8 = new Uint8Array(1);
+  const randomByte = crypto3 ? () => crypto3.getRandomValues(u8)[0] : () => Math.random() * 255 & 255;
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ randomByte() & 15 >> +c / 4).toString(16));
 };
 
-// node_modules/@anthropic-ai/sdk/_shims/web-runtime.mjs
-function getRuntime({ manuallyImported } = {}) {
-  const recommendation = manuallyImported ? `You may need to use polyfills` : `Add one of these imports before your first \`import \u2026 from '@anthropic-ai/sdk'\`:
-- \`import '@anthropic-ai/sdk/shims/node'\` (if you're running on Node)
-- \`import '@anthropic-ai/sdk/shims/web'\` (otherwise)
-`;
-  let _fetch2, _Request, _Response, _Headers;
-  try {
-    _fetch2 = fetch;
-    _Request = Request;
-    _Response = Response;
-    _Headers = Headers;
-  } catch (error2) {
-    throw new Error(`this environment is missing the following Web Fetch API type: ${error2.message}. ${recommendation}`);
-  }
-  return {
-    kind: "web",
-    fetch: _fetch2,
-    Request: _Request,
-    Response: _Response,
-    Headers: _Headers,
-    FormData: (
-      // @ts-ignore
-      typeof FormData !== "undefined" ? FormData : class FormData {
-        // @ts-ignore
-        constructor() {
-          throw new Error(`file uploads aren't supported in this environment yet as 'FormData' is undefined. ${recommendation}`);
-        }
-      }
-    ),
-    Blob: typeof Blob !== "undefined" ? Blob : class Blob {
-      constructor() {
-        throw new Error(`file uploads aren't supported in this environment yet as 'Blob' is undefined. ${recommendation}`);
-      }
-    },
-    File: (
-      // @ts-ignore
-      typeof File !== "undefined" ? File : class File {
-        // @ts-ignore
-        constructor() {
-          throw new Error(`file uploads aren't supported in this environment yet as 'File' is undefined. ${recommendation}`);
-        }
-      }
-    ),
-    ReadableStream: (
-      // @ts-ignore
-      typeof ReadableStream !== "undefined" ? ReadableStream : class ReadableStream {
-        // @ts-ignore
-        constructor() {
-          throw new Error(`streaming isn't supported in this environment yet as 'ReadableStream' is undefined. ${recommendation}`);
-        }
-      }
-    ),
-    getMultipartRequestOptions: async (form, opts) => ({
-      ...opts,
-      body: new MultipartBody(form)
-    }),
-    getDefaultAgent: (url2) => void 0,
-    fileFromPath: () => {
-      throw new Error("The `fileFromPath` function is only supported in Node. See the README for more details: https://www.github.com/anthropics/anthropic-sdk-typescript#file-uploads");
-    },
-    isFsReadStream: (value) => false
-  };
+// node_modules/@anthropic-ai/sdk/internal/errors.mjs
+function isAbortError(err) {
+  return typeof err === "object" && err !== null && // Spec-compliant fetch implementations
+  ("name" in err && err.name === "AbortError" || // Expo fetch
+  "message" in err && String(err.message).includes("FetchRequestCanceledException"));
 }
+var castToError = (err) => {
+  if (err instanceof Error)
+    return err;
+  if (typeof err === "object" && err !== null) {
+    try {
+      if (Object.prototype.toString.call(err) === "[object Error]") {
+        const error2 = new Error(err.message, err.cause ? { cause: err.cause } : {});
+        if (err.stack)
+          error2.stack = err.stack;
+        if (err.cause && !error2.cause)
+          error2.cause = err.cause;
+        if (err.name)
+          error2.name = err.name;
+        return error2;
+      }
+    } catch {
+    }
+    try {
+      return new Error(JSON.stringify(err));
+    } catch {
+    }
+  }
+  return new Error(err);
+};
 
-// node_modules/@anthropic-ai/sdk/_shims/index.mjs
-if (!kind) setShims(getRuntime(), { auto: true });
+// node_modules/@anthropic-ai/sdk/core/error.mjs
+var AnthropicError = class extends Error {
+};
+var APIError = class _APIError extends AnthropicError {
+  constructor(status, error2, message, headers) {
+    super(`${_APIError.makeMessage(status, error2, message)}`);
+    this.status = status;
+    this.headers = headers;
+    this.requestID = headers?.get("request-id");
+    this.error = error2;
+  }
+  static makeMessage(status, error2, message) {
+    const msg = error2?.message ? typeof error2.message === "string" ? error2.message : JSON.stringify(error2.message) : error2 ? JSON.stringify(error2) : message;
+    if (status && msg) {
+      return `${status} ${msg}`;
+    }
+    if (status) {
+      return `${status} status code (no body)`;
+    }
+    if (msg) {
+      return msg;
+    }
+    return "(no status code or body)";
+  }
+  static generate(status, errorResponse, message, headers) {
+    if (!status || !headers) {
+      return new APIConnectionError({ message, cause: castToError(errorResponse) });
+    }
+    const error2 = errorResponse;
+    if (status === 400) {
+      return new BadRequestError(status, error2, message, headers);
+    }
+    if (status === 401) {
+      return new AuthenticationError(status, error2, message, headers);
+    }
+    if (status === 403) {
+      return new PermissionDeniedError(status, error2, message, headers);
+    }
+    if (status === 404) {
+      return new NotFoundError(status, error2, message, headers);
+    }
+    if (status === 409) {
+      return new ConflictError(status, error2, message, headers);
+    }
+    if (status === 422) {
+      return new UnprocessableEntityError(status, error2, message, headers);
+    }
+    if (status === 429) {
+      return new RateLimitError(status, error2, message, headers);
+    }
+    if (status >= 500) {
+      return new InternalServerError(status, error2, message, headers);
+    }
+    return new _APIError(status, error2, message, headers);
+  }
+};
+var APIUserAbortError = class extends APIError {
+  constructor({ message } = {}) {
+    super(void 0, void 0, message || "Request was aborted.", void 0);
+  }
+};
+var APIConnectionError = class extends APIError {
+  constructor({ message, cause }) {
+    super(void 0, void 0, message || "Connection error.", void 0);
+    if (cause)
+      this.cause = cause;
+  }
+};
+var APIConnectionTimeoutError = class extends APIConnectionError {
+  constructor({ message } = {}) {
+    super({ message: message ?? "Request timed out." });
+  }
+};
+var BadRequestError = class extends APIError {
+};
+var AuthenticationError = class extends APIError {
+};
+var PermissionDeniedError = class extends APIError {
+};
+var NotFoundError = class extends APIError {
+};
+var ConflictError = class extends APIError {
+};
+var UnprocessableEntityError = class extends APIError {
+};
+var RateLimitError = class extends APIError {
+};
+var InternalServerError = class extends APIError {
+};
 
-// node_modules/@anthropic-ai/sdk/internal/decoders/line.mjs
-var LineDecoder = class _LineDecoder {
-  constructor() {
-    this.buffer = [];
-    this.trailingCR = false;
-  }
-  decode(chunk) {
-    let text3 = this.decodeText(chunk);
-    if (this.trailingCR) {
-      text3 = "\r" + text3;
-      this.trailingCR = false;
-    }
-    if (text3.endsWith("\r")) {
-      this.trailingCR = true;
-      text3 = text3.slice(0, -1);
-    }
-    if (!text3) {
-      return [];
-    }
-    const trailingNewline = _LineDecoder.NEWLINE_CHARS.has(text3[text3.length - 1] || "");
-    let lines = text3.split(_LineDecoder.NEWLINE_REGEXP);
-    if (trailingNewline) {
-      lines.pop();
-    }
-    if (lines.length === 1 && !trailingNewline) {
-      this.buffer.push(lines[0]);
-      return [];
-    }
-    if (this.buffer.length > 0) {
-      lines = [this.buffer.join("") + lines[0], ...lines.slice(1)];
-      this.buffer = [];
-    }
-    if (!trailingNewline) {
-      this.buffer = [lines.pop() || ""];
-    }
-    return lines;
-  }
-  decodeText(bytes) {
-    if (bytes == null)
-      return "";
-    if (typeof bytes === "string")
-      return bytes;
-    if (typeof Buffer !== "undefined") {
-      if (bytes instanceof Buffer) {
-        return bytes.toString();
-      }
-      if (bytes instanceof Uint8Array) {
-        return Buffer.from(bytes).toString();
-      }
-      throw new AnthropicError(`Unexpected: received non-Uint8Array (${bytes.constructor.name}) stream chunk in an environment with a global "Buffer" defined, which this library assumes to be Node. Please report this error.`);
-    }
-    if (typeof TextDecoder !== "undefined") {
-      if (bytes instanceof Uint8Array || bytes instanceof ArrayBuffer) {
-        this.textDecoder ?? (this.textDecoder = new TextDecoder("utf8"));
-        return this.textDecoder.decode(bytes);
-      }
-      throw new AnthropicError(`Unexpected: received non-Uint8Array/ArrayBuffer (${bytes.constructor.name}) in a web platform. Please report this error.`);
-    }
-    throw new AnthropicError(`Unexpected: neither Buffer nor TextDecoder are available as globals. Please report this error.`);
-  }
-  flush() {
-    if (!this.buffer.length && !this.trailingCR) {
-      return [];
-    }
-    const lines = [this.buffer.join("")];
-    this.buffer = [];
-    this.trailingCR = false;
-    return lines;
-  }
+// node_modules/@anthropic-ai/sdk/internal/utils/values.mjs
+var startsWithSchemeRegexp = /^[a-z][a-z0-9+.-]*:/i;
+var isAbsoluteURL = (url2) => {
+  return startsWithSchemeRegexp.test(url2);
 };
-LineDecoder.NEWLINE_CHARS = /* @__PURE__ */ new Set(["\n", "\r"]);
-LineDecoder.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
-
-// node_modules/@anthropic-ai/sdk/streaming.mjs
-var Stream = class _Stream {
-  constructor(iterator, controller) {
-    this.iterator = iterator;
-    this.controller = controller;
-  }
-  static fromSSEResponse(response, controller) {
-    let consumed = false;
-    async function* iterator() {
-      if (consumed) {
-        throw new Error("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-      }
-      consumed = true;
-      let done = false;
-      try {
-        for await (const sse of _iterSSEMessages(response, controller)) {
-          if (sse.event === "completion") {
-            try {
-              yield JSON.parse(sse.data);
-            } catch (e) {
-              console.error(`Could not parse message into JSON:`, sse.data);
-              console.error(`From chunk:`, sse.raw);
-              throw e;
-            }
-          }
-          if (sse.event === "message_start" || sse.event === "message_delta" || sse.event === "message_stop" || sse.event === "content_block_start" || sse.event === "content_block_delta" || sse.event === "content_block_stop") {
-            try {
-              yield JSON.parse(sse.data);
-            } catch (e) {
-              console.error(`Could not parse message into JSON:`, sse.data);
-              console.error(`From chunk:`, sse.raw);
-              throw e;
-            }
-          }
-          if (sse.event === "ping") {
-            continue;
-          }
-          if (sse.event === "error") {
-            throw APIError.generate(void 0, `SSE Error: ${sse.data}`, sse.data, createResponseHeaders(response.headers));
-          }
-        }
-        done = true;
-      } catch (e) {
-        if (e instanceof Error && e.name === "AbortError")
-          return;
-        throw e;
-      } finally {
-        if (!done)
-          controller.abort();
-      }
-    }
-    return new _Stream(iterator, controller);
-  }
-  /**
-   * Generates a Stream from a newline-separated ReadableStream
-   * where each item is a JSON value.
-   */
-  static fromReadableStream(readableStream, controller) {
-    let consumed = false;
-    async function* iterLines() {
-      const lineDecoder = new LineDecoder();
-      const iter = readableStreamAsyncIterable(readableStream);
-      for await (const chunk of iter) {
-        for (const line of lineDecoder.decode(chunk)) {
-          yield line;
-        }
-      }
-      for (const line of lineDecoder.flush()) {
-        yield line;
-      }
-    }
-    async function* iterator() {
-      if (consumed) {
-        throw new Error("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-      }
-      consumed = true;
-      let done = false;
-      try {
-        for await (const line of iterLines()) {
-          if (done)
-            continue;
-          if (line)
-            yield JSON.parse(line);
-        }
-        done = true;
-      } catch (e) {
-        if (e instanceof Error && e.name === "AbortError")
-          return;
-        throw e;
-      } finally {
-        if (!done)
-          controller.abort();
-      }
-    }
-    return new _Stream(iterator, controller);
-  }
-  [Symbol.asyncIterator]() {
-    return this.iterator();
-  }
-  /**
-   * Splits the stream into two streams which can be
-   * independently read from at different speeds.
-   */
-  tee() {
-    const left = [];
-    const right = [];
-    const iterator = this.iterator();
-    const teeIterator = (queue) => {
-      return {
-        next: () => {
-          if (queue.length === 0) {
-            const result = iterator.next();
-            left.push(result);
-            right.push(result);
-          }
-          return queue.shift();
-        }
-      };
-    };
-    return [
-      new _Stream(() => teeIterator(left), this.controller),
-      new _Stream(() => teeIterator(right), this.controller)
-    ];
-  }
-  /**
-   * Converts this stream to a newline-separated ReadableStream of
-   * JSON stringified values in the stream
-   * which can be turned back into a Stream with `Stream.fromReadableStream()`.
-   */
-  toReadableStream() {
-    const self2 = this;
-    let iter;
-    const encoder = new TextEncoder();
-    return new ReadableStream2({
-      async start() {
-        iter = self2[Symbol.asyncIterator]();
-      },
-      async pull(ctrl) {
-        try {
-          const { value, done } = await iter.next();
-          if (done)
-            return ctrl.close();
-          const bytes = encoder.encode(JSON.stringify(value) + "\n");
-          ctrl.enqueue(bytes);
-        } catch (err) {
-          ctrl.error(err);
-        }
-      },
-      async cancel() {
-        await iter.return?.();
-      }
-    });
-  }
-};
-async function* _iterSSEMessages(response, controller) {
-  if (!response.body) {
-    controller.abort();
-    throw new AnthropicError(`Attempted to iterate over a response with no body`);
-  }
-  const sseDecoder = new SSEDecoder();
-  const lineDecoder = new LineDecoder();
-  const iter = readableStreamAsyncIterable(response.body);
-  for await (const sseChunk of iterSSEChunks(iter)) {
-    for (const line of lineDecoder.decode(sseChunk)) {
-      const sse = sseDecoder.decode(line);
-      if (sse)
-        yield sse;
-    }
-  }
-  for (const line of lineDecoder.flush()) {
-    const sse = sseDecoder.decode(line);
-    if (sse)
-      yield sse;
-  }
-}
-async function* iterSSEChunks(iterator) {
-  let data2 = new Uint8Array();
-  for await (const chunk of iterator) {
-    if (chunk == null) {
-      continue;
-    }
-    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? new TextEncoder().encode(chunk) : chunk;
-    let newData = new Uint8Array(data2.length + binaryChunk.length);
-    newData.set(data2);
-    newData.set(binaryChunk, data2.length);
-    data2 = newData;
-    let patternIndex;
-    while ((patternIndex = findDoubleNewlineIndex(data2)) !== -1) {
-      yield data2.slice(0, patternIndex);
-      data2 = data2.slice(patternIndex);
-    }
-  }
-  if (data2.length > 0) {
-    yield data2;
-  }
-}
-function findDoubleNewlineIndex(buffer) {
-  const newline = 10;
-  const carriage = 13;
-  for (let i = 0; i < buffer.length - 2; i++) {
-    if (buffer[i] === newline && buffer[i + 1] === newline) {
-      return i + 2;
-    }
-    if (buffer[i] === carriage && buffer[i + 1] === carriage) {
-      return i + 2;
-    }
-    if (buffer[i] === carriage && buffer[i + 1] === newline && i + 3 < buffer.length && buffer[i + 2] === carriage && buffer[i + 3] === newline) {
-      return i + 4;
-    }
-  }
-  return -1;
-}
-var SSEDecoder = class {
-  constructor() {
-    this.event = null;
-    this.data = [];
-    this.chunks = [];
-  }
-  decode(line) {
-    if (line.endsWith("\r")) {
-      line = line.substring(0, line.length - 1);
-    }
-    if (!line) {
-      if (!this.event && !this.data.length)
-        return null;
-      const sse = {
-        event: this.event,
-        data: this.data.join("\n"),
-        raw: this.chunks
-      };
-      this.event = null;
-      this.data = [];
-      this.chunks = [];
-      return sse;
-    }
-    this.chunks.push(line);
-    if (line.startsWith(":")) {
-      return null;
-    }
-    let [fieldname, _, value] = partition(line, ":");
-    if (value.startsWith(" ")) {
-      value = value.substring(1);
-    }
-    if (fieldname === "event") {
-      this.event = value;
-    } else if (fieldname === "data") {
-      this.data.push(value);
-    }
-    return null;
-  }
-};
-function partition(str2, delimiter) {
-  const index2 = str2.indexOf(delimiter);
-  if (index2 !== -1) {
-    return [str2.substring(0, index2), delimiter, str2.substring(index2 + delimiter.length)];
-  }
-  return [str2, "", ""];
-}
-function readableStreamAsyncIterable(stream) {
-  if (stream[Symbol.asyncIterator])
-    return stream;
-  const reader = stream.getReader();
-  return {
-    async next() {
-      try {
-        const result = await reader.read();
-        if (result?.done)
-          reader.releaseLock();
-        return result;
-      } catch (e) {
-        reader.releaseLock();
-        throw e;
-      }
-    },
-    async return() {
-      const cancelPromise = reader.cancel();
-      reader.releaseLock();
-      await cancelPromise;
-      return { done: true, value: void 0 };
-    },
-    [Symbol.asyncIterator]() {
-      return this;
-    }
-  };
-}
-
-// node_modules/@anthropic-ai/sdk/uploads.mjs
-var isResponseLike = (value) => value != null && typeof value === "object" && typeof value.url === "string" && typeof value.blob === "function";
-var isFileLike = (value) => value != null && typeof value === "object" && typeof value.name === "string" && typeof value.lastModified === "number" && isBlobLike(value);
-var isBlobLike = (value) => value != null && typeof value === "object" && typeof value.size === "number" && typeof value.type === "string" && typeof value.text === "function" && typeof value.slice === "function" && typeof value.arrayBuffer === "function";
-async function toFile(value, name, options) {
-  value = await value;
-  if (isFileLike(value)) {
-    return value;
-  }
-  if (isResponseLike(value)) {
-    const blob = await value.blob();
-    name || (name = new URL(value.url).pathname.split(/[\\/]/).pop() ?? "unknown_file");
-    const data2 = isBlobLike(blob) ? [await blob.arrayBuffer()] : [blob];
-    return new File2(data2, name, options);
-  }
-  const bits = await getBytes(value);
-  name || (name = getName(value) ?? "unknown_file");
-  if (!options?.type) {
-    const type = bits[0]?.type;
-    if (typeof type === "string") {
-      options = { ...options, type };
-    }
-  }
-  return new File2(bits, name, options);
-}
-async function getBytes(value) {
-  let parts = [];
-  if (typeof value === "string" || ArrayBuffer.isView(value) || // includes Uint8Array, Buffer, etc.
-  value instanceof ArrayBuffer) {
-    parts.push(value);
-  } else if (isBlobLike(value)) {
-    parts.push(await value.arrayBuffer());
-  } else if (isAsyncIterableIterator(value)) {
-    for await (const chunk of value) {
-      parts.push(chunk);
-    }
-  } else {
-    throw new Error(`Unexpected data type: ${typeof value}; constructor: ${value?.constructor?.name}; props: ${propsForError(value)}`);
-  }
-  return parts;
-}
-function propsForError(value) {
-  const props = Object.getOwnPropertyNames(value);
-  return `[${props.map((p) => `"${p}"`).join(", ")}]`;
-}
-function getName(value) {
-  return getStringFromMaybeBuffer(value.name) || getStringFromMaybeBuffer(value.filename) || // For fs.ReadStream
-  getStringFromMaybeBuffer(value.path)?.split(/[\\/]/).pop();
-}
-var getStringFromMaybeBuffer = (x) => {
-  if (typeof x === "string")
-    return x;
-  if (typeof Buffer !== "undefined" && x instanceof Buffer)
-    return String(x);
-  return void 0;
-};
-var isAsyncIterableIterator = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
-var isMultipartBody = (body) => body && typeof body === "object" && body.body && body[Symbol.toStringTag] === "MultipartBody";
-
-// node_modules/@anthropic-ai/sdk/core.mjs
-var __classPrivateFieldSet = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
-};
-var __classPrivateFieldGet = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
-var _AbstractPage_client;
-async function defaultParseResponse(props) {
-  const { response } = props;
-  if (props.options.stream) {
-    debug("response", response.status, response.url, response.headers, response.body);
-    if (props.options.__streamClass) {
-      return props.options.__streamClass.fromSSEResponse(response, props.controller);
-    }
-    return Stream.fromSSEResponse(response, props.controller);
-  }
-  if (response.status === 204) {
-    return null;
-  }
-  if (props.options.__binaryResponse) {
-    return response;
-  }
-  const contentType = response.headers.get("content-type");
-  const isJSON = contentType?.includes("application/json") || contentType?.includes("application/vnd.api+json");
-  if (isJSON) {
-    const json = await response.json();
-    debug("response", response.status, response.url, response.headers, json);
-    return json;
-  }
-  const text3 = await response.text();
-  debug("response", response.status, response.url, response.headers, text3);
-  return text3;
-}
-var APIPromise = class _APIPromise extends Promise {
-  constructor(responsePromise, parseResponse2 = defaultParseResponse) {
-    super((resolve2) => {
-      resolve2(null);
-    });
-    this.responsePromise = responsePromise;
-    this.parseResponse = parseResponse2;
-  }
-  _thenUnwrap(transform2) {
-    return new _APIPromise(this.responsePromise, async (props) => transform2(await this.parseResponse(props), props));
-  }
-  /**
-   * Gets the raw `Response` instance instead of parsing the response
-   * data.
-   *
-   * If you want to parse the response body but still get the `Response`
-   * instance, you can use {@link withResponse()}.
-   *
-   * 👋 Getting the wrong TypeScript type for `Response`?
-   * Try setting `"moduleResolution": "NodeNext"` if you can,
-   * or add one of these imports before your first `import … from '@anthropic-ai/sdk'`:
-   * - `import '@anthropic-ai/sdk/shims/node'` (if you're running on Node)
-   * - `import '@anthropic-ai/sdk/shims/web'` (otherwise)
-   */
-  asResponse() {
-    return this.responsePromise.then((p) => p.response);
-  }
-  /**
-   * Gets the parsed response data and the raw `Response` instance.
-   *
-   * If you just want to get the raw `Response` instance without parsing it,
-   * you can use {@link asResponse()}.
-   *
-   *
-   * 👋 Getting the wrong TypeScript type for `Response`?
-   * Try setting `"moduleResolution": "NodeNext"` if you can,
-   * or add one of these imports before your first `import … from '@anthropic-ai/sdk'`:
-   * - `import '@anthropic-ai/sdk/shims/node'` (if you're running on Node)
-   * - `import '@anthropic-ai/sdk/shims/web'` (otherwise)
-   */
-  async withResponse() {
-    const [data2, response] = await Promise.all([this.parse(), this.asResponse()]);
-    return { data: data2, response };
-  }
-  parse() {
-    if (!this.parsedPromise) {
-      this.parsedPromise = this.responsePromise.then(this.parseResponse);
-    }
-    return this.parsedPromise;
-  }
-  then(onfulfilled, onrejected) {
-    return this.parse().then(onfulfilled, onrejected);
-  }
-  catch(onrejected) {
-    return this.parse().catch(onrejected);
-  }
-  finally(onfinally) {
-    return this.parse().finally(onfinally);
-  }
-};
-var APIClient = class {
-  constructor({
-    baseURL,
-    maxRetries = 2,
-    timeout = 6e5,
-    // 10 minutes
-    httpAgent,
-    fetch: overridenFetch
-  }) {
-    this.baseURL = baseURL;
-    this.maxRetries = validatePositiveInteger("maxRetries", maxRetries);
-    this.timeout = validatePositiveInteger("timeout", timeout);
-    this.httpAgent = httpAgent;
-    this.fetch = overridenFetch ?? fetch2;
-  }
-  authHeaders(opts) {
+var isArray = (val2) => (isArray = Array.isArray, isArray(val2));
+var isReadonlyArray = isArray;
+function maybeObj(x) {
+  if (typeof x !== "object") {
     return {};
   }
-  /**
-   * Override this to add your own default headers, for example:
-   *
-   *  {
-   *    ...super.defaultHeaders(),
-   *    Authorization: 'Bearer 123',
-   *  }
-   */
-  defaultHeaders(opts) {
-    return {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      "User-Agent": this.getUserAgent(),
-      ...getPlatformHeaders(),
-      ...this.authHeaders(opts)
-    };
-  }
-  /**
-   * Override this to add your own headers validation:
-   */
-  validateHeaders(headers, customHeaders) {
-  }
-  defaultIdempotencyKey() {
-    return `stainless-node-retry-${uuid4()}`;
-  }
-  get(path3, opts) {
-    return this.methodRequest("get", path3, opts);
-  }
-  post(path3, opts) {
-    return this.methodRequest("post", path3, opts);
-  }
-  patch(path3, opts) {
-    return this.methodRequest("patch", path3, opts);
-  }
-  put(path3, opts) {
-    return this.methodRequest("put", path3, opts);
-  }
-  delete(path3, opts) {
-    return this.methodRequest("delete", path3, opts);
-  }
-  methodRequest(method, path3, opts) {
-    return this.request(Promise.resolve(opts).then(async (opts2) => {
-      const body = opts2 && isBlobLike(opts2?.body) ? new DataView(await opts2.body.arrayBuffer()) : opts2?.body instanceof DataView ? opts2.body : opts2?.body instanceof ArrayBuffer ? new DataView(opts2.body) : opts2 && ArrayBuffer.isView(opts2?.body) ? new DataView(opts2.body.buffer) : opts2?.body;
-      return { method, path: path3, ...opts2, body };
-    }));
-  }
-  getAPIList(path3, Page3, opts) {
-    return this.requestAPIList(Page3, { method: "get", path: path3, ...opts });
-  }
-  calculateContentLength(body) {
-    if (typeof body === "string") {
-      if (typeof Buffer !== "undefined") {
-        return Buffer.byteLength(body, "utf8").toString();
-      }
-      if (typeof TextEncoder !== "undefined") {
-        const encoder = new TextEncoder();
-        const encoded = encoder.encode(body);
-        return encoded.length.toString();
-      }
-    } else if (ArrayBuffer.isView(body)) {
-      return body.byteLength.toString();
-    }
-    return null;
-  }
-  buildRequest(options, { retryCount = 0 } = {}) {
-    const { method, path: path3, query, headers = {} } = options;
-    const body = ArrayBuffer.isView(options.body) || options.__binaryRequest && typeof options.body === "string" ? options.body : isMultipartBody(options.body) ? options.body.body : options.body ? JSON.stringify(options.body, null, 2) : null;
-    const contentLength = this.calculateContentLength(body);
-    const url2 = this.buildURL(path3, query);
-    if ("timeout" in options)
-      validatePositiveInteger("timeout", options.timeout);
-    const timeout = options.timeout ?? this.timeout;
-    const httpAgent = options.httpAgent ?? this.httpAgent ?? getDefaultAgent(url2);
-    const minAgentTimeout = timeout + 1e3;
-    if (typeof httpAgent?.options?.timeout === "number" && minAgentTimeout > (httpAgent.options.timeout ?? 0)) {
-      httpAgent.options.timeout = minAgentTimeout;
-    }
-    if (this.idempotencyHeader && method !== "get") {
-      if (!options.idempotencyKey)
-        options.idempotencyKey = this.defaultIdempotencyKey();
-      headers[this.idempotencyHeader] = options.idempotencyKey;
-    }
-    const reqHeaders = this.buildHeaders({ options, headers, contentLength, retryCount });
-    const req = {
-      method,
-      ...body && { body },
-      headers: reqHeaders,
-      ...httpAgent && { agent: httpAgent },
-      // @ts-ignore node-fetch uses a custom AbortSignal type that is
-      // not compatible with standard web types
-      signal: options.signal ?? null
-    };
-    return { req, url: url2, timeout };
-  }
-  buildHeaders({ options, headers, contentLength, retryCount }) {
-    const reqHeaders = {};
-    if (contentLength) {
-      reqHeaders["content-length"] = contentLength;
-    }
-    const defaultHeaders = this.defaultHeaders(options);
-    applyHeadersMut(reqHeaders, defaultHeaders);
-    applyHeadersMut(reqHeaders, headers);
-    if (isMultipartBody(options.body) && kind !== "node") {
-      delete reqHeaders["content-type"];
-    }
-    if (getHeader(defaultHeaders, "x-stainless-retry-count") === void 0 && getHeader(headers, "x-stainless-retry-count") === void 0) {
-      reqHeaders["x-stainless-retry-count"] = String(retryCount);
-    }
-    this.validateHeaders(reqHeaders, headers);
-    return reqHeaders;
-  }
-  /**
-   * Used as a callback for mutating the given `FinalRequestOptions` object.
-   */
-  async prepareOptions(options) {
-  }
-  /**
-   * Used as a callback for mutating the given `RequestInit` object.
-   *
-   * This is useful for cases where you want to add certain headers based off of
-   * the request properties, e.g. `method` or `url`.
-   */
-  async prepareRequest(request, { url: url2, options }) {
-  }
-  parseHeaders(headers) {
-    return !headers ? {} : Symbol.iterator in headers ? Object.fromEntries(Array.from(headers).map((header) => [...header])) : { ...headers };
-  }
-  makeStatusError(status, error2, message, headers) {
-    return APIError.generate(status, error2, message, headers);
-  }
-  request(options, remainingRetries = null) {
-    return new APIPromise(this.makeRequest(options, remainingRetries));
-  }
-  async makeRequest(optionsInput, retriesRemaining) {
-    const options = await optionsInput;
-    const maxRetries = options.maxRetries ?? this.maxRetries;
-    if (retriesRemaining == null) {
-      retriesRemaining = maxRetries;
-    }
-    await this.prepareOptions(options);
-    const { req, url: url2, timeout } = this.buildRequest(options, { retryCount: maxRetries - retriesRemaining });
-    await this.prepareRequest(req, { url: url2, options });
-    debug("request", url2, options, req.headers);
-    if (options.signal?.aborted) {
-      throw new APIUserAbortError();
-    }
-    const controller = new AbortController();
-    const response = await this.fetchWithTimeout(url2, req, timeout, controller).catch(castToError);
-    if (response instanceof Error) {
-      if (options.signal?.aborted) {
-        throw new APIUserAbortError();
-      }
-      if (retriesRemaining) {
-        return this.retryRequest(options, retriesRemaining);
-      }
-      if (response.name === "AbortError") {
-        throw new APIConnectionTimeoutError();
-      }
-      throw new APIConnectionError({ cause: response });
-    }
-    const responseHeaders = createResponseHeaders(response.headers);
-    if (!response.ok) {
-      if (retriesRemaining && this.shouldRetry(response)) {
-        const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
-        debug(`response (error; ${retryMessage2})`, response.status, url2, responseHeaders);
-        return this.retryRequest(options, retriesRemaining, responseHeaders);
-      }
-      const errText = await response.text().catch((e) => castToError(e).message);
-      const errJSON = safeJSON(errText);
-      const errMessage = errJSON ? void 0 : errText;
-      const retryMessage = retriesRemaining ? `(error; no more retries left)` : `(error; not retryable)`;
-      debug(`response (error; ${retryMessage})`, response.status, url2, responseHeaders, errMessage);
-      const err = this.makeStatusError(response.status, errJSON, errMessage, responseHeaders);
-      throw err;
-    }
-    return { response, options, controller };
-  }
-  requestAPIList(Page3, options) {
-    const request = this.makeRequest(options, null);
-    return new PagePromise(this, request, Page3);
-  }
-  buildURL(path3, query) {
-    const url2 = isAbsoluteURL(path3) ? new URL(path3) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
-    const defaultQuery = this.defaultQuery();
-    if (!isEmptyObj(defaultQuery)) {
-      query = { ...defaultQuery, ...query };
-    }
-    if (typeof query === "object" && query && !Array.isArray(query)) {
-      url2.search = this.stringifyQuery(query);
-    }
-    return url2.toString();
-  }
-  stringifyQuery(query) {
-    return Object.entries(query).filter(([_, value]) => typeof value !== "undefined").map(([key, value]) => {
-      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-        return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
-      }
-      if (value === null) {
-        return `${encodeURIComponent(key)}=`;
-      }
-      throw new AnthropicError(`Cannot stringify type ${typeof value}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
-    }).join("&");
-  }
-  async fetchWithTimeout(url2, init2, ms, controller) {
-    const { signal, ...options } = init2 || {};
-    if (signal)
-      signal.addEventListener("abort", () => controller.abort());
-    const timeout = setTimeout(() => controller.abort(), ms);
-    return this.getRequestClient().fetch.call(void 0, url2, { signal: controller.signal, ...options }).finally(() => {
-      clearTimeout(timeout);
-    });
-  }
-  getRequestClient() {
-    return { fetch: this.fetch };
-  }
-  shouldRetry(response) {
-    const shouldRetryHeader = response.headers.get("x-should-retry");
-    if (shouldRetryHeader === "true")
-      return true;
-    if (shouldRetryHeader === "false")
-      return false;
-    if (response.status === 408)
-      return true;
-    if (response.status === 409)
-      return true;
-    if (response.status === 429)
-      return true;
-    if (response.status >= 500)
-      return true;
+  return x ?? {};
+}
+function isEmptyObj(obj) {
+  if (!obj)
+    return true;
+  for (const _k in obj)
     return false;
+  return true;
+}
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj, key);
+}
+var validatePositiveInteger = (name, n) => {
+  if (typeof n !== "number" || !Number.isInteger(n)) {
+    throw new AnthropicError(`${name} must be an integer`);
   }
-  async retryRequest(options, retriesRemaining, responseHeaders) {
-    let timeoutMillis;
-    const retryAfterMillisHeader = responseHeaders?.["retry-after-ms"];
-    if (retryAfterMillisHeader) {
-      const timeoutMs = parseFloat(retryAfterMillisHeader);
-      if (!Number.isNaN(timeoutMs)) {
-        timeoutMillis = timeoutMs;
-      }
-    }
-    const retryAfterHeader = responseHeaders?.["retry-after"];
-    if (retryAfterHeader && !timeoutMillis) {
-      const timeoutSeconds = parseFloat(retryAfterHeader);
-      if (!Number.isNaN(timeoutSeconds)) {
-        timeoutMillis = timeoutSeconds * 1e3;
-      } else {
-        timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
-      }
-    }
-    if (!(timeoutMillis && 0 <= timeoutMillis && timeoutMillis < 60 * 1e3)) {
-      const maxRetries = options.maxRetries ?? this.maxRetries;
-      timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
-    }
-    await sleep(timeoutMillis);
-    return this.makeRequest(options, retriesRemaining - 1);
+  if (n < 0) {
+    throw new AnthropicError(`${name} must be a positive integer`);
   }
-  calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries) {
-    const initialRetryDelay = 0.5;
-    const maxRetryDelay = 8;
-    const numRetries = maxRetries - retriesRemaining;
-    const sleepSeconds = Math.min(initialRetryDelay * Math.pow(2, numRetries), maxRetryDelay);
-    const jitter = 1 - Math.random() * 0.25;
-    return sleepSeconds * jitter * 1e3;
-  }
-  getUserAgent() {
-    return `${this.constructor.name}/JS ${VERSION}`;
+  return n;
+};
+var safeJSON = (text3) => {
+  try {
+    return JSON.parse(text3);
+  } catch (err) {
+    return void 0;
   }
 };
-var AbstractPage = class {
-  constructor(client, response, body, options) {
-    _AbstractPage_client.set(this, void 0);
-    __classPrivateFieldSet(this, _AbstractPage_client, client, "f");
-    this.options = options;
-    this.response = response;
-    this.body = body;
-  }
-  hasNextPage() {
-    const items = this.getPaginatedItems();
-    if (!items.length)
-      return false;
-    return this.nextPageInfo() != null;
-  }
-  async getNextPage() {
-    const nextInfo = this.nextPageInfo();
-    if (!nextInfo) {
-      throw new AnthropicError("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
-    }
-    const nextOptions = { ...this.options };
-    if ("params" in nextInfo && typeof nextOptions.query === "object") {
-      nextOptions.query = { ...nextOptions.query, ...nextInfo.params };
-    } else if ("url" in nextInfo) {
-      const params = [...Object.entries(nextOptions.query || {}), ...nextInfo.url.searchParams.entries()];
-      for (const [key, value] of params) {
-        nextInfo.url.searchParams.set(key, value);
-      }
-      nextOptions.query = void 0;
-      nextOptions.path = nextInfo.url.toString();
-    }
-    return await __classPrivateFieldGet(this, _AbstractPage_client, "f").requestAPIList(this.constructor, nextOptions);
-  }
-  async *iterPages() {
-    let page = this;
-    yield page;
-    while (page.hasNextPage()) {
-      page = await page.getNextPage();
-      yield page;
-    }
-  }
-  async *[(_AbstractPage_client = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
-    for await (const page of this.iterPages()) {
-      for (const item of page.getPaginatedItems()) {
-        yield item;
-      }
-    }
-  }
-};
-var PagePromise = class extends APIPromise {
-  constructor(client, request, Page3) {
-    super(request, async (props) => new Page3(client, props.response, await defaultParseResponse(props), props.options));
-  }
-  /**
-   * Allow auto-paginating iteration on an unawaited list call, eg:
-   *
-   *    for await (const item of client.items.list()) {
-   *      console.log(item)
-   *    }
-   */
-  async *[Symbol.asyncIterator]() {
-    const page = await this;
-    for await (const item of page) {
-      yield item;
-    }
-  }
-};
-var createResponseHeaders = (headers) => {
-  return new Proxy(Object.fromEntries(
+
+// node_modules/@anthropic-ai/sdk/internal/utils/sleep.mjs
+var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
+
+// node_modules/@anthropic-ai/sdk/version.mjs
+var VERSION = "0.78.0";
+
+// node_modules/@anthropic-ai/sdk/internal/detect-platform.mjs
+var isRunningInBrowser = () => {
+  return (
     // @ts-ignore
-    headers.entries()
-  ), {
-    get(target, name) {
-      const key = name.toString();
-      return target[key.toLowerCase()] || target[key];
-    }
-  });
+    typeof window !== "undefined" && // @ts-ignore
+    typeof window.document !== "undefined" && // @ts-ignore
+    typeof navigator !== "undefined"
+  );
 };
-var requestOptionsKeys = {
-  method: true,
-  path: true,
-  query: true,
-  body: true,
-  headers: true,
-  maxRetries: true,
-  stream: true,
-  timeout: true,
-  httpAgent: true,
-  signal: true,
-  idempotencyKey: true,
-  __binaryRequest: true,
-  __binaryResponse: true,
-  __streamClass: true
-};
-var isRequestOptions = (obj) => {
-  return typeof obj === "object" && obj !== null && !isEmptyObj(obj) && Object.keys(obj).every((k) => hasOwn(requestOptionsKeys, k));
-};
-var getPlatformProperties = () => {
+function getDetectedPlatform() {
   if (typeof Deno !== "undefined" && Deno.build != null) {
+    return "deno";
+  }
+  if (typeof EdgeRuntime !== "undefined") {
+    return "edge";
+  }
+  if (Object.prototype.toString.call(typeof globalThis.process !== "undefined" ? globalThis.process : 0) === "[object process]") {
+    return "node";
+  }
+  return "unknown";
+}
+var getPlatformProperties = () => {
+  const detectedPlatform = getDetectedPlatform();
+  if (detectedPlatform === "deno") {
     return {
       "X-Stainless-Lang": "js",
       "X-Stainless-Package-Version": VERSION,
@@ -87618,17 +86869,17 @@ var getPlatformProperties = () => {
       "X-Stainless-OS": "Unknown",
       "X-Stainless-Arch": `other:${EdgeRuntime}`,
       "X-Stainless-Runtime": "edge",
-      "X-Stainless-Runtime-Version": process.version
+      "X-Stainless-Runtime-Version": globalThis.process.version
     };
   }
-  if (Object.prototype.toString.call(typeof process !== "undefined" ? process : 0) === "[object process]") {
+  if (detectedPlatform === "node") {
     return {
       "X-Stainless-Lang": "js",
       "X-Stainless-Package-Version": VERSION,
-      "X-Stainless-OS": normalizePlatform(process.platform),
-      "X-Stainless-Arch": normalizeArch(process.arch),
+      "X-Stainless-OS": normalizePlatform(globalThis.process.platform ?? "unknown"),
+      "X-Stainless-Arch": normalizeArch(globalThis.process.arch ?? "unknown"),
       "X-Stainless-Runtime": "node",
-      "X-Stainless-Runtime-Version": process.version
+      "X-Stainless-Runtime-Version": globalThis.process.version ?? "unknown"
     };
   }
   const browserInfo = getBrowserInfo();
@@ -87711,241 +86962,683 @@ var _platformHeaders;
 var getPlatformHeaders = () => {
   return _platformHeaders ?? (_platformHeaders = getPlatformProperties());
 };
-var safeJSON = (text3) => {
-  try {
-    return JSON.parse(text3);
-  } catch (err) {
+
+// node_modules/@anthropic-ai/sdk/internal/shims.mjs
+function getDefaultFetch() {
+  if (typeof fetch !== "undefined") {
+    return fetch;
+  }
+  throw new Error("`fetch` is not defined as a global; Either pass `fetch` to the client, `new Anthropic({ fetch })` or polyfill the global, `globalThis.fetch = fetch`");
+}
+function makeReadableStream(...args) {
+  const ReadableStream3 = globalThis.ReadableStream;
+  if (typeof ReadableStream3 === "undefined") {
+    throw new Error("`ReadableStream` is not defined as a global; You will need to polyfill it, `globalThis.ReadableStream = ReadableStream`");
+  }
+  return new ReadableStream3(...args);
+}
+function ReadableStreamFrom(iterable) {
+  let iter = Symbol.asyncIterator in iterable ? iterable[Symbol.asyncIterator]() : iterable[Symbol.iterator]();
+  return makeReadableStream({
+    start() {
+    },
+    async pull(controller) {
+      const { done, value } = await iter.next();
+      if (done) {
+        controller.close();
+      } else {
+        controller.enqueue(value);
+      }
+    },
+    async cancel() {
+      await iter.return?.();
+    }
+  });
+}
+function ReadableStreamToAsyncIterable(stream) {
+  if (stream[Symbol.asyncIterator])
+    return stream;
+  const reader = stream.getReader();
+  return {
+    async next() {
+      try {
+        const result = await reader.read();
+        if (result?.done)
+          reader.releaseLock();
+        return result;
+      } catch (e) {
+        reader.releaseLock();
+        throw e;
+      }
+    },
+    async return() {
+      const cancelPromise = reader.cancel();
+      reader.releaseLock();
+      await cancelPromise;
+      return { done: true, value: void 0 };
+    },
+    [Symbol.asyncIterator]() {
+      return this;
+    }
+  };
+}
+async function CancelReadableStream(stream) {
+  if (stream === null || typeof stream !== "object")
+    return;
+  if (stream[Symbol.asyncIterator]) {
+    await stream[Symbol.asyncIterator]().return?.();
+    return;
+  }
+  const reader = stream.getReader();
+  const cancelPromise = reader.cancel();
+  reader.releaseLock();
+  await cancelPromise;
+}
+
+// node_modules/@anthropic-ai/sdk/internal/request-options.mjs
+var FallbackEncoder = ({ headers, body }) => {
+  return {
+    bodyHeaders: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify(body)
+  };
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/bytes.mjs
+function concatBytes(buffers) {
+  let length = 0;
+  for (const buffer of buffers) {
+    length += buffer.length;
+  }
+  const output = new Uint8Array(length);
+  let index2 = 0;
+  for (const buffer of buffers) {
+    output.set(buffer, index2);
+    index2 += buffer.length;
+  }
+  return output;
+}
+var encodeUTF8_;
+function encodeUTF8(str2) {
+  let encoder;
+  return (encodeUTF8_ ?? (encoder = new globalThis.TextEncoder(), encodeUTF8_ = encoder.encode.bind(encoder)))(str2);
+}
+var decodeUTF8_;
+function decodeUTF8(bytes) {
+  let decoder;
+  return (decodeUTF8_ ?? (decoder = new globalThis.TextDecoder(), decodeUTF8_ = decoder.decode.bind(decoder)))(bytes);
+}
+
+// node_modules/@anthropic-ai/sdk/internal/decoders/line.mjs
+var _LineDecoder_buffer;
+var _LineDecoder_carriageReturnIndex;
+var LineDecoder = class {
+  constructor() {
+    _LineDecoder_buffer.set(this, void 0);
+    _LineDecoder_carriageReturnIndex.set(this, void 0);
+    __classPrivateFieldSet(this, _LineDecoder_buffer, new Uint8Array(), "f");
+    __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
+  }
+  decode(chunk) {
+    if (chunk == null) {
+      return [];
+    }
+    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
+    __classPrivateFieldSet(this, _LineDecoder_buffer, concatBytes([__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), binaryChunk]), "f");
+    const lines = [];
+    let patternIndex;
+    while ((patternIndex = findNewlineIndex(__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f"))) != null) {
+      if (patternIndex.carriage && __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") == null) {
+        __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, patternIndex.index, "f");
+        continue;
+      }
+      if (__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") != null && (patternIndex.index !== __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") + 1 || patternIndex.carriage)) {
+        lines.push(decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") - 1)));
+        __classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f")), "f");
+        __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
+        continue;
+      }
+      const endIndex = __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
+      const line = decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, endIndex));
+      lines.push(line);
+      __classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(patternIndex.index), "f");
+      __classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
+    }
+    return lines;
+  }
+  flush() {
+    if (!__classPrivateFieldGet(this, _LineDecoder_buffer, "f").length) {
+      return [];
+    }
+    return this.decode("\n");
+  }
+};
+_LineDecoder_buffer = /* @__PURE__ */ new WeakMap(), _LineDecoder_carriageReturnIndex = /* @__PURE__ */ new WeakMap();
+LineDecoder.NEWLINE_CHARS = /* @__PURE__ */ new Set(["\n", "\r"]);
+LineDecoder.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
+function findNewlineIndex(buffer, startIndex) {
+  const newline = 10;
+  const carriage = 13;
+  for (let i = startIndex ?? 0; i < buffer.length; i++) {
+    if (buffer[i] === newline) {
+      return { preceding: i, index: i + 1, carriage: false };
+    }
+    if (buffer[i] === carriage) {
+      return { preceding: i, index: i + 1, carriage: true };
+    }
+  }
+  return null;
+}
+function findDoubleNewlineIndex(buffer) {
+  const newline = 10;
+  const carriage = 13;
+  for (let i = 0; i < buffer.length - 1; i++) {
+    if (buffer[i] === newline && buffer[i + 1] === newline) {
+      return i + 2;
+    }
+    if (buffer[i] === carriage && buffer[i + 1] === carriage) {
+      return i + 2;
+    }
+    if (buffer[i] === carriage && buffer[i + 1] === newline && i + 3 < buffer.length && buffer[i + 2] === carriage && buffer[i + 3] === newline) {
+      return i + 4;
+    }
+  }
+  return -1;
+}
+
+// node_modules/@anthropic-ai/sdk/internal/utils/log.mjs
+var levelNumbers = {
+  off: 0,
+  error: 200,
+  warn: 300,
+  info: 400,
+  debug: 500
+};
+var parseLogLevel = (maybeLevel, sourceName, client) => {
+  if (!maybeLevel) {
     return void 0;
   }
-};
-var startsWithSchemeRegexp = new RegExp("^(?:[a-z]+:)?//", "i");
-var isAbsoluteURL = (url2) => {
-  return startsWithSchemeRegexp.test(url2);
-};
-var sleep = (ms) => new Promise((resolve2) => setTimeout(resolve2, ms));
-var validatePositiveInteger = (name, n) => {
-  if (typeof n !== "number" || !Number.isInteger(n)) {
-    throw new AnthropicError(`${name} must be an integer`);
+  if (hasOwn(levelNumbers, maybeLevel)) {
+    return maybeLevel;
   }
-  if (n < 0) {
-    throw new AnthropicError(`${name} must be a positive integer`);
-  }
-  return n;
-};
-var castToError = (err) => {
-  if (err instanceof Error)
-    return err;
-  if (typeof err === "object" && err !== null) {
-    try {
-      return new Error(JSON.stringify(err));
-    } catch {
-    }
-  }
-  return new Error(String(err));
-};
-var readEnv = (env) => {
-  if (typeof process !== "undefined") {
-    return process.env?.[env]?.trim() ?? void 0;
-  }
-  if (typeof Deno !== "undefined") {
-    return Deno.env?.get?.(env)?.trim();
-  }
+  loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
   return void 0;
 };
-function isEmptyObj(obj) {
-  if (!obj)
-    return true;
-  for (const _k in obj)
-    return false;
-  return true;
+function noop() {
 }
-function hasOwn(obj, key) {
-  return Object.prototype.hasOwnProperty.call(obj, key);
+function makeLogFn(fnLevel, logger, logLevel) {
+  if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) {
+    return noop;
+  } else {
+    return logger[fnLevel].bind(logger);
+  }
 }
-function applyHeadersMut(targetHeaders, newHeaders) {
-  for (const k in newHeaders) {
-    if (!hasOwn(newHeaders, k))
-      continue;
-    const lowerKey = k.toLowerCase();
-    if (!lowerKey)
-      continue;
-    const val2 = newHeaders[k];
-    if (val2 === null) {
-      delete targetHeaders[lowerKey];
-    } else if (val2 !== void 0) {
-      targetHeaders[lowerKey] = val2;
+var noopLogger = {
+  error: noop,
+  warn: noop,
+  info: noop,
+  debug: noop
+};
+var cachedLoggers = /* @__PURE__ */ new WeakMap();
+function loggerFor(client) {
+  const logger = client.logger;
+  const logLevel = client.logLevel ?? "off";
+  if (!logger) {
+    return noopLogger;
+  }
+  const cachedLogger = cachedLoggers.get(logger);
+  if (cachedLogger && cachedLogger[0] === logLevel) {
+    return cachedLogger[1];
+  }
+  const levelLogger = {
+    error: makeLogFn("error", logger, logLevel),
+    warn: makeLogFn("warn", logger, logLevel),
+    info: makeLogFn("info", logger, logLevel),
+    debug: makeLogFn("debug", logger, logLevel)
+  };
+  cachedLoggers.set(logger, [logLevel, levelLogger]);
+  return levelLogger;
+}
+var formatRequestDetails = (details) => {
+  if (details.options) {
+    details.options = { ...details.options };
+    delete details.options["headers"];
+  }
+  if (details.headers) {
+    details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [
+      name,
+      name.toLowerCase() === "x-api-key" || name.toLowerCase() === "authorization" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value
+    ]));
+  }
+  if ("retryOfRequestLogID" in details) {
+    if (details.retryOfRequestLogID) {
+      details.retryOf = details.retryOfRequestLogID;
+    }
+    delete details.retryOfRequestLogID;
+  }
+  return details;
+};
+
+// node_modules/@anthropic-ai/sdk/core/streaming.mjs
+var _Stream_client;
+var Stream = class _Stream {
+  constructor(iterator, controller, client) {
+    this.iterator = iterator;
+    _Stream_client.set(this, void 0);
+    this.controller = controller;
+    __classPrivateFieldSet(this, _Stream_client, client, "f");
+  }
+  static fromSSEResponse(response, controller, client) {
+    let consumed = false;
+    const logger = client ? loggerFor(client) : console;
+    async function* iterator() {
+      if (consumed) {
+        throw new AnthropicError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+      }
+      consumed = true;
+      let done = false;
+      try {
+        for await (const sse of _iterSSEMessages(response, controller)) {
+          if (sse.event === "completion") {
+            try {
+              yield JSON.parse(sse.data);
+            } catch (e) {
+              logger.error(`Could not parse message into JSON:`, sse.data);
+              logger.error(`From chunk:`, sse.raw);
+              throw e;
+            }
+          }
+          if (sse.event === "message_start" || sse.event === "message_delta" || sse.event === "message_stop" || sse.event === "content_block_start" || sse.event === "content_block_delta" || sse.event === "content_block_stop") {
+            try {
+              yield JSON.parse(sse.data);
+            } catch (e) {
+              logger.error(`Could not parse message into JSON:`, sse.data);
+              logger.error(`From chunk:`, sse.raw);
+              throw e;
+            }
+          }
+          if (sse.event === "ping") {
+            continue;
+          }
+          if (sse.event === "error") {
+            throw new APIError(void 0, safeJSON(sse.data) ?? sse.data, void 0, response.headers);
+          }
+        }
+        done = true;
+      } catch (e) {
+        if (isAbortError(e))
+          return;
+        throw e;
+      } finally {
+        if (!done)
+          controller.abort();
+      }
+    }
+    return new _Stream(iterator, controller, client);
+  }
+  /**
+   * Generates a Stream from a newline-separated ReadableStream
+   * where each item is a JSON value.
+   */
+  static fromReadableStream(readableStream, controller, client) {
+    let consumed = false;
+    async function* iterLines() {
+      const lineDecoder = new LineDecoder();
+      const iter = ReadableStreamToAsyncIterable(readableStream);
+      for await (const chunk of iter) {
+        for (const line of lineDecoder.decode(chunk)) {
+          yield line;
+        }
+      }
+      for (const line of lineDecoder.flush()) {
+        yield line;
+      }
+    }
+    async function* iterator() {
+      if (consumed) {
+        throw new AnthropicError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+      }
+      consumed = true;
+      let done = false;
+      try {
+        for await (const line of iterLines()) {
+          if (done)
+            continue;
+          if (line)
+            yield JSON.parse(line);
+        }
+        done = true;
+      } catch (e) {
+        if (isAbortError(e))
+          return;
+        throw e;
+      } finally {
+        if (!done)
+          controller.abort();
+      }
+    }
+    return new _Stream(iterator, controller, client);
+  }
+  [(_Stream_client = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
+    return this.iterator();
+  }
+  /**
+   * Splits the stream into two streams which can be
+   * independently read from at different speeds.
+   */
+  tee() {
+    const left = [];
+    const right = [];
+    const iterator = this.iterator();
+    const teeIterator = (queue) => {
+      return {
+        next: () => {
+          if (queue.length === 0) {
+            const result = iterator.next();
+            left.push(result);
+            right.push(result);
+          }
+          return queue.shift();
+        }
+      };
+    };
+    return [
+      new _Stream(() => teeIterator(left), this.controller, __classPrivateFieldGet(this, _Stream_client, "f")),
+      new _Stream(() => teeIterator(right), this.controller, __classPrivateFieldGet(this, _Stream_client, "f"))
+    ];
+  }
+  /**
+   * Converts this stream to a newline-separated ReadableStream of
+   * JSON stringified values in the stream
+   * which can be turned back into a Stream with `Stream.fromReadableStream()`.
+   */
+  toReadableStream() {
+    const self2 = this;
+    let iter;
+    return makeReadableStream({
+      async start() {
+        iter = self2[Symbol.asyncIterator]();
+      },
+      async pull(ctrl) {
+        try {
+          const { value, done } = await iter.next();
+          if (done)
+            return ctrl.close();
+          const bytes = encodeUTF8(JSON.stringify(value) + "\n");
+          ctrl.enqueue(bytes);
+        } catch (err) {
+          ctrl.error(err);
+        }
+      },
+      async cancel() {
+        await iter.return?.();
+      }
+    });
+  }
+};
+async function* _iterSSEMessages(response, controller) {
+  if (!response.body) {
+    controller.abort();
+    if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
+      throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+    }
+    throw new AnthropicError(`Attempted to iterate over a response with no body`);
+  }
+  const sseDecoder = new SSEDecoder();
+  const lineDecoder = new LineDecoder();
+  const iter = ReadableStreamToAsyncIterable(response.body);
+  for await (const sseChunk of iterSSEChunks(iter)) {
+    for (const line of lineDecoder.decode(sseChunk)) {
+      const sse = sseDecoder.decode(line);
+      if (sse)
+        yield sse;
     }
   }
-}
-function debug(action, ...args) {
-  if (typeof process !== "undefined" && process?.env?.["DEBUG"] === "true") {
-    console.log(`Anthropic:DEBUG:${action}`, ...args);
+  for (const line of lineDecoder.flush()) {
+    const sse = sseDecoder.decode(line);
+    if (sse)
+      yield sse;
   }
 }
-var uuid4 = () => {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    const v = c === "x" ? r : r & 3 | 8;
-    return v.toString(16);
+async function* iterSSEChunks(iterator) {
+  let data2 = new Uint8Array();
+  for await (const chunk of iterator) {
+    if (chunk == null) {
+      continue;
+    }
+    const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
+    let newData = new Uint8Array(data2.length + binaryChunk.length);
+    newData.set(data2);
+    newData.set(binaryChunk, data2.length);
+    data2 = newData;
+    let patternIndex;
+    while ((patternIndex = findDoubleNewlineIndex(data2)) !== -1) {
+      yield data2.slice(0, patternIndex);
+      data2 = data2.slice(patternIndex);
+    }
+  }
+  if (data2.length > 0) {
+    yield data2;
+  }
+}
+var SSEDecoder = class {
+  constructor() {
+    this.event = null;
+    this.data = [];
+    this.chunks = [];
+  }
+  decode(line) {
+    if (line.endsWith("\r")) {
+      line = line.substring(0, line.length - 1);
+    }
+    if (!line) {
+      if (!this.event && !this.data.length)
+        return null;
+      const sse = {
+        event: this.event,
+        data: this.data.join("\n"),
+        raw: this.chunks
+      };
+      this.event = null;
+      this.data = [];
+      this.chunks = [];
+      return sse;
+    }
+    this.chunks.push(line);
+    if (line.startsWith(":")) {
+      return null;
+    }
+    let [fieldname, _, value] = partition(line, ":");
+    if (value.startsWith(" ")) {
+      value = value.substring(1);
+    }
+    if (fieldname === "event") {
+      this.event = value;
+    } else if (fieldname === "data") {
+      this.data.push(value);
+    }
+    return null;
+  }
+};
+function partition(str2, delimiter) {
+  const index2 = str2.indexOf(delimiter);
+  if (index2 !== -1) {
+    return [str2.substring(0, index2), delimiter, str2.substring(index2 + delimiter.length)];
+  }
+  return [str2, "", ""];
+}
+
+// node_modules/@anthropic-ai/sdk/internal/parse.mjs
+async function defaultParseResponse(client, props) {
+  const { response, requestLogID, retryOfRequestLogID, startTime } = props;
+  const body = await (async () => {
+    if (props.options.stream) {
+      loggerFor(client).debug("response", response.status, response.url, response.headers, response.body);
+      if (props.options.__streamClass) {
+        return props.options.__streamClass.fromSSEResponse(response, props.controller);
+      }
+      return Stream.fromSSEResponse(response, props.controller);
+    }
+    if (response.status === 204) {
+      return null;
+    }
+    if (props.options.__binaryResponse) {
+      return response;
+    }
+    const contentType = response.headers.get("content-type");
+    const mediaType = contentType?.split(";")[0]?.trim();
+    const isJSON = mediaType?.includes("application/json") || mediaType?.endsWith("+json");
+    if (isJSON) {
+      const contentLength = response.headers.get("content-length");
+      if (contentLength === "0") {
+        return void 0;
+      }
+      const json = await response.json();
+      return addRequestID(json, response);
+    }
+    const text3 = await response.text();
+    return text3;
+  })();
+  loggerFor(client).debug(`[${requestLogID}] response parsed`, formatRequestDetails({
+    retryOfRequestLogID,
+    url: response.url,
+    status: response.status,
+    body,
+    durationMs: Date.now() - startTime
+  }));
+  return body;
+}
+function addRequestID(value, response) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  return Object.defineProperty(value, "_request_id", {
+    value: response.headers.get("request-id"),
+    enumerable: false
   });
+}
+
+// node_modules/@anthropic-ai/sdk/core/api-promise.mjs
+var _APIPromise_client;
+var APIPromise = class _APIPromise extends Promise {
+  constructor(client, responsePromise, parseResponse2 = defaultParseResponse) {
+    super((resolve2) => {
+      resolve2(null);
+    });
+    this.responsePromise = responsePromise;
+    this.parseResponse = parseResponse2;
+    _APIPromise_client.set(this, void 0);
+    __classPrivateFieldSet(this, _APIPromise_client, client, "f");
+  }
+  _thenUnwrap(transform2) {
+    return new _APIPromise(__classPrivateFieldGet(this, _APIPromise_client, "f"), this.responsePromise, async (client, props) => addRequestID(transform2(await this.parseResponse(client, props), props), props.response));
+  }
+  /**
+   * Gets the raw `Response` instance instead of parsing the response
+   * data.
+   *
+   * If you want to parse the response body but still get the `Response`
+   * instance, you can use {@link withResponse()}.
+   *
+   * 👋 Getting the wrong TypeScript type for `Response`?
+   * Try setting `"moduleResolution": "NodeNext"` or add `"lib": ["DOM"]`
+   * to your `tsconfig.json`.
+   */
+  asResponse() {
+    return this.responsePromise.then((p) => p.response);
+  }
+  /**
+   * Gets the parsed response data, the raw `Response` instance and the ID of the request,
+   * returned via the `request-id` header which is useful for debugging requests and resporting
+   * issues to Anthropic.
+   *
+   * If you just want to get the raw `Response` instance without parsing it,
+   * you can use {@link asResponse()}.
+   *
+   * 👋 Getting the wrong TypeScript type for `Response`?
+   * Try setting `"moduleResolution": "NodeNext"` or add `"lib": ["DOM"]`
+   * to your `tsconfig.json`.
+   */
+  async withResponse() {
+    const [data2, response] = await Promise.all([this.parse(), this.asResponse()]);
+    return { data: data2, response, request_id: response.headers.get("request-id") };
+  }
+  parse() {
+    if (!this.parsedPromise) {
+      this.parsedPromise = this.responsePromise.then((data2) => this.parseResponse(__classPrivateFieldGet(this, _APIPromise_client, "f"), data2));
+    }
+    return this.parsedPromise;
+  }
+  then(onfulfilled, onrejected) {
+    return this.parse().then(onfulfilled, onrejected);
+  }
+  catch(onrejected) {
+    return this.parse().catch(onrejected);
+  }
+  finally(onfinally) {
+    return this.parse().finally(onfinally);
+  }
 };
-var isRunningInBrowser = () => {
-  return (
-    // @ts-ignore
-    typeof window !== "undefined" && // @ts-ignore
-    typeof window.document !== "undefined" && // @ts-ignore
-    typeof navigator !== "undefined"
-  );
-};
-var isHeadersProtocol = (headers) => {
-  return typeof headers?.get === "function";
-};
-var getHeader = (headers, header) => {
-  const lowerCasedHeader = header.toLowerCase();
-  if (isHeadersProtocol(headers)) {
-    const intercapsHeader = header[0]?.toUpperCase() + header.substring(1).replace(/([^\w])(\w)/g, (_m, g1, g2) => g1 + g2.toUpperCase());
-    for (const key of [header, lowerCasedHeader, header.toUpperCase(), intercapsHeader]) {
-      const value = headers.get(key);
-      if (value) {
-        return value;
+_APIPromise_client = /* @__PURE__ */ new WeakMap();
+
+// node_modules/@anthropic-ai/sdk/core/pagination.mjs
+var _AbstractPage_client;
+var AbstractPage = class {
+  constructor(client, response, body, options) {
+    _AbstractPage_client.set(this, void 0);
+    __classPrivateFieldSet(this, _AbstractPage_client, client, "f");
+    this.options = options;
+    this.response = response;
+    this.body = body;
+  }
+  hasNextPage() {
+    const items = this.getPaginatedItems();
+    if (!items.length)
+      return false;
+    return this.nextPageRequestOptions() != null;
+  }
+  async getNextPage() {
+    const nextOptions = this.nextPageRequestOptions();
+    if (!nextOptions) {
+      throw new AnthropicError("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
+    }
+    return await __classPrivateFieldGet(this, _AbstractPage_client, "f").requestAPIList(this.constructor, nextOptions);
+  }
+  async *iterPages() {
+    let page = this;
+    yield page;
+    while (page.hasNextPage()) {
+      page = await page.getNextPage();
+      yield page;
+    }
+  }
+  async *[(_AbstractPage_client = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
+    for await (const page of this.iterPages()) {
+      for (const item of page.getPaginatedItems()) {
+        yield item;
       }
     }
   }
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === lowerCasedHeader) {
-      if (Array.isArray(value)) {
-        if (value.length <= 1)
-          return value[0];
-        console.warn(`Received ${value.length} entries for the ${header} header, using the first entry.`);
-        return value[0];
-      }
-      return value;
+};
+var PagePromise = class extends APIPromise {
+  constructor(client, request, Page3) {
+    super(client, request, async (client2, props) => new Page3(client2, props.response, await defaultParseResponse(client2, props), props.options));
+  }
+  /**
+   * Allow auto-paginating iteration on an unawaited list call, eg:
+   *
+   *    for await (const item of client.items.list()) {
+   *      console.log(item)
+   *    }
+   */
+  async *[Symbol.asyncIterator]() {
+    const page = await this;
+    for await (const item of page) {
+      yield item;
     }
   }
-  return void 0;
 };
-
-// node_modules/@anthropic-ai/sdk/error.mjs
-var AnthropicError = class extends Error {
-};
-var APIError = class _APIError extends AnthropicError {
-  constructor(status, error2, message, headers) {
-    super(`${_APIError.makeMessage(status, error2, message)}`);
-    this.status = status;
-    this.headers = headers;
-    this.request_id = headers?.["request-id"];
-    this.error = error2;
-  }
-  static makeMessage(status, error2, message) {
-    const msg = error2?.message ? typeof error2.message === "string" ? error2.message : JSON.stringify(error2.message) : error2 ? JSON.stringify(error2) : message;
-    if (status && msg) {
-      return `${status} ${msg}`;
-    }
-    if (status) {
-      return `${status} status code (no body)`;
-    }
-    if (msg) {
-      return msg;
-    }
-    return "(no status code or body)";
-  }
-  static generate(status, errorResponse, message, headers) {
-    if (!status) {
-      return new APIConnectionError({ message, cause: castToError(errorResponse) });
-    }
-    const error2 = errorResponse;
-    if (status === 400) {
-      return new BadRequestError(status, error2, message, headers);
-    }
-    if (status === 401) {
-      return new AuthenticationError(status, error2, message, headers);
-    }
-    if (status === 403) {
-      return new PermissionDeniedError(status, error2, message, headers);
-    }
-    if (status === 404) {
-      return new NotFoundError(status, error2, message, headers);
-    }
-    if (status === 409) {
-      return new ConflictError(status, error2, message, headers);
-    }
-    if (status === 422) {
-      return new UnprocessableEntityError(status, error2, message, headers);
-    }
-    if (status === 429) {
-      return new RateLimitError(status, error2, message, headers);
-    }
-    if (status >= 500) {
-      return new InternalServerError(status, error2, message, headers);
-    }
-    return new _APIError(status, error2, message, headers);
-  }
-};
-var APIUserAbortError = class extends APIError {
-  constructor({ message } = {}) {
-    super(void 0, void 0, message || "Request was aborted.", void 0);
-    this.status = void 0;
-  }
-};
-var APIConnectionError = class extends APIError {
-  constructor({ message, cause }) {
-    super(void 0, void 0, message || "Connection error.", void 0);
-    this.status = void 0;
-    if (cause)
-      this.cause = cause;
-  }
-};
-var APIConnectionTimeoutError = class extends APIConnectionError {
-  constructor({ message } = {}) {
-    super({ message: message ?? "Request timed out." });
-  }
-};
-var BadRequestError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 400;
-  }
-};
-var AuthenticationError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 401;
-  }
-};
-var PermissionDeniedError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 403;
-  }
-};
-var NotFoundError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 404;
-  }
-};
-var ConflictError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 409;
-  }
-};
-var UnprocessableEntityError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 422;
-  }
-};
-var RateLimitError = class extends APIError {
-  constructor() {
-    super(...arguments);
-    this.status = 429;
-  }
-};
-var InternalServerError = class extends APIError {
-};
-
-// node_modules/@anthropic-ai/sdk/pagination.mjs
 var Page = class extends AbstractPage {
   constructor(client, response, body, options) {
     super(client, response, body, options);
@@ -87957,27 +87650,23 @@ var Page = class extends AbstractPage {
   getPaginatedItems() {
     return this.data ?? [];
   }
-  // @deprecated Please use `nextPageInfo()` instead
-  nextPageParams() {
-    const info2 = this.nextPageInfo();
-    if (!info2)
-      return null;
-    if ("params" in info2)
-      return info2.params;
-    const params = Object.fromEntries(info2.url.searchParams);
-    if (!Object.keys(params).length)
-      return null;
-    return params;
+  hasNextPage() {
+    if (this.has_more === false) {
+      return false;
+    }
+    return super.hasNextPage();
   }
-  nextPageInfo() {
+  nextPageRequestOptions() {
     if (this.options.query?.["before_id"]) {
-      const firstId = this.first_id;
-      if (!firstId) {
+      const first_id = this.first_id;
+      if (!first_id) {
         return null;
       }
       return {
-        params: {
-          before_id: firstId
+        ...this.options,
+        query: {
+          ...maybeObj(this.options.query),
+          before_id: first_id
         }
       };
     }
@@ -87986,158 +87675,597 @@ var Page = class extends AbstractPage {
       return null;
     }
     return {
-      params: {
+      ...this.options,
+      query: {
+        ...maybeObj(this.options.query),
         after_id: cursor
       }
     };
   }
 };
+var PageCursor = class extends AbstractPage {
+  constructor(client, response, body, options) {
+    super(client, response, body, options);
+    this.data = body.data || [];
+    this.has_more = body.has_more || false;
+    this.next_page = body.next_page || null;
+  }
+  getPaginatedItems() {
+    return this.data ?? [];
+  }
+  hasNextPage() {
+    if (this.has_more === false) {
+      return false;
+    }
+    return super.hasNextPage();
+  }
+  nextPageRequestOptions() {
+    const cursor = this.next_page;
+    if (!cursor) {
+      return null;
+    }
+    return {
+      ...this.options,
+      query: {
+        ...maybeObj(this.options.query),
+        page: cursor
+      }
+    };
+  }
+};
 
-// node_modules/@anthropic-ai/sdk/resource.mjs
+// node_modules/@anthropic-ai/sdk/internal/uploads.mjs
+var checkFileSupport = () => {
+  if (typeof File === "undefined") {
+    const { process: process3 } = globalThis;
+    const isOldNode = typeof process3?.versions?.node === "string" && parseInt(process3.versions.node.split(".")) < 20;
+    throw new Error("`File` is not defined as a global, which is required for file uploads." + (isOldNode ? " Update to Node 20 LTS or newer, or set `globalThis.File` to `import('node:buffer').File`." : ""));
+  }
+};
+function makeFile(fileBits, fileName, options) {
+  checkFileSupport();
+  return new File(fileBits, fileName ?? "unknown_file", options);
+}
+function getName(value, stripPath) {
+  const val2 = typeof value === "object" && value !== null && ("name" in value && value.name && String(value.name) || "url" in value && value.url && String(value.url) || "filename" in value && value.filename && String(value.filename) || "path" in value && value.path && String(value.path)) || "";
+  return stripPath ? val2.split(/[\\/]/).pop() || void 0 : val2;
+}
+var isAsyncIterable = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
+var multipartFormRequestOptions = async (opts, fetch4, stripFilenames = true) => {
+  return { ...opts, body: await createForm(opts.body, fetch4, stripFilenames) };
+};
+var supportsFormDataMap = /* @__PURE__ */ new WeakMap();
+function supportsFormData(fetchObject) {
+  const fetch4 = typeof fetchObject === "function" ? fetchObject : fetchObject.fetch;
+  const cached2 = supportsFormDataMap.get(fetch4);
+  if (cached2)
+    return cached2;
+  const promise = (async () => {
+    try {
+      const FetchResponse = "Response" in fetch4 ? fetch4.Response : (await fetch4("data:,")).constructor;
+      const data2 = new FormData();
+      if (data2.toString() === await new FetchResponse(data2).text()) {
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  })();
+  supportsFormDataMap.set(fetch4, promise);
+  return promise;
+}
+var createForm = async (body, fetch4, stripFilenames = true) => {
+  if (!await supportsFormData(fetch4)) {
+    throw new TypeError("The provided fetch function does not support file uploads with the current global FormData class.");
+  }
+  const form = new FormData();
+  await Promise.all(Object.entries(body || {}).map(([key, value]) => addFormValue(form, key, value, stripFilenames)));
+  return form;
+};
+var isNamedBlob = (value) => value instanceof Blob && "name" in value;
+var addFormValue = async (form, key, value, stripFilenames) => {
+  if (value === void 0)
+    return;
+  if (value == null) {
+    throw new TypeError(`Received null for "${key}"; to pass null in FormData, you must use the string 'null'`);
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    form.append(key, String(value));
+  } else if (value instanceof Response) {
+    let options = {};
+    const contentType = value.headers.get("Content-Type");
+    if (contentType) {
+      options = { type: contentType };
+    }
+    form.append(key, makeFile([await value.blob()], getName(value, stripFilenames), options));
+  } else if (isAsyncIterable(value)) {
+    form.append(key, makeFile([await new Response(ReadableStreamFrom(value)).blob()], getName(value, stripFilenames)));
+  } else if (isNamedBlob(value)) {
+    form.append(key, makeFile([value], getName(value, stripFilenames), { type: value.type }));
+  } else if (Array.isArray(value)) {
+    await Promise.all(value.map((entry) => addFormValue(form, key + "[]", entry, stripFilenames)));
+  } else if (typeof value === "object") {
+    await Promise.all(Object.entries(value).map(([name, prop2]) => addFormValue(form, `${key}[${name}]`, prop2, stripFilenames)));
+  } else {
+    throw new TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${value} instead`);
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/to-file.mjs
+var isBlobLike = (value) => value != null && typeof value === "object" && typeof value.size === "number" && typeof value.type === "string" && typeof value.text === "function" && typeof value.slice === "function" && typeof value.arrayBuffer === "function";
+var isFileLike = (value) => value != null && typeof value === "object" && typeof value.name === "string" && typeof value.lastModified === "number" && isBlobLike(value);
+var isResponseLike = (value) => value != null && typeof value === "object" && typeof value.url === "string" && typeof value.blob === "function";
+async function toFile(value, name, options) {
+  checkFileSupport();
+  value = await value;
+  name || (name = getName(value, true));
+  if (isFileLike(value)) {
+    if (value instanceof File && name == null && options == null) {
+      return value;
+    }
+    return makeFile([await value.arrayBuffer()], name ?? value.name, {
+      type: value.type,
+      lastModified: value.lastModified,
+      ...options
+    });
+  }
+  if (isResponseLike(value)) {
+    const blob = await value.blob();
+    name || (name = new URL(value.url).pathname.split(/[\\/]/).pop());
+    return makeFile(await getBytes(blob), name, options);
+  }
+  const parts = await getBytes(value);
+  if (!options?.type) {
+    const type = parts.find((part) => typeof part === "object" && "type" in part && part.type);
+    if (typeof type === "string") {
+      options = { ...options, type };
+    }
+  }
+  return makeFile(parts, name, options);
+}
+async function getBytes(value) {
+  let parts = [];
+  if (typeof value === "string" || ArrayBuffer.isView(value) || // includes Uint8Array, Buffer, etc.
+  value instanceof ArrayBuffer) {
+    parts.push(value);
+  } else if (isBlobLike(value)) {
+    parts.push(value instanceof Blob ? value : await value.arrayBuffer());
+  } else if (isAsyncIterable(value)) {
+    for await (const chunk of value) {
+      parts.push(...await getBytes(chunk));
+    }
+  } else {
+    const constructor = value?.constructor?.name;
+    throw new Error(`Unexpected data type: ${typeof value}${constructor ? `; constructor: ${constructor}` : ""}${propsForError(value)}`);
+  }
+  return parts;
+}
+function propsForError(value) {
+  if (typeof value !== "object" || value === null)
+    return "";
+  const props = Object.getOwnPropertyNames(value);
+  return `; props: [${props.map((p) => `"${p}"`).join(", ")}]`;
+}
+
+// node_modules/@anthropic-ai/sdk/core/resource.mjs
 var APIResource = class {
   constructor(client) {
     this._client = client;
   }
 };
 
-// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
-var JSONLDecoder = class _JSONLDecoder {
-  constructor(iterator, controller) {
-    this.iterator = iterator;
-    this.controller = controller;
+// node_modules/@anthropic-ai/sdk/internal/headers.mjs
+var brand_privateNullableHeaders = /* @__PURE__ */ Symbol.for("brand.privateNullableHeaders");
+function* iterateHeaders(headers) {
+  if (!headers)
+    return;
+  if (brand_privateNullableHeaders in headers) {
+    const { values, nulls } = headers;
+    yield* values.entries();
+    for (const name of nulls) {
+      yield [name, null];
+    }
+    return;
   }
-  async *decoder() {
-    const lineDecoder = new LineDecoder();
-    for await (const chunk of this.iterator) {
-      for (const line of lineDecoder.decode(chunk)) {
-        yield JSON.parse(line);
+  let shouldClear = false;
+  let iter;
+  if (headers instanceof Headers) {
+    iter = headers.entries();
+  } else if (isReadonlyArray(headers)) {
+    iter = headers;
+  } else {
+    shouldClear = true;
+    iter = Object.entries(headers ?? {});
+  }
+  for (let row of iter) {
+    const name = row[0];
+    if (typeof name !== "string")
+      throw new TypeError("expected header name to be a string");
+    const values = isReadonlyArray(row[1]) ? row[1] : [row[1]];
+    let didClear = false;
+    for (const value of values) {
+      if (value === void 0)
+        continue;
+      if (shouldClear && !didClear) {
+        didClear = true;
+        yield [name, null];
+      }
+      yield [name, value];
+    }
+  }
+}
+var buildHeaders = (newHeaders) => {
+  const targetHeaders = new Headers();
+  const nullHeaders = /* @__PURE__ */ new Set();
+  for (const headers of newHeaders) {
+    const seenHeaders = /* @__PURE__ */ new Set();
+    for (const [name, value] of iterateHeaders(headers)) {
+      const lowerName = name.toLowerCase();
+      if (!seenHeaders.has(lowerName)) {
+        targetHeaders.delete(name);
+        seenHeaders.add(lowerName);
+      }
+      if (value === null) {
+        targetHeaders.delete(name);
+        nullHeaders.add(lowerName);
+      } else {
+        targetHeaders.append(name, value);
+        nullHeaders.delete(lowerName);
       }
     }
-    for (const line of lineDecoder.flush()) {
-      yield JSON.parse(line);
-    }
   }
-  [Symbol.asyncIterator]() {
-    return this.decoder();
-  }
-  static fromResponse(response, controller) {
-    if (!response.body) {
-      controller.abort();
-      throw new AnthropicError(`Attempted to iterate over a response with no body`);
-    }
-    return new _JSONLDecoder(readableStreamAsyncIterable(response.body), controller);
-  }
+  return { [brand_privateNullableHeaders]: true, values: targetHeaders, nulls: nullHeaders };
 };
 
-// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
-var Batches = class extends APIResource {
+// node_modules/@anthropic-ai/sdk/lib/stainless-helper-header.mjs
+var SDK_HELPER_SYMBOL = /* @__PURE__ */ Symbol("anthropic.sdk.stainlessHelper");
+function wasCreatedByStainlessHelper(value) {
+  return typeof value === "object" && value !== null && SDK_HELPER_SYMBOL in value;
+}
+function collectStainlessHelpers(tools, messages) {
+  const helpers = /* @__PURE__ */ new Set();
+  if (tools) {
+    for (const tool of tools) {
+      if (wasCreatedByStainlessHelper(tool)) {
+        helpers.add(tool[SDK_HELPER_SYMBOL]);
+      }
+    }
+  }
+  if (messages) {
+    for (const message of messages) {
+      if (wasCreatedByStainlessHelper(message)) {
+        helpers.add(message[SDK_HELPER_SYMBOL]);
+      }
+      if (Array.isArray(message.content)) {
+        for (const block of message.content) {
+          if (wasCreatedByStainlessHelper(block)) {
+            helpers.add(block[SDK_HELPER_SYMBOL]);
+          }
+        }
+      }
+    }
+  }
+  return Array.from(helpers);
+}
+function stainlessHelperHeader(tools, messages) {
+  const helpers = collectStainlessHelpers(tools, messages);
+  if (helpers.length === 0)
+    return {};
+  return { "x-stainless-helper": helpers.join(", ") };
+}
+function stainlessHelperHeaderFromFile(file) {
+  if (wasCreatedByStainlessHelper(file)) {
+    return { "x-stainless-helper": file[SDK_HELPER_SYMBOL] };
+  }
+  return {};
+}
+
+// node_modules/@anthropic-ai/sdk/internal/utils/path.mjs
+function encodeURIPath(str2) {
+  return str2.replace(/[^A-Za-z0-9\-._~!$&'()*+,;=:@]+/g, encodeURIComponent);
+}
+var EMPTY = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.create(null));
+var createPathTagFunction = (pathEncoder = encodeURIPath) => function path4(statics, ...params) {
+  if (statics.length === 1)
+    return statics[0];
+  let postPath = false;
+  const invalidSegments = [];
+  const path5 = statics.reduce((previousValue, currentValue, index2) => {
+    if (/[?#]/.test(currentValue)) {
+      postPath = true;
+    }
+    const value = params[index2];
+    let encoded = (postPath ? encodeURIComponent : pathEncoder)("" + value);
+    if (index2 !== params.length && (value == null || typeof value === "object" && // handle values from other realms
+    value.toString === Object.getPrototypeOf(Object.getPrototypeOf(value.hasOwnProperty ?? EMPTY) ?? EMPTY)?.toString)) {
+      encoded = value + "";
+      invalidSegments.push({
+        start: previousValue.length + currentValue.length,
+        length: encoded.length,
+        error: `Value of type ${Object.prototype.toString.call(value).slice(8, -1)} is not a valid path parameter`
+      });
+    }
+    return previousValue + currentValue + (index2 === params.length ? "" : encoded);
+  }, "");
+  const pathOnly = path5.split(/[?#]/, 1)[0];
+  const invalidSegmentPattern = /(?<=^|\/)(?:\.|%2e){1,2}(?=\/|$)/gi;
+  let match;
+  while ((match = invalidSegmentPattern.exec(pathOnly)) !== null) {
+    invalidSegments.push({
+      start: match.index,
+      length: match[0].length,
+      error: `Value "${match[0]}" can't be safely passed as a path parameter`
+    });
+  }
+  invalidSegments.sort((a, b) => a.start - b.start);
+  if (invalidSegments.length > 0) {
+    let lastEnd = 0;
+    const underline = invalidSegments.reduce((acc, segment) => {
+      const spaces = " ".repeat(segment.start - lastEnd);
+      const arrows = "^".repeat(segment.length);
+      lastEnd = segment.start + segment.length;
+      return acc + spaces + arrows;
+    }, "");
+    throw new AnthropicError(`Path parameters result in path with invalid segments:
+${invalidSegments.map((e) => e.error).join("\n")}
+${path5}
+${underline}`);
+  }
+  return path5;
+};
+var path = /* @__PURE__ */ createPathTagFunction(encodeURIPath);
+
+// node_modules/@anthropic-ai/sdk/resources/beta/files.mjs
+var Files = class extends APIResource {
   /**
-   * Send a batch of Message creation requests.
+   * List Files
    *
-   * The Message Batches API can be used to process multiple Messages API requests at
-   * once. Once a Message Batch is created, it begins processing immediately. Batches
-   * can take up to 24 hours to complete.
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const fileMetadata of client.beta.files.list()) {
+   *   // ...
+   * }
+   * ```
    */
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/messages/batches?beta=true", {
-      body,
-      ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-        ...options?.headers
-      }
-    });
-  }
-  retrieve(messageBatchId, params = {}, options) {
-    if (isRequestOptions(params)) {
-      return this.retrieve(messageBatchId, {}, params);
-    }
-    const { betas } = params;
-    return this._client.get(`/v1/messages/batches/${messageBatchId}?beta=true`, {
-      ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-        ...options?.headers
-      }
-    });
-  }
   list(params = {}, options) {
-    if (isRequestOptions(params)) {
-      return this.list({}, params);
-    }
-    const { betas, ...query } = params;
-    return this._client.getAPIList("/v1/messages/batches?beta=true", BetaMessageBatchesPage, {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/files", Page, {
       query,
       ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-        ...options?.headers
-      }
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
+        options?.headers
+      ])
     });
   }
-  cancel(messageBatchId, params = {}, options) {
-    if (isRequestOptions(params)) {
-      return this.cancel(messageBatchId, {}, params);
-    }
-    const { betas } = params;
-    return this._client.post(`/v1/messages/batches/${messageBatchId}/cancel?beta=true`, {
+  /**
+   * Delete File
+   *
+   * @example
+   * ```ts
+   * const deletedFile = await client.beta.files.delete(
+   *   'file_id',
+   * );
+   * ```
+   */
+  delete(fileID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.delete(path`/v1/files/${fileID}`, {
       ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-        ...options?.headers
-      }
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
+        options?.headers
+      ])
     });
   }
-  async results(messageBatchId, params = {}, options) {
-    if (isRequestOptions(params)) {
-      return this.results(messageBatchId, {}, params);
-    }
-    const batch = await this.retrieve(messageBatchId);
-    if (!batch.results_url) {
-      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
-    }
-    const { betas } = params;
-    return this._client.get(batch.results_url, {
+  /**
+   * Download File
+   *
+   * @example
+   * ```ts
+   * const response = await client.beta.files.download(
+   *   'file_id',
+   * );
+   *
+   * const content = await response.blob();
+   * console.log(content);
+   * ```
+   */
+  download(fileID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/files/${fileID}/content`, {
       ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
-        ...options?.headers
-      },
+      headers: buildHeaders([
+        {
+          "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString(),
+          Accept: "application/binary"
+        },
+        options?.headers
+      ]),
       __binaryResponse: true
-    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
+    });
   }
-};
-var BetaMessageBatchesPage = class extends Page {
-};
-(function(Batches3) {
-  Batches3.BetaMessageBatchesPage = BetaMessageBatchesPage;
-})(Batches || (Batches = {}));
-
-// node_modules/@anthropic-ai/sdk/resources/beta/messages/messages.mjs
-var Messages = class extends APIResource {
-  constructor() {
-    super(...arguments);
-    this.batches = new Batches(this._client);
-  }
-  create(params, options) {
-    const { betas, ...body } = params;
-    return this._client.post("/v1/messages?beta=true", {
-      body,
-      timeout: this._client._options.timeout ?? 6e5,
+  /**
+   * Get File Metadata
+   *
+   * @example
+   * ```ts
+   * const fileMetadata =
+   *   await client.beta.files.retrieveMetadata('file_id');
+   * ```
+   */
+  retrieveMetadata(fileID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/files/${fileID}`, {
       ...options,
-      headers: {
-        ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0,
-        ...options?.headers
-      },
-      stream: params.stream ?? false
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Upload File
+   *
+   * @example
+   * ```ts
+   * const fileMetadata = await client.beta.files.upload({
+   *   file: fs.createReadStream('path/to/file'),
+   * });
+   * ```
+   */
+  upload(params, options) {
+    const { betas, ...body } = params;
+    return this._client.post("/v1/files", multipartFormRequestOptions({
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "files-api-2025-04-14"].toString() },
+        stainlessHelperHeaderFromFile(body.file),
+        options?.headers
+      ])
+    }, this._client));
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/models.mjs
+var Models = class extends APIResource {
+  /**
+   * Get a specific model.
+   *
+   * The Models API response can be used to determine information about a specific
+   * model or resolve a model alias to a model ID.
+   *
+   * @example
+   * ```ts
+   * const betaModelInfo = await client.beta.models.retrieve(
+   *   'model_id',
+   * );
+   * ```
+   */
+  retrieve(modelID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/models/${modelID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List available models.
+   *
+   * The Models API response can be used to determine which models are available for
+   * use in the API. More recently released models are listed first.
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const betaModelInfo of client.beta.models.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/models?beta=true", Page, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        options?.headers
+      ])
     });
   }
 };
-(function(Messages6) {
-  Messages6.Batches = Batches;
-  Messages6.BetaMessageBatchesPage = BetaMessageBatchesPage;
-})(Messages || (Messages = {}));
+
+// node_modules/@anthropic-ai/sdk/internal/constants.mjs
+var MODEL_NONSTREAMING_TOKENS = {
+  "claude-opus-4-20250514": 8192,
+  "claude-opus-4-0": 8192,
+  "claude-4-opus-20250514": 8192,
+  "anthropic.claude-opus-4-20250514-v1:0": 8192,
+  "claude-opus-4@20250514": 8192,
+  "claude-opus-4-1-20250805": 8192,
+  "anthropic.claude-opus-4-1-20250805-v1:0": 8192,
+  "claude-opus-4-1@20250805": 8192
+};
+
+// node_modules/@anthropic-ai/sdk/lib/beta-parser.mjs
+function getOutputFormat(params) {
+  return params?.output_format ?? params?.output_config?.format;
+}
+function maybeParseBetaMessage(message, params, opts) {
+  const outputFormat = getOutputFormat(params);
+  if (!params || !("parse" in (outputFormat ?? {}))) {
+    return {
+      ...message,
+      content: message.content.map((block) => {
+        if (block.type === "text") {
+          const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
+            value: null,
+            enumerable: false
+          });
+          return Object.defineProperty(parsedBlock, "parsed", {
+            get() {
+              opts.logger.warn("The `parsed` property on `text` blocks is deprecated, please use `parsed_output` instead.");
+              return null;
+            },
+            enumerable: false
+          });
+        }
+        return block;
+      }),
+      parsed_output: null
+    };
+  }
+  return parseBetaMessage(message, params, opts);
+}
+function parseBetaMessage(message, params, opts) {
+  let firstParsedOutput = null;
+  const content = message.content.map((block) => {
+    if (block.type === "text") {
+      const parsedOutput = parseBetaOutputFormat(params, block.text);
+      if (firstParsedOutput === null) {
+        firstParsedOutput = parsedOutput;
+      }
+      const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
+        value: parsedOutput,
+        enumerable: false
+      });
+      return Object.defineProperty(parsedBlock, "parsed", {
+        get() {
+          opts.logger.warn("The `parsed` property on `text` blocks is deprecated, please use `parsed_output` instead.");
+          return parsedOutput;
+        },
+        enumerable: false
+      });
+    }
+    return block;
+  });
+  return {
+    ...message,
+    content,
+    parsed_output: firstParsedOutput
+  };
+}
+function parseBetaOutputFormat(params, content) {
+  const outputFormat = getOutputFormat(params);
+  if (outputFormat?.type !== "json_schema") {
+    return null;
+  }
+  try {
+    if ("parse" in outputFormat) {
+      return outputFormat.parse(content);
+    }
+    return JSON.parse(content);
+  } catch (error2) {
+    throw new AnthropicError(`Failed to parse structured output: ${error2}`);
+  }
+}
 
 // node_modules/@anthropic-ai/sdk/_vendor/partial-json-parser/parser.mjs
 var tokenize = (input) => {
@@ -88359,68 +88487,68 @@ var generate = (tokens) => {
 };
 var partialParse = (input) => JSON.parse(generate(unstrip(strip(tokenize(input)))));
 
-// node_modules/@anthropic-ai/sdk/lib/PromptCachingBetaMessageStream.mjs
-var __classPrivateFieldSet2 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
-};
-var __classPrivateFieldGet2 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
-var _PromptCachingBetaMessageStream_instances;
-var _PromptCachingBetaMessageStream_currentMessageSnapshot;
-var _PromptCachingBetaMessageStream_connectedPromise;
-var _PromptCachingBetaMessageStream_resolveConnectedPromise;
-var _PromptCachingBetaMessageStream_rejectConnectedPromise;
-var _PromptCachingBetaMessageStream_endPromise;
-var _PromptCachingBetaMessageStream_resolveEndPromise;
-var _PromptCachingBetaMessageStream_rejectEndPromise;
-var _PromptCachingBetaMessageStream_listeners;
-var _PromptCachingBetaMessageStream_ended;
-var _PromptCachingBetaMessageStream_errored;
-var _PromptCachingBetaMessageStream_aborted;
-var _PromptCachingBetaMessageStream_catchingPromiseCreated;
-var _PromptCachingBetaMessageStream_getFinalMessage;
-var _PromptCachingBetaMessageStream_getFinalText;
-var _PromptCachingBetaMessageStream_handleError;
-var _PromptCachingBetaMessageStream_beginRequest;
-var _PromptCachingBetaMessageStream_addStreamEvent;
-var _PromptCachingBetaMessageStream_endRequest;
-var _PromptCachingBetaMessageStream_accumulateMessage;
+// node_modules/@anthropic-ai/sdk/lib/BetaMessageStream.mjs
+var _BetaMessageStream_instances;
+var _BetaMessageStream_currentMessageSnapshot;
+var _BetaMessageStream_params;
+var _BetaMessageStream_connectedPromise;
+var _BetaMessageStream_resolveConnectedPromise;
+var _BetaMessageStream_rejectConnectedPromise;
+var _BetaMessageStream_endPromise;
+var _BetaMessageStream_resolveEndPromise;
+var _BetaMessageStream_rejectEndPromise;
+var _BetaMessageStream_listeners;
+var _BetaMessageStream_ended;
+var _BetaMessageStream_errored;
+var _BetaMessageStream_aborted;
+var _BetaMessageStream_catchingPromiseCreated;
+var _BetaMessageStream_response;
+var _BetaMessageStream_request_id;
+var _BetaMessageStream_logger;
+var _BetaMessageStream_getFinalMessage;
+var _BetaMessageStream_getFinalText;
+var _BetaMessageStream_handleError;
+var _BetaMessageStream_beginRequest;
+var _BetaMessageStream_addStreamEvent;
+var _BetaMessageStream_endRequest;
+var _BetaMessageStream_accumulateMessage;
 var JSON_BUF_PROPERTY = "__json_buf";
-var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
-  constructor() {
-    _PromptCachingBetaMessageStream_instances.add(this);
+function tracksToolInput(content) {
+  return content.type === "tool_use" || content.type === "server_tool_use" || content.type === "mcp_tool_use";
+}
+var BetaMessageStream = class _BetaMessageStream {
+  constructor(params, opts) {
+    _BetaMessageStream_instances.add(this);
     this.messages = [];
     this.receivedMessages = [];
-    _PromptCachingBetaMessageStream_currentMessageSnapshot.set(this, void 0);
+    _BetaMessageStream_currentMessageSnapshot.set(this, void 0);
+    _BetaMessageStream_params.set(this, null);
     this.controller = new AbortController();
-    _PromptCachingBetaMessageStream_connectedPromise.set(this, void 0);
-    _PromptCachingBetaMessageStream_resolveConnectedPromise.set(this, () => {
+    _BetaMessageStream_connectedPromise.set(this, void 0);
+    _BetaMessageStream_resolveConnectedPromise.set(this, () => {
     });
-    _PromptCachingBetaMessageStream_rejectConnectedPromise.set(this, () => {
+    _BetaMessageStream_rejectConnectedPromise.set(this, () => {
     });
-    _PromptCachingBetaMessageStream_endPromise.set(this, void 0);
-    _PromptCachingBetaMessageStream_resolveEndPromise.set(this, () => {
+    _BetaMessageStream_endPromise.set(this, void 0);
+    _BetaMessageStream_resolveEndPromise.set(this, () => {
     });
-    _PromptCachingBetaMessageStream_rejectEndPromise.set(this, () => {
+    _BetaMessageStream_rejectEndPromise.set(this, () => {
     });
-    _PromptCachingBetaMessageStream_listeners.set(this, {});
-    _PromptCachingBetaMessageStream_ended.set(this, false);
-    _PromptCachingBetaMessageStream_errored.set(this, false);
-    _PromptCachingBetaMessageStream_aborted.set(this, false);
-    _PromptCachingBetaMessageStream_catchingPromiseCreated.set(this, false);
-    _PromptCachingBetaMessageStream_handleError.set(this, (error2) => {
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_errored, true, "f");
-      if (error2 instanceof Error && error2.name === "AbortError") {
+    _BetaMessageStream_listeners.set(this, {});
+    _BetaMessageStream_ended.set(this, false);
+    _BetaMessageStream_errored.set(this, false);
+    _BetaMessageStream_aborted.set(this, false);
+    _BetaMessageStream_catchingPromiseCreated.set(this, false);
+    _BetaMessageStream_response.set(this, void 0);
+    _BetaMessageStream_request_id.set(this, void 0);
+    _BetaMessageStream_logger.set(this, void 0);
+    _BetaMessageStream_handleError.set(this, (error2) => {
+      __classPrivateFieldSet(this, _BetaMessageStream_errored, true, "f");
+      if (isAbortError(error2)) {
         error2 = new APIUserAbortError();
       }
       if (error2 instanceof APIUserAbortError) {
-        __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_aborted, true, "f");
+        __classPrivateFieldSet(this, _BetaMessageStream_aborted, true, "f");
         return this._emit("abort", error2);
       }
       if (error2 instanceof AnthropicError) {
@@ -88433,18 +88561,48 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
       }
       return this._emit("error", new AnthropicError(String(error2)));
     });
-    __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_connectedPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_resolveConnectedPromise, resolve2, "f");
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_rejectConnectedPromise, reject, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _BetaMessageStream_resolveConnectedPromise, resolve2, "f");
+      __classPrivateFieldSet(this, _BetaMessageStream_rejectConnectedPromise, reject, "f");
     }), "f");
-    __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_endPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_resolveEndPromise, resolve2, "f");
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_rejectEndPromise, reject, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _BetaMessageStream_resolveEndPromise, resolve2, "f");
+      __classPrivateFieldSet(this, _BetaMessageStream_rejectEndPromise, reject, "f");
     }), "f");
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_connectedPromise, "f").catch(() => {
+    __classPrivateFieldGet(this, _BetaMessageStream_connectedPromise, "f").catch(() => {
     });
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_endPromise, "f").catch(() => {
+    __classPrivateFieldGet(this, _BetaMessageStream_endPromise, "f").catch(() => {
     });
+    __classPrivateFieldSet(this, _BetaMessageStream_params, params, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_logger, opts?.logger ?? console, "f");
+  }
+  get response() {
+    return __classPrivateFieldGet(this, _BetaMessageStream_response, "f");
+  }
+  get request_id() {
+    return __classPrivateFieldGet(this, _BetaMessageStream_request_id, "f");
+  }
+  /**
+   * Returns the `MessageStream` data, the raw `Response` instance and the ID of the request,
+   * returned vie the `request-id` header which is useful for debugging requests and resporting
+   * issues to Anthropic.
+   *
+   * This is the same as the `APIPromise.withResponse()` method.
+   *
+   * This method will raise an error if you created the stream using `MessageStream.fromReadableStream`
+   * as no `Response` is available.
+   */
+  async withResponse() {
+    __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
+    const response = await __classPrivateFieldGet(this, _BetaMessageStream_connectedPromise, "f");
+    if (!response) {
+      throw new Error("Could not resolve a `Response` object");
+    }
+    return {
+      data: this,
+      response,
+      request_id: response.headers.get("request-id")
+    };
   }
   /**
    * Intended for use on the frontend, consuming a stream produced with
@@ -88454,65 +88612,76 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
    * in this context.
    */
   static fromReadableStream(stream) {
-    const runner = new _PromptCachingBetaMessageStream();
+    const runner = new _BetaMessageStream(null);
     runner._run(() => runner._fromReadableStream(stream));
     return runner;
   }
-  static createMessage(messages, params, options) {
-    const runner = new _PromptCachingBetaMessageStream();
+  static createMessage(messages, params, options, { logger } = {}) {
+    const runner = new _BetaMessageStream(params, { logger });
     for (const message of params.messages) {
-      runner._addPromptCachingBetaMessageParam(message);
+      runner._addMessageParam(message);
     }
-    runner._run(() => runner._createPromptCachingBetaMessage(messages, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
+    __classPrivateFieldSet(runner, _BetaMessageStream_params, { ...params, stream: true }, "f");
+    runner._run(() => runner._createMessage(messages, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
     return runner;
   }
   _run(executor) {
     executor().then(() => {
       this._emitFinal();
       this._emit("end");
-    }, __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_handleError, "f"));
+    }, __classPrivateFieldGet(this, _BetaMessageStream_handleError, "f"));
   }
-  _addPromptCachingBetaMessageParam(message) {
+  _addMessageParam(message) {
     this.messages.push(message);
   }
-  _addPromptCachingBetaMessage(message, emit = true) {
+  _addMessage(message, emit = true) {
     this.receivedMessages.push(message);
     if (emit) {
       this._emit("message", message);
     }
   }
-  async _createPromptCachingBetaMessage(messages, params, options) {
+  async _createMessage(messages, params, options) {
     const signal = options?.signal;
+    let abortHandler;
     if (signal) {
       if (signal.aborted)
         this.controller.abort();
-      signal.addEventListener("abort", () => this.controller.abort());
+      abortHandler = this.controller.abort.bind(this.controller);
+      signal.addEventListener("abort", abortHandler);
     }
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_beginRequest).call(this);
-    const stream = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
-    this._connected();
-    for await (const event of stream) {
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_addStreamEvent).call(this, event);
+    try {
+      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_beginRequest).call(this);
+      const { response, data: stream } = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal }).withResponse();
+      this._connected(response);
+      for await (const event of stream) {
+        __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_addStreamEvent).call(this, event);
+      }
+      if (stream.controller.signal?.aborted) {
+        throw new APIUserAbortError();
+      }
+      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_endRequest).call(this);
+    } finally {
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
     }
-    if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError();
-    }
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_endRequest).call(this);
   }
-  _connected() {
+  _connected(response) {
     if (this.ended)
       return;
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_resolveConnectedPromise, "f").call(this);
+    __classPrivateFieldSet(this, _BetaMessageStream_response, response, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_request_id, response?.headers.get("request-id"), "f");
+    __classPrivateFieldGet(this, _BetaMessageStream_resolveConnectedPromise, "f").call(this, response);
     this._emit("connect");
   }
   get ended() {
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_ended, "f");
+    return __classPrivateFieldGet(this, _BetaMessageStream_ended, "f");
   }
   get errored() {
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_errored, "f");
+    return __classPrivateFieldGet(this, _BetaMessageStream_errored, "f");
   }
   get aborted() {
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_aborted, "f");
+    return __classPrivateFieldGet(this, _BetaMessageStream_aborted, "f");
   }
   abort() {
     this.controller.abort();
@@ -88522,10 +88691,10 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
    * No checks are made to see if the listener has already been added. Multiple calls passing
    * the same combination of event and listener will result in the listener being added, and
    * called, multiple times.
-   * @returns this PromptCachingBetaMessageStream, so that calls can be chained
+   * @returns this MessageStream, so that calls can be chained
    */
   on(event, listener) {
-    const listeners = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = []);
     listeners.push({ listener });
     return this;
   }
@@ -88534,10 +88703,10 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
    * off() will remove, at most, one instance of a listener from the listener array. If any single
    * listener has been added multiple times to the listener array for the specified event, then
    * off() must be called multiple times to remove each instance.
-   * @returns this PromptCachingBetaMessageStream, so that calls can be chained
+   * @returns this MessageStream, so that calls can be chained
    */
   off(event, listener) {
-    const listeners = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event];
     if (!listeners)
       return this;
     const index2 = listeners.findIndex((l) => l.listener === listener);
@@ -88548,10 +88717,10 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
   /**
    * Adds a one-time listener function for the event. The next time the event is triggered,
    * this listener is removed and then invoked.
-   * @returns this PromptCachingBetaMessageStream, so that calls can be chained
+   * @returns this MessageStream, so that calls can be chained
    */
   once(event, listener) {
-    const listeners = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = []);
     listeners.push({ listener, once: true });
     return this;
   }
@@ -88568,130 +88737,172 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
    */
   emitted(event) {
     return new Promise((resolve2, reject) => {
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_catchingPromiseCreated, true, "f");
+      __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
       if (event !== "error")
         this.once("error", reject);
       this.once(event, resolve2);
     });
   }
   async done() {
-    __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_catchingPromiseCreated, true, "f");
-    await __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_endPromise, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_catchingPromiseCreated, true, "f");
+    await __classPrivateFieldGet(this, _BetaMessageStream_endPromise, "f");
   }
   get currentMessage() {
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, "f");
+    return __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
   }
   /**
-   * @returns a promise that resolves with the the final assistant PromptCachingBetaMessage response,
-   * or rejects if an error occurred or the stream ended prematurely without producing a PromptCachingBetaMessage.
+   * @returns a promise that resolves with the the final assistant Message response,
+   * or rejects if an error occurred or the stream ended prematurely without producing a Message.
+   * If structured outputs were used, this will be a ParsedMessage with a `parsed` field.
    */
   async finalMessage() {
     await this.done();
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_getFinalMessage).call(this);
+    return __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalMessage).call(this);
   }
   /**
-   * @returns a promise that resolves with the the final assistant PromptCachingBetaMessage's text response, concatenated
+   * @returns a promise that resolves with the the final assistant Message's text response, concatenated
    * together if there are more than one text blocks.
-   * Rejects if an error occurred or the stream ended prematurely without producing a PromptCachingBetaMessage.
+   * Rejects if an error occurred or the stream ended prematurely without producing a Message.
    */
   async finalText() {
     await this.done();
-    return __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_getFinalText).call(this);
+    return __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalText).call(this);
   }
   _emit(event, ...args) {
-    if (__classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_ended, "f"))
+    if (__classPrivateFieldGet(this, _BetaMessageStream_ended, "f"))
       return;
     if (event === "end") {
-      __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_ended, true, "f");
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_resolveEndPromise, "f").call(this);
+      __classPrivateFieldSet(this, _BetaMessageStream_ended, true, "f");
+      __classPrivateFieldGet(this, _BetaMessageStream_resolveEndPromise, "f").call(this);
     }
-    const listeners = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event];
     if (listeners) {
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
+      __classPrivateFieldGet(this, _BetaMessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
       listeners.forEach(({ listener }) => listener(...args));
     }
     if (event === "abort") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet(this, _BetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _BetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _BetaMessageStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
       return;
     }
     if (event === "error") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet(this, _BetaMessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _BetaMessageStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _BetaMessageStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
     }
   }
   _emitFinal() {
-    const finalPromptCachingBetaMessage = this.receivedMessages.at(-1);
-    if (finalPromptCachingBetaMessage) {
-      this._emit("finalPromptCachingBetaMessage", __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_getFinalMessage).call(this));
+    const finalMessage = this.receivedMessages.at(-1);
+    if (finalMessage) {
+      this._emit("finalMessage", __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_getFinalMessage).call(this));
     }
   }
   async _fromReadableStream(readableStream, options) {
     const signal = options?.signal;
+    let abortHandler;
     if (signal) {
       if (signal.aborted)
         this.controller.abort();
-      signal.addEventListener("abort", () => this.controller.abort());
+      abortHandler = this.controller.abort.bind(this.controller);
+      signal.addEventListener("abort", abortHandler);
     }
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_beginRequest).call(this);
-    this._connected();
-    const stream = Stream.fromReadableStream(readableStream, this.controller);
-    for await (const event of stream) {
-      __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_addStreamEvent).call(this, event);
+    try {
+      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_beginRequest).call(this);
+      this._connected(null);
+      const stream = Stream.fromReadableStream(readableStream, this.controller);
+      for await (const event of stream) {
+        __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_addStreamEvent).call(this, event);
+      }
+      if (stream.controller.signal?.aborted) {
+        throw new APIUserAbortError();
+      }
+      __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_endRequest).call(this);
+    } finally {
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
     }
-    if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError();
-    }
-    __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_endRequest).call(this);
   }
-  [(_PromptCachingBetaMessageStream_currentMessageSnapshot = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_endPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_listeners = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_ended = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_errored = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_aborted = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_handleError = /* @__PURE__ */ new WeakMap(), _PromptCachingBetaMessageStream_instances = /* @__PURE__ */ new WeakSet(), _PromptCachingBetaMessageStream_getFinalMessage = function _PromptCachingBetaMessageStream_getFinalMessage2() {
+  [(_BetaMessageStream_currentMessageSnapshot = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_params = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_endPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_listeners = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_ended = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_errored = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_aborted = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_response = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_request_id = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_logger = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_handleError = /* @__PURE__ */ new WeakMap(), _BetaMessageStream_instances = /* @__PURE__ */ new WeakSet(), _BetaMessageStream_getFinalMessage = function _BetaMessageStream_getFinalMessage2() {
     if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a PromptCachingBetaMessage with role=assistant");
+      throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
     return this.receivedMessages.at(-1);
-  }, _PromptCachingBetaMessageStream_getFinalText = function _PromptCachingBetaMessageStream_getFinalText2() {
+  }, _BetaMessageStream_getFinalText = function _BetaMessageStream_getFinalText2() {
     if (this.receivedMessages.length === 0) {
-      throw new AnthropicError("stream ended without producing a PromptCachingBetaMessage with role=assistant");
+      throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
     const textBlocks = this.receivedMessages.at(-1).content.filter((block) => block.type === "text").map((block) => block.text);
     if (textBlocks.length === 0) {
       throw new AnthropicError("stream ended without producing a content block with type=text");
     }
     return textBlocks.join(" ");
-  }, _PromptCachingBetaMessageStream_beginRequest = function _PromptCachingBetaMessageStream_beginRequest2() {
+  }, _BetaMessageStream_beginRequest = function _BetaMessageStream_beginRequest2() {
     if (this.ended)
       return;
-    __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, void 0, "f");
-  }, _PromptCachingBetaMessageStream_addStreamEvent = function _PromptCachingBetaMessageStream_addStreamEvent2(event) {
+    __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, void 0, "f");
+  }, _BetaMessageStream_addStreamEvent = function _BetaMessageStream_addStreamEvent2(event) {
     if (this.ended)
       return;
-    const messageSnapshot = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_instances, "m", _PromptCachingBetaMessageStream_accumulateMessage).call(this, event);
+    const messageSnapshot = __classPrivateFieldGet(this, _BetaMessageStream_instances, "m", _BetaMessageStream_accumulateMessage).call(this, event);
     this._emit("streamEvent", event, messageSnapshot);
     switch (event.type) {
       case "content_block_delta": {
         const content = messageSnapshot.content.at(-1);
-        if (event.delta.type === "text_delta" && content.type === "text") {
-          this._emit("text", event.delta.text, content.text || "");
-        } else if (event.delta.type === "input_json_delta" && content.type === "tool_use") {
-          if (content.input) {
-            this._emit("inputJson", event.delta.partial_json, content.input);
+        switch (event.delta.type) {
+          case "text_delta": {
+            if (content.type === "text") {
+              this._emit("text", event.delta.text, content.text || "");
+            }
+            break;
           }
+          case "citations_delta": {
+            if (content.type === "text") {
+              this._emit("citation", event.delta.citation, content.citations ?? []);
+            }
+            break;
+          }
+          case "input_json_delta": {
+            if (tracksToolInput(content) && content.input) {
+              this._emit("inputJson", event.delta.partial_json, content.input);
+            }
+            break;
+          }
+          case "thinking_delta": {
+            if (content.type === "thinking") {
+              this._emit("thinking", event.delta.thinking, content.thinking);
+            }
+            break;
+          }
+          case "signature_delta": {
+            if (content.type === "thinking") {
+              this._emit("signature", content.signature);
+            }
+            break;
+          }
+          case "compaction_delta": {
+            if (content.type === "compaction" && content.content) {
+              this._emit("compaction", content.content);
+            }
+            break;
+          }
+          default:
+            checkNever(event.delta);
         }
         break;
       }
       case "message_stop": {
-        this._addPromptCachingBetaMessageParam(messageSnapshot);
-        this._addPromptCachingBetaMessage(messageSnapshot, true);
+        this._addMessageParam(messageSnapshot);
+        this._addMessage(maybeParseBetaMessage(messageSnapshot, __classPrivateFieldGet(this, _BetaMessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _BetaMessageStream_logger, "f") }), true);
         break;
       }
       case "content_block_stop": {
@@ -88699,25 +88910,25 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
         break;
       }
       case "message_start": {
-        __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, messageSnapshot, "f");
+        __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, messageSnapshot, "f");
         break;
       }
       case "content_block_start":
       case "message_delta":
         break;
     }
-  }, _PromptCachingBetaMessageStream_endRequest = function _PromptCachingBetaMessageStream_endRequest2() {
+  }, _BetaMessageStream_endRequest = function _BetaMessageStream_endRequest2() {
     if (this.ended) {
       throw new AnthropicError(`stream has ended, this shouldn't happen`);
     }
-    const snapshot = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, "f");
+    const snapshot = __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
     if (!snapshot) {
       throw new AnthropicError(`request ended without sending any chunks`);
     }
-    __classPrivateFieldSet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, void 0, "f");
-    return snapshot;
-  }, _PromptCachingBetaMessageStream_accumulateMessage = function _PromptCachingBetaMessageStream_accumulateMessage2(event) {
-    let snapshot = __classPrivateFieldGet2(this, _PromptCachingBetaMessageStream_currentMessageSnapshot, "f");
+    __classPrivateFieldSet(this, _BetaMessageStream_currentMessageSnapshot, void 0, "f");
+    return maybeParseBetaMessage(snapshot, __classPrivateFieldGet(this, _BetaMessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _BetaMessageStream_logger, "f") });
+  }, _BetaMessageStream_accumulateMessage = function _BetaMessageStream_accumulateMessage2(event) {
+    let snapshot = __classPrivateFieldGet(this, _BetaMessageStream_currentMessageSnapshot, "f");
     if (event.type === "message_start") {
       if (snapshot) {
         throw new AnthropicError(`Unexpected event order, got ${event.type} before receiving "message_stop"`);
@@ -88731,28 +88942,102 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
       case "message_stop":
         return snapshot;
       case "message_delta":
+        snapshot.container = event.delta.container;
         snapshot.stop_reason = event.delta.stop_reason;
         snapshot.stop_sequence = event.delta.stop_sequence;
         snapshot.usage.output_tokens = event.usage.output_tokens;
+        snapshot.context_management = event.context_management;
+        if (event.usage.input_tokens != null) {
+          snapshot.usage.input_tokens = event.usage.input_tokens;
+        }
+        if (event.usage.cache_creation_input_tokens != null) {
+          snapshot.usage.cache_creation_input_tokens = event.usage.cache_creation_input_tokens;
+        }
+        if (event.usage.cache_read_input_tokens != null) {
+          snapshot.usage.cache_read_input_tokens = event.usage.cache_read_input_tokens;
+        }
+        if (event.usage.server_tool_use != null) {
+          snapshot.usage.server_tool_use = event.usage.server_tool_use;
+        }
+        if (event.usage.iterations != null) {
+          snapshot.usage.iterations = event.usage.iterations;
+        }
         return snapshot;
       case "content_block_start":
         snapshot.content.push(event.content_block);
         return snapshot;
       case "content_block_delta": {
         const snapshotContent = snapshot.content.at(event.index);
-        if (snapshotContent?.type === "text" && event.delta.type === "text_delta") {
-          snapshotContent.text += event.delta.text;
-        } else if (snapshotContent?.type === "tool_use" && event.delta.type === "input_json_delta") {
-          let jsonBuf = snapshotContent[JSON_BUF_PROPERTY] || "";
-          jsonBuf += event.delta.partial_json;
-          Object.defineProperty(snapshotContent, JSON_BUF_PROPERTY, {
-            value: jsonBuf,
-            enumerable: false,
-            writable: true
-          });
-          if (jsonBuf) {
-            snapshotContent.input = partialParse(jsonBuf);
+        switch (event.delta.type) {
+          case "text_delta": {
+            if (snapshotContent?.type === "text") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                text: (snapshotContent.text || "") + event.delta.text
+              };
+            }
+            break;
           }
+          case "citations_delta": {
+            if (snapshotContent?.type === "text") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                citations: [...snapshotContent.citations ?? [], event.delta.citation]
+              };
+            }
+            break;
+          }
+          case "input_json_delta": {
+            if (snapshotContent && tracksToolInput(snapshotContent)) {
+              let jsonBuf = snapshotContent[JSON_BUF_PROPERTY] || "";
+              jsonBuf += event.delta.partial_json;
+              const newContent = { ...snapshotContent };
+              Object.defineProperty(newContent, JSON_BUF_PROPERTY, {
+                value: jsonBuf,
+                enumerable: false,
+                writable: true
+              });
+              if (jsonBuf) {
+                try {
+                  newContent.input = partialParse(jsonBuf);
+                } catch (err) {
+                  const error2 = new AnthropicError(`Unable to parse tool parameter JSON from model. Please retry your request or adjust your prompt. Error: ${err}. JSON: ${jsonBuf}`);
+                  __classPrivateFieldGet(this, _BetaMessageStream_handleError, "f").call(this, error2);
+                }
+              }
+              snapshot.content[event.index] = newContent;
+            }
+            break;
+          }
+          case "thinking_delta": {
+            if (snapshotContent?.type === "thinking") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                thinking: snapshotContent.thinking + event.delta.thinking
+              };
+            }
+            break;
+          }
+          case "signature_delta": {
+            if (snapshotContent?.type === "thinking") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                signature: event.delta.signature
+              };
+            }
+            break;
+          }
+          case "compaction_delta": {
+            if (snapshotContent?.type === "compaction") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                content: (snapshotContent.content || "") + event.delta.content
+              };
+            }
+            break;
+          }
+          default:
+            checkNever(event.delta);
         }
         return snapshot;
       }
@@ -88814,84 +89099,1016 @@ var PromptCachingBetaMessageStream = class _PromptCachingBetaMessageStream {
     return stream.toReadableStream();
   }
 };
+function checkNever(x) {
+}
 
-// node_modules/@anthropic-ai/sdk/resources/beta/prompt-caching/messages.mjs
-var Messages2 = class extends APIResource {
+// node_modules/@anthropic-ai/sdk/lib/tools/ToolError.mjs
+var ToolError = class extends Error {
+  constructor(content) {
+    const message = typeof content === "string" ? content : content.map((block) => {
+      if (block.type === "text")
+        return block.text;
+      return `[${block.type}]`;
+    }).join(" ");
+    super(message);
+    this.name = "ToolError";
+    this.content = content;
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/lib/tools/CompactionControl.mjs
+var DEFAULT_TOKEN_THRESHOLD = 1e5;
+var DEFAULT_SUMMARY_PROMPT = `You have been working on the task described above but have not yet completed it. Write a continuation summary that will allow you (or another instance of yourself) to resume work efficiently in a future context window where the conversation history will be replaced with this summary. Your summary should be structured, concise, and actionable. Include:
+1. Task Overview
+The user's core request and success criteria
+Any clarifications or constraints they specified
+2. Current State
+What has been completed so far
+Files created, modified, or analyzed (with paths if relevant)
+Key outputs or artifacts produced
+3. Important Discoveries
+Technical constraints or requirements uncovered
+Decisions made and their rationale
+Errors encountered and how they were resolved
+What approaches were tried that didn't work (and why)
+4. Next Steps
+Specific actions needed to complete the task
+Any blockers or open questions to resolve
+Priority order if multiple steps remain
+5. Context to Preserve
+User preferences or style requirements
+Domain-specific details that aren't obvious
+Any promises made to the user
+Be concise but complete\u2014err on the side of including information that would prevent duplicate work or repeated mistakes. Write in a way that enables immediate resumption of the task.
+Wrap your summary in <summary></summary> tags.`;
+
+// node_modules/@anthropic-ai/sdk/lib/tools/BetaToolRunner.mjs
+var _BetaToolRunner_instances;
+var _BetaToolRunner_consumed;
+var _BetaToolRunner_mutated;
+var _BetaToolRunner_state;
+var _BetaToolRunner_options;
+var _BetaToolRunner_message;
+var _BetaToolRunner_toolResponse;
+var _BetaToolRunner_completion;
+var _BetaToolRunner_iterationCount;
+var _BetaToolRunner_checkAndCompact;
+var _BetaToolRunner_generateToolResponse;
+function promiseWithResolvers() {
+  let resolve2;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve2 = res;
+    reject = rej;
+  });
+  return { promise, resolve: resolve2, reject };
+}
+var BetaToolRunner = class {
+  constructor(client, params, options) {
+    _BetaToolRunner_instances.add(this);
+    this.client = client;
+    _BetaToolRunner_consumed.set(this, false);
+    _BetaToolRunner_mutated.set(this, false);
+    _BetaToolRunner_state.set(this, void 0);
+    _BetaToolRunner_options.set(this, void 0);
+    _BetaToolRunner_message.set(this, void 0);
+    _BetaToolRunner_toolResponse.set(this, void 0);
+    _BetaToolRunner_completion.set(this, void 0);
+    _BetaToolRunner_iterationCount.set(this, 0);
+    __classPrivateFieldSet(this, _BetaToolRunner_state, {
+      params: {
+        // You can't clone the entire params since there are functions as handlers.
+        // You also don't really need to clone params.messages, but it probably will prevent a foot gun
+        // somewhere.
+        ...params,
+        messages: structuredClone(params.messages)
+      }
+    }, "f");
+    const helpers = collectStainlessHelpers(params.tools, params.messages);
+    const helperValue = ["BetaToolRunner", ...helpers].join(", ");
+    __classPrivateFieldSet(this, _BetaToolRunner_options, {
+      ...options,
+      headers: buildHeaders([{ "x-stainless-helper": helperValue }, options?.headers])
+    }, "f");
+    __classPrivateFieldSet(this, _BetaToolRunner_completion, promiseWithResolvers(), "f");
+  }
+  async *[(_BetaToolRunner_consumed = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_mutated = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_state = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_options = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_message = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_toolResponse = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_completion = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_iterationCount = /* @__PURE__ */ new WeakMap(), _BetaToolRunner_instances = /* @__PURE__ */ new WeakSet(), _BetaToolRunner_checkAndCompact = async function _BetaToolRunner_checkAndCompact2() {
+    const compactionControl = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.compactionControl;
+    if (!compactionControl || !compactionControl.enabled) {
+      return false;
+    }
+    let tokensUsed = 0;
+    if (__classPrivateFieldGet(this, _BetaToolRunner_message, "f") !== void 0) {
+      try {
+        const message = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
+        const totalInputTokens = message.usage.input_tokens + (message.usage.cache_creation_input_tokens ?? 0) + (message.usage.cache_read_input_tokens ?? 0);
+        tokensUsed = totalInputTokens + message.usage.output_tokens;
+      } catch {
+        return false;
+      }
+    }
+    const threshold = compactionControl.contextTokenThreshold ?? DEFAULT_TOKEN_THRESHOLD;
+    if (tokensUsed < threshold) {
+      return false;
+    }
+    const model = compactionControl.model ?? __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.model;
+    const summaryPrompt = compactionControl.summaryPrompt ?? DEFAULT_SUMMARY_PROMPT;
+    const messages = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages;
+    if (messages[messages.length - 1].role === "assistant") {
+      const lastMessage = messages[messages.length - 1];
+      if (Array.isArray(lastMessage.content)) {
+        const nonToolBlocks = lastMessage.content.filter((block) => block.type !== "tool_use");
+        if (nonToolBlocks.length === 0) {
+          messages.pop();
+        } else {
+          lastMessage.content = nonToolBlocks;
+        }
+      }
+    }
+    const response = await this.client.beta.messages.create({
+      model,
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: summaryPrompt
+            }
+          ]
+        }
+      ],
+      max_tokens: __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_tokens
+    }, {
+      headers: { "x-stainless-helper": "compaction" }
+    });
+    if (response.content[0]?.type !== "text") {
+      throw new AnthropicError("Expected text response for compaction");
+    }
+    __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages = [
+      {
+        role: "user",
+        content: response.content
+      }
+    ];
+    return true;
+  }, Symbol.asyncIterator)]() {
+    var _a7;
+    if (__classPrivateFieldGet(this, _BetaToolRunner_consumed, "f")) {
+      throw new AnthropicError("Cannot iterate over a consumed stream");
+    }
+    __classPrivateFieldSet(this, _BetaToolRunner_consumed, true, "f");
+    __classPrivateFieldSet(this, _BetaToolRunner_mutated, true, "f");
+    __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, void 0, "f");
+    try {
+      while (true) {
+        let stream;
+        try {
+          if (__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_iterations && __classPrivateFieldGet(this, _BetaToolRunner_iterationCount, "f") >= __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.max_iterations) {
+            break;
+          }
+          __classPrivateFieldSet(this, _BetaToolRunner_mutated, false, "f");
+          __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, void 0, "f");
+          __classPrivateFieldSet(this, _BetaToolRunner_iterationCount, (_a7 = __classPrivateFieldGet(this, _BetaToolRunner_iterationCount, "f"), _a7++, _a7), "f");
+          __classPrivateFieldSet(this, _BetaToolRunner_message, void 0, "f");
+          const { max_iterations, compactionControl, ...params } = __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params;
+          if (params.stream) {
+            stream = this.client.beta.messages.stream({ ...params }, __classPrivateFieldGet(this, _BetaToolRunner_options, "f"));
+            __classPrivateFieldSet(this, _BetaToolRunner_message, stream.finalMessage(), "f");
+            __classPrivateFieldGet(this, _BetaToolRunner_message, "f").catch(() => {
+            });
+            yield stream;
+          } else {
+            __classPrivateFieldSet(this, _BetaToolRunner_message, this.client.beta.messages.create({ ...params, stream: false }, __classPrivateFieldGet(this, _BetaToolRunner_options, "f")), "f");
+            yield __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
+          }
+          const isCompacted = await __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_checkAndCompact).call(this);
+          if (!isCompacted) {
+            if (!__classPrivateFieldGet(this, _BetaToolRunner_mutated, "f")) {
+              const { role, content } = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f");
+              __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.push({ role, content });
+            }
+            const toolMessage = await __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_generateToolResponse).call(this, __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.at(-1));
+            if (toolMessage) {
+              __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params.messages.push(toolMessage);
+            } else if (!__classPrivateFieldGet(this, _BetaToolRunner_mutated, "f")) {
+              break;
+            }
+          }
+        } finally {
+          if (stream) {
+            stream.abort();
+          }
+        }
+      }
+      if (!__classPrivateFieldGet(this, _BetaToolRunner_message, "f")) {
+        throw new AnthropicError("ToolRunner concluded without a message from the server");
+      }
+      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").resolve(await __classPrivateFieldGet(this, _BetaToolRunner_message, "f"));
+    } catch (error2) {
+      __classPrivateFieldSet(this, _BetaToolRunner_consumed, false, "f");
+      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").promise.catch(() => {
+      });
+      __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").reject(error2);
+      __classPrivateFieldSet(this, _BetaToolRunner_completion, promiseWithResolvers(), "f");
+      throw error2;
+    }
+  }
+  setMessagesParams(paramsOrMutator) {
+    if (typeof paramsOrMutator === "function") {
+      __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params = paramsOrMutator(__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params);
+    } else {
+      __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params = paramsOrMutator;
+    }
+    __classPrivateFieldSet(this, _BetaToolRunner_mutated, true, "f");
+    __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, void 0, "f");
+  }
+  /**
+   * Get the tool response for the last message from the assistant.
+   * Avoids redundant tool executions by caching results.
+   *
+   * @returns A promise that resolves to a BetaMessageParam containing tool results, or null if no tools need to be executed
+   *
+   * @example
+   * const toolResponse = await runner.generateToolResponse();
+   * if (toolResponse) {
+   *   console.log('Tool results:', toolResponse.content);
+   * }
+   */
+  async generateToolResponse() {
+    const message = await __classPrivateFieldGet(this, _BetaToolRunner_message, "f") ?? this.params.messages.at(-1);
+    if (!message) {
+      return null;
+    }
+    return __classPrivateFieldGet(this, _BetaToolRunner_instances, "m", _BetaToolRunner_generateToolResponse).call(this, message);
+  }
+  /**
+   * Wait for the async iterator to complete. This works even if the async iterator hasn't yet started, and
+   * will wait for an instance to start and go to completion.
+   *
+   * @returns A promise that resolves to the final BetaMessage when the iterator completes
+   *
+   * @example
+   * // Start consuming the iterator
+   * for await (const message of runner) {
+   *   console.log('Message:', message.content);
+   * }
+   *
+   * // Meanwhile, wait for completion from another part of the code
+   * const finalMessage = await runner.done();
+   * console.log('Final response:', finalMessage.content);
+   */
+  done() {
+    return __classPrivateFieldGet(this, _BetaToolRunner_completion, "f").promise;
+  }
+  /**
+   * Returns a promise indicating that the stream is done. Unlike .done(), this will eagerly read the stream:
+   * * If the iterator has not been consumed, consume the entire iterator and return the final message from the
+   * assistant.
+   * * If the iterator has been consumed, waits for it to complete and returns the final message.
+   *
+   * @returns A promise that resolves to the final BetaMessage from the conversation
+   * @throws {AnthropicError} If no messages were processed during the conversation
+   *
+   * @example
+   * const finalMessage = await runner.runUntilDone();
+   * console.log('Final response:', finalMessage.content);
+   */
+  async runUntilDone() {
+    if (!__classPrivateFieldGet(this, _BetaToolRunner_consumed, "f")) {
+      for await (const _ of this) {
+      }
+    }
+    return this.done();
+  }
+  /**
+   * Get the current parameters being used by the ToolRunner.
+   *
+   * @returns A readonly view of the current ToolRunnerParams
+   *
+   * @example
+   * const currentParams = runner.params;
+   * console.log('Current model:', currentParams.model);
+   * console.log('Message count:', currentParams.messages.length);
+   */
+  get params() {
+    return __classPrivateFieldGet(this, _BetaToolRunner_state, "f").params;
+  }
+  /**
+   * Add one or more messages to the conversation history.
+   *
+   * @param messages - One or more BetaMessageParam objects to add to the conversation
+   *
+   * @example
+   * runner.pushMessages(
+   *   { role: 'user', content: 'Also, what about the weather in NYC?' }
+   * );
+   *
+   * @example
+   * // Adding multiple messages
+   * runner.pushMessages(
+   *   { role: 'user', content: 'What about NYC?' },
+   *   { role: 'user', content: 'And Boston?' }
+   * );
+   */
+  pushMessages(...messages) {
+    this.setMessagesParams((params) => ({
+      ...params,
+      messages: [...params.messages, ...messages]
+    }));
+  }
+  /**
+   * Makes the ToolRunner directly awaitable, equivalent to calling .runUntilDone()
+   * This allows using `await runner` instead of `await runner.runUntilDone()`
+   */
+  then(onfulfilled, onrejected) {
+    return this.runUntilDone().then(onfulfilled, onrejected);
+  }
+};
+_BetaToolRunner_generateToolResponse = async function _BetaToolRunner_generateToolResponse2(lastMessage) {
+  if (__classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f") !== void 0) {
+    return __classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f");
+  }
+  __classPrivateFieldSet(this, _BetaToolRunner_toolResponse, generateToolResponse(__classPrivateFieldGet(this, _BetaToolRunner_state, "f").params, lastMessage), "f");
+  return __classPrivateFieldGet(this, _BetaToolRunner_toolResponse, "f");
+};
+async function generateToolResponse(params, lastMessage = params.messages.at(-1)) {
+  if (!lastMessage || lastMessage.role !== "assistant" || !lastMessage.content || typeof lastMessage.content === "string") {
+    return null;
+  }
+  const toolUseBlocks = lastMessage.content.filter((content) => content.type === "tool_use");
+  if (toolUseBlocks.length === 0) {
+    return null;
+  }
+  const toolResults = await Promise.all(toolUseBlocks.map(async (toolUse) => {
+    const tool = params.tools.find((t2) => ("name" in t2 ? t2.name : t2.mcp_server_name) === toolUse.name);
+    if (!tool || !("run" in tool)) {
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: `Error: Tool '${toolUse.name}' not found`,
+        is_error: true
+      };
+    }
+    try {
+      let input = toolUse.input;
+      if ("parse" in tool && tool.parse) {
+        input = tool.parse(input);
+      }
+      const result = await tool.run(input);
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: result
+      };
+    } catch (error2) {
+      return {
+        type: "tool_result",
+        tool_use_id: toolUse.id,
+        content: error2 instanceof ToolError ? error2.content : `Error: ${error2 instanceof Error ? error2.message : String(error2)}`,
+        is_error: true
+      };
+    }
+  }));
+  return {
+    role: "user",
+    content: toolResults
+  };
+}
+
+// node_modules/@anthropic-ai/sdk/internal/decoders/jsonl.mjs
+var JSONLDecoder = class _JSONLDecoder {
+  constructor(iterator, controller) {
+    this.iterator = iterator;
+    this.controller = controller;
+  }
+  async *decoder() {
+    const lineDecoder = new LineDecoder();
+    for await (const chunk of this.iterator) {
+      for (const line of lineDecoder.decode(chunk)) {
+        yield JSON.parse(line);
+      }
+    }
+    for (const line of lineDecoder.flush()) {
+      yield JSON.parse(line);
+    }
+  }
+  [Symbol.asyncIterator]() {
+    return this.decoder();
+  }
+  static fromResponse(response, controller) {
+    if (!response.body) {
+      controller.abort();
+      if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") {
+        throw new AnthropicError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+      }
+      throw new AnthropicError(`Attempted to iterate over a response with no body`);
+    }
+    return new _JSONLDecoder(ReadableStreamToAsyncIterable(response.body), controller);
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/messages/batches.mjs
+var Batches = class extends APIResource {
+  /**
+   * Send a batch of Message creation requests.
+   *
+   * The Message Batches API can be used to process multiple Messages API requests at
+   * once. Once a Message Batch is created, it begins processing immediately. Batches
+   * can take up to 24 hours to complete.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.create({
+   *     requests: [
+   *       {
+   *         custom_id: 'my-custom-id-1',
+   *         params: {
+   *           max_tokens: 1024,
+   *           messages: [
+   *             { content: 'Hello, world', role: 'user' },
+   *           ],
+   *           model: 'claude-opus-4-6',
+   *         },
+   *       },
+   *     ],
+   *   });
+   * ```
+   */
   create(params, options) {
     const { betas, ...body } = params;
-    return this._client.post("/v1/messages?beta=prompt_caching", {
+    return this._client.post("/v1/messages/batches?beta=true", {
       body,
-      timeout: this._client._options.timeout ?? 6e5,
       ...options,
-      headers: {
-        "anthropic-beta": [...betas ?? [], "prompt-caching-2024-07-31"].toString(),
-        ...options?.headers
-      },
-      stream: params.stream ?? false
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
     });
+  }
+  /**
+   * This endpoint is idempotent and can be used to poll for Message Batch
+   * completion. To access the results of a Message Batch, make a request to the
+   * `results_url` field in the response.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.retrieve(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  retrieve(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List all Message Batches within a Workspace. Most recently created batches are
+   * returned first.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const betaMessageBatch of client.beta.messages.batches.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/messages/batches?beta=true", Page, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Delete a Message Batch.
+   *
+   * Message Batches can only be deleted once they've finished processing. If you'd
+   * like to delete an in-progress batch, you must first cancel it.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaDeletedMessageBatch =
+   *   await client.beta.messages.batches.delete(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  delete(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.delete(path`/v1/messages/batches/${messageBatchID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Batches may be canceled any time before processing ends. Once cancellation is
+   * initiated, the batch enters a `canceling` state, at which time the system may
+   * complete any in-progress, non-interruptible requests before finalizing
+   * cancellation.
+   *
+   * The number of canceled requests is specified in `request_counts`. To determine
+   * which requests were canceled, check the individual results within the batch.
+   * Note that cancellation may not result in any canceled requests if they were
+   * non-interruptible.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatch =
+   *   await client.beta.messages.batches.cancel(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  cancel(messageBatchID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.post(path`/v1/messages/batches/${messageBatchID}/cancel?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Streams the results of a Message Batch as a `.jsonl` file.
+   *
+   * Each line in the file is a JSON object containing the result of a single request
+   * in the Message Batch. Results are not guaranteed to be in the same order as
+   * requests. Use the `custom_id` field to match results to requests.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const betaMessageBatchIndividualResponse =
+   *   await client.beta.messages.batches.results(
+   *     'message_batch_id',
+   *   );
+   * ```
+   */
+  async results(messageBatchID, params = {}, options) {
+    const batch = await this.retrieve(messageBatchID);
+    if (!batch.results_url) {
+      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
+    }
+    const { betas } = params ?? {};
+    return this._client.get(batch.results_url, {
+      ...options,
+      headers: buildHeaders([
+        {
+          "anthropic-beta": [...betas ?? [], "message-batches-2024-09-24"].toString(),
+          Accept: "application/binary"
+        },
+        options?.headers
+      ]),
+      stream: true,
+      __binaryResponse: true
+    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/messages/messages.mjs
+var DEPRECATED_MODELS = {
+  "claude-1.3": "November 6th, 2024",
+  "claude-1.3-100k": "November 6th, 2024",
+  "claude-instant-1.1": "November 6th, 2024",
+  "claude-instant-1.1-100k": "November 6th, 2024",
+  "claude-instant-1.2": "November 6th, 2024",
+  "claude-3-sonnet-20240229": "July 21st, 2025",
+  "claude-3-opus-20240229": "January 5th, 2026",
+  "claude-2.1": "July 21st, 2025",
+  "claude-2.0": "July 21st, 2025",
+  "claude-3-7-sonnet-latest": "February 19th, 2026",
+  "claude-3-7-sonnet-20250219": "February 19th, 2026"
+};
+var MODELS_TO_WARN_WITH_THINKING_ENABLED = ["claude-opus-4-6"];
+var Messages = class extends APIResource {
+  constructor() {
+    super(...arguments);
+    this.batches = new Batches(this._client);
+  }
+  create(params, options) {
+    const modifiedParams = transformOutputFormat(params);
+    const { betas, ...body } = modifiedParams;
+    if (body.model in DEPRECATED_MODELS) {
+      console.warn(`The model '${body.model}' is deprecated and will reach end-of-life on ${DEPRECATED_MODELS[body.model]}
+Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.`);
+    }
+    if (body.model in MODELS_TO_WARN_WITH_THINKING_ENABLED && body.thinking && body.thinking.type === "enabled") {
+      console.warn(`Using Claude with ${body.model} and 'thinking.type=enabled' is deprecated. Use 'thinking.type=adaptive' instead which results in better model performance in our testing: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking`);
+    }
+    let timeout = this._client._options.timeout;
+    if (!body.stream && timeout == null) {
+      const maxNonstreamingTokens = MODEL_NONSTREAMING_TOKENS[body.model] ?? void 0;
+      timeout = this._client.calculateNonstreamingTimeout(body.max_tokens, maxNonstreamingTokens);
+    }
+    const helperHeader = stainlessHelperHeader(body.tools, body.messages);
+    return this._client.post("/v1/messages?beta=true", {
+      body,
+      timeout: timeout ?? 6e5,
+      ...options,
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        helperHeader,
+        options?.headers
+      ]),
+      stream: modifiedParams.stream ?? false
+    });
+  }
+  /**
+   * Send a structured list of input messages with text and/or image content, along with an expected `output_format` and
+   * the response will be automatically parsed and available in the `parsed_output` property of the message.
+   *
+   * @example
+   * ```ts
+   * const message = await client.beta.messages.parse({
+   *   model: 'claude-3-5-sonnet-20241022',
+   *   max_tokens: 1024,
+   *   messages: [{ role: 'user', content: 'What is 2+2?' }],
+   *   output_format: zodOutputFormat(z.object({ answer: z.number() }), 'math'),
+   * });
+   *
+   * console.log(message.parsed_output?.answer); // 4
+   * ```
+   */
+  parse(params, options) {
+    options = {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...params.betas ?? [], "structured-outputs-2025-12-15"].toString() },
+        options?.headers
+      ])
+    };
+    return this.create(params, options).then((message) => parseBetaMessage(message, params, { logger: this._client.logger ?? console }));
   }
   /**
    * Create a Message stream
    */
   stream(body, options) {
-    return PromptCachingBetaMessageStream.createMessage(this, body, options);
+    return BetaMessageStream.createMessage(this, body, options);
+  }
+  /**
+   * Count the number of tokens in a Message.
+   *
+   * The Token Count API can be used to count the number of tokens in a Message,
+   * including tools, images, and documents, without creating it.
+   *
+   * Learn more about token counting in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/token-counting)
+   *
+   * @example
+   * ```ts
+   * const betaMessageTokensCount =
+   *   await client.beta.messages.countTokens({
+   *     messages: [{ content: 'string', role: 'user' }],
+   *     model: 'claude-opus-4-6',
+   *   });
+   * ```
+   */
+  countTokens(params, options) {
+    const modifiedParams = transformOutputFormat(params);
+    const { betas, ...body } = modifiedParams;
+    return this._client.post("/v1/messages/count_tokens?beta=true", {
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "token-counting-2024-11-01"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  toolRunner(body, options) {
+    return new BetaToolRunner(this._client, body, options);
   }
 };
-/* @__PURE__ */ (function(Messages6) {
-})(Messages2 || (Messages2 = {}));
+function transformOutputFormat(params) {
+  if (!params.output_format) {
+    return params;
+  }
+  if (params.output_config?.format) {
+    throw new AnthropicError("Both output_format and output_config.format were provided. Please use only output_config.format (output_format is deprecated).");
+  }
+  const { output_format, ...rest } = params;
+  return {
+    ...rest,
+    output_config: {
+      ...params.output_config,
+      format: output_format
+    }
+  };
+}
+Messages.Batches = Batches;
+Messages.BetaToolRunner = BetaToolRunner;
+Messages.ToolError = ToolError;
 
-// node_modules/@anthropic-ai/sdk/resources/beta/prompt-caching/prompt-caching.mjs
-var PromptCaching = class extends APIResource {
+// node_modules/@anthropic-ai/sdk/resources/beta/skills/versions.mjs
+var Versions = class extends APIResource {
+  /**
+   * Create Skill Version
+   *
+   * @example
+   * ```ts
+   * const version = await client.beta.skills.versions.create(
+   *   'skill_id',
+   * );
+   * ```
+   */
+  create(skillID, params = {}, options) {
+    const { betas, ...body } = params ?? {};
+    return this._client.post(path`/v1/skills/${skillID}/versions?beta=true`, multipartFormRequestOptions({
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    }, this._client));
+  }
+  /**
+   * Get Skill Version
+   *
+   * @example
+   * ```ts
+   * const version = await client.beta.skills.versions.retrieve(
+   *   'version',
+   *   { skill_id: 'skill_id' },
+   * );
+   * ```
+   */
+  retrieve(version3, params, options) {
+    const { skill_id, betas } = params;
+    return this._client.get(path`/v1/skills/${skill_id}/versions/${version3}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List Skill Versions
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const versionListResponse of client.beta.skills.versions.list(
+   *   'skill_id',
+   * )) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(skillID, params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList(path`/v1/skills/${skillID}/versions?beta=true`, PageCursor, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Delete Skill Version
+   *
+   * @example
+   * ```ts
+   * const version = await client.beta.skills.versions.delete(
+   *   'version',
+   *   { skill_id: 'skill_id' },
+   * );
+   * ```
+   */
+  delete(version3, params, options) {
+    const { skill_id, betas } = params;
+    return this._client.delete(path`/v1/skills/${skill_id}/versions/${version3}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/beta/skills/skills.mjs
+var Skills = class extends APIResource {
   constructor() {
     super(...arguments);
-    this.messages = new Messages2(this._client);
+    this.versions = new Versions(this._client);
+  }
+  /**
+   * Create Skill
+   *
+   * @example
+   * ```ts
+   * const skill = await client.beta.skills.create();
+   * ```
+   */
+  create(params = {}, options) {
+    const { betas, ...body } = params ?? {};
+    return this._client.post("/v1/skills?beta=true", multipartFormRequestOptions({
+      body,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    }, this._client, false));
+  }
+  /**
+   * Get Skill
+   *
+   * @example
+   * ```ts
+   * const skill = await client.beta.skills.retrieve('skill_id');
+   * ```
+   */
+  retrieve(skillID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/skills/${skillID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List Skills
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const skillListResponse of client.beta.skills.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/skills?beta=true", PageCursor, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * Delete Skill
+   *
+   * @example
+   * ```ts
+   * const skill = await client.beta.skills.delete('skill_id');
+   * ```
+   */
+  delete(skillID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.delete(path`/v1/skills/${skillID}?beta=true`, {
+      ...options,
+      headers: buildHeaders([
+        { "anthropic-beta": [...betas ?? [], "skills-2025-10-02"].toString() },
+        options?.headers
+      ])
+    });
   }
 };
-(function(PromptCaching2) {
-  PromptCaching2.Messages = Messages2;
-})(PromptCaching || (PromptCaching = {}));
+Skills.Versions = Versions;
 
 // node_modules/@anthropic-ai/sdk/resources/beta/beta.mjs
 var Beta = class extends APIResource {
   constructor() {
     super(...arguments);
+    this.models = new Models(this._client);
     this.messages = new Messages(this._client);
-    this.promptCaching = new PromptCaching(this._client);
+    this.files = new Files(this._client);
+    this.skills = new Skills(this._client);
   }
 };
-(function(Beta3) {
-  Beta3.Messages = Messages;
-  Beta3.PromptCaching = PromptCaching;
-})(Beta || (Beta = {}));
+Beta.Models = Models;
+Beta.Messages = Messages;
+Beta.Files = Files;
+Beta.Skills = Skills;
 
 // node_modules/@anthropic-ai/sdk/resources/completions.mjs
 var Completions = class extends APIResource {
-  create(body, options) {
+  create(params, options) {
+    const { betas, ...body } = params;
     return this._client.post("/v1/complete", {
       body,
       timeout: this._client._options.timeout ?? 6e5,
       ...options,
-      stream: body.stream ?? false
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        options?.headers
+      ]),
+      stream: params.stream ?? false
     });
   }
 };
-/* @__PURE__ */ (function(Completions5) {
-})(Completions || (Completions = {}));
+
+// node_modules/@anthropic-ai/sdk/lib/parser.mjs
+function getOutputFormat2(params) {
+  return params?.output_config?.format;
+}
+function maybeParseMessage(message, params, opts) {
+  const outputFormat = getOutputFormat2(params);
+  if (!params || !("parse" in (outputFormat ?? {}))) {
+    return {
+      ...message,
+      content: message.content.map((block) => {
+        if (block.type === "text") {
+          const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
+            value: null,
+            enumerable: false
+          });
+          return parsedBlock;
+        }
+        return block;
+      }),
+      parsed_output: null
+    };
+  }
+  return parseMessage(message, params, opts);
+}
+function parseMessage(message, params, opts) {
+  let firstParsedOutput = null;
+  const content = message.content.map((block) => {
+    if (block.type === "text") {
+      const parsedOutput = parseOutputFormat(params, block.text);
+      if (firstParsedOutput === null) {
+        firstParsedOutput = parsedOutput;
+      }
+      const parsedBlock = Object.defineProperty({ ...block }, "parsed_output", {
+        value: parsedOutput,
+        enumerable: false
+      });
+      return parsedBlock;
+    }
+    return block;
+  });
+  return {
+    ...message,
+    content,
+    parsed_output: firstParsedOutput
+  };
+}
+function parseOutputFormat(params, content) {
+  const outputFormat = getOutputFormat2(params);
+  if (outputFormat?.type !== "json_schema") {
+    return null;
+  }
+  try {
+    if ("parse" in outputFormat) {
+      return outputFormat.parse(content);
+    }
+    return JSON.parse(content);
+  } catch (error2) {
+    throw new AnthropicError(`Failed to parse structured output: ${error2}`);
+  }
+}
 
 // node_modules/@anthropic-ai/sdk/lib/MessageStream.mjs
-var __classPrivateFieldSet3 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
-};
-var __classPrivateFieldGet3 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
-  if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
-};
 var _MessageStream_instances;
 var _MessageStream_currentMessageSnapshot;
+var _MessageStream_params;
 var _MessageStream_connectedPromise;
 var _MessageStream_resolveConnectedPromise;
 var _MessageStream_rejectConnectedPromise;
@@ -88903,6 +90120,9 @@ var _MessageStream_ended;
 var _MessageStream_errored;
 var _MessageStream_aborted;
 var _MessageStream_catchingPromiseCreated;
+var _MessageStream_response;
+var _MessageStream_request_id;
+var _MessageStream_logger;
 var _MessageStream_getFinalMessage;
 var _MessageStream_getFinalText;
 var _MessageStream_handleError;
@@ -88911,12 +90131,16 @@ var _MessageStream_addStreamEvent;
 var _MessageStream_endRequest;
 var _MessageStream_accumulateMessage;
 var JSON_BUF_PROPERTY2 = "__json_buf";
+function tracksToolInput2(content) {
+  return content.type === "tool_use" || content.type === "server_tool_use";
+}
 var MessageStream = class _MessageStream {
-  constructor() {
+  constructor(params, opts) {
     _MessageStream_instances.add(this);
     this.messages = [];
     this.receivedMessages = [];
     _MessageStream_currentMessageSnapshot.set(this, void 0);
+    _MessageStream_params.set(this, null);
     this.controller = new AbortController();
     _MessageStream_connectedPromise.set(this, void 0);
     _MessageStream_resolveConnectedPromise.set(this, () => {
@@ -88933,13 +90157,16 @@ var MessageStream = class _MessageStream {
     _MessageStream_errored.set(this, false);
     _MessageStream_aborted.set(this, false);
     _MessageStream_catchingPromiseCreated.set(this, false);
+    _MessageStream_response.set(this, void 0);
+    _MessageStream_request_id.set(this, void 0);
+    _MessageStream_logger.set(this, void 0);
     _MessageStream_handleError.set(this, (error2) => {
-      __classPrivateFieldSet3(this, _MessageStream_errored, true, "f");
-      if (error2 instanceof Error && error2.name === "AbortError") {
+      __classPrivateFieldSet(this, _MessageStream_errored, true, "f");
+      if (isAbortError(error2)) {
         error2 = new APIUserAbortError();
       }
       if (error2 instanceof APIUserAbortError) {
-        __classPrivateFieldSet3(this, _MessageStream_aborted, true, "f");
+        __classPrivateFieldSet(this, _MessageStream_aborted, true, "f");
         return this._emit("abort", error2);
       }
       if (error2 instanceof AnthropicError) {
@@ -88952,18 +90179,48 @@ var MessageStream = class _MessageStream {
       }
       return this._emit("error", new AnthropicError(String(error2)));
     });
-    __classPrivateFieldSet3(this, _MessageStream_connectedPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet3(this, _MessageStream_resolveConnectedPromise, resolve2, "f");
-      __classPrivateFieldSet3(this, _MessageStream_rejectConnectedPromise, reject, "f");
+    __classPrivateFieldSet(this, _MessageStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _MessageStream_resolveConnectedPromise, resolve2, "f");
+      __classPrivateFieldSet(this, _MessageStream_rejectConnectedPromise, reject, "f");
     }), "f");
-    __classPrivateFieldSet3(this, _MessageStream_endPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet3(this, _MessageStream_resolveEndPromise, resolve2, "f");
-      __classPrivateFieldSet3(this, _MessageStream_rejectEndPromise, reject, "f");
+    __classPrivateFieldSet(this, _MessageStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet(this, _MessageStream_resolveEndPromise, resolve2, "f");
+      __classPrivateFieldSet(this, _MessageStream_rejectEndPromise, reject, "f");
     }), "f");
-    __classPrivateFieldGet3(this, _MessageStream_connectedPromise, "f").catch(() => {
+    __classPrivateFieldGet(this, _MessageStream_connectedPromise, "f").catch(() => {
     });
-    __classPrivateFieldGet3(this, _MessageStream_endPromise, "f").catch(() => {
+    __classPrivateFieldGet(this, _MessageStream_endPromise, "f").catch(() => {
     });
+    __classPrivateFieldSet(this, _MessageStream_params, params, "f");
+    __classPrivateFieldSet(this, _MessageStream_logger, opts?.logger ?? console, "f");
+  }
+  get response() {
+    return __classPrivateFieldGet(this, _MessageStream_response, "f");
+  }
+  get request_id() {
+    return __classPrivateFieldGet(this, _MessageStream_request_id, "f");
+  }
+  /**
+   * Returns the `MessageStream` data, the raw `Response` instance and the ID of the request,
+   * returned vie the `request-id` header which is useful for debugging requests and resporting
+   * issues to Anthropic.
+   *
+   * This is the same as the `APIPromise.withResponse()` method.
+   *
+   * This method will raise an error if you created the stream using `MessageStream.fromReadableStream`
+   * as no `Response` is available.
+   */
+  async withResponse() {
+    __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
+    const response = await __classPrivateFieldGet(this, _MessageStream_connectedPromise, "f");
+    if (!response) {
+      throw new Error("Could not resolve a `Response` object");
+    }
+    return {
+      data: this,
+      response,
+      request_id: response.headers.get("request-id")
+    };
   }
   /**
    * Intended for use on the frontend, consuming a stream produced with
@@ -88973,15 +90230,16 @@ var MessageStream = class _MessageStream {
    * in this context.
    */
   static fromReadableStream(stream) {
-    const runner = new _MessageStream();
+    const runner = new _MessageStream(null);
     runner._run(() => runner._fromReadableStream(stream));
     return runner;
   }
-  static createMessage(messages, params, options) {
-    const runner = new _MessageStream();
+  static createMessage(messages, params, options, { logger } = {}) {
+    const runner = new _MessageStream(params, { logger });
     for (const message of params.messages) {
       runner._addMessageParam(message);
     }
+    __classPrivateFieldSet(runner, _MessageStream_params, { ...params, stream: true }, "f");
     runner._run(() => runner._createMessage(messages, { ...params, stream: true }, { ...options, headers: { ...options?.headers, "X-Stainless-Helper-Method": "stream" } }));
     return runner;
   }
@@ -88989,7 +90247,7 @@ var MessageStream = class _MessageStream {
     executor().then(() => {
       this._emitFinal();
       this._emit("end");
-    }, __classPrivateFieldGet3(this, _MessageStream_handleError, "f"));
+    }, __classPrivateFieldGet(this, _MessageStream_handleError, "f"));
   }
   _addMessageParam(message) {
     this.messages.push(message);
@@ -89002,36 +90260,46 @@ var MessageStream = class _MessageStream {
   }
   async _createMessage(messages, params, options) {
     const signal = options?.signal;
+    let abortHandler;
     if (signal) {
       if (signal.aborted)
         this.controller.abort();
-      signal.addEventListener("abort", () => this.controller.abort());
+      abortHandler = this.controller.abort.bind(this.controller);
+      signal.addEventListener("abort", abortHandler);
     }
-    __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
-    const stream = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
-    this._connected();
-    for await (const event of stream) {
-      __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
+    try {
+      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
+      const { response, data: stream } = await messages.create({ ...params, stream: true }, { ...options, signal: this.controller.signal }).withResponse();
+      this._connected(response);
+      for await (const event of stream) {
+        __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
+      }
+      if (stream.controller.signal?.aborted) {
+        throw new APIUserAbortError();
+      }
+      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
+    } finally {
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
     }
-    if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError();
-    }
-    __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
   }
-  _connected() {
+  _connected(response) {
     if (this.ended)
       return;
-    __classPrivateFieldGet3(this, _MessageStream_resolveConnectedPromise, "f").call(this);
+    __classPrivateFieldSet(this, _MessageStream_response, response, "f");
+    __classPrivateFieldSet(this, _MessageStream_request_id, response?.headers.get("request-id"), "f");
+    __classPrivateFieldGet(this, _MessageStream_resolveConnectedPromise, "f").call(this, response);
     this._emit("connect");
   }
   get ended() {
-    return __classPrivateFieldGet3(this, _MessageStream_ended, "f");
+    return __classPrivateFieldGet(this, _MessageStream_ended, "f");
   }
   get errored() {
-    return __classPrivateFieldGet3(this, _MessageStream_errored, "f");
+    return __classPrivateFieldGet(this, _MessageStream_errored, "f");
   }
   get aborted() {
-    return __classPrivateFieldGet3(this, _MessageStream_aborted, "f");
+    return __classPrivateFieldGet(this, _MessageStream_aborted, "f");
   }
   abort() {
     this.controller.abort();
@@ -89044,7 +90312,7 @@ var MessageStream = class _MessageStream {
    * @returns this MessageStream, so that calls can be chained
    */
   on(event, listener) {
-    const listeners = __classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = []);
     listeners.push({ listener });
     return this;
   }
@@ -89056,7 +90324,7 @@ var MessageStream = class _MessageStream {
    * @returns this MessageStream, so that calls can be chained
    */
   off(event, listener) {
-    const listeners = __classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event];
     if (!listeners)
       return this;
     const index2 = listeners.findIndex((l) => l.listener === listener);
@@ -89070,7 +90338,7 @@ var MessageStream = class _MessageStream {
    * @returns this MessageStream, so that calls can be chained
    */
   once(event, listener) {
-    const listeners = __classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = []);
     listeners.push({ listener, once: true });
     return this;
   }
@@ -89087,26 +90355,27 @@ var MessageStream = class _MessageStream {
    */
   emitted(event) {
     return new Promise((resolve2, reject) => {
-      __classPrivateFieldSet3(this, _MessageStream_catchingPromiseCreated, true, "f");
+      __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
       if (event !== "error")
         this.once("error", reject);
       this.once(event, resolve2);
     });
   }
   async done() {
-    __classPrivateFieldSet3(this, _MessageStream_catchingPromiseCreated, true, "f");
-    await __classPrivateFieldGet3(this, _MessageStream_endPromise, "f");
+    __classPrivateFieldSet(this, _MessageStream_catchingPromiseCreated, true, "f");
+    await __classPrivateFieldGet(this, _MessageStream_endPromise, "f");
   }
   get currentMessage() {
-    return __classPrivateFieldGet3(this, _MessageStream_currentMessageSnapshot, "f");
+    return __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
   }
   /**
    * @returns a promise that resolves with the the final assistant Message response,
    * or rejects if an error occurred or the stream ended prematurely without producing a Message.
+   * If structured outputs were used, this will be a ParsedMessage with a `parsed_output` field.
    */
   async finalMessage() {
     await this.done();
-    return __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this);
+    return __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this);
   }
   /**
    * @returns a promise that resolves with the the final assistant Message's text response, concatenated
@@ -89115,65 +90384,73 @@ var MessageStream = class _MessageStream {
    */
   async finalText() {
     await this.done();
-    return __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_getFinalText).call(this);
+    return __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalText).call(this);
   }
   _emit(event, ...args) {
-    if (__classPrivateFieldGet3(this, _MessageStream_ended, "f"))
+    if (__classPrivateFieldGet(this, _MessageStream_ended, "f"))
       return;
     if (event === "end") {
-      __classPrivateFieldSet3(this, _MessageStream_ended, true, "f");
-      __classPrivateFieldGet3(this, _MessageStream_resolveEndPromise, "f").call(this);
+      __classPrivateFieldSet(this, _MessageStream_ended, true, "f");
+      __classPrivateFieldGet(this, _MessageStream_resolveEndPromise, "f").call(this);
     }
-    const listeners = __classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event];
     if (listeners) {
-      __classPrivateFieldGet3(this, _MessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
+      __classPrivateFieldGet(this, _MessageStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
       listeners.forEach(({ listener }) => listener(...args));
     }
     if (event === "abort") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet3(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet3(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet3(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
       return;
     }
     if (event === "error") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet3(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet(this, _MessageStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet3(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet3(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _MessageStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet(this, _MessageStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
     }
   }
   _emitFinal() {
     const finalMessage = this.receivedMessages.at(-1);
     if (finalMessage) {
-      this._emit("finalMessage", __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this));
+      this._emit("finalMessage", __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_getFinalMessage).call(this));
     }
   }
   async _fromReadableStream(readableStream, options) {
     const signal = options?.signal;
+    let abortHandler;
     if (signal) {
       if (signal.aborted)
         this.controller.abort();
-      signal.addEventListener("abort", () => this.controller.abort());
+      abortHandler = this.controller.abort.bind(this.controller);
+      signal.addEventListener("abort", abortHandler);
     }
-    __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
-    this._connected();
-    const stream = Stream.fromReadableStream(readableStream, this.controller);
-    for await (const event of stream) {
-      __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
+    try {
+      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_beginRequest).call(this);
+      this._connected(null);
+      const stream = Stream.fromReadableStream(readableStream, this.controller);
+      for await (const event of stream) {
+        __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_addStreamEvent).call(this, event);
+      }
+      if (stream.controller.signal?.aborted) {
+        throw new APIUserAbortError();
+      }
+      __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
+    } finally {
+      if (signal && abortHandler) {
+        signal.removeEventListener("abort", abortHandler);
+      }
     }
-    if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError();
-    }
-    __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_endRequest).call(this);
   }
-  [(_MessageStream_currentMessageSnapshot = /* @__PURE__ */ new WeakMap(), _MessageStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_endPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_listeners = /* @__PURE__ */ new WeakMap(), _MessageStream_ended = /* @__PURE__ */ new WeakMap(), _MessageStream_errored = /* @__PURE__ */ new WeakMap(), _MessageStream_aborted = /* @__PURE__ */ new WeakMap(), _MessageStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _MessageStream_handleError = /* @__PURE__ */ new WeakMap(), _MessageStream_instances = /* @__PURE__ */ new WeakSet(), _MessageStream_getFinalMessage = function _MessageStream_getFinalMessage2() {
+  [(_MessageStream_currentMessageSnapshot = /* @__PURE__ */ new WeakMap(), _MessageStream_params = /* @__PURE__ */ new WeakMap(), _MessageStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_endPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _MessageStream_listeners = /* @__PURE__ */ new WeakMap(), _MessageStream_ended = /* @__PURE__ */ new WeakMap(), _MessageStream_errored = /* @__PURE__ */ new WeakMap(), _MessageStream_aborted = /* @__PURE__ */ new WeakMap(), _MessageStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _MessageStream_response = /* @__PURE__ */ new WeakMap(), _MessageStream_request_id = /* @__PURE__ */ new WeakMap(), _MessageStream_logger = /* @__PURE__ */ new WeakMap(), _MessageStream_handleError = /* @__PURE__ */ new WeakMap(), _MessageStream_instances = /* @__PURE__ */ new WeakSet(), _MessageStream_getFinalMessage = function _MessageStream_getFinalMessage2() {
     if (this.receivedMessages.length === 0) {
       throw new AnthropicError("stream ended without producing a Message with role=assistant");
     }
@@ -89190,27 +90467,54 @@ var MessageStream = class _MessageStream {
   }, _MessageStream_beginRequest = function _MessageStream_beginRequest2() {
     if (this.ended)
       return;
-    __classPrivateFieldSet3(this, _MessageStream_currentMessageSnapshot, void 0, "f");
+    __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, void 0, "f");
   }, _MessageStream_addStreamEvent = function _MessageStream_addStreamEvent2(event) {
     if (this.ended)
       return;
-    const messageSnapshot = __classPrivateFieldGet3(this, _MessageStream_instances, "m", _MessageStream_accumulateMessage).call(this, event);
+    const messageSnapshot = __classPrivateFieldGet(this, _MessageStream_instances, "m", _MessageStream_accumulateMessage).call(this, event);
     this._emit("streamEvent", event, messageSnapshot);
     switch (event.type) {
       case "content_block_delta": {
         const content = messageSnapshot.content.at(-1);
-        if (event.delta.type === "text_delta" && content.type === "text") {
-          this._emit("text", event.delta.text, content.text || "");
-        } else if (event.delta.type === "input_json_delta" && content.type === "tool_use") {
-          if (content.input) {
-            this._emit("inputJson", event.delta.partial_json, content.input);
+        switch (event.delta.type) {
+          case "text_delta": {
+            if (content.type === "text") {
+              this._emit("text", event.delta.text, content.text || "");
+            }
+            break;
           }
+          case "citations_delta": {
+            if (content.type === "text") {
+              this._emit("citation", event.delta.citation, content.citations ?? []);
+            }
+            break;
+          }
+          case "input_json_delta": {
+            if (tracksToolInput2(content) && content.input) {
+              this._emit("inputJson", event.delta.partial_json, content.input);
+            }
+            break;
+          }
+          case "thinking_delta": {
+            if (content.type === "thinking") {
+              this._emit("thinking", event.delta.thinking, content.thinking);
+            }
+            break;
+          }
+          case "signature_delta": {
+            if (content.type === "thinking") {
+              this._emit("signature", content.signature);
+            }
+            break;
+          }
+          default:
+            checkNever2(event.delta);
         }
         break;
       }
       case "message_stop": {
         this._addMessageParam(messageSnapshot);
-        this._addMessage(messageSnapshot, true);
+        this._addMessage(maybeParseMessage(messageSnapshot, __classPrivateFieldGet(this, _MessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _MessageStream_logger, "f") }), true);
         break;
       }
       case "content_block_stop": {
@@ -89218,7 +90522,7 @@ var MessageStream = class _MessageStream {
         break;
       }
       case "message_start": {
-        __classPrivateFieldSet3(this, _MessageStream_currentMessageSnapshot, messageSnapshot, "f");
+        __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, messageSnapshot, "f");
         break;
       }
       case "content_block_start":
@@ -89229,14 +90533,14 @@ var MessageStream = class _MessageStream {
     if (this.ended) {
       throw new AnthropicError(`stream has ended, this shouldn't happen`);
     }
-    const snapshot = __classPrivateFieldGet3(this, _MessageStream_currentMessageSnapshot, "f");
+    const snapshot = __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
     if (!snapshot) {
       throw new AnthropicError(`request ended without sending any chunks`);
     }
-    __classPrivateFieldSet3(this, _MessageStream_currentMessageSnapshot, void 0, "f");
-    return snapshot;
+    __classPrivateFieldSet(this, _MessageStream_currentMessageSnapshot, void 0, "f");
+    return maybeParseMessage(snapshot, __classPrivateFieldGet(this, _MessageStream_params, "f"), { logger: __classPrivateFieldGet(this, _MessageStream_logger, "f") });
   }, _MessageStream_accumulateMessage = function _MessageStream_accumulateMessage2(event) {
-    let snapshot = __classPrivateFieldGet3(this, _MessageStream_currentMessageSnapshot, "f");
+    let snapshot = __classPrivateFieldGet(this, _MessageStream_currentMessageSnapshot, "f");
     if (event.type === "message_start") {
       if (snapshot) {
         throw new AnthropicError(`Unexpected event order, got ${event.type} before receiving "message_stop"`);
@@ -89253,25 +90557,80 @@ var MessageStream = class _MessageStream {
         snapshot.stop_reason = event.delta.stop_reason;
         snapshot.stop_sequence = event.delta.stop_sequence;
         snapshot.usage.output_tokens = event.usage.output_tokens;
+        if (event.usage.input_tokens != null) {
+          snapshot.usage.input_tokens = event.usage.input_tokens;
+        }
+        if (event.usage.cache_creation_input_tokens != null) {
+          snapshot.usage.cache_creation_input_tokens = event.usage.cache_creation_input_tokens;
+        }
+        if (event.usage.cache_read_input_tokens != null) {
+          snapshot.usage.cache_read_input_tokens = event.usage.cache_read_input_tokens;
+        }
+        if (event.usage.server_tool_use != null) {
+          snapshot.usage.server_tool_use = event.usage.server_tool_use;
+        }
         return snapshot;
       case "content_block_start":
-        snapshot.content.push(event.content_block);
+        snapshot.content.push({ ...event.content_block });
         return snapshot;
       case "content_block_delta": {
         const snapshotContent = snapshot.content.at(event.index);
-        if (snapshotContent?.type === "text" && event.delta.type === "text_delta") {
-          snapshotContent.text += event.delta.text;
-        } else if (snapshotContent?.type === "tool_use" && event.delta.type === "input_json_delta") {
-          let jsonBuf = snapshotContent[JSON_BUF_PROPERTY2] || "";
-          jsonBuf += event.delta.partial_json;
-          Object.defineProperty(snapshotContent, JSON_BUF_PROPERTY2, {
-            value: jsonBuf,
-            enumerable: false,
-            writable: true
-          });
-          if (jsonBuf) {
-            snapshotContent.input = partialParse(jsonBuf);
+        switch (event.delta.type) {
+          case "text_delta": {
+            if (snapshotContent?.type === "text") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                text: (snapshotContent.text || "") + event.delta.text
+              };
+            }
+            break;
           }
+          case "citations_delta": {
+            if (snapshotContent?.type === "text") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                citations: [...snapshotContent.citations ?? [], event.delta.citation]
+              };
+            }
+            break;
+          }
+          case "input_json_delta": {
+            if (snapshotContent && tracksToolInput2(snapshotContent)) {
+              let jsonBuf = snapshotContent[JSON_BUF_PROPERTY2] || "";
+              jsonBuf += event.delta.partial_json;
+              const newContent = { ...snapshotContent };
+              Object.defineProperty(newContent, JSON_BUF_PROPERTY2, {
+                value: jsonBuf,
+                enumerable: false,
+                writable: true
+              });
+              if (jsonBuf) {
+                newContent.input = partialParse(jsonBuf);
+              }
+              snapshot.content[event.index] = newContent;
+            }
+            break;
+          }
+          case "thinking_delta": {
+            if (snapshotContent?.type === "thinking") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                thinking: snapshotContent.thinking + event.delta.thinking
+              };
+            }
+            break;
+          }
+          case "signature_delta": {
+            if (snapshotContent?.type === "thinking") {
+              snapshot.content[event.index] = {
+                ...snapshotContent,
+                signature: event.delta.signature
+              };
+            }
+            break;
+          }
+          default:
+            checkNever2(event.delta);
         }
         return snapshot;
       }
@@ -89333,41 +90692,319 @@ var MessageStream = class _MessageStream {
     return stream.toReadableStream();
   }
 };
+function checkNever2(x) {
+}
 
-// node_modules/@anthropic-ai/sdk/resources/messages.mjs
-var Messages3 = class extends APIResource {
+// node_modules/@anthropic-ai/sdk/resources/messages/batches.mjs
+var Batches2 = class extends APIResource {
+  /**
+   * Send a batch of Message creation requests.
+   *
+   * The Message Batches API can be used to process multiple Messages API requests at
+   * once. Once a Message Batch is created, it begins processing immediately. Batches
+   * can take up to 24 hours to complete.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const messageBatch = await client.messages.batches.create({
+   *   requests: [
+   *     {
+   *       custom_id: 'my-custom-id-1',
+   *       params: {
+   *         max_tokens: 1024,
+   *         messages: [
+   *           { content: 'Hello, world', role: 'user' },
+   *         ],
+   *         model: 'claude-opus-4-6',
+   *       },
+   *     },
+   *   ],
+   * });
+   * ```
+   */
   create(body, options) {
-    if (body.model in DEPRECATED_MODELS) {
-      console.warn(`The model '${body.model}' is deprecated and will reach end-of-life on ${DEPRECATED_MODELS[body.model]}
+    return this._client.post("/v1/messages/batches", { body, ...options });
+  }
+  /**
+   * This endpoint is idempotent and can be used to poll for Message Batch
+   * completion. To access the results of a Message Batch, make a request to the
+   * `results_url` field in the response.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const messageBatch = await client.messages.batches.retrieve(
+   *   'message_batch_id',
+   * );
+   * ```
+   */
+  retrieve(messageBatchID, options) {
+    return this._client.get(path`/v1/messages/batches/${messageBatchID}`, options);
+  }
+  /**
+   * List all Message Batches within a Workspace. Most recently created batches are
+   * returned first.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * // Automatically fetches more pages as needed.
+   * for await (const messageBatch of client.messages.batches.list()) {
+   *   // ...
+   * }
+   * ```
+   */
+  list(query = {}, options) {
+    return this._client.getAPIList("/v1/messages/batches", Page, { query, ...options });
+  }
+  /**
+   * Delete a Message Batch.
+   *
+   * Message Batches can only be deleted once they've finished processing. If you'd
+   * like to delete an in-progress batch, you must first cancel it.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const deletedMessageBatch =
+   *   await client.messages.batches.delete('message_batch_id');
+   * ```
+   */
+  delete(messageBatchID, options) {
+    return this._client.delete(path`/v1/messages/batches/${messageBatchID}`, options);
+  }
+  /**
+   * Batches may be canceled any time before processing ends. Once cancellation is
+   * initiated, the batch enters a `canceling` state, at which time the system may
+   * complete any in-progress, non-interruptible requests before finalizing
+   * cancellation.
+   *
+   * The number of canceled requests is specified in `request_counts`. To determine
+   * which requests were canceled, check the individual results within the batch.
+   * Note that cancellation may not result in any canceled requests if they were
+   * non-interruptible.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const messageBatch = await client.messages.batches.cancel(
+   *   'message_batch_id',
+   * );
+   * ```
+   */
+  cancel(messageBatchID, options) {
+    return this._client.post(path`/v1/messages/batches/${messageBatchID}/cancel`, options);
+  }
+  /**
+   * Streams the results of a Message Batch as a `.jsonl` file.
+   *
+   * Each line in the file is a JSON object containing the result of a single request
+   * in the Message Batch. Results are not guaranteed to be in the same order as
+   * requests. Use the `custom_id` field to match results to requests.
+   *
+   * Learn more about the Message Batches API in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/batch-processing)
+   *
+   * @example
+   * ```ts
+   * const messageBatchIndividualResponse =
+   *   await client.messages.batches.results('message_batch_id');
+   * ```
+   */
+  async results(messageBatchID, options) {
+    const batch = await this.retrieve(messageBatchID);
+    if (!batch.results_url) {
+      throw new AnthropicError(`No batch \`results_url\`; Has it finished processing? ${batch.processing_status} - ${batch.id}`);
+    }
+    return this._client.get(batch.results_url, {
+      ...options,
+      headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+      stream: true,
+      __binaryResponse: true
+    })._thenUnwrap((_, props) => JSONLDecoder.fromResponse(props.response, props.controller));
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/resources/messages/messages.mjs
+var Messages2 = class extends APIResource {
+  constructor() {
+    super(...arguments);
+    this.batches = new Batches2(this._client);
+  }
+  create(body, options) {
+    if (body.model in DEPRECATED_MODELS2) {
+      console.warn(`The model '${body.model}' is deprecated and will reach end-of-life on ${DEPRECATED_MODELS2[body.model]}
 Please migrate to a newer model. Visit https://docs.anthropic.com/en/docs/resources/model-deprecations for more information.`);
     }
+    if (body.model in MODELS_TO_WARN_WITH_THINKING_ENABLED2 && body.thinking && body.thinking.type === "enabled") {
+      console.warn(`Using Claude with ${body.model} and 'thinking.type=enabled' is deprecated. Use 'thinking.type=adaptive' instead which results in better model performance in our testing: https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking`);
+    }
+    let timeout = this._client._options.timeout;
+    if (!body.stream && timeout == null) {
+      const maxNonstreamingTokens = MODEL_NONSTREAMING_TOKENS[body.model] ?? void 0;
+      timeout = this._client.calculateNonstreamingTimeout(body.max_tokens, maxNonstreamingTokens);
+    }
+    const helperHeader = stainlessHelperHeader(body.tools, body.messages);
     return this._client.post("/v1/messages", {
       body,
-      timeout: this._client._options.timeout ?? 6e5,
+      timeout: timeout ?? 6e5,
       ...options,
+      headers: buildHeaders([helperHeader, options?.headers]),
       stream: body.stream ?? false
     });
   }
   /**
-   * Create a Message stream
+   * Send a structured list of input messages with text and/or image content, along with an expected `output_config.format` and
+   * the response will be automatically parsed and available in the `parsed_output` property of the message.
+   *
+   * @example
+   * ```ts
+   * const message = await client.messages.parse({
+   *   model: 'claude-sonnet-4-5-20250929',
+   *   max_tokens: 1024,
+   *   messages: [{ role: 'user', content: 'What is 2+2?' }],
+   *   output_config: {
+   *     format: zodOutputFormat(z.object({ answer: z.number() })),
+   *   },
+   * });
+   *
+   * console.log(message.parsed_output?.answer); // 4
+   * ```
+   */
+  parse(params, options) {
+    return this.create(params, options).then((message) => parseMessage(message, params, { logger: this._client.logger ?? console }));
+  }
+  /**
+   * Create a Message stream.
+   *
+   * If `output_config.format` is provided with a parseable format (like `zodOutputFormat()`),
+   * the final message will include a `parsed_output` property with the parsed content.
+   *
+   * @example
+   * ```ts
+   * const stream = client.messages.stream({
+   *   model: 'claude-sonnet-4-5-20250929',
+   *   max_tokens: 1024,
+   *   messages: [{ role: 'user', content: 'What is 2+2?' }],
+   *   output_config: {
+   *     format: zodOutputFormat(z.object({ answer: z.number() })),
+   *   },
+   * });
+   *
+   * const message = await stream.finalMessage();
+   * console.log(message.parsed_output?.answer); // 4
+   * ```
    */
   stream(body, options) {
-    return MessageStream.createMessage(this, body, options);
+    return MessageStream.createMessage(this, body, options, { logger: this._client.logger ?? console });
+  }
+  /**
+   * Count the number of tokens in a Message.
+   *
+   * The Token Count API can be used to count the number of tokens in a Message,
+   * including tools, images, and documents, without creating it.
+   *
+   * Learn more about token counting in our
+   * [user guide](https://docs.claude.com/en/docs/build-with-claude/token-counting)
+   *
+   * @example
+   * ```ts
+   * const messageTokensCount =
+   *   await client.messages.countTokens({
+   *     messages: [{ content: 'string', role: 'user' }],
+   *     model: 'claude-opus-4-6',
+   *   });
+   * ```
+   */
+  countTokens(body, options) {
+    return this._client.post("/v1/messages/count_tokens", { body, ...options });
   }
 };
-var DEPRECATED_MODELS = {
+var DEPRECATED_MODELS2 = {
   "claude-1.3": "November 6th, 2024",
   "claude-1.3-100k": "November 6th, 2024",
   "claude-instant-1.1": "November 6th, 2024",
   "claude-instant-1.1-100k": "November 6th, 2024",
-  "claude-instant-1.2": "November 6th, 2024"
+  "claude-instant-1.2": "November 6th, 2024",
+  "claude-3-sonnet-20240229": "July 21st, 2025",
+  "claude-3-opus-20240229": "January 5th, 2026",
+  "claude-2.1": "July 21st, 2025",
+  "claude-2.0": "July 21st, 2025",
+  "claude-3-7-sonnet-latest": "February 19th, 2026",
+  "claude-3-7-sonnet-20250219": "February 19th, 2026",
+  "claude-3-5-haiku-latest": "February 19th, 2026",
+  "claude-3-5-haiku-20241022": "February 19th, 2026"
 };
-/* @__PURE__ */ (function(Messages6) {
-})(Messages3 || (Messages3 = {}));
+var MODELS_TO_WARN_WITH_THINKING_ENABLED2 = ["claude-opus-4-6"];
+Messages2.Batches = Batches2;
 
-// node_modules/@anthropic-ai/sdk/index.mjs
+// node_modules/@anthropic-ai/sdk/resources/models.mjs
+var Models2 = class extends APIResource {
+  /**
+   * Get a specific model.
+   *
+   * The Models API response can be used to determine information about a specific
+   * model or resolve a model alias to a model ID.
+   */
+  retrieve(modelID, params = {}, options) {
+    const { betas } = params ?? {};
+    return this._client.get(path`/v1/models/${modelID}`, {
+      ...options,
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        options?.headers
+      ])
+    });
+  }
+  /**
+   * List available models.
+   *
+   * The Models API response can be used to determine which models are available for
+   * use in the API. More recently released models are listed first.
+   */
+  list(params = {}, options) {
+    const { betas, ...query } = params ?? {};
+    return this._client.getAPIList("/v1/models", Page, {
+      query,
+      ...options,
+      headers: buildHeaders([
+        { ...betas?.toString() != null ? { "anthropic-beta": betas?.toString() } : void 0 },
+        options?.headers
+      ])
+    });
+  }
+};
+
+// node_modules/@anthropic-ai/sdk/internal/utils/env.mjs
+var readEnv = (env) => {
+  if (typeof globalThis.process !== "undefined") {
+    return globalThis.process.env?.[env]?.trim() ?? void 0;
+  }
+  if (typeof globalThis.Deno !== "undefined") {
+    return globalThis.Deno.env?.get?.(env)?.trim();
+  }
+  return void 0;
+};
+
+// node_modules/@anthropic-ai/sdk/client.mjs
+var _BaseAnthropic_instances;
 var _a;
-var Anthropic = class extends APIClient {
+var _BaseAnthropic_encoder;
+var _BaseAnthropic_baseURLOverridden;
+var HUMAN_PROMPT = "\\n\\nHuman:";
+var AI_PROMPT = "\\n\\nAssistant:";
+var BaseAnthropic = class {
   /**
    * API Client for interfacing with the Anthropic API.
    *
@@ -89375,14 +91012,16 @@ var Anthropic = class extends APIClient {
    * @param {string | null | undefined} [opts.authToken=process.env['ANTHROPIC_AUTH_TOKEN'] ?? null]
    * @param {string} [opts.baseURL=process.env['ANTHROPIC_BASE_URL'] ?? https://api.anthropic.com] - Override the default base URL for the API.
    * @param {number} [opts.timeout=10 minutes] - The maximum amount of time (in milliseconds) the client will wait for a response before timing out.
-   * @param {number} [opts.httpAgent] - An HTTP agent used to manage HTTP(s) connections.
-   * @param {Core.Fetch} [opts.fetch] - Specify a custom `fetch` function implementation.
+   * @param {MergedRequestInit} [opts.fetchOptions] - Additional `RequestInit` options to be passed to `fetch` calls.
+   * @param {Fetch} [opts.fetch] - Specify a custom `fetch` function implementation.
    * @param {number} [opts.maxRetries=2] - The maximum number of times the client will retry a request.
-   * @param {Core.Headers} opts.defaultHeaders - Default headers to include with every request to the API.
-   * @param {Core.DefaultQuery} opts.defaultQuery - Default query parameters to include with every request to the API.
+   * @param {HeadersLike} opts.defaultHeaders - Default headers to include with every request to the API.
+   * @param {Record<string, string | undefined>} opts.defaultQuery - Default query parameters to include with every request to the API.
    * @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
    */
   constructor({ baseURL = readEnv("ANTHROPIC_BASE_URL"), apiKey = readEnv("ANTHROPIC_API_KEY") ?? null, authToken = readEnv("ANTHROPIC_AUTH_TOKEN") ?? null, ...opts } = {}) {
+    _BaseAnthropic_instances.add(this);
+    _BaseAnthropic_encoder.set(this, void 0);
     const options = {
       apiKey,
       authToken,
@@ -89390,101 +91029,451 @@ var Anthropic = class extends APIClient {
       baseURL: baseURL || `https://api.anthropic.com`
     };
     if (!options.dangerouslyAllowBrowser && isRunningInBrowser()) {
-      throw new AnthropicError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew Anthropic({ apiKey, dangerouslyAllowBrowser: true });\n\nTODO: link!\n");
+      throw new AnthropicError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew Anthropic({ apiKey, dangerouslyAllowBrowser: true });\n");
     }
-    super({
-      baseURL: options.baseURL,
-      timeout: options.timeout ?? 6e5,
-      httpAgent: options.httpAgent,
-      maxRetries: options.maxRetries,
-      fetch: options.fetch
-    });
-    this.completions = new Completions(this);
-    this.messages = new Messages3(this);
-    this.beta = new Beta(this);
+    this.baseURL = options.baseURL;
+    this.timeout = options.timeout ?? _a.DEFAULT_TIMEOUT;
+    this.logger = options.logger ?? console;
+    const defaultLogLevel = "warn";
+    this.logLevel = defaultLogLevel;
+    this.logLevel = parseLogLevel(options.logLevel, "ClientOptions.logLevel", this) ?? parseLogLevel(readEnv("ANTHROPIC_LOG"), "process.env['ANTHROPIC_LOG']", this) ?? defaultLogLevel;
+    this.fetchOptions = options.fetchOptions;
+    this.maxRetries = options.maxRetries ?? 2;
+    this.fetch = options.fetch ?? getDefaultFetch();
+    __classPrivateFieldSet(this, _BaseAnthropic_encoder, FallbackEncoder, "f");
     this._options = options;
-    this.apiKey = apiKey;
+    this.apiKey = typeof apiKey === "string" ? apiKey : null;
     this.authToken = authToken;
+  }
+  /**
+   * Create a new client instance re-using the same options given to the current client with optional overriding.
+   */
+  withOptions(options) {
+    const client = new this.constructor({
+      ...this._options,
+      baseURL: this.baseURL,
+      maxRetries: this.maxRetries,
+      timeout: this.timeout,
+      logger: this.logger,
+      logLevel: this.logLevel,
+      fetch: this.fetch,
+      fetchOptions: this.fetchOptions,
+      apiKey: this.apiKey,
+      authToken: this.authToken,
+      ...options
+    });
+    return client;
   }
   defaultQuery() {
     return this._options.defaultQuery;
   }
-  defaultHeaders(opts) {
-    return {
-      ...super.defaultHeaders(opts),
-      ...this._options.dangerouslyAllowBrowser ? { "anthropic-dangerous-direct-browser-access": "true" } : void 0,
-      "anthropic-version": "2023-06-01",
-      ...this._options.defaultHeaders
-    };
-  }
-  validateHeaders(headers, customHeaders) {
-    if (this.apiKey && headers["x-api-key"]) {
+  validateHeaders({ values, nulls }) {
+    if (values.get("x-api-key") || values.get("authorization")) {
       return;
     }
-    if (customHeaders["x-api-key"] === null) {
+    if (this.apiKey && values.get("x-api-key")) {
       return;
     }
-    if (this.authToken && headers["authorization"]) {
+    if (nulls.has("x-api-key")) {
       return;
     }
-    if (customHeaders["authorization"] === null) {
+    if (this.authToken && values.get("authorization")) {
+      return;
+    }
+    if (nulls.has("authorization")) {
       return;
     }
     throw new Error('Could not resolve authentication method. Expected either apiKey or authToken to be set. Or for one of the "X-Api-Key" or "Authorization" headers to be explicitly omitted');
   }
-  authHeaders(opts) {
-    const apiKeyAuth = this.apiKeyAuth(opts);
-    const bearerAuth = this.bearerAuth(opts);
-    if (apiKeyAuth != null && !isEmptyObj(apiKeyAuth)) {
-      return apiKeyAuth;
-    }
-    if (bearerAuth != null && !isEmptyObj(bearerAuth)) {
-      return bearerAuth;
-    }
-    return {};
+  async authHeaders(opts) {
+    return buildHeaders([await this.apiKeyAuth(opts), await this.bearerAuth(opts)]);
   }
-  apiKeyAuth(opts) {
+  async apiKeyAuth(opts) {
     if (this.apiKey == null) {
-      return {};
+      return void 0;
     }
-    return { "X-Api-Key": this.apiKey };
+    return buildHeaders([{ "X-Api-Key": this.apiKey }]);
   }
-  bearerAuth(opts) {
+  async bearerAuth(opts) {
     if (this.authToken == null) {
-      return {};
+      return void 0;
     }
-    return { Authorization: `Bearer ${this.authToken}` };
+    return buildHeaders([{ Authorization: `Bearer ${this.authToken}` }]);
+  }
+  /**
+   * Basic re-implementation of `qs.stringify` for primitive types.
+   */
+  stringifyQuery(query) {
+    return Object.entries(query).filter(([_, value]) => typeof value !== "undefined").map(([key, value]) => {
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+      }
+      if (value === null) {
+        return `${encodeURIComponent(key)}=`;
+      }
+      throw new AnthropicError(`Cannot stringify type ${typeof value}; Expected string, number, boolean, or null. If you need to pass nested query parameters, you can manually encode them, e.g. { query: { 'foo[key1]': value1, 'foo[key2]': value2 } }, and please open a GitHub issue requesting better support for your use case.`);
+    }).join("&");
+  }
+  getUserAgent() {
+    return `${this.constructor.name}/JS ${VERSION}`;
+  }
+  defaultIdempotencyKey() {
+    return `stainless-node-retry-${uuid4()}`;
+  }
+  makeStatusError(status, error2, message, headers) {
+    return APIError.generate(status, error2, message, headers);
+  }
+  buildURL(path4, query, defaultBaseURL) {
+    const baseURL = !__classPrivateFieldGet(this, _BaseAnthropic_instances, "m", _BaseAnthropic_baseURLOverridden).call(this) && defaultBaseURL || this.baseURL;
+    const url2 = isAbsoluteURL(path4) ? new URL(path4) : new URL(baseURL + (baseURL.endsWith("/") && path4.startsWith("/") ? path4.slice(1) : path4));
+    const defaultQuery = this.defaultQuery();
+    if (!isEmptyObj(defaultQuery)) {
+      query = { ...defaultQuery, ...query };
+    }
+    if (typeof query === "object" && query && !Array.isArray(query)) {
+      url2.search = this.stringifyQuery(query);
+    }
+    return url2.toString();
+  }
+  _calculateNonstreamingTimeout(maxTokens) {
+    const defaultTimeout = 10 * 60;
+    const expectedTimeout = 60 * 60 * maxTokens / 128e3;
+    if (expectedTimeout > defaultTimeout) {
+      throw new AnthropicError("Streaming is required for operations that may take longer than 10 minutes. See https://github.com/anthropics/anthropic-sdk-typescript#streaming-responses for more details");
+    }
+    return defaultTimeout * 1e3;
+  }
+  /**
+   * Used as a callback for mutating the given `FinalRequestOptions` object.
+   */
+  async prepareOptions(options) {
+  }
+  /**
+   * Used as a callback for mutating the given `RequestInit` object.
+   *
+   * This is useful for cases where you want to add certain headers based off of
+   * the request properties, e.g. `method` or `url`.
+   */
+  async prepareRequest(request, { url: url2, options }) {
+  }
+  get(path4, opts) {
+    return this.methodRequest("get", path4, opts);
+  }
+  post(path4, opts) {
+    return this.methodRequest("post", path4, opts);
+  }
+  patch(path4, opts) {
+    return this.methodRequest("patch", path4, opts);
+  }
+  put(path4, opts) {
+    return this.methodRequest("put", path4, opts);
+  }
+  delete(path4, opts) {
+    return this.methodRequest("delete", path4, opts);
+  }
+  methodRequest(method, path4, opts) {
+    return this.request(Promise.resolve(opts).then((opts2) => {
+      return { method, path: path4, ...opts2 };
+    }));
+  }
+  request(options, remainingRetries = null) {
+    return new APIPromise(this, this.makeRequest(options, remainingRetries, void 0));
+  }
+  async makeRequest(optionsInput, retriesRemaining, retryOfRequestLogID) {
+    const options = await optionsInput;
+    const maxRetries = options.maxRetries ?? this.maxRetries;
+    if (retriesRemaining == null) {
+      retriesRemaining = maxRetries;
+    }
+    await this.prepareOptions(options);
+    const { req, url: url2, timeout } = await this.buildRequest(options, {
+      retryCount: maxRetries - retriesRemaining
+    });
+    await this.prepareRequest(req, { url: url2, options });
+    const requestLogID = "log_" + (Math.random() * (1 << 24) | 0).toString(16).padStart(6, "0");
+    const retryLogStr = retryOfRequestLogID === void 0 ? "" : `, retryOf: ${retryOfRequestLogID}`;
+    const startTime = Date.now();
+    loggerFor(this).debug(`[${requestLogID}] sending request`, formatRequestDetails({
+      retryOfRequestLogID,
+      method: options.method,
+      url: url2,
+      options,
+      headers: req.headers
+    }));
+    if (options.signal?.aborted) {
+      throw new APIUserAbortError();
+    }
+    const controller = new AbortController();
+    const response = await this.fetchWithTimeout(url2, req, timeout, controller).catch(castToError);
+    const headersTime = Date.now();
+    if (response instanceof globalThis.Error) {
+      const retryMessage = `retrying, ${retriesRemaining} attempts remaining`;
+      if (options.signal?.aborted) {
+        throw new APIUserAbortError();
+      }
+      const isTimeout = isAbortError(response) || /timed? ?out/i.test(String(response) + ("cause" in response ? String(response.cause) : ""));
+      if (retriesRemaining) {
+        loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - ${retryMessage}`);
+        loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (${retryMessage})`, formatRequestDetails({
+          retryOfRequestLogID,
+          url: url2,
+          durationMs: headersTime - startTime,
+          message: response.message
+        }));
+        return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID);
+      }
+      loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - error; no more retries left`);
+      loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (error; no more retries left)`, formatRequestDetails({
+        retryOfRequestLogID,
+        url: url2,
+        durationMs: headersTime - startTime,
+        message: response.message
+      }));
+      if (isTimeout) {
+        throw new APIConnectionTimeoutError();
+      }
+      throw new APIConnectionError({ cause: response });
+    }
+    const specialHeaders = [...response.headers.entries()].filter(([name]) => name === "request-id").map(([name, value]) => ", " + name + ": " + JSON.stringify(value)).join("");
+    const responseInfo = `[${requestLogID}${retryLogStr}${specialHeaders}] ${req.method} ${url2} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
+    if (!response.ok) {
+      const shouldRetry = await this.shouldRetry(response);
+      if (retriesRemaining && shouldRetry) {
+        const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
+        await CancelReadableStream(response.body);
+        loggerFor(this).info(`${responseInfo} - ${retryMessage2}`);
+        loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage2})`, formatRequestDetails({
+          retryOfRequestLogID,
+          url: response.url,
+          status: response.status,
+          headers: response.headers,
+          durationMs: headersTime - startTime
+        }));
+        return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID, response.headers);
+      }
+      const retryMessage = shouldRetry ? `error; no more retries left` : `error; not retryable`;
+      loggerFor(this).info(`${responseInfo} - ${retryMessage}`);
+      const errText = await response.text().catch((err2) => castToError(err2).message);
+      const errJSON = safeJSON(errText);
+      const errMessage = errJSON ? void 0 : errText;
+      loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage})`, formatRequestDetails({
+        retryOfRequestLogID,
+        url: response.url,
+        status: response.status,
+        headers: response.headers,
+        message: errMessage,
+        durationMs: Date.now() - startTime
+      }));
+      const err = this.makeStatusError(response.status, errJSON, errMessage, response.headers);
+      throw err;
+    }
+    loggerFor(this).info(responseInfo);
+    loggerFor(this).debug(`[${requestLogID}] response start`, formatRequestDetails({
+      retryOfRequestLogID,
+      url: response.url,
+      status: response.status,
+      headers: response.headers,
+      durationMs: headersTime - startTime
+    }));
+    return { response, options, controller, requestLogID, retryOfRequestLogID, startTime };
+  }
+  getAPIList(path4, Page3, opts) {
+    return this.requestAPIList(Page3, opts && "then" in opts ? opts.then((opts2) => ({ method: "get", path: path4, ...opts2 })) : { method: "get", path: path4, ...opts });
+  }
+  requestAPIList(Page3, options) {
+    const request = this.makeRequest(options, null, void 0);
+    return new PagePromise(this, request, Page3);
+  }
+  async fetchWithTimeout(url2, init2, ms, controller) {
+    const { signal, method, ...options } = init2 || {};
+    const abort = this._makeAbort(controller);
+    if (signal)
+      signal.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(abort, ms);
+    const isReadableBody = globalThis.ReadableStream && options.body instanceof globalThis.ReadableStream || typeof options.body === "object" && options.body !== null && Symbol.asyncIterator in options.body;
+    const fetchOptions = {
+      signal: controller.signal,
+      ...isReadableBody ? { duplex: "half" } : {},
+      method: "GET",
+      ...options
+    };
+    if (method) {
+      fetchOptions.method = method.toUpperCase();
+    }
+    try {
+      return await this.fetch.call(void 0, url2, fetchOptions);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  async shouldRetry(response) {
+    const shouldRetryHeader = response.headers.get("x-should-retry");
+    if (shouldRetryHeader === "true")
+      return true;
+    if (shouldRetryHeader === "false")
+      return false;
+    if (response.status === 408)
+      return true;
+    if (response.status === 409)
+      return true;
+    if (response.status === 429)
+      return true;
+    if (response.status >= 500)
+      return true;
+    return false;
+  }
+  async retryRequest(options, retriesRemaining, requestLogID, responseHeaders) {
+    let timeoutMillis;
+    const retryAfterMillisHeader = responseHeaders?.get("retry-after-ms");
+    if (retryAfterMillisHeader) {
+      const timeoutMs = parseFloat(retryAfterMillisHeader);
+      if (!Number.isNaN(timeoutMs)) {
+        timeoutMillis = timeoutMs;
+      }
+    }
+    const retryAfterHeader = responseHeaders?.get("retry-after");
+    if (retryAfterHeader && !timeoutMillis) {
+      const timeoutSeconds = parseFloat(retryAfterHeader);
+      if (!Number.isNaN(timeoutSeconds)) {
+        timeoutMillis = timeoutSeconds * 1e3;
+      } else {
+        timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
+      }
+    }
+    if (!(timeoutMillis && 0 <= timeoutMillis && timeoutMillis < 60 * 1e3)) {
+      const maxRetries = options.maxRetries ?? this.maxRetries;
+      timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
+    }
+    await sleep(timeoutMillis);
+    return this.makeRequest(options, retriesRemaining - 1, requestLogID);
+  }
+  calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries) {
+    const initialRetryDelay = 0.5;
+    const maxRetryDelay = 8;
+    const numRetries = maxRetries - retriesRemaining;
+    const sleepSeconds = Math.min(initialRetryDelay * Math.pow(2, numRetries), maxRetryDelay);
+    const jitter = 1 - Math.random() * 0.25;
+    return sleepSeconds * jitter * 1e3;
+  }
+  calculateNonstreamingTimeout(maxTokens, maxNonstreamingTokens) {
+    const maxTime = 60 * 60 * 1e3;
+    const defaultTime = 60 * 10 * 1e3;
+    const expectedTime = maxTime * maxTokens / 128e3;
+    if (expectedTime > defaultTime || maxNonstreamingTokens != null && maxTokens > maxNonstreamingTokens) {
+      throw new AnthropicError("Streaming is required for operations that may take longer than 10 minutes. See https://github.com/anthropics/anthropic-sdk-typescript#long-requests for more details");
+    }
+    return defaultTime;
+  }
+  async buildRequest(inputOptions, { retryCount = 0 } = {}) {
+    const options = { ...inputOptions };
+    const { method, path: path4, query, defaultBaseURL } = options;
+    const url2 = this.buildURL(path4, query, defaultBaseURL);
+    if ("timeout" in options)
+      validatePositiveInteger("timeout", options.timeout);
+    options.timeout = options.timeout ?? this.timeout;
+    const { bodyHeaders, body } = this.buildBody({ options });
+    const reqHeaders = await this.buildHeaders({ options: inputOptions, method, bodyHeaders, retryCount });
+    const req = {
+      method,
+      headers: reqHeaders,
+      ...options.signal && { signal: options.signal },
+      ...globalThis.ReadableStream && body instanceof globalThis.ReadableStream && { duplex: "half" },
+      ...body && { body },
+      ...this.fetchOptions ?? {},
+      ...options.fetchOptions ?? {}
+    };
+    return { req, url: url2, timeout: options.timeout };
+  }
+  async buildHeaders({ options, method, bodyHeaders, retryCount }) {
+    let idempotencyHeaders = {};
+    if (this.idempotencyHeader && method !== "get") {
+      if (!options.idempotencyKey)
+        options.idempotencyKey = this.defaultIdempotencyKey();
+      idempotencyHeaders[this.idempotencyHeader] = options.idempotencyKey;
+    }
+    const headers = buildHeaders([
+      idempotencyHeaders,
+      {
+        Accept: "application/json",
+        "User-Agent": this.getUserAgent(),
+        "X-Stainless-Retry-Count": String(retryCount),
+        ...options.timeout ? { "X-Stainless-Timeout": String(Math.trunc(options.timeout / 1e3)) } : {},
+        ...getPlatformHeaders(),
+        ...this._options.dangerouslyAllowBrowser ? { "anthropic-dangerous-direct-browser-access": "true" } : void 0,
+        "anthropic-version": "2023-06-01"
+      },
+      await this.authHeaders(options),
+      this._options.defaultHeaders,
+      bodyHeaders,
+      options.headers
+    ]);
+    this.validateHeaders(headers);
+    return headers.values;
+  }
+  _makeAbort(controller) {
+    return () => controller.abort();
+  }
+  buildBody({ options: { body, headers: rawHeaders } }) {
+    if (!body) {
+      return { bodyHeaders: void 0, body: void 0 };
+    }
+    const headers = buildHeaders([rawHeaders]);
+    if (
+      // Pass raw type verbatim
+      ArrayBuffer.isView(body) || body instanceof ArrayBuffer || body instanceof DataView || typeof body === "string" && // Preserve legacy string encoding behavior for now
+      headers.values.has("content-type") || // `Blob` is superset of `File`
+      globalThis.Blob && body instanceof globalThis.Blob || // `FormData` -> `multipart/form-data`
+      body instanceof FormData || // `URLSearchParams` -> `application/x-www-form-urlencoded`
+      body instanceof URLSearchParams || // Send chunked stream (each chunk has own `length`)
+      globalThis.ReadableStream && body instanceof globalThis.ReadableStream
+    ) {
+      return { bodyHeaders: void 0, body };
+    } else if (typeof body === "object" && (Symbol.asyncIterator in body || Symbol.iterator in body && "next" in body && typeof body.next === "function")) {
+      return { bodyHeaders: void 0, body: ReadableStreamFrom(body) };
+    } else if (typeof body === "object" && headers.values.get("content-type") === "application/x-www-form-urlencoded") {
+      return {
+        bodyHeaders: { "content-type": "application/x-www-form-urlencoded" },
+        body: this.stringifyQuery(body)
+      };
+    } else {
+      return __classPrivateFieldGet(this, _BaseAnthropic_encoder, "f").call(this, { body, headers });
+    }
   }
 };
-_a = Anthropic;
-Anthropic.Anthropic = _a;
-Anthropic.HUMAN_PROMPT = "\n\nHuman:";
-Anthropic.AI_PROMPT = "\n\nAssistant:";
-Anthropic.DEFAULT_TIMEOUT = 6e5;
-Anthropic.AnthropicError = AnthropicError;
-Anthropic.APIError = APIError;
-Anthropic.APIConnectionError = APIConnectionError;
-Anthropic.APIConnectionTimeoutError = APIConnectionTimeoutError;
-Anthropic.APIUserAbortError = APIUserAbortError;
-Anthropic.NotFoundError = NotFoundError;
-Anthropic.ConflictError = ConflictError;
-Anthropic.RateLimitError = RateLimitError;
-Anthropic.BadRequestError = BadRequestError;
-Anthropic.AuthenticationError = AuthenticationError;
-Anthropic.InternalServerError = InternalServerError;
-Anthropic.PermissionDeniedError = PermissionDeniedError;
-Anthropic.UnprocessableEntityError = UnprocessableEntityError;
-Anthropic.toFile = toFile;
-Anthropic.fileFromPath = fileFromPath;
-var { HUMAN_PROMPT, AI_PROMPT } = Anthropic;
-var { AnthropicError: AnthropicError2, APIError: APIError2, APIConnectionError: APIConnectionError2, APIConnectionTimeoutError: APIConnectionTimeoutError2, APIUserAbortError: APIUserAbortError2, NotFoundError: NotFoundError2, ConflictError: ConflictError2, RateLimitError: RateLimitError2, BadRequestError: BadRequestError2, AuthenticationError: AuthenticationError2, InternalServerError: InternalServerError2, PermissionDeniedError: PermissionDeniedError2, UnprocessableEntityError: UnprocessableEntityError2 } = error_exports;
-(function(Anthropic2) {
-  Anthropic2.Page = Page;
-  Anthropic2.Completions = Completions;
-  Anthropic2.Messages = Messages3;
-  Anthropic2.Beta = Beta;
-})(Anthropic || (Anthropic = {}));
-var sdk_default = Anthropic;
+_a = BaseAnthropic, _BaseAnthropic_encoder = /* @__PURE__ */ new WeakMap(), _BaseAnthropic_instances = /* @__PURE__ */ new WeakSet(), _BaseAnthropic_baseURLOverridden = function _BaseAnthropic_baseURLOverridden2() {
+  return this.baseURL !== "https://api.anthropic.com";
+};
+BaseAnthropic.Anthropic = _a;
+BaseAnthropic.HUMAN_PROMPT = HUMAN_PROMPT;
+BaseAnthropic.AI_PROMPT = AI_PROMPT;
+BaseAnthropic.DEFAULT_TIMEOUT = 6e5;
+BaseAnthropic.AnthropicError = AnthropicError;
+BaseAnthropic.APIError = APIError;
+BaseAnthropic.APIConnectionError = APIConnectionError;
+BaseAnthropic.APIConnectionTimeoutError = APIConnectionTimeoutError;
+BaseAnthropic.APIUserAbortError = APIUserAbortError;
+BaseAnthropic.NotFoundError = NotFoundError;
+BaseAnthropic.ConflictError = ConflictError;
+BaseAnthropic.RateLimitError = RateLimitError;
+BaseAnthropic.BadRequestError = BadRequestError;
+BaseAnthropic.AuthenticationError = AuthenticationError;
+BaseAnthropic.InternalServerError = InternalServerError;
+BaseAnthropic.PermissionDeniedError = PermissionDeniedError;
+BaseAnthropic.UnprocessableEntityError = UnprocessableEntityError;
+BaseAnthropic.toFile = toFile;
+var Anthropic = class extends BaseAnthropic {
+  constructor() {
+    super(...arguments);
+    this.completions = new Completions(this);
+    this.messages = new Messages2(this);
+    this.models = new Models2(this);
+    this.beta = new Beta(this);
+  }
+};
+Anthropic.Completions = Completions;
+Anthropic.Messages = Messages2;
+Anthropic.Models = Models2;
+Anthropic.Beta = Beta;
 
 // src/api/providers/anthropic.ts
 var AnthropicProvider = class {
@@ -89492,7 +91481,7 @@ var AnthropicProvider = class {
   config;
   constructor(config2) {
     this.config = config2;
-    this.client = new sdk_default({
+    this.client = new Anthropic({
       apiKey: config2.apiKey ?? "",
       baseURL: config2.baseUrl,
       dangerouslyAllowBrowser: true
@@ -89516,15 +91505,46 @@ var AnthropicProvider = class {
       description: tool.description,
       input_schema: tool.input_schema
     }));
+    if (this.config.promptCachingEnabled && anthropicMessages.length > 0) {
+      for (let i = anthropicMessages.length - 1; i >= 0; i--) {
+        if (anthropicMessages[i].role === "user") {
+          const lastUser = anthropicMessages[i];
+          if (typeof lastUser.content === "string") {
+            anthropicMessages[i] = {
+              role: "user",
+              content: [{
+                type: "text",
+                text: lastUser.content,
+                cache_control: { type: "ephemeral" }
+              }]
+            };
+          } else if (Array.isArray(lastUser.content) && lastUser.content.length > 0) {
+            const blocks = [...lastUser.content];
+            const lastBlock = blocks[blocks.length - 1];
+            if ("type" in lastBlock && lastBlock.type === "text") {
+              blocks[blocks.length - 1] = { ...lastBlock, cache_control: { type: "ephemeral" } };
+              anthropicMessages[i] = { role: "user", content: blocks };
+            }
+          }
+          break;
+        }
+      }
+    }
+    const systemParam = this.config.promptCachingEnabled ? [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }] : systemPrompt;
+    const thinkingEnabled = this.config.thinkingEnabled ?? false;
+    const budgetTokens = this.config.thinkingBudgetTokens ?? 1e4;
+    const effectiveTemperature = thinkingEnabled ? 1 : Math.min(this.config.temperature ?? 0.2, 1);
+    const effectiveMaxTokens = thinkingEnabled ? Math.max(this.config.maxTokens ?? 16384, budgetTokens) : this.config.maxTokens ?? 8192;
     const stream = await this.client.messages.stream(
       {
         model: this.config.model,
-        max_tokens: this.config.maxTokens ?? 8192,
-        temperature: Math.min(this.config.temperature ?? 0.2, 1),
-        system: systemPrompt,
+        max_tokens: effectiveMaxTokens,
+        temperature: effectiveTemperature,
+        system: systemParam,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : void 0,
-        tool_choice: anthropicTools.length > 0 ? { type: "auto" } : void 0
+        tool_choice: anthropicTools.length > 0 ? { type: "auto" } : void 0,
+        ...thinkingEnabled ? { thinking: { type: "enabled", budget_tokens: budgetTokens } } : {}
       },
       { signal: abortSignal }
     );
@@ -89532,9 +91552,13 @@ var AnthropicProvider = class {
     const thinkingAccumulator = /* @__PURE__ */ new Map();
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
     for await (const event of stream) {
       if (event.type === "message_start") {
         inputTokens = event.message.usage.input_tokens;
+        cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+        cacheCreationTokens = event.message.usage.cache_creation_input_tokens ?? 0;
       }
       if (event.type === "message_delta") {
         outputTokens = event.usage.output_tokens;
@@ -89558,11 +91582,10 @@ var AnthropicProvider = class {
           const tool = toolAccumulator.get(event.index);
           if (tool) tool.inputJson += event.delta.partial_json;
         }
-        const delta = event.delta;
-        if (delta.type === "thinking_delta") {
+        if (event.delta.type === "thinking_delta") {
           const thinking = thinkingAccumulator.get(event.index);
           if (thinking) {
-            const chunk = delta.thinking;
+            const chunk = event.delta.thinking;
             thinking.text += chunk;
             yield { type: "thinking", text: chunk };
           }
@@ -89577,8 +91600,10 @@ var AnthropicProvider = class {
             parsedInput = tool.inputJson ? JSON.parse(tool.inputJson) : {};
           } catch (e) {
             yield {
-              type: "text",
-              text: `[Tool input parse error for "${tool.name}": ${e.message}]`
+              type: "tool_error",
+              id: tool.id,
+              name: tool.name,
+              error: `Tool input parse error: ${e.message}`
             };
             toolAccumulator.delete(event.index);
             continue;
@@ -89597,7 +91622,9 @@ var AnthropicProvider = class {
       yield {
         type: "usage",
         inputTokens,
-        outputTokens
+        outputTokens,
+        cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : void 0,
+        cacheCreationTokens: cacheCreationTokens > 0 ? cacheCreationTokens : void 0
       };
     }
   }
@@ -90019,45 +92046,45 @@ function stringify(object3, opts = {}) {
 var VERSION2 = "4.104.0";
 
 // node_modules/openai/_shims/registry.mjs
-var auto2 = false;
-var kind2 = void 0;
-var fetch3 = void 0;
-var Request3 = void 0;
-var Response3 = void 0;
-var Headers3 = void 0;
-var FormData3 = void 0;
-var Blob3 = void 0;
-var File3 = void 0;
-var ReadableStream3 = void 0;
-var getMultipartRequestOptions2 = void 0;
-var getDefaultAgent2 = void 0;
-var fileFromPath2 = void 0;
-var isFsReadStream2 = void 0;
-function setShims2(shims, options = { auto: false }) {
-  if (auto2) {
+var auto = false;
+var kind = void 0;
+var fetch2 = void 0;
+var Request2 = void 0;
+var Response2 = void 0;
+var Headers2 = void 0;
+var FormData2 = void 0;
+var Blob2 = void 0;
+var File2 = void 0;
+var ReadableStream2 = void 0;
+var getMultipartRequestOptions = void 0;
+var getDefaultAgent = void 0;
+var fileFromPath = void 0;
+var isFsReadStream = void 0;
+function setShims(shims, options = { auto: false }) {
+  if (auto) {
     throw new Error(`you must \`import 'openai/shims/${shims.kind}'\` before importing anything else from openai`);
   }
-  if (kind2) {
-    throw new Error(`can't \`import 'openai/shims/${shims.kind}'\` after \`import 'openai/shims/${kind2}'\``);
+  if (kind) {
+    throw new Error(`can't \`import 'openai/shims/${shims.kind}'\` after \`import 'openai/shims/${kind}'\``);
   }
-  auto2 = options.auto;
-  kind2 = shims.kind;
-  fetch3 = shims.fetch;
-  Request3 = shims.Request;
-  Response3 = shims.Response;
-  Headers3 = shims.Headers;
-  FormData3 = shims.FormData;
-  Blob3 = shims.Blob;
-  File3 = shims.File;
-  ReadableStream3 = shims.ReadableStream;
-  getMultipartRequestOptions2 = shims.getMultipartRequestOptions;
-  getDefaultAgent2 = shims.getDefaultAgent;
-  fileFromPath2 = shims.fileFromPath;
-  isFsReadStream2 = shims.isFsReadStream;
+  auto = options.auto;
+  kind = shims.kind;
+  fetch2 = shims.fetch;
+  Request2 = shims.Request;
+  Response2 = shims.Response;
+  Headers2 = shims.Headers;
+  FormData2 = shims.FormData;
+  Blob2 = shims.Blob;
+  File2 = shims.File;
+  ReadableStream2 = shims.ReadableStream;
+  getMultipartRequestOptions = shims.getMultipartRequestOptions;
+  getDefaultAgent = shims.getDefaultAgent;
+  fileFromPath = shims.fileFromPath;
+  isFsReadStream = shims.isFsReadStream;
 }
 
 // node_modules/openai/_shims/MultipartBody.mjs
-var MultipartBody2 = class {
+var MultipartBody = class {
   constructor(body) {
     this.body = body;
   }
@@ -90067,7 +92094,7 @@ var MultipartBody2 = class {
 };
 
 // node_modules/openai/_shims/web-runtime.mjs
-function getRuntime2({ manuallyImported } = {}) {
+function getRuntime({ manuallyImported } = {}) {
   const recommendation = manuallyImported ? `You may need to use polyfills` : `Add one of these imports before your first \`import \u2026 from 'openai'\`:
 - \`import 'openai/shims/node'\` (if you're running on Node)
 - \`import 'openai/shims/web'\` (otherwise)
@@ -90121,7 +92148,7 @@ function getRuntime2({ manuallyImported } = {}) {
     ),
     getMultipartRequestOptions: async (form, opts) => ({
       ...opts,
-      body: new MultipartBody2(form)
+      body: new MultipartBody(form)
     }),
     getDefaultAgent: (url2) => void 0,
     fileFromPath: () => {
@@ -90133,14 +92160,14 @@ function getRuntime2({ manuallyImported } = {}) {
 
 // node_modules/openai/_shims/index.mjs
 var init = () => {
-  if (!kind2) setShims2(getRuntime2(), { auto: true });
+  if (!kind) setShims(getRuntime(), { auto: true });
 };
 init();
 
 // node_modules/openai/error.mjs
 var OpenAIError = class extends Error {
 };
-var APIError3 = class _APIError extends OpenAIError {
+var APIError2 = class _APIError extends OpenAIError {
   constructor(status, error2, message, headers) {
     super(`${_APIError.makeMessage(status, error2, message)}`);
     this.status = status;
@@ -90167,68 +92194,68 @@ var APIError3 = class _APIError extends OpenAIError {
   }
   static generate(status, errorResponse, message, headers) {
     if (!status || !headers) {
-      return new APIConnectionError3({ message, cause: castToError2(errorResponse) });
+      return new APIConnectionError2({ message, cause: castToError2(errorResponse) });
     }
     const error2 = errorResponse?.["error"];
     if (status === 400) {
-      return new BadRequestError3(status, error2, message, headers);
+      return new BadRequestError2(status, error2, message, headers);
     }
     if (status === 401) {
-      return new AuthenticationError3(status, error2, message, headers);
+      return new AuthenticationError2(status, error2, message, headers);
     }
     if (status === 403) {
-      return new PermissionDeniedError3(status, error2, message, headers);
+      return new PermissionDeniedError2(status, error2, message, headers);
     }
     if (status === 404) {
-      return new NotFoundError3(status, error2, message, headers);
+      return new NotFoundError2(status, error2, message, headers);
     }
     if (status === 409) {
-      return new ConflictError3(status, error2, message, headers);
+      return new ConflictError2(status, error2, message, headers);
     }
     if (status === 422) {
-      return new UnprocessableEntityError3(status, error2, message, headers);
+      return new UnprocessableEntityError2(status, error2, message, headers);
     }
     if (status === 429) {
-      return new RateLimitError3(status, error2, message, headers);
+      return new RateLimitError2(status, error2, message, headers);
     }
     if (status >= 500) {
-      return new InternalServerError3(status, error2, message, headers);
+      return new InternalServerError2(status, error2, message, headers);
     }
     return new _APIError(status, error2, message, headers);
   }
 };
-var APIUserAbortError3 = class extends APIError3 {
+var APIUserAbortError2 = class extends APIError2 {
   constructor({ message } = {}) {
     super(void 0, void 0, message || "Request was aborted.", void 0);
   }
 };
-var APIConnectionError3 = class extends APIError3 {
+var APIConnectionError2 = class extends APIError2 {
   constructor({ message, cause }) {
     super(void 0, void 0, message || "Connection error.", void 0);
     if (cause)
       this.cause = cause;
   }
 };
-var APIConnectionTimeoutError3 = class extends APIConnectionError3 {
+var APIConnectionTimeoutError2 = class extends APIConnectionError2 {
   constructor({ message } = {}) {
     super({ message: message ?? "Request timed out." });
   }
 };
-var BadRequestError3 = class extends APIError3 {
+var BadRequestError2 = class extends APIError2 {
 };
-var AuthenticationError3 = class extends APIError3 {
+var AuthenticationError2 = class extends APIError2 {
 };
-var PermissionDeniedError3 = class extends APIError3 {
+var PermissionDeniedError2 = class extends APIError2 {
 };
-var NotFoundError3 = class extends APIError3 {
+var NotFoundError2 = class extends APIError2 {
 };
-var ConflictError3 = class extends APIError3 {
+var ConflictError2 = class extends APIError2 {
 };
-var UnprocessableEntityError3 = class extends APIError3 {
+var UnprocessableEntityError2 = class extends APIError2 {
 };
-var RateLimitError3 = class extends APIError3 {
+var RateLimitError2 = class extends APIError2 {
 };
-var InternalServerError3 = class extends APIError3 {
+var InternalServerError2 = class extends APIError2 {
 };
 var LengthFinishReasonError = class extends OpenAIError {
   constructor() {
@@ -90242,23 +92269,23 @@ var ContentFilterFinishReasonError = class extends OpenAIError {
 };
 
 // node_modules/openai/internal/decoders/line.mjs
-var __classPrivateFieldSet4 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet2 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet4 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet2 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var _LineDecoder_carriageReturnIndex;
+var _LineDecoder_carriageReturnIndex2;
 var LineDecoder2 = class {
   constructor() {
-    _LineDecoder_carriageReturnIndex.set(this, void 0);
+    _LineDecoder_carriageReturnIndex2.set(this, void 0);
     this.buffer = new Uint8Array();
-    __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+    __classPrivateFieldSet2(this, _LineDecoder_carriageReturnIndex2, null, "f");
   }
   decode(chunk) {
     if (chunk == null) {
@@ -90271,22 +92298,22 @@ var LineDecoder2 = class {
     this.buffer = newData;
     const lines = [];
     let patternIndex;
-    while ((patternIndex = findNewlineIndex(this.buffer, __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f"))) != null) {
-      if (patternIndex.carriage && __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") == null) {
-        __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, patternIndex.index, "f");
+    while ((patternIndex = findNewlineIndex2(this.buffer, __classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f"))) != null) {
+      if (patternIndex.carriage && __classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f") == null) {
+        __classPrivateFieldSet2(this, _LineDecoder_carriageReturnIndex2, patternIndex.index, "f");
         continue;
       }
-      if (__classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") != null && (patternIndex.index !== __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") + 1 || patternIndex.carriage)) {
-        lines.push(this.decodeText(this.buffer.slice(0, __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") - 1)));
-        this.buffer = this.buffer.slice(__classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f"));
-        __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+      if (__classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f") != null && (patternIndex.index !== __classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f") + 1 || patternIndex.carriage)) {
+        lines.push(this.decodeText(this.buffer.slice(0, __classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f") - 1)));
+        this.buffer = this.buffer.slice(__classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f"));
+        __classPrivateFieldSet2(this, _LineDecoder_carriageReturnIndex2, null, "f");
         continue;
       }
-      const endIndex = __classPrivateFieldGet4(this, _LineDecoder_carriageReturnIndex, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
+      const endIndex = __classPrivateFieldGet2(this, _LineDecoder_carriageReturnIndex2, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
       const line = this.decodeText(this.buffer.slice(0, endIndex));
       lines.push(line);
       this.buffer = this.buffer.slice(patternIndex.index);
-      __classPrivateFieldSet4(this, _LineDecoder_carriageReturnIndex, null, "f");
+      __classPrivateFieldSet2(this, _LineDecoder_carriageReturnIndex2, null, "f");
     }
     return lines;
   }
@@ -90320,10 +92347,10 @@ var LineDecoder2 = class {
     return this.decode("\n");
   }
 };
-_LineDecoder_carriageReturnIndex = /* @__PURE__ */ new WeakMap();
+_LineDecoder_carriageReturnIndex2 = /* @__PURE__ */ new WeakMap();
 LineDecoder2.NEWLINE_CHARS = /* @__PURE__ */ new Set(["\n", "\r"]);
 LineDecoder2.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
-function findNewlineIndex(buffer, startIndex) {
+function findNewlineIndex2(buffer, startIndex) {
   const newline = 10;
   const carriage = 13;
   for (let i = startIndex ?? 0; i < buffer.length; i++) {
@@ -90354,7 +92381,7 @@ function findDoubleNewlineIndex2(buffer) {
 }
 
 // node_modules/openai/internal/stream-utils.mjs
-function ReadableStreamToAsyncIterable(stream) {
+function ReadableStreamToAsyncIterable2(stream) {
   if (stream[Symbol.asyncIterator])
     return stream;
   const reader = stream.getReader();
@@ -90414,7 +92441,7 @@ var Stream2 = class _Stream {
               throw e;
             }
             if (data2 && data2.error) {
-              throw new APIError3(void 0, data2.error, void 0, createResponseHeaders2(response.headers));
+              throw new APIError2(void 0, data2.error, void 0, createResponseHeaders(response.headers));
             }
             yield data2;
           } else {
@@ -90427,7 +92454,7 @@ var Stream2 = class _Stream {
               throw e;
             }
             if (sse.event == "error") {
-              throw new APIError3(void 0, data2.error, data2.message, void 0);
+              throw new APIError2(void 0, data2.error, data2.message, void 0);
             }
             yield { event: sse.event, data: data2 };
           }
@@ -90452,7 +92479,7 @@ var Stream2 = class _Stream {
     let consumed = false;
     async function* iterLines() {
       const lineDecoder = new LineDecoder2();
-      const iter = ReadableStreamToAsyncIterable(readableStream);
+      const iter = ReadableStreamToAsyncIterable2(readableStream);
       for await (const chunk of iter) {
         for (const line of lineDecoder.decode(chunk)) {
           yield line;
@@ -90524,7 +92551,7 @@ var Stream2 = class _Stream {
     const self2 = this;
     let iter;
     const encoder = new TextEncoder();
-    return new ReadableStream3({
+    return new ReadableStream2({
       async start() {
         iter = self2[Symbol.asyncIterator]();
       },
@@ -90552,7 +92579,7 @@ async function* _iterSSEMessages2(response, controller) {
   }
   const sseDecoder = new SSEDecoder2();
   const lineDecoder = new LineDecoder2();
-  const iter = ReadableStreamToAsyncIterable(response.body);
+  const iter = ReadableStreamToAsyncIterable2(response.body);
   for await (const sseChunk of iterSSEChunks2(iter)) {
     for (const line of lineDecoder.decode(sseChunk)) {
       const sse = sseDecoder.decode(line);
@@ -90639,7 +92666,7 @@ var isResponseLike2 = (value) => value != null && typeof value === "object" && t
 var isFileLike2 = (value) => value != null && typeof value === "object" && typeof value.name === "string" && typeof value.lastModified === "number" && isBlobLike2(value);
 var isBlobLike2 = (value) => value != null && typeof value === "object" && typeof value.size === "number" && typeof value.type === "string" && typeof value.text === "function" && typeof value.slice === "function" && typeof value.arrayBuffer === "function";
 var isUploadable = (value) => {
-  return isFileLike2(value) || isResponseLike2(value) || isFsReadStream2(value);
+  return isFileLike2(value) || isResponseLike2(value) || isFsReadStream(value);
 };
 async function toFile2(value, name, options) {
   value = await value;
@@ -90650,7 +92677,7 @@ async function toFile2(value, name, options) {
     const blob = await value.blob();
     name || (name = new URL(value.url).pathname.split(/[\\/]/).pop() ?? "unknown_file");
     const data2 = isBlobLike2(blob) ? [await blob.arrayBuffer()] : [blob];
-    return new File3(data2, name, options);
+    return new File2(data2, name, options);
   }
   const bits = await getBytes2(value);
   name || (name = getName2(value) ?? "unknown_file");
@@ -90660,7 +92687,7 @@ async function toFile2(value, name, options) {
       options = { ...options, type };
     }
   }
-  return new File3(bits, name, options);
+  return new File2(bits, name, options);
 }
 async function getBytes2(value) {
   let parts = [];
@@ -90669,7 +92696,7 @@ async function getBytes2(value) {
     parts.push(value);
   } else if (isBlobLike2(value)) {
     parts.push(await value.arrayBuffer());
-  } else if (isAsyncIterableIterator2(value)) {
+  } else if (isAsyncIterableIterator(value)) {
     for await (const chunk of value) {
       parts.push(chunk);
     }
@@ -90683,28 +92710,28 @@ function propsForError2(value) {
   return `[${props.map((p) => `"${p}"`).join(", ")}]`;
 }
 function getName2(value) {
-  return getStringFromMaybeBuffer2(value.name) || getStringFromMaybeBuffer2(value.filename) || // For fs.ReadStream
-  getStringFromMaybeBuffer2(value.path)?.split(/[\\/]/).pop();
+  return getStringFromMaybeBuffer(value.name) || getStringFromMaybeBuffer(value.filename) || // For fs.ReadStream
+  getStringFromMaybeBuffer(value.path)?.split(/[\\/]/).pop();
 }
-var getStringFromMaybeBuffer2 = (x) => {
+var getStringFromMaybeBuffer = (x) => {
   if (typeof x === "string")
     return x;
   if (typeof Buffer !== "undefined" && x instanceof Buffer)
     return String(x);
   return void 0;
 };
-var isAsyncIterableIterator2 = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
-var isMultipartBody2 = (body) => body && typeof body === "object" && body.body && body[Symbol.toStringTag] === "MultipartBody";
-var multipartFormRequestOptions = async (opts) => {
-  const form = await createForm(opts.body);
-  return getMultipartRequestOptions2(form, opts);
+var isAsyncIterableIterator = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
+var isMultipartBody = (body) => body && typeof body === "object" && body.body && body[Symbol.toStringTag] === "MultipartBody";
+var multipartFormRequestOptions2 = async (opts) => {
+  const form = await createForm2(opts.body);
+  return getMultipartRequestOptions(form, opts);
 };
-var createForm = async (body) => {
-  const form = new FormData3();
-  await Promise.all(Object.entries(body || {}).map(([key, value]) => addFormValue(form, key, value)));
+var createForm2 = async (body) => {
+  const form = new FormData2();
+  await Promise.all(Object.entries(body || {}).map(([key, value]) => addFormValue2(form, key, value)));
   return form;
 };
-var addFormValue = async (form, key, value) => {
+var addFormValue2 = async (form, key, value) => {
   if (value === void 0)
     return;
   if (value == null) {
@@ -90716,32 +92743,32 @@ var addFormValue = async (form, key, value) => {
     const file = await toFile2(value);
     form.append(key, file);
   } else if (Array.isArray(value)) {
-    await Promise.all(value.map((entry) => addFormValue(form, key + "[]", entry)));
+    await Promise.all(value.map((entry) => addFormValue2(form, key + "[]", entry)));
   } else if (typeof value === "object") {
-    await Promise.all(Object.entries(value).map(([name, prop2]) => addFormValue(form, `${key}[${name}]`, prop2)));
+    await Promise.all(Object.entries(value).map(([name, prop2]) => addFormValue2(form, `${key}[${name}]`, prop2)));
   } else {
     throw new TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${value} instead`);
   }
 };
 
 // node_modules/openai/core.mjs
-var __classPrivateFieldSet5 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet3 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet5 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet3 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _AbstractPage_client2;
 init();
 async function defaultParseResponse2(props) {
   const { response } = props;
   if (props.options.stream) {
-    debug2("response", response.status, response.url, response.headers, response.body);
+    debug("response", response.status, response.url, response.headers, response.body);
     if (props.options.__streamClass) {
       return props.options.__streamClass.fromSSEResponse(response, props.controller);
     }
@@ -90758,11 +92785,11 @@ async function defaultParseResponse2(props) {
   const isJSON = mediaType?.includes("application/json") || mediaType?.endsWith("+json");
   if (isJSON) {
     const json = await response.json();
-    debug2("response", response.status, response.url, response.headers, json);
+    debug("response", response.status, response.url, response.headers, json);
     return _addRequestID(json, response);
   }
   const text3 = await response.text();
-  debug2("response", response.status, response.url, response.headers, text3);
+  debug("response", response.status, response.url, response.headers, text3);
   return text3;
 }
 function _addRequestID(value, response) {
@@ -90836,7 +92863,7 @@ var APIPromise2 = class _APIPromise extends Promise {
     return this.parse().finally(onfinally);
   }
 };
-var APIClient2 = class {
+var APIClient = class {
   constructor({
     baseURL,
     maxRetries = 2,
@@ -90849,7 +92876,7 @@ var APIClient2 = class {
     this.maxRetries = validatePositiveInteger2("maxRetries", maxRetries);
     this.timeout = validatePositiveInteger2("timeout", timeout);
     this.httpAgent = httpAgent;
-    this.fetch = overriddenFetch ?? fetch3;
+    this.fetch = overriddenFetch ?? fetch2;
   }
   authHeaders(opts) {
     return {};
@@ -90879,29 +92906,29 @@ var APIClient2 = class {
   defaultIdempotencyKey() {
     return `stainless-node-retry-${uuid42()}`;
   }
-  get(path3, opts) {
-    return this.methodRequest("get", path3, opts);
+  get(path4, opts) {
+    return this.methodRequest("get", path4, opts);
   }
-  post(path3, opts) {
-    return this.methodRequest("post", path3, opts);
+  post(path4, opts) {
+    return this.methodRequest("post", path4, opts);
   }
-  patch(path3, opts) {
-    return this.methodRequest("patch", path3, opts);
+  patch(path4, opts) {
+    return this.methodRequest("patch", path4, opts);
   }
-  put(path3, opts) {
-    return this.methodRequest("put", path3, opts);
+  put(path4, opts) {
+    return this.methodRequest("put", path4, opts);
   }
-  delete(path3, opts) {
-    return this.methodRequest("delete", path3, opts);
+  delete(path4, opts) {
+    return this.methodRequest("delete", path4, opts);
   }
-  methodRequest(method, path3, opts) {
+  methodRequest(method, path4, opts) {
     return this.request(Promise.resolve(opts).then(async (opts2) => {
       const body = opts2 && isBlobLike2(opts2?.body) ? new DataView(await opts2.body.arrayBuffer()) : opts2?.body instanceof DataView ? opts2.body : opts2?.body instanceof ArrayBuffer ? new DataView(opts2.body) : opts2 && ArrayBuffer.isView(opts2?.body) ? new DataView(opts2.body.buffer) : opts2?.body;
-      return { method, path: path3, ...opts2, body };
+      return { method, path: path4, ...opts2, body };
     }));
   }
-  getAPIList(path3, Page3, opts) {
-    return this.requestAPIList(Page3, { method: "get", path: path3, ...opts });
+  getAPIList(path4, Page3, opts) {
+    return this.requestAPIList(Page3, { method: "get", path: path4, ...opts });
   }
   calculateContentLength(body) {
     if (typeof body === "string") {
@@ -90920,14 +92947,14 @@ var APIClient2 = class {
   }
   buildRequest(inputOptions, { retryCount = 0 } = {}) {
     const options = { ...inputOptions };
-    const { method, path: path3, query, headers = {} } = options;
-    const body = ArrayBuffer.isView(options.body) || options.__binaryRequest && typeof options.body === "string" ? options.body : isMultipartBody2(options.body) ? options.body.body : options.body ? JSON.stringify(options.body, null, 2) : null;
+    const { method, path: path4, query, headers = {} } = options;
+    const body = ArrayBuffer.isView(options.body) || options.__binaryRequest && typeof options.body === "string" ? options.body : isMultipartBody(options.body) ? options.body.body : options.body ? JSON.stringify(options.body, null, 2) : null;
     const contentLength = this.calculateContentLength(body);
-    const url2 = this.buildURL(path3, query);
+    const url2 = this.buildURL(path4, query);
     if ("timeout" in options)
       validatePositiveInteger2("timeout", options.timeout);
     options.timeout = options.timeout ?? this.timeout;
-    const httpAgent = options.httpAgent ?? this.httpAgent ?? getDefaultAgent2(url2);
+    const httpAgent = options.httpAgent ?? this.httpAgent ?? getDefaultAgent(url2);
     const minAgentTimeout = options.timeout + 1e3;
     if (typeof httpAgent?.options?.timeout === "number" && minAgentTimeout > (httpAgent.options.timeout ?? 0)) {
       httpAgent.options.timeout = minAgentTimeout;
@@ -90955,15 +92982,15 @@ var APIClient2 = class {
       reqHeaders["content-length"] = contentLength;
     }
     const defaultHeaders = this.defaultHeaders(options);
-    applyHeadersMut2(reqHeaders, defaultHeaders);
-    applyHeadersMut2(reqHeaders, headers);
-    if (isMultipartBody2(options.body) && kind2 !== "node") {
+    applyHeadersMut(reqHeaders, defaultHeaders);
+    applyHeadersMut(reqHeaders, headers);
+    if (isMultipartBody(options.body) && kind !== "node") {
       delete reqHeaders["content-type"];
     }
-    if (getHeader2(defaultHeaders, "x-stainless-retry-count") === void 0 && getHeader2(headers, "x-stainless-retry-count") === void 0) {
+    if (getHeader(defaultHeaders, "x-stainless-retry-count") === void 0 && getHeader(headers, "x-stainless-retry-count") === void 0) {
       reqHeaders["x-stainless-retry-count"] = String(retryCount);
     }
-    if (getHeader2(defaultHeaders, "x-stainless-timeout") === void 0 && getHeader2(headers, "x-stainless-timeout") === void 0 && options.timeout) {
+    if (getHeader(defaultHeaders, "x-stainless-timeout") === void 0 && getHeader(headers, "x-stainless-timeout") === void 0 && options.timeout) {
       reqHeaders["x-stainless-timeout"] = String(Math.trunc(options.timeout / 1e3));
     }
     this.validateHeaders(reqHeaders, headers);
@@ -90986,7 +93013,7 @@ var APIClient2 = class {
     return !headers ? {} : Symbol.iterator in headers ? Object.fromEntries(Array.from(headers).map((header) => [...header])) : { ...headers };
   }
   makeStatusError(status, error2, message, headers) {
-    return APIError3.generate(status, error2, message, headers);
+    return APIError2.generate(status, error2, message, headers);
   }
   request(options, remainingRetries = null) {
     return new APIPromise2(this.makeRequest(options, remainingRetries));
@@ -91000,36 +93027,36 @@ var APIClient2 = class {
     await this.prepareOptions(options);
     const { req, url: url2, timeout } = this.buildRequest(options, { retryCount: maxRetries - retriesRemaining });
     await this.prepareRequest(req, { url: url2, options });
-    debug2("request", url2, options, req.headers);
+    debug("request", url2, options, req.headers);
     if (options.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
     const controller = new AbortController();
     const response = await this.fetchWithTimeout(url2, req, timeout, controller).catch(castToError2);
     if (response instanceof Error) {
       if (options.signal?.aborted) {
-        throw new APIUserAbortError3();
+        throw new APIUserAbortError2();
       }
       if (retriesRemaining) {
         return this.retryRequest(options, retriesRemaining);
       }
       if (response.name === "AbortError") {
-        throw new APIConnectionTimeoutError3();
+        throw new APIConnectionTimeoutError2();
       }
-      throw new APIConnectionError3({ cause: response });
+      throw new APIConnectionError2({ cause: response });
     }
-    const responseHeaders = createResponseHeaders2(response.headers);
+    const responseHeaders = createResponseHeaders(response.headers);
     if (!response.ok) {
       if (retriesRemaining && this.shouldRetry(response)) {
         const retryMessage2 = `retrying, ${retriesRemaining} attempts remaining`;
-        debug2(`response (error; ${retryMessage2})`, response.status, url2, responseHeaders);
+        debug(`response (error; ${retryMessage2})`, response.status, url2, responseHeaders);
         return this.retryRequest(options, retriesRemaining, responseHeaders);
       }
       const errText = await response.text().catch((e) => castToError2(e).message);
       const errJSON = safeJSON2(errText);
       const errMessage = errJSON ? void 0 : errText;
       const retryMessage = retriesRemaining ? `(error; no more retries left)` : `(error; not retryable)`;
-      debug2(`response (error; ${retryMessage})`, response.status, url2, responseHeaders, errMessage);
+      debug(`response (error; ${retryMessage})`, response.status, url2, responseHeaders, errMessage);
       const err = this.makeStatusError(response.status, errJSON, errMessage, responseHeaders);
       throw err;
     }
@@ -91039,8 +93066,8 @@ var APIClient2 = class {
     const request = this.makeRequest(options, null);
     return new PagePromise2(this, request, Page3);
   }
-  buildURL(path3, query) {
-    const url2 = isAbsoluteURL2(path3) ? new URL(path3) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path3.startsWith("/") ? path3.slice(1) : path3));
+  buildURL(path4, query) {
+    const url2 = isAbsoluteURL2(path4) ? new URL(path4) : new URL(this.baseURL + (this.baseURL.endsWith("/") && path4.startsWith("/") ? path4.slice(1) : path4));
     const defaultQuery = this.defaultQuery();
     if (!isEmptyObj2(defaultQuery)) {
       query = { ...defaultQuery, ...query };
@@ -91136,7 +93163,7 @@ var APIClient2 = class {
 var AbstractPage2 = class {
   constructor(client, response, body, options) {
     _AbstractPage_client2.set(this, void 0);
-    __classPrivateFieldSet5(this, _AbstractPage_client2, client, "f");
+    __classPrivateFieldSet3(this, _AbstractPage_client2, client, "f");
     this.options = options;
     this.response = response;
     this.body = body;
@@ -91163,7 +93190,7 @@ var AbstractPage2 = class {
       nextOptions.query = void 0;
       nextOptions.path = nextInfo.url.toString();
     }
-    return await __classPrivateFieldGet5(this, _AbstractPage_client2, "f").requestAPIList(this.constructor, nextOptions);
+    return await __classPrivateFieldGet3(this, _AbstractPage_client2, "f").requestAPIList(this.constructor, nextOptions);
   }
   async *iterPages() {
     let page = this;
@@ -91199,7 +93226,7 @@ var PagePromise2 = class extends APIPromise2 {
     }
   }
 };
-var createResponseHeaders2 = (headers) => {
+var createResponseHeaders = (headers) => {
   return new Proxy(Object.fromEntries(
     // @ts-ignore
     headers.entries()
@@ -91210,7 +93237,7 @@ var createResponseHeaders2 = (headers) => {
     }
   });
 };
-var requestOptionsKeys2 = {
+var requestOptionsKeys = {
   method: true,
   path: true,
   query: true,
@@ -91227,8 +93254,8 @@ var requestOptionsKeys2 = {
   __binaryResponse: true,
   __streamClass: true
 };
-var isRequestOptions2 = (obj) => {
-  return typeof obj === "object" && obj !== null && !isEmptyObj2(obj) && Object.keys(obj).every((k) => hasOwn2(requestOptionsKeys2, k));
+var isRequestOptions = (obj) => {
+  return typeof obj === "object" && obj !== null && !isEmptyObj2(obj) && Object.keys(obj).every((k) => hasOwn2(requestOptionsKeys, k));
 };
 var getPlatformProperties2 = () => {
   if (typeof Deno !== "undefined" && Deno.build != null) {
@@ -91392,7 +93419,7 @@ function isEmptyObj2(obj) {
 function hasOwn2(obj, key) {
   return Object.prototype.hasOwnProperty.call(obj, key);
 }
-function applyHeadersMut2(targetHeaders, newHeaders) {
+function applyHeadersMut(targetHeaders, newHeaders) {
   for (const k in newHeaders) {
     if (!hasOwn2(newHeaders, k))
       continue;
@@ -91408,7 +93435,7 @@ function applyHeadersMut2(targetHeaders, newHeaders) {
   }
 }
 var SENSITIVE_HEADERS = /* @__PURE__ */ new Set(["authorization", "api-key"]);
-function debug2(action, ...args) {
+function debug(action, ...args) {
   if (typeof process !== "undefined" && process?.env?.["DEBUG"] === "true") {
     const modifiedArgs = args.map((arg) => {
       if (!arg) {
@@ -91450,12 +93477,12 @@ var isRunningInBrowser2 = () => {
     typeof navigator !== "undefined"
   );
 };
-var isHeadersProtocol2 = (headers) => {
+var isHeadersProtocol = (headers) => {
   return typeof headers?.get === "function";
 };
-var getHeader2 = (headers, header) => {
+var getHeader = (headers, header) => {
   const lowerCasedHeader = header.toLowerCase();
-  if (isHeadersProtocol2(headers)) {
+  if (isHeadersProtocol(headers)) {
     const intercapsHeader = header[0]?.toUpperCase() + header.substring(1).replace(/([^\w])(\w)/g, (_m, g1, g2) => g1 + g2.toUpperCase());
     for (const key of [header, lowerCasedHeader, header.toUpperCase(), intercapsHeader]) {
       const value = headers.get(key);
@@ -91565,9 +93592,9 @@ var APIResource2 = class {
 };
 
 // node_modules/openai/resources/chat/completions/messages.mjs
-var Messages4 = class extends APIResource2 {
+var Messages3 = class extends APIResource2 {
   list(completionId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(completionId, {}, query);
     }
     return this._client.getAPIList(`/chat/completions/${completionId}/messages`, ChatCompletionStoreMessagesPage, { query, ...options });
@@ -91578,7 +93605,7 @@ var Messages4 = class extends APIResource2 {
 var Completions2 = class extends APIResource2 {
   constructor() {
     super(...arguments);
-    this.messages = new Messages4(this._client);
+    this.messages = new Messages3(this._client);
   }
   create(body, options) {
     return this._client.post("/chat/completions", { body, ...options, stream: body.stream ?? false });
@@ -91613,7 +93640,7 @@ var Completions2 = class extends APIResource2 {
     return this._client.post(`/chat/completions/${completionId}`, { body, ...options });
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/chat/completions", ChatCompletionsPage, { query, ...options });
@@ -91637,7 +93664,7 @@ var ChatCompletionsPage = class extends CursorPage {
 var ChatCompletionStoreMessagesPage = class extends CursorPage {
 };
 Completions2.ChatCompletionsPage = ChatCompletionsPage;
-Completions2.Messages = Messages4;
+Completions2.Messages = Messages3;
 
 // node_modules/openai/resources/chat/chat.mjs
 var Chat = class extends APIResource2 {
@@ -91679,7 +93706,7 @@ var Speech = class extends APIResource2 {
 // node_modules/openai/resources/audio/transcriptions.mjs
 var Transcriptions = class extends APIResource2 {
   create(body, options) {
-    return this._client.post("/audio/transcriptions", multipartFormRequestOptions({
+    return this._client.post("/audio/transcriptions", multipartFormRequestOptions2({
       body,
       ...options,
       stream: body.stream ?? false,
@@ -91691,7 +93718,7 @@ var Transcriptions = class extends APIResource2 {
 // node_modules/openai/resources/audio/translations.mjs
 var Translations = class extends APIResource2 {
   create(body, options) {
-    return this._client.post("/audio/translations", multipartFormRequestOptions({ body, ...options, __metadata: { model: body.model } }));
+    return this._client.post("/audio/translations", multipartFormRequestOptions2({ body, ...options, __metadata: { model: body.model } }));
   }
 };
 
@@ -91709,7 +93736,7 @@ Audio.Translations = Translations;
 Audio.Speech = Speech;
 
 // node_modules/openai/resources/batches.mjs
-var Batches2 = class extends APIResource2 {
+var Batches3 = class extends APIResource2 {
   /**
    * Creates and executes a batch from an uploaded file of requests
    */
@@ -91723,7 +93750,7 @@ var Batches2 = class extends APIResource2 {
     return this._client.get(`/batches/${batchId}`, options);
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/batches", BatchesPage, { query, ...options });
@@ -91739,19 +93766,19 @@ var Batches2 = class extends APIResource2 {
 };
 var BatchesPage = class extends CursorPage {
 };
-Batches2.BatchesPage = BatchesPage;
+Batches3.BatchesPage = BatchesPage;
 
 // node_modules/openai/lib/EventStream.mjs
-var __classPrivateFieldSet6 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet4 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet6 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet4 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _EventStream_instances;
 var _EventStream_connectedPromise;
@@ -91785,17 +93812,17 @@ var EventStream = class {
     _EventStream_errored.set(this, false);
     _EventStream_aborted.set(this, false);
     _EventStream_catchingPromiseCreated.set(this, false);
-    __classPrivateFieldSet6(this, _EventStream_connectedPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet6(this, _EventStream_resolveConnectedPromise, resolve2, "f");
-      __classPrivateFieldSet6(this, _EventStream_rejectConnectedPromise, reject, "f");
+    __classPrivateFieldSet4(this, _EventStream_connectedPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet4(this, _EventStream_resolveConnectedPromise, resolve2, "f");
+      __classPrivateFieldSet4(this, _EventStream_rejectConnectedPromise, reject, "f");
     }), "f");
-    __classPrivateFieldSet6(this, _EventStream_endPromise, new Promise((resolve2, reject) => {
-      __classPrivateFieldSet6(this, _EventStream_resolveEndPromise, resolve2, "f");
-      __classPrivateFieldSet6(this, _EventStream_rejectEndPromise, reject, "f");
+    __classPrivateFieldSet4(this, _EventStream_endPromise, new Promise((resolve2, reject) => {
+      __classPrivateFieldSet4(this, _EventStream_resolveEndPromise, resolve2, "f");
+      __classPrivateFieldSet4(this, _EventStream_rejectEndPromise, reject, "f");
     }), "f");
-    __classPrivateFieldGet6(this, _EventStream_connectedPromise, "f").catch(() => {
+    __classPrivateFieldGet4(this, _EventStream_connectedPromise, "f").catch(() => {
     });
-    __classPrivateFieldGet6(this, _EventStream_endPromise, "f").catch(() => {
+    __classPrivateFieldGet4(this, _EventStream_endPromise, "f").catch(() => {
     });
   }
   _run(executor) {
@@ -91803,23 +93830,23 @@ var EventStream = class {
       executor().then(() => {
         this._emitFinal();
         this._emit("end");
-      }, __classPrivateFieldGet6(this, _EventStream_instances, "m", _EventStream_handleError).bind(this));
+      }, __classPrivateFieldGet4(this, _EventStream_instances, "m", _EventStream_handleError).bind(this));
     }, 0);
   }
   _connected() {
     if (this.ended)
       return;
-    __classPrivateFieldGet6(this, _EventStream_resolveConnectedPromise, "f").call(this);
+    __classPrivateFieldGet4(this, _EventStream_resolveConnectedPromise, "f").call(this);
     this._emit("connect");
   }
   get ended() {
-    return __classPrivateFieldGet6(this, _EventStream_ended, "f");
+    return __classPrivateFieldGet4(this, _EventStream_ended, "f");
   }
   get errored() {
-    return __classPrivateFieldGet6(this, _EventStream_errored, "f");
+    return __classPrivateFieldGet4(this, _EventStream_errored, "f");
   }
   get aborted() {
-    return __classPrivateFieldGet6(this, _EventStream_aborted, "f");
+    return __classPrivateFieldGet4(this, _EventStream_aborted, "f");
   }
   abort() {
     this.controller.abort();
@@ -91832,7 +93859,7 @@ var EventStream = class {
    * @returns this ChatCompletionStream, so that calls can be chained
    */
   on(event, listener) {
-    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet4(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet4(this, _EventStream_listeners, "f")[event] = []);
     listeners.push({ listener });
     return this;
   }
@@ -91844,7 +93871,7 @@ var EventStream = class {
    * @returns this ChatCompletionStream, so that calls can be chained
    */
   off(event, listener) {
-    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet4(this, _EventStream_listeners, "f")[event];
     if (!listeners)
       return this;
     const index2 = listeners.findIndex((l) => l.listener === listener);
@@ -91858,7 +93885,7 @@ var EventStream = class {
    * @returns this ChatCompletionStream, so that calls can be chained
    */
   once(event, listener) {
-    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = []);
+    const listeners = __classPrivateFieldGet4(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet4(this, _EventStream_listeners, "f")[event] = []);
     listeners.push({ listener, once: true });
     return this;
   }
@@ -91875,46 +93902,46 @@ var EventStream = class {
    */
   emitted(event) {
     return new Promise((resolve2, reject) => {
-      __classPrivateFieldSet6(this, _EventStream_catchingPromiseCreated, true, "f");
+      __classPrivateFieldSet4(this, _EventStream_catchingPromiseCreated, true, "f");
       if (event !== "error")
         this.once("error", reject);
       this.once(event, resolve2);
     });
   }
   async done() {
-    __classPrivateFieldSet6(this, _EventStream_catchingPromiseCreated, true, "f");
-    await __classPrivateFieldGet6(this, _EventStream_endPromise, "f");
+    __classPrivateFieldSet4(this, _EventStream_catchingPromiseCreated, true, "f");
+    await __classPrivateFieldGet4(this, _EventStream_endPromise, "f");
   }
   _emit(event, ...args) {
-    if (__classPrivateFieldGet6(this, _EventStream_ended, "f")) {
+    if (__classPrivateFieldGet4(this, _EventStream_ended, "f")) {
       return;
     }
     if (event === "end") {
-      __classPrivateFieldSet6(this, _EventStream_ended, true, "f");
-      __classPrivateFieldGet6(this, _EventStream_resolveEndPromise, "f").call(this);
+      __classPrivateFieldSet4(this, _EventStream_ended, true, "f");
+      __classPrivateFieldGet4(this, _EventStream_resolveEndPromise, "f").call(this);
     }
-    const listeners = __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event];
+    const listeners = __classPrivateFieldGet4(this, _EventStream_listeners, "f")[event];
     if (listeners) {
-      __classPrivateFieldGet6(this, _EventStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
+      __classPrivateFieldGet4(this, _EventStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
       listeners.forEach(({ listener }) => listener(...args));
     }
     if (event === "abort") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet6(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet4(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet6(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet6(this, _EventStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet4(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet4(this, _EventStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
       return;
     }
     if (event === "error") {
       const error2 = args[0];
-      if (!__classPrivateFieldGet6(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
+      if (!__classPrivateFieldGet4(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) {
         Promise.reject(error2);
       }
-      __classPrivateFieldGet6(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
-      __classPrivateFieldGet6(this, _EventStream_rejectEndPromise, "f").call(this, error2);
+      __classPrivateFieldGet4(this, _EventStream_rejectConnectedPromise, "f").call(this, error2);
+      __classPrivateFieldGet4(this, _EventStream_rejectEndPromise, "f").call(this, error2);
       this._emit("end");
     }
   }
@@ -91922,12 +93949,12 @@ var EventStream = class {
   }
 };
 _EventStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_endPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_listeners = /* @__PURE__ */ new WeakMap(), _EventStream_ended = /* @__PURE__ */ new WeakMap(), _EventStream_errored = /* @__PURE__ */ new WeakMap(), _EventStream_aborted = /* @__PURE__ */ new WeakMap(), _EventStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _EventStream_instances = /* @__PURE__ */ new WeakSet(), _EventStream_handleError = function _EventStream_handleError2(error2) {
-  __classPrivateFieldSet6(this, _EventStream_errored, true, "f");
+  __classPrivateFieldSet4(this, _EventStream_errored, true, "f");
   if (error2 instanceof Error && error2.name === "AbortError") {
-    error2 = new APIUserAbortError3();
+    error2 = new APIUserAbortError2();
   }
-  if (error2 instanceof APIUserAbortError3) {
-    __classPrivateFieldSet6(this, _EventStream_aborted, true, "f");
+  if (error2 instanceof APIUserAbortError2) {
+    __classPrivateFieldSet4(this, _EventStream_aborted, true, "f");
     return this._emit("abort", error2);
   }
   if (error2 instanceof OpenAIError) {
@@ -91942,16 +93969,16 @@ _EventStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_reso
 };
 
 // node_modules/openai/lib/AssistantStream.mjs
-var __classPrivateFieldGet7 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet5 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
-var __classPrivateFieldSet7 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet5 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
 var _AssistantStream_instances;
 var _AssistantStream_events;
@@ -92057,12 +94084,12 @@ var AssistantStream = class _AssistantStream extends EventStream {
     this._connected();
     const stream = Stream2.fromReadableStream(readableStream, this.controller);
     for await (const event of stream) {
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+    return this._addRun(__classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
   }
   toReadableStream() {
     const stream = new Stream2(this[Symbol.asyncIterator].bind(this), this.controller);
@@ -92090,12 +94117,12 @@ var AssistantStream = class _AssistantStream extends EventStream {
     });
     this._connected();
     for await (const event of stream) {
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+    return this._addRun(__classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
   }
   static createThreadAssistantStream(params, thread, options) {
     const runner = new _AssistantStream();
@@ -92114,30 +94141,30 @@ var AssistantStream = class _AssistantStream extends EventStream {
     return runner;
   }
   currentEvent() {
-    return __classPrivateFieldGet7(this, _AssistantStream_currentEvent, "f");
+    return __classPrivateFieldGet5(this, _AssistantStream_currentEvent, "f");
   }
   currentRun() {
-    return __classPrivateFieldGet7(this, _AssistantStream_currentRunSnapshot, "f");
+    return __classPrivateFieldGet5(this, _AssistantStream_currentRunSnapshot, "f");
   }
   currentMessageSnapshot() {
-    return __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f");
+    return __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f");
   }
   currentRunStepSnapshot() {
-    return __classPrivateFieldGet7(this, _AssistantStream_currentRunStepSnapshot, "f");
+    return __classPrivateFieldGet5(this, _AssistantStream_currentRunStepSnapshot, "f");
   }
   async finalRunSteps() {
     await this.done();
-    return Object.values(__classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f"));
+    return Object.values(__classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f"));
   }
   async finalMessages() {
     await this.done();
-    return Object.values(__classPrivateFieldGet7(this, _AssistantStream_messageSnapshots, "f"));
+    return Object.values(__classPrivateFieldGet5(this, _AssistantStream_messageSnapshots, "f"));
   }
   async finalRun() {
     await this.done();
-    if (!__classPrivateFieldGet7(this, _AssistantStream_finalRun, "f"))
+    if (!__classPrivateFieldGet5(this, _AssistantStream_finalRun, "f"))
       throw Error("Final run was not received.");
-    return __classPrivateFieldGet7(this, _AssistantStream_finalRun, "f");
+    return __classPrivateFieldGet5(this, _AssistantStream_finalRun, "f");
   }
   async _createThreadAssistantStream(thread, params, options) {
     const signal = options?.signal;
@@ -92150,12 +94177,12 @@ var AssistantStream = class _AssistantStream extends EventStream {
     const stream = await thread.createAndRun(body, { ...options, signal: this.controller.signal });
     this._connected();
     for await (const event of stream) {
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+    return this._addRun(__classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
   }
   async _createAssistantStream(run, threadId, params, options) {
     const signal = options?.signal;
@@ -92168,12 +94195,12 @@ var AssistantStream = class _AssistantStream extends EventStream {
     const stream = await run.create(threadId, body, { ...options, signal: this.controller.signal });
     this._connected();
     for await (const event of stream) {
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addRun(__classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+    return this._addRun(__classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
   }
   static accumulateDelta(acc, delta) {
     for (const [key, deltaValue] of Object.entries(delta)) {
@@ -92244,8 +94271,8 @@ var AssistantStream = class _AssistantStream extends EventStream {
 _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
   if (this.ended)
     return;
-  __classPrivateFieldSet7(this, _AssistantStream_currentEvent, event, "f");
-  __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleEvent).call(this, event);
+  __classPrivateFieldSet5(this, _AssistantStream_currentEvent, event, "f");
+  __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_handleEvent).call(this, event);
   switch (event.event) {
     case "thread.created":
       break;
@@ -92259,7 +94286,7 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
     case "thread.run.cancelling":
     case "thread.run.cancelled":
     case "thread.run.expired":
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleRun).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_handleRun).call(this, event);
       break;
     case "thread.run.step.created":
     case "thread.run.step.in_progress":
@@ -92268,14 +94295,14 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
     case "thread.run.step.failed":
     case "thread.run.step.cancelled":
     case "thread.run.step.expired":
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleRunStep).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_handleRunStep).call(this, event);
       break;
     case "thread.message.created":
     case "thread.message.in_progress":
     case "thread.message.delta":
     case "thread.message.completed":
     case "thread.message.incomplete":
-      __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_handleMessage).call(this, event);
+      __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_handleMessage).call(this, event);
       break;
     case "error":
       throw new Error("Encountered an error event in event processing - errors should be processed earlier");
@@ -92286,13 +94313,13 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
   if (this.ended) {
     throw new OpenAIError(`stream has ended, this shouldn't happen`);
   }
-  if (!__classPrivateFieldGet7(this, _AssistantStream_finalRun, "f"))
+  if (!__classPrivateFieldGet5(this, _AssistantStream_finalRun, "f"))
     throw Error("Final run has not been received");
-  return __classPrivateFieldGet7(this, _AssistantStream_finalRun, "f");
+  return __classPrivateFieldGet5(this, _AssistantStream_finalRun, "f");
 }, _AssistantStream_handleMessage = function _AssistantStream_handleMessage2(event) {
-  const [accumulatedMessage, newContent] = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateMessage).call(this, event, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
-  __classPrivateFieldSet7(this, _AssistantStream_messageSnapshot, accumulatedMessage, "f");
-  __classPrivateFieldGet7(this, _AssistantStream_messageSnapshots, "f")[accumulatedMessage.id] = accumulatedMessage;
+  const [accumulatedMessage, newContent] = __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_accumulateMessage).call(this, event, __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f"));
+  __classPrivateFieldSet5(this, _AssistantStream_messageSnapshot, accumulatedMessage, "f");
+  __classPrivateFieldGet5(this, _AssistantStream_messageSnapshots, "f")[accumulatedMessage.id] = accumulatedMessage;
   for (const content of newContent) {
     const snapshotContent = accumulatedMessage.content[content.index];
     if (snapshotContent?.type == "text") {
@@ -92318,46 +94345,46 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
               throw Error("The snapshot associated with this text delta is not text or missing");
             }
           }
-          if (content.index != __classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f")) {
-            if (__classPrivateFieldGet7(this, _AssistantStream_currentContent, "f")) {
-              switch (__classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").type) {
+          if (content.index != __classPrivateFieldGet5(this, _AssistantStream_currentContentIndex, "f")) {
+            if (__classPrivateFieldGet5(this, _AssistantStream_currentContent, "f")) {
+              switch (__classPrivateFieldGet5(this, _AssistantStream_currentContent, "f").type) {
                 case "text":
-                  this._emit("textDone", __classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").text, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+                  this._emit("textDone", __classPrivateFieldGet5(this, _AssistantStream_currentContent, "f").text, __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f"));
                   break;
                 case "image_file":
-                  this._emit("imageFileDone", __classPrivateFieldGet7(this, _AssistantStream_currentContent, "f").image_file, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+                  this._emit("imageFileDone", __classPrivateFieldGet5(this, _AssistantStream_currentContent, "f").image_file, __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f"));
                   break;
               }
             }
-            __classPrivateFieldSet7(this, _AssistantStream_currentContentIndex, content.index, "f");
+            __classPrivateFieldSet5(this, _AssistantStream_currentContentIndex, content.index, "f");
           }
-          __classPrivateFieldSet7(this, _AssistantStream_currentContent, accumulatedMessage.content[content.index], "f");
+          __classPrivateFieldSet5(this, _AssistantStream_currentContent, accumulatedMessage.content[content.index], "f");
         }
       }
       break;
     case "thread.message.completed":
     case "thread.message.incomplete":
-      if (__classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f") !== void 0) {
-        const currentContent = event.data.content[__classPrivateFieldGet7(this, _AssistantStream_currentContentIndex, "f")];
+      if (__classPrivateFieldGet5(this, _AssistantStream_currentContentIndex, "f") !== void 0) {
+        const currentContent = event.data.content[__classPrivateFieldGet5(this, _AssistantStream_currentContentIndex, "f")];
         if (currentContent) {
           switch (currentContent.type) {
             case "image_file":
-              this._emit("imageFileDone", currentContent.image_file, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+              this._emit("imageFileDone", currentContent.image_file, __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f"));
               break;
             case "text":
-              this._emit("textDone", currentContent.text, __classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f"));
+              this._emit("textDone", currentContent.text, __classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f"));
               break;
           }
         }
       }
-      if (__classPrivateFieldGet7(this, _AssistantStream_messageSnapshot, "f")) {
+      if (__classPrivateFieldGet5(this, _AssistantStream_messageSnapshot, "f")) {
         this._emit("messageDone", event.data);
       }
-      __classPrivateFieldSet7(this, _AssistantStream_messageSnapshot, void 0, "f");
+      __classPrivateFieldSet5(this, _AssistantStream_messageSnapshot, void 0, "f");
   }
 }, _AssistantStream_handleRunStep = function _AssistantStream_handleRunStep2(event) {
-  const accumulatedRunStep = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateRunStep).call(this, event);
-  __classPrivateFieldSet7(this, _AssistantStream_currentRunStepSnapshot, accumulatedRunStep, "f");
+  const accumulatedRunStep = __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_accumulateRunStep).call(this, event);
+  __classPrivateFieldSet5(this, _AssistantStream_currentRunStepSnapshot, accumulatedRunStep, "f");
   switch (event.event) {
     case "thread.run.step.created":
       this._emit("runStepCreated", event.data);
@@ -92366,16 +94393,16 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
       const delta = event.data.delta;
       if (delta.step_details && delta.step_details.type == "tool_calls" && delta.step_details.tool_calls && accumulatedRunStep.step_details.type == "tool_calls") {
         for (const toolCall of delta.step_details.tool_calls) {
-          if (toolCall.index == __classPrivateFieldGet7(this, _AssistantStream_currentToolCallIndex, "f")) {
+          if (toolCall.index == __classPrivateFieldGet5(this, _AssistantStream_currentToolCallIndex, "f")) {
             this._emit("toolCallDelta", toolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index]);
           } else {
-            if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
-              this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+            if (__classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f")) {
+              this._emit("toolCallDone", __classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f"));
             }
-            __classPrivateFieldSet7(this, _AssistantStream_currentToolCallIndex, toolCall.index, "f");
-            __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index], "f");
-            if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"))
-              this._emit("toolCallCreated", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
+            __classPrivateFieldSet5(this, _AssistantStream_currentToolCallIndex, toolCall.index, "f");
+            __classPrivateFieldSet5(this, _AssistantStream_currentToolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index], "f");
+            if (__classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f"))
+              this._emit("toolCallCreated", __classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f"));
           }
         }
       }
@@ -92385,12 +94412,12 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
     case "thread.run.step.failed":
     case "thread.run.step.cancelled":
     case "thread.run.step.expired":
-      __classPrivateFieldSet7(this, _AssistantStream_currentRunStepSnapshot, void 0, "f");
+      __classPrivateFieldSet5(this, _AssistantStream_currentRunStepSnapshot, void 0, "f");
       const details = event.data.step_details;
       if (details.type == "tool_calls") {
-        if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
-          this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
-          __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, void 0, "f");
+        if (__classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f")) {
+          this._emit("toolCallDone", __classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f"));
+          __classPrivateFieldSet5(this, _AssistantStream_currentToolCall, void 0, "f");
         }
       }
       this._emit("runStepDone", event.data, accumulatedRunStep);
@@ -92399,34 +94426,34 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
       break;
   }
 }, _AssistantStream_handleEvent = function _AssistantStream_handleEvent2(event) {
-  __classPrivateFieldGet7(this, _AssistantStream_events, "f").push(event);
+  __classPrivateFieldGet5(this, _AssistantStream_events, "f").push(event);
   this._emit("event", event);
 }, _AssistantStream_accumulateRunStep = function _AssistantStream_accumulateRunStep2(event) {
   switch (event.event) {
     case "thread.run.step.created":
-      __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
+      __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
       return event.data;
     case "thread.run.step.delta":
-      let snapshot = __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+      let snapshot = __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
       if (!snapshot) {
         throw Error("Received a RunStepDelta before creation of a snapshot");
       }
       let data2 = event.data;
       if (data2.delta) {
         const accumulated = AssistantStream.accumulateDelta(snapshot, data2.delta);
-        __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = accumulated;
+        __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = accumulated;
       }
-      return __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+      return __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
     case "thread.run.step.completed":
     case "thread.run.step.failed":
     case "thread.run.step.cancelled":
     case "thread.run.step.expired":
     case "thread.run.step.in_progress":
-      __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
+      __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
       break;
   }
-  if (__classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id])
-    return __classPrivateFieldGet7(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+  if (__classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id])
+    return __classPrivateFieldGet5(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
   throw new Error("No snapshot available");
 }, _AssistantStream_accumulateMessage = function _AssistantStream_accumulateMessage2(event, snapshot) {
   let newContent = [];
@@ -92442,7 +94469,7 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
         for (const contentElement of data2.delta.content) {
           if (contentElement.index in snapshot.content) {
             let currentContent = snapshot.content[contentElement.index];
-            snapshot.content[contentElement.index] = __classPrivateFieldGet7(this, _AssistantStream_instances, "m", _AssistantStream_accumulateContent).call(this, contentElement, currentContent);
+            snapshot.content[contentElement.index] = __classPrivateFieldGet5(this, _AssistantStream_instances, "m", _AssistantStream_accumulateContent).call(this, contentElement, currentContent);
           } else {
             snapshot.content[contentElement.index] = contentElement;
             newContent.push(contentElement);
@@ -92463,7 +94490,7 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
 }, _AssistantStream_accumulateContent = function _AssistantStream_accumulateContent2(contentElement, currentContent) {
   return AssistantStream.accumulateDelta(currentContent, contentElement);
 }, _AssistantStream_handleRun = function _AssistantStream_handleRun2(event) {
-  __classPrivateFieldSet7(this, _AssistantStream_currentRunSnapshot, event.data, "f");
+  __classPrivateFieldSet5(this, _AssistantStream_currentRunSnapshot, event.data, "f");
   switch (event.event) {
     case "thread.run.created":
       break;
@@ -92476,10 +94503,10 @@ _AssistantStream_addEvent = function _AssistantStream_addEvent2(event) {
     case "thread.run.failed":
     case "thread.run.completed":
     case "thread.run.expired":
-      __classPrivateFieldSet7(this, _AssistantStream_finalRun, event.data, "f");
-      if (__classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f")) {
-        this._emit("toolCallDone", __classPrivateFieldGet7(this, _AssistantStream_currentToolCall, "f"));
-        __classPrivateFieldSet7(this, _AssistantStream_currentToolCall, void 0, "f");
+      __classPrivateFieldSet5(this, _AssistantStream_finalRun, event.data, "f");
+      if (__classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f")) {
+        this._emit("toolCallDone", __classPrivateFieldGet5(this, _AssistantStream_currentToolCall, "f"));
+        __classPrivateFieldSet5(this, _AssistantStream_currentToolCall, void 0, "f");
       }
       break;
     case "thread.run.cancelling":
@@ -92542,7 +94569,7 @@ var Assistants = class extends APIResource2 {
     });
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/assistants", AssistantsPage, {
@@ -92682,10 +94709,10 @@ function validateInputTools(tools) {
 }
 
 // node_modules/openai/lib/AbstractChatCompletionRunner.mjs
-var __classPrivateFieldGet8 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet6 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _AbstractChatCompletionRunner_instances;
 var _AbstractChatCompletionRunner_getFinalContent;
@@ -92747,7 +94774,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
    */
   async finalContent() {
     await this.done();
-    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
+    return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
   }
   /**
    * @returns a promise that resolves with the the final assistant ChatCompletionMessage response,
@@ -92755,7 +94782,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
    */
   async finalMessage() {
     await this.done();
-    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
+    return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
   }
   /**
    * @returns a promise that resolves with the content of the final FunctionCall, or rejects
@@ -92763,15 +94790,15 @@ var AbstractChatCompletionRunner = class extends EventStream {
    */
   async finalFunctionCall() {
     await this.done();
-    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
+    return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
   }
   async finalFunctionCallResult() {
     await this.done();
-    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
+    return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
   }
   async totalUsage() {
     await this.done();
-    return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this);
+    return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this);
   }
   allChatCompletions() {
     return [...this._chatCompletions];
@@ -92780,20 +94807,20 @@ var AbstractChatCompletionRunner = class extends EventStream {
     const completion = this._chatCompletions[this._chatCompletions.length - 1];
     if (completion)
       this._emit("finalChatCompletion", completion);
-    const finalMessage = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
+    const finalMessage = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
     if (finalMessage)
       this._emit("finalMessage", finalMessage);
-    const finalContent = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
+    const finalContent = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
     if (finalContent)
       this._emit("finalContent", finalContent);
-    const finalFunctionCall = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
+    const finalFunctionCall = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCall).call(this);
     if (finalFunctionCall)
       this._emit("finalFunctionCall", finalFunctionCall);
-    const finalFunctionCallResult = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
+    const finalFunctionCallResult = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionCallResult).call(this);
     if (finalFunctionCallResult != null)
       this._emit("finalFunctionCallResult", finalFunctionCallResult);
     if (this._chatCompletions.some((c) => c.usage)) {
-      this._emit("totalUsage", __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this));
+      this._emit("totalUsage", __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this));
     }
   }
   async _createChatCompletion(client, params, options) {
@@ -92803,7 +94830,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
         this.controller.abort();
       signal.addEventListener("abort", () => this.controller.abort());
     }
-    __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_validateParams).call(this, params);
+    __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_validateParams).call(this, params);
     const chatCompletion = await client.chat.completions.create({ ...params, stream: false }, { ...options, signal: this.controller.signal });
     this._connected();
     return this._addChatCompletion(parseChatCompletion(chatCompletion, params));
@@ -92867,7 +94894,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
         continue;
       }
       const rawContent = await fn.function(parsed, this);
-      const content = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
+      const content = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
       this._addMessage({ role, name, content });
       if (singleFunctionToCall)
         return;
@@ -92953,7 +94980,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
           continue;
         }
         const rawContent = await fn.function(parsed, this);
-        const content = __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
+        const content = __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
         this._addMessage({ role, tool_call_id, content });
         if (singleFunctionToCall) {
           return;
@@ -92964,7 +94991,7 @@ var AbstractChatCompletionRunner = class extends EventStream {
   }
 };
 _AbstractChatCompletionRunner_instances = /* @__PURE__ */ new WeakSet(), _AbstractChatCompletionRunner_getFinalContent = function _AbstractChatCompletionRunner_getFinalContent2() {
-  return __classPrivateFieldGet8(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this).content ?? null;
+  return __classPrivateFieldGet6(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this).content ?? null;
 }, _AbstractChatCompletionRunner_getFinalMessage = function _AbstractChatCompletionRunner_getFinalMessage2() {
   let i = this.messages.length;
   while (i-- > 0) {
@@ -93269,16 +95296,16 @@ var _parseJSON = (jsonString, allow) => {
 var partialParse2 = (input) => parseJSON(input, Allow.ALL ^ Allow.NUM);
 
 // node_modules/openai/lib/ChatCompletionStream.mjs
-var __classPrivateFieldSet8 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet6 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet9 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet7 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _ChatCompletionStream_instances;
 var _ChatCompletionStream_params;
@@ -93299,11 +95326,11 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
     _ChatCompletionStream_params.set(this, void 0);
     _ChatCompletionStream_choiceEventStates.set(this, void 0);
     _ChatCompletionStream_currentChatCompletionSnapshot.set(this, void 0);
-    __classPrivateFieldSet8(this, _ChatCompletionStream_params, params, "f");
-    __classPrivateFieldSet8(this, _ChatCompletionStream_choiceEventStates, [], "f");
+    __classPrivateFieldSet6(this, _ChatCompletionStream_params, params, "f");
+    __classPrivateFieldSet6(this, _ChatCompletionStream_choiceEventStates, [], "f");
   }
   get currentChatCompletionSnapshot() {
-    return __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+    return __classPrivateFieldGet7(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
   }
   /**
    * Intended for use on the frontend, consuming a stream produced with
@@ -93330,16 +95357,16 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
         this.controller.abort();
       signal.addEventListener("abort", () => this.controller.abort());
     }
-    __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+    __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
     const stream = await client.chat.completions.create({ ...params, stream: true }, { ...options, signal: this.controller.signal });
     this._connected();
     for await (const chunk of stream) {
-      __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+      __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+    return this._addChatCompletion(__classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
   }
   async _fromReadableStream(readableStream, options) {
     const signal = options?.signal;
@@ -93348,28 +95375,28 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
         this.controller.abort();
       signal.addEventListener("abort", () => this.controller.abort());
     }
-    __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+    __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
     this._connected();
     const stream = Stream2.fromReadableStream(readableStream, this.controller);
     let chatId;
     for await (const chunk of stream) {
       if (chatId && chatId !== chunk.id) {
-        this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+        this._addChatCompletion(__classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
       }
-      __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+      __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
       chatId = chunk.id;
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return this._addChatCompletion(__classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+    return this._addChatCompletion(__classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
   }
   [(_ChatCompletionStream_params = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_choiceEventStates = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_currentChatCompletionSnapshot = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_instances = /* @__PURE__ */ new WeakSet(), _ChatCompletionStream_beginRequest = function _ChatCompletionStream_beginRequest2() {
     if (this.ended)
       return;
-    __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+    __classPrivateFieldSet6(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
   }, _ChatCompletionStream_getChoiceEventState = function _ChatCompletionStream_getChoiceEventState2(choice) {
-    let state = __classPrivateFieldGet9(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index];
+    let state = __classPrivateFieldGet7(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index];
     if (state) {
       return state;
     }
@@ -93381,12 +95408,12 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       done_tool_calls: /* @__PURE__ */ new Set(),
       current_tool_call_index: null
     };
-    __classPrivateFieldGet9(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index] = state;
+    __classPrivateFieldGet7(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index] = state;
     return state;
   }, _ChatCompletionStream_addChunk = function _ChatCompletionStream_addChunk2(chunk) {
     if (this.ended)
       return;
-    const completion = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_accumulateChatCompletion).call(this, chunk);
+    const completion = __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_accumulateChatCompletion).call(this, chunk);
     this._emit("chunk", chunk, completion);
     for (const choice of chunk.choices) {
       const choiceSnapshot = completion.choices[choice.index];
@@ -93416,18 +95443,18 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
           snapshot: choiceSnapshot.logprobs?.refusal ?? []
         });
       }
-      const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+      const state = __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
       if (choiceSnapshot.finish_reason) {
-        __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+        __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
         if (state.current_tool_call_index != null) {
-          __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+          __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
         }
       }
       for (const toolCall of choice.delta.tool_calls ?? []) {
         if (state.current_tool_call_index !== toolCall.index) {
-          __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+          __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
           if (state.current_tool_call_index != null) {
-            __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+            __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
           }
         }
         state.current_tool_call_index = toolCall.index;
@@ -93451,7 +95478,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       }
     }
   }, _ChatCompletionStream_emitToolCallDoneEvent = function _ChatCompletionStream_emitToolCallDoneEvent2(choiceSnapshot, toolCallIndex) {
-    const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+    const state = __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
     if (state.done_tool_calls.has(toolCallIndex)) {
       return;
     }
@@ -93463,7 +95490,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       throw new Error("tool call snapshot missing `type`");
     }
     if (toolCallSnapshot.type === "function") {
-      const inputTool = __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f")?.tools?.find((tool) => tool.type === "function" && tool.function.name === toolCallSnapshot.function.name);
+      const inputTool = __classPrivateFieldGet7(this, _ChatCompletionStream_params, "f")?.tools?.find((tool) => tool.type === "function" && tool.function.name === toolCallSnapshot.function.name);
       this._emit("tool_calls.function.arguments.done", {
         name: toolCallSnapshot.function.name,
         index: toolCallIndex,
@@ -93474,10 +95501,10 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       assertNever2(toolCallSnapshot.type);
     }
   }, _ChatCompletionStream_emitContentDoneEvents = function _ChatCompletionStream_emitContentDoneEvents2(choiceSnapshot) {
-    const state = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+    const state = __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
     if (choiceSnapshot.message.content && !state.content_done) {
       state.content_done = true;
-      const responseFormat = __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this);
+      const responseFormat = __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this);
       this._emit("content.done", {
         content: choiceSnapshot.message.content,
         parsed: responseFormat ? responseFormat.$parseRaw(choiceSnapshot.message.content) : null
@@ -93499,25 +95526,25 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
     if (this.ended) {
       throw new OpenAIError(`stream has ended, this shouldn't happen`);
     }
-    const snapshot = __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+    const snapshot = __classPrivateFieldGet7(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
     if (!snapshot) {
       throw new OpenAIError(`request ended without sending any chunks`);
     }
-    __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
-    __classPrivateFieldSet8(this, _ChatCompletionStream_choiceEventStates, [], "f");
-    return finalizeChatCompletion(snapshot, __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"));
+    __classPrivateFieldSet6(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+    __classPrivateFieldSet6(this, _ChatCompletionStream_choiceEventStates, [], "f");
+    return finalizeChatCompletion(snapshot, __classPrivateFieldGet7(this, _ChatCompletionStream_params, "f"));
   }, _ChatCompletionStream_getAutoParseableResponseFormat = function _ChatCompletionStream_getAutoParseableResponseFormat2() {
-    const responseFormat = __classPrivateFieldGet9(this, _ChatCompletionStream_params, "f")?.response_format;
+    const responseFormat = __classPrivateFieldGet7(this, _ChatCompletionStream_params, "f")?.response_format;
     if (isAutoParsableResponseFormat(responseFormat)) {
       return responseFormat;
     }
     return null;
   }, _ChatCompletionStream_accumulateChatCompletion = function _ChatCompletionStream_accumulateChatCompletion2(chunk) {
     var _a7, _b, _c, _d;
-    let snapshot = __classPrivateFieldGet9(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+    let snapshot = __classPrivateFieldGet7(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
     const { choices, ...rest } = chunk;
     if (!snapshot) {
-      snapshot = __classPrivateFieldSet8(this, _ChatCompletionStream_currentChatCompletionSnapshot, {
+      snapshot = __classPrivateFieldSet6(this, _ChatCompletionStream_currentChatCompletionSnapshot, {
         ...rest,
         choices: []
       }, "f");
@@ -93548,7 +95575,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       }
       if (finish_reason) {
         choice.finish_reason = finish_reason;
-        if (__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f") && hasAutoParseableInput(__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"))) {
+        if (__classPrivateFieldGet7(this, _ChatCompletionStream_params, "f") && hasAutoParseableInput(__classPrivateFieldGet7(this, _ChatCompletionStream_params, "f"))) {
           if (finish_reason === "length") {
             throw new LengthFinishReasonError();
           }
@@ -93582,7 +95609,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
       }
       if (content) {
         choice.message.content = (choice.message.content || "") + content;
-        if (!choice.message.refusal && __classPrivateFieldGet9(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this)) {
+        if (!choice.message.refusal && __classPrivateFieldGet7(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this)) {
           choice.message.parsed = partialParse2(choice.message.content);
         }
       }
@@ -93602,7 +95629,7 @@ var ChatCompletionStream = class _ChatCompletionStream extends AbstractChatCompl
             tool_call.function.name = fn.name;
           if (fn?.arguments) {
             tool_call.function.arguments += fn.arguments;
-            if (shouldParseToolCall(__classPrivateFieldGet9(this, _ChatCompletionStream_params, "f"), tool_call)) {
+            if (shouldParseToolCall(__classPrivateFieldGet7(this, _ChatCompletionStream_params, "f"), tool_call)) {
               tool_call.function.parsed_arguments = partialParse2(tool_call.function.arguments);
             }
           }
@@ -93897,7 +95924,7 @@ Realtime.Sessions = Sessions;
 Realtime.TranscriptionSessions = TranscriptionSessions;
 
 // node_modules/openai/resources/beta/threads/messages.mjs
-var Messages5 = class extends APIResource2 {
+var Messages4 = class extends APIResource2 {
   /**
    * Create a message.
    *
@@ -93934,7 +95961,7 @@ var Messages5 = class extends APIResource2 {
     });
   }
   list(threadId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(threadId, {}, query);
     }
     return this._client.getAPIList(`/threads/${threadId}/messages`, MessagesPage, {
@@ -93957,12 +95984,12 @@ var Messages5 = class extends APIResource2 {
 };
 var MessagesPage = class extends CursorPage {
 };
-Messages5.MessagesPage = MessagesPage;
+Messages4.MessagesPage = MessagesPage;
 
 // node_modules/openai/resources/beta/threads/runs/steps.mjs
 var Steps = class extends APIResource2 {
   retrieve(threadId, runId, stepId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.retrieve(threadId, runId, stepId, {}, query);
     }
     return this._client.get(`/threads/${threadId}/runs/${runId}/steps/${stepId}`, {
@@ -93972,7 +95999,7 @@ var Steps = class extends APIResource2 {
     });
   }
   list(threadId, runId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(threadId, runId, {}, query);
     }
     return this._client.getAPIList(`/threads/${threadId}/runs/${runId}/steps`, RunStepsPage, {
@@ -94026,7 +96053,7 @@ var Runs = class extends APIResource2 {
     });
   }
   list(threadId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(threadId, {}, query);
     }
     return this._client.getAPIList(`/threads/${threadId}/runs`, RunsPage, {
@@ -94151,10 +96178,10 @@ var Threads = class extends APIResource2 {
   constructor() {
     super(...arguments);
     this.runs = new Runs(this._client);
-    this.messages = new Messages5(this._client);
+    this.messages = new Messages4(this._client);
   }
   create(body = {}, options) {
-    if (isRequestOptions2(body)) {
+    if (isRequestOptions(body)) {
       return this.create({}, body);
     }
     return this._client.post("/threads", {
@@ -94223,7 +96250,7 @@ var Threads = class extends APIResource2 {
 };
 Threads.Runs = Runs;
 Threads.RunsPage = RunsPage;
-Threads.Messages = Messages5;
+Threads.Messages = Messages4;
 Threads.MessagesPage = MessagesPage;
 
 // node_modules/openai/resources/beta/beta.mjs
@@ -94263,7 +96290,7 @@ var Content = class extends APIResource2 {
 };
 
 // node_modules/openai/resources/containers/files/files.mjs
-var Files = class extends APIResource2 {
+var Files2 = class extends APIResource2 {
   constructor() {
     super(...arguments);
     this.content = new Content(this._client);
@@ -94275,7 +96302,7 @@ var Files = class extends APIResource2 {
    * a JSON request with a file ID.
    */
   create(containerId, body, options) {
-    return this._client.post(`/containers/${containerId}/files`, multipartFormRequestOptions({ body, ...options }));
+    return this._client.post(`/containers/${containerId}/files`, multipartFormRequestOptions2({ body, ...options }));
   }
   /**
    * Retrieve Container File
@@ -94284,7 +96311,7 @@ var Files = class extends APIResource2 {
     return this._client.get(`/containers/${containerId}/files/${fileId}`, options);
   }
   list(containerId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(containerId, {}, query);
     }
     return this._client.getAPIList(`/containers/${containerId}/files`, FileListResponsesPage, {
@@ -94304,14 +96331,14 @@ var Files = class extends APIResource2 {
 };
 var FileListResponsesPage = class extends CursorPage {
 };
-Files.FileListResponsesPage = FileListResponsesPage;
-Files.Content = Content;
+Files2.FileListResponsesPage = FileListResponsesPage;
+Files2.Content = Content;
 
 // node_modules/openai/resources/containers/containers.mjs
 var Containers = class extends APIResource2 {
   constructor() {
     super(...arguments);
-    this.files = new Files(this._client);
+    this.files = new Files2(this._client);
   }
   /**
    * Create Container
@@ -94326,7 +96353,7 @@ var Containers = class extends APIResource2 {
     return this._client.get(`/containers/${containerId}`, options);
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/containers", ContainerListResponsesPage, { query, ...options });
@@ -94344,7 +96371,7 @@ var Containers = class extends APIResource2 {
 var ContainerListResponsesPage = class extends CursorPage {
 };
 Containers.ContainerListResponsesPage = ContainerListResponsesPage;
-Containers.Files = Files;
+Containers.Files = Files2;
 Containers.FileListResponsesPage = FileListResponsesPage;
 
 // node_modules/openai/resources/embeddings.mjs
@@ -94365,7 +96392,7 @@ var Embeddings = class extends APIResource2 {
     const hasUserProvidedEncodingFormat = !!body.encoding_format;
     let encoding_format = hasUserProvidedEncodingFormat ? body.encoding_format : "base64";
     if (hasUserProvidedEncodingFormat) {
-      debug2("Request", "User defined encoding_format:", body.encoding_format);
+      debug("Request", "User defined encoding_format:", body.encoding_format);
     }
     const response = this._client.post("/embeddings", {
       body: {
@@ -94377,7 +96404,7 @@ var Embeddings = class extends APIResource2 {
     if (hasUserProvidedEncodingFormat) {
       return response;
     }
-    debug2("response", "Decoding base64 embeddings to float32 array");
+    debug("response", "Decoding base64 embeddings to float32 array");
     return response._thenUnwrap((response2) => {
       if (response2 && response2.data) {
         response2.data.forEach((embeddingBase64Obj) => {
@@ -94399,7 +96426,7 @@ var OutputItems = class extends APIResource2 {
     return this._client.get(`/evals/${evalId}/runs/${runId}/output_items/${outputItemId}`, options);
   }
   list(evalId, runId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(evalId, runId, {}, query);
     }
     return this._client.getAPIList(`/evals/${evalId}/runs/${runId}/output_items`, OutputItemListResponsesPage, { query, ...options });
@@ -94430,7 +96457,7 @@ var Runs2 = class extends APIResource2 {
     return this._client.get(`/evals/${evalId}/runs/${runId}`, options);
   }
   list(evalId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(evalId, {}, query);
     }
     return this._client.getAPIList(`/evals/${evalId}/runs`, RunListResponsesPage, { query, ...options });
@@ -94484,7 +96511,7 @@ var Evals = class extends APIResource2 {
     return this._client.post(`/evals/${evalId}`, { body, ...options });
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/evals", EvalListResponsesPage, { query, ...options });
@@ -94503,7 +96530,7 @@ Evals.Runs = Runs2;
 Evals.RunListResponsesPage = RunListResponsesPage;
 
 // node_modules/openai/resources/files.mjs
-var Files2 = class extends APIResource2 {
+var Files3 = class extends APIResource2 {
   /**
    * Upload a file that can be used across various endpoints. Individual files can be
    * up to 512 MB, and the size of all files uploaded by one organization can be up
@@ -94528,7 +96555,7 @@ var Files2 = class extends APIResource2 {
    * storage limits.
    */
   create(body, options) {
-    return this._client.post("/files", multipartFormRequestOptions({ body, ...options }));
+    return this._client.post("/files", multipartFormRequestOptions2({ body, ...options }));
   }
   /**
    * Returns information about a specific file.
@@ -94537,7 +96564,7 @@ var Files2 = class extends APIResource2 {
     return this._client.get(`/files/${fileId}`, options);
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/files", FileObjectsPage, { query, ...options });
@@ -94577,7 +96604,7 @@ var Files2 = class extends APIResource2 {
       await sleep2(pollInterval);
       file = await this.retrieve(id);
       if (Date.now() - start > maxWait) {
-        throw new APIConnectionTimeoutError3({
+        throw new APIConnectionTimeoutError2({
           message: `Giving up on waiting for file ${id} to finish processing after ${maxWait} milliseconds.`
         });
       }
@@ -94587,7 +96614,7 @@ var Files2 = class extends APIResource2 {
 };
 var FileObjectsPage = class extends CursorPage {
 };
-Files2.FileObjectsPage = FileObjectsPage;
+Files3.FileObjectsPage = FileObjectsPage;
 
 // node_modules/openai/resources/fine-tuning/methods.mjs
 var Methods = class extends APIResource2 {
@@ -94670,7 +96697,7 @@ var Permissions = class extends APIResource2 {
     return this._client.getAPIList(`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, PermissionCreateResponsesPage, { body, method: "post", ...options });
   }
   retrieve(fineTunedModelCheckpoint, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.retrieve(fineTunedModelCheckpoint, {}, query);
     }
     return this._client.get(`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, {
@@ -94714,7 +96741,7 @@ Checkpoints.PermissionCreateResponsesPage = PermissionCreateResponsesPage;
 // node_modules/openai/resources/fine-tuning/jobs/checkpoints.mjs
 var Checkpoints2 = class extends APIResource2 {
   list(fineTuningJobId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(fineTuningJobId, {}, query);
     }
     return this._client.getAPIList(`/fine_tuning/jobs/${fineTuningJobId}/checkpoints`, FineTuningJobCheckpointsPage, { query, ...options });
@@ -94766,7 +96793,7 @@ var Jobs = class extends APIResource2 {
     return this._client.get(`/fine_tuning/jobs/${fineTuningJobId}`, options);
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/fine_tuning/jobs", FineTuningJobsPage, { query, ...options });
@@ -94785,7 +96812,7 @@ var Jobs = class extends APIResource2 {
     return this._client.post(`/fine_tuning/jobs/${fineTuningJobId}/cancel`, options);
   }
   listEvents(fineTuningJobId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.listEvents(fineTuningJobId, {}, query);
     }
     return this._client.getAPIList(`/fine_tuning/jobs/${fineTuningJobId}/events`, FineTuningJobEventsPage, {
@@ -94872,7 +96899,7 @@ var Images = class extends APIResource2 {
    * ```
    */
   createVariation(body, options) {
-    return this._client.post("/images/variations", multipartFormRequestOptions({ body, ...options }));
+    return this._client.post("/images/variations", multipartFormRequestOptions2({ body, ...options }));
   }
   /**
    * Creates an edited or extended image given one or more source images and a
@@ -94887,7 +96914,7 @@ var Images = class extends APIResource2 {
    * ```
    */
   edit(body, options) {
-    return this._client.post("/images/edits", multipartFormRequestOptions({ body, ...options }));
+    return this._client.post("/images/edits", multipartFormRequestOptions2({ body, ...options }));
   }
   /**
    * Creates an image given a prompt.
@@ -94906,7 +96933,7 @@ var Images = class extends APIResource2 {
 };
 
 // node_modules/openai/resources/models.mjs
-var Models = class extends APIResource2 {
+var Models3 = class extends APIResource2 {
   /**
    * Retrieves a model instance, providing basic information about the model such as
    * the owner and permissioning.
@@ -94931,7 +96958,7 @@ var Models = class extends APIResource2 {
 };
 var ModelsPage = class extends Page2 {
 };
-Models.ModelsPage = ModelsPage;
+Models3.ModelsPage = ModelsPage;
 
 // node_modules/openai/resources/moderations.mjs
 var Moderations = class extends APIResource2 {
@@ -95068,7 +97095,7 @@ function addOutputText(rsp) {
 // node_modules/openai/resources/responses/input-items.mjs
 var InputItems = class extends APIResource2 {
   list(responseId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(responseId, {}, query);
     }
     return this._client.getAPIList(`/responses/${responseId}/input_items`, ResponseItemsPage, {
@@ -95079,16 +97106,16 @@ var InputItems = class extends APIResource2 {
 };
 
 // node_modules/openai/lib/responses/ResponseStream.mjs
-var __classPrivateFieldSet9 = function(receiver, state, value, kind3, f) {
-  if (kind3 === "m") throw new TypeError("Private method is not writable");
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+var __classPrivateFieldSet7 = function(receiver, state, value, kind2, f) {
+  if (kind2 === "m") throw new TypeError("Private method is not writable");
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
-  return kind3 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
+  return kind2 === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 };
-var __classPrivateFieldGet10 = function(receiver, state, kind3, f) {
-  if (kind3 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+var __classPrivateFieldGet8 = function(receiver, state, kind2, f) {
+  if (kind2 === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
   if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
-  return kind3 === "m" ? f : kind3 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
+  return kind2 === "m" ? f : kind2 === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 };
 var _ResponseStream_instances;
 var _ResponseStream_params;
@@ -95105,7 +97132,7 @@ var ResponseStream = class _ResponseStream extends EventStream {
     _ResponseStream_params.set(this, void 0);
     _ResponseStream_currentResponseSnapshot.set(this, void 0);
     _ResponseStream_finalResponse.set(this, void 0);
-    __classPrivateFieldSet9(this, _ResponseStream_params, params, "f");
+    __classPrivateFieldSet7(this, _ResponseStream_params, params, "f");
   }
   static createResponse(client, params, options) {
     const runner = new _ResponseStream(params);
@@ -95122,7 +97149,7 @@ var ResponseStream = class _ResponseStream extends EventStream {
         this.controller.abort();
       signal.addEventListener("abort", () => this.controller.abort());
     }
-    __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_beginRequest).call(this);
+    __classPrivateFieldGet8(this, _ResponseStream_instances, "m", _ResponseStream_beginRequest).call(this);
     let stream;
     let starting_after = null;
     if ("response_id" in params) {
@@ -95133,17 +97160,17 @@ var ResponseStream = class _ResponseStream extends EventStream {
     }
     this._connected();
     for await (const event of stream) {
-      __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_addEvent).call(this, event, starting_after);
+      __classPrivateFieldGet8(this, _ResponseStream_instances, "m", _ResponseStream_addEvent).call(this, event, starting_after);
     }
     if (stream.controller.signal?.aborted) {
-      throw new APIUserAbortError3();
+      throw new APIUserAbortError2();
     }
-    return __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_endRequest).call(this);
+    return __classPrivateFieldGet8(this, _ResponseStream_instances, "m", _ResponseStream_endRequest).call(this);
   }
   [(_ResponseStream_params = /* @__PURE__ */ new WeakMap(), _ResponseStream_currentResponseSnapshot = /* @__PURE__ */ new WeakMap(), _ResponseStream_finalResponse = /* @__PURE__ */ new WeakMap(), _ResponseStream_instances = /* @__PURE__ */ new WeakSet(), _ResponseStream_beginRequest = function _ResponseStream_beginRequest2() {
     if (this.ended)
       return;
-    __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+    __classPrivateFieldSet7(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
   }, _ResponseStream_addEvent = function _ResponseStream_addEvent2(event, starting_after) {
     if (this.ended)
       return;
@@ -95152,7 +97179,7 @@ var ResponseStream = class _ResponseStream extends EventStream {
         this._emit(name, event2);
       }
     };
-    const response = __classPrivateFieldGet10(this, _ResponseStream_instances, "m", _ResponseStream_accumulateResponse).call(this, event);
+    const response = __classPrivateFieldGet8(this, _ResponseStream_instances, "m", _ResponseStream_accumulateResponse).call(this, event);
     maybeEmit("event", event);
     switch (event.type) {
       case "response.output_text.delta": {
@@ -95196,21 +97223,21 @@ var ResponseStream = class _ResponseStream extends EventStream {
     if (this.ended) {
       throw new OpenAIError(`stream has ended, this shouldn't happen`);
     }
-    const snapshot = __classPrivateFieldGet10(this, _ResponseStream_currentResponseSnapshot, "f");
+    const snapshot = __classPrivateFieldGet8(this, _ResponseStream_currentResponseSnapshot, "f");
     if (!snapshot) {
       throw new OpenAIError(`request ended without sending any events`);
     }
-    __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
-    const parsedResponse = finalizeResponse(snapshot, __classPrivateFieldGet10(this, _ResponseStream_params, "f"));
-    __classPrivateFieldSet9(this, _ResponseStream_finalResponse, parsedResponse, "f");
+    __classPrivateFieldSet7(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+    const parsedResponse = finalizeResponse(snapshot, __classPrivateFieldGet8(this, _ResponseStream_params, "f"));
+    __classPrivateFieldSet7(this, _ResponseStream_finalResponse, parsedResponse, "f");
     return parsedResponse;
   }, _ResponseStream_accumulateResponse = function _ResponseStream_accumulateResponse2(event) {
-    let snapshot = __classPrivateFieldGet10(this, _ResponseStream_currentResponseSnapshot, "f");
+    let snapshot = __classPrivateFieldGet8(this, _ResponseStream_currentResponseSnapshot, "f");
     if (!snapshot) {
       if (event.type !== "response.created") {
         throw new OpenAIError(`When snapshot hasn't been set yet, expected 'response.created' event, got ${event.type}`);
       }
-      snapshot = __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
+      snapshot = __classPrivateFieldSet7(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
       return snapshot;
     }
     switch (event.type) {
@@ -95256,7 +97283,7 @@ var ResponseStream = class _ResponseStream extends EventStream {
         break;
       }
       case "response.completed": {
-        __classPrivateFieldSet9(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
+        __classPrivateFieldSet7(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
         break;
       }
     }
@@ -95317,7 +97344,7 @@ var ResponseStream = class _ResponseStream extends EventStream {
    */
   async finalResponse() {
     await this.done();
-    const response = __classPrivateFieldGet10(this, _ResponseStream_finalResponse, "f");
+    const response = __classPrivateFieldGet8(this, _ResponseStream_finalResponse, "f");
     if (!response)
       throw new OpenAIError("stream ended without producing a ChatCompletion");
     return response;
@@ -95412,7 +97439,7 @@ var Parts = class extends APIResource2 {
    * [complete the Upload](https://platform.openai.com/docs/api-reference/uploads/complete).
    */
   create(uploadId, body, options) {
-    return this._client.post(`/uploads/${uploadId}/parts`, multipartFormRequestOptions({ body, ...options }));
+    return this._client.post(`/uploads/${uploadId}/parts`, multipartFormRequestOptions2({ body, ...options }));
   }
 };
 
@@ -95493,7 +97520,7 @@ var allSettledWithThrow = async (promises2) => {
 };
 
 // node_modules/openai/resources/vector-stores/files.mjs
-var Files3 = class extends APIResource2 {
+var Files4 = class extends APIResource2 {
   /**
    * Create a vector store file by attaching a
    * [File](https://platform.openai.com/docs/api-reference/files) to a
@@ -95526,7 +97553,7 @@ var Files3 = class extends APIResource2 {
     });
   }
   list(vectorStoreId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list(vectorStoreId, {}, query);
     }
     return this._client.getAPIList(`/vector_stores/${vectorStoreId}/files`, VectorStoreFilesPage, {
@@ -95621,8 +97648,8 @@ var VectorStoreFilesPage = class extends CursorPage {
 };
 var FileContentResponsesPage = class extends Page2 {
 };
-Files3.VectorStoreFilesPage = VectorStoreFilesPage;
-Files3.FileContentResponsesPage = FileContentResponsesPage;
+Files4.VectorStoreFilesPage = VectorStoreFilesPage;
+Files4.FileContentResponsesPage = FileContentResponsesPage;
 
 // node_modules/openai/resources/vector-stores/file-batches.mjs
 var FileBatches = class extends APIResource2 {
@@ -95663,7 +97690,7 @@ var FileBatches = class extends APIResource2 {
     return await this.poll(vectorStoreId, batch.id, options);
   }
   listFiles(vectorStoreId, batchId, query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.listFiles(vectorStoreId, batchId, {}, query);
     }
     return this._client.getAPIList(`/vector_stores/${vectorStoreId}/file_batches/${batchId}/files`, VectorStoreFilesPage, { query, ...options, headers: { "OpenAI-Beta": "assistants=v2", ...options?.headers } });
@@ -95739,7 +97766,7 @@ var FileBatches = class extends APIResource2 {
 var VectorStores = class extends APIResource2 {
   constructor() {
     super(...arguments);
-    this.files = new Files3(this._client);
+    this.files = new Files4(this._client);
     this.fileBatches = new FileBatches(this._client);
   }
   /**
@@ -95772,7 +97799,7 @@ var VectorStores = class extends APIResource2 {
     });
   }
   list(query = {}, options) {
-    if (isRequestOptions2(query)) {
+    if (isRequestOptions(query)) {
       return this.list({}, query);
     }
     return this._client.getAPIList("/vector_stores", VectorStoresPage, {
@@ -95809,14 +97836,14 @@ var VectorStoreSearchResponsesPage = class extends Page2 {
 };
 VectorStores.VectorStoresPage = VectorStoresPage;
 VectorStores.VectorStoreSearchResponsesPage = VectorStoreSearchResponsesPage;
-VectorStores.Files = Files3;
+VectorStores.Files = Files4;
 VectorStores.VectorStoreFilesPage = VectorStoreFilesPage;
 VectorStores.FileContentResponsesPage = FileContentResponsesPage;
 VectorStores.FileBatches = FileBatches;
 
 // node_modules/openai/index.mjs
 var _a2;
-var OpenAI = class extends APIClient2 {
+var OpenAI = class extends APIClient {
   /**
    * API Client for interfacing with the OpenAI API.
    *
@@ -95856,16 +97883,16 @@ var OpenAI = class extends APIClient2 {
     this.completions = new Completions4(this);
     this.chat = new Chat(this);
     this.embeddings = new Embeddings(this);
-    this.files = new Files2(this);
+    this.files = new Files3(this);
     this.images = new Images(this);
     this.audio = new Audio(this);
     this.moderations = new Moderations(this);
-    this.models = new Models(this);
+    this.models = new Models3(this);
     this.fineTuning = new FineTuning(this);
     this.graders = new Graders2(this);
     this.vectorStores = new VectorStores(this);
     this.beta = new Beta2(this);
-    this.batches = new Batches2(this);
+    this.batches = new Batches3(this);
     this.uploads = new Uploads(this);
     this.responses = new Responses(this);
     this.evals = new Evals(this);
@@ -95897,30 +97924,30 @@ _a2 = OpenAI;
 OpenAI.OpenAI = _a2;
 OpenAI.DEFAULT_TIMEOUT = 6e5;
 OpenAI.OpenAIError = OpenAIError;
-OpenAI.APIError = APIError3;
-OpenAI.APIConnectionError = APIConnectionError3;
-OpenAI.APIConnectionTimeoutError = APIConnectionTimeoutError3;
-OpenAI.APIUserAbortError = APIUserAbortError3;
-OpenAI.NotFoundError = NotFoundError3;
-OpenAI.ConflictError = ConflictError3;
-OpenAI.RateLimitError = RateLimitError3;
-OpenAI.BadRequestError = BadRequestError3;
-OpenAI.AuthenticationError = AuthenticationError3;
-OpenAI.InternalServerError = InternalServerError3;
-OpenAI.PermissionDeniedError = PermissionDeniedError3;
-OpenAI.UnprocessableEntityError = UnprocessableEntityError3;
+OpenAI.APIError = APIError2;
+OpenAI.APIConnectionError = APIConnectionError2;
+OpenAI.APIConnectionTimeoutError = APIConnectionTimeoutError2;
+OpenAI.APIUserAbortError = APIUserAbortError2;
+OpenAI.NotFoundError = NotFoundError2;
+OpenAI.ConflictError = ConflictError2;
+OpenAI.RateLimitError = RateLimitError2;
+OpenAI.BadRequestError = BadRequestError2;
+OpenAI.AuthenticationError = AuthenticationError2;
+OpenAI.InternalServerError = InternalServerError2;
+OpenAI.PermissionDeniedError = PermissionDeniedError2;
+OpenAI.UnprocessableEntityError = UnprocessableEntityError2;
 OpenAI.toFile = toFile2;
-OpenAI.fileFromPath = fileFromPath2;
+OpenAI.fileFromPath = fileFromPath;
 OpenAI.Completions = Completions4;
 OpenAI.Chat = Chat;
 OpenAI.ChatCompletionsPage = ChatCompletionsPage;
 OpenAI.Embeddings = Embeddings;
-OpenAI.Files = Files2;
+OpenAI.Files = Files3;
 OpenAI.FileObjectsPage = FileObjectsPage;
 OpenAI.Images = Images;
 OpenAI.Audio = Audio;
 OpenAI.Moderations = Moderations;
-OpenAI.Models = Models;
+OpenAI.Models = Models3;
 OpenAI.ModelsPage = ModelsPage;
 OpenAI.FineTuning = FineTuning;
 OpenAI.Graders = Graders2;
@@ -95928,7 +97955,7 @@ OpenAI.VectorStores = VectorStores;
 OpenAI.VectorStoresPage = VectorStoresPage;
 OpenAI.VectorStoreSearchResponsesPage = VectorStoreSearchResponsesPage;
 OpenAI.Beta = Beta2;
-OpenAI.Batches = Batches2;
+OpenAI.Batches = Batches3;
 OpenAI.BatchesPage = BatchesPage;
 OpenAI.Uploads = Uploads;
 OpenAI.Responses = Responses;
@@ -98550,9 +100577,13 @@ Active file in editor: ${activeFile.path}
             if (actDetails) actDetails.open = true;
           }
         },
-        onUsage: (inputTokens, outputTokens) => {
+        onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
           const time3 = (/* @__PURE__ */ new Date()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-          footerEl.setText(`${time3}  \xB7  ${inputTokens.toLocaleString()} in \xB7 ${outputTokens.toLocaleString()} out`);
+          let text4 = `${time3}  \xB7  ${inputTokens.toLocaleString()} in \xB7 ${outputTokens.toLocaleString()} out`;
+          if (cacheReadTokens && cacheReadTokens > 0) {
+            text4 += ` \xB7 ${cacheReadTokens.toLocaleString()} cached`;
+          }
+          footerEl.setText(text4);
           footerEl.classList.remove("agent-u-hidden");
         },
         onTodoUpdate: (items) => {
@@ -100483,6 +102514,9 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
   formMaxTokens;
   formTemperatureEnabled;
   formTemperatureValue;
+  formPromptCachingEnabled;
+  formThinkingEnabled;
+  formThinkingBudgetTokens;
   apiKeyRow = null;
   baseUrlRow = null;
   apiVersionRow = null;
@@ -100501,6 +102535,10 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
   temperatureSliderEl = null;
   temperatureValueEl = null;
   temperatureNoteEl = null;
+  promptCachingRow = null;
+  thinkingRow = null;
+  thinkingBudgetRow = null;
+  thinkingNoteEl = null;
   constructor(app, model, onSave, forEmbedding = false) {
     super(app);
     this.forEmbedding = forEmbedding;
@@ -100525,6 +102563,9 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     this.formMaxTokens = this.model.maxTokens ?? 8192;
     this.formTemperatureEnabled = this.model.temperature !== void 0;
     this.formTemperatureValue = this.model.temperature ?? 0.7;
+    this.formPromptCachingEnabled = this.model.promptCachingEnabled ?? false;
+    this.formThinkingEnabled = this.model.thinkingEnabled ?? false;
+    this.formThinkingBudgetTokens = this.model.thinkingBudgetTokens ?? 1e4;
   }
   onOpen() {
     const { contentEl } = this;
@@ -100719,6 +102760,50 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
         }
       });
     }
+    if (!this.forEmbedding) {
+      this.promptCachingRow = form.createDiv("mcm-row");
+      const cacheLabel = this.promptCachingRow.createDiv("mcm-label");
+      cacheLabel.createSpan({ text: t("modal.modelConfig.promptCaching") });
+      cacheLabel.createSpan({ text: t("modal.modelConfig.promptCachingDesc"), cls: "mcm-desc" });
+      const cacheChk = this.promptCachingRow.createEl("input", { attr: { type: "checkbox" } });
+      cacheChk.checked = this.formPromptCachingEnabled;
+      cacheChk.addEventListener("change", () => {
+        this.formPromptCachingEnabled = cacheChk.checked;
+      });
+    }
+    if (!this.forEmbedding) {
+      this.thinkingRow = form.createDiv("mcm-row");
+      const thinkLabel = this.thinkingRow.createDiv("mcm-label");
+      thinkLabel.createSpan({ text: t("modal.modelConfig.thinking") });
+      thinkLabel.createSpan({ text: t("modal.modelConfig.thinkingDesc"), cls: "mcm-desc" });
+      const thinkChk = this.thinkingRow.createEl("input", { attr: { type: "checkbox" } });
+      thinkChk.checked = this.formThinkingEnabled;
+      thinkChk.addEventListener("change", () => {
+        this.formThinkingEnabled = thinkChk.checked;
+        this.updateThinkingUI();
+        this.updateTemperatureUI();
+      });
+      this.thinkingNoteEl = this.thinkingRow.createDiv({ cls: "mcm-temperature-note" });
+      this.thinkingBudgetRow = form.createDiv("mcm-row");
+      const budgetLabel = this.thinkingBudgetRow.createDiv("mcm-label");
+      budgetLabel.createSpan({ text: t("modal.modelConfig.thinkingBudget") });
+      budgetLabel.createSpan({ text: t("modal.modelConfig.thinkingBudgetDesc"), cls: "mcm-desc" });
+      const budgetControls = this.thinkingBudgetRow.createDiv("mcm-temperature-controls");
+      const budgetSliderWrap = budgetControls.createDiv("mcm-temperature-slider-wrap");
+      const budgetSlider = budgetSliderWrap.createEl("input", {
+        attr: { type: "range", min: "1024", max: "128000", step: "1024" },
+        cls: "mcm-temperature-slider"
+      });
+      budgetSlider.value = String(this.formThinkingBudgetTokens);
+      const budgetValueEl = budgetSliderWrap.createSpan({
+        cls: "mcm-temperature-value",
+        text: this.formThinkingBudgetTokens.toLocaleString()
+      });
+      budgetSlider.addEventListener("input", () => {
+        this.formThinkingBudgetTokens = parseInt(budgetSlider.value);
+        budgetValueEl.setText(this.formThinkingBudgetTokens.toLocaleString());
+      });
+    }
     this.testResultEl = form.createDiv("mcm-test-result");
     this.testResultEl.classList.add("agent-u-hidden");
     this.updateFieldVisibility();
@@ -100740,6 +102825,9 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     if (this.apiVersionRow) this.apiVersionRow.classList.toggle("agent-u-hidden", p !== "azure");
     if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle("agent-u-hidden", p !== "ollama");
     if (this.customBrowserRow) this.customBrowserRow.classList.toggle("agent-u-hidden", p !== "custom" && p !== "lmstudio");
+    if (this.promptCachingRow) this.promptCachingRow.classList.toggle("agent-u-hidden", p !== "anthropic");
+    if (this.thinkingRow) this.thinkingRow.classList.toggle("agent-u-hidden", p !== "anthropic");
+    if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle("agent-u-hidden", p !== "anthropic" || !this.formThinkingEnabled);
     const suggestions = this.forEmbedding ? EMBEDDING_SUGGESTIONS[p] ?? [] : MODEL_SUGGESTIONS[p] ?? [];
     const hasStaticSuggestions = suggestions.length > 0;
     const hasFetchFetch = this.forEmbedding ? p === "openai" || p === "openrouter" || p === "ollama" || p === "lmstudio" || p === "custom" : p === "anthropic" || p === "openai" || p === "openrouter" || p === "lmstudio";
@@ -100812,6 +102900,11 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
         el.checked = false;
         el.disabled = true;
       });
+    } else if (this.formThinkingEnabled && this.formProvider === "anthropic") {
+      if (this.temperatureNoteEl) {
+        this.temperatureNoteEl.setText(t("modal.modelConfig.temperatureThinkingNote"));
+        this.temperatureNoteEl.classList.remove("agent-u-hidden");
+      }
     } else {
       if (this.temperatureNoteEl) this.temperatureNoteEl.classList.add("agent-u-hidden");
       this.temperatureRow.querySelectorAll("input[type=checkbox]").forEach((el) => {
@@ -100821,6 +102914,16 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
     }
     const sliderWrap = this.temperatureSliderEl.closest(".mcm-temperature-slider-wrap");
     if (sliderWrap) sliderWrap.classList.toggle("agent-u-hidden", !this.formTemperatureEnabled);
+  }
+  updateThinkingUI() {
+    if (!this.thinkingBudgetRow || !this.thinkingNoteEl) return;
+    this.thinkingBudgetRow.classList.toggle("agent-u-hidden", !this.formThinkingEnabled);
+    if (this.formThinkingEnabled) {
+      this.thinkingNoteEl.setText(t("modal.modelConfig.thinkingNote"));
+      this.thinkingNoteEl.classList.remove("agent-u-hidden");
+    } else {
+      this.thinkingNoteEl.classList.add("agent-u-hidden");
+    }
   }
   renderProviderGuide(container, provider) {
     const guide = container.createDiv("mcm-guide-inner");
@@ -101022,7 +103125,10 @@ var ModelConfigModal = class extends import_obsidian8.Modal {
       baseUrl: this.formBaseUrl || void 0,
       apiVersion: this.formApiVersion || void 0,
       maxTokens: this.formMaxTokens,
-      temperature: this.formTemperatureEnabled ? this.formTemperatureValue : void 0
+      temperature: this.formTemperatureEnabled ? this.formTemperatureValue : void 0,
+      promptCachingEnabled: this.formPromptCachingEnabled || void 0,
+      thinkingEnabled: this.formThinkingEnabled || void 0,
+      thinkingBudgetTokens: this.formThinkingEnabled ? this.formThinkingBudgetTokens : void 0
     });
     this.close();
   }
@@ -103929,22 +106035,22 @@ keywords: []
     }
   }
   async openSkillFile(skill) {
-    const path3 = `${this.skillsDir}/${skill.id}.skill.md`;
+    const path4 = `${this.skillsDir}/${skill.id}.skill.md`;
     try {
-      const content = await this.app.vault.adapter.read(path3);
+      const content = await this.app.vault.adapter.read(path4);
       new ContentEditorModal(this.app, t("settings.skills.skillDetail", { name: skill.name }), content, async (updated) => {
-        await this.app.vault.adapter.write(path3, updated);
+        await this.app.vault.adapter.write(path4, updated);
       }).open();
     } catch {
       new import_obsidian23.Notice(t("settings.skills.fileNotFound", { id: skill.id }));
     }
   }
   async openReadmeFile(skill) {
-    const path3 = `${this.skillsDir}/${skill.id}.readme.md`;
+    const path4 = `${this.skillsDir}/${skill.id}.readme.md`;
     try {
-      const content = await this.app.vault.adapter.read(path3);
+      const content = await this.app.vault.adapter.read(path4);
       new ContentEditorModal(this.app, t("settings.skills.readme", { name: skill.name }), content, async (updated) => {
-        await this.app.vault.adapter.write(path3, updated);
+        await this.app.vault.adapter.write(path4, updated);
       }).open();
     } catch {
       new import_obsidian23.Notice(t("settings.skills.noReadmeAvailable", { name: skill.name }));
@@ -104815,10 +106921,10 @@ var BackupTab = class {
         return this.formatSize(size2);
       }
       if (cat.id === "vault-dna") {
-        const path3 = ".obsidian-agent/vault-dna.json";
-        const exists2 = await this.app.vault.adapter.exists(path3);
+        const path4 = ".obsidian-agent/vault-dna.json";
+        const exists2 = await this.app.vault.adapter.exists(path4);
         if (!exists2) return "0 files";
-        const content = await this.app.vault.adapter.read(path3);
+        const content = await this.app.vault.adapter.read(path4);
         return `1 file, ${this.formatSize(content.length)}`;
       }
       const adapter2 = this.adapterFor(cat);
@@ -104852,11 +106958,11 @@ var BackupTab = class {
             content: JSON.stringify(this.plugin.settings, null, 2)
           };
         } else if (cat.id === "vault-dna") {
-          const path3 = ".obsidian-agent/vault-dna.json";
-          const exists = await this.app.vault.adapter.exists(path3);
+          const path4 = ".obsidian-agent/vault-dna.json";
+          const exists = await this.app.vault.adapter.exists(path4);
           if (exists) {
             files["vault-dna.json"] = {
-              content: await this.app.vault.adapter.read(path3)
+              content: await this.app.vault.adapter.read(path4)
             };
           }
         } else if (cat.dir) {
@@ -104864,8 +106970,8 @@ var BackupTab = class {
           const exists = await adapter2.exists(cat.dir);
           if (exists) {
             const collected = await this.collectFilesFromAdapter(adapter2, cat.dir, cat.dir, cat.recursive);
-            for (const [path3, content] of Object.entries(collected)) {
-              files[path3] = { content };
+            for (const [path4, content] of Object.entries(collected)) {
+              files[path4] = { content };
             }
           }
         }
@@ -105024,8 +107130,8 @@ var BackupTab = class {
           const catDef = getCategories().find((c) => c.id === catId);
           if (!catDef || !catDef.dir) continue;
           const flat = {};
-          for (const [path3, entry] of Object.entries(catData.files)) {
-            flat[path3] = entry.content;
+          for (const [path4, entry] of Object.entries(catData.files)) {
+            flat[path4] = entry.content;
           }
           const adapter2 = this.adapterFor(catDef);
           totalFiles += await this.restoreFilesToAdapter(adapter2, flat, catDef.dir);
@@ -105761,13 +107867,13 @@ var ReadFileTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3 } = input;
+    const { path: path4 } = input;
     const { callbacks } = context;
     try {
-      if (!path3) {
+      if (!path4) {
         throw new Error("Path parameter is required");
       }
-      const file = this.app.vault.getAbstractFileByPath(path3);
+      const file = this.app.vault.getAbstractFileByPath(path4);
       let content;
       let filePath;
       let basename;
@@ -105778,17 +107884,17 @@ var ReadFileTool = class extends BaseTool {
         basename = file.basename;
         extension = file.extension;
       } else {
-        const exists = await this.app.vault.adapter.exists(path3);
+        const exists = await this.app.vault.adapter.exists(path4);
         if (!exists) {
           callbacks.pushToolResult(
-            this.formatError(new Error(`File not found: ${path3}`))
+            this.formatError(new Error(`File not found: ${path4}`))
           );
           return;
         }
-        content = await this.app.vault.adapter.read(path3);
-        filePath = path3;
-        const parts = path3.split("/");
-        const filename = parts[parts.length - 1] ?? path3;
+        content = await this.app.vault.adapter.read(path4);
+        filePath = path4;
+        const parts = path4.split("/");
+        const filename = parts[parts.length - 1] ?? path4;
         const dotIdx = filename.lastIndexOf(".");
         basename = dotIdx > 0 ? filename.substring(0, dotIdx) : filename;
         extension = dotIdx > 0 ? filename.substring(dotIdx + 1) : "";
@@ -105810,7 +107916,7 @@ var ReadFileTool = class extends BaseTool {
       } else {
         callbacks.pushToolResult(result);
       }
-      callbacks.log(`Successfully read file: ${path3} (${content.length} chars)`);
+      callbacks.log(`Successfully read file: ${path4} (${content.length} chars)`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("read_file", error2);
@@ -106029,24 +108135,24 @@ var WriteFileTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, content } = input;
+    const { path: path4, content } = input;
     const { callbacks } = context;
     try {
-      if (!path3) {
+      if (!path4) {
         throw new Error("Path parameter is required");
       }
       if (content === void 0 || content === null) {
         throw new Error("Content parameter is required");
       }
       const cfgDir = this.app.vault.configDir;
-      if (path3.startsWith(`${cfgDir}/`) || path3.startsWith(".obsidian-agent/")) {
-        await this.writeViaAdapter(path3, content, callbacks);
+      if (path4.startsWith(`${cfgDir}/`) || path4.startsWith(".obsidian-agent/")) {
+        await this.writeViaAdapter(path4, content, callbacks);
         return;
       }
-      const existingFile = this.app.vault.getAbstractFileByPath(path3);
+      const existingFile = this.app.vault.getAbstractFileByPath(path4);
       if (existingFile) {
         if (!(existingFile instanceof import_obsidian36.TFile)) {
-          throw new Error(`Path exists but is not a file: ${path3}`);
+          throw new Error(`Path exists but is not a file: ${path4}`);
         }
         const existingContent = await this.app.vault.read(existingFile);
         await this.app.vault.modify(existingFile, content);
@@ -106055,22 +108161,22 @@ var WriteFileTool = class extends BaseTool {
         const added = Math.max(0, afterLines - beforeLines);
         const removed = Math.max(0, beforeLines - afterLines);
         callbacks.pushToolResult(
-          this.formatSuccess(`File updated: ${path3} (${content.length} chars)`) + `
+          this.formatSuccess(`File updated: ${path4} (${content.length} chars)`) + `
 <diff_stats added="${added}" removed="${removed}"/>`
         );
-        callbacks.log(`Successfully updated file: ${path3}`);
+        callbacks.log(`Successfully updated file: ${path4}`);
       } else {
-        const parentPath = path3.substring(0, path3.lastIndexOf("/"));
+        const parentPath = path4.substring(0, path4.lastIndexOf("/"));
         if (parentPath) {
           await this.ensureFolderExists(parentPath);
         }
-        await this.app.vault.create(path3, content);
+        await this.app.vault.create(path4, content);
         const newLines = content.split("\n").length;
         callbacks.pushToolResult(
-          this.formatSuccess(`File created: ${path3} (${content.length} chars)`) + `
+          this.formatSuccess(`File created: ${path4} (${content.length} chars)`) + `
 <diff_stats added="${newLines}" removed="0"/>`
         );
-        callbacks.log(`Successfully created file: ${path3}`);
+        callbacks.log(`Successfully created file: ${path4}`);
       }
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
@@ -106082,23 +108188,23 @@ var WriteFileTool = class extends BaseTool {
    * These paths are not tracked by Obsidian's file index, so vault.getAbstractFileByPath()
    * and vault.createFolder() don't work reliably for them.
    */
-  async writeViaAdapter(path3, content, callbacks) {
+  async writeViaAdapter(path4, content, callbacks) {
     const adapter2 = this.app.vault.adapter;
-    const existed = await adapter2.exists(path3);
-    const parentPath = path3.substring(0, path3.lastIndexOf("/"));
+    const existed = await adapter2.exists(path4);
+    const parentPath = path4.substring(0, path4.lastIndexOf("/"));
     if (parentPath) {
       const parentExists = await adapter2.exists(parentPath);
       if (!parentExists) {
         await adapter2.mkdir(parentPath);
       }
     }
-    await adapter2.write(path3, content);
+    await adapter2.write(path4, content);
     if (existed) {
-      callbacks.pushToolResult(this.formatSuccess(`File updated: ${path3} (${content.length} chars)`));
-      callbacks.log(`Successfully updated file: ${path3}`);
+      callbacks.pushToolResult(this.formatSuccess(`File updated: ${path4} (${content.length} chars)`));
+      callbacks.log(`Successfully updated file: ${path4}`);
     } else {
-      callbacks.pushToolResult(this.formatSuccess(`File created: ${path3} (${content.length} chars)`));
-      callbacks.log(`Successfully created file: ${path3}`);
+      callbacks.pushToolResult(this.formatSuccess(`File created: ${path4} (${content.length} chars)`));
+      callbacks.log(`Successfully created file: ${path4}`);
     }
   }
   /**
@@ -106151,15 +108257,15 @@ var EditFileTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, old_str, new_str, expected_replacements = 1 } = input;
+    const { path: path4, old_str, new_str, expected_replacements = 1 } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
+      if (!path4) throw new Error("path parameter is required");
       if (old_str === void 0 || old_str === null) throw new Error("old_str parameter is required");
       if (new_str === void 0 || new_str === null) throw new Error("new_str parameter is required");
-      const file = this.app.vault.getAbstractFileByPath(path3);
-      if (!file) throw new Error(`File not found: ${path3}`);
-      if (!(file instanceof import_obsidian37.TFile)) throw new Error(`Path is not a file: ${path3}`);
+      const file = this.app.vault.getAbstractFileByPath(path4);
+      if (!file) throw new Error(`File not found: ${path4}`);
+      if (!(file instanceof import_obsidian37.TFile)) throw new Error(`Path is not a file: ${path4}`);
       const content = await this.app.vault.read(file);
       const occurrences = this.countOccurrences(content, old_str);
       if (occurrences === 0) {
@@ -106169,18 +108275,18 @@ var EditFileTool = class extends BaseTool {
           const stats2 = this.diffStats(content, normalized);
           const { added: added2, removed: removed2 } = this.diffNums(content, normalized);
           callbacks.pushToolResult(
-            this.formatSuccess(`Edited ${path3} (fuzzy match applied): ${stats2}`) + `
+            this.formatSuccess(`Edited ${path4} (fuzzy match applied): ${stats2}`) + `
 <diff_stats added="${added2}" removed="${removed2}"/>`
           );
           return;
         }
         throw new Error(
-          `old_str not found in file "${path3}". Make sure old_str exactly matches the file content including whitespace and newlines.`
+          `old_str not found in file "${path4}". Make sure old_str exactly matches the file content including whitespace and newlines.`
         );
       }
       if (occurrences > expected_replacements) {
         throw new Error(
-          `old_str appears ${occurrences} times in "${path3}" but expected_replacements is ${expected_replacements}. Add more surrounding context to old_str to make it unique, or increase expected_replacements.`
+          `old_str appears ${occurrences} times in "${path4}" but expected_replacements is ${expected_replacements}. Add more surrounding context to old_str to make it unique, or increase expected_replacements.`
         );
       }
       const newContent = this.replaceFirst(content, old_str, new_str, expected_replacements);
@@ -106189,10 +108295,10 @@ var EditFileTool = class extends BaseTool {
       const replWord = expected_replacements === 1 ? "replacement" : "replacements";
       const { added, removed } = this.diffNums(content, newContent);
       callbacks.pushToolResult(
-        this.formatSuccess(`Edited ${path3} (${expected_replacements} ${replWord}): ${stats}`) + `
+        this.formatSuccess(`Edited ${path4} (${expected_replacements} ${replWord}): ${stats}`) + `
 <diff_stats added="${added}" removed="${removed}"/>`
       );
-      callbacks.log(`Successfully edited file: ${path3}`);
+      callbacks.log(`Successfully edited file: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("edit_file", error2);
@@ -106299,37 +108405,37 @@ var AppendToFileTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, content, separator = "\n" } = input;
+    const { path: path4, content, separator = "\n" } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
+      if (!path4) throw new Error("path parameter is required");
       if (!content) throw new Error("content parameter is required");
-      const existing = this.app.vault.getAbstractFileByPath(path3);
+      const existing = this.app.vault.getAbstractFileByPath(path4);
       if (existing) {
         if (!(existing instanceof import_obsidian38.TFile)) {
-          throw new Error(`Path exists but is not a file: ${path3}`);
+          throw new Error(`Path exists but is not a file: ${path4}`);
         }
         const currentContent = await this.app.vault.read(existing);
         const newContent = currentContent ? currentContent + separator + content : content;
         await this.app.vault.modify(existing, newContent);
         const appendedLines = content.split("\n").length;
         callbacks.pushToolResult(
-          this.formatSuccess(`Appended to ${path3} (+${appendedLines} lines)`) + `
+          this.formatSuccess(`Appended to ${path4} (+${appendedLines} lines)`) + `
 <diff_stats added="${appendedLines}" removed="0"/>`
         );
       } else {
-        const parentPath = path3.substring(0, path3.lastIndexOf("/"));
+        const parentPath = path4.substring(0, path4.lastIndexOf("/"));
         if (parentPath) {
           await this.ensureFolderExists(parentPath);
         }
-        await this.app.vault.create(path3, content);
+        await this.app.vault.create(path4, content);
         const newLines = content.split("\n").length;
         callbacks.pushToolResult(
-          this.formatSuccess(`Created and wrote to ${path3} (${newLines} lines)`) + `
+          this.formatSuccess(`Created and wrote to ${path4} (${newLines} lines)`) + `
 <diff_stats added="${newLines}" removed="0"/>`
         );
       }
-      callbacks.log(`Successfully appended to file: ${path3}`);
+      callbacks.log(`Successfully appended to file: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("append_to_file", error2);
@@ -106371,26 +108477,26 @@ var CreateFolderTool = class extends BaseTool {
   }
   async execute(input, context) {
     const { callbacks } = context;
-    const path3 = input.path ?? "";
-    if (!path3) {
+    const path4 = input.path ?? "";
+    if (!path4) {
       callbacks.pushToolResult(this.formatError(new Error("path parameter is required")));
       return;
     }
     try {
-      const existing = this.app.vault.getAbstractFileByPath(path3);
+      const existing = this.app.vault.getAbstractFileByPath(path4);
       if (existing instanceof import_obsidian39.TFolder) {
-        callbacks.pushToolResult(this.formatSuccess(`Folder already exists: ${path3}`));
+        callbacks.pushToolResult(this.formatSuccess(`Folder already exists: ${path4}`));
         return;
       }
       if (existing) {
         callbacks.pushToolResult(
-          this.formatError(new Error(`A file already exists at that path: ${path3}`))
+          this.formatError(new Error(`A file already exists at that path: ${path4}`))
         );
         return;
       }
-      await this.app.vault.createFolder(path3);
-      callbacks.pushToolResult(this.formatSuccess(`Folder created: ${path3}`));
-      callbacks.log(`Created folder: ${path3}`);
+      await this.app.vault.createFolder(path4);
+      callbacks.pushToolResult(this.formatSuccess(`Folder created: ${path4}`));
+      callbacks.log(`Created folder: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("create_folder", error2);
@@ -106424,15 +108530,15 @@ var DeleteFileTool = class extends BaseTool {
   }
   async execute(input, context) {
     const { callbacks } = context;
-    const path3 = input.path ?? "";
-    if (!path3) {
+    const path4 = input.path ?? "";
+    if (!path4) {
       callbacks.pushToolResult(this.formatError(new Error("path parameter is required")));
       return;
     }
     try {
-      const item = this.app.vault.getAbstractFileByPath(path3);
+      const item = this.app.vault.getAbstractFileByPath(path4);
       if (!item) {
-        callbacks.pushToolResult(this.formatError(new Error(`Not found: ${path3}`)));
+        callbacks.pushToolResult(this.formatError(new Error(`Not found: ${path4}`)));
         return;
       }
       const isFolder = item instanceof import_obsidian40.TFolder;
@@ -106442,7 +108548,7 @@ var DeleteFileTool = class extends BaseTool {
           callbacks.pushToolResult(
             this.formatError(
               new Error(
-                `Cannot delete non-empty folder: ${path3}. Delete the files inside first, or use write_file to manage the contents.`
+                `Cannot delete non-empty folder: ${path4}. Delete the files inside first, or use write_file to manage the contents.`
               )
             )
           );
@@ -106451,8 +108557,8 @@ var DeleteFileTool = class extends BaseTool {
       }
       await this.app.vault.trash(item, true);
       const type = isFolder ? "Folder" : "File";
-      callbacks.pushToolResult(this.formatSuccess(`${type} moved to trash: ${path3}`));
-      callbacks.log(`Deleted (trashed) ${isFolder ? "folder" : "file"}: ${path3}`);
+      callbacks.pushToolResult(this.formatSuccess(`${type} moved to trash: ${path4}`));
+      callbacks.log(`Deleted (trashed) ${isFolder ? "folder" : "file"}: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("delete_file", error2);
@@ -106560,18 +108666,18 @@ var GetFrontmatterTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3 } = input;
+    const { path: path4 } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
-      const file = this.app.vault.getAbstractFileByPath(path3);
-      if (!file) throw new Error(`File not found: ${path3}`);
-      if (!(file instanceof import_obsidian42.TFile)) throw new Error(`Path is not a file: ${path3}`);
+      if (!path4) throw new Error("path parameter is required");
+      const file = this.app.vault.getAbstractFileByPath(path4);
+      if (!file) throw new Error(`File not found: ${path4}`);
+      if (!(file instanceof import_obsidian42.TFile)) throw new Error(`Path is not a file: ${path4}`);
       const cache = this.app.metadataCache.getFileCache(file);
       const fm = cache?.frontmatter;
       if (!fm || Object.keys(fm).length === 0) {
         callbacks.pushToolResult(
-          `<frontmatter path="${path3}">
+          `<frontmatter path="${path4}">
 (no frontmatter)
 </frontmatter>`
         );
@@ -106585,11 +108691,11 @@ ${items}`;
         }
         return `${key}: ${value}`;
       });
-      const result = `<frontmatter path="${path3}">
+      const result = `<frontmatter path="${path4}">
 ${entries.join("\n")}
 </frontmatter>`;
       callbacks.pushToolResult(result);
-      callbacks.log(`Read frontmatter from ${path3} (${entries.length} fields)`);
+      callbacks.log(`Read frontmatter from ${path4} (${entries.length} fields)`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("get_frontmatter", error2);
@@ -106631,14 +108737,14 @@ var UpdateFrontmatterTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, updates, remove: remove2 = [] } = input;
+    const { path: path4, updates, remove: remove2 = [] } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
+      if (!path4) throw new Error("path parameter is required");
       if (!updates || typeof updates !== "object") throw new Error("updates must be an object");
-      const file = this.app.vault.getAbstractFileByPath(path3);
-      if (!file) throw new Error(`File not found: ${path3}`);
-      if (!(file instanceof import_obsidian43.TFile)) throw new Error(`Path is not a file: ${path3}`);
+      const file = this.app.vault.getAbstractFileByPath(path4);
+      if (!file) throw new Error(`File not found: ${path4}`);
+      if (!(file instanceof import_obsidian43.TFile)) throw new Error(`Path is not a file: ${path4}`);
       const changed = [];
       await this.app.fileManager.processFrontMatter(file, (fm) => {
         for (const [key, value] of Object.entries(updates)) {
@@ -106654,9 +108760,9 @@ var UpdateFrontmatterTool = class extends BaseTool {
       });
       const summary = changed.join(", ");
       callbacks.pushToolResult(
-        this.formatSuccess(`Updated frontmatter in ${path3} \u2014 ${summary}`)
+        this.formatSuccess(`Updated frontmatter in ${path4} \u2014 ${summary}`)
       );
-      callbacks.log(`Updated frontmatter in ${path3}`);
+      callbacks.log(`Updated frontmatter in ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("update_frontmatter", error2);
@@ -106850,21 +108956,21 @@ var GetLinkedNotesTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, direction = "both" } = input;
+    const { path: path4, direction = "both" } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
-      const file = this.app.vault.getAbstractFileByPath(path3);
-      if (!file) throw new Error(`File not found: ${path3}`);
-      if (!(file instanceof import_obsidian45.TFile)) throw new Error(`Path is not a file: ${path3}`);
-      const lines = [`<linked_notes path="${path3}">`];
+      if (!path4) throw new Error("path parameter is required");
+      const file = this.app.vault.getAbstractFileByPath(path4);
+      if (!file) throw new Error(`File not found: ${path4}`);
+      if (!(file instanceof import_obsidian45.TFile)) throw new Error(`Path is not a file: ${path4}`);
+      const lines = [`<linked_notes path="${path4}">`];
       if (direction === "both" || direction === "forward") {
         const cache = this.app.metadataCache.getFileCache(file);
         const links = cache?.links ?? [];
         const embeds = cache?.embeds ?? [];
         const forwardPaths = /* @__PURE__ */ new Set();
         [...links, ...embeds].forEach((lc) => {
-          const resolved = this.app.metadataCache.getFirstLinkpathDest(lc.link, path3);
+          const resolved = this.app.metadataCache.getFirstLinkpathDest(lc.link, path4);
           if (resolved) {
             forwardPaths.add(resolved.path);
           } else {
@@ -106892,7 +108998,7 @@ Backlinks (${backlinkPaths.length}):`);
       }
       lines.push("</linked_notes>");
       callbacks.pushToolResult(lines.join("\n"));
-      callbacks.log(`Linked notes for ${path3}`);
+      callbacks.log(`Linked notes for ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("get_linked_notes", error2);
@@ -106928,17 +109034,17 @@ var OpenNoteTool = class extends BaseTool {
     };
   }
   async execute(input, context) {
-    const { path: path3, newLeaf = false } = input;
+    const { path: path4, newLeaf = false } = input;
     const { callbacks } = context;
     try {
-      if (!path3) throw new Error("path parameter is required");
-      const file = this.app.vault.getAbstractFileByPath(path3);
-      if (!file) throw new Error(`File not found: ${path3}`);
-      await this.app.workspace.openLinkText(path3, "", newLeaf);
+      if (!path4) throw new Error("path parameter is required");
+      const file = this.app.vault.getAbstractFileByPath(path4);
+      if (!file) throw new Error(`File not found: ${path4}`);
+      await this.app.workspace.openLinkText(path4, "", newLeaf);
       callbacks.pushToolResult(
-        this.formatSuccess(`Opened note: ${path3}`)
+        this.formatSuccess(`Opened note: ${path4}`)
       );
-      callbacks.log(`Opened note: ${path3}`);
+      callbacks.log(`Opened note: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("open_note", error2);
@@ -106980,20 +109086,20 @@ var GetDailyNoteTool = class extends BaseTool {
     try {
       const targetDate = /* @__PURE__ */ new Date();
       targetDate.setDate(targetDate.getDate() + offset);
-      const path3 = this.resolveDailyNotePath(targetDate);
+      const path4 = this.resolveDailyNotePath(targetDate);
       const dateStr = targetDate.toISOString().slice(0, 10);
-      let file = this.app.vault.getAbstractFileByPath(path3);
+      let file = this.app.vault.getAbstractFileByPath(path4);
       if (!file) {
         if (!create) {
           callbacks.pushToolResult(
             `<daily_note date="${dateStr}">
-Note not found at: ${path3}
+Note not found at: ${path4}
 Use create=true to create it.
 </daily_note>`
           );
           return;
         }
-        const dir = path3.substring(0, path3.lastIndexOf("/"));
+        const dir = path4.substring(0, path4.lastIndexOf("/"));
         if (dir) {
           const dirExists = await this.app.vault.adapter.exists(dir);
           if (!dirExists) {
@@ -107003,19 +109109,19 @@ Use create=true to create it.
         const template = `# ${dateStr}
 
 `;
-        file = await this.app.vault.create(path3, template);
-        callbacks.log(`Created daily note: ${path3}`);
+        file = await this.app.vault.create(path4, template);
+        callbacks.log(`Created daily note: ${path4}`);
       }
       if (!(file instanceof import_obsidian46.TFile)) {
-        throw new Error(`Path is not a file: ${path3}`);
+        throw new Error(`Path is not a file: ${path4}`);
       }
       const content = await this.app.vault.read(file);
       callbacks.pushToolResult(
-        `<daily_note date="${dateStr}" path="${path3}">
+        `<daily_note date="${dateStr}" path="${path4}">
 ${content}
 </daily_note>`
       );
-      callbacks.log(`Read daily note: ${path3}`);
+      callbacks.log(`Read daily note: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("get_daily_note", error2);
@@ -107379,8 +109485,8 @@ var GenerateCanvasTool = class extends BaseTool {
         }
         const backlinks = this.app.metadataCache.getBacklinksForFile?.(centerFile);
         if (backlinks?.data) {
-          for (const [path3] of Object.entries(backlinks.data)) {
-            const f = this.app.vault.getFileByPath(path3);
+          for (const [path4] of Object.entries(backlinks.data)) {
+            const f = this.app.vault.getFileByPath(path4);
             if (f) linked.add(f);
           }
         }
@@ -107777,7 +109883,7 @@ var CreateBaseTool = class extends BaseTool {
   }
   async execute(input, context) {
     const { callbacks } = context;
-    const path3 = (input.path ?? "").trim();
+    const path4 = (input.path ?? "").trim();
     const viewName = (input.view_name ?? "Table").trim();
     const filterProp = input.filter_property ?? "";
     const filterValues = Array.isArray(input.filter_values) ? input.filter_values : [];
@@ -107785,19 +109891,19 @@ var CreateBaseTool = class extends BaseTool {
     const sortProp = input.sort_property ?? "";
     const sortDir = input.sort_direction ?? "ASC";
     const excludeTemplates = input.exclude_templates !== false;
-    if (!path3) {
+    if (!path4) {
       callbacks.pushToolResult(this.formatError(new Error("path is required")));
       return;
     }
-    if (!path3.endsWith(".base")) {
+    if (!path4.endsWith(".base")) {
       callbacks.pushToolResult(this.formatError(new Error("path must end with .base")));
       return;
     }
     try {
-      const existingFile = this.app.vault.getFileByPath(path3);
+      const existingFile = this.app.vault.getFileByPath(path4);
       if (existingFile) {
         callbacks.pushToolResult(
-          `<error>Base file already exists: ${path3}. Use update_base to add or modify views in an existing base. Do NOT use create_base on existing files.</error>`
+          `<error>Base file already exists: ${path4}. Use update_base to add or modify views in an existing base. Do NOT use create_base on existing files.</error>`
         );
         return;
       }
@@ -107831,16 +109937,16 @@ var CreateBaseTool = class extends BaseTool {
       }
       lines.push(`    rowHeight: medium`);
       const yaml = lines.join("\n") + "\n";
-      const dir = path3.includes("/") ? path3.split("/").slice(0, -1).join("/") : null;
+      const dir = path4.includes("/") ? path4.split("/").slice(0, -1).join("/") : null;
       if (dir) {
         await this.app.vault.createFolder(dir).catch(() => {
         });
       }
-      await this.app.vault.create(path3, yaml);
-      callbacks.pushToolResult(`Created base: **${path3}**
+      await this.app.vault.create(path4, yaml);
+      callbacks.pushToolResult(`Created base: **${path4}**
 
 Open the file in Obsidian to view it as a database table.`);
-      callbacks.log(`Created base: ${path3}`);
+      callbacks.log(`Created base: ${path4}`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("create_base", error2);
@@ -107904,7 +110010,7 @@ var UpdateBaseTool = class extends BaseTool {
   }
   async execute(input, context) {
     const { callbacks } = context;
-    const path3 = (input.path ?? "").trim();
+    const path4 = (input.path ?? "").trim();
     const viewName = (input.view_name ?? "").trim();
     const filterProp = input.filter_property ?? "";
     const filterValues = Array.isArray(input.filter_values) ? input.filter_values : [];
@@ -107912,14 +110018,14 @@ var UpdateBaseTool = class extends BaseTool {
     const sortProp = input.sort_property ?? "";
     const sortDir = input.sort_direction ?? "ASC";
     const excludeTemplates = input.exclude_templates !== false;
-    if (!path3 || !viewName) {
+    if (!path4 || !viewName) {
       callbacks.pushToolResult(this.formatError(new Error("path and view_name are required")));
       return;
     }
     try {
-      const file = this.app.vault.getFileByPath(path3);
+      const file = this.app.vault.getFileByPath(path4);
       if (!file) {
-        callbacks.pushToolResult(this.formatError(new Error(`Base file not found: ${path3}`)));
+        callbacks.pushToolResult(this.formatError(new Error(`Base file not found: ${path4}`)));
         return;
       }
       const existing = await this.app.vault.read(file);
@@ -107961,13 +110067,13 @@ var UpdateBaseTool = class extends BaseTool {
         );
         const updated = existing.replace(viewBlockRegex, newViewBlock);
         await this.app.vault.modify(file, updated);
-        callbacks.pushToolResult(`Updated view "${viewName}" in **${path3}**`);
+        callbacks.pushToolResult(`Updated view "${viewName}" in **${path4}**`);
       } else {
         const updated = existing.trimEnd() + "\n" + newViewBlock + "\n";
         await this.app.vault.modify(file, updated);
-        callbacks.pushToolResult(`Added view "${viewName}" to **${path3}**`);
+        callbacks.pushToolResult(`Added view "${viewName}" to **${path4}**`);
       }
-      callbacks.log(`Updated base: ${path3} (view: ${viewName})`);
+      callbacks.log(`Updated base: ${path4} (view: ${viewName})`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("update_base", error2);
@@ -108011,17 +110117,17 @@ var QueryBaseTool = class extends BaseTool {
   }
   async execute(input, context) {
     const { callbacks } = context;
-    const path3 = (input.path ?? "").trim();
+    const path4 = (input.path ?? "").trim();
     const viewName = (input.view_name ?? "").trim();
     const limit2 = Math.min(Number(input.limit) || 20, 100);
-    if (!path3) {
+    if (!path4) {
       callbacks.pushToolResult(this.formatError(new Error("path is required")));
       return;
     }
     try {
-      const file = this.app.vault.getFileByPath(path3);
+      const file = this.app.vault.getFileByPath(path4);
       if (!file) {
-        callbacks.pushToolResult(this.formatError(new Error(`Base file not found: ${path3}`)));
+        callbacks.pushToolResult(this.formatError(new Error(`Base file not found: ${path4}`)));
         return;
       }
       const yaml = await this.app.vault.read(file);
@@ -108038,12 +110144,12 @@ var QueryBaseTool = class extends BaseTool {
       }
       const results = matched.slice(0, limit2);
       if (results.length === 0) {
-        callbacks.pushToolResult(`No notes matched the filters in **${path3}**.`);
+        callbacks.pushToolResult(`No notes matched the filters in **${path4}**.`);
         return;
       }
       const displayFields = orderFields.filter((f) => f !== "file.name").slice(0, 5);
       const lines = [
-        `Query results from **${path3}** (${results.length} of ${matched.length} matching notes):`,
+        `Query results from **${path4}** (${results.length} of ${matched.length} matching notes):`,
         ""
       ];
       for (const f of results) {
@@ -108064,7 +110170,7 @@ var QueryBaseTool = class extends BaseTool {
 \u2026${matched.length - limit2} more notes not shown.`);
       }
       callbacks.pushToolResult(lines.join("\n"));
-      callbacks.log(`query_base: ${path3} \u2192 ${results.length} results`);
+      callbacks.log(`query_base: ${path4} \u2192 ${results.length} results`);
     } catch (error2) {
       callbacks.pushToolResult(this.formatError(error2));
       await callbacks.handleError("query_base", error2);
@@ -109228,7 +111334,7 @@ var CallPluginApiTool = class extends BaseTool {
 var import_child_process = require("child_process");
 
 // src/core/tools/agent/recipeValidator.ts
-var path2 = __toESM(require("path"));
+var path3 = __toESM(require("path"));
 var SHELL_META = /[;&|`$(){}[\]<>\\!#~*?\n\r\0]/;
 function validateParameter(param, value, vaultRoot) {
   if (value === void 0 || value === null || value === "") {
@@ -109245,12 +111351,12 @@ function validateParameter(param, value, vaultRoot) {
       if (strValue.includes("..")) {
         return `Path traversal not allowed in "${param.name}"`;
       }
-      if (path2.isAbsolute(strValue)) {
+      if (path3.isAbsolute(strValue)) {
         return `Absolute paths not allowed in "${param.name}"`;
       }
-      const resolved = path2.resolve(vaultRoot, strValue);
-      const normalizedRoot = path2.resolve(vaultRoot);
-      if (!resolved.startsWith(normalizedRoot + path2.sep) && resolved !== normalizedRoot) {
+      const resolved = path3.resolve(vaultRoot, strValue);
+      const normalizedRoot = path3.resolve(vaultRoot);
+      if (!resolved.startsWith(normalizedRoot + path3.sep) && resolved !== normalizedRoot) {
         return `Path "${param.name}" escapes vault root`;
       }
       if (param.type === "vault-file" && strValue.split("/").some((s) => s.startsWith("."))) {
@@ -109690,15 +111796,15 @@ var UpdateSettingsTool = class extends BaseTool {
     }
   }
   async handleSet(input, callbacks, context) {
-    const path3 = (input.path ?? "").trim();
+    const path4 = (input.path ?? "").trim();
     const value = input.value;
-    if (!path3) {
+    if (!path4) {
       callbacks.pushToolResult(this.formatError(new Error('path is required for action "set"')));
       return;
     }
-    if (!WRITABLE_PATHS.has(path3)) {
+    if (!WRITABLE_PATHS.has(path4)) {
       callbacks.pushToolResult(this.formatError(new Error(
-        `Setting path "${path3}" is not writable via this tool. Use configure_model for API key changes.`
+        `Setting path "${path4}" is not writable via this tool. Use configure_model for API key changes.`
       )));
       return;
     }
@@ -109706,12 +111812,12 @@ var UpdateSettingsTool = class extends BaseTool {
       callbacks.pushToolResult(this.formatError(new Error('value is required for action "set"')));
       return;
     }
-    const parts = path3.split(".");
+    const parts = path4.split(".");
     let target = this.plugin.settings;
     for (let i = 0; i < parts.length - 1; i++) {
       target = target?.[parts[i]];
       if (target === void 0 || target === null) {
-        callbacks.pushToolResult(this.formatError(new Error(`Invalid setting path: "${path3}"`)));
+        callbacks.pushToolResult(this.formatError(new Error(`Invalid setting path: "${path4}"`)));
         return;
       }
     }
@@ -109719,13 +111825,13 @@ var UpdateSettingsTool = class extends BaseTool {
     const oldValue = target[key];
     target[key] = value;
     await this.plugin.saveSettings();
-    if (path3.startsWith("webTools")) {
+    if (path4.startsWith("webTools")) {
       context?.invalidateToolCache?.();
     }
     callbacks.pushToolResult(this.formatSuccess(
-      `Setting "${path3}" changed: ${JSON.stringify(oldValue)} -> ${JSON.stringify(value)}`
+      `Setting "${path4}" changed: ${JSON.stringify(oldValue)} -> ${JSON.stringify(value)}`
     ));
-    callbacks.log(`update_settings: ${path3} = ${JSON.stringify(value)}`);
+    callbacks.log(`update_settings: ${path4} = ${JSON.stringify(value)}`);
   }
   async handleOpenTab(input, callbacks) {
     const tab = (input.tab ?? "").trim();
@@ -110190,9 +112296,9 @@ var IgnoreService = class _IgnoreService {
    * Check if a path is completely blocked (agent cannot access it at all).
    * Returns true if the path should be denied.
    */
-  isIgnored(path3) {
+  isIgnored(path4) {
     if (!this.loaded) return true;
-    const normalPath = this.normalize(path3);
+    const normalPath = this.normalize(path4);
     for (const blocked of this.alwaysBlocked) {
       if (normalPath === blocked || normalPath.startsWith(blocked)) return true;
     }
@@ -110202,9 +112308,9 @@ var IgnoreService = class _IgnoreService {
    * Check if a path is protected from writing.
    * Protected paths can be read but never written/deleted/moved.
    */
-  isProtected(path3) {
+  isProtected(path4) {
     if (!this.loaded) return true;
-    const normalPath = this.normalize(path3);
+    const normalPath = this.normalize(path4);
     for (const p of _IgnoreService.ALWAYS_PROTECTED) {
       if (normalPath === p) return true;
     }
@@ -110213,14 +112319,14 @@ var IgnoreService = class _IgnoreService {
   /**
    * Get user-facing description of why a path is blocked.
    */
-  getDenialReason(path3) {
-    if (this.isProtected(path3)) {
-      return `"${path3}" is protected (.obsidian-agentprotected). Cannot write to protected files.`;
+  getDenialReason(path4) {
+    if (this.isProtected(path4)) {
+      return `"${path4}" is protected (.obsidian-agentprotected). Cannot write to protected files.`;
     }
-    if (this.isIgnored(path3)) {
-      return `"${path3}" is excluded (.obsidian-agentignore). Add it to the ignore list to allow access.`;
+    if (this.isIgnored(path4)) {
+      return `"${path4}" is excluded (.obsidian-agentignore). Add it to the ignore list to allow access.`;
     }
-    return `"${path3}" is blocked by system defaults.`;
+    return `"${path4}" is blocked by system defaults.`;
   }
   // -------------------------------------------------------------------------
   // Private helpers
@@ -110235,8 +112341,8 @@ var IgnoreService = class _IgnoreService {
       return [];
     }
   }
-  normalize(path3) {
-    return path3.replace(/\\/g, "/").replace(/^\//, "");
+  normalize(path4) {
+    return path4.replace(/\\/g, "/").replace(/^\//, "");
   }
   /**
    * Minimal gitignore-style pattern matching:
@@ -110245,17 +112351,17 @@ var IgnoreService = class _IgnoreService {
    * - Trailing `/` means directory match
    * - Leading `!` means negation (not yet supported — skip)
    */
-  matchesAnyPattern(path3, patterns) {
+  matchesAnyPattern(path4, patterns) {
     for (const pattern of patterns) {
       if (pattern.startsWith("!")) continue;
-      if (this.matchPattern(path3, pattern)) return true;
+      if (this.matchPattern(path4, pattern)) return true;
     }
     return false;
   }
-  matchPattern(path3, pattern) {
+  matchPattern(path4, pattern) {
     let p = pattern.replace(/\\/g, "/").replace(/^\//, "");
     if (p.endsWith("/")) {
-      return path3.startsWith(p) || path3 === p.slice(0, -1);
+      return path4.startsWith(p) || path4 === p.slice(0, -1);
     }
     if (p.length > 200) return false;
     if (/(\*\*){3,}/.test(p)) return false;
@@ -110263,12 +112369,12 @@ var IgnoreService = class _IgnoreService {
     try {
       if (!p.includes("/")) {
         const basenameRegex = new RegExp(`(^|/)${regexStr}($|/)`);
-        return basenameRegex.test(path3);
+        return basenameRegex.test(path4);
       }
       const fullRegex = new RegExp(`^${regexStr}($|/)`);
-      return fullRegex.test(path3);
+      return fullRegex.test(path4);
     } catch {
-      return path3 === p || path3.startsWith(p + "/");
+      return path4 === p || path4.startsWith(p + "/");
     }
   }
 };
@@ -110939,10 +113045,10 @@ var WorkflowLoader = class _WorkflowLoader {
       const exists = await this.fs.exists(this.workflowsDir);
       if (!exists) return [];
       const listed = await this.fs.list(this.workflowsDir);
-      return listed.files.filter((f) => f.endsWith(".md") || f.endsWith(".txt")).sort().map((path3) => ({
-        path: path3,
-        slug: _WorkflowLoader.pathToSlug(path3),
-        displayName: _WorkflowLoader.displayName(path3)
+      return listed.files.filter((f) => f.endsWith(".md") || f.endsWith(".txt")).sort().map((path4) => ({
+        path: path4,
+        slug: _WorkflowLoader.pathToSlug(path4),
+        displayName: _WorkflowLoader.displayName(path4)
       }));
     } catch {
       return [];
@@ -111103,14 +113209,14 @@ var SkillsManager = class {
   /**
    * Read a skill file's content (for UI editing).
    */
-  async readFile(path3) {
-    return this.fs.read(path3);
+  async readFile(path4) {
+    return this.fs.read(path4);
   }
   /**
    * Write a skill file's content (for UI editing).
    */
-  async writeFile(path3, content) {
-    await this.fs.write(path3, content);
+  async writeFile(path4, content) {
+    await this.fs.write(path4, content);
   }
   /**
    * Create a skill directory and file.
@@ -111122,14 +113228,14 @@ var SkillsManager = class {
   /**
    * Delete a skill file.
    */
-  async deleteSkill(path3) {
-    await this.fs.remove(path3);
+  async deleteSkill(path4) {
+    await this.fs.remove(path4);
   }
   /**
    * Check if a path exists in global storage.
    */
-  async fileExists(path3) {
-    return this.fs.exists(path3);
+  async fileExists(path4) {
+    return this.fs.exists(path4);
   }
   // ── Helpers ──────────────────────────────────────────────────────────────
   parseFrontmatter(content, folder, skillPath) {
@@ -111700,10 +113806,10 @@ var MemoryService = class {
     await this.ensureDir(this.memoryDir);
     await this.ensureDir(this.sessionsDir);
     for (const name of MEMORY_FILES) {
-      const path3 = `${this.memoryDir}/${name}`;
-      const exists = await this.fs.exists(path3);
+      const path4 = `${this.memoryDir}/${name}`;
+      const exists = await this.fs.exists(path4);
       if (!exists) {
-        await this.fs.write(path3, TEMPLATES[name] ?? "");
+        await this.fs.write(path4, TEMPLATES[name] ?? "");
       }
     }
   }
@@ -111721,29 +113827,29 @@ var MemoryService = class {
     };
   }
   async readFile(name) {
-    const path3 = `${this.memoryDir}/${name}`;
+    const path4 = `${this.memoryDir}/${name}`;
     try {
-      return await this.fs.read(path3);
+      return await this.fs.read(path4);
     } catch {
       return "";
     }
   }
   async writeFile(name, content) {
-    const path3 = `${this.memoryDir}/${name}`;
-    await this.fs.write(path3, content);
+    const path4 = `${this.memoryDir}/${name}`;
+    await this.fs.write(path4, content);
   }
   async appendToFile(name, content) {
     const existing = await this.readFile(name);
     await this.writeFile(name, existing + "\n" + content);
   }
   async writeSessionSummary(conversationId, content) {
-    const path3 = `${this.sessionsDir}/${conversationId}.md`;
-    await this.fs.write(path3, content);
+    const path4 = `${this.sessionsDir}/${conversationId}.md`;
+    await this.fs.write(path4, content);
   }
   async readSessionSummary(conversationId) {
-    const path3 = `${this.sessionsDir}/${conversationId}.md`;
+    const path4 = `${this.sessionsDir}/${conversationId}.md`;
     try {
-      return await this.fs.read(path3);
+      return await this.fs.read(path4);
     } catch {
       return "";
     }
@@ -111795,9 +113901,9 @@ ${truncated}
     let sessionCount = 0;
     let lastUpdated = null;
     for (const name of MEMORY_FILES) {
-      const path3 = `${this.memoryDir}/${name}`;
+      const path4 = `${this.memoryDir}/${name}`;
       try {
-        const stat = await this.fs.stat(path3);
+        const stat = await this.fs.stat(path4);
         if (stat) {
           fileCount++;
           const mtime = new Date(stat.mtime).toISOString();
@@ -112424,10 +114530,10 @@ function assignProp(target, prop2, value) {
     configurable: true
   });
 }
-function getElementAtPath(obj, path3) {
-  if (!path3)
+function getElementAtPath(obj, path4) {
+  if (!path4)
     return obj;
-  return path3.reduce((acc, key) => acc?.[key], obj);
+  return path4.reduce((acc, key) => acc?.[key], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -112747,11 +114853,11 @@ function aborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path3, issues) {
+function prefixIssues(path4, issues) {
   return issues.map((iss) => {
     var _a7;
     (_a7 = iss).path ?? (_a7.path = []);
-    iss.path.unshift(path3);
+    iss.path.unshift(path4);
     return iss;
   });
 }
@@ -119659,14 +121765,14 @@ var ParseError = class extends Error {
     super(message), this.name = "ParseError", this.type = options.type, this.field = options.field, this.value = options.value, this.line = options.line;
   }
 };
-function noop(_arg) {
+function noop2(_arg) {
 }
 function createParser(callbacks) {
   if (typeof callbacks == "function")
     throw new TypeError(
       "`callbacks` must be an object, got a function instead. Did you mean `{onEvent: fn}`?"
     );
-  const { onEvent = noop, onError = noop, onRetry = noop, onComment } = callbacks;
+  const { onEvent = noop2, onError = noop2, onRetry = noop2, onComment } = callbacks;
   let incompleteLine = "", isFirstChunk = true, id, data2 = "", eventType = "";
   function feed(newChunk) {
     const chunk = isFirstChunk ? newChunk.replace(/^\xEF\xBB\xBF/, "") : newChunk, [complete, incomplete] = splitLines(`${incompleteLine}${chunk}`);
@@ -122491,8 +124597,8 @@ ${commandsYaml}`] : [],
       body,
       ""
     ].join("\n");
-    const path3 = `${this.skillsDir}/${skill.id}.skill.md`;
-    await this.vault.adapter.write(path3, content);
+    const path4 = `${this.skillsDir}/${skill.id}.skill.md`;
+    await this.vault.adapter.write(path4, content);
   }
   generateSkeletonBody(skill, settingsBlock, setupHint, redactedCount) {
     const lines = [];

@@ -15,7 +15,9 @@ export type ApiStreamChunk =
     | { type: 'text'; text: string }
     | { type: 'thinking'; text: string }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-    | { type: 'usage'; inputTokens: number; outputTokens: number };
+    | { type: 'tool_error'; id: string; name: string; error: string }
+    | { type: 'usage'; inputTokens: number; outputTokens: number;
+        cacheReadTokens?: number; cacheCreationTokens?: number };
 
 export type ApiStream = AsyncIterable<ApiStreamChunk>;
 

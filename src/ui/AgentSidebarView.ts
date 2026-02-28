@@ -1384,9 +1384,13 @@ export class AgentSidebarView extends ItemView {
                         if (actDetails) actDetails.open = true;
                     }
                 },
-                onUsage: (inputTokens, outputTokens) => {
+                onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    footerEl.setText(`${time}  ·  ${inputTokens.toLocaleString()} in · ${outputTokens.toLocaleString()} out`);
+                    let text = `${time}  ·  ${inputTokens.toLocaleString()} in · ${outputTokens.toLocaleString()} out`;
+                    if (cacheReadTokens && cacheReadTokens > 0) {
+                        text += ` · ${cacheReadTokens.toLocaleString()} cached`;
+                    }
+                    footerEl.setText(text);
                     footerEl.classList.remove('agent-u-hidden');
                 },
                 onTodoUpdate: (items) => {
