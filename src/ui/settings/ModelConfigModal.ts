@@ -19,6 +19,9 @@ export class ModelConfigModal extends Modal {
     private formMaxTokens: number;
     private formTemperatureEnabled: boolean;
     private formTemperatureValue: number;
+    private formPromptCachingEnabled: boolean;
+    private formThinkingEnabled: boolean;
+    private formThinkingBudgetTokens: number;
 
     private apiKeyRow: HTMLElement | null = null;
     private baseUrlRow: HTMLElement | null = null;
@@ -38,6 +41,10 @@ export class ModelConfigModal extends Modal {
     private temperatureSliderEl: HTMLInputElement | null = null;
     private temperatureValueEl: HTMLElement | null = null;
     private temperatureNoteEl: HTMLElement | null = null;
+    private promptCachingRow: HTMLElement | null = null;
+    private thinkingRow: HTMLElement | null = null;
+    private thinkingBudgetRow: HTMLElement | null = null;
+    private thinkingNoteEl: HTMLElement | null = null;
 
     constructor(app: App, model: CustomModel | null, onSave: (m: CustomModel) => void, forEmbedding = false) {
         super(app);
@@ -63,6 +70,9 @@ export class ModelConfigModal extends Modal {
         this.formMaxTokens = this.model.maxTokens ?? 8192;
         this.formTemperatureEnabled = this.model.temperature !== undefined;
         this.formTemperatureValue = this.model.temperature ?? 0.7;
+        this.formPromptCachingEnabled = this.model.promptCachingEnabled ?? false;
+        this.formThinkingEnabled = this.model.thinkingEnabled ?? false;
+        this.formThinkingBudgetTokens = this.model.thinkingBudgetTokens ?? 10000;
     }
 
     onOpen(): void {
@@ -297,6 +307,56 @@ export class ModelConfigModal extends Modal {
             });
         }
 
+        // -- Prompt Caching (Anthropic only) --
+        if (!this.forEmbedding) {
+            this.promptCachingRow = form.createDiv('mcm-row');
+            const cacheLabel = this.promptCachingRow.createDiv('mcm-label');
+            cacheLabel.createSpan({ text: t('modal.modelConfig.promptCaching') });
+            cacheLabel.createSpan({ text: t('modal.modelConfig.promptCachingDesc'), cls: 'mcm-desc' });
+            const cacheChk = this.promptCachingRow.createEl('input', { attr: { type: 'checkbox' } });
+            cacheChk.checked = this.formPromptCachingEnabled;
+            cacheChk.addEventListener('change', () => {
+                this.formPromptCachingEnabled = cacheChk.checked;
+            });
+        }
+
+        // -- Extended Thinking (Anthropic only) --
+        if (!this.forEmbedding) {
+            this.thinkingRow = form.createDiv('mcm-row');
+            const thinkLabel = this.thinkingRow.createDiv('mcm-label');
+            thinkLabel.createSpan({ text: t('modal.modelConfig.thinking') });
+            thinkLabel.createSpan({ text: t('modal.modelConfig.thinkingDesc'), cls: 'mcm-desc' });
+            const thinkChk = this.thinkingRow.createEl('input', { attr: { type: 'checkbox' } });
+            thinkChk.checked = this.formThinkingEnabled;
+            thinkChk.addEventListener('change', () => {
+                this.formThinkingEnabled = thinkChk.checked;
+                this.updateThinkingUI();
+                this.updateTemperatureUI();
+            });
+            this.thinkingNoteEl = this.thinkingRow.createDiv({ cls: 'mcm-temperature-note' });
+
+            // Budget slider
+            this.thinkingBudgetRow = form.createDiv('mcm-row');
+            const budgetLabel = this.thinkingBudgetRow.createDiv('mcm-label');
+            budgetLabel.createSpan({ text: t('modal.modelConfig.thinkingBudget') });
+            budgetLabel.createSpan({ text: t('modal.modelConfig.thinkingBudgetDesc'), cls: 'mcm-desc' });
+            const budgetControls = this.thinkingBudgetRow.createDiv('mcm-temperature-controls');
+            const budgetSliderWrap = budgetControls.createDiv('mcm-temperature-slider-wrap');
+            const budgetSlider = budgetSliderWrap.createEl('input', {
+                attr: { type: 'range', min: '1024', max: '128000', step: '1024' },
+                cls: 'mcm-temperature-slider',
+            });
+            budgetSlider.value = String(this.formThinkingBudgetTokens);
+            const budgetValueEl = budgetSliderWrap.createSpan({
+                cls: 'mcm-temperature-value',
+                text: this.formThinkingBudgetTokens.toLocaleString(),
+            });
+            budgetSlider.addEventListener('input', () => {
+                this.formThinkingBudgetTokens = parseInt(budgetSlider.value);
+                budgetValueEl.setText(this.formThinkingBudgetTokens.toLocaleString());
+            });
+        }
+
         // Test result (inline)
         this.testResultEl = form.createDiv('mcm-test-result');
         this.testResultEl.classList.add('agent-u-hidden');
@@ -327,6 +387,9 @@ export class ModelConfigModal extends Modal {
         if (this.apiVersionRow) this.apiVersionRow.classList.toggle('agent-u-hidden', p !== 'azure');
         if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle('agent-u-hidden', p !== 'ollama');
         if (this.customBrowserRow) this.customBrowserRow.classList.toggle('agent-u-hidden', p !== 'custom' && p !== 'lmstudio');
+        if (this.promptCachingRow) this.promptCachingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
+        if (this.thinkingRow) this.thinkingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
+        if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle('agent-u-hidden', p !== 'anthropic' || !this.formThinkingEnabled);
 
         // Quick Pick: use embedding suggestions or chat suggestions depending on mode
         const suggestions = this.forEmbedding
@@ -417,6 +480,12 @@ export class ModelConfigModal extends Modal {
                 (el as HTMLInputElement).checked = false;
                 (el as HTMLInputElement).disabled = true;
             });
+        } else if (this.formThinkingEnabled && this.formProvider === 'anthropic') {
+            // Extended thinking forces temperature to 1
+            if (this.temperatureNoteEl) {
+                this.temperatureNoteEl.setText(t('modal.modelConfig.temperatureThinkingNote'));
+                this.temperatureNoteEl.classList.remove('agent-u-hidden');
+            }
         } else {
             if (this.temperatureNoteEl) this.temperatureNoteEl.classList.add('agent-u-hidden');
             this.temperatureRow.querySelectorAll('input[type=checkbox]').forEach((el: Element) => {
@@ -427,6 +496,17 @@ export class ModelConfigModal extends Modal {
 
         const sliderWrap = this.temperatureSliderEl.closest('.mcm-temperature-slider-wrap') as HTMLElement | null;
         if (sliderWrap) sliderWrap.classList.toggle('agent-u-hidden', !this.formTemperatureEnabled);
+    }
+
+    private updateThinkingUI(): void {
+        if (!this.thinkingBudgetRow || !this.thinkingNoteEl) return;
+        this.thinkingBudgetRow.classList.toggle('agent-u-hidden', !this.formThinkingEnabled);
+        if (this.formThinkingEnabled) {
+            this.thinkingNoteEl.setText(t('modal.modelConfig.thinkingNote'));
+            this.thinkingNoteEl.classList.remove('agent-u-hidden');
+        } else {
+            this.thinkingNoteEl.classList.add('agent-u-hidden');
+        }
     }
 
     private renderProviderGuide(container: HTMLElement, provider: ProviderType): void {
@@ -642,6 +722,9 @@ export class ModelConfigModal extends Modal {
             apiVersion: this.formApiVersion || undefined,
             maxTokens: this.formMaxTokens,
             temperature: this.formTemperatureEnabled ? this.formTemperatureValue : undefined,
+            promptCachingEnabled: this.formPromptCachingEnabled || undefined,
+            thinkingEnabled: this.formThinkingEnabled || undefined,
+            thinkingBudgetTokens: this.formThinkingEnabled ? this.formThinkingBudgetTokens : undefined,
         });
         this.close();
     }

@@ -28,6 +28,12 @@ export interface CustomModel {
     temperature?: number;
     /** API version string (required for Azure OpenAI and some enterprise gateways, e.g. "2024-10-21") */
     apiVersion?: string;
+    /** Enable prompt caching (Anthropic only). Reduces costs on repeated conversations. */
+    promptCachingEnabled?: boolean;
+    /** Enable extended thinking (Anthropic only). Forces temperature to 1. */
+    thinkingEnabled?: boolean;
+    /** Thinking budget in tokens (used when thinkingEnabled is true, default 10000) */
+    thinkingBudgetTokens?: number;
 }
 
 /** Unique key for a model across all providers */
@@ -169,6 +175,12 @@ export interface LLMProvider {
     temperature?: number;
     /** API version for Azure OpenAI and compatible enterprise gateways */
     apiVersion?: string;
+    /** Enable prompt caching (Anthropic only) */
+    promptCachingEnabled?: boolean;
+    /** Enable extended thinking (Anthropic only) */
+    thinkingEnabled?: boolean;
+    /** Thinking budget in tokens */
+    thinkingBudgetTokens?: number;
 }
 
 /** Convert a CustomModel to LLMProvider for the API handler layer */
@@ -181,6 +193,9 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         maxTokens: model.maxTokens,
         temperature: model.temperature,
         apiVersion: model.apiVersion,
+        promptCachingEnabled: model.promptCachingEnabled,
+        thinkingEnabled: model.thinkingEnabled,
+        thinkingBudgetTokens: model.thinkingBudgetTokens,
     };
 }
 

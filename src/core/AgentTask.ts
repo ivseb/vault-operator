@@ -34,7 +34,7 @@ export interface AgentTaskCallbacks {
     /** Called when a tool has finished executing */
     onToolResult: (name: string, content: string, isError: boolean) => void;
     /** Called with cumulative token usage just before onComplete (Feature 6) */
-    onUsage?: (inputTokens: number, outputTokens: number) => void;
+    onUsage?: (inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheCreationTokens?: number) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
     onComplete: () => void;
     /** Called when attempt_completion fires — triggers todo auto-complete */
@@ -158,6 +158,8 @@ export class AgentTask {
         // Feature 6: Accumulate token usage across all iterations
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
+        let totalCacheReadTokens = 0;
+        let totalCacheCreationTokens = 0;
         // attempt_completion signal
         let completionResult: string | null = null;
         // Track whether the model streamed any text across all iterations.
@@ -210,9 +212,9 @@ export class AgentTask {
                     },
                     onComplete: () => { /* handled via Promise resolution */ },
                     onError: (err) => { throw err; },
-                    onUsage: (i, o) => {
+                    onUsage: (i, o, cr, cc) => {
                         // Forward subtask token usage to parent for accurate cost tracking
-                        this.taskCallbacks.onUsage?.(i, o);
+                        this.taskCallbacks.onUsage?.(i, o, cr, cc);
                     },
                     // K-1: Forward parent approval callback so subtask write ops are not
                     // auto-rejected by the fail-closed fallback in ToolExecutionPipeline.
@@ -326,6 +328,7 @@ export class AgentTask {
 
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
+                const toolErrorIds = new Set<string>();
 
                 // Stream the LLM response (pass abort signal for cancellation)
                 for await (const chunk of this.api.createMessage(systemPrompt, history, tools, abortSignal)) {
@@ -344,10 +347,18 @@ export class AgentTask {
                         });
                         // Notify UI that a tool is starting
                         this.taskCallbacks.onToolStart(chunk.name, chunk.input);
+                    } else if (chunk.type === 'tool_error') {
+                        // BUG-3: unparseable tool JSON — record in history but skip execution
+                        toolErrorIds.add(chunk.id);
+                        toolUses.push({ type: 'tool_use', id: chunk.id, name: chunk.name, input: {} });
+                        this.taskCallbacks.onToolStart(chunk.name, {});
+                        this.taskCallbacks.onToolResult(chunk.name, chunk.error, true);
                     } else if (chunk.type === 'usage') {
                         // Feature 6: Accumulate tokens across all agentic iterations
                         totalInputTokens += chunk.inputTokens;
                         totalOutputTokens += chunk.outputTokens;
+                        totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+                        totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
                     }
                 }
 
@@ -395,7 +406,8 @@ export class AgentTask {
                 ]);
 
                 const validToolUses = toolUses.filter(
-                    (t): t is ContentBlock & { type: 'tool_use' } => t.type === 'tool_use'
+                    (t): t is ContentBlock & { type: 'tool_use' } =>
+                        t.type === 'tool_use' && !toolErrorIds.has(t.id)
                 );
 
                 // Helper: run a single tool through the pipeline and return its result.
@@ -446,6 +458,16 @@ export class AgentTask {
                     && validToolUses.every(t => PARALLEL_SAFE.has(t.name));
 
                 const toolResultBlocks: ContentBlock[] = [];
+
+                // BUG-3: add error results for tools with unparseable JSON input
+                for (const errId of toolErrorIds) {
+                    toolResultBlocks.push({
+                        type: 'tool_result',
+                        tool_use_id: errId,
+                        content: 'Tool input could not be parsed. Please retry with valid JSON.',
+                        is_error: true,
+                    });
+                }
 
                 if (allParallelSafe) {
                     // Execute all read tools in parallel; collect results in original order.
@@ -555,6 +577,8 @@ export class AgentTask {
                             } else if (chunk.type === 'usage') {
                                 totalInputTokens += chunk.inputTokens;
                                 totalOutputTokens += chunk.outputTokens;
+                                totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+                                totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
                             }
                         }
                     } catch (e) {
@@ -565,7 +589,12 @@ export class AgentTask {
 
             // Feature 6: Report total token usage before completing
             if (totalInputTokens > 0 || totalOutputTokens > 0) {
-                this.taskCallbacks.onUsage?.(totalInputTokens, totalOutputTokens);
+                this.taskCallbacks.onUsage?.(
+                    totalInputTokens,
+                    totalOutputTokens,
+                    totalCacheReadTokens > 0 ? totalCacheReadTokens : undefined,
+                    totalCacheCreationTokens > 0 ? totalCacheCreationTokens : undefined,
+                );
             }
 
             // Episodic memory: provide tool execution data for recording (ADR-018)
