@@ -114,7 +114,7 @@ export class AgentTask {
         modeService?: ModeService,
         consecutiveMistakeLimit = 0,
         rateLimitMs = 0,
-        condensingEnabled = false,
+        condensingEnabled = true,
         condensingThreshold = 80,
         powerSteeringFrequency = 0,
         maxIterations = 25,
@@ -678,6 +678,27 @@ export class AgentTask {
             }
 
             const err = error instanceof Error ? error : new Error(String(error));
+
+            // Emergency condensing on context overflow (400 "prompt too long" etc.)
+            // Instead of failing, condense the history and let the user retry.
+            const isContextOverflow =
+                /context.?length|too.?long|too.?many.?tokens|max.?tokens|token.?limit|prompt.?too|content.?size|request.?too.?large/i
+                    .test(err.message);
+            if (isContextOverflow && history.length >= 7) {
+                console.warn('[AgentTask] Context overflow detected — attempting emergency condensing');
+                try {
+                    await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
+                    this.taskCallbacks.onContextCondensed?.();
+                    this.taskCallbacks.onError(new Error(
+                        'Context was too large. The conversation has been condensed — please resend your last message.',
+                    ));
+                    return;
+                } catch {
+                    // Condensing itself failed — fall through to normal error handling
+                    console.warn('[AgentTask] Emergency condensing failed');
+                }
+            }
+
             // Network errors (e.g. "Failed to fetch") get a friendlier message
             const isNetworkError = err instanceof TypeError
                 && /failed to fetch|network|econnrefused/i.test(err.message);

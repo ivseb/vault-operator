@@ -69,7 +69,7 @@ interface ApiHandler {
 | `src/core/semantic/` | SemanticIndexService (vectra) |
 | `src/core/mcp/` | McpClient |
 | `src/core/skills/` | VaultDNA, SkillRegistry, SelfAuthoredSkillLoader |
-| `src/core/sandbox/` | SandboxExecutor, AstValidator, EsbuildWasmManager |
+| `src/core/sandbox/` | SandboxExecutor, AstValidator, EsbuildWasmManager, SandboxBridge |
 | `src/core/self-development/` | EmbeddedSourceManager, PluginBuilder, PluginReloader |
 | `src/core/observability/` | ConsoleRingBuffer |
 | `src/core/security/` | SafeStorageService |
@@ -77,6 +77,25 @@ interface ApiHandler {
 | `src/ui/` | AgentSidebarView, settings modals |
 | `src/types/` | Settings types, augmentation declarations |
 | `src/i18n/` | Internationalization (i18next) |
+
+## Sandbox & Code Execution
+
+The `evaluate_expression` tool runs TypeScript in a sandboxed iframe
+(`sandbox="allow-scripts"`) with V8 origin isolation. The execution chain:
+
+1. **AstValidator** pre-checks source for blocked patterns (eval, require, etc.)
+2. **EsbuildWasmManager** compiles TypeScript via esbuild-wasm (cached on disk)
+   - `transform()` — single file, no imports (~100ms)
+   - `build()` — bundles with npm dependencies via virtual filesystem (~500ms-2s)
+3. **SandboxExecutor** sends compiled JS to iframe via `postMessage`
+4. **SandboxBridge** mediates all cross-boundary operations (vault I/O, HTTP)
+
+npm packages are downloaded from CDN (esm.sh preferred, jsdelivr fallback) as
+browser ES modules. Transitive dependencies are resolved recursively via
+`resolveInternalImports()` — including Node polyfills (`/node/buffer.mjs`, etc.).
+
+CSP: `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'`
+Security boundary: SandboxBridge (rate limits, URL allowlist, path validation).
 
 ## Tool Registration Flow
 

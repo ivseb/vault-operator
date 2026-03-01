@@ -82,12 +82,28 @@ export class EvaluateExpressionTool extends BaseTool<'evaluate_expression'> {
                 throw new Error(`Expression validation failed:\n${validation.errors.join('\n')}`);
             }
 
-            // Wrap expression in a module that exports an execute function
+            // Hoist import statements to module level (imports are invalid inside function bodies)
+            const lines = params.expression.split('\n');
+            const imports: string[] = [];
+            const bodyLines: string[] = [];
+            for (const line of lines) {
+                // Match static imports (import X from 'y') but NOT dynamic import()
+                if (/^\s*import\s+/.test(line) && !line.includes('import(')) {
+                    imports.push(line);
+                } else {
+                    bodyLines.push(line);
+                }
+            }
+            const bodyCode = bodyLines.join('\n');
+            const hasReturn = bodyCode.includes('return');
+
             const wrappedSource = `
+${imports.join('\n')}
+
 export const definition = { name: '_eval', description: 'eval' };
-export function execute(input: Record<string, unknown>, ctx: { vault: unknown; requestUrl: unknown }): unknown {
+export async function execute(input: Record<string, unknown>, ctx: { vault: any; requestUrl: any }): Promise<unknown> {
     const context = input.context || {};
-    ${params.expression.includes('return') ? params.expression : `return (${params.expression})`};
+    ${hasReturn ? bodyCode : `return (${bodyCode})`};
 }
 `;
 

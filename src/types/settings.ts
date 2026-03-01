@@ -637,7 +637,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     advancedApi: {
         consecutiveMistakeLimit: 3,
         rateLimitMs: 0,
-        condensingEnabled: false,
+        condensingEnabled: true,
         condensingThreshold: 80,
         powerSteeringFrequency: 0,
         maxIterations: 25,

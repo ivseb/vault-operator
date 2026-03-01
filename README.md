@@ -24,6 +24,7 @@ You describe a task in natural language. Obsilo plans, searches your vault, read
 - **Advanced**: `generate_canvas`, `create_base`, `update_base`
 - **Web**: `web_fetch`, `web_search` (Brave / Tavily)
 - **Agent Control**: `update_todo_list`, `ask_followup_question`, `new_task`
+- **Code Execution**: `evaluate_expression` — run TypeScript in a sandboxed iframe with npm packages from CDN
 - **MCP**: `use_mcp_tool` — connect any MCP server
 
 ### Hybrid Semantic Search
@@ -34,6 +35,9 @@ Two built-in modes — **Ask** (read-only knowledge assistant) and **Agent** (fu
 
 ### Multi-Agent Workflows
 Spawn sub-agents with `new_task` for complex parallel or sequential workflows — Orchestrator-Worker, Prompt Chaining, Evaluator-Optimizer, and Routing patterns built in.
+
+### Sandbox Code Execution
+Run TypeScript directly in a secure sandboxed iframe. Import npm packages (pptxgenjs, xlsx, pdf-lib, d3, etc.) from CDN — no Node.js or shell required. Generate binary files (PPTX, XLSX, images), process data, and automate complex tasks. The agent can create reusable skills with code modules for capabilities it learns.
 
 ### Plugin Skills
 Obsilo automatically scans your installed Obsidian plugins and generates skill files that teach the agent how to use them. The agent learns each plugin's commands, settings, and file formats — so it can create Excalidraw drawings, build Kanban boards, populate Dataview tables, or use any other plugin on your behalf.

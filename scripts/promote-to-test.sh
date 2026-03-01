@@ -16,12 +16,15 @@ set -euo pipefail
 # ── Files and directories to strip from test/main ──────────────────────────
 # Add paths here whenever a new internal file/dir is created on dev.
 INTERNAL_PATHS=(
+    "_devprocess"      # internal dev process docs (requirements, architecture, analysis)
     ".claude"
-    ".kilocode"
-    "docs"
+    ".github"          # agents, instructions, templates, workflows
+    "_global"          # scaffold templates
+    "_memory"          # scaffold templates
     "forked-kilocode"
     "scripts"          # this script itself — not needed in public release
     "memory"           # claude memory dir if present at root
+    "CLAUDE.md"        # project manifest for Claude Code
 )
 
 # ── Guards ──────────────────────────────────────────────────────────────────

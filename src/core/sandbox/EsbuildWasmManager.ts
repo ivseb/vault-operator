@@ -151,9 +151,7 @@ export class EsbuildWasmManager {
     async build(source: string, dependencies: string[]): Promise<string> {
         await this.ensureReady();
 
-        for (const dep of dependencies) {
-            await this.ensurePackage(dep);
-        }
+        await Promise.all(dependencies.map(dep => this.ensurePackage(dep)));
 
         const packageCache = this.packageCache;
 
@@ -304,18 +302,93 @@ export class EsbuildWasmManager {
 
     /**
      * Download an npm package from CDN and cache it in memory.
+     * Prefers esm.sh ?bundle which includes all transitive dependencies.
+     * Falls back to jsdelivr +esm for packages not available on esm.sh.
+     *
+     * After downloading, resolves absolute-path imports recursively so that
+     * sub-dependencies (e.g. pptxgenjs → jszip, or esm.sh Node polyfills)
+     * are also available in the virtual filesystem.
      */
     private async ensurePackage(name: string): Promise<void> {
         if (this.packageCache.has(name)) return;
 
-        const url = `https://cdn.jsdelivr.net/npm/${name}/+esm`;
+        // Prefer esm.sh ?bundle — includes all transitive dependencies in one file
+        const bundleUrl = `https://esm.sh/${name}?bundle`;
         try {
-            const response = await requestUrl({ url });
+            const response = await requestUrl({ url: bundleUrl });
+            if (response.status === 200) {
+                this.packageCache.set(name, response.text);
+                // Resolve esm.sh internal imports (Node polyfills, actual bundle URLs)
+                await this.resolveInternalImports(response.text, 'https://esm.sh');
+                console.debug(`[EsbuildWasmManager] Cached package (esm.sh bundle): ${name}`);
+                return;
+            }
+        } catch {
+            console.debug(`[EsbuildWasmManager] esm.sh bundle failed for "${name}", falling back to jsdelivr`);
+        }
+
+        // Fallback: jsdelivr +esm (may lack transitive deps for complex packages)
+        const fallbackUrl = `https://cdn.jsdelivr.net/npm/${name}/+esm`;
+        try {
+            const response = await requestUrl({ url: fallbackUrl });
             this.packageCache.set(name, response.text);
-            console.debug(`[EsbuildWasmManager] Cached package: ${name}`);
+            // Resolve jsdelivr sub-dependency imports (e.g. /npm/jszip@3.10.1/+esm)
+            await this.resolveInternalImports(response.text, 'https://cdn.jsdelivr.net');
+            console.debug(`[EsbuildWasmManager] Cached package (jsdelivr): ${name}`);
         } catch (e) {
             console.warn(`[EsbuildWasmManager] Failed to download package "${name}":`, e);
             throw new Error(`Failed to download npm package "${name}": ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
+    /**
+     * Resolve absolute-path imports found in CDN-hosted packages.
+     *
+     * CDN modules use internal absolute paths for sub-dependencies:
+     * - esm.sh: `/node/buffer.mjs`, `/pptxgenjs@4.0.1/es2022/pptxgenjs.bundle.mjs`
+     * - jsdelivr: `/npm/jszip@3.10.1/+esm`
+     *
+     * The virtual-packages esbuild plugin catches these paths (filter `/^[^.]/`),
+     * so we download and store them in packageCache with their path as key.
+     * Resolves recursively with a depth limit to handle transitive chains.
+     */
+    private async resolveInternalImports(
+        code: string,
+        cdnBase: string,
+        depth = 0,
+    ): Promise<void> {
+        if (depth > 5) return;
+
+        // Match absolute-path imports: import "/path", from "/path", export * from "/path"
+        // Uses \s* (not \s+) because minified CDN code often omits spaces: from"/path"
+        const importRegex = /(?:from|import)\s*["'](\/[^"']+)["']/g;
+        let match;
+        const paths: string[] = [];
+
+        while ((match = importRegex.exec(code)) !== null) {
+            const path = match[1];
+            if (!this.packageCache.has(path) && !paths.includes(path)) {
+                paths.push(path);
+            }
+        }
+
+        for (const path of paths) {
+            if (this.packageCache.has(path)) continue;
+
+            const fullUrl = `${cdnBase}${path}`;
+            try {
+                const resp = await requestUrl({ url: fullUrl });
+                if (resp.status === 200) {
+                    this.packageCache.set(path, resp.text);
+                    await this.resolveInternalImports(resp.text, cdnBase, depth + 1);
+                } else {
+                    console.warn(`[EsbuildWasmManager] HTTP ${resp.status} for ${fullUrl}`);
+                    this.packageCache.set(path, 'export default {};');
+                }
+            } catch (e) {
+                console.warn(`[EsbuildWasmManager] Failed to resolve ${path}:`, e);
+                this.packageCache.set(path, 'export default {};');
+            }
         }
     }
 }

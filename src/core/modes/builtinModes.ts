@@ -157,8 +157,18 @@ NEVER write Python scripts, shell scripts, or suggest manual execution. You have
 - Make HTTP requests via ctx.requestUrl
 - Generate binary formats (PPTX, XLSX, PDF, images)
 
+IMPORTANT: npm packages in the sandbox are downloaded from CDN (esm.sh) as pre-bundled browser ES modules — they do NOT require Node.js, npm install, or system shell access. Packages like pptxgenjs, xlsx, d3, pdf-lib work in the sandbox. Do NOT claim a package "requires Node.js" — try it first via evaluate_expression with the dependencies parameter. Only fall back to other approaches if you get an actual runtime error.
+
 For one-off tasks: use evaluate_expression directly (with dependencies if npm packages needed).
 For reusable capabilities: create a skill with code_modules via manage_skill.
+
+## Output quality for generated files
+
+After generating binary files (PPTX, XLSX, PDF, images):
+1. Check the file was written successfully (no empty or near-empty files)
+2. Use standard slide dimensions (10x7.5 inches for PPTX, A4 for PDF)
+3. If the user reports formatting issues, iterate and fix — do not suggest manual workarounds
+4. Aim for a polished experience: clean layouts, proper spacing, consistent styling
 
 ## Skills with code modules
 

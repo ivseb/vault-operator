@@ -29,6 +29,6 @@ export default tseslint.config(
         },
     },
     {
-        ignores: ['node_modules/', 'main.js', 'forked-kilocode/', '_private/', 'docs/'],
+        ignores: ['node_modules/', 'main.js', 'forked-kilocode/', '_devprocess/', 'docs/'],
     }
 );

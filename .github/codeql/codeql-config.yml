@@ -9,5 +9,5 @@ paths:
 paths-ignore:
   - node_modules
   - forked-kilocode
-  - devprocess
+  - _devprocess
   - docs
