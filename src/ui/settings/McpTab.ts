@@ -108,53 +108,23 @@ export class McpTab {
             if (editName) nameInput.disabled = true;
 
             const typeSelect = contentEl.createEl('select', { cls: 'agent-mcp-modal-input' }) as HTMLSelectElement;
-            for (const opt of ['stdio', 'sse', 'streamable-http']) {
+            for (const opt of ['sse', 'streamable-http']) {
                 const o = typeSelect.createEl('option', { text: opt, value: opt });
-                if (opt === (editConfig?.type ?? 'stdio')) o.selected = true;
+                if (opt === (editConfig?.type ?? 'sse')) o.selected = true;
             }
 
-            // stdio fields
-            const stdioSection = contentEl.createDiv({ cls: 'agent-mcp-section' });
-            stdioSection.createEl('label', { text: t('settings.mcp.labelCommand') });
-            const cmdInput = stdioSection.createEl('input', {
-                type: 'text', placeholder: t('settings.mcp.commandPlaceholder'),
-                cls: 'agent-mcp-modal-input',
-            }) as HTMLInputElement;
-            cmdInput.value = editConfig?.command ?? '';
-
-            stdioSection.createEl('label', { text: t('settings.mcp.labelArgs') });
-            const argsInput = stdioSection.createEl('input', {
-                type: 'text', placeholder: t('settings.mcp.argsPlaceholder'),
-                cls: 'agent-mcp-modal-input',
-            }) as HTMLInputElement;
-            argsInput.value = (editConfig?.args ?? []).join(' ');
-
-            stdioSection.createEl('label', { text: t('settings.mcp.labelEnv') });
-            const envInput = stdioSection.createEl('textarea', { cls: 'agent-mcp-modal-input' }) as HTMLTextAreaElement;
-            envInput.rows = 3;
-            envInput.value = Object.entries(editConfig?.env ?? {}).map(([k, v]) => `${k}=${v}`).join('\n');
-
             // URL fields (sse / streamable-http)
-            const urlSection = contentEl.createDiv({ cls: 'agent-mcp-section' });
-            urlSection.createEl('label', { text: t('settings.mcp.labelUrl') });
-            const urlInput = urlSection.createEl('input', {
+            contentEl.createEl('label', { text: t('settings.mcp.labelUrl') });
+            const urlInput = contentEl.createEl('input', {
                 type: 'text', placeholder: t('settings.mcp.urlPlaceholder'),
                 cls: 'agent-mcp-modal-input',
             }) as HTMLInputElement;
             urlInput.value = editConfig?.url ?? '';
 
-            urlSection.createEl('label', { text: t('settings.mcp.labelHeaders') });
-            const headersInput = urlSection.createEl('textarea', { cls: 'agent-mcp-modal-input' }) as HTMLTextAreaElement;
+            contentEl.createEl('label', { text: t('settings.mcp.labelHeaders') });
+            const headersInput = contentEl.createEl('textarea', { cls: 'agent-mcp-modal-input' }) as HTMLTextAreaElement;
             headersInput.rows = 3;
             headersInput.value = Object.entries(editConfig?.headers ?? {}).map(([k, v]) => `${k}=${v}`).join('\n');
-
-            const updateSections = () => {
-                const isStdio = typeSelect.value === 'stdio';
-                stdioSection.classList.toggle('agent-u-hidden', !isStdio);
-                urlSection.classList.toggle('agent-u-hidden', isStdio);
-            };
-            updateSections();
-            typeSelect.addEventListener('change', updateSections);
 
             contentEl.createEl('label', { text: t('settings.mcp.labelTimeout') });
             const timeoutInput = contentEl.createEl('input', {
@@ -169,7 +139,7 @@ export class McpTab {
                 const serverName = (editName ?? nameInput.value.trim());
                 if (!serverName) return;
 
-                const type = typeSelect.value as 'stdio' | 'sse' | 'streamable-http';
+                const type = typeSelect.value as 'sse' | 'streamable-http';
                 const parseKV = (text: string): Record<string, string> => {
                     const result: Record<string, string> = {};
                     for (const line of text.split('\n')) {
@@ -181,14 +151,8 @@ export class McpTab {
 
                 const newConfig: import('../../types/settings').McpServerConfig = {
                     type,
-                    ...(type === 'stdio' ? {
-                        command: cmdInput.value.trim(),
-                        args: argsInput.value.trim() ? argsInput.value.trim().split(/\s+/) : [],
-                        env: parseKV(envInput.value),
-                    } : {
-                        url: urlInput.value.trim(),
-                        headers: parseKV(headersInput.value),
-                    }),
+                    url: urlInput.value.trim(),
+                    headers: parseKV(headersInput.value),
                     timeout: parseInt(timeoutInput.value) || 60,
                 };
 

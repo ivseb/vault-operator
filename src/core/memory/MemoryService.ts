@@ -38,7 +38,7 @@ export interface MemoryStats {
 // Constants
 // ---------------------------------------------------------------------------
 
-const MEMORY_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'knowledge.md', 'soul.md', 'learnings.md'] as const;
+const MEMORY_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'knowledge.md', 'soul.md', 'learnings.md', 'errors.md', 'custom-tools.md'] as const;
 
 const TEMPLATES: Record<string, string> = {
     'user-profile.md': `# User Profile
@@ -80,6 +80,10 @@ Obsilo
 - Keine Emojis
 `,
     'learnings.md': `# Task Learnings
+`,
+    'errors.md': `# Known Errors
+`,
+    'custom-tools.md': `# Custom Tools & Skills
 `,
 };
 

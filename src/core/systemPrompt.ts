@@ -62,6 +62,7 @@ import {
  * @param pluginSkillsSection - Compact plugin skills list from VaultDNA.
  * @param isSubtask - When true, build a leaner prompt for sub-agents (omits response format, skills, custom instructions).
  * @param recipesSection - Pre-matched procedural recipes for the current user message.
+ * @param selfAuthoredSkillsSection - Self-authored skill metadata from SelfAuthoredSkillLoader.
  */
 export function buildSystemPromptForMode(
     mode: ModeConfig,
@@ -78,6 +79,7 @@ export function buildSystemPromptForMode(
     webEnabled?: boolean,
     recipesSection?: string,
     configDir = '.obsidian',
+    selfAuthoredSkillsSection?: string,
 ): string {
     const sections: string[] = [
         // 1. Date/time + 2. Vault context (combined at top)
@@ -98,6 +100,9 @@ export function buildSystemPromptForMode(
         // 6.5. Procedural Recipes — between plugins and rules (ADR-017)
         // Agent sees tools → plugins → how to combine them → rules
         (isSubtask || !recipesSection) ? '' : recipesSection,
+
+        // 6.6. Self-Authored Skills — agent-created workflow skills
+        (isSubtask || !selfAuthoredSkillsSection) ? '' : `SELF-AUTHORED SKILLS\n\nThe following skills are available. When a user message matches a skill trigger, use its instructions.\nTo manage skills: use the manage_skill tool.\n\n${selfAuthoredSkillsSection}`,
 
         // 7. Tool rules
         getToolRulesSection(),

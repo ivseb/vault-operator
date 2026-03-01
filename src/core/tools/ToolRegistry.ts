@@ -62,15 +62,47 @@ import { ConfigureModelTool } from './agent/ConfigureModelTool';
 // MCP tool
 import { UseMcpToolTool } from './mcp/UseMcpToolTool';
 import type { McpClient } from '../mcp/McpClient';
+// Self-Development (Phase 1)
+import { ReadAgentLogsTool } from './agent/ReadAgentLogsTool';
+import { ManageMcpServerTool } from './agent/ManageMcpServerTool';
+import type { ConsoleRingBuffer } from '../observability/ConsoleRingBuffer';
+// Self-Development (Phase 2)
+import { ManageSkillTool } from './agent/ManageSkillTool';
+import type { SelfAuthoredSkillLoader } from '../skills/SelfAuthoredSkillLoader';
+// Self-Development (Phase 3)
+import { CreateDynamicToolTool } from './agent/CreateDynamicToolTool';
+import { EvaluateExpressionTool } from './agent/EvaluateExpressionTool';
+import type { SandboxExecutor } from '../sandbox/SandboxExecutor';
+import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
+import type { DynamicToolLoader } from './dynamic/DynamicToolLoader';
+// Self-Development (Phase 4)
+import { ManageSourceTool } from './agent/ManageSourceTool';
+import type { EmbeddedSourceManager } from '../self-development/EmbeddedSourceManager';
+import type { PluginBuilder } from '../self-development/PluginBuilder';
+import type { PluginReloader } from '../self-development/PluginReloader';
 
 export class ToolRegistry {
     private tools: Map<ToolName, BaseTool>;
     readonly plugin: ObsidianAgentPlugin;
 
-    constructor(plugin: ObsidianAgentPlugin, mcpClient?: McpClient) {
+    constructor(
+        plugin: ObsidianAgentPlugin,
+        mcpClient?: McpClient,
+        ringBuffer?: ConsoleRingBuffer,
+        skillLoader?: SelfAuthoredSkillLoader,
+        sandboxExecutor?: SandboxExecutor,
+        esbuildManager?: EsbuildWasmManager,
+        dynamicToolLoader?: DynamicToolLoader,
+        sourceManager?: EmbeddedSourceManager,
+        pluginBuilder?: PluginBuilder,
+        pluginReloader?: PluginReloader,
+    ) {
         this.plugin = plugin;
         this.tools = new Map();
-        this.registerInternalTools();
+        this.registerInternalTools(
+            mcpClient, ringBuffer, skillLoader, sandboxExecutor, esbuildManager,
+            dynamicToolLoader, sourceManager, pluginBuilder, pluginReloader,
+        );
         if (mcpClient) {
             this.register(new UseMcpToolTool(this.plugin, mcpClient));
         }
@@ -79,7 +111,17 @@ export class ToolRegistry {
     /**
      * Register all internal (built-in) tools
      */
-    private registerInternalTools(): void {
+    private registerInternalTools(
+        mcpClient?: McpClient,
+        ringBuffer?: ConsoleRingBuffer,
+        skillLoader?: SelfAuthoredSkillLoader,
+        sandboxExecutor?: SandboxExecutor,
+        esbuildManager?: EsbuildWasmManager,
+        dynamicToolLoader?: DynamicToolLoader,
+        sourceManager?: EmbeddedSourceManager,
+        pluginBuilder?: PluginBuilder,
+        pluginReloader?: PluginReloader,
+    ): void {
         // Vault: read
         this.register(new ReadFileTool(this.plugin));
         this.register(new ListFilesTool(this.plugin));
@@ -128,6 +170,30 @@ export class ToolRegistry {
         // Settings & Model configuration (Onboarding)
         this.register(new UpdateSettingsTool(this.plugin));
         this.register(new ConfigureModelTool(this.plugin));
+        // Self-Development (Phase 1)
+        if (ringBuffer) {
+            this.register(new ReadAgentLogsTool(this.plugin, ringBuffer));
+        }
+        if (mcpClient) {
+            this.register(new ManageMcpServerTool(this.plugin, mcpClient));
+        }
+        // Self-Development (Phase 2)
+        if (skillLoader) {
+            this.register(new ManageSkillTool(this.plugin, skillLoader));
+        }
+        // Self-Development (Phase 3)
+        if (sandboxExecutor && esbuildManager) {
+            if (dynamicToolLoader) {
+                this.register(new CreateDynamicToolTool(
+                    this.plugin, sandboxExecutor, esbuildManager, dynamicToolLoader, this,
+                ));
+            }
+            this.register(new EvaluateExpressionTool(this.plugin, sandboxExecutor, esbuildManager));
+        }
+        // Self-Development (Phase 4)
+        if (sourceManager && pluginBuilder && pluginReloader) {
+            this.register(new ManageSourceTool(this.plugin, sourceManager, pluginBuilder, pluginReloader));
+        }
 
         console.debug(`ToolRegistry: Registered ${this.getToolCount()} tools`);
     }

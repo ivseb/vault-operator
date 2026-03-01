@@ -76,6 +76,16 @@ const TOOL_GROUPS: Record<string, ToolGroup> = {
     // Settings & Model configuration (Onboarding)
     update_settings: 'agent',
     configure_model: 'agent',
+    // Self-Development (Phase 1)
+    read_agent_logs: 'agent',
+    manage_mcp_server: 'agent',
+    // Self-Development (Phase 2)
+    manage_skill: 'agent',
+    // Self-Development (Phase 3)
+    create_dynamic_tool: 'agent',
+    evaluate_expression: 'agent',
+    // Self-Development (Phase 4)
+    manage_source: 'agent',
 };
 
 /** Result of an approval check — may include user-edited content */

@@ -55,7 +55,17 @@ export type ToolName =
     | 'execute_recipe'
     // Settings & Model configuration (Onboarding)
     | 'update_settings'
-    | 'configure_model';
+    | 'configure_model'
+    // Self-Development (Phase 1: Foundation)
+    | 'read_agent_logs'
+    | 'manage_mcp_server'
+    // Self-Development (Phase 2: Skills)
+    | 'manage_skill'
+    // Self-Development (Phase 3: Dynamic Modules)
+    | 'create_dynamic_tool'
+    | 'evaluate_expression'
+    // Self-Development (Phase 4: Core Self-Modification)
+    | 'manage_source';
 
 /**
  * Tool use request from LLM

@@ -8,7 +8,6 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig } from '../../types/settings';
@@ -63,17 +62,7 @@ export class McpClient {
             const client = new Client({ name: 'obsidian-agent', version: '1.0.0' });
 
             let transport;
-            if (config.type === 'stdio') {
-                if (!config.command) throw new Error(`stdio server "${name}" has no command configured`);
-                // H-4: Block commands containing shell metacharacters that could enable injection.
-                // MCP commands are exec'd directly (not via shell), so these characters are suspicious.
-                this.validateStdioCommand(config.command, config.args ?? []);
-                transport = new StdioClientTransport({
-                    command: config.command,
-                    args: config.args ?? [],
-                    env: config.env,
-                });
-            } else if (config.type === 'sse') {
+            if (config.type === 'sse') {
                 if (!config.url) throw new Error(`SSE server "${name}" has no URL configured`);
                 const sseOptions: Record<string, unknown> = {};
                 if (config.headers && Object.keys(config.headers).length > 0) {
@@ -110,18 +99,6 @@ export class McpClient {
             conn.status = 'error';
             conn.error = e instanceof Error ? e.message : String(e);
             console.error(`[McpClient] Failed to connect to "${name}":`, e);
-        }
-    }
-
-    private validateStdioCommand(command: string, args: string[]): void {
-        const DANGEROUS = /[;&|`$(){}[\]<>\\]/;
-        if (DANGEROUS.test(command)) {
-            throw new Error(`MCP stdio command contains shell metacharacters: "${command}"`);
-        }
-        for (const arg of args) {
-            if (DANGEROUS.test(arg)) {
-                throw new Error(`MCP stdio argument contains shell metacharacters: "${arg}"`);
-            }
         }
     }
 
@@ -170,6 +147,38 @@ export class McpClient {
                 .join('\n') || '(non-text response)';
         } catch (e) {
             return `Error calling ${toolName} on ${serverName}: ${e instanceof Error ? e.message : String(e)}`;
+        }
+    }
+
+    // ── Reconnect & Test ────────────────────────────────────────────────────
+
+    /**
+     * Reconnect a server by disconnecting and re-connecting with existing config.
+     */
+    async reconnect(name: string): Promise<void> {
+        const conn = this.connections.get(name);
+        if (!conn) throw new Error(`MCP server "${name}" is not configured`);
+        await this.disconnect(name);
+        await this.connect(name, conn.config);
+    }
+
+    /**
+     * Test a connection by listing tools and optionally calling a no-op.
+     * Returns a status report string.
+     */
+    async testConnection(name: string): Promise<string> {
+        const conn = this.connections.get(name);
+        if (!conn) return `Error: MCP server "${name}" is not configured`;
+        if (conn.status !== 'connected' || !conn.client) {
+            return `Error: MCP server "${name}" is not connected (status: ${conn.status}${conn.error ? ' — ' + conn.error : ''})`;
+        }
+
+        try {
+            const toolsResult = await conn.client.listTools();
+            const toolCount = toolsResult.tools?.length ?? 0;
+            return `OK: Server "${name}" is connected with ${toolCount} tool(s) available.`;
+        } catch (e) {
+            return `Error: Test failed for "${name}": ${e instanceof Error ? e.message : String(e)}`;
         }
     }
 

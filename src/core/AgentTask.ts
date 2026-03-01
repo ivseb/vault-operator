@@ -53,6 +53,8 @@ export interface AgentTaskCallbacks {
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /** Called just before onComplete with tool execution data for episodic memory (ADR-018) */
     onEpisodeData?: (data: { toolSequence: string[], toolLedger: string }) => void;
+    /** Called before context condensing to flush important facts to memory (Phase 5) */
+    onPreCompactionFlush?: (history: MessageParam[]) => Promise<void>;
     /** Called when an unrecoverable error occurs */
     onError: (error: Error) => void;
 }
@@ -389,6 +391,11 @@ export class AgentTask {
                         const contextWindow = this.getModelContextWindow();
                         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
                         if (estimatedTokens > threshold) {
+                            // Pre-Compaction Memory Flush (Phase 5): extract important
+                            // facts before they are compressed into a summary
+                            await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
+                                console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
+                            );
                             await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
                             this.taskCallbacks.onContextCondensed?.();
                         }
@@ -534,6 +541,10 @@ export class AgentTask {
                     const contextWindow = this.getModelContextWindow();
                     const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
                     if (estimatedTokens > threshold) {
+                        // Pre-Compaction Memory Flush (Phase 5)
+                        await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
+                            console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
+                        );
                         await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
                         this.taskCallbacks.onContextCondensed?.();
                     }

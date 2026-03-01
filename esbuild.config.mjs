@@ -1,8 +1,8 @@
 import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
-import { copyFileSync, existsSync } from "fs";
-import { join, dirname } from "path";
+import { copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "fs";
+import { join, dirname, relative } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,6 +56,82 @@ const context = await esbuild.context({
                     path: args.path,
                     external: true,
                 }));
+            }
+        },
+        {
+            // Embed TypeScript source into the bundle for core self-modification (Phase 4).
+            // Only active for production builds. Source files are base64-encoded and injected
+            // as a global constant `EMBEDDED_SOURCE` that EmbeddedSourceManager reads at runtime.
+            name: "embed-source",
+            setup(build) {
+                if (!prod) return; // Only embed source in production builds
+
+                build.onEnd((result) => {
+                    if (result.errors.length > 0) return; // Skip on build errors
+
+                    try {
+                        const srcDir = join(__dirname, "src");
+                        const files = {};
+
+                        function walkDir(dir) {
+                            const entries = readdirSync(dir);
+                            for (const entry of entries) {
+                                const fullPath = join(dir, entry);
+                                const stat = statSync(fullPath);
+                                if (stat.isDirectory()) {
+                                    // Skip test directories and node_modules
+                                    if (entry === "node_modules" || entry === "__tests__" || entry === "test") continue;
+                                    walkDir(fullPath);
+                                } else if (entry.endsWith(".ts") || entry.endsWith(".tsx")) {
+                                    const relPath = "src/" + relative(srcDir, fullPath).replace(/\\/g, "/");
+                                    const content = readFileSync(fullPath, "utf-8");
+                                    // Base64-encode to avoid escaping issues
+                                    files[relPath] = Buffer.from(content).toString("base64");
+                                }
+                            }
+                        }
+                        walkDir(srcDir);
+
+                        const pkg = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf-8"));
+                        const embedded = {
+                            version: pkg.version || "0.0.0",
+                            files,
+                            buildConfig: {
+                                format: "cjs",
+                                target: "es2022",
+                                external: [
+                                    "obsidian", "electron",
+                                    "@codemirror/autocomplete", "@codemirror/collab",
+                                    "@codemirror/commands", "@codemirror/language",
+                                    "@codemirror/lint", "@codemirror/search",
+                                    "@codemirror/state", "@codemirror/view",
+                                    "@lezer/common", "@lezer/highlight", "@lezer/lr",
+                                ],
+                            },
+                        };
+
+                        // Read the generated main.js and prepend the embedded source constant
+                        const outfile = "main.js";
+                        if (existsSync(outfile)) {
+                            const mainJs = readFileSync(outfile, "utf-8");
+                            const injection = `\nvar EMBEDDED_SOURCE = ${JSON.stringify(embedded)};\n`;
+                            // Insert after the banner comment
+                            const bannerEnd = mainJs.indexOf("*/");
+                            if (bannerEnd !== -1) {
+                                const patched = mainJs.slice(0, bannerEnd + 2) + injection + mainJs.slice(bannerEnd + 2);
+                                writeFileSync(outfile, patched);
+                            } else {
+                                writeFileSync(outfile, injection + mainJs);
+                            }
+
+                            const fileCount = Object.keys(files).length;
+                            const sizeKB = Math.round(JSON.stringify(embedded).length / 1024);
+                            console.log(`[embed-source] Embedded ${fileCount} source files (~${sizeKB}KB)`);
+                        }
+                    } catch (e) {
+                        console.warn("[embed-source] Failed to embed source:", e.message);
+                    }
+                });
             }
         },
         {

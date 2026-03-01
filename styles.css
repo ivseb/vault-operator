@@ -1,5 +1,14 @@
 /* Obsidian Agent - Styles (Kilo Code Pattern) */
 
+/* ── Sandbox iframe (Self-Development Phase 3) ──────────────────────── */
+.agent-sandbox-iframe {
+    display: none;
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 0;
+}
+
 /* Sidebar Container */
 .obsidian-agent-sidebar {
     display: flex;

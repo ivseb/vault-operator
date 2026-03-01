@@ -39,6 +39,14 @@ import { RecipeStore } from './core/mastery/RecipeStore';
 import { RecipeMatchingService } from './core/mastery/RecipeMatchingService';
 import { EpisodicExtractor } from './core/mastery/EpisodicExtractor';
 import { RecipePromotionService } from './core/mastery/RecipePromotionService';
+import { ConsoleRingBuffer } from './core/observability/ConsoleRingBuffer';
+import { SelfAuthoredSkillLoader } from './core/skills/SelfAuthoredSkillLoader';
+import { SandboxExecutor } from './core/sandbox/SandboxExecutor';
+import { EsbuildWasmManager } from './core/sandbox/EsbuildWasmManager';
+import { DynamicToolLoader } from './core/tools/dynamic/DynamicToolLoader';
+import { EmbeddedSourceManager } from './core/self-development/EmbeddedSourceManager';
+import { PluginBuilder } from './core/self-development/PluginBuilder';
+import { PluginReloader } from './core/self-development/PluginReloader';
 
 /**
  * Obsidian Agent Plugin
@@ -86,6 +94,14 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalFs: GlobalFileService;
     globalSettingsService: GlobalSettingsService | null = null;
     syncBridge: SyncBridge | null = null;
+    ringBuffer: ConsoleRingBuffer;
+    selfAuthoredSkillLoader: SelfAuthoredSkillLoader | null = null;
+    sandboxExecutor: SandboxExecutor | null = null;
+    esbuildWasmManager: EsbuildWasmManager | null = null;
+    dynamicToolLoader: DynamicToolLoader | null = null;
+    embeddedSourceManager: EmbeddedSourceManager | null = null;
+    pluginBuilder: PluginBuilder | null = null;
+    pluginReloader: PluginReloader | null = null;
 
     /**
      * Plugin initialization
@@ -99,9 +115,13 @@ export default class ObsidianAgentPlugin extends Plugin {
      * 6. Start semantic indexing
      */
     async onload() {
+        // 0. ConsoleRingBuffer — install FIRST so all subsequent logs are captured
+        this.ringBuffer = new ConsoleRingBuffer(500);
+        this.ringBuffer.install();
+
         console.debug('Loading Obsilo Agent plugin');
 
-        // 0. Initialize SafeStorageService (must happen before loadSettings)
+        // 0a. Initialize SafeStorageService (must happen before loadSettings)
         this.safeStorage = new SafeStorageService();
 
         // 0b. Global file service — shared storage at ~/.obsidian-agent/ (ADR-020)
@@ -190,8 +210,37 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
         }
 
+        // Self-Authored Skills (Phase 2)
+        this.selfAuthoredSkillLoader = new SelfAuthoredSkillLoader(this);
+        await this.selfAuthoredSkillLoader.loadAll().catch((e) =>
+            console.warn('[Plugin] SelfAuthoredSkillLoader init failed (non-fatal):', e)
+        );
+        this.selfAuthoredSkillLoader.setupWatcher();
+
+        // Sandbox + Dynamic Modules (Phase 3) — lazy initialization
+        this.sandboxExecutor = new SandboxExecutor(this);
+        this.esbuildWasmManager = new EsbuildWasmManager(this);
+        this.dynamicToolLoader = new DynamicToolLoader(this);
+
+        // Core Self-Modification (Phase 4) — load embedded source if available
+        this.embeddedSourceManager = new EmbeddedSourceManager();
+        this.embeddedSourceManager.load(); // Non-fatal if not available (dev builds)
+        this.pluginBuilder = new PluginBuilder(this.esbuildWasmManager, this.embeddedSourceManager);
+        this.pluginReloader = new PluginReloader(this);
+
         // Tool registry (ToolExecutionPipeline created per-task)
-        this.toolRegistry = new ToolRegistry(this, this.mcpClient);
+        this.toolRegistry = new ToolRegistry(
+            this, this.mcpClient, this.ringBuffer, this.selfAuthoredSkillLoader,
+            this.sandboxExecutor, this.esbuildWasmManager, this.dynamicToolLoader,
+            this.embeddedSourceManager, this.pluginBuilder, this.pluginReloader,
+        );
+
+        // Load persisted dynamic tools
+        if (this.dynamicToolLoader && this.sandboxExecutor) {
+            this.dynamicToolLoader.loadAll(this.toolRegistry, this.sandboxExecutor).catch((e) =>
+                console.warn('[Plugin] DynamicToolLoader init failed (non-fatal):', e)
+            );
+        }
 
         // Semantic index (Phase C2) — lazy build, only when enabled
         if (this.settings.enableSemanticIndex) {
@@ -393,6 +442,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         for (const timer of this.autoIndexDebounceTimers.values()) clearTimeout(timer);
         this.autoIndexDebounceTimers.clear();
         await this.mcpClient?.disconnectAll();
+        this.sandboxExecutor?.destroy();
+        this.ringBuffer?.uninstall();
         console.debug('Obsilo Agent plugin unloaded');
     }
 

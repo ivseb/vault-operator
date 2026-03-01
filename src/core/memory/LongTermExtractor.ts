@@ -44,6 +44,14 @@ Current memory files:
 {LEARNINGS}
 </learnings>
 
+<errors>
+{ERRORS}
+</errors>
+
+<custom_tools>
+{CUSTOM_TOOLS}
+</custom_tools>
+
 Target files:
 - user-profile.md: User identity, preferences, communication style
 - projects.md: Active projects, goals, context
@@ -63,6 +71,16 @@ Target files:
   - Workflow optimizations discovered during the session
   Keep entries actionable: "When doing X, use Y because Z."
   Remove outdated learnings that are contradicted by newer experience.
+- errors.md: Known errors and their resolutions.
+  Update errors.md when the session reveals:
+  - An error that was encountered and resolved
+  - A recurring error pattern with a known fix
+  Format: "- Error: <description> → Fix: <resolution>"
+- custom-tools.md: Register of custom tools and skills created by the agent.
+  Update custom-tools.md when the session reveals:
+  - A new skill was created (manage_skill)
+  - A new dynamic tool was created (create_dynamic_tool)
+  Format: "- <name> (<type>): <description>"
 
 Rules:
 - Only output updates for files that actually need changes
@@ -75,7 +93,7 @@ Output format:
 {
   "updates": [
     {
-      "file": "user-profile.md" | "projects.md" | "patterns.md" | "soul.md" | "learnings.md",
+      "file": "user-profile.md" | "projects.md" | "patterns.md" | "soul.md" | "learnings.md" | "errors.md" | "custom-tools.md",
       "action": "append" | "replace",
       "section": "section heading (e.g. '## Identity', '## Communication')",
       "content": "the new content to add or replace under that section"
@@ -124,12 +142,18 @@ export class LongTermExtractor {
         const files = await this.memoryService.loadMemoryFiles();
 
         // Build the prompt with current state
+        // Load additional memory files for self-improvement
+        const errorsContent = await this.memoryService.readFile('errors.md');
+        const customToolsContent = await this.memoryService.readFile('custom-tools.md');
+
         const systemPrompt = LONG_TERM_EXTRACTION_PROMPT
             .replace('{USER_PROFILE}', files.userProfile.trim() || '(empty)')
             .replace('{PROJECTS}', files.projects.trim() || '(empty)')
             .replace('{PATTERNS}', files.patterns.trim() || '(empty)')
             .replace('{SOUL}', files.soul.trim() || '(empty)')
-            .replace('{LEARNINGS}', files.learnings.trim() || '(empty)');
+            .replace('{LEARNINGS}', files.learnings.trim() || '(empty)')
+            .replace('{ERRORS}', errorsContent.trim() || '(empty)')
+            .replace('{CUSTOM_TOOLS}', customToolsContent.trim() || '(empty)');
 
         // The transcript for long-term items is the session summary
         const userMessage = `Session summary to analyze:\n\n${item.transcript}`;
@@ -185,7 +209,7 @@ export class LongTermExtractor {
             const valid = parsed.updates.filter((u: MemoryUpdate) =>
                 typeof u.file === 'string' &&
                 typeof u.content === 'string' &&
-                ['user-profile.md', 'projects.md', 'patterns.md', 'soul.md', 'learnings.md'].includes(u.file) &&
+                ['user-profile.md', 'projects.md', 'patterns.md', 'soul.md', 'learnings.md', 'errors.md', 'custom-tools.md'].includes(u.file) &&
                 ['append', 'replace'].includes(u.action)
             );
             return { updates: valid };

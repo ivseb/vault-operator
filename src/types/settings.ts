@@ -225,10 +225,9 @@ export interface CustomPrompt {
 // ---------------------------------------------------------------------------
 
 export interface McpServerConfig {
-    type: 'stdio' | 'sse' | 'streamable-http';
-    command?: string;
-    args?: string[];
-    env?: Record<string, string>;
+    /** Transport type. Only HTTP-based transports are supported.
+     * stdio is blocked — it spawns host processes outside the sandbox. */
+    type: 'sse' | 'streamable-http';
     url?: string;
     headers?: Record<string, string>;
     disabled?: boolean;
