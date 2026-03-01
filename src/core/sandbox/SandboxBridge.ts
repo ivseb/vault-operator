@@ -103,7 +103,19 @@ export class SandboxBridge {
 
     private isAllowedUrl(url: string): boolean {
         try {
-            const host = new URL(url).hostname;
+            const parsed = new URL(url);
+            const host = parsed.hostname;
+
+            // Block non-HTTPS (data:, file:, ftp:, etc.)
+            if (parsed.protocol !== 'https:') return false;
+
+            // Block IP addresses (IPv4 and IPv6) — require domain names only
+            if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+            if (host.startsWith('[') || host === 'localhost') return false;
+
+            // Block non-standard ports
+            if (parsed.port && parsed.port !== '443') return false;
+
             return this.URL_ALLOWLIST.some(
                 a => host === a || host.endsWith('.' + a)
             );
@@ -118,16 +130,19 @@ export class SandboxBridge {
 
     private checkWriteRateLimit(): void {
         this.resetIfMinuteElapsed();
-        if (++this.writeCount > this.MAX_WRITES_PER_MIN) {
+        // Fix: increment AFTER check (>= instead of > after ++)
+        if (this.writeCount >= this.MAX_WRITES_PER_MIN) {
             throw new Error('Write rate limit exceeded (max 10/min)');
         }
+        this.writeCount++;
     }
 
     private checkRequestRateLimit(): void {
         this.resetIfMinuteElapsed();
-        if (++this.requestCount > this.MAX_REQUESTS_PER_MIN) {
+        if (this.requestCount >= this.MAX_REQUESTS_PER_MIN) {
             throw new Error('Request rate limit exceeded (max 5/min)');
         }
+        this.requestCount++;
     }
 
     private resetIfMinuteElapsed(): void {

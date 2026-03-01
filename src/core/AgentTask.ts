@@ -17,6 +17,7 @@ import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/t
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
 import { buildSystemPromptForMode } from './systemPrompt';
+import type { SystemPromptConfig } from './systemPrompt';
 import type { ModeService } from './modes/ModeService';
 import type { ModeConfig } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
@@ -57,6 +58,28 @@ export interface AgentTaskCallbacks {
     onPreCompactionFlush?: (history: MessageParam[]) => Promise<void>;
     /** Called when an unrecoverable error occurs */
     onError: (error: Error) => void;
+}
+
+/**
+ * Configuration for AgentTask.run().
+ * Replaces 15+ positional parameters with a structured config object.
+ */
+export interface AgentTaskRunConfig {
+    userMessage: string | ContentBlock[];
+    taskId: string;
+    initialMode: string | ModeConfig;
+    history: MessageParam[];
+    abortSignal?: AbortSignal;
+    globalCustomInstructions?: string;
+    includeTime?: boolean;
+    rulesContent?: string;
+    skillsSection?: string;
+    mcpClient?: McpClient;
+    allowedMcpServers?: string[];
+    memoryContext?: string;
+    pluginSkillsSection?: string;
+    recipesSection?: string;
+    selfAuthoredSkillsSection?: string;
 }
 
 export class AgentTask {
@@ -116,34 +139,26 @@ export class AgentTask {
      * Run the agentic conversation loop.
      * Adapted from Kilo Code's Task.ts attemptApiRequest() and main loop.
      *
-     * @param userMessage - The new user message
-     * @param taskId - Unique task ID
-     * @param initialMode - Starting mode slug or ModeConfig
-     * @param history - Existing conversation history (mutated in-place to persist across calls)
-     * @param abortSignal - Optional signal to cancel the request
+     * Accepts an AgentTaskRunConfig object for clean parameter passing.
      */
-    async run(
-        userMessage: string | ContentBlock[],
-        taskId: string,
-        initialMode: string | ModeConfig,
-        history: MessageParam[],
-        abortSignal?: AbortSignal,
-        globalCustomInstructions?: string,
-        includeTime?: boolean,
-        rulesContent?: string,
-        skillsSection?: string,
-        mcpClient?: McpClient,
-        /** Per-mode MCP server whitelist — undefined = all servers allowed */
-        allowedMcpServers?: string[],
-        /** Pre-built memory context for system prompt injection */
-        memoryContext?: string,
-        /** Compact plugin skills list from VaultDNA (PAS-1) */
-        pluginSkillsSection?: string,
-        /** Pre-matched procedural recipes for the current user message (ADR-017) */
-        recipesSection?: string,
-        /** Self-authored skill metadata from SelfAuthoredSkillLoader */
-        selfAuthoredSkillsSection?: string,
-    ): Promise<void> {
+    async run(config: AgentTaskRunConfig): Promise<void> {
+        const {
+            userMessage,
+            taskId,
+            initialMode,
+            history,
+            abortSignal,
+            globalCustomInstructions,
+            includeTime,
+            rulesContent,
+            skillsSection,
+            mcpClient,
+            allowedMcpServers,
+            memoryContext,
+            pluginSkillsSection,
+            recipesSection,
+            selfAuthoredSkillsSection,
+        } = config;
         // Resolve mode to ModeConfig
         let activeMode: ModeConfig = this.resolveMode(initialMode);
 
@@ -233,11 +248,11 @@ export class AgentTask {
                 this.maxSubtaskDepth,   // propagate limit
             );
 
-            await childTask.run(
-                childMessage,
-                `${taskId}-sub-${Date.now()}`,
-                childMode,
-                childHistory,
+            await childTask.run({
+                userMessage: childMessage,
+                taskId: `${taskId}-sub-${Date.now()}`,
+                initialMode: childMode,
+                history: childHistory,
                 abortSignal,
                 globalCustomInstructions,
                 includeTime,
@@ -245,11 +260,9 @@ export class AgentTask {
                 skillsSection,
                 mcpClient,
                 allowedMcpServers,
-                undefined,          // no per-subtask memory context
                 pluginSkillsSection,
-                undefined,          // no recipes for subtasks
                 selfAuthoredSkillsSection,
-            );
+            });
             return childText;
         };
 
@@ -261,9 +274,22 @@ export class AgentTask {
         let cacheInvalidated = false;
 
         const rebuildPromptCache = () => {
-            const allModes = this.modeService?.getAllModes();
             const webEnabled = this.modeService?.isWebEnabled() ?? false;
-            cachedSystemPrompt = buildSystemPromptForMode(activeMode, allModes, globalCustomInstructions, includeTime, rulesContent, skillsSection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection, this.depth > 0, webEnabled, recipesSection, undefined, selfAuthoredSkillsSection);
+            cachedSystemPrompt = buildSystemPromptForMode({
+                mode: activeMode,
+                globalCustomInstructions,
+                includeTime,
+                rulesContent,
+                skillsSection,
+                mcpClient,
+                allowedMcpServers,
+                memoryContext,
+                pluginSkillsSection,
+                isSubtask: this.depth > 0,
+                webEnabled,
+                recipesSection,
+                selfAuthoredSkillsSection,
+            });
             cachedTools = this.modeService
                 ? this.modeService.getToolDefinitions(activeMode)
                 : this.toolRegistry.getToolDefinitions();

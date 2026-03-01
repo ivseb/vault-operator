@@ -9,6 +9,8 @@
  * compiled and registered as dynamic tools. This unifies the former
  * "Skills" and "Dynamic Tools" into a single manage_skill tool.
  *
+ * Code module compilation is delegated to CodeModuleCompiler (SRP).
+ *
  * Part of Self-Development Phase 2+3: Skill Self-Authoring + Code Modules.
  */
 
@@ -17,27 +19,15 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { SelfAuthoredSkillLoader } from '../../skills/SelfAuthoredSkillLoader';
-import type { EsbuildWasmManager } from '../../sandbox/EsbuildWasmManager';
 import type { SandboxExecutor } from '../../sandbox/SandboxExecutor';
 import type { ToolRegistry } from '../ToolRegistry';
+import { CodeModuleCompiler } from '../../skills/CodeModuleCompiler';
+import type { CodeModuleInput } from '../../skills/CodeModuleCompiler';
 import { AstValidator } from '../../sandbox/AstValidator';
 
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
-
-interface CodeModuleInput {
-    name: string;
-    source_code: string;
-    description: string;
-    input_schema: {
-        type: 'object';
-        properties: Record<string, unknown>;
-        required?: string[];
-    };
-    is_write_operation?: boolean;
-    dependencies?: string[];
-}
 
 interface ManageSkillInput {
     action: 'create' | 'update' | 'delete' | 'list' | 'validate' | 'read';
@@ -59,22 +49,18 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
     readonly isWriteOperation = false;
 
     private skillLoader: SelfAuthoredSkillLoader;
-    private esbuildManager: EsbuildWasmManager | null;
-    private sandboxExecutor: SandboxExecutor | null;
-    private toolRegistry: ToolRegistry | null;
+    private compiler: CodeModuleCompiler;
 
     constructor(
         plugin: ObsidianAgentPlugin,
         skillLoader: SelfAuthoredSkillLoader,
-        esbuildManager?: EsbuildWasmManager | null,
+        _esbuildManager?: unknown,
         sandboxExecutor?: SandboxExecutor | null,
-        toolRegistry?: ToolRegistry | null,
+        _toolRegistry?: ToolRegistry | null,
     ) {
         super(plugin);
         this.skillLoader = skillLoader;
-        this.esbuildManager = esbuildManager ?? null;
-        this.sandboxExecutor = sandboxExecutor ?? null;
-        this.toolRegistry = toolRegistry ?? null;
+        this.compiler = new CodeModuleCompiler(skillLoader, sandboxExecutor ?? null);
     }
 
     getDefinition(): ToolDefinition {
@@ -207,7 +193,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
 
         // Validate code modules if present
         if (params.code_modules?.length) {
-            this.validateCodeModuleNames(params.code_modules);
+            this.compiler.validateNames(params.code_modules);
         }
 
         // Ensure directory exists
@@ -217,17 +203,17 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         }
 
         // Build code module filenames for frontmatter
-        const codeModuleNames = params.code_modules?.map(m => this.toolNameToFileName(m.name)) ?? [];
+        const codeModuleNames = params.code_modules?.map(m => CodeModuleCompiler.toolNameToFileName(m.name)) ?? [];
 
         // Build SKILL.md content
         const content = this.buildSkillMd(params, codeModuleNames);
         await this.plugin.app.vault.create(filePath, content);
 
-        // Process code modules
+        // Process code modules via compiler
         const codeResults: string[] = [];
         if (params.code_modules?.length) {
             for (const cm of params.code_modules) {
-                const result = await this.processCodeModule(params.name, cm);
+                const result = await this.compiler.processModule(params.name, cm);
                 codeResults.push(result);
             }
             context.invalidateToolCache?.();
@@ -258,12 +244,12 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
 
         // Validate code modules if present
         if (params.code_modules?.length) {
-            this.validateCodeModuleNames(params.code_modules);
+            this.compiler.validateNames(params.code_modules);
         }
 
         // Merge code module names
         const existingCodeModules = skill.codeModules ?? [];
-        const newCodeModuleNames = params.code_modules?.map(m => this.toolNameToFileName(m.name)) ?? [];
+        const newCodeModuleNames = params.code_modules?.map(m => CodeModuleCompiler.toolNameToFileName(m.name)) ?? [];
         const allCodeModules = [...new Set([...existingCodeModules, ...newCodeModuleNames])];
 
         // Merge updates
@@ -278,11 +264,11 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
 
         await this.plugin.app.vault.modify(file, content);
 
-        // Process code modules
+        // Process code modules via compiler
         const codeResults: string[] = [];
         if (params.code_modules?.length) {
             for (const cm of params.code_modules) {
-                const result = await this.processCodeModule(params.name, cm);
+                const result = await this.compiler.processModule(params.name, cm);
                 codeResults.push(result);
             }
             context.invalidateToolCache?.();
@@ -361,35 +347,28 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (!skill.description) issues.push('Missing description');
         if (!skill.body || skill.body.length < 10) issues.push('Body too short (should describe steps)');
 
-        // Check trigger regex validity
         try {
             new RegExp(skill.triggerSource);
         } catch {
             issues.push(`Invalid trigger regex: ${skill.triggerSource}`);
         }
 
-        // Check required tools exist
         for (const tool of skill.requiredTools) {
             if (!this.plugin.toolRegistry.hasTool(tool as import('../types').ToolName)) {
                 issues.push(`Required tool not found: ${tool}`);
             }
         }
 
-        // Validate code modules
         for (const moduleName of skill.codeModules) {
             const source = await this.skillLoader.readCodeModuleSource(skill.name, moduleName);
             if (!source) {
                 issues.push(`Code module source not found: ${moduleName}.ts`);
                 continue;
             }
-
-            // AST validation
             const validation = AstValidator.validate(source);
             if (!validation.valid) {
                 issues.push(`Code module "${moduleName}" AST errors: ${validation.errors.join('; ')}`);
             }
-
-            // Check compiled cache exists
             const moduleInfo = skill.codeModuleInfos.find(m => m.file === moduleName);
             if (!moduleInfo?.compiledJs) {
                 issues.push(`Code module "${moduleName}" has no compiled cache`);
@@ -432,102 +411,8 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
     }
 
     // -----------------------------------------------------------------------
-    // Code Module Processing
-    // -----------------------------------------------------------------------
-
-    /**
-     * Process a single code module: validate, write source, compile, register.
-     */
-    private async processCodeModule(
-        skillName: string,
-        cm: CodeModuleInput,
-    ): Promise<string> {
-        // AST validation
-        const validation = AstValidator.validate(cm.source_code);
-        if (!validation.valid) {
-            throw new Error(`Code module "${cm.name}" validation failed:\n${validation.errors.join('\n')}`);
-        }
-
-        // Build the full source with definition export wrapper
-        const fullSource = this.buildCodeModuleSource(cm);
-        const fileName = this.toolNameToFileName(cm.name);
-
-        // Write source file
-        await this.skillLoader.writeCodeModuleSource(skillName, fileName, fullSource);
-
-        // Compile
-        const moduleInfo = await this.skillLoader.compileCodeModule(
-            skillName,
-            fileName,
-            cm.dependencies,
-        );
-
-        // Dry-run test in sandbox
-        if (this.sandboxExecutor) {
-            try {
-                await this.sandboxExecutor.execute(moduleInfo.compiledJs!, {});
-            } catch (e) {
-                console.warn(`[ManageSkillTool] Dry-run test warning for ${cm.name}:`, e);
-                // Non-fatal: some tools may require specific input to work
-            }
-        }
-
-        // Register the tool
-        const skill = this.skillLoader.getSkill(skillName);
-        if (skill) {
-            this.skillLoader.registerCodeTools(skill);
-        }
-
-        return `- ${cm.name}: compiled and registered`;
-    }
-
-    /**
-     * Build TypeScript source file with definition + execute exports.
-     */
-    private buildCodeModuleSource(cm: CodeModuleInput): string {
-        // If the source_code already contains "export const definition", use it as-is
-        if (cm.source_code.includes('export const definition')) {
-            return cm.source_code;
-        }
-
-        // Otherwise, wrap the source_code in the expected convention
-        const schemaStr = JSON.stringify(cm.input_schema, null, 4);
-        const depsStr = cm.dependencies?.length
-            ? JSON.stringify(cm.dependencies)
-            : '[]';
-
-        return `export const definition = {
-    name: '${cm.name}',
-    description: '${cm.description.replace(/'/g, "\\'")}',
-    input_schema: ${schemaStr},
-    isWriteOperation: ${cm.is_write_operation ?? false},
-    dependencies: ${depsStr},
-};
-
-${cm.source_code}
-`;
-    }
-
-    // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
-
-    private validateCodeModuleNames(modules: CodeModuleInput[]): void {
-        for (const cm of modules) {
-            if (!cm.name.startsWith('custom_')) {
-                throw new Error(`Code module name "${cm.name}" must start with "custom_" prefix.`);
-            }
-        }
-    }
-
-    /**
-     * Convert tool name to file name: custom_pptx_generator -> pptx-generator
-     */
-    private toolNameToFileName(toolName: string): string {
-        return toolName
-            .replace(/^custom_/, '')
-            .replace(/_/g, '-');
-    }
 
     private buildSkillMd(
         params: Omit<ManageSkillInput, 'action' | 'code_modules'>,

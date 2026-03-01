@@ -16,7 +16,7 @@ import { SandboxBridge } from './SandboxBridge';
 import { SANDBOX_HTML } from './sandboxHtml';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — Typed bridge message protocol
 // ---------------------------------------------------------------------------
 
 interface PendingExecution {
@@ -24,6 +24,24 @@ interface PendingExecution {
     reject: (reason: Error) => void;
     timeout: ReturnType<typeof setTimeout>;
 }
+
+/** Messages FROM the sandbox iframe TO the plugin */
+type SandboxToPluginMessage =
+    | { type: 'sandbox-ready' }
+    | { type: 'result'; id: string; value: unknown }
+    | { type: 'error'; id: string; message: string }
+    | { type: 'vault-read'; callId: string; path: string }
+    | { type: 'vault-read-binary'; callId: string; path: string }
+    | { type: 'vault-list'; callId: string; path: string }
+    | { type: 'vault-write'; callId: string; path: string; content: string }
+    | { type: 'vault-write-binary'; callId: string; path: string; content: ArrayBuffer }
+    | { type: 'request-url'; callId: string; url: string; options?: { method?: string; body?: string } };
+
+/** Messages FROM the plugin TO the sandbox iframe */
+type PluginToSandboxMessage =
+    | { type: 'execute'; id: string; code: string; input: Record<string, unknown> }
+    | { callId: string; result: unknown }
+    | { callId: string; error: string };
 
 // ---------------------------------------------------------------------------
 // SandboxExecutor
@@ -68,10 +86,8 @@ export class SandboxExecutor {
 
             this.pending.set(id, { resolve, reject, timeout });
 
-            this.iframe?.contentWindow?.postMessage(
-                { type: 'execute', id, code: compiledJs, input },
-                '*'
-            );
+            const execMsg: PluginToSandboxMessage = { type: 'execute', id, code: compiledJs, input };
+            this.iframe?.contentWindow?.postMessage(execMsg, '*');
         });
     }
 
@@ -107,10 +123,17 @@ export class SandboxExecutor {
         this.iframe.srcdoc = SANDBOX_HTML;
         document.body.appendChild(this.iframe);
 
-        // Wait for 'sandbox-ready' message from the iframe
-        await new Promise<void>((resolve) => {
+        // Wait for 'sandbox-ready' message with timeout (10s)
+        await new Promise<void>((resolve, reject) => {
+            const INIT_TIMEOUT_MS = 10000;
+            const timeout = setTimeout(() => {
+                window.removeEventListener('message', handler);
+                reject(new Error(`Sandbox initialization timeout (${INIT_TIMEOUT_MS}ms). The iframe did not signal readiness.`));
+            }, INIT_TIMEOUT_MS);
+
             const handler = (e: MessageEvent) => {
                 if (e.data?.type === 'sandbox-ready') {
+                    clearTimeout(timeout);
                     window.removeEventListener('message', handler);
                     this.ready = true;
                     resolve();
@@ -127,15 +150,16 @@ export class SandboxExecutor {
     }
 
     private async handleMessage(event: MessageEvent): Promise<void> {
-        const msg = event.data;
-        if (!msg?.type) return;
+        const msg = event.data as SandboxToPluginMessage | undefined;
+        if (!msg || !('type' in msg)) return;
 
         // Execution result/error
         if (msg.type === 'result' || msg.type === 'error') {
-            const p = this.pending.get(msg.id);
+            const id = msg.type === 'result' ? msg.id : msg.id;
+            const p = this.pending.get(id);
             if (!p) return;
             clearTimeout(p.timeout);
-            this.pending.delete(msg.id);
+            this.pending.delete(id);
             if (msg.type === 'error') {
                 p.reject(new Error(msg.message));
             } else {
@@ -144,41 +168,40 @@ export class SandboxExecutor {
             return;
         }
 
-        // Bridge requests from the iframe
-        if (!msg.callId) return;
+        // Lifecycle message (no bridge action needed)
+        if (msg.type === 'sandbox-ready') return;
+
+        // Bridge requests from the iframe — all have callId
+        const bridgeMsg = msg;
 
         try {
             let result: unknown;
-            if (msg.type === 'vault-read') {
-                result = await this.bridge.vaultRead(msg.path);
-            } else if (msg.type === 'vault-read-binary') {
-                result = await this.bridge.vaultReadBinary(msg.path);
-            } else if (msg.type === 'vault-list') {
-                result = await this.bridge.vaultList(msg.path);
-            } else if (msg.type === 'vault-write') {
-                await this.bridge.vaultWrite(msg.path, msg.content);
+            if (bridgeMsg.type === 'vault-read') {
+                result = await this.bridge.vaultRead(bridgeMsg.path);
+            } else if (bridgeMsg.type === 'vault-read-binary') {
+                result = await this.bridge.vaultReadBinary(bridgeMsg.path);
+            } else if (bridgeMsg.type === 'vault-list') {
+                result = await this.bridge.vaultList(bridgeMsg.path);
+            } else if (bridgeMsg.type === 'vault-write') {
+                await this.bridge.vaultWrite(bridgeMsg.path, bridgeMsg.content);
                 result = true;
-            } else if (msg.type === 'vault-write-binary') {
-                await this.bridge.vaultWriteBinary(msg.path, msg.content);
+            } else if (bridgeMsg.type === 'vault-write-binary') {
+                await this.bridge.vaultWriteBinary(bridgeMsg.path, bridgeMsg.content);
                 result = true;
-            } else if (msg.type === 'request-url') {
-                result = await this.bridge.requestUrlBridge(msg.url, msg.options);
+            } else if (bridgeMsg.type === 'request-url') {
+                result = await this.bridge.requestUrlBridge(bridgeMsg.url, bridgeMsg.options);
             } else {
                 return;
             }
 
-            this.iframe?.contentWindow?.postMessage(
-                { callId: msg.callId, result },
-                '*'
-            );
+            const response: PluginToSandboxMessage = { callId: bridgeMsg.callId, result };
+            this.iframe?.contentWindow?.postMessage(response, '*');
         } catch (e) {
-            this.iframe?.contentWindow?.postMessage(
-                {
-                    callId: msg.callId,
-                    error: e instanceof Error ? e.message : String(e),
-                },
-                '*'
-            );
+            const errorResponse: PluginToSandboxMessage = {
+                callId: bridgeMsg.callId,
+                error: e instanceof Error ? e.message : String(e),
+            };
+            this.iframe?.contentWindow?.postMessage(errorResponse, '*');
         }
     }
 

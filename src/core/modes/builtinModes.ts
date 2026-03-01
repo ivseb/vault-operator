@@ -11,12 +11,13 @@
  */
 
 import type { ModeConfig, ToolGroup } from '../../types/settings';
+import type { ToolName } from '../tools/types';
 
 // ---------------------------------------------------------------------------
-// Tool group → tool name mapping
+// Tool group → tool name mapping (type-safe: values are ToolName, not string)
 // ---------------------------------------------------------------------------
 
-export const TOOL_GROUP_MAP: Record<ToolGroup, string[]> = {
+export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = {
     read:  ['read_file', 'list_files', 'search_files'],
     vault: ['get_frontmatter', 'search_by_tag', 'get_vault_stats', 'get_linked_notes', 'get_daily_note', 'open_note', 'semantic_search', 'query_base'],
     edit:  ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_base', 'update_base'],
@@ -180,10 +181,11 @@ export function getBuiltInMode(slug: string): ModeConfig | undefined {
 }
 
 /** Expand tool groups into a flat list of tool names */
-export function expandToolGroups(groups: ToolGroup[]): string[] {
-    const names: string[] = [];
+export function expandToolGroups(groups: ToolGroup[]): ToolName[] {
+    const names: ToolName[] = [];
     for (const group of groups) {
-        names.push(...(TOOL_GROUP_MAP[group] ?? []));
+        const tools = TOOL_GROUP_MAP[group];
+        if (tools) names.push(...tools);
     }
     return [...new Set(names)]; // deduplicate
 }

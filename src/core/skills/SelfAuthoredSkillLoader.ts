@@ -52,6 +52,10 @@ export class SelfAuthoredSkillLoader {
     private esbuildManager: EsbuildWasmManager | null;
     private sandboxExecutor: SandboxExecutor | null;
     private toolRegistry: ToolRegistry | null;
+    /** Debounce timers for hot-reload per file path */
+    private recompileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Serialize compilation to prevent concurrent builds for the same module */
+    private compileQueue = Promise.resolve();
 
     constructor(
         private plugin: ObsidianAgentPlugin,
@@ -113,6 +117,8 @@ export class SelfAuthoredSkillLoader {
 
     /**
      * Set up hot-reload watchers for skill file changes.
+     * Code file changes are debounced (500ms) and serialized to prevent
+     * race conditions during rapid edits.
      */
     setupWatcher(): void {
         this.plugin.registerEvent(
@@ -120,7 +126,7 @@ export class SelfAuthoredSkillLoader {
                 if (file instanceof TFile && this.isSkillFile(file)) {
                     void this.loadSkillFile(file);
                 } else if (file instanceof TFile && this.isCodeFile(file)) {
-                    void this.handleCodeFileChange(file);
+                    this.debouncedCodeRecompile(file);
                 }
             })
         );
@@ -138,6 +144,25 @@ export class SelfAuthoredSkillLoader {
                 }
             })
         );
+    }
+
+    /**
+     * Debounce code file recompilation (500ms) to avoid rapid-fire compilation
+     * during incremental saves. Each file path gets its own timer.
+     */
+    private debouncedCodeRecompile(file: TFile): void {
+        const existing = this.recompileTimers.get(file.path);
+        if (existing) clearTimeout(existing);
+
+        const timer = setTimeout(() => {
+            this.recompileTimers.delete(file.path);
+            // Serialize: queue behind any in-flight compilation
+            this.compileQueue = this.compileQueue
+                .then(() => this.handleCodeFileChange(file))
+                .catch(e => console.warn(`[SelfAuthoredSkillLoader] Queued recompile failed for ${file.path}:`, e));
+        }, 500);
+
+        this.recompileTimers.set(file.path, timer);
     }
 
     /**
@@ -468,10 +493,11 @@ export class SelfAuthoredSkillLoader {
 
     /**
      * Parse the `export const definition = {...}` from a TypeScript source file.
-     * Uses a simple regex-based approach (not full AST) for the self-describing convention.
+     * Uses safe field extraction — NO code evaluation (no eval/new Function).
+     * Extracts individual fields via regex to avoid executing untrusted code
+     * in the plugin context.
      */
     private parseCodeModuleDefinition(sourceCode: string, moduleName: string): CodeModuleInfo {
-        // Default values
         const defaults: CodeModuleInfo = {
             name: `custom_${moduleName.replace(/-/g, '_')}`,
             file: moduleName,
@@ -482,31 +508,69 @@ export class SelfAuthoredSkillLoader {
         };
 
         try {
-            // Extract the definition object using regex
-            // Matches: export const definition = { ... };
+            // Extract the definition block (between export const definition = { ... };)
             const defMatch = sourceCode.match(
                 /export\s+const\s+definition\s*=\s*(\{[\s\S]*?\n\});/
             );
             if (!defMatch) return defaults;
+            const block = defMatch[1];
 
-            // Try to parse the definition object
-            // eslint-disable-next-line no-eval -- sandboxed extraction of static definition object
-            const parsed = new Function(`return ${defMatch[1]}`)() as Record<string, unknown>;
+            // Safe field extractors — only parse string/boolean/array literals
+            const name = this.extractStringField(block, 'name') ?? defaults.name;
+            const description = this.extractStringField(block, 'description') ?? defaults.description;
+            const isWriteOperation = this.extractBooleanField(block, 'isWriteOperation') ?? false;
+            const dependencies = this.extractStringArrayField(block, 'dependencies') ?? [];
 
-            return {
-                name: typeof parsed.name === 'string' ? parsed.name : defaults.name,
-                file: moduleName,
-                description: typeof parsed.description === 'string' ? parsed.description : defaults.description,
-                inputSchema: (parsed.input_schema && typeof parsed.input_schema === 'object')
-                    ? parsed.input_schema as CodeModuleInfo['inputSchema']
-                    : defaults.inputSchema,
-                isWriteOperation: typeof parsed.isWriteOperation === 'boolean' ? parsed.isWriteOperation : false,
-                dependencies: Array.isArray(parsed.dependencies) ? parsed.dependencies as string[] : [],
-            };
+            // Extract input_schema as JSON — it's a nested object, parse carefully
+            let inputSchema = defaults.inputSchema;
+            const schemaMatch = block.match(/input_schema\s*:\s*(\{[\s\S]*?\n\s{4}\})/);
+            if (schemaMatch) {
+                try {
+                    // Normalize JS object literal to valid JSON:
+                    // - single quotes → double quotes (for string values)
+                    // - unquoted keys → quoted keys
+                    // - trailing commas removed
+                    const jsonStr = schemaMatch[1]
+                        .replace(/'/g, '"')
+                        .replace(/(\w+)\s*:/g, '"$1":')
+                        .replace(/,(\s*[}\]])/g, '$1');
+                    const parsed = JSON.parse(jsonStr) as CodeModuleInfo['inputSchema'];
+                    if (parsed && typeof parsed === 'object' && parsed.type === 'object') {
+                        inputSchema = parsed;
+                    }
+                } catch {
+                    // Schema parsing failed — use defaults
+                }
+            }
+
+            return { name, file: moduleName, description, inputSchema, isWriteOperation, dependencies };
         } catch (e) {
             console.warn(`[SelfAuthoredSkillLoader] Failed to parse definition from ${moduleName}.ts:`, e);
             return defaults;
         }
+    }
+
+    /** Extract a string field value from a JS object literal block. */
+    private extractStringField(block: string, field: string): string | undefined {
+        // Matches: field: 'value' or field: "value"
+        const match = block.match(new RegExp(`${field}\\s*:\\s*['"]([^'"]*?)['"]`));
+        return match ? match[1] : undefined;
+    }
+
+    /** Extract a boolean field value from a JS object literal block. */
+    private extractBooleanField(block: string, field: string): boolean | undefined {
+        const match = block.match(new RegExp(`${field}\\s*:\\s*(true|false)`));
+        return match ? match[1] === 'true' : undefined;
+    }
+
+    /** Extract a string array field from a JS object literal block. */
+    private extractStringArrayField(block: string, field: string): string[] | undefined {
+        const match = block.match(new RegExp(`${field}\\s*:\\s*\\[([^\\]]*)\\]`));
+        if (!match) return undefined;
+        if (!match[1].trim()) return [];
+        return match[1].split(',')
+            .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
+            .filter(Boolean);
     }
 
     /**

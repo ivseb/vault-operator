@@ -48,24 +48,53 @@ import {
 } from './prompts/sections';
 
 /**
+ * Configuration for building the system prompt.
+ * Replaces 15+ positional parameters with a structured config object.
+ */
+export interface SystemPromptConfig {
+    mode: ModeConfig;
+    globalCustomInstructions?: string;
+    includeTime?: boolean;
+    rulesContent?: string;
+    skillsSection?: string;
+    mcpClient?: McpClient;
+    allowedMcpServers?: string[];
+    memoryContext?: string;
+    pluginSkillsSection?: string;
+    isSubtask?: boolean;
+    webEnabled?: boolean;
+    recipesSection?: string;
+    configDir?: string;
+    selfAuthoredSkillsSection?: string;
+}
+
+/**
  * Build the system prompt for a given mode.
  *
- * @param mode - The active ModeConfig
- * @param allModes - Unused, kept for API compatibility.
- * @param globalCustomInstructions - User's global instructions applied to every mode.
- * @param includeTime - When true, inject current date and time into the context.
- * @param rulesContent - Combined content of all enabled rule files.
- * @param skillsSection - XML block listing relevant skills for this message.
- * @param mcpClient - MCP client for dynamic tool listing.
- * @param allowedMcpServers - Per-mode MCP server whitelist.
- * @param memoryContext - Pre-built memory context string.
- * @param pluginSkillsSection - Compact plugin skills list from VaultDNA.
- * @param isSubtask - When true, build a leaner prompt for sub-agents (omits response format, skills, custom instructions).
- * @param recipesSection - Pre-matched procedural recipes for the current user message.
- * @param selfAuthoredSkillsSection - Self-authored skill metadata from SelfAuthoredSkillLoader.
+ * Accepts either a SystemPromptConfig object (preferred) or positional
+ * parameters (legacy, kept for backwards compatibility during migration).
  */
+export function buildSystemPromptForMode(config: SystemPromptConfig): string;
+/** @deprecated Use the config object overload instead. */
 export function buildSystemPromptForMode(
     mode: ModeConfig,
+    allModes?: ModeConfig[],
+    globalCustomInstructions?: string,
+    includeTime?: boolean,
+    rulesContent?: string,
+    skillsSection?: string,
+    mcpClient?: McpClient,
+    allowedMcpServers?: string[],
+    memoryContext?: string,
+    pluginSkillsSection?: string,
+    isSubtask?: boolean,
+    webEnabled?: boolean,
+    recipesSection?: string,
+    configDir?: string,
+    selfAuthoredSkillsSection?: string,
+): string;
+export function buildSystemPromptForMode(
+    configOrMode: SystemPromptConfig | ModeConfig,
     allModes?: ModeConfig[],
     globalCustomInstructions?: string,
     includeTime?: boolean,
@@ -81,6 +110,30 @@ export function buildSystemPromptForMode(
     configDir = '.obsidian',
     selfAuthoredSkillsSection?: string,
 ): string {
+    // Normalize: if first arg has 'slug' and 'toolGroups', it's a ModeConfig (legacy call)
+    // If it has 'mode' property, it's a SystemPromptConfig
+    let mode: ModeConfig;
+    if ('mode' in configOrMode && 'slug' in (configOrMode as SystemPromptConfig).mode!) {
+        // Config object form
+        const cfg = configOrMode as SystemPromptConfig;
+        mode = cfg.mode;
+        globalCustomInstructions = cfg.globalCustomInstructions;
+        includeTime = cfg.includeTime;
+        rulesContent = cfg.rulesContent;
+        skillsSection = cfg.skillsSection;
+        mcpClient = cfg.mcpClient;
+        allowedMcpServers = cfg.allowedMcpServers;
+        memoryContext = cfg.memoryContext;
+        pluginSkillsSection = cfg.pluginSkillsSection;
+        isSubtask = cfg.isSubtask ?? false;
+        webEnabled = cfg.webEnabled;
+        recipesSection = cfg.recipesSection;
+        configDir = cfg.configDir ?? '.obsidian';
+        selfAuthoredSkillsSection = cfg.selfAuthoredSkillsSection;
+    } else {
+        // Legacy positional form
+        mode = configOrMode as ModeConfig;
+    }
     const sections: string[] = [
         // 1. Date/time + 2. Vault context (combined at top)
         getDateTimeSection(includeTime) + getVaultContextSection(),

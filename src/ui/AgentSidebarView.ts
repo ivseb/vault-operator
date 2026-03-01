@@ -1768,23 +1768,23 @@ export class AgentSidebarView extends ItemView {
         // Self-authored skills metadata for system prompt (Pipeline fix)
         const selfAuthoredSkillsSection = this.plugin.selfAuthoredSkillLoader?.getMetadataSummary() || undefined;
 
-        await task.run(
-            messageToSend,
+        await task.run({
+            userMessage: messageToSend,
             taskId,
-            activeMode,
-            this.conversationHistory,
-            this.currentAbortController.signal,
-            this.plugin.settings.globalCustomInstructions || undefined,
-            this.plugin.settings.includeCurrentTimeInContext ?? true,
-            rulesContent || undefined,
-            skillsSection || undefined,
-            this.plugin.mcpClient,
+            initialMode: activeMode,
+            history: this.conversationHistory,
+            abortSignal: this.currentAbortController.signal,
+            globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
+            includeTime: this.plugin.settings.includeCurrentTimeInContext ?? true,
+            rulesContent: rulesContent || undefined,
+            skillsSection: skillsSection || undefined,
+            mcpClient: this.plugin.mcpClient,
             allowedMcpServers,
             memoryContext,
-            pluginSkillsSection || undefined,
+            pluginSkillsSection: pluginSkillsSection || undefined,
             recipesSection,
             selfAuthoredSkillsSection,
-        );
+        });
     }
 
     /**

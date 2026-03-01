@@ -33,6 +33,17 @@ const CACHE_DIR_NAME = 'dev-env';
 const JS_CACHE_FILE = `esbuild-browser-${ESBUILD_VERSION}.js`;
 const WASM_CACHE_FILE = `esbuild-${ESBUILD_VERSION}.wasm`;
 
+/**
+ * SHA-256 hashes for integrity verification of CDN downloads.
+ * Generated from the official esbuild-wasm@0.24.2 npm package.
+ * To update: download the files, then run:
+ *   shasum -a 256 browser.js esbuild.wasm
+ */
+const INTEGRITY_HASHES: Record<string, string> = {
+    [JS_CACHE_FILE]: '9eed236d35e2e5b5fecc079c5e34f7e46effa2a3b8b9e40a9fdcaf54f9a43684',
+    [WASM_CACHE_FILE]: '6cb75da1a8652a84c8468c779e1dce06e70e5d2e5e22096e6a6828aee0a6510a',
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -214,6 +225,7 @@ export class EsbuildWasmManager {
 
     /**
      * Get a text file from local cache, or download from CDN and cache it.
+     * Verifies SHA-256 integrity hash on download.
      */
     private async getCachedOrDownloadText(filename: string, cdnUrl: string): Promise<string> {
         const path = `${this.cacheDir}/${filename}`;
@@ -230,6 +242,9 @@ export class EsbuildWasmManager {
             throw new Error(`Failed to download ${cdnUrl}: HTTP ${response.status}`);
         }
 
+        // Integrity verification
+        await this.verifyIntegrity(filename, response.arrayBuffer);
+
         await adapter.write(path, response.text);
         console.debug(`[EsbuildWasmManager] Cached: ${filename}`);
         return response.text;
@@ -237,6 +252,7 @@ export class EsbuildWasmManager {
 
     /**
      * Get a binary file from local cache, or download from CDN and cache it.
+     * Verifies SHA-256 integrity hash on download.
      */
     private async getCachedOrDownloadBinary(filename: string, cdnUrl: string): Promise<ArrayBuffer> {
         const path = `${this.cacheDir}/${filename}`;
@@ -253,9 +269,37 @@ export class EsbuildWasmManager {
             throw new Error(`Failed to download ${cdnUrl}: HTTP ${response.status}`);
         }
 
+        // Integrity verification
+        await this.verifyIntegrity(filename, response.arrayBuffer);
+
         await adapter.writeBinary(path, response.arrayBuffer);
         console.debug(`[EsbuildWasmManager] Cached: ${filename}`);
         return response.arrayBuffer;
+    }
+
+    /**
+     * Verify SHA-256 integrity hash of downloaded content.
+     * Throws if the hash does not match the expected value.
+     */
+    private async verifyIntegrity(filename: string, data: ArrayBuffer): Promise<void> {
+        const expectedHash = INTEGRITY_HASHES[filename];
+        if (!expectedHash) {
+            console.warn(`[EsbuildWasmManager] No integrity hash for ${filename}, skipping verification`);
+            return;
+        }
+
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const actualHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        if (actualHash !== expectedHash) {
+            throw new Error(
+                `Integrity check failed for ${filename}. ` +
+                `Expected SHA-256: ${expectedHash}, got: ${actualHash}. ` +
+                `The file may have been tampered with. Delete the cache and retry.`
+            );
+        }
+        console.debug(`[EsbuildWasmManager] Integrity verified: ${filename}`);
     }
 
     /**

@@ -97,6 +97,10 @@ export class DynamicToolLoader {
         const skillsDir = skillLoader.getSkillsDir();
 
         for (const jsonFile of jsonFiles) {
+            // Track created artifacts for rollback on partial failure
+            const createdPaths: string[] = [];
+            const createdFolders: string[] = [];
+
             try {
                 const content = await this.plugin.app.vault.read(jsonFile);
                 const record = JSON.parse(content) as DynamicToolRecord;
@@ -113,10 +117,13 @@ export class DynamicToolLoader {
                     continue;
                 }
 
-                // Create skill directory structure
+                // Create skill directory structure (track for rollback)
                 await this.ensureFolder(skillDir);
+                createdFolders.push(skillDir);
                 await this.ensureFolder(`${skillDir}/code`);
+                createdFolders.push(`${skillDir}/code`);
                 await this.ensureFolder(`${skillDir}/code-compiled`);
+                createdFolders.push(`${skillDir}/code-compiled`);
 
                 // Build SKILL.md
                 const schemaStr = JSON.stringify(record.definition.input_schema, null, 4);
@@ -139,6 +146,7 @@ Migrated from dynamic tool. This skill provides the ${toolName} tool.
 1. Use ${toolName} with the appropriate input.
 `;
                 await this.plugin.app.vault.create(skillFilePath, skillMd);
+                createdPaths.push(skillFilePath);
 
                 // Write TypeScript source
                 const tsSource = record.sourceTs.includes('export const definition')
@@ -153,24 +161,45 @@ Migrated from dynamic tool. This skill provides the ${toolName} tool.
 
 ${record.sourceTs}
 `;
-                await this.plugin.app.vault.create(
-                    `${skillDir}/code/${fileName}.ts`,
-                    tsSource,
-                );
+                const tsPath = `${skillDir}/code/${fileName}.ts`;
+                await this.plugin.app.vault.create(tsPath, tsSource);
+                createdPaths.push(tsPath);
 
                 // Write compiled JS cache
-                await this.plugin.app.vault.create(
-                    `${skillDir}/code-compiled/${fileName}.js`,
-                    record.compiledJs,
-                );
+                const jsPath = `${skillDir}/code-compiled/${fileName}.js`;
+                await this.plugin.app.vault.create(jsPath, record.compiledJs);
+                createdPaths.push(jsPath);
 
-                // Delete the JSON file
+                // Only delete the original JSON AFTER all files written successfully
                 await this.plugin.app.fileManager.trashFile(jsonFile);
 
                 migrated++;
                 console.debug(`[DynamicToolLoader] Migrated "${toolName}" to skill at ${skillDir}`);
             } catch (e) {
-                console.warn(`[DynamicToolLoader] Failed to migrate ${jsonFile.path}:`, e);
+                console.warn(`[DynamicToolLoader] Migration failed for ${jsonFile.path}, rolling back:`, e);
+
+                // Rollback: delete created files (reverse order)
+                for (const path of createdPaths.reverse()) {
+                    try {
+                        const file = this.plugin.app.vault.getAbstractFileByPath(path);
+                        if (file instanceof TFile) {
+                            await this.plugin.app.fileManager.trashFile(file);
+                        }
+                    } catch (rbErr) {
+                        console.warn(`[DynamicToolLoader] Rollback: failed to delete ${path}:`, rbErr);
+                    }
+                }
+                // Clean up empty folders (deepest first)
+                for (const folderPath of createdFolders.reverse()) {
+                    try {
+                        const dir = this.plugin.app.vault.getAbstractFileByPath(folderPath);
+                        if (dir instanceof TFolder && dir.children.length === 0) {
+                            await this.plugin.app.vault.delete(dir);
+                        }
+                    } catch {
+                        // Non-fatal: folder may not be empty
+                    }
+                }
             }
         }
 

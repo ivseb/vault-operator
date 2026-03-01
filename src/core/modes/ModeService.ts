@@ -102,7 +102,7 @@ export class ModeService {
      * The result is always filtered to tools actually in the mode's groups.
      */
     getEffectiveToolNames(mode: ModeConfig): string[] {
-        const allInGroups = new Set(expandToolGroups(mode.toolGroups));
+        const allInGroups = new Set<string>(expandToolGroups(mode.toolGroups));
         const override = this.plugin.settings.modeToolOverrides?.[mode.slug];
         if (override && override.length > 0) {
             // Intersect with group-allowed tools (never escalate beyond what the mode allows)
