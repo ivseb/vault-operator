@@ -17,7 +17,7 @@ You describe a task in natural language. Obsilo plans, searches your vault, read
 
 ## Features
 
-### 30+ Vault Tools
+### 40+ Vault Tools
 - **Read & Search**: `read_file`, `list_files`, `search_files`
 - **Vault Intelligence**: `semantic_search`, `get_frontmatter`, `search_by_tag`, `get_linked_notes`, `get_vault_stats`, `get_daily_note`, `query_base`
 - **Write & Edit**: `write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, `create_folder`, `delete_file`, `move_file`
