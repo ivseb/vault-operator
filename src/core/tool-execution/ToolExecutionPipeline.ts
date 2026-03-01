@@ -25,10 +25,15 @@ import type { IgnoreService } from '../governance/IgnoreService';
 import type { OperationLogger } from '../governance/OperationLogger';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 
-/** Tool group classification for auto-approval checks */
-type ToolGroup = 'read' | 'note-edit' | 'vault-change' | 'web' | 'agent' | 'subtask' | 'mcp' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' | 'self-modify';
+/**
+ * Approval group classification — determines how a tool call gets approved.
+ *
+ * NOT the same as the mode-level ToolGroup in settings.ts (which controls
+ * tool availability per mode). This type controls the approval/governance path.
+ */
+type ApprovalGroup = 'read' | 'note-edit' | 'vault-change' | 'web' | 'agent' | 'mode' | 'subtask' | 'mcp' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' | 'self-modify';
 
-const TOOL_GROUPS: Record<string, ToolGroup> = {
+const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     // Read-only vault tools
     read_file: 'read',
     list_files: 'read',
@@ -60,8 +65,8 @@ const TOOL_GROUPS: Record<string, ToolGroup> = {
     attempt_completion: 'agent',
     update_todo_list: 'agent',
     open_note: 'agent',
-    // Mode switching (always auto-approved, feature toggle only)
-    switch_mode: 'agent',
+    // Mode switching (respects autoApproval.mode)
+    switch_mode: 'mode',
     // Subtask spawning (respects autoApproval.subtasks)
     new_task: 'subtask',
     // MCP

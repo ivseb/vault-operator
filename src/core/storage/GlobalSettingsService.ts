@@ -38,6 +38,9 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     'checkpointAutoCleanup',
     'vaultDNA',
     'chatHistoryFolder',
+    'modeToolOverrides',
+    'modeSkillAllowList',
+    'forcedSkills',
     '_encrypted',
     '_globalStorageMigrated',
 ]);

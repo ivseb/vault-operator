@@ -300,8 +300,10 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Delegating simple 1-4 step tasks — do those yourself with your own tools.',
     },
 
+    // NOTE: group is 'agent' for mode-level availability (shows in Agent Control tools).
+    // The Pipeline classifies this as 'sandbox' ApprovalGroup for approval checks.
     evaluate_expression: {
-        group: 'agent', label: 'Evaluate', icon: 'code-2',
+        group: 'agent', label: 'Evaluate (Sandbox)', icon: 'code-2',
         signature: 'evaluate_expression(expression, context?, dependencies?)',
         description: 'Execute TypeScript/JS in the sandboxed iframe. Provides ctx.vault (read/write/binary) and ctx.requestUrl. Use for computations, data transforms, and binary file generation. Specify dependencies for npm packages.',
         example: 'evaluate_expression("import PptxGenJS from \'pptxgenjs\'; const pptx = new PptxGenJS(); pptx.addSlide().addText(\'Hello\'); const buf = await pptx.write({outputType:\'arraybuffer\'}); await ctx.vault.writeBinary(\'out.pptx\', buf); return \'Done\'", undefined, ["pptxgenjs"])',
