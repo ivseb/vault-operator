@@ -17,7 +17,6 @@ import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/t
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
 import { buildSystemPromptForMode } from './systemPrompt';
-import type { SystemPromptConfig } from './systemPrompt';
 import type { ModeService } from './modes/ModeService';
 import type { ModeConfig } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
