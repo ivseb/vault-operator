@@ -202,7 +202,7 @@ export class BackupTab {
             textWrap.createSpan({ text: cat.label, cls: 'agent-backup-label-name' });
             textWrap.createSpan({ text: ` -- ${cat.description}`, cls: 'agent-backup-label-desc' });
 
-            this.loadCategoryStats(cat).then((info) => {
+            void this.loadCategoryStats(cat).then((info) => {
                 textWrap.createSpan({
                     text: ` (${info})`,
                     cls: 'agent-backup-label-stats',
@@ -212,7 +212,7 @@ export class BackupTab {
 
         const btnRow = section.createDiv('agent-backup-row');
         const exportBtn = btnRow.createEl('button', { text: t('settings.backup.export'), cls: 'mod-cta' });
-        exportBtn.addEventListener('click', () => this.doExport(exportBtn));
+        exportBtn.addEventListener('click', () => void this.doExport(exportBtn));
     }
 
     private async loadCategoryStats(cat: BackupCategory): Promise<string> {
@@ -326,17 +326,23 @@ export class BackupTab {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json,application/json';
-        input.addEventListener('change', async () => {
+        input.addEventListener('change', () => { void (async () => {
             const file = input.files?.[0];
             if (!file) return;
             try {
                 const text = await file.text();
-                const parsed = JSON.parse(text) as BackupManifest;
+                const parsed: unknown = JSON.parse(text);
 
-                if (parsed.format !== 'obsilo-backup' || typeof parsed.version !== 'number') {
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                    new Notice(t('settings.backup.invalidFile'));
+                    return;
+                }
+
+                const obj = parsed as Record<string, unknown>;
+
+                if (obj.format !== 'obsilo-backup' || typeof obj.version !== 'number') {
                     // Fallback: try legacy settings-only format
-                    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) &&
-                        ('activeModels' in parsed || 'customModes' in parsed || 'autoApproval' in parsed)) {
+                    if ('activeModels' in obj || 'customModes' in obj || 'autoApproval' in obj) {
                         _pendingImport = {
                             format: 'obsilo-backup',
                             version: 1,
@@ -354,7 +360,7 @@ export class BackupTab {
                         return;
                     }
                 } else {
-                    _pendingImport = parsed;
+                    _pendingImport = obj as unknown as BackupManifest;
                 }
 
                 _importToggles = {};
@@ -366,7 +372,7 @@ export class BackupTab {
             } catch (e) {
                 new Notice(t('settings.backup.importFailed', { error: (e as Error).message }));
             }
-        });
+        })(); });
         input.click();
     }
 
@@ -420,7 +426,7 @@ export class BackupTab {
         const btnRow = container.createDiv('agent-backup-row');
 
         const confirmBtn = btnRow.createEl('button', { text: t('settings.backup.confirmImport'), cls: 'mod-cta' });
-        confirmBtn.addEventListener('click', () => this.doImport(confirmBtn));
+        confirmBtn.addEventListener('click', () => void this.doImport(confirmBtn));
 
         const cancelBtn = btnRow.createEl('button', { text: t('settings.backup.cancel') });
         cancelBtn.addEventListener('click', () => {
@@ -446,8 +452,13 @@ export class BackupTab {
                 if (catId === 'settings') {
                     const settingsFile = catData.files['data.json'];
                     if (settingsFile) {
-                        const parsed = JSON.parse(settingsFile.content);
-                        this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS, parsed);
+                        const raw: unknown = JSON.parse(settingsFile.content);
+                        if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+                            console.warn('[BackupTab] Settings import: not a valid object, skipping');
+                            continue;
+                        }
+                        const imported = this.sanitizeSettings(raw as Record<string, unknown>);
+                        this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS, imported);
                         await this.plugin.saveSettings();
                         totalFiles++;
                     }
@@ -564,6 +575,54 @@ export class BackupTab {
             }
         } catch { /* directory doesn't exist */ }
         return { count, size };
+    }
+
+    // ── Settings sanitization (M-8) ────────────────────────────────────────
+
+    /**
+     * Sanitize imported settings: only copy known keys from DEFAULT_SETTINGS,
+     * skip internal flags, and validate critical field types.
+     */
+    private sanitizeSettings(raw: Record<string, unknown>): Record<string, unknown> {
+        const allowedKeys = new Set(Object.keys(DEFAULT_SETTINGS));
+        // Internal flags that must never be imported
+        const blockedKeys = new Set(['_encrypted', '_globalStorageMigrated']);
+
+        const result: Record<string, unknown> = {};
+        let skippedCount = 0;
+
+        for (const [key, value] of Object.entries(raw)) {
+            if (blockedKeys.has(key)) {
+                skippedCount++;
+                continue;
+            }
+            if (!allowedKeys.has(key)) {
+                skippedCount++;
+                continue;
+            }
+            result[key] = value;
+        }
+
+        // Validate autoApproval sub-fields are booleans
+        if (typeof result.autoApproval === 'object' && result.autoApproval !== null) {
+            const approval = result.autoApproval as Record<string, unknown>;
+            for (const [k, v] of Object.entries(approval)) {
+                if (typeof v !== 'boolean') {
+                    delete approval[k];
+                }
+            }
+        }
+
+        // Validate provider fields are strings
+        if (typeof result.defaultProvider !== 'string') {
+            delete result.defaultProvider;
+        }
+
+        if (skippedCount > 0) {
+            console.debug(`[BackupTab] Settings import: skipped ${skippedCount} unknown/blocked keys`);
+        }
+
+        return result;
     }
 
     // ── Formatting ───────────────────────────────────────────────────────────

@@ -524,7 +524,7 @@ export class SemanticIndexService {
             .toLowerCase()
             .split(/[\s\-_/,.;:!?()\[\]{}"'`|@#=+*<>~^]+/)
             .filter((t) => t.length >= 3)
-            .map(SemanticIndexService.stemWord);
+            .map((t) => SemanticIndexService.stemWord(t));
     }
 
     /**
@@ -947,7 +947,7 @@ export class SemanticIndexService {
     /**
      * Read a file's text content.
      * - Markdown/plaintext: uses vault.cachedRead (fast, cached)
-     * - PDF: extracts text via pdf-parse (Node.js, no web worker needed)
+     * - PDF: extracts text via pdfjs-dist (fake-worker mode, no web worker needed)
      */
     private async readFileContent(file: { path: string; extension: string }): Promise<string> {
         if (file.extension === 'pdf') {

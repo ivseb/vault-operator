@@ -262,6 +262,8 @@ export const ja: Translations = {
     'settings.permissions.noteEditsDesc': 'ノートの内容の書き込みまたは変更（write_file、edit_file、append_to_file）。オフの場合、保存前に各変更を承認します。',
     'settings.permissions.vaultChanges': '保管庫構造の変更',
     'settings.permissions.vaultChangesDesc': 'フォルダーの作成、ファイルの移動、ノートの削除、キャンバスの生成、またはベースの作成。元に戻すのが困難です。',
+    'settings.permissions.webOps': 'Web操作',
+    'settings.permissions.webOpsDesc': 'Webフェッチとウェブ検索（web_fetch、web_search）を自動承認します。エージェントがあなたの代わりに外部URLにアクセスします。',
     'settings.permissions.mcpCalls': 'MCPツール呼び出し',
     'settings.permissions.mcpCallsDesc': 'Model Context Protocolサーバーを介して接続された外部ツールの呼び出し。',
     'settings.permissions.modeSwitching': 'モード切替',
@@ -286,9 +288,20 @@ export const ja: Translations = {
     'settings.permissions.noteEditsWarning': 'エージェントが確認なしでノート内容を変更できます。プロンプトインジェクションによる変更は正規の変更と区別できません。',
     'settings.permissions.vaultChangesWarning': '構造的な変更（削除、移動）は元に戻すのが困難です。チェックポイントシステムがセーフティネットを提供しますが、手動確認を推奨します。',
     'settings.permissions.mcpCallsWarning': 'MCPツールは接続されたサーバー上で任意のアクションを実行できます。設定済みのすべてのMCPサーバーを信頼できる場合のみ自動承認してください。',
+    'settings.permissions.webOpsWarning': 'Web操作はプロンプトインジェクションペイロードを含む可能性のある外部コンテンツを取得します。信頼できないURLからのコンテンツがエージェントの動作に影響を与える可能性があります。',
     'settings.permissions.pluginApiWritesWarning': 'プラグインAPI書き込みはサードパーティプラグインを通じてデータを変更します。エージェントはそれらのプラグインと同じ権限で動作します。',
     'settings.permissions.recipesWarning': 'レシピはシステム上でシェルコマンドを実行します。自動承認は実行前の最後の手動チェックを削除します。',
     'settings.permissions.subtasksWarning': 'サブエージェントは自動承認設定を継承し、個別の確認なしでツールを実行できます。',
+
+    // サンドボックス実行
+    'settings.permissions.headingSandbox': 'サンドボックスコード実行',
+    'settings.permissions.sandbox': 'サンドボックス実行を自動承認',
+    'settings.permissions.sandboxDesc': 'サンドボックス化されたiframeで任意のTypeScript/JavaScriptを実行するevaluate_expressionを自動承認します。デフォルトでオフ。サンドボックスはV8オリジン分離を提供しますが、ElectronではOSレベルのプロセス分離は提供しません。ユーザー承認がプロンプトインジェクションコードに対する主要な防御です。',
+    'settings.permissions.sandboxWarning': '高リスク: evaluate_expressionは任意のコードを実行します。Electronではiframeサンドボックスは論理的な分離のみ提供します — V8エンジンのエクスプロイトで脱出可能です。自動承認が有効な場合、プロンプトインジェクションされたコンテンツが未確認のコード実行をトリガーする可能性があります。リスクを完全に理解していない限り、オフのままにしてください。',
+    'settings.permissions.sandboxConfirmTitle': 'サンドボックス自動承認を有効にしますか？',
+    'settings.permissions.sandboxConfirmMessage': 'これにより、エージェントはあなたの確認なしに任意のJavaScript/TypeScriptコードを実行できます。サンドボックスはV8オリジン分離を提供しますが、ElectronではOSレベルのプロセス分離は提供しません。プロンプトインジェクションされたコンテンツ（例：Webページやノート）が未確認のコード実行をトリガーする可能性があります。本当に有効にしますか？',
+    'settings.permissions.sandboxConfirmCancel': 'キャンセル',
+    'settings.permissions.sandboxConfirmAccept': 'リスクを理解しました — 有効にする',
 
     // =========================================================================
     // Settings — Loop Tab

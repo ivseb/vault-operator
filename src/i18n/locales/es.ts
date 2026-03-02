@@ -262,6 +262,8 @@ export const es: Translations = {
     'settings.permissions.noteEditsDesc': 'Escribir o modificar contenido de notas (write_file, edit_file, append_to_file). Cuando esta desactivado, apruebas cada cambio antes de que se guarde.',
     'settings.permissions.vaultChanges': 'Cambios en la estructura del vault',
     'settings.permissions.vaultChangesDesc': 'Crear carpetas, mover archivos, eliminar notas, generar canvas o crear bases. Mas dificil de deshacer.',
+    'settings.permissions.webOps': 'Operaciones web',
+    'settings.permissions.webOpsDesc': 'Auto-aprobar buscadas web y busquedas web (web_fetch, web_search). El agente accede a URLs externas en tu nombre.',
     'settings.permissions.mcpCalls': 'Llamadas a herramientas MCP',
     'settings.permissions.mcpCallsDesc': 'Llamadas a herramientas externas conectadas mediante servidores Model Context Protocol.',
     'settings.permissions.modeSwitching': 'Cambio de modo',
@@ -286,9 +288,20 @@ export const es: Translations = {
     'settings.permissions.noteEditsWarning': 'El agente puede modificar el contenido de las notas sin confirmacion. El contenido generado por inyeccion de prompt no se puede distinguir de cambios legitimos.',
     'settings.permissions.vaultChangesWarning': 'Los cambios estructurales (eliminacion, movimiento) son dificiles de revertir. El sistema de checkpoints proporciona una red de seguridad, pero se recomienda la revision manual.',
     'settings.permissions.mcpCallsWarning': 'Las herramientas MCP pueden ejecutar acciones arbitrarias en los servidores conectados. Solo auto-apruebe si confia en todos los servidores MCP configurados.',
+    'settings.permissions.webOpsWarning': 'Las operaciones web obtienen contenido externo que puede contener payloads de inyeccion de prompt. El contenido de URLs no confiables podria influir en el comportamiento del agente.',
     'settings.permissions.pluginApiWritesWarning': 'Las escrituras de API de plugins modifican datos a traves de plugins de terceros. El agente actua con los mismos permisos que esos plugins.',
     'settings.permissions.recipesWarning': 'Las recetas ejecutan comandos de shell en su sistema. La auto-aprobacion elimina la ultima verificacion manual antes de la ejecucion.',
     'settings.permissions.subtasksWarning': 'Los sub-agentes heredan la configuracion de auto-aprobacion y pueden ejecutar herramientas sin confirmacion individual.',
+
+    // Ejecucion en sandbox
+    'settings.permissions.headingSandbox': 'Ejecucion de codigo en sandbox',
+    'settings.permissions.sandbox': 'Auto-aprobar ejecucion en sandbox',
+    'settings.permissions.sandboxDesc': 'Auto-aprobar evaluate_expression que ejecuta TypeScript/JavaScript arbitrario en el iframe sandbox. Desactivado por defecto. El sandbox proporciona aislamiento de origen V8 pero no aislamiento de proceso a nivel de SO en Electron. La aprobacion del usuario es la defensa principal contra codigo inyectado por prompt.',
+    'settings.permissions.sandboxWarning': 'ALTO RIESGO: evaluate_expression ejecuta codigo arbitrario. En Electron, el sandbox del iframe solo proporciona aislamiento logico — un exploit del motor V8 podria escapar de el. Con auto-aprobacion habilitada, contenido inyectado por prompt podria desencadenar ejecucion de codigo sin revision. Mantenga desactivado a menos que comprenda completamente el riesgo.',
+    'settings.permissions.sandboxConfirmTitle': 'Habilitar auto-aprobacion de sandbox?',
+    'settings.permissions.sandboxConfirmMessage': 'Esto permite al agente ejecutar codigo JavaScript/TypeScript arbitrario sin su revision. El sandbox proporciona aislamiento de origen V8 pero NO aislamiento de proceso a nivel de SO en Electron. Contenido inyectado por prompt (ej. desde paginas web o notas del vault) podria desencadenar ejecucion de codigo sin revision. Esta seguro de que desea habilitar esto?',
+    'settings.permissions.sandboxConfirmCancel': 'Cancelar',
+    'settings.permissions.sandboxConfirmAccept': 'Entiendo el riesgo — habilitar',
 
     // =========================================================================
     // Settings — Loop Tab

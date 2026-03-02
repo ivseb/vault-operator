@@ -307,6 +307,8 @@ export interface AutoApprovalConfig {
     pluginApiWrite: boolean;
     /** Auto-approve recipe execution */
     recipes: boolean;
+    /** Auto-approve sandbox code execution (evaluate_expression). Off by default — high risk. */
+    sandbox: boolean;
 }
 
 /** Legacy — kept for backwards compat */
@@ -377,7 +379,11 @@ export interface MemorySettings {
 // ---------------------------------------------------------------------------
 
 export interface ObsidianAgentSettings {
-    // Model management (new — replaces providers/defaultProvider)
+    /**
+     * Configured LLM models. Cloud providers (anthropic, openai, openrouter, azure)
+     * send vault content to external servers. For privacy-sensitive vaults, prefer
+     * local providers (ollama, lmstudio).
+     */
     activeModels: CustomModel[];
     activeModelKey: string;
 
@@ -622,10 +628,11 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         subtasks: false,
         question: true,
         todo: true,
-        skills: true,
+        skills: false,
         pluginApiRead: true,
         pluginApiWrite: false,
-        recipes: true,
+        recipes: false,
+        sandbox: false,
     },
     autoApprovalRules: {
         readOperations: true,

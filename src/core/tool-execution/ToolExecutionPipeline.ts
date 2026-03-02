@@ -25,10 +25,15 @@ import type { IgnoreService } from '../governance/IgnoreService';
 import type { OperationLogger } from '../governance/OperationLogger';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 
-/** Tool group classification for auto-approval checks */
-type ToolGroup = 'read' | 'note-edit' | 'vault-change' | 'web' | 'agent' | 'mode' | 'subtask' | 'mcp' | 'skill' | 'plugin-api' | 'recipe' | 'self-modify';
+/**
+ * Approval group classification — determines how a tool call gets approved.
+ *
+ * NOT the same as the mode-level ToolGroup in settings.ts (which controls
+ * tool availability per mode). This type controls the approval/governance path.
+ */
+type ApprovalGroup = 'read' | 'note-edit' | 'vault-change' | 'web' | 'agent' | 'subtask' | 'mcp' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' | 'self-modify';
 
-const TOOL_GROUPS: Record<string, ToolGroup> = {
+const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     // Read-only vault tools
     read_file: 'read',
     list_files: 'read',
@@ -60,8 +65,8 @@ const TOOL_GROUPS: Record<string, ToolGroup> = {
     attempt_completion: 'agent',
     update_todo_list: 'agent',
     open_note: 'agent',
-    // Mode switching (respects autoApproval.mode)
-    switch_mode: 'mode',
+    // Mode switching (always auto-approved, agent-internal)
+    switch_mode: 'agent',
     // Subtask spawning (respects autoApproval.subtasks)
     new_task: 'subtask',
     // MCP
@@ -79,8 +84,8 @@ const TOOL_GROUPS: Record<string, ToolGroup> = {
     // Self-Development (Phase 1)
     read_agent_logs: 'agent',
     manage_mcp_server: 'agent',
-    // Self-Development (Phase 2+3)
-    evaluate_expression: 'agent',
+    // Self-Development (Phase 2+3) — sandbox: always requires approval by default
+    evaluate_expression: 'sandbox',
     // M-7: Self-modification tools always require human approval
     manage_skill: 'self-modify',
     manage_source: 'self-modify',
@@ -186,7 +191,7 @@ export class ToolExecutionPipeline {
             // 3. Auto-approve or request approval for write/mcp/mode/subtask operations
             // Web tools are always auto-approved when webTools.enabled is true (the only way they appear).
             const toolGroup = TOOL_GROUPS[toolCall.name];
-            if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'mode' || toolGroup === 'subtask') {
+            if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'subtask' || toolGroup === 'sandbox') {
                 const approval = await this.checkApproval(toolCall, extensions);
                 if (approval.decision === 'rejected') {
                     return this.errorResult(toolCall.id, 'Operation denied by user');
@@ -232,8 +237,8 @@ export class ToolExecutionPipeline {
                     if (content.startsWith('<error>')) executionHadError = true;
                     callbacks.pushToolResult(content);
                 },
-                handleError: callbacks.handleError,
-                log: callbacks.log,
+                handleError: (tool: string, error: unknown) => callbacks.handleError(tool, error),
+                log: (msg: string) => callbacks.log(msg),
             };
 
             const context: ToolExecutionContext = {
@@ -314,6 +319,18 @@ export class ToolExecutionPipeline {
         // Agent tools (question, todo, completion, open_note) are always auto-approved
         if (group === 'agent') return { decision: 'auto' };
 
+        // Sandbox code execution (evaluate_expression) — requires explicit opt-in.
+        // Default off because sandboxed code runs arbitrary JS/TS which could be
+        // injected via prompt injection. User approval is the primary defense.
+        if (group === 'sandbox') {
+            if (cfg.enabled && cfg.sandbox) return { decision: 'auto' };
+            if (!extensions?.onApprovalRequired) {
+                console.warn(`[Pipeline] Sandbox tool ${toolCall.name} — denying (requires approval)`);
+                return { decision: 'rejected' };
+            }
+            return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
+        }
+
         // M-7: Self-modification tools (manage_source, manage_skill) ALWAYS require
         // human approval — no auto-approve bypass possible
         if (group === 'self-modify') {
@@ -329,8 +346,8 @@ export class ToolExecutionPipeline {
             if (group === 'read' && cfg.read) return { decision: 'auto' };
             if (group === 'note-edit' && cfg.noteEdits) return { decision: 'auto' };
             if (group === 'vault-change' && cfg.vaultChanges) return { decision: 'auto' };
+            if (group === 'web' && cfg.web) return { decision: 'auto' };
             if (group === 'mcp' && cfg.mcp) return { decision: 'auto' };
-            if (group === 'mode' && cfg.mode) return { decision: 'auto' };
             if (group === 'subtask' && cfg.subtasks) return { decision: 'auto' };
             if (group === 'skill' && cfg.skills) return { decision: 'auto' };
             if (group === 'plugin-api') {

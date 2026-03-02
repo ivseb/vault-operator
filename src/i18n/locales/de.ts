@@ -262,6 +262,8 @@ export const de: Translations = {
     'settings.permissions.noteEditsDesc': 'Schreiben oder Aendern von Notizinhalten (write_file, edit_file, append_to_file). Bei Deaktivierung wird jede Aenderung vor dem Speichern zur Genehmigung vorgelegt.',
     'settings.permissions.vaultChanges': 'Vault-Strukturaenderungen',
     'settings.permissions.vaultChangesDesc': 'Ordner erstellen, Dateien verschieben, Notizen loeschen, Canvas generieren oder Bases erstellen. Schwer rueckgaengig zu machen.',
+    'settings.permissions.webOps': 'Web-Operationen',
+    'settings.permissions.webOpsDesc': 'Web-Abrufe und Web-Suchen automatisch genehmigen (web_fetch, web_search). Der Agent greift in Ihrem Namen auf externe URLs zu.',
     'settings.permissions.mcpCalls': 'MCP-Tool-Aufrufe',
     'settings.permissions.mcpCallsDesc': 'Aufrufe externer Tools, die ueber Model Context Protocol Server verbunden sind.',
     'settings.permissions.modeSwitching': 'Moduswechsel',
@@ -286,9 +288,20 @@ export const de: Translations = {
     'settings.permissions.noteEditsWarning': 'Der Agent kann Notizinhalte ohne Bestaetigung aendern. Durch Prompt-Injection erzeugte Inhalte sind nicht von legitimen Aenderungen unterscheidbar.',
     'settings.permissions.vaultChangesWarning': 'Strukturelle Aenderungen (Loeschen, Verschieben) sind schwer rueckgaengig zu machen. Das Checkpoint-System bietet ein Sicherheitsnetz, manuelle Pruefung wird empfohlen.',
     'settings.permissions.mcpCallsWarning': 'MCP-Tools koennen beliebige Aktionen auf verbundenen Servern ausfuehren. Nur aktivieren, wenn Sie allen konfigurierten MCP-Servern vertrauen.',
+    'settings.permissions.webOpsWarning': 'Web-Operationen rufen externe Inhalte ab, die Prompt-Injection-Payloads enthalten koennen. Inhalte von nicht vertrauenswuerdigen URLs koennten das Agentenverhalten beeinflussen.',
     'settings.permissions.pluginApiWritesWarning': 'Plugin-API-Schreibzugriffe aendern Daten ueber Drittanbieter-Plugins. Der Agent handelt mit denselben Berechtigungen wie diese Plugins.',
     'settings.permissions.recipesWarning': 'Rezepte fuehren Shell-Befehle auf Ihrem System aus. Auto-Genehmigung entfernt die letzte manuelle Pruefung vor der Ausfuehrung.',
     'settings.permissions.subtasksWarning': 'Sub-Agenten uebernehmen die Auto-Genehmigungs-Einstellungen und koennen Tools ohne individuelle Bestaetigung ausfuehren.',
+
+    // Sandbox-Ausfuehrung
+    'settings.permissions.headingSandbox': 'Sandbox-Code-Ausfuehrung',
+    'settings.permissions.sandbox': 'Sandbox-Ausfuehrung auto-genehmigen',
+    'settings.permissions.sandboxDesc': 'evaluate_expression automatisch genehmigen, das beliebiges TypeScript/JavaScript im sandboxed iframe ausfuehrt. Standardmaessig deaktiviert. Die Sandbox bietet V8-Origin-Isolation, aber keine OS-Level-Prozessisolation in Electron. User-Approval ist die primaere Verteidigung gegen prompt-injizierten Code.',
+    'settings.permissions.sandboxWarning': 'HOHES RISIKO: evaluate_expression fuehrt beliebigen Code aus. In Electron bietet die iframe-Sandbox nur logische Isolation — ein V8-Engine-Exploit koennte sie umgehen. Bei aktivierter Auto-Genehmigung koennte prompt-injizierter Inhalt ungepruefte Code-Ausfuehrung ausloesen. Nur deaktivieren, wenn Sie das Risiko vollstaendig verstehen.',
+    'settings.permissions.sandboxConfirmTitle': 'Sandbox-Auto-Genehmigung aktivieren?',
+    'settings.permissions.sandboxConfirmMessage': 'Dies erlaubt dem Agenten, beliebigen JavaScript/TypeScript-Code ohne Ihre Pruefung auszufuehren. Die Sandbox bietet V8-Origin-Isolation, aber KEINE OS-Level-Prozessisolation in Electron. Prompt-injizierter Inhalt (z.\u00A0B. aus Webseiten oder Vault-Notizen) koennte ungepruefte Code-Ausfuehrung ausloesen. Sind Sie sicher?',
+    'settings.permissions.sandboxConfirmCancel': 'Abbrechen',
+    'settings.permissions.sandboxConfirmAccept': 'Ich verstehe das Risiko — aktivieren',
 
     // =========================================================================
     // Settings — Loop Tab

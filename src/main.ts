@@ -77,6 +77,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     semanticIndex: SemanticIndexService | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
+    private cloudProviderWarningShown = false;
     chatHistoryService: ChatHistoryService | null = null;
     conversationStore: ConversationStore | null = null;
     memoryService: MemoryService | null = null;
@@ -191,6 +192,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Checkpoints (isomorphic-git shadow repo)
         this.checkpointService = new GitCheckpointService(
+            this.app,
             this.app.vault,
             pluginDir,
             this.settings.checkpointTimeoutSeconds,
@@ -297,12 +299,12 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.registerEvent(this.app.vault.on('delete', (file) => {
                 if (!(file instanceof TFile)) return;
                 if (file.extension !== 'md' && !(this.settings.semanticIndexPdfs && file.extension === 'pdf')) return;
-                this.semanticIndex?.removeFile(file.path);
+                void this.semanticIndex?.removeFile(file.path);
             }));
             this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
                 if (!(file instanceof TFile)) return;
                 if (file.extension !== 'md' && !(this.settings.semanticIndexPdfs && file.extension === 'pdf')) return;
-                this.semanticIndex?.removeFile(oldPath);
+                void this.semanticIndex?.removeFile(oldPath);
                 this.scheduleFileIndex(file.path);
             }));
         }
@@ -404,12 +406,12 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Ribbon icon in left activity bar
         this.addRibbonIcon('obsilo-agent', 'Obsilo Agent', () => {
-            this.activateView();
+            void this.activateView();
         });
 
         // Auto-open sidebar when Obsidian starts
         this.app.workspace.onLayoutReady(() => {
-            this.activateView();
+            void this.activateView();
         });
 
         // 4. Register commands
@@ -432,7 +434,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 6. Register deep-link protocol handler: obsidian://obsilo-settings?tab=advanced&sub=backup
         this.registerObsidianProtocolHandler('obsilo-settings', (params) => {
-            const tab = params.tab as string;
+            const tab = params.tab;
             const sub = params.sub;
             if (tab) this.openSettingsAt(tab, sub);
         });
@@ -529,6 +531,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
         ap.skills = ap.skills ?? false;
+        // Deep-merge autoApproval: new keys from DEFAULT_SETTINGS are applied
+        // so the UI always reflects the actual effective value (WYSIWYG).
+        const apDefaults = DEFAULT_SETTINGS.autoApproval;
+        for (const key of Object.keys(apDefaults) as Array<keyof typeof apDefaults>) {
+            if ((ap as unknown as Record<string, unknown>)[key] === undefined) {
+                (ap as unknown as Record<string, unknown>)[key] = apDefaults[key];
+            }
+        }
         // Migrate: chatHistoryFolder → enableChatHistory
         if (this.settings.chatHistoryFolder && this.settings.enableChatHistory === undefined) {
             this.settings.enableChatHistory = true;
@@ -577,31 +587,26 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Enable recipes for existing users — 6 other security layers remain active.
         if (this.settings.recipes && !this.settings.recipes.enabled) {
             this.settings.recipes.enabled = true;
-            this.saveData(this.encryptSettingsForSave(this.settings));
+            void this.saveData(this.encryptSettingsForSave(this.settings));
         }
 
         // Migrate auto-approval: ensure newer keys have sensible defaults
         {
             const ap = this.settings.autoApproval;
             let changed = false;
-            // skills: was false, now true — enable when master switch is on
-            if (ap.enabled && ap.skills === false) {
-                ap.skills = true;
-                changed = true;
-            }
             // pluginApiRead: may be missing in older data.json — default true
             if (ap.pluginApiRead === undefined) {
                 ap.pluginApiRead = true;
                 changed = true;
             }
-            if (changed) this.saveData(this.encryptSettingsForSave(this.settings));
+            if (changed) void this.saveData(this.encryptSettingsForSave(this.settings));
         }
 
         // Migration: remove old hardcoded modeToolOverrides.agent default.
         // Empty object means "use all tools from mode's toolGroups" (new default).
         if (this.settings.modeToolOverrides?.agent && this.settings.modeToolOverrides.agent.length > 20) {
             delete this.settings.modeToolOverrides.agent;
-            this.saveData(this.encryptSettingsForSave(this.settings));
+            void this.saveData(this.encryptSettingsForSave(this.settings));
         }
 
         // One-time migration: encrypt existing plaintext API keys (ADR-019)
@@ -645,7 +650,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         if (changed) {
             console.debug('[Plugin] Synced vault mode overrides with built-in definitions');
-            this.saveData(this.encryptSettingsForSave(this.settings));
+            void this.saveData(this.encryptSettingsForSave(this.settings));
         }
     }
 
@@ -655,6 +660,20 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (!key) return null;
         const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
         if (!model || !model.enabled) return null;
+
+        // M-6: One-time privacy notice when using a cloud provider
+        if (!this.cloudProviderWarningShown) {
+            const cloudProviders = ['anthropic', 'openai', 'openrouter', 'azure'];
+            if (cloudProviders.includes(model.provider)) {
+                this.cloudProviderWarningShown = true;
+                console.debug(
+                    `[Agent] Cloud provider "${model.provider}" selected. ` +
+                    'Vault content sent to the agent will be transmitted to external servers. ' +
+                    'For privacy-sensitive vaults, consider using a local provider (ollama, lmstudio).',
+                );
+            }
+        }
+
         return model;
     }
 
