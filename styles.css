@@ -76,6 +76,7 @@
     line-height: 1.5;
     user-select: text !important;
     -webkit-user-select: text !important;
+    transition: opacity 150ms ease-out;
 }
 
 .message-content h1 {
@@ -577,6 +578,7 @@
     font-size: 11px;
     overflow: hidden;
     opacity: 0.65;
+    transition: opacity 100ms ease-out;
 }
 
 .tool-call-details:hover {
@@ -702,6 +704,7 @@
     padding: 1px 0;
     font-size: 11px;
     color: var(--text-faint);
+    transition: color 100ms ease-out;
 }
 
 .tool-group-item .tool-item-icon {
@@ -2477,6 +2480,7 @@
     margin-bottom: 5px;
     border-left: 2px solid var(--background-modifier-border);
     padding-left: 8px;
+    transition: opacity 150ms ease-out;
 }
 
 .thinking-header {
@@ -4861,7 +4865,10 @@
 /* ── Utility classes ──────────────────────────────────────────────────── */
 .agent-u-hidden        { display: none !important; }
 .agent-u-visible       { display: '' !important; }
-.agent-u-visibility-hidden { visibility: hidden !important; }
+.agent-u-visibility-hidden {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
 .agent-u-height-auto   { height: auto !important; }
 
 /* Copy button spacing (SystemPromptPreviewModal) */

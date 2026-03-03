@@ -1105,6 +1105,23 @@ export class AgentSidebarView extends ItemView {
             requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
         };
 
+        // Debounced tool group label updates: batches rapid DOM updates during
+        // parallel tool execution to reduce flicker and reflows.
+        let groupUpdatePending = false;
+        const pendingGroupUpdates = new Set<{ nameEl: HTMLElement; name: string; count: number }>();
+        const scheduleGroupUpdate = (group: { nameEl: HTMLElement; name: string; count: number }) => {
+            pendingGroupUpdates.add(group);
+            if (groupUpdatePending) return;
+            groupUpdatePending = true;
+            requestAnimationFrame(() => {
+                groupUpdatePending = false;
+                for (const g of pendingGroupUpdates) {
+                    g.nameEl.setText(this.formatGroupedLabel(g.name, g.count));
+                }
+                pendingGroupUpdates.clear();
+            });
+        };
+
         // Map for O(1) tool-element lookup in onToolResult.
         // For groupable tools the values are item divs; for others they are details elements.
         const toolElsByName = new Map<string, HTMLElement[]>();
@@ -1308,7 +1325,7 @@ export class AgentSidebarView extends ItemView {
                         } else {
                             // Group already exists — update count and reset status
                             activeToolGroup.count++;
-                            activeToolGroup.nameEl.setText(this.formatGroupedLabel(name, activeToolGroup.count));
+                            scheduleGroupUpdate(activeToolGroup);
                             activeToolGroup.statusEl.removeClass('tool-done', 'tool-error');
                             activeToolGroup.statusEl.addClass('tool-running');
                             activeToolGroup.statusEl.setText('');
