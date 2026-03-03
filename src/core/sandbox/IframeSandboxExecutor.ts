@@ -1,5 +1,5 @@
 /**
- * SandboxExecutor
+ * IframeSandboxExecutor
  *
  * Plugin-side manager for the sandboxed iframe. Creates the iframe lazily,
  * sends code for execution via postMessage, and routes bridge requests
@@ -10,10 +10,12 @@
  * The SandboxBridge validates all cross-boundary operations and is
  * the primary security boundary. See also: CSP meta tag in sandboxHtml.
  *
- * Part of Self-Development Phase 3: Sandbox + Dynamic Modules.
+ * Mobile fallback -- on Desktop, use ProcessSandboxExecutor instead.
+ * See ADR-021: Sandbox OS-Level Process Isolation.
  */
 
 import type ObsidianAgentPlugin from '../../main';
+import type { ISandboxExecutor } from './ISandboxExecutor';
 import { SandboxBridge } from './SandboxBridge';
 import { SANDBOX_HTML } from './sandboxHtml';
 
@@ -46,10 +48,10 @@ type PluginToSandboxMessage =
     | { callId: string; error: string };
 
 // ---------------------------------------------------------------------------
-// SandboxExecutor
+// IframeSandboxExecutor
 // ---------------------------------------------------------------------------
 
-export class SandboxExecutor {
+export class IframeSandboxExecutor implements ISandboxExecutor {
     private iframe: HTMLIFrameElement | null = null;
     private ready = false;
     private readyPromise: Promise<void> | null = null;
