@@ -57,6 +57,8 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
+        thinkingEnabled: true,
+        thinkingBudgetTokens: 10000,
     },
     {
         name: 'claude-opus-4-6',
@@ -65,6 +67,8 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
+        thinkingEnabled: true,
+        thinkingBudgetTokens: 10000,
     },
     {
         name: 'claude-haiku-4-5-20251001',
@@ -73,6 +77,8 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         enabled: false,
         isBuiltIn: true,
         maxTokens: 8192,
+        thinkingEnabled: true,
+        thinkingBudgetTokens: 5000,
     },
     // OpenAI
     {
