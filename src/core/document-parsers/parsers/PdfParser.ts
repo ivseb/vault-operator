@@ -30,9 +30,14 @@ export async function parsePdf(data: ArrayBuffer): Promise<ParseResult> {
     };
 
     // Disable the web worker — pdfjs falls back to in-process (fake-worker) mode.
+    // In Electron renderer, isNodeJS is false so pdfjs tries to spawn a real Worker.
+    // Setting workerSrc to empty string AND importing the worker module directly
+    // triggers the fake-worker fallback (mainThreadWorkerMessageHandler).
     if (pdfjsLib.GlobalWorkerOptions) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = '';
     }
+    // Force fake-worker: import worker module so pdfjs detects it on main thread.
+    await import('pdfjs-dist/build/pdf.worker.mjs');
 
     const loadingTask = pdfjsLib.getDocument({
         data: new Uint8Array(data),

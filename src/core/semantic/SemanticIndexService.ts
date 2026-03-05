@@ -199,10 +199,11 @@ export class SemanticIndexService {
             // 1. Determine file list (Markdown + optionally PDFs)
             // ----------------------------------------------------------------
             const mdFiles = this.vault.getMarkdownFiles();
+            const DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
             const allFiles = this.indexPdfs
                 ? [
                     ...mdFiles,
-                    ...this.vault.getFiles().filter((f) => f.extension === 'pdf'),
+                    ...this.vault.getFiles().filter((f) => DOCUMENT_EXTENSIONS.has(f.extension)),
                 ]
                 : mdFiles;
             const files = this.excludedFolders.length > 0
@@ -941,17 +942,19 @@ export class SemanticIndexService {
     }
 
     // -----------------------------------------------------------------------
-    // File reading (Markdown + PDF)
+    // File reading (Markdown + PDF + Office documents)
     // -----------------------------------------------------------------------
+
+    private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
 
     /**
      * Read a file's text content.
      * - Markdown/plaintext: uses vault.cachedRead (fast, cached)
-     * - PDF: extracts text via pdfjs-dist (fake-worker mode, no web worker needed)
+     * - PDF/PPTX/XLSX/DOCX: extracts text via parseDocument (document-parsers module)
      */
     private async readFileContent(file: { path: string; extension: string }): Promise<string> {
-        if (file.extension === 'pdf') {
-            return this.extractPdfText(file.path);
+        if (SemanticIndexService.BINARY_DOCUMENT_EXTENSIONS.has(file.extension)) {
+            return this.extractDocumentText(file.path, file.extension);
         }
         // For all other types (md, txt, canvas, …) use the vault cache
         const vaultFile = this.vault.getFileByPath(file.path);
@@ -960,28 +963,28 @@ export class SemanticIndexService {
     }
 
     /**
-     * Extract plain text from a PDF.
-     * Delegates to the shared PdfParser (document-parsers module).
-     * Returns empty string for encrypted, image-only, or unreadable PDFs.
+     * Extract plain text from a binary document (PDF, PPTX, XLSX, DOCX).
+     * Delegates to the shared parseDocument function (document-parsers module).
+     * Returns empty string on parse errors (circuit breaker for PDF-specific failures).
      */
-    private async extractPdfText(filePath: string): Promise<string> {
-        if (this.pdfParseUnavailable) return '';
+    private async extractDocumentText(filePath: string, extension: string): Promise<string> {
+        if (extension === 'pdf' && this.pdfParseUnavailable) return '';
 
         try {
             const basePath = (this.vault.adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
             const absPath = path.join(basePath, filePath);
             const buffer = await fs.promises.readFile(absPath);
 
-            const { parsePdf } = await import('../document-parsers/parsers/PdfParser');
-            const result = await parsePdf(buffer.buffer as ArrayBuffer);
+            const { parseDocument } = await import('../document-parsers/parseDocument');
+            const result = await parseDocument(buffer.buffer as ArrayBuffer, extension);
             return result.text;
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             if (msg.includes('PasswordException') || msg.includes('InvalidPDFException')) {
                 return '';
             }
-            console.warn('[SemanticIndex] PDF extraction unavailable:', msg);
-            this.pdfParseUnavailable = true;
+            console.warn(`[SemanticIndex] Document extraction failed for ${filePath}:`, msg);
+            if (extension === 'pdf') this.pdfParseUnavailable = true;
             return '';
         }
     }
