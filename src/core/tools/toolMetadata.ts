@@ -42,7 +42,7 @@ export const GROUP_META: Record<string, { label: string; icon: string }> = {
     web:   { label: 'Web Access',          icon: 'globe' },
     agent: { label: 'Agent Control',       icon: 'list-checks' },
     mcp:   { label: 'MCP Tools',           icon: 'plug-2' },
-    skill: { label: 'Plugin Skills',      icon: 'puzzle' },
+    skill: { label: 'Plugin Integration',  icon: 'puzzle' },
 };
 
 /**
@@ -55,7 +55,7 @@ export const GROUP_PROMPT_HEADERS: Record<string, string> = {
     web:   '**Web:**',
     agent: '**Agent Control:**',
     mcp:   '**MCP Tools:**',
-    skill: '**Plugin Skills:**',
+    skill: '**Plugin Integration:**',
 };
 
 /**
@@ -310,19 +310,19 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     // NOTE: group is 'agent' for mode-level availability (shows in Agent Control tools).
     // The Pipeline classifies this as 'sandbox' ApprovalGroup for approval checks.
     evaluate_expression: {
-        group: 'agent', label: 'Execute Code', icon: 'code-2',
+        group: 'agent', label: 'Sandbox Code', icon: 'code-2',
         signature: 'evaluate_expression(expression, context?, dependencies?)',
-        description: 'Execute TypeScript/JavaScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl (HTTPS CDN-only). npm packages via dependencies param (browser ESM from esm.sh). No Blob, Buffer, DOM, require, fetch available. Binary output: ArrayBuffer/Uint8Array only.',
-        example: 'evaluate_expression("import ExcelJS from \'exceljs\'; const wb = new ExcelJS.Workbook(); const ws = wb.addWorksheet(\'Data\'); ws.addRow([\'Name\',\'Value\']); ws.addRow([\'Test\',42]); const buf = await wb.xlsx.writeBuffer(); await ctx.vault.writeBinary(\'output.xlsx\', buf); return \'Done\'", undefined, ["exceljs"])',
-        whenToUse: 'For computations or binary file generation. Read the sandbox-environment skill for detailed API reference and proven patterns before writing code. NEVER write Python or suggest manual execution.',
-        commonMistakes: 'Writing Python. Forgetting dependencies param. Using Blob/Buffer/DOM (not available). Using require() or dynamic import() (not available). Using outputType:"blob" — always use "arraybuffer".',
+        description: 'Execute TypeScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl. Best for: text/JSON processing, vault batch operations (iterate files, transform content), computations, HTTP API calls. NOT for: binary file generation (DOCX, PPTX, XLSX, PDF) — these need Node.js APIs unavailable in the sandbox.',
+        example: 'evaluate_expression("const files = await ctx.vault.list(\'Projects/\'); let count = 0; for (const f of files) { const c = await ctx.vault.read(f); count += (c.match(/- \\\\[ \\\\]/g) || []).length; } return `${count} open tasks`")',
+        whenToUse: 'For batch text processing, data transformation, or computations that would require many tool calls. NOT for binary file formats.',
+        commonMistakes: 'Attempting DOCX/PPTX/XLSX generation (needs Buffer/JSZip, unavailable). Writing Python. Using require()/fetch()/Blob/Buffer (not available).',
     },
     manage_skill: {
         group: 'agent', label: 'Manage Skill', icon: 'bookmark-plus',
-        signature: 'manage_skill(action, name, description?, trigger?, body?, code_modules?)',
-        description: 'Create, update, delete, list, or read self-authored skills. Skills persist across sessions. Can include code_modules (TypeScript compiled to sandbox tools with "custom_" prefix, npm dependencies supported).',
-        whenToUse: 'After solving a novel problem: save the solution as a reusable skill with a trigger pattern. Use code_modules for NEW computational capabilities.',
-        commonMistakes: 'Not creating a skill after solving a new type of problem. Always persist reusable solutions for instant future use.',
+        signature: 'manage_skill(action, name, description?, trigger?, body?)',
+        description: 'Create, update, delete, list, or read skills. Skills are persistent instruction sets (Markdown) that guide the agent for specific task types. They are keyword-matched and injected into the system prompt when relevant.',
+        whenToUse: 'After solving a novel problem: save the approach as a reusable skill with a trigger pattern so you can apply it instantly next time.',
+        commonMistakes: 'Confusing skills with tools. Skills are instructions (how to approach a task), not executable code.',
     },
     manage_mcp_server: {
         group: 'agent', label: 'Manage MCP', icon: 'plug-2',

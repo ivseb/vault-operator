@@ -437,11 +437,11 @@ export const de: Translations = {
     // =========================================================================
     // Settings — Skills Tab
     // =========================================================================
-    'settings.skills.introTitle': 'Was sind Skills?',
-    'settings.skills.introDesc': 'Skills sind wiederverwendbare Verhaltensweisen, die der Agent automatisch anwendet, wenn sie zur Anfrage passen. Sie erweitern die Faehigkeiten des Agents mit spezifischem Wissen und Anleitungen für bestimmte Aufgaben.',
-    'settings.skills.introDiff': 'Unterschied: Tools führen konkrete Aktionen aus (Dateien lesen, API-Calls). Workflows definieren feste Ablaeufe. Skills sind flexible Anleitungen, die der Agent nach Bedarf kombiniert und anpasst.',
-    'settings.skills.headingManual': 'Manuelle Skills',
-    'settings.skills.headingPlugin': 'Obsidian-Plugin-Skills',
+    'settings.skills.introTitle': 'Skills vs Tools',
+    'settings.skills.introDesc': 'Skills sind Anleitungen (Markdown), die den Agent bei bestimmten Aufgabentypen steuern. Sie werden automatisch per Keyword-Matching erkannt und in den System-Prompt injiziert, wenn sie relevant sind.',
+    'settings.skills.introDiff': 'Wichtiger Unterschied: Tools fuehren Aktionen aus (Dateien lesen, suchen, bearbeiten). Skills geben Anleitungen (wie man Meeting-Notizen erstellt, Projekte plant, etc.). Workflows definieren feste Schritt-fuer-Schritt-Ablaeufe.',
+    'settings.skills.headingManual': 'Benutzer-Skills',
+    'settings.skills.headingPlugin': 'Plugin-Skills',
     'settings.skills.desc': 'Skills werden automatisch in den System-Prompt injiziert, wenn sie für die Nachricht relevant sind. Jeder Skill liegt in einem Unterordner unter .obsidian-agent/skills/{name}/SKILL.md mit Frontmatter: name, description.',
     'settings.skills.pluginDisabled': 'Plugin-Skills sind deaktiviert. "VaultDNA" in den erweiterten Einstellungen aktivieren, um Obsidian-Plugins automatisch als Agent-Skills zu erkennen.',
     'settings.skills.pluginStats': 'Automatisch aus installierten Obsidian-Plugins erkannt. Aktiv: {{active}} | Deaktiviert: {{disabled}} | Gesamt: {{total}}',
@@ -899,15 +899,15 @@ export const de: Translations = {
     // =========================================================================
     // ToolPicker Popover
     // =========================================================================
-    'ui.toolPicker.title': 'Tools konfigurieren',
+    'ui.toolPicker.title': 'Tools & Skills',
     'ui.toolPicker.selected': '{{count}} ausgewählt',
-    'ui.toolPicker.filter': 'Tools filtern\u2026',
-    'ui.toolPicker.builtIn': 'Integriert',
+    'ui.toolPicker.filter': 'Filtern\u2026',
+    'ui.toolPicker.builtIn': 'Integrierte Tools',
     'ui.toolPicker.mcpServers': 'MCP-Server',
     'ui.toolPicker.noMcpServers': 'Keine MCP-Server konfiguriert.',
-    'ui.toolPicker.skills': 'Skills',
+    'ui.toolPicker.skills': 'Benutzer-Skills',
     'ui.toolPicker.loading': 'Laden\u2026',
-    'ui.toolPicker.noSkills': 'Keine Skills gefunden.',
+    'ui.toolPicker.noSkills': 'Keine Benutzer-Skills gefunden.',
     'ui.toolPicker.errorSkills': 'Fehler beim Laden der Skills.',
     'ui.toolPicker.workflows': 'Workflows',
     'ui.toolPicker.noWorkflows': 'Keine Workflows gefunden.',
