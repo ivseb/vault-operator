@@ -960,61 +960,26 @@ export class SemanticIndexService {
     }
 
     /**
-     * Extract plain text from a PDF using pdfjs-dist (browser-compatible, no test-file issue).
-     * Runs without a web worker (fake-worker mode) so it works in Obsidian's bundled environment.
+     * Extract plain text from a PDF.
+     * Delegates to the shared PdfParser (document-parsers module).
      * Returns empty string for encrypted, image-only, or unreadable PDFs.
      */
     private async extractPdfText(filePath: string): Promise<string> {
         if (this.pdfParseUnavailable) return '';
 
         try {
-            // Dynamically import pdfjs-dist to avoid bundling its worker at startup.
-            // Dynamic import returns module namespace — typed as Record since pdfjs-dist
-            // doesn't export a single typed module object for dynamic import.
-            const pdfjsLib = await import('pdfjs-dist') as Record<string, unknown> & {
-                GlobalWorkerOptions?: { workerSrc: string };
-                getDocument(params: { data: Uint8Array; useWorkerFetch: boolean }): {
-                    promise: Promise<{
-                        numPages: number;
-                        getPage(num: number): Promise<{
-                            getTextContent(): Promise<{ items: Array<{ str?: string }> }>;
-                        }>;
-                    }>;
-                };
-            };
-
-            // Disable the web worker — pdfjs falls back to in-process (fake-worker) mode,
-            // which works correctly in Obsidian's Electron renderer without a separate worker URL.
-            if (pdfjsLib.GlobalWorkerOptions) {
-                pdfjsLib.GlobalWorkerOptions.workerSrc = '';
-            }
-
             const basePath = (this.vault.adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
             const absPath = path.join(basePath, filePath);
-            const data = new Uint8Array(await fs.promises.readFile(absPath));
+            const buffer = await fs.promises.readFile(absPath);
 
-            const loadingTask = pdfjsLib.getDocument({ data, useWorkerFetch: false });
-            const pdf = await loadingTask.promise;
-
-            const parts: string[] = [];
-            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                const page = await pdf.getPage(pageNum);
-                const content = await page.getTextContent();
-                const pageText = content.items
-                    .map((item: { str?: string }) => (item.str ?? ''))
-                    .join(' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                if (pageText) parts.push(pageText);
-            }
-            return parts.join('\n\n');
+            const { parsePdf } = await import('../document-parsers/parsers/PdfParser');
+            const result = await parsePdf(buffer.buffer as ArrayBuffer);
+            return result.text;
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);
             if (msg.includes('PasswordException') || msg.includes('InvalidPDFException')) {
-                // Expected for encrypted or corrupt PDFs — don't log noise
                 return '';
             }
-            // Unexpected error — log once, trip circuit breaker for remaining files
             console.warn('[SemanticIndex] PDF extraction unavailable:', msg);
             this.pdfParseUnavailable = true;
             return '';

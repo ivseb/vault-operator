@@ -941,9 +941,10 @@ export const en: Translations = {
     // =========================================================================
     // Attachment Handler
     // =========================================================================
-    'ui.attachment.tooLarge': '"{{name}}" exceeds the 10 MB limit.',
-    'ui.attachment.unsupported': '"{{name}}" is not supported. Use images (PNG/JPG/GIF/WebP) or text files.',
+    'ui.attachment.tooLarge': '"{{name}}" exceeds the 50 MB limit.',
+    'ui.attachment.unsupported': '"{{name}}" is not supported. Use images, Office documents (PPTX/XLSX/DOCX/PDF), or text files.',
     'ui.attachment.readFailed': 'Could not read "{{path}}"',
+    'ui.attachment.largeDocument': '"{{name}}" is very large. Content may be condensed during the conversation.',
 
     // =========================================================================
     // Modal — New Mode
