@@ -83,7 +83,7 @@
       </div>
 
       <h1 data-i18n="pages.tools.title">Tools Reference</h1>
-      <p data-i18n="pages.tools.subtitle">Complete reference for all 42 tools available to Obsilo Agent. Tools are grouped by category, which maps to the tool group permission system.</p>
+      <p data-i18n="pages.tools.subtitle">Complete reference for all tools available to Obsilo Agent. Tools are executable functions grouped by category.</p>
 
       <!-- READ -->
       <h2 id="read" data-i18n="pages.tools.read">Read Tools</h2>
@@ -345,12 +345,12 @@
         <div class="tool-card">
           <span class="tool-group-badge badge-agent">agent</span>
           <div class="tool-name">evaluate_expression</div>
-          <div class="tool-desc">Execute TypeScript in a sandboxed iframe. Supports npm packages from CDN (pptxgenjs, xlsx, pdf-lib, d3, etc.) via the dependencies parameter. Generate binary files (PPTX, XLSX, images), run computations, data transforms, and HTTP requests.</div>
+          <div class="tool-desc">Execute TypeScript in an isolated sandbox. Best for: text/JSON processing, vault batch operations, computations, HTTP API calls. Not suited for binary file generation (DOCX, PPTX, XLSX) which requires Node.js APIs unavailable in the sandbox.</div>
         </div>
         <div class="tool-card">
           <span class="tool-group-badge badge-agent">agent</span>
           <div class="tool-name">manage_skill</div>
-          <div class="tool-desc">Create, update, or delete self-authored skills. The agent can learn new capabilities by writing reusable skill definitions (Markdown with frontmatter).</div>
+          <div class="tool-desc">Create, update, or delete skills. Skills are persistent instruction sets (Markdown) that guide the agent for specific task types. They are not executable code.</div>
         </div>
         <div class="tool-card">
           <span class="tool-group-badge badge-agent">agent</span>
@@ -379,8 +379,8 @@
       </table>
 
       <!-- SKILL -->
-      <h2 id="skill">Plugin Skill Tools</h2>
-      <p>These tools interact with installed Obsidian plugins via VaultDNA. In the <code>skill</code> tool group.</p>
+      <h2 id="skill">Plugin Integration Tools</h2>
+      <p>These tools interact with installed Obsidian plugins via VaultDNA. In the <code>plugin integration</code> tool group.</p>
 
       <div class="tool-grid">
         <div class="tool-card">

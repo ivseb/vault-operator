@@ -83,7 +83,7 @@
       </div>
 
       <h1 data-i18n="pages.rulesSkillsWorkflows.title">Rules, Skills &amp; Workflows</h1>
-      <p data-i18n="pages.rulesSkillsWorkflows.subtitle">Tailor Obsilo to your vault, writing style, and daily routines. Set permanent conventions the agent always follows, activate context-specific instructions for particular task types, and invoke step-by-step procedures on demand — all without touching the agent's core settings.</p>
+      <p data-i18n="pages.rulesSkillsWorkflows.subtitle">Customize the agent's behavior with rules, skills, and workflows. Rules are always-on conventions. Skills are instruction sets matched by keywords. Workflows are step-by-step procedures invoked on demand.</p>
 
       <table data-i18n-html="pages.rulesSkillsWorkflows.overview.table">
         <thead><tr><th>Mechanism</th><th>When it applies</th><th>Best for</th></tr></thead>
@@ -138,7 +138,7 @@ existing note content is in another language.</code></pre>
 
       <!-- SKILLS -->
       <h2 id="skills" data-i18n="pages.rulesSkillsWorkflows.skills">Skills</h2>
-      <p data-i18n-html="pages.rulesSkillsWorkflows.skills.text">Skills are modular instruction sets that the agent can apply for specific task types. Unlike rules (which are always active), skills are <strong>automatically matched</strong> to each message by keyword overlap.</p>
+      <p data-i18n-html="pages.rulesSkillsWorkflows.skills.text">Skills are instruction sets (Markdown) that guide the agent for specific task types. Unlike rules (always active) and tools (executable functions), skills provide context-specific instructions that are <strong>automatically matched</strong> by keyword overlap. Skills do not execute code.</p>
 
       <h3 id="skills-location" data-i18n="pages.rulesSkillsWorkflows.skillsLocation">Location</h3>
       <pre><code>&lt;vault&gt;/.obsidian-agent/skills/
@@ -188,7 +188,7 @@ Create a separate action item note if there are 5+ action items.</code></pre>
       <p data-i18n="pages.rulesSkillsWorkflows.vaultdnaSkills.text2">The scanner runs automatically when plugins change and classifies each plugin as FULL (3+ commands), PARTIAL (1-2 commands), or NONE (no agentifiable commands). You don't need to configure anything — plugin skills appear automatically.</p>
 
       <h3 id="recipes" data-i18n="pages.rulesSkillsWorkflows.recipes">Recipes</h3>
-      <p data-i18n-html="pages.rulesSkillsWorkflows.recipes.text">Recipes are predefined multi-step procedures that combine multiple plugin commands into a single action. They are invoked via the <code>execute_recipe</code> tool. Examples include Pandoc export pipelines, Dataview query workflows, or complex plugin integrations. Recipes can be auto-promoted from episodic memory when the agent repeatedly performs the same sequence of steps.</p>
+      <p data-i18n-html="pages.rulesSkillsWorkflows.recipes.text">Recipes are predefined shell command templates for external tools like Pandoc. They are invoked via the <code>execute_recipe</code> tool and run outside the sandbox in the plugin context. Examples include Pandoc PDF/DOCX export.</p>
 
       <h3 id="skills-management" data-i18n="pages.rulesSkillsWorkflows.skillsManagement">Managing Skills</h3>
       <p data-i18n-html="pages.rulesSkillsWorkflows.skillsManagement.text">Go to Settings → Agent Behaviour → <strong>Skills</strong> to view, edit, and manage your skills. You can also create skill files directly in your vault.</p>

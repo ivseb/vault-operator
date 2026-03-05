@@ -440,11 +440,11 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Skills Tab
     // =========================================================================
-    'settings.skills.introTitle': 'What are Skills?',
-    'settings.skills.introDesc': 'Skills are reusable behaviors that the agent automatically applies when they match the request. They extend the agent\'s capabilities with specific knowledge and guidance for particular tasks.',
-    'settings.skills.introDiff': 'Difference: Tools execute concrete actions (read files, API calls). Workflows define fixed sequences. Skills are flexible instructions that the agent combines and adapts as needed.',
-    'settings.skills.headingManual': 'Manual skills',
-    'settings.skills.headingPlugin': 'Obsidian plugin skills',
+    'settings.skills.introTitle': 'Skills vs Tools',
+    'settings.skills.introDesc': 'Skills are instruction sets (Markdown) that guide the agent for specific task types. They are automatically matched by keywords and injected into the system prompt when relevant.',
+    'settings.skills.introDiff': 'Key difference: Tools execute actions (read files, search, edit). Skills provide instructions (how to approach meeting notes, project planning, etc.). Workflows define fixed step-by-step sequences.',
+    'settings.skills.headingManual': 'User skills',
+    'settings.skills.headingPlugin': 'Plugin skills',
     'settings.skills.desc': "Skills are automatically injected into the system prompt when relevant to the user's message. Each skill lives in a subfolder at .obsidian-agent/skills/{name}/SKILL.md with frontmatter: name, description.",
     'settings.skills.pluginDisabled': 'Plugin skills are disabled. Enable "VaultDNA" in the advanced settings to auto-discover Obsidian plugins as agent skills.',
     'settings.skills.pluginStats': 'Auto-discovered from installed Obsidian plugins. Active: {{active}} | disabled: {{disabled}} | total: {{total}}',
@@ -902,15 +902,15 @@ export const en: Translations = {
     // =========================================================================
     // ToolPicker Popover
     // =========================================================================
-    'ui.toolPicker.title': 'Configure tools',
+    'ui.toolPicker.title': 'Tools & Skills',
     'ui.toolPicker.selected': '{{count}} selected',
-    'ui.toolPicker.filter': 'Filter tools\u2026',
-    'ui.toolPicker.builtIn': 'Built-in',
+    'ui.toolPicker.filter': 'Filter\u2026',
+    'ui.toolPicker.builtIn': 'Built-in tools',
     'ui.toolPicker.mcpServers': 'MCP servers',
     'ui.toolPicker.noMcpServers': 'No MCP servers configured.',
-    'ui.toolPicker.skills': 'Skills',
+    'ui.toolPicker.skills': 'User skills',
     'ui.toolPicker.loading': 'Loading\u2026',
-    'ui.toolPicker.noSkills': 'No skills found.',
+    'ui.toolPicker.noSkills': 'No user skills found.',
     'ui.toolPicker.errorSkills': 'Error loading skills.',
     'ui.toolPicker.workflows': 'Workflows',
     'ui.toolPicker.noWorkflows': 'No workflows found.',
