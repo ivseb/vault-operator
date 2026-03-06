@@ -3771,6 +3771,16 @@
     font-size: 13px;
 }
 
+.autocomplete-tag {
+    font-size: 10px;
+    color: var(--text-on-accent);
+    background: var(--interactive-accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
 .autocomplete-sub {
     font-size: 11px;
     color: var(--text-muted);

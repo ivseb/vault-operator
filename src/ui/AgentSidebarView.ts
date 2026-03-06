@@ -1031,10 +1031,13 @@ export class AgentSidebarView extends ItemView {
             messageToSend = textWithContext;
         }
 
-        // Process slash commands (Sprint 3.3) — if text starts with /workflow-slug,
-        // replace with workflow content as explicit instructions (plain string only;
+        // Process slash commands (Sprint 3.3) — if text starts with /workflow-slug or /prompt-slug,
+        // replace with workflow/prompt content as explicit instructions (plain string only;
         // attachment blocks are passed through unchanged).
         if (typeof messageToSend === 'string' && text.startsWith('/')) {
+            let slashResolved = false;
+
+            // 1. Try workflows first
             const workflowLoader = this.plugin.workflowLoader;
             if (workflowLoader) {
                 const processedText = await workflowLoader.processSlashCommand(
@@ -1042,8 +1045,30 @@ export class AgentSidebarView extends ItemView {
                     this.plugin.settings.workflowToggles ?? {},
                 );
                 if (processedText !== text) {
-                    // Re-add active file context after workflow expansion
                     messageToSend = processedText + (activeFile
+                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
+                        : '');
+                    slashResolved = true;
+                }
+            }
+
+            // 2. If no workflow matched, try custom prompts
+            if (!slashResolved) {
+                const spaceIdx = text.indexOf(' ');
+                const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
+                const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
+
+                const prompt = (this.plugin.settings.customPrompts ?? []).find(
+                    (p) => p.slug === slug && p.enabled !== false,
+                );
+                if (prompt) {
+                    const activeFileName = activeFile?.name;
+                    const { resolvePromptContent } = await import('../core/context/SupportPrompts');
+                    const resolved = resolvePromptContent(prompt.content, {
+                        userInput: rest,
+                        activeFile: activeFileName,
+                    });
+                    messageToSend = resolved + (activeFile
                         ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                         : '');
                 }
