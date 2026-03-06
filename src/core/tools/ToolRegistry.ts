@@ -37,6 +37,10 @@ import { SemanticSearchTool } from './vault/SemanticSearchTool';
 import { GenerateCanvasTool } from './vault/GenerateCanvasTool';
 // Import tools — vault: excalidraw
 import { CreateExcalidrawTool } from './vault/CreateExcalidrawTool';
+// Import tools — vault: office document creation
+import { CreatePptxTool } from './vault/CreatePptxTool';
+import { CreateDocxTool } from './vault/CreateDocxTool';
+import { CreateXlsxTool } from './vault/CreateXlsxTool';
 // Import tools — vault: bases (Phase C4)
 import { CreateBaseTool } from './vault/CreateBaseTool';
 import { UpdateBaseTool } from './vault/UpdateBaseTool';
@@ -148,6 +152,10 @@ export class ToolRegistry {
         this.register(new GenerateCanvasTool(this.plugin));
         // Vault: excalidraw
         this.register(new CreateExcalidrawTool(this.plugin));
+        // Vault: office document creation
+        this.register(new CreatePptxTool(this.plugin));
+        this.register(new CreateDocxTool(this.plugin));
+        this.register(new CreateXlsxTool(this.plugin));
         // Vault: bases (Phase C4)
         this.register(new CreateBaseTool(this.plugin));
         this.register(new UpdateBaseTool(this.plugin));

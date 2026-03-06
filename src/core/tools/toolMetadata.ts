@@ -255,6 +255,32 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
+    // ── Office Document Creation ────────────────────────────────────────
+    create_pptx: {
+        group: 'edit', label: 'Create PPTX', icon: 'presentation',
+        signature: 'create_pptx(output_path, slides, title?, theme?)',
+        description: 'Create a PowerPoint presentation (.pptx) with slides, text, bullets, tables, and images.',
+        example: 'create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}])',
+        whenToUse: 'For creating PowerPoint files. Never use write_file or evaluate_expression for .pptx.',
+        commonMistakes: 'Using write_file or evaluate_expression for .pptx -- always use create_pptx instead.',
+    },
+    create_docx: {
+        group: 'edit', label: 'Create DOCX', icon: 'file-text',
+        signature: 'create_docx(output_path, sections, title?, theme?)',
+        description: 'Create a Word document (.docx) with structured sections, headings, bullets, and tables.',
+        example: 'create_docx("Documents/report.docx", [{"heading":"Introduction","body":"Main text..."}])',
+        whenToUse: 'For creating Word documents. Never use write_file or evaluate_expression for .docx.',
+        commonMistakes: 'Using write_file or evaluate_expression for .docx -- always use create_docx instead.',
+    },
+    create_xlsx: {
+        group: 'edit', label: 'Create XLSX', icon: 'table',
+        signature: 'create_xlsx(output_path, sheets)',
+        description: 'Create an Excel spreadsheet (.xlsx) with sheets, data rows, headers, and optional formulas.',
+        example: 'create_xlsx("Data/budget.xlsx", [{"name":"Sheet1","headers":["Item","Cost"],"rows":[["Server",500],["Domain",12]]}])',
+        whenToUse: 'For creating Excel files. Never use write_file or evaluate_expression for .xlsx.',
+        commonMistakes: 'Using write_file or evaluate_expression for .xlsx -- always use create_xlsx instead.',
+    },
+
     // ── Web ───────────────────────────────────────────────────────────────
     web_fetch: {
         group: 'web', label: 'Fetch URL', icon: 'globe',
@@ -315,7 +341,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         description: 'Execute TypeScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl. For: batch operations across many files (5+), computations, data transforms, HTTP API calls, npm packages. NOT for: single-file edits (use read_file + edit_file/write_file instead) or binary file generation (DOCX, PPTX, XLSX, PDF).',
         example: 'evaluate_expression("const files = await ctx.vault.list(\'Projects/\'); let count = 0; for (const f of files) { const c = await ctx.vault.read(f); count += (c.match(/- \\\\[ \\\\]/g) || []).length; } return `${count} open tasks`")',
         whenToUse: 'ONLY when built-in tools cannot do the job: batch processing across 5+ files, computations, complex data transforms, HTTP requests, npm packages. NEVER for single-file operations — use read_file + edit_file/write_file instead.',
-        commonMistakes: 'Using sandbox for single-file edits instead of read_file + edit_file/write_file. Attempting DOCX/PPTX/XLSX generation (needs Buffer/JSZip, unavailable). Writing Python. Using require()/fetch()/Blob/Buffer (not available).',
+        commonMistakes: 'Using sandbox for single-file edits instead of read_file + edit_file/write_file. Using sandbox for PPTX/DOCX/XLSX — use create_pptx/create_docx/create_xlsx instead. Writing Python. Using require()/fetch()/Blob/Buffer (not available).',
     },
     manage_skill: {
         group: 'agent', label: 'Manage Skill', icon: 'bookmark-plus',

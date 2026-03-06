@@ -20,7 +20,7 @@ import type { ToolName } from '../tools/types';
 export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = {
     read:  ['read_file', 'read_document', 'list_files', 'search_files'],
     vault: ['get_frontmatter', 'search_by_tag', 'get_vault_stats', 'get_linked_notes', 'get_daily_note', 'open_note', 'semantic_search', 'query_base'],
-    edit:  ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_base', 'update_base'],
+    edit:  ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_base', 'update_base', 'create_pptx', 'create_docx', 'create_xlsx'],
     web:   ['web_fetch', 'web_search'],
     agent: ['ask_followup_question', 'attempt_completion', 'update_todo_list', 'new_task', 'switch_mode', 'update_settings', 'configure_model', 'read_agent_logs', 'manage_mcp_server', 'manage_skill', 'evaluate_expression', 'manage_source'],
     mcp:   ['use_mcp_tool'],
@@ -139,7 +139,8 @@ Never leave the user with output that looks correct but doesn't work.
 ## Direct execution (default)
 
 You have all the tools needed for most tasks. Use them directly:
-- File conversion (PDF, DOCX) → execute_recipe (pandoc-pdf, pandoc-docx, pandoc-convert)
+- Office document creation (PPTX, DOCX, XLSX) → create_pptx, create_docx, create_xlsx
+- File conversion (PDF, DOCX from Markdown) → execute_recipe (pandoc-pdf, pandoc-docx, pandoc-convert)
 - Plugin data (Dataview, Omnisearch, MetaEdit) → call_plugin_api
 - Plugin commands → execute_command
 - Vault read/write → read_file, write_file, edit_file
@@ -172,11 +173,10 @@ For reusable capabilities: create a skill with code_modules via manage_skill.
 
 ## Output quality for generated files
 
-After generating files with npm packages in the sandbox (PPTX via pptxgenjs, XLSX via xlsx, PDF via pdf-lib):
-1. Check the file was written successfully (no empty or near-empty files)
-2. Use standard slide dimensions (10x7.5 inches for PPTX, A4 for PDF)
-3. If the user reports formatting issues, iterate and fix — do not suggest manual workarounds
-4. Aim for a polished experience: clean layouts, proper spacing, consistent styling
+For PPTX, DOCX, XLSX: ALWAYS use the dedicated built-in tools (create_pptx, create_docx, create_xlsx).
+These tools produce professional output with auto-layout — do NOT use the sandbox for these formats.
+For PDF: use workspace:export-pdf (Tier 1) or pandoc-pdf recipe (Tier 2).
+If the user reports formatting issues, iterate and fix — do not suggest manual workarounds.
 
 ## Skills with code modules
 
