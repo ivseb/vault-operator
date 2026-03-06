@@ -217,6 +217,7 @@ export class AgentSidebarView extends ItemView {
                 store,
                 (id) => { void this.loadConversation(id); },
                 (id) => { void this.deleteConversation(id); },
+                (convId, title) => { void this.stampChatLinkToActiveFile(convId, title); },
                 this.activeConversationId,
             );
             this.historyPanel.mount(chatWrapper);
@@ -351,7 +352,7 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(vaultBtn.createSpan('toolbar-icon'), 'at-sign');
         vaultBtn.addEventListener('click', () => {
-            this.vaultFilePicker.show(vaultBtn);
+            this.vaultFilePicker.show(vaultBtn, this.containerEl);
         });
 
         // Ellipsis options menu button
@@ -1711,12 +1712,14 @@ export class AgentSidebarView extends ItemView {
                     }
                     // Auto-save conversation to ConversationStore
                     this.saveCurrentConversation();
-                    // Auto-title: update conversation title after first assistant response
+                    // Auto-title: set fallback title for immediate history display (ADR-022)
+                    // Semantic titling happens later in finalizeConversation() on conversation end.
                     if (this.activeConversationId && this.uiMessages.length <= 2 && this.plugin.conversationStore) {
                         const firstUserMsg = this.uiMessages.find((m) => m.role === 'user');
                         if (firstUserMsg) {
-                            const title = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newConversation');
-                            this.plugin.conversationStore.updateMeta(this.activeConversationId, { title }).catch(() => {});
+                            const fallback = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newConversation');
+                            void this.plugin.conversationStore.updateMeta(this.activeConversationId, { title: fallback }).catch(() => {});
+                            this.historyPanel?.refresh();
                         }
                     }
                 },
@@ -1882,6 +1885,7 @@ export class AgentSidebarView extends ItemView {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir: this.app.vault.configDir,
+            conversationId: this.activeConversationId ?? undefined,
         });
     }
 
@@ -1939,6 +1943,12 @@ export class AgentSidebarView extends ItemView {
         this.saveCurrentConversation();
         // Enqueue memory extraction (fire-and-forget, threshold-gated)
         this.enqueueMemoryExtraction();
+        // Finalize outgoing conversation: semantic title + frontmatter links (ADR-022)
+        // Capture messages before clearing -- finalizeConversation runs async
+        if (this.activeConversationId) {
+            const msgs = [...this.uiMessages];
+            void this.finalizeConversation(this.activeConversationId, msgs);
+        }
         this.activeConversationId = null;
         this.uiMessages = [];
         this.conversationHistory = [];
@@ -1992,6 +2002,100 @@ export class AgentSidebarView extends ItemView {
         }).catch((e) => console.warn('[Memory] Enqueue failed:', e));
     }
 
+    /**
+     * Finalize a conversation on end (clear/switch/unload): generate semantic title,
+     * stamp frontmatter links, clean up pending paths. (ADR-022)
+     * Fire-and-forget caller — errors are caught internally.
+     */
+    /** Stamp a chat link into the currently active file's frontmatter. */
+    private async stampChatLinkToActiveFile(conversationId: string, title: string): Promise<void> {
+        const file = this.app.workspace.getActiveFile();
+        if (!(file instanceof TFile) || file.extension !== 'md') {
+            new Notice(t('ui.history.noActiveNote'));
+            return;
+        }
+        const uri = `obsidian://obsilo-chat?id=${encodeURIComponent(conversationId)}`;
+        const link = `[${title}](${uri})`;
+        try {
+            await this.app.fileManager.processFrontMatter(file, (fm) => {
+                const links: string[] = fm['Chats'] ?? [];
+                if (links.some((l: string) => l.includes(conversationId))) {
+                    new Notice(t('ui.history.linkAlreadyExists'));
+                    return;
+                }
+                links.push(link);
+                fm['Chats'] = links;
+            });
+            new Notice(t('ui.history.linkAdded'));
+        } catch (e) {
+            console.warn('[ChatLink] Failed to stamp active file:', e);
+            new Notice(t('ui.history.linkAddFailed'));
+        }
+    }
+
+    /**
+     * Finalize a conversation: generate semantic title, stamp frontmatter links.
+     * Messages are passed in because this.uiMessages may already be cleared when this runs.
+     */
+    private async finalizeConversation(
+        conversationId: string,
+        messages: Array<{ role: string; text: string }>,
+    ): Promise<void> {
+        const settings = this.plugin.settings;
+        const store = this.plugin.conversationStore;
+        if (!store) return;
+
+        // 1. Semantic titling (always, if model configured)
+        const modelKey = settings.chatLinking?.titlingModelKey;
+        const model = modelKey
+            ? settings.activeModels.find((m) => getModelKey(m) === modelKey && m.enabled)
+            : undefined;
+
+        if (model) {
+            const userMsg = messages.find((m) => m.role === 'user')?.text ?? '';
+            const assistantMsg = messages.find((m) => m.role === 'assistant')?.text ?? '';
+
+            if (userMsg) {
+                try {
+                    const api = buildApiHandlerForModel(model);
+                    const stream = api.createMessage(
+                        'Create a short title (maximum 5-8 words) for this conversation. '
+                        + 'The title must capture the essence, not summarize. '
+                        + 'Output ONLY the title. No quotes, no prefix, no explanation. '
+                        + 'Same language as the user.',
+                        [{ role: 'user', content: `User: ${userMsg.slice(0, 300)}\nAssistant: ${assistantMsg.slice(0, 300)}` }],
+                        [],
+                    );
+                    let title = '';
+                    for await (const chunk of stream) {
+                        if (chunk.type === 'text') title += chunk.text;
+                    }
+                    title = title.trim().replace(/^["']|["']$/g, '').replace(/\n.*/s, '');
+                    if (title.length > 60) title = title.slice(0, 57) + '...';
+                    if (title) {
+                        console.debug(`[ChatLink] Semantic title: "${title}"`);
+                        await store.updateMeta(conversationId, { title });
+                    }
+                } catch (e) {
+                    console.warn('[ChatLink] Semantic title generation failed (non-fatal):', e);
+                }
+            }
+        }
+
+        // 2. Stamp frontmatter links with final title
+        if (settings.chatLinking?.enabled) {
+            await this.plugin.flushPendingChatLinks(conversationId);
+            this.plugin.clearPendingChatLinks(conversationId);
+        }
+
+        this.historyPanel?.refresh();
+    }
+
+    /** Public entry point for deep-link protocol handler (ADR-022, FEATURE-300). */
+    async loadConversationById(id: string): Promise<void> {
+        return this.loadConversation(id);
+    }
+
     /** Load a conversation from history and restore it in the chat panel. */
     private async loadConversation(id: string): Promise<void> {
         const store = this.plugin.conversationStore;
@@ -2005,6 +2109,12 @@ export class AgentSidebarView extends ItemView {
 
         // Save current conversation before switching
         this.saveCurrentConversation();
+        // Finalize outgoing conversation: semantic title + frontmatter links (ADR-022)
+        // Capture messages before switching -- finalizeConversation runs async
+        if (this.activeConversationId) {
+            const msgs = [...this.uiMessages];
+            void this.finalizeConversation(this.activeConversationId, msgs);
+        }
 
         // Reset state
         this.conversationHistory = data.messages;

@@ -534,6 +534,13 @@ export const en: Translations = {
     'settings.interface.skipSetup': 'Skip setup',
     'settings.interface.historyPlaceholder': 'agent/history',
     'settings.interface.setupSkipped': 'Setup skipped. You can restart it anytime from settings.',
+    'settings.interface.headingChatLinking': 'Chat Linking',
+    'settings.interface.chatLinkingToggle': 'Auto-link chats in frontmatter',
+    'settings.interface.chatLinkingToggleDesc': 'Automatically add a clickable chat reference to the frontmatter of every note the agent creates or edits. Disable to keep frontmatter clean.',
+    'settings.interface.chatLinkingModel': 'Titling model',
+    'settings.interface.chatLinkingModelDesc': 'Select a small, fast model (e.g., Haiku, Flash) for cost-efficient semantic title generation. Leave empty to use the first 60 characters as title.',
+    'settings.interface.chatLinkingNoModels': 'No models configured. Add and enable a model in providers first.',
+    'settings.interface.chatLinkingSelectModel': '-- no semantic titling --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -884,6 +891,7 @@ export const en: Translations = {
     'notice.modeSwitched': 'Switched to {{mode}} mode',
     'notice.taskComplete': 'Agent task complete',
     'notice.loadConversationFailed': 'Could not load conversation',
+    'notice.conversationNotFound': 'This conversation no longer exists. It may have been deleted from history.',
     'notice.copied': 'Copied.',
     'notice.insertedAtCursor': 'Inserted at cursor.',
     'notice.noOpenNote': 'No open note found \u2014 open a note in the editor first.',
@@ -937,6 +945,13 @@ export const en: Translations = {
     'ui.history.thisWeek': 'This week',
     'ui.history.older': 'Older',
     'ui.history.messageCount': '{{count}} msgs',
+    'ui.history.copyLink': 'Copy chat link',
+    'ui.history.linkCopied': 'Chat link copied',
+    'ui.history.addToNote': 'Add link to active note',
+    'ui.history.linkAdded': 'Chat link added to note',
+    'ui.history.linkAlreadyExists': 'Link already exists in note',
+    'ui.history.linkAddFailed': 'Failed to add link',
+    'ui.history.noActiveNote': 'No active Markdown note',
 
     // =========================================================================
     // Attachment Handler

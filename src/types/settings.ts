@@ -381,6 +381,17 @@ export interface MemorySettings {
 }
 
 // ---------------------------------------------------------------------------
+// Chat-Linking settings (ADR-022)
+// ---------------------------------------------------------------------------
+
+export interface ChatLinkingSettings {
+    /** Master toggle: auto-link chats in frontmatter of edited notes + semantic titling */
+    enabled: boolean;
+    /** Model key for semantic title generation (picks from activeModels[]) */
+    titlingModelKey: string;
+}
+
+// ---------------------------------------------------------------------------
 // Main plugin settings
 // ---------------------------------------------------------------------------
 
@@ -479,6 +490,8 @@ export interface ObsidianAgentSettings {
     enableChatHistory: boolean;
     /** Memory system settings (session extraction, long-term memory, etc.) */
     memory: MemorySettings;
+    /** Chat-Linking: auto-stamp frontmatter + semantic titling (ADR-022) */
+    chatLinking: ChatLinkingSettings;
     /** @deprecated — migrated to enableChatHistory. Kept for migration. */
     chatHistoryFolder: string;
 
@@ -692,6 +705,10 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         autoUpdateLongTerm: true,
         memoryModelKey: '',
         extractionThreshold: 6,
+    },
+    chatLinking: {
+        enabled: true,
+        titlingModelKey: '',
     },
     chatHistoryFolder: '',
 

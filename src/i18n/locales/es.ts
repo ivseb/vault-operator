@@ -531,6 +531,13 @@ export const es: Translations = {
     'settings.interface.skipSetup': 'Omitir configuracion',
     'settings.interface.historyPlaceholder': 'Agent/History',
     'settings.interface.setupSkipped': 'Configuracion omitida. Puedes reiniciarla en cualquier momento desde ajustes.',
+    'settings.interface.headingChatLinking': 'Chat Linking',
+    'settings.interface.chatLinkingToggle': 'Vincular chats automaticamente en frontmatter',
+    'settings.interface.chatLinkingToggleDesc': 'Agrega automaticamente una referencia al chat en el frontmatter de cada nota que el agente crea o edita.',
+    'settings.interface.chatLinkingModel': 'Modelo de titulacion',
+    'settings.interface.chatLinkingModelDesc': 'Selecciona un modelo pequeno y rapido (ej. Haiku, Flash) para generar titulos semanticos. Dejar vacio para usar los primeros 60 caracteres.',
+    'settings.interface.chatLinkingNoModels': 'No hay modelos configurados. Agrega uno en proveedores primero.',
+    'settings.interface.chatLinkingSelectModel': '-- sin titulacion semantica --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -881,6 +888,7 @@ export const es: Translations = {
     'notice.modeSwitched': 'Cambiado al modo {{mode}}',
     'notice.taskComplete': 'Tarea del agente completada',
     'notice.loadConversationFailed': 'No se pudo cargar la conversacion',
+    'notice.conversationNotFound': 'Esta conversacion ya no existe. Puede haber sido eliminada del historial.',
     'notice.copied': 'Copiado.',
     'notice.insertedAtCursor': 'Insertado en el cursor.',
     'notice.noOpenNote': 'No se encontro una nota abierta -- abre una nota en el editor primero.',
