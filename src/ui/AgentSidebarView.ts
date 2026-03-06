@@ -1711,12 +1711,13 @@ export class AgentSidebarView extends ItemView {
                     }
                     // Auto-save conversation to ConversationStore
                     this.saveCurrentConversation();
-                    // Auto-title: update conversation title after first assistant response
+                    // Auto-title: fallback + semantic title after first assistant response (ADR-022)
                     if (this.activeConversationId && this.uiMessages.length <= 2 && this.plugin.conversationStore) {
                         const firstUserMsg = this.uiMessages.find((m) => m.role === 'user');
                         if (firstUserMsg) {
-                            const title = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newConversation');
-                            this.plugin.conversationStore.updateMeta(this.activeConversationId, { title }).catch(() => {});
+                            const fallback = firstUserMsg.text.slice(0, 60).replace(/\n/g, ' ').trim() || t('ui.sidebar.newConversation');
+                            this.plugin.conversationStore.updateMeta(this.activeConversationId, { title: fallback }).catch(() => {});
+                            this.generateSemanticTitle(this.activeConversationId);
                         }
                     }
                 },
@@ -1882,6 +1883,7 @@ export class AgentSidebarView extends ItemView {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir: this.app.vault.configDir,
+            conversationId: this.activeConversationId ?? undefined,
         });
     }
 
@@ -1990,6 +1992,57 @@ export class AgentSidebarView extends ItemView {
             queuedAt: new Date().toISOString(),
             type: 'session',
         }).catch((e) => console.warn('[Memory] Enqueue failed:', e));
+    }
+
+    /**
+     * Generate a semantic chat title via LLM (ADR-022, FEATURE-302).
+     * Fire-and-forget: does not block chat or UI. Falls back to existing title on error.
+     */
+    private generateSemanticTitle(conversationId: string): void {
+        const settings = this.plugin.settings;
+        if (!settings.chatLinking?.enabled) return;
+
+        const modelKey = settings.chatLinking.titlingModelKey;
+        if (!modelKey) return;
+
+        const model = settings.activeModels.find((m) => getModelKey(m) === modelKey);
+        if (!model || !model.enabled) return;
+
+        const userMsg = this.uiMessages.find((m) => m.role === 'user')?.text ?? '';
+        const assistantMsg = this.uiMessages.find((m) => m.role === 'assistant')?.text ?? '';
+        if (!userMsg) return;
+
+        void (async () => {
+            try {
+                const api = buildApiHandlerForModel(model);
+                const systemPrompt =
+                    'Generate a concise title (3-8 words) that captures the main topic of this conversation. ' +
+                    'Return ONLY the title text, no quotes, no explanation. Use the same language as the user message.';
+                const stream = api.createMessage(
+                    systemPrompt,
+                    [{ role: 'user', content: `User: ${userMsg.slice(0, 500)}\nAssistant: ${assistantMsg.slice(0, 500)}` }],
+                    [],
+                );
+
+                let title = '';
+                for await (const chunk of stream) {
+                    if (chunk.type === 'text') title += chunk.text;
+                }
+                title = title.trim().replace(/^["']|["']$/g, '');
+
+                if (title && this.plugin.conversationStore) {
+                    await this.plugin.conversationStore.updateMeta(conversationId, { title });
+                    this.historyPanel?.refresh();
+                }
+            } catch (e) {
+                console.warn('[Titling] Semantic title generation failed (non-fatal):', e);
+            }
+        })();
+    }
+
+    /** Public entry point for deep-link protocol handler (ADR-022, FEATURE-300). */
+    async loadConversationById(id: string): Promise<void> {
+        return this.loadConversation(id);
     }
 
     /** Load a conversation from history and restore it in the chat panel. */

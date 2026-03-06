@@ -531,6 +531,13 @@ export const de: Translations = {
     'settings.interface.skipSetup': 'Einrichtung überspringen',
     'settings.interface.historyPlaceholder': 'Agent/History',
     'settings.interface.setupSkipped': 'Einrichtung übersprungen. Kann jederzeit in den Einstellungen neu gestartet werden.',
+    'settings.interface.headingChatLinking': 'Chat-Linking',
+    'settings.interface.chatLinkingToggle': 'Chats automatisch im Frontmatter verlinken',
+    'settings.interface.chatLinkingToggleDesc': 'Fuegt automatisch eine klickbare Chat-Referenz in das Frontmatter jeder Note ein, die der Agent erstellt oder bearbeitet. Deaktivieren, um das Frontmatter sauber zu halten.',
+    'settings.interface.chatLinkingModel': 'Titling-Modell',
+    'settings.interface.chatLinkingModelDesc': 'Waehle ein kleines, schnelles Modell (z.B. Haiku, Flash) fuer kosteneffiziente semantische Titelgenerierung. Leer lassen, um die ersten 60 Zeichen als Titel zu verwenden.',
+    'settings.interface.chatLinkingNoModels': 'Keine Modelle konfiguriert. Fuege zuerst ein Modell unter Anbieter hinzu.',
+    'settings.interface.chatLinkingSelectModel': '-- kein semantisches Titling --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -881,6 +888,7 @@ export const de: Translations = {
     'notice.modeSwitched': 'Zu Modus {{mode}} gewechselt',
     'notice.taskComplete': 'Agent-Aufgabe abgeschlossen',
     'notice.loadConversationFailed': 'Konversation konnte nicht geladen werden',
+    'notice.conversationNotFound': 'Diese Konversation existiert nicht mehr. Sie wurde moeglicherweise aus dem Verlauf geloescht.',
     'notice.copied': 'Kopiert.',
     'notice.insertedAtCursor': 'An Cursorposition eingefügt.',
     'notice.noOpenNote': 'Keine geöffnete Notiz gefunden \u2014 zuerst eine Notiz im Editor öffnen.',

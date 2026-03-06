@@ -531,6 +531,13 @@ export const ja: Translations = {
     'settings.interface.skipSetup': 'セットアップをスキップ',
     'settings.interface.historyPlaceholder': 'Agent/History',
     'settings.interface.setupSkipped': 'セットアップをスキップしました。設定からいつでも再開できます。',
+    'settings.interface.headingChatLinking': 'チャットリンク',
+    'settings.interface.chatLinkingToggle': 'フロントマターにチャットを自動リンク',
+    'settings.interface.chatLinkingToggleDesc': 'エージェントが作成・編集したノートのフロントマターにクリック可能なチャット参照を自動追加します。',
+    'settings.interface.chatLinkingModel': 'タイトル生成モデル',
+    'settings.interface.chatLinkingModelDesc': '小さく高速なモデル（例：Haiku, Flash）を選択してセマンティックタイトルを生成します。空にすると最初の60文字をタイトルとして使用します。',
+    'settings.interface.chatLinkingNoModels': 'モデルが設定されていません。まずプロバイダーでモデルを追加してください。',
+    'settings.interface.chatLinkingSelectModel': '-- セマンティックタイトルなし --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -881,6 +888,7 @@ export const ja: Translations = {
     'notice.modeSwitched': '{{mode}} モードに切り替えました',
     'notice.taskComplete': 'エージェントタスクが完了しました',
     'notice.loadConversationFailed': '会話を読み込めませんでした',
+    'notice.conversationNotFound': 'この会話はもう存在しません。履歴から削除された可能性があります。',
     'notice.copied': 'コピーしました。',
     'notice.insertedAtCursor': 'カーソル位置に挿入しました。',
     'notice.noOpenNote': '開いているノートが見つかりません \u2014 先にエディタでノートを開いてください。',

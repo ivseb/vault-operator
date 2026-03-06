@@ -531,6 +531,13 @@ export const hi: Translations = {
     'settings.interface.skipSetup': 'सेटअप छोड़ें',
     'settings.interface.historyPlaceholder': 'agent/history',
     'settings.interface.setupSkipped': 'सेटअप छोड़ दिया गया। आप सेटिंग्स से कभी भी पुनः प्रारंभ कर सकते हैं।',
+    'settings.interface.headingChatLinking': 'चैट लिंकिंग',
+    'settings.interface.chatLinkingToggle': 'फ्रंटमैटर में चैट स्वचालित रूप से लिंक करें',
+    'settings.interface.chatLinkingToggleDesc': 'एजेंट द्वारा बनाई या संपादित प्रत्येक नोट के फ्रंटमैटर में क्लिक करने योग्य चैट संदर्भ स्वचालित रूप से जोड़ें।',
+    'settings.interface.chatLinkingModel': 'शीर्षक मॉडल',
+    'settings.interface.chatLinkingModelDesc': 'सिमैंटिक शीर्षक के लिए छोटा, तेज मॉडल (जैसे Haiku, Flash) चुनें। खाली छोड़ें तो पहले 60 अक्षर शीर्षक के रूप में उपयोग होंगे।',
+    'settings.interface.chatLinkingNoModels': 'कोई मॉडल कॉन्फ़िगर नहीं है। पहले प्रदाताओं में एक मॉडल जोड़ें।',
+    'settings.interface.chatLinkingSelectModel': '-- कोई सिमैंटिक शीर्षक नहीं --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -881,6 +888,7 @@ export const hi: Translations = {
     'notice.modeSwitched': '{{mode}} मोड में स्विच किया',
     'notice.taskComplete': 'एजेंट कार्य पूर्ण',
     'notice.loadConversationFailed': 'बातचीत लोड नहीं हो सकी',
+    'notice.conversationNotFound': 'यह बातचीत अब मौजूद नहीं है। इसे इतिहास से हटा दिया गया हो सकता है।',
     'notice.copied': 'कॉपी हो गया।',
     'notice.insertedAtCursor': 'कर्सर पर डाला गया।',
     'notice.noOpenNote': 'कोई खुला नोट नहीं मिला -- पहले संपादक में एक नोट खोलें।',

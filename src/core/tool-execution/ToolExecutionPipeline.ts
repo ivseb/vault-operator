@@ -12,6 +12,7 @@
  * - Error handling
  */
 
+import { TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { ToolRegistry } from '../tools/ToolRegistry';
 import type {
@@ -117,6 +118,8 @@ export interface ContextExtensions {
     onCheckpoint?: (checkpoint: import('../checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /** Invalidate cached tool definitions (e.g. after webTools.enabled changes) */
     invalidateToolCache?: () => void;
+    /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
+    conversationId?: string;
 }
 
 export class ToolExecutionPipeline {
@@ -265,6 +268,18 @@ export class ToolExecutionPipeline {
                 this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), content);
             }
 
+            // 7. Chat-Linking: stamp frontmatter on successful .md writes (ADR-022)
+            if (tool.isWriteOperation && !executionHadError && extensions?.conversationId) {
+                const writePath = toolCall.input?.path as string | undefined;
+                if (writePath && this.plugin.settings.chatLinking?.enabled) {
+                    try {
+                        await this.stampChatLink(writePath, extensions.conversationId);
+                    } catch (e) {
+                        console.warn('[Pipeline] Chat-link stamp failed (non-fatal):', e);
+                    }
+                }
+            }
+
             return {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
@@ -283,6 +298,32 @@ export class ToolExecutionPipeline {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
+
+    /**
+     * Stamp a chat-link into the frontmatter of a vault .md file (ADR-022).
+     * Deduplicates by conversationId; updates title of existing entries.
+     */
+    private async stampChatLink(path: string, conversationId: string): Promise<void> {
+        const file = this.plugin.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile) || file.extension !== 'md') return;
+
+        const store = this.plugin.conversationStore;
+        const meta = store?.list().find((m) => m.id === conversationId);
+        const title = meta?.title || 'Chat';
+        const uri = `obsidian://obsilo-chat?id=${conversationId}`;
+        const entry = `[${title}](${uri})`;
+
+        await this.plugin.app.fileManager.processFrontMatter(file, (fm) => {
+            const links: string[] = fm['obsilo-chats'] ?? [];
+            const idx = links.findIndex((l: string) => l.includes(conversationId));
+            if (idx >= 0) {
+                links[idx] = entry; // Title update
+            } else {
+                links.push(entry);  // New entry
+            }
+            fm['obsilo-chats'] = links;
+        });
+    }
 
     /**
      * Check ignore/protected rules for file-path tools.

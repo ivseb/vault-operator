@@ -529,6 +529,13 @@ export const zhCN: Translations = {
     'settings.interface.skipSetup': '跳过设置',
     'settings.interface.historyPlaceholder': 'Agent/History',
     'settings.interface.setupSkipped': '设置已跳过。您可以随时从设置中重新开始。',
+    'settings.interface.headingChatLinking': '聊天链接',
+    'settings.interface.chatLinkingToggle': '自动在前置内容中链接聊天',
+    'settings.interface.chatLinkingToggleDesc': '自动将可点击的聊天引用添加到代理创建或编辑的每个笔记的前置内容中。',
+    'settings.interface.chatLinkingModel': '标题生成模型',
+    'settings.interface.chatLinkingModelDesc': '选择一个小型快速模型（如 Haiku、Flash）进行语义标题生成。留空则使用前60个字符作为标题。',
+    'settings.interface.chatLinkingNoModels': '未配置模型。请先在提供者中添加模型。',
+    'settings.interface.chatLinkingSelectModel': '-- 无语义标题 --',
 
     // =========================================================================
     // Settings — Shell Tab
@@ -879,6 +886,7 @@ export const zhCN: Translations = {
     'notice.modeSwitched': '已切换到 {{mode}} 模式',
     'notice.taskComplete': '智能体任务已完成',
     'notice.loadConversationFailed': '无法加载对话',
+    'notice.conversationNotFound': '此对话已不存在。可能已从历史记录中删除。',
     'notice.copied': '已复制。',
     'notice.insertedAtCursor': '已在光标处插入。',
     'notice.noOpenNote': '未找到打开的笔记 \u2014 请先在编辑器中打开一篇笔记。',

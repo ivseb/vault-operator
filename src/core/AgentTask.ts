@@ -80,6 +80,8 @@ export interface AgentTaskRunConfig {
     recipesSection?: string;
     selfAuthoredSkillsSection?: string;
     configDir?: string;
+    /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
+    conversationId?: string;
 }
 
 export class AgentTask {
@@ -159,6 +161,7 @@ export class AgentTask {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir,
+            conversationId,
         } = config;
         // Resolve mode to ModeConfig
         let activeMode: ModeConfig = this.resolveMode(initialMode);
@@ -511,6 +514,7 @@ export class AgentTask {
                         updateTodos: this.taskCallbacks.onTodoUpdate,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
                         invalidateToolCache,
+                        conversationId,
                     });
                     // Record successful calls in the ledger (for condensing preservation)
                     if (!result.is_error) {

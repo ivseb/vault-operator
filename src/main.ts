@@ -32,7 +32,7 @@ import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
-import { initI18n } from './i18n';
+import { initI18n, t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
@@ -409,6 +409,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             void this.activateView();
         });
 
+        // Protocol handler: deep-link into a specific conversation (ADR-022)
+        this.registerObsidianProtocolHandler('obsilo-chat', (params) => {
+            const id = params.id;
+            if (!id || typeof id !== 'string') return;
+            void this.openChatById(id);
+        });
+
         // Auto-open sidebar when Obsidian starts
         this.app.workspace.onLayoutReady(() => {
             void this.activateView();
@@ -552,6 +559,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.memory.autoUpdateLongTerm = this.settings.memory.autoUpdateLongTerm ?? memDefaults.autoUpdateLongTerm;
         this.settings.memory.memoryModelKey = this.settings.memory.memoryModelKey ?? memDefaults.memoryModelKey;
         this.settings.memory.extractionThreshold = this.settings.memory.extractionThreshold ?? memDefaults.extractionThreshold;
+
+        // Deep-merge chat-linking settings (ADR-022)
+        const clDefaults = DEFAULT_SETTINGS.chatLinking;
+        this.settings.chatLinking = this.settings.chatLinking ?? clDefaults;
+        this.settings.chatLinking.enabled = this.settings.chatLinking.enabled ?? clDefaults.enabled;
+        this.settings.chatLinking.titlingModelKey = this.settings.chatLinking.titlingModelKey ?? clDefaults.titlingModelKey;
 
         // Seed / update built-in default prompts (preserves user enabled state)
         this.settings.customPrompts = mergeDefaultPrompts(this.settings.customPrompts ?? []);
@@ -874,6 +887,26 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const targetWidth = Math.round(window.innerWidth * 0.285);
                 rightSplit.setSize(targetWidth);
             }
+        }
+    }
+
+    /**
+     * Open a conversation by ID via deep-link (ADR-022, FEATURE-300).
+     * Activates the sidebar and loads the conversation if it exists.
+     */
+    async openChatById(id: string): Promise<void> {
+        await this.activateView();
+        const store = this.conversationStore;
+        if (!store) return;
+        const meta = store.list().find((m) => m.id === id);
+        if (!meta) {
+            new Notice(t('notice.conversationNotFound'));
+            return;
+        }
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+        if (leaves.length > 0) {
+            const view = leaves[0].view as AgentSidebarView;
+            void view.loadConversationById(id);
         }
     }
 
