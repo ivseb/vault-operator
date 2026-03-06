@@ -29,8 +29,11 @@ export function getToolDecisionGuidelinesSection(configDir: string): string {
    For .excalidraw.md files: ALWAYS use create_excalidraw (never write_file).
    For .canvas files: ALWAYS use generate_canvas (never write_file).
    For .base files: ALWAYS use create_base (never write_file).
-   These tools handle the complex format automatically — the LLM should never generate raw plugin JSON/YAML.
-1d. NEVER CREATE FAKE OUTPUT — When the user asks to export/convert a file (PDF, DOCX, etc.), use the appropriate export tool. NEVER write content to a .pdf/.docx file yourself. If no native command and no recipe exist, tell the user which tool to install.
+   For .pptx files: ALWAYS use create_pptx (never write_file or evaluate_expression).
+   For .docx files: ALWAYS use create_docx (never write_file or evaluate_expression).
+   For .xlsx files: ALWAYS use create_xlsx (never write_file or evaluate_expression).
+   These tools handle the complex format automatically — the LLM should never generate raw plugin JSON/YAML or binary content.
+1d. NEVER CREATE FAKE OUTPUT — When the user asks to export/convert a file to PDF, use workspace:export-pdf (Tier 1) or pandoc-pdf recipe (Tier 2). NEVER write content to a .pdf file yourself. For creating NEW .pptx/.docx/.xlsx files from scratch, use the dedicated create_pptx/create_docx/create_xlsx tools.
 1e. PLUGIN API — When you need structured data from a plugin (Dataview queries, Omnisearch results, MetaEdit properties), use call_plugin_api instead of execute_command. It returns actual data. Check the PLUGIN SKILLS section for available API methods per plugin.
 1f. FILE EXPORT / CONVERSION — Confidence-based routing:
    TIER 1 (prefer): Native Obsidian commands via execute_command.
