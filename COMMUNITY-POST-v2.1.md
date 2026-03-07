@@ -52,8 +52,7 @@ github.com/pssah4/obsilo
 
 ## Feature-Uebersicht (Vollstaendig, fuer Pinned Posts / README / Showcase)
 
-```
-**Obsilo Agent -- Full Feature Overview**
+Obsilo Agent -- Full Feature Overview**
 
 An autonomous AI operating layer for Obsidian. Runs in the sidebar, learns your vault.
 
