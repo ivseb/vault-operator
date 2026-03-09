@@ -130,7 +130,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
                                 },
                                 dependencies: {
                                     type: 'array',
-                                    description: 'npm package names to bundle (e.g. ["pptxgenjs"]).',
+                                    description: 'npm package names to bundle (e.g. ["xlsx", "marked"]).',
                                     items: { type: 'string' },
                                 },
                             },

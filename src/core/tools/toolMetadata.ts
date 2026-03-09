@@ -258,9 +258,9 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     // ── Office Document Creation ────────────────────────────────────────
     create_pptx: {
         group: 'edit', label: 'Create PPTX', icon: 'presentation',
-        signature: 'create_pptx(output_path, slides, title?, theme?)',
-        description: 'Create a PowerPoint presentation (.pptx) with slides, text, bullets, tables, and images.',
-        example: 'create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}])',
+        signature: 'create_pptx(output_path, slides, title?, template?, theme?)',
+        description: 'Create a PowerPoint presentation (.pptx) with template-based generation. Supports user templates (.pptx/.potx from vault) or bundled defaults (executive, modern, minimal).',
+        example: 'create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}], "Q1 Report", "executive")',
         whenToUse: 'For creating PowerPoint files. Never use write_file or evaluate_expression for .pptx.',
         commonMistakes: 'Using write_file or evaluate_expression for .pptx -- always use create_pptx instead.',
     },

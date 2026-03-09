@@ -30,6 +30,10 @@ export interface AttachmentItem {
     objectUrl?: string;
     /** The ContentBlock that will be included in the API message. */
     block: ContentBlock;
+    /** Raw binary data for PPTX/POTX files (used as template source). */
+    binaryData?: ArrayBuffer;
+    /** Vault path if the file was added from the vault (for template reference). */
+    vaultPath?: string;
 }
 
 /**
@@ -99,14 +103,21 @@ export class AttachmentHandler {
                     new Notice(t('ui.attachment.largeDocument', { name: file.name }));
                 }
 
-                this.pending.push({
+                const item: AttachmentItem = {
                     name: file.name,
                     extension: ext,
                     block: {
                         type: 'text',
                         text: `<attached_document name="${file.name}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
                     },
-                });
+                };
+
+                // Preserve binary data for PPTX/POTX files (template source)
+                if (ext === 'pptx' || ext === 'potx') {
+                    item.binaryData = arrayBuffer;
+                }
+
+                this.pending.push(item);
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
                 new Notice(`Failed to parse ${file.name}: ${msg}`);
@@ -138,14 +149,22 @@ export class AttachmentHandler {
                     new Notice(t('ui.attachment.largeDocument', { name: file.path }));
                 }
 
-                this.pending.push({
+                const item: AttachmentItem = {
                     name: file.path,
                     extension: ext,
+                    vaultPath: file.path,
                     block: {
                         type: 'text',
                         text: `<attached_document name="${file.path}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
                     },
-                });
+                };
+
+                // Preserve binary data for PPTX/POTX files (template source)
+                if (ext === 'pptx' || ext === 'potx') {
+                    item.binaryData = data;
+                }
+
+                this.pending.push(item);
             } else if (ext === 'csv') {
                 // CSV — read as text, parse to Markdown table
                 const content = await this.vault.read(file);

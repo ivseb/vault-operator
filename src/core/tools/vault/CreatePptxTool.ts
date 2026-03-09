@@ -1,37 +1,21 @@
 /**
  * CreatePptxTool
  *
- * Creates a PowerPoint presentation (.pptx) with slides, text, tables, and images.
- * Format knowledge lives in TypeScript code -- the LLM only provides
- * high-level input (slide content, theme). The tool handles layout and
- * formatting programmatically using pptxgenjs.
+ * Creates a PowerPoint presentation (.pptx) using template-based generation (ADR-032).
+ * Opens a template PPTX, removes content slides, and injects new slides as OOXML XML.
+ * The LLM provides high-level input (slide content, layout); the engine handles OOXML.
  */
 
-import PptxGenJS from 'pptxgenjs';
 import { TFile } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
+import { generatePptx, TemplateManager } from '../../office';
+import type { SlideData, LayoutType } from '../../office';
 
 /* ------------------------------------------------------------------ */
-/*  Layout constants                                                  */
-/* ------------------------------------------------------------------ */
-
-const SLIDE_W = 10;     // inches
-const SLIDE_H = 7.5;    // inches (4:3)
-const MARGIN = 0.5;     // inches
-const TITLE_Y = 0.4;
-const TITLE_H = 1.0;
-const CONTENT_Y = 1.6;
-const CONTENT_H = SLIDE_H - CONTENT_Y - MARGIN;
-const CONTENT_W = SLIDE_W - MARGIN * 2;
-
-const DEFAULT_FONT = 'Calibri';
-const DEFAULT_PRIMARY = '#1a73e8';
-
-/* ------------------------------------------------------------------ */
-/*  Input interfaces                                                  */
+/*  Input interfaces                                                   */
 /* ------------------------------------------------------------------ */
 
 interface SlideInput {
@@ -45,34 +29,64 @@ interface SlideInput {
     };
     image?: string;
     notes?: string;
+    layout?: string;
+    // Legacy two-column / comparison fields
+    left?: string;
+    right?: string;
+    comparison_left_title?: string;
+    comparison_right_title?: string;
+    comparison_left?: string[];
+    comparison_right?: string[];
 }
 
-interface ThemeInput {
-    primary_color?: string;
-    font_family?: string;
+const VALID_LAYOUTS: LayoutType[] = [
+    'title', 'content', 'section', 'two_column', 'image_right', 'comparison', 'blank',
+];
+
+/* ------------------------------------------------------------------ */
+/*  Layout auto-detection                                              */
+/* ------------------------------------------------------------------ */
+
+function detectLayout(slide: SlideInput): LayoutType {
+    if (slide.layout && VALID_LAYOUTS.includes(slide.layout as LayoutType)) {
+        return slide.layout as LayoutType;
+    }
+
+    // Title slide: has subtitle, no content
+    if (slide.subtitle && !slide.body && !slide.bullets && !slide.table && !slide.image) {
+        return 'title';
+    }
+
+    // Comparison layout
+    if (slide.comparison_left_title || slide.comparison_right_title) {
+        return 'comparison';
+    }
+
+    // Two column layout
+    if (slide.left || slide.right) {
+        return 'two_column';
+    }
+
+    // Image + text
+    if (slide.image && (slide.body || slide.bullets)) {
+        return 'image_right';
+    }
+
+    return 'content';
 }
 
 /* ------------------------------------------------------------------ */
-/*  Helper: resolve color with fallback                               */
-/* ------------------------------------------------------------------ */
-
-function resolveColor(color?: string, fallback = DEFAULT_PRIMARY): string {
-    if (!color) return fallback;
-    const trimmed = color.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(trimmed)) return trimmed;
-    return fallback;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Tool class                                                        */
+/*  Tool class                                                         */
 /* ------------------------------------------------------------------ */
 
 export class CreatePptxTool extends BaseTool<'create_pptx'> {
     readonly name = 'create_pptx' as const;
     readonly isWriteOperation = true;
+    private templateManager: TemplateManager;
 
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+        this.templateManager = new TemplateManager(plugin);
     }
 
     getDefinition(): ToolDefinition {
@@ -80,8 +94,9 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             name: 'create_pptx',
             description:
                 'Create a PowerPoint presentation (.pptx) with slides containing text, bullets, tables, and images. ' +
-                'The file format is handled automatically -- never use write_file or evaluate_expression for .pptx files. ' +
-                'Supports themed presentations with auto-layout.',
+                'Uses template-based generation for professional results. ' +
+                'Supports user templates (vault path to .pptx/.potx) or bundled default templates. ' +
+                'The file format is handled automatically -- never use write_file or evaluate_expression for .pptx files.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -138,27 +153,38 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                                     type: 'string',
                                     description: 'Speaker notes for this slide',
                                 },
+                                layout: {
+                                    type: 'string',
+                                    enum: ['title', 'content', 'section', 'two_column', 'image_right', 'comparison', 'blank'],
+                                    description: 'Slide layout type. Auto-detected if omitted.',
+                                },
                             },
                         },
                         description: 'Array of slides (max 50)',
                     },
                     title: {
                         type: 'string',
-                        description: 'Presentation title (used as metadata and optional title slide)',
+                        description: 'Presentation title (metadata)',
+                    },
+                    template: {
+                        type: 'string',
+                        description:
+                            'Template source: vault path to .pptx/.potx file, OR default name ("executive", "modern", "minimal"). ' +
+                            'Defaults to "executive" if omitted.',
                     },
                     theme: {
                         type: 'object',
                         properties: {
                             primary_color: {
                                 type: 'string',
-                                description: 'Primary accent color as hex (e.g. "#1a73e8"). Default: blue.',
+                                description: 'Primary accent color as hex (e.g. "#1a73e8"). Reserved for future use.',
                             },
                             font_family: {
                                 type: 'string',
-                                description: 'Font family name (e.g. "Calibri", "Arial"). Default: Calibri.',
+                                description: 'Font family name. Reserved for future use.',
                             },
                         },
-                        description: 'Optional theme settings',
+                        description: 'Optional theme overrides (reserved for future use)',
                     },
                 },
                 required: ['output_path', 'slides'],
@@ -170,8 +196,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
         const rawSlides = Array.isArray(input.slides) ? (input.slides as SlideInput[]) : [];
-        const presTitle = ((input.title as string) ?? '').trim();
-        const theme = (input.theme as ThemeInput) ?? {};
+        const templateRef = ((input.template as string) ?? '').trim();
 
         // Validation
         if (!outputPath) {
@@ -188,39 +213,21 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         }
 
         const slides = rawSlides.slice(0, 50);
-        const primaryColor = resolveColor(theme.primary_color);
-        const fontFamily = theme.font_family?.trim() || DEFAULT_FONT;
 
         try {
-            const pres = new PptxGenJS();
-            pres.layout = 'LAYOUT_4x3';
-            if (presTitle) pres.title = presTitle;
-            pres.author = 'Obsilo Agent';
+            // 1. Load template
+            const templateData = await this.loadTemplate(templateRef);
 
-            for (const slideInput of slides) {
-                const slide = pres.addSlide();
-
-                // Speaker notes
-                if (slideInput.notes) {
-                    slide.addNotes(slideInput.notes);
-                }
-
-                const isTitleSlide = slideInput.subtitle !== undefined
-                    && !slideInput.body && !slideInput.bullets && !slideInput.table && !slideInput.image;
-
-                if (isTitleSlide) {
-                    // Title slide layout: centered title + subtitle
-                    this.addTitleSlide(slide, slideInput, primaryColor, fontFamily);
-                } else {
-                    // Content slide layout
-                    await this.addContentSlide(slide, slideInput, primaryColor, fontFamily);
-                }
+            // 2. Convert SlideInput[] to SlideData[]
+            const slideData: SlideData[] = [];
+            for (const s of slides) {
+                slideData.push(await this.convertSlideInput(s));
             }
 
-            // Generate binary
-            const arrayBuffer = await pres.write({ outputType: 'arraybuffer' }) as ArrayBuffer;
+            // 3. Generate PPTX
+            const arrayBuffer = await generatePptx(templateData, slideData);
 
-            // Write to vault
+            // 4. Write to vault
             const result = await writeBinaryToVault(
                 this.app.vault,
                 outputPath,
@@ -230,14 +237,15 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
             const action = result.created ? 'Created' : 'Updated';
             const sizeKB = Math.round(result.size / 1024);
+            const templateName = this.getTemplateName(templateRef);
             callbacks.pushToolResult(
                 `${action} PowerPoint presentation: **${outputPath}**\n` +
                 `- ${slides.length} slide${slides.length !== 1 ? 's' : ''}\n` +
-                (presTitle ? `- Title: "${presTitle}"\n` : '') +
+                `- Template: ${templateName}\n` +
                 `- Size: ${sizeKB} KB\n\n` +
                 `Download or open the file to view the presentation.`,
             );
-            callbacks.log(`${action} PPTX: ${outputPath} (${slides.length} slides, ${sizeKB} KB)`);
+            callbacks.log(`${action} PPTX: ${outputPath} (${slides.length} slides, ${sizeKB} KB, template: ${templateName})`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('create_pptx', error);
@@ -245,195 +253,100 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     }
 
     /* -------------------------------------------------------------- */
-    /*  Slide builders                                                 */
+    /*  Template loading                                               */
     /* -------------------------------------------------------------- */
 
-    private addTitleSlide(
-        slide: PptxGenJS.Slide,
-        input: SlideInput,
-        primaryColor: string,
-        fontFamily: string,
-    ): void {
-        // Title centered
-        if (input.title) {
-            slide.addText(input.title, {
-                x: MARGIN,
-                y: 2.0,
-                w: CONTENT_W,
-                h: 1.5,
-                fontSize: 36,
-                fontFace: fontFamily,
-                color: primaryColor.replace('#', ''),
-                bold: true,
-                align: 'center',
-                valign: 'bottom',
-            });
+    private async loadTemplate(templateRef: string): Promise<ArrayBuffer> {
+        if (!templateRef) {
+            return this.templateManager.loadDefaultTemplate();
         }
 
-        // Subtitle below
-        if (input.subtitle) {
-            slide.addText(input.subtitle, {
-                x: MARGIN,
-                y: 3.8,
-                w: CONTENT_W,
-                h: 1.0,
-                fontSize: 20,
-                fontFace: fontFamily,
-                color: '666666',
-                align: 'center',
-                valign: 'top',
-            });
+        // Check if it's a default template name
+        const defaultNames: Record<string, string> = {
+            'executive': 'default-executive',
+            'modern': 'default-modern',
+            'minimal': 'default-minimal',
+        };
+
+        if (defaultNames[templateRef]) {
+            return this.templateManager.loadDefaultTemplate(defaultNames[templateRef]);
         }
+
+        // Check if it's a full default name
+        if (templateRef.startsWith('default-')) {
+            return this.templateManager.loadDefaultTemplate(templateRef);
+        }
+
+        // Treat as vault path
+        return this.templateManager.loadVaultTemplate(templateRef);
     }
 
-    private async addContentSlide(
-        slide: PptxGenJS.Slide,
-        input: SlideInput,
-        primaryColor: string,
-        fontFamily: string,
-    ): Promise<void> {
-        let contentY = CONTENT_Y;
+    private getTemplateName(templateRef: string): string {
+        if (!templateRef) return 'executive (default)';
+        const shortNames = ['executive', 'modern', 'minimal'];
+        if (shortNames.includes(templateRef)) return templateRef;
+        if (templateRef.startsWith('default-')) return templateRef.replace('default-', '');
+        return templateRef;
+    }
 
-        // Title at top
-        if (input.title) {
-            slide.addText(input.title, {
-                x: MARGIN,
-                y: TITLE_Y,
-                w: CONTENT_W,
-                h: TITLE_H,
-                fontSize: 28,
-                fontFace: fontFamily,
-                color: primaryColor.replace('#', ''),
-                bold: true,
-                valign: 'middle',
-            });
-        }
+    /* -------------------------------------------------------------- */
+    /*  Slide input conversion                                         */
+    /* -------------------------------------------------------------- */
 
-        // Body text
+    private async convertSlideInput(input: SlideInput): Promise<SlideData> {
+        const layout = detectLayout(input);
+        const slide: SlideData = { layout };
+
+        if (input.title) slide.title = input.title;
+        if (input.subtitle) slide.subtitle = input.subtitle;
+        if (input.notes) slide.notes = input.notes;
+
+        // Handle body: merge body + legacy left/right/comparison fields
         if (input.body) {
-            const bodyH = this.estimateTextHeight(input.body, 18);
-            slide.addText(input.body, {
-                x: MARGIN,
-                y: contentY,
-                w: CONTENT_W,
-                h: bodyH,
-                fontSize: 18,
-                fontFace: fontFamily,
-                color: '333333',
-                valign: 'top',
-                wrap: true,
-            });
-            contentY += bodyH + 0.2;
+            slide.body = input.body;
+        } else if (input.left || input.right) {
+            // Legacy two-column: merge into body
+            const parts: string[] = [];
+            if (input.left) parts.push(input.left);
+            if (input.right) parts.push(input.right);
+            slide.body = parts.join('\n\n');
+        } else if (input.comparison_left_title || input.comparison_right_title) {
+            // Legacy comparison: merge into body
+            const parts: string[] = [];
+            if (input.comparison_left_title) parts.push(`**${input.comparison_left_title}**`);
+            if (input.comparison_left) parts.push(input.comparison_left.join('\n'));
+            if (input.comparison_right_title) parts.push(`\n**${input.comparison_right_title}**`);
+            if (input.comparison_right) parts.push(input.comparison_right.join('\n'));
+            slide.body = parts.join('\n');
         }
 
-        // Bullet points
+        // Bullets
         if (input.bullets && input.bullets.length > 0) {
-            const bulletText = input.bullets.map(b => ({
-                text: b,
-                options: {
-                    fontSize: 18,
-                    fontFace: fontFamily,
-                    color: '333333',
-                    bullet: { type: 'bullet' as const },
-                    paraSpaceAfter: 6,
-                },
-            }));
-            const bulletH = Math.min(input.bullets.length * 0.5 + 0.3, CONTENT_H - (contentY - CONTENT_Y));
-            slide.addText(bulletText, {
-                x: MARGIN,
-                y: contentY,
-                w: CONTENT_W,
-                h: bulletH,
-                valign: 'top',
-            });
-            contentY += bulletH + 0.2;
+            slide.bullets = input.bullets;
         }
 
         // Table
         if (input.table) {
-            this.addTable(slide, input.table, contentY, primaryColor, fontFamily);
+            slide.table = input.table;
         }
 
         // Image from vault
         if (input.image) {
-            await this.addImage(slide, input.image, contentY);
-        }
-    }
-
-    private addTable(
-        slide: PptxGenJS.Slide,
-        table: NonNullable<SlideInput['table']>,
-        startY: number,
-        primaryColor: string,
-        fontFamily: string,
-    ): void {
-        const tableRows: PptxGenJS.TableRow[] = [];
-
-        // Header row
-        if (table.headers && table.headers.length > 0) {
-            tableRows.push(
-                table.headers.map(h => ({
-                    text: String(h),
-                    options: {
-                        bold: true,
-                        color: 'FFFFFF',
-                        fill: { color: primaryColor.replace('#', '') },
-                        fontSize: 14,
-                        fontFace: fontFamily,
-                    },
-                })),
-            );
-        }
-
-        // Data rows
-        if (table.rows) {
-            for (const row of table.rows) {
-                tableRows.push(
-                    (row as (string | number | null)[]).map(cell => ({
-                        text: cell !== null && cell !== undefined ? String(cell) : '',
-                        options: {
-                            fontSize: 13,
-                            fontFace: fontFamily,
-                            color: '333333',
-                        },
-                    })),
-                );
+            const imageData = await this.loadImage(input.image);
+            if (imageData) {
+                slide.image = imageData;
             }
         }
 
-        if (tableRows.length > 0) {
-            const remainingH = SLIDE_H - startY - MARGIN;
-            slide.addTable(tableRows, {
-                x: MARGIN,
-                y: startY,
-                w: CONTENT_W,
-                h: Math.min(tableRows.length * 0.4 + 0.2, remainingH),
-                border: { type: 'solid', pt: 0.5, color: 'CCCCCC' },
-                colW: Array(tableRows[0].length).fill(CONTENT_W / tableRows[0].length),
-                autoPage: true,
-            });
-        }
+        return slide;
     }
 
-    private async addImage(
-        slide: PptxGenJS.Slide,
-        imagePath: string,
-        startY: number,
-    ): Promise<void> {
+    private async loadImage(imagePath: string): Promise<SlideData['image'] | undefined> {
         try {
             const file = this.app.vault.getAbstractFileByPath(imagePath);
             if (!(file instanceof TFile)) {
-                // Image not found -- add placeholder text instead
-                slide.addText(`[Image not found: ${imagePath}]`, {
-                    x: MARGIN,
-                    y: startY,
-                    w: CONTENT_W,
-                    h: 1,
-                    fontSize: 14,
-                    color: '999999',
-                    italic: true,
-                });
-                return;
+                console.warn(`[CreatePptxTool] Image not found: ${imagePath}`);
+                return undefined;
             }
 
             const buffer = await this.app.vault.readBinary(file);
@@ -445,48 +358,15 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 gif: 'image/gif',
                 svg: 'image/svg+xml',
             };
-            const mime = mimeMap[ext] ?? 'image/png';
 
-            // Convert to base64 data URI
-            const uint8 = new Uint8Array(buffer);
-            let binary = '';
-            for (let i = 0; i < uint8.length; i++) {
-                binary += String.fromCharCode(uint8[i]);
-            }
-            const base64 = btoa(binary);
-            const dataUri = `data:${mime};base64,${base64}`;
-
-            const remainingH = SLIDE_H - startY - MARGIN;
-            slide.addImage({
-                data: dataUri,
-                x: MARGIN + 1.0,
-                y: startY,
-                w: CONTENT_W - 2.0,
-                h: Math.min(remainingH, 4.0),
-                sizing: { type: 'contain', w: CONTENT_W - 2.0, h: Math.min(remainingH, 4.0) },
-            });
+            return {
+                data: new Uint8Array(buffer),
+                extension: ext === 'jpg' ? 'jpeg' : ext,
+                mime: mimeMap[ext] ?? 'image/png',
+            };
         } catch {
-            slide.addText(`[Error loading image: ${imagePath}]`, {
-                x: MARGIN,
-                y: startY,
-                w: CONTENT_W,
-                h: 1,
-                fontSize: 14,
-                color: 'CC0000',
-                italic: true,
-            });
+            console.warn(`[CreatePptxTool] Error loading image: ${imagePath}`);
+            return undefined;
         }
-    }
-
-    /* -------------------------------------------------------------- */
-    /*  Utility                                                        */
-    /* -------------------------------------------------------------- */
-
-    private estimateTextHeight(text: string, fontSize: number): number {
-        const charsPerLine = Math.floor((CONTENT_W * 72) / fontSize);
-        const lines = text.split('\n').reduce((count, line) => {
-            return count + Math.max(1, Math.ceil(line.length / charsPerLine));
-        }, 0);
-        return Math.min(Math.max(lines * (fontSize / 72) * 1.4, 0.8), CONTENT_H);
     }
 }

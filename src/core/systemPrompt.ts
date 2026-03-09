@@ -44,6 +44,7 @@ import {
     getPluginSkillsSection,
     getSkillsSection,
     getRulesSection,
+    getOfficeBaseRulesSection,
 } from './prompts/sections';
 
 /**
@@ -163,6 +164,9 @@ export function buildSystemPromptForMode(
         // 8. Tool decision guidelines
         getToolDecisionGuidelinesSection(configDir!),
         '',
+
+        // 8.5. Office base rules (conditional -- only when edit tools available)
+        getOfficeBaseRulesSection(mode.toolGroups),
 
         // 9. Objective (task decomposition)
         getObjectiveSection(),

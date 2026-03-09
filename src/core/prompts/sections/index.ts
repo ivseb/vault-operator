@@ -18,3 +18,4 @@ export { getCustomInstructionsSection } from './customInstructions';
 export { getPluginSkillsSection } from './pluginSkills';
 export { getSkillsSection } from './skills';
 export { getRulesSection } from './rules';
+export { getOfficeBaseRulesSection } from './officeBaseRules';
