@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon, requestUrl } from 'obsidian';
-import { ObsidianAgentSettings, DEFAULT_SETTINGS, getModelKey, modelToLLMProvider } from './types/settings';
+import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel, AutoApprovalConfig } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { OBSILO_ICON_SVG } from './ui/obsiloIcon';
@@ -664,6 +664,25 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (this.settings.recipes && !this.settings.recipes.enabled) {
             this.settings.recipes.enabled = true;
             void this.saveData(this.encryptSettingsForSave(this.settings));
+        }
+
+        // Seed built-in MCP servers (EPIC-011: design asset integration)
+        this.settings.mcpServers = this.settings.mcpServers ?? {};
+        for (const [name, config] of Object.entries(BUILTIN_MCP_SERVERS)) {
+            const existing = this.settings.mcpServers[name];
+            if (!existing) {
+                this.settings.mcpServers[name] = { ...config };
+            } else if (existing.isBuiltIn && existing.type !== config.type) {
+                // Update transport type if it changed (e.g. SSE -> streamable-http)
+                existing.type = config.type;
+                existing.url = config.url;
+            }
+        }
+        // Remove stale built-in servers no longer shipped with the plugin
+        for (const [name, config] of Object.entries(this.settings.mcpServers)) {
+            if (config.isBuiltIn && !BUILTIN_MCP_SERVERS[name]) {
+                delete this.settings.mcpServers[name];
+            }
         }
 
         // Migrate auto-approval: ensure newer keys have sensible defaults

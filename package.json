@@ -58,6 +58,7 @@
     "openai": "^4.0.0",
     "p-wait-for": "^5.0.0",
     "pdfjs-dist": "^4.4.168",
+    "pptxgenjs": "^4.0.1",
     "serialize-error": "^11.0.0",
     "uuid": "^9.0.1",
     "vectra": "^0.12.3"

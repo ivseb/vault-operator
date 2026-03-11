@@ -10,7 +10,9 @@
  *   3. Capabilities
  *   4. User memory
  *   5. Tools (filtered by mode)
- *   6. Plugin Skills (right after tools — agent sees plugins before deciding)
+ *   6. Plugin Skills (right after tools -- agent sees plugins before deciding)
+ *   6.5. Procedural Recipes
+ *   6.6. Self-Authored Skills
  *   7. Tool rules
  *   8. Tool decision guidelines
  *   9. Objective (task decomposition)
@@ -19,7 +21,7 @@
  *  12. Security boundary
  *  13. Mode role definition
  *  14. Custom instructions
- *  15. Skills (manual)
+ *  15. Skills (manual + bundled, trigger-matched per message)
  *  16. Rules
  *
  * Adapted from Kilo Code's src/core/prompts/system.ts — modularized for Obsidian.
@@ -44,7 +46,6 @@ import {
     getPluginSkillsSection,
     getSkillsSection,
     getRulesSection,
-    getOfficeBaseRulesSection,
 } from './prompts/sections';
 
 /**
@@ -164,9 +165,6 @@ export function buildSystemPromptForMode(
         // 8. Tool decision guidelines
         getToolDecisionGuidelinesSection(configDir!),
         '',
-
-        // 8.5. Office base rules (conditional -- only when edit tools available)
-        getOfficeBaseRulesSection(mode.toolGroups),
 
         // 9. Objective (task decomposition)
         getObjectiveSection(),

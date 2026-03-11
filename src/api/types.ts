@@ -63,4 +63,11 @@ export interface ApiHandler {
      * Get model information
      */
     getModel(): { id: string; info: ModelInfo };
+
+    /**
+     * Quick non-streaming text completion for lightweight classification tasks.
+     * Used by skill matching LLM-fallback (~100 input tokens, ~10 output tokens).
+     * Returns the raw text response trimmed of whitespace.
+     */
+    classifyText?(prompt: string, abortSignal?: AbortSignal): Promise<string>;
 }

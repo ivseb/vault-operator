@@ -202,6 +202,7 @@ export const de: Translations = {
     'settings.mcp.toolCount': '{{count}} Tool(s)',
     'settings.mcp.edit': 'Bearbeiten',
     'settings.mcp.delete': 'Löschen',
+    'settings.mcp.builtInDisabledHint': 'API-Key erforderlich -- bearbeiten, konfigurieren, dann verbinden',
 
     // =========================================================================
     // Settings — Modes Tab

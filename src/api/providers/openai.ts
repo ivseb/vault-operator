@@ -301,4 +301,20 @@ export class OpenAiProvider implements ApiHandler {
             },
         }));
     }
+
+    /**
+     * Quick non-streaming classification call (~100 input, ~10 output tokens).
+     * Used by skill matching LLM-fallback when regex finds no match.
+     */
+    async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        const response = await this.client.chat.completions.create({
+            model: this.config.model,
+            max_tokens: 50,
+            messages: [{ role: 'user', content: prompt }],
+        }, {
+            signal: abortSignal ?? undefined,
+        });
+
+        return response.choices?.[0]?.message?.content?.trim() ?? '';
+    }
 }

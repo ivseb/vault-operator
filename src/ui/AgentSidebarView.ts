@@ -657,7 +657,93 @@ export class AgentSidebarView extends ItemView {
         // For keyword-matched skills, use getRelevantSkills() which inlines full SKILL.md content.
         // This eliminates the read_file round-trip the agent would otherwise need.
         const section = await skillsManager.getRelevantSkills(userMessage, toggles);
+
+        // Also check bundled skills (SelfAuthoredSkillLoader) for trigger matches.
+        // Their full body must be injected -- metadata summary alone is not enough.
+        const selfLoader = this.plugin.selfAuthoredSkillLoader;
+        let bundledSection = '';
+        if (selfLoader) {
+            const matched = selfLoader.matchSkills(userMessage);
+            if (matched.length > 0) {
+                bundledSection = this.formatBundledSkills(matched, selfLoader);
+            }
+        }
+
+        // If neither keyword nor regex matched, try LLM-based classification (slow path)
+        if (!section && !bundledSection && selfLoader) {
+            const llmMatched = await this.classifySkillIntent(userMessage, selfLoader);
+            if (llmMatched) {
+                bundledSection = this.formatBundledSkills([llmMatched], selfLoader);
+            }
+        }
+
+        // Merge vault skills + bundled skills
+        if (section && bundledSection) {
+            // Insert bundled skills into existing <available_skills> block
+            return section.replace('</available_skills>', bundledSection + '\n</available_skills>');
+        }
+        if (bundledSection) {
+            return `<available_skills>\n${bundledSection}\n</available_skills>`;
+        }
         return section || undefined;
+    }
+
+    /**
+     * Format bundled skills into XML for system prompt injection.
+     */
+    private formatBundledSkills(
+        matched: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill[],
+        selfLoader: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkillLoader,
+    ): string {
+        const parts = matched.map(s => {
+            const body = selfLoader.getSkillBody(s.name);
+            if (!body) return '';
+            const trimmed = body.length > 6000 ? body.slice(0, 6000) + '\n...(truncated)' : body;
+            return `  <skill>\n    <name>${xmlEsc(s.name)}</name>\n    <description>${xmlEsc(s.description)}</description>\n    <instructions>${xmlEsc(trimmed)}</instructions>\n  </skill>`;
+        }).filter(Boolean);
+        return parts.join('\n');
+    }
+
+    /**
+     * LLM-fallback for skill matching: classify user intent when regex finds no match.
+     * Compact prompt (~200 input tokens, ~10 output tokens). Only called when fast-path
+     * (keyword + regex) finds nothing.
+     */
+    private async classifySkillIntent(
+        userMessage: string,
+        selfLoader: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkillLoader,
+    ): Promise<import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill | null> {
+        const allSkills = selfLoader.getAllSkills();
+        if (allSkills.length === 0) return null;
+
+        // Build a compact skill list for the classification prompt
+        const skillList = allSkills.map(s => `- ${s.name}: ${s.description}`).join('\n');
+
+        const prompt =
+            `Given this user message: "${userMessage.slice(0, 300)}"\n` +
+            `Which skill applies? Options:\n${skillList}\n- none: No skill applies\n` +
+            `Reply with ONLY the skill name or "none".`;
+
+        try {
+            const model = this.plugin.getActiveModel();
+            if (!model) return null;
+
+            const handler = buildApiHandlerForModel(model);
+            if (!handler.classifyText) return null;
+
+            const result = await handler.classifyText(prompt);
+            const slug = result.toLowerCase().trim();
+
+            if (slug === 'none' || !slug) return null;
+
+            // Find the matching skill (flexible: exact name or partial match)
+            return allSkills.find(s => s.name.toLowerCase() === slug)
+                ?? allSkills.find(s => slug.includes(s.name.toLowerCase()))
+                ?? null;
+        } catch (e) {
+            console.debug('[buildSkillsSection] LLM skill classification failed:', e);
+            return null;
+        }
     }
 
     private autoResizeTextarea(): void {
@@ -3537,4 +3623,9 @@ export class AgentSidebarView extends ItemView {
         if (num >= 1_000) return (num / 1_000).toFixed(1) + 'k';
         return num.toString();
     }
+}
+
+/** Minimal XML-escape for skill injection (module-level helper). */
+function xmlEsc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }

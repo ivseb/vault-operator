@@ -49,9 +49,24 @@ export class TemplateManager {
 
     /**
      * Load a PPTX template from the vault by path.
+     * If exact path doesn't match, searches for the filename across the vault.
      */
     async loadVaultTemplate(vaultPath: string): Promise<ArrayBuffer> {
-        const file = this.plugin.app.vault.getAbstractFileByPath(vaultPath);
+        let file = this.plugin.app.vault.getAbstractFileByPath(vaultPath);
+
+        // Fallback: search by filename if exact path not found
+        if (!(file instanceof TFile)) {
+            const filename = vaultPath.split('/').pop() ?? vaultPath;
+            const allFiles = this.plugin.app.vault.getFiles();
+            const match = allFiles.find(f =>
+                f.name === filename && /^(pptx|potx)$/i.test(f.extension),
+            );
+            if (match) {
+                file = match;
+                console.debug(`[TemplateManager] Resolved "${vaultPath}" to "${match.path}"`);
+            }
+        }
+
         if (!(file instanceof TFile)) {
             throw new Error(`Template file not found in vault: ${vaultPath}`);
         }

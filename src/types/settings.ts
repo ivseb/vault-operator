@@ -239,7 +239,22 @@ export interface McpServerConfig {
     disabled?: boolean;
     timeout?: number;
     alwaysAllow?: string[];
+    /** True for servers shipped with the plugin (cannot be deleted, only disabled) */
+    isBuiltIn?: boolean;
 }
+
+/** Built-in MCP servers shipped with the plugin.
+ * Icons8: streamable-http, no auth needed (free PNG icons, 368K+ icons)
+ */
+export const BUILTIN_MCP_SERVERS: Record<string, McpServerConfig> = {
+    'icons8': {
+        type: 'streamable-http',
+        url: 'https://mcp.icons8.com/mcp/',
+        disabled: false,
+        timeout: 60,
+        isBuiltIn: true,
+    },
+};
 
 // ---------------------------------------------------------------------------
 // Agent Mode configuration

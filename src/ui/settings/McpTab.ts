@@ -55,7 +55,12 @@ export class McpTab {
                 const info = row.createDiv({ cls: 'agent-mcp-server-info' });
                 info.createSpan({ cls: 'agent-mcp-server-name', text: name });
                 info.createSpan({ cls: 'agent-mcp-server-type', text: config.type });
-                if (status === 'error' && conn?.error) {
+                if (config.isBuiltIn) {
+                    info.createSpan({ cls: 'agent-mcp-server-badge', text: 'built-in' });
+                }
+                if (config.isBuiltIn && config.disabled && status !== 'connected') {
+                    info.createSpan({ cls: 'agent-mcp-server-hint', text: t('settings.mcp.builtInDisabledHint') });
+                } else if (status === 'error' && conn?.error) {
                     info.createSpan({ cls: 'agent-mcp-server-error', text: conn.error });
                 } else if (status === 'connected') {
                     const toolCount = conn?.tools.length ?? 0;
@@ -89,15 +94,17 @@ export class McpTab {
                 editBtn.setAttribute('aria-label', t('settings.mcp.edit'));
                 editBtn.addEventListener('click', () => openAddModal(name, config));
 
-                const delBtn = actions.createEl('button', { cls: 'agent-rules-delete-btn' });
-                setIcon(delBtn, 'trash-2');
-                delBtn.setAttribute('aria-label', t('settings.mcp.delete'));
-                delBtn.addEventListener('click', () => { void (async () => {
-                    if (mcpClient) await mcpClient.disconnect(name);
-                    delete this.plugin.settings.mcpServers[name];
-                    await this.plugin.saveSettings();
-                    renderList();
-                })(); });
+                if (!config.isBuiltIn) {
+                    const delBtn = actions.createEl('button', { cls: 'agent-rules-delete-btn' });
+                    setIcon(delBtn, 'trash-2');
+                    delBtn.setAttribute('aria-label', t('settings.mcp.delete'));
+                    delBtn.addEventListener('click', () => { void (async () => {
+                        if (mcpClient) await mcpClient.disconnect(name);
+                        delete this.plugin.settings.mcpServers[name];
+                        await this.plugin.saveSettings();
+                        renderList();
+                    })(); });
+                }
             }
         };
 
@@ -162,6 +169,8 @@ export class McpTab {
                     url: urlInput.value.trim(),
                     headers: parseKV(headersInput.value),
                     timeout: parseInt(timeoutInput.value) || 60,
+                    disabled: false,
+                    ...(editConfig?.isBuiltIn ? { isBuiltIn: true } : {}),
                 };
 
                 this.plugin.settings.mcpServers ??= {};

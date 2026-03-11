@@ -21,6 +21,7 @@ import type { ModeService } from './modes/ModeService';
 import type { ModeConfig } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
+import { QUALITY_GATES } from './tools/qualityGates';
 
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
@@ -572,10 +573,12 @@ export class AgentTask {
                             );
                         }
 
+                        // Append quality gate checklist to LLM history (not UI)
+                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: result.content,
+                            content: gate ? result.content + '\n\n' + gate : result.content,
                             is_error: result.is_error,
                         });
                     }
@@ -594,10 +597,12 @@ export class AgentTask {
                             );
                         }
 
+                        // Append quality gate checklist to LLM history (not UI)
+                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: result.content,
+                            content: gate ? result.content + '\n\n' + gate : result.content,
                             is_error: result.is_error,
                         });
 

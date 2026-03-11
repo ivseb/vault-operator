@@ -1,5 +1,8 @@
-export { generatePptx, getTemplateLayouts } from './PptxTemplateEngine';
-export { buildSlideXml, buildNotesSlideXml, buildSlideRelsXml, escapeXml } from './SlideXmlBuilder';
+export { generateFreshPptx, generateFromHtml } from './PptxFreshGenerator';
+export { renderHtmlSlide } from './HtmlSlideParser';
 export { TemplateManager } from './TemplateManager';
 export type { DefaultTemplateName } from './TemplateManager';
-export type { SlideData, LayoutType, LayoutMap, LayoutInfo, PlaceholderInfo } from './types';
+export type {
+    SlideData, ChartData, ChartSeries, KpiData, ProcessStep,
+    HtmlSlideInput, TableData,
+} from './types';
