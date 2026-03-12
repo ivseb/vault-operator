@@ -637,6 +637,15 @@ export class AgentSidebarView extends ItemView {
         }
     }
 
+    /**
+     * Build the skills section for system prompt injection.
+     *
+     * Matching strategy (LLM-primary, keyword/trigger fallback):
+     *   1. Collect ALL skills (user + bundled) into a unified catalog
+     *   2. LLM classification: ask which skills apply (returns multiple)
+     *   3. Fallback: keyword + trigger matching if LLM unavailable/fails
+     *   4. Load full content for matched skills, deduplicate by name
+     */
     private async buildSkillsSection(userMessage: string, allowedSkillNames?: string[]): Promise<string | undefined> {
         const skillsManager = this.plugin.skillsManager;
         if (!skillsManager) return undefined;
@@ -644,106 +653,164 @@ export class AgentSidebarView extends ItemView {
         // Build effective toggles: combine manual toggles with per-mode allow-list
         const toggles = { ...(this.plugin.settings.manualSkillToggles ?? {}) };
         if (allowedSkillNames) {
-            // If mode has an explicit allow-list, disable any skill not in it
-            const allSkills: { path: string; name: string }[] = await skillsManager.discoverSkills();
+            const allUserSkills: { path: string; name: string }[] = await skillsManager.discoverSkills();
             const allowedSet = new Set(allowedSkillNames);
-            for (const skill of allSkills) {
+            for (const skill of allUserSkills) {
                 if (!allowedSet.has(skill.name)) {
                     toggles[skill.path] = false;
                 }
             }
         }
 
-        // For keyword-matched skills, use getRelevantSkills() which inlines full SKILL.md content.
-        // This eliminates the read_file round-trip the agent would otherwise need.
-        const section = await skillsManager.getRelevantSkills(userMessage, toggles);
+        // 1. Collect ALL available skills into a unified catalog
+        const userSkills = await skillsManager.discoverSkills();
+        const filteredUserSkills = Object.keys(toggles).length > 0
+            ? userSkills.filter(s => toggles[s.path] !== false)
+            : userSkills;
 
-        // Also check bundled skills (SelfAuthoredSkillLoader) for trigger matches.
-        // Their full body must be injected -- metadata summary alone is not enough.
         const selfLoader = this.plugin.selfAuthoredSkillLoader;
-        let bundledSection = '';
-        if (selfLoader) {
-            const matched = selfLoader.matchSkills(userMessage);
-            if (matched.length > 0) {
-                bundledSection = this.formatBundledSkills(matched, selfLoader);
+        const bundledSkills = selfLoader?.getAllSkills() ?? [];
+
+        // Build catalog entries: { name, description, source }
+        interface CatalogEntry { name: string; description: string; src: 'user' | 'bundled' }
+        const catalog: CatalogEntry[] = [
+            ...filteredUserSkills.map(s => ({ name: s.name, description: s.description, src: 'user' as const })),
+            ...bundledSkills.map(s => ({ name: s.name, description: s.description, src: 'bundled' as const })),
+        ];
+
+        if (catalog.length === 0) return undefined;
+
+        // 2. LLM classification (primary) -- ask which skills apply
+        let matchedNames = await this.classifySkillsWithLlm(userMessage, catalog);
+        console.debug('[buildSkillsSection] LLM matched skills:', [...matchedNames]);
+
+        // 3. Fallback: keyword + trigger matching if LLM returned nothing
+        if (matchedNames.size === 0) {
+            matchedNames = this.matchSkillsByKeywordAndTrigger(userMessage, filteredUserSkills, bundledSkills);
+            console.debug('[buildSkillsSection] Fallback matched skills:', [...matchedNames]);
+        }
+
+        if (matchedNames.size === 0) return undefined;
+
+        // 4. Load full content for matched skills, deduplicate by name
+        const parts: string[] = [];
+        const seen = new Set<string>();
+
+        for (const name of matchedNames) {
+            if (seen.has(name)) continue;
+            seen.add(name);
+
+            // Try user skill first
+            const userSkill = filteredUserSkills.find(s => s.name === name);
+            if (userSkill) {
+                try {
+                    const raw = await skillsManager.readFile(userSkill.path);
+                    let body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+                    if (body.length > 16000) body = body.slice(0, 16000) + '\n...(truncated)';
+                    parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(userSkill.description)}</description>\n    <instructions>${xmlEsc(body)}</instructions>\n  </skill>`);
+                } catch { /* skip unreadable */ }
+                continue;
+            }
+
+            // Try bundled skill
+            if (selfLoader) {
+                const bundled = selfLoader.getSkill(name);
+                if (bundled) {
+                    const body = selfLoader.getSkillBody(name);
+                    if (body) {
+                        const trimmed = body.length > 16000 ? body.slice(0, 16000) + '\n...(truncated)' : body;
+                        parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(bundled.description)}</description>\n    <instructions>${xmlEsc(trimmed)}</instructions>\n  </skill>`);
+                    }
+                }
             }
         }
 
-        // If neither keyword nor regex matched, try LLM-based classification (slow path)
-        if (!section && !bundledSection && selfLoader) {
-            const llmMatched = await this.classifySkillIntent(userMessage, selfLoader);
-            if (llmMatched) {
-                bundledSection = this.formatBundledSkills([llmMatched], selfLoader);
-            }
-        }
-
-        // Merge vault skills + bundled skills
-        if (section && bundledSection) {
-            // Insert bundled skills into existing <available_skills> block
-            return section.replace('</available_skills>', bundledSection + '\n</available_skills>');
-        }
-        if (bundledSection) {
-            return `<available_skills>\n${bundledSection}\n</available_skills>`;
-        }
-        return section || undefined;
+        if (parts.length === 0) return undefined;
+        console.debug(`[buildSkillsSection] Injecting ${parts.length} skill(s): ${[...seen].join(', ')}`);
+        return `<available_skills>\n${parts.join('\n')}\n</available_skills>`;
     }
 
     /**
-     * Format bundled skills into XML for system prompt injection.
+     * LLM-based skill classification (primary matching strategy).
+     * Sends a compact prompt with all skill names + descriptions, asks which apply.
+     * Returns ALL applicable skill names (not just one).
      */
-    private formatBundledSkills(
-        matched: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill[],
-        selfLoader: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkillLoader,
-    ): string {
-        const parts = matched.map(s => {
-            const body = selfLoader.getSkillBody(s.name);
-            if (!body) return '';
-            const trimmed = body.length > 6000 ? body.slice(0, 6000) + '\n...(truncated)' : body;
-            return `  <skill>\n    <name>${xmlEsc(s.name)}</name>\n    <description>${xmlEsc(s.description)}</description>\n    <instructions>${xmlEsc(trimmed)}</instructions>\n  </skill>`;
-        }).filter(Boolean);
-        return parts.join('\n');
-    }
-
-    /**
-     * LLM-fallback for skill matching: classify user intent when regex finds no match.
-     * Compact prompt (~200 input tokens, ~10 output tokens). Only called when fast-path
-     * (keyword + regex) finds nothing.
-     */
-    private async classifySkillIntent(
+    private async classifySkillsWithLlm(
         userMessage: string,
-        selfLoader: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkillLoader,
-    ): Promise<import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill | null> {
-        const allSkills = selfLoader.getAllSkills();
-        if (allSkills.length === 0) return null;
-
-        // Build a compact skill list for the classification prompt
-        const skillList = allSkills.map(s => `- ${s.name}: ${s.description}`).join('\n');
-
-        const prompt =
-            `Given this user message: "${userMessage.slice(0, 300)}"\n` +
-            `Which skill applies? Options:\n${skillList}\n- none: No skill applies\n` +
-            `Reply with ONLY the skill name or "none".`;
-
+        catalog: Array<{ name: string; description: string }>,
+    ): Promise<Set<string>> {
         try {
             const model = this.plugin.getActiveModel();
-            if (!model) return null;
+            if (!model) return new Set();
 
             const handler = buildApiHandlerForModel(model);
-            if (!handler.classifyText) return null;
+            if (!handler.classifyText) return new Set();
+
+            const skillList = catalog.map(s => `- ${s.name}: ${s.description}`).join('\n');
+
+            const prompt =
+                `User message: "${userMessage.slice(0, 400)}"\n\n` +
+                `Available skills:\n${skillList}\n\n` +
+                `Which skills should be activated for this message? A task may need MULTIPLE skills ` +
+                `(e.g. a presentation needs both design and workflow skills, a corporate presentation ` +
+                `also needs the corporate template skill).\n` +
+                `Reply with a comma-separated list of skill names, or "none" if no skill applies.`;
 
             const result = await handler.classifyText(prompt);
-            const slug = result.toLowerCase().trim();
+            const cleaned = result.toLowerCase().trim();
 
-            if (slug === 'none' || !slug) return null;
+            if (cleaned === 'none' || !cleaned) return new Set();
 
-            // Find the matching skill (flexible: exact name or partial match)
-            return allSkills.find(s => s.name.toLowerCase() === slug)
-                ?? allSkills.find(s => slug.includes(s.name.toLowerCase()))
-                ?? null;
+            // Parse comma-separated response, match against catalog
+            const requested = cleaned.split(/[,\n]+/).map(s => s.trim().replace(/^-\s*/, ''));
+            const matched = new Set<string>();
+
+            for (const req of requested) {
+                if (!req || req === 'none') continue;
+                // Exact match
+                const exact = catalog.find(s => s.name.toLowerCase() === req);
+                if (exact) { matched.add(exact.name); continue; }
+                // Partial match (LLM might abbreviate)
+                const partial = catalog.find(s => req.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(req));
+                if (partial) matched.add(partial.name);
+            }
+
+            return matched;
         } catch (e) {
             console.debug('[buildSkillsSection] LLM skill classification failed:', e);
-            return null;
+            return new Set();
         }
+    }
+
+    /**
+     * Keyword + trigger matching (fallback when LLM is unavailable).
+     * Combines user skill keyword matching with bundled skill trigger regex.
+     */
+    private matchSkillsByKeywordAndTrigger(
+        userMessage: string,
+        userSkills: import('../core/context/SkillsManager').SkillMeta[],
+        bundledSkills: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill[],
+    ): Set<string> {
+        const matched = new Set<string>();
+        const msgLower = userMessage.toLowerCase();
+        const wordPattern = /[a-z0-9\u00C0-\u024F_]{3,}/gi;
+        const msgWords = new Set(msgLower.match(wordPattern) ?? []);
+
+        // User skills: trigger regex + keyword
+        for (const s of userSkills) {
+            if (s.trigger) {
+                try { if (new RegExp(s.trigger, 'i').test(msgLower)) { matched.add(s.name); continue; } } catch { /* skip */ }
+            }
+            const descWords = s.description.toLowerCase().match(wordPattern) ?? [];
+            if (descWords.some(w => msgWords.has(w))) matched.add(s.name);
+        }
+
+        // Bundled skills: trigger regex
+        for (const s of bundledSkills) {
+            if (s.trigger.test(userMessage)) matched.add(s.name);
+        }
+
+        return matched;
     }
 
     private autoResizeTextarea(): void {

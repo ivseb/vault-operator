@@ -266,6 +266,16 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
+    // ── Template Analysis ──────────────────────────────────────────────
+    analyze_pptx_template: {
+        group: 'read', label: 'Analyze PPTX Template', icon: 'search',
+        signature: 'analyze_pptx_template(template_path, generate_skill?, skill_name?)',
+        description: 'Analyze a PPTX template to extract design elements, brand DNA (colors, fonts), and slide compositions. Optionally generates a reusable Template Skill.',
+        example: 'analyze_pptx_template("Templates/corporate.pptx", true, "Corporate")',
+        whenToUse: 'Before creating presentations with a new template. Extracts element catalog and shape names for accurate content mapping.',
+        commonMistakes: 'Creating presentations without first analyzing the template -- run this tool first to understand available slide types and shape names.',
+    },
+
     // ── Office Document Creation ────────────────────────────────────────
     create_pptx: {
         group: 'edit', label: 'Create PPTX', icon: 'presentation',

@@ -1,13 +1,18 @@
 /**
  * CreatePptxTool
  *
- * Creates a PowerPoint presentation (.pptx) using two pipelines:
+ * Creates a PowerPoint presentation (.pptx) using three pipelines:
  *
- * 1. HTML Pipeline (preferred): LLM generates annotated HTML per slide
+ * 1. Template Pipeline (corporate): Clones slides from an existing .pptx
+ *    template via JSZip. Achieves 100% pixel-perfect corporate design by
+ *    reusing the template's theme, masters, layouts, and custom geometries.
+ *    LLM only selects template slides and provides text content.
+ *
+ * 2. HTML Pipeline (default themes): LLM generates annotated HTML per slide
  *    with data-object-type attributes and absolute pixel positioning.
  *    HtmlSlideParser converts to PptxGenJS API calls.
  *
- * 2. Legacy Pipeline (fallback): Structured SlideData fields (title,
+ * 3. Legacy Pipeline (fallback): Structured SlideData fields (title,
  *    bullets, chart, etc.) routed to PptxFreshGenerator.
  */
 
@@ -17,6 +22,8 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
 import { generateFreshPptx, generateFromHtml } from '../../office';
+import { cloneFromTemplate } from '../../office/PptxTemplateCloner';
+import type { TemplateSlideInput, CloneResult, SlideDiagnostic } from '../../office/PptxTemplateCloner';
 import type { SlideData, HtmlSlideInput, ChartData, ChartSeries, KpiData, ProcessStep, TableData } from '../../office';
 
 /* ------------------------------------------------------------------ */
@@ -83,10 +90,9 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         return {
             name: 'create_pptx',
             description:
-                'Create a PowerPoint presentation (.pptx) with full layout control. ' +
-                'Use annotated HTML per slide (1280x720px canvas) with data-object-type attributes ' +
-                '(shape, textbox, image, chart, table) for precise positioning and styling. ' +
-                'Charts and tables use hybrid rendering: position from HTML, data from structured input. ' +
+                'Create a PowerPoint presentation (.pptx). ' +
+                'Two modes: (A) Template mode -- provide template_file (vault path to a .pptx) and slides with template_slide + content to clone slides from a corporate template with pixel-perfect precision. ' +
+                '(B) HTML mode -- provide slides with html field for custom layouts (1280x720px canvas, data-object-type attributes). ' +
                 'The file format is handled automatically -- never use write_file or evaluate_expression for .pptx files.',
             input_schema: {
                 type: 'object',
@@ -95,15 +101,36 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                         type: 'string',
                         description: 'Path for the presentation file (must end with .pptx)',
                     },
+                    template_file: {
+                        type: 'string',
+                        description:
+                            'Vault path to a .pptx template file for template-cloning mode. ' +
+                            'When provided, slides should use template_slide + content fields instead of html. ' +
+                            'The output inherits the template\'s theme, slide masters, layouts, fonts, and all visual elements.',
+                    },
                     slides: {
                         type: 'array',
                         items: {
                             type: 'object',
                             properties: {
+                                template_slide: {
+                                    type: 'number',
+                                    description:
+                                        'Template mode: 1-based slide number from the template to clone. ' +
+                                        'Refer to the corporate presentation skill for the slide catalog.',
+                                },
+                                content: {
+                                    type: 'object',
+                                    additionalProperties: { type: 'string' },
+                                    description:
+                                        'Template mode: key-value pairs mapping placeholder text to replacement text. ' +
+                                        'Keys are the existing text on the template slide (or a recognizable substring). ' +
+                                        'Values are the new text to insert.',
+                                },
                                 html: {
                                     type: 'string',
                                     description:
-                                        'Annotated HTML for this slide. Canvas: 1280x720px. ' +
+                                        'HTML mode: Annotated HTML for this slide. Canvas: 1280x720px. ' +
                                         'Use <div data-object="true" data-object-type="shape|textbox|image|chart|table" ' +
                                         'style="position: absolute; left: Xpx; top: Ypx; width: Wpx; height: Hpx; ..."> ' +
                                         'for each element. See presentation-design skill for element catalog and patterns.',
@@ -243,8 +270,63 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
-        const rawSlides = Array.isArray(input.slides) ? (input.slides as SlideInput[]) : [];
+        // Handle slides as array or as JSON string (LLMs sometimes stringify the array)
+        let rawSlides: SlideInput[] = [];
+        console.debug(
+            '[CreatePptxTool] input.slides type:', typeof input.slides,
+            'isArray:', Array.isArray(input.slides),
+            'truthy:', !!input.slides,
+        );
+        if (Array.isArray(input.slides)) {
+            rawSlides = input.slides as SlideInput[];
+            console.debug('[CreatePptxTool] Array path: rawSlides.length =', rawSlides.length);
+            // Check if array elements are strings (another serialization layer)
+            if (rawSlides.length > 0 && typeof rawSlides[0] === 'string') {
+                console.debug('[CreatePptxTool] Array elements are strings, attempting parse');
+                try {
+                    rawSlides = rawSlides.map(s =>
+                        typeof s === 'string' ? JSON.parse(s as unknown as string) as SlideInput : s,
+                    );
+                } catch (e) {
+                    console.warn('[CreatePptxTool] Failed to parse array string elements:', e);
+                }
+            }
+        } else if (typeof input.slides === 'string') {
+            const slidesStr = input.slides as string;
+            console.debug('[CreatePptxTool] String path, length =', slidesStr.length, 'first 200 chars:', slidesStr.substring(0, 200));
+            try {
+                const parsed = JSON.parse(slidesStr);
+                if (Array.isArray(parsed)) {
+                    rawSlides = parsed as SlideInput[];
+                    console.debug('[CreatePptxTool] JSON.parse succeeded, rawSlides.length =', rawSlides.length);
+                } else {
+                    console.warn('[CreatePptxTool] JSON.parse returned non-array:', typeof parsed);
+                }
+            } catch (parseErr) {
+                console.warn('[CreatePptxTool] JSON.parse failed:', (parseErr as Error).message);
+                // Fallback: try fixing common JSON issues (literal newlines in string values)
+                try {
+                    // Re-escape literal control chars inside JSON string values
+                    const fixed = slidesStr.replace(
+                        /"(?:[^"\\]|\\.)*"/g,
+                        (m) => m.replace(/[\n\r\t]/g, (c) =>
+                            c === '\n' ? '\\n' : c === '\r' ? '\\r' : '\\t',
+                        ),
+                    );
+                    const parsed2 = JSON.parse(fixed);
+                    if (Array.isArray(parsed2)) {
+                        rawSlides = parsed2 as SlideInput[];
+                        console.debug('[CreatePptxTool] Fixed JSON.parse succeeded, rawSlides.length =', rawSlides.length);
+                    }
+                } catch (fixErr) {
+                    console.warn('[CreatePptxTool] Fixed JSON.parse also failed:', (fixErr as Error).message);
+                }
+            }
+        } else if (input.slides !== undefined) {
+            console.warn('[CreatePptxTool] Unexpected slides type:', typeof input.slides, 'value:', String(input.slides).substring(0, 200));
+        }
         const templateRef = ((input.template as string) ?? '').trim();
+        const templateFile = ((input.template_file as string) ?? '').trim();
 
         // Validation
         if (!outputPath) {
@@ -257,33 +339,76 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         }
 
         const slides = rawSlides.slice(0, 50);
-        const templateName = this.getTemplateName(templateRef);
+        const templateName = templateFile ? templateFile.split('/').pop() ?? templateFile : this.getTemplateName(templateRef);
+
+        console.debug('[CreatePptxTool] Final slides.length:', slides.length, 'templateFile:', templateFile ? 'yes' : 'no');
 
         // Analyze-only mode
         if (slides.length === 0) {
-            callbacks.pushToolResult(
-                `Theme: **${templateName}**\n\n` +
-                `Canvas: 1280x720px (16:9). Use annotated HTML with data-object-type attributes.\n` +
-                `Element types: shape, textbox, image, chart, table.\n` +
-                `Refer to the presentation-design skill for element catalog and layout patterns.\n\n` +
-                `Now call create_pptx again with your slides using HTML format.`,
-            );
-            callbacks.log(`PPTX info returned for theme: ${templateName}`);
+            if (templateFile) {
+                callbacks.pushToolResult(
+                    `Template: **${templateName}**\n\n` +
+                    `Template-cloning mode active. Provide slides with template_slide (1-based slide number) ` +
+                    `and content (key-value text replacements).\n` +
+                    `Refer to the corporate presentation skill for the available slide catalog.\n\n` +
+                    `Now call create_pptx again with your slides.`,
+                );
+            } else {
+                callbacks.pushToolResult(
+                    `Theme: **${templateName}**\n\n` +
+                    `Canvas: 1280x720px (16:9). Use annotated HTML with data-object-type attributes.\n` +
+                    `Element types: shape, textbox, image, chart, table.\n` +
+                    `Refer to the presentation-design skill for element catalog and layout patterns.\n\n` +
+                    `Now call create_pptx again with your slides using HTML format.`,
+                );
+            }
+            callbacks.log(`PPTX info returned for: ${templateName}`);
             return;
         }
 
         try {
-            // Detect pipeline: HTML vs Legacy
+            // Detect pipeline: Template vs HTML vs Legacy
+            const hasTemplateSlides = templateFile && slides.some(s => (s as Record<string, unknown>).template_slide);
             const hasHtml = slides.some(s => s.html);
+            console.debug('[CreatePptxTool] Pipeline detection: hasTemplateSlides:', hasTemplateSlides, 'hasHtml:', hasHtml, 'templateFile:', templateFile);
+            if (slides.length > 0) {
+                const firstSlide = slides[0] as Record<string, unknown>;
+                console.debug('[CreatePptxTool] First slide keys:', Object.keys(firstSlide).filter(k => firstSlide[k] !== undefined));
+            }
+
+            // Guard: template_file provided but slides use html instead of template_slide
+            // This means the agent ignored the corporate skill instructions -- reject and guide
+            if (templateFile && hasHtml && !hasTemplateSlides) {
+                callbacks.pushToolResult(
+                    `**Error: template_file was provided but slides use "html" instead of "template_slide".**\n\n` +
+                    `When using a corporate template (template_file), each slide MUST use:\n` +
+                    `- \`template_slide\`: 1-based slide number from the template catalog\n` +
+                    `- \`content\`: key-value pairs mapping placeholder text to replacement text\n\n` +
+                    `Do NOT use the "html" field with template_file. ` +
+                    `Refer to the corporate presentation skill for the slide catalog and correct format.\n\n` +
+                    `Please retry with template_slide + content fields.`,
+                );
+                return;
+            }
 
             let buffer: ArrayBuffer;
+            let pipeline: string;
+            let diagnostics: SlideDiagnostic[] = [];
 
-            if (hasHtml) {
+            if (hasTemplateSlides) {
+                // Template Pipeline -- clone from corporate template
+                const cloneResult = await this.generateViaTemplate(templateFile, slides);
+                buffer = cloneResult.buffer;
+                diagnostics = cloneResult.slideDiagnostics;
+                pipeline = 'Template';
+            } else if (hasHtml) {
                 // HTML Pipeline
                 buffer = await this.generateViaHtml(slides);
+                pipeline = 'HTML';
             } else {
                 // Legacy Pipeline
                 buffer = await this.generateViaLegacy(slides, templateRef);
+                pipeline = 'Legacy';
             }
 
             // Write to vault
@@ -296,20 +421,78 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
             const action = result.created ? 'Created' : 'Updated';
             const sizeKB = Math.round(result.size / 1024);
-            const pipeline = hasHtml ? 'HTML' : 'Legacy';
+
+            // Build diagnostics section for template pipeline
+            let diagSection = '';
+            if (diagnostics.length > 0) {
+                const hasUnmatched = diagnostics.some(d => d.unmatchedKeys.length > 0);
+                if (hasUnmatched) {
+                    diagSection = '\n\n**WARNING: Some content keys did not match template text.**\n' +
+                        'Unmatched keys mean the original template text remains (e.g. "Lorem ipsum").\n' +
+                        'Fix: Use the EXACT text from the slide catalog in the corporate skill.\n\n';
+                    for (const d of diagnostics) {
+                        if (d.unmatchedKeys.length > 0) {
+                            diagSection += `Slide ${d.templateSlide}:\n`;
+                            diagSection += `  Unmatched keys: ${d.unmatchedKeys.map(k => `"${k}"`).join(', ')}\n`;
+                            diagSection += `  Text actually on slide: ${d.shapeTexts.map(t => `"${t.substring(0, 80)}${t.length > 80 ? '...' : ''}"`).join(', ')}\n`;
+                        }
+                    }
+                }
+            }
+
             callbacks.pushToolResult(
                 `${action} PowerPoint presentation: **${outputPath}**\n` +
                 `- ${slides.length} slide${slides.length !== 1 ? 's' : ''}\n` +
-                `- Theme: ${templateName}\n` +
+                `- Template: ${templateName}\n` +
                 `- Size: ${sizeKB} KB\n` +
-                `- Pipeline: ${pipeline}\n\n` +
-                `Download or open the file to view the presentation.`,
+                `- Pipeline: ${pipeline}` +
+                diagSection +
+                `\n\nDownload or open the file to view the presentation.`,
             );
             callbacks.log(`${action} PPTX: ${outputPath} (${slides.length} slides, ${sizeKB} KB, pipeline: ${pipeline})`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('create_pptx', error);
         }
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Template Pipeline (corporate)                                  */
+    /* -------------------------------------------------------------- */
+
+    private async generateViaTemplate(templateFile: string, slides: SlideInput[]): Promise<CloneResult> {
+        // Load template from vault
+        const file = this.app.vault.getAbstractFileByPath(templateFile);
+        if (!(file instanceof TFile)) {
+            throw new Error(`Template file not found: ${templateFile}`);
+        }
+        if (!file.extension.toLowerCase().match(/^(pptx|potx)$/)) {
+            throw new Error(`Template must be a .pptx or .potx file, got: .${file.extension}`);
+        }
+
+        const templateData = await this.app.vault.readBinary(file);
+
+        // Convert slide inputs to TemplateSlideInput format
+        const selections: TemplateSlideInput[] = [];
+        for (const s of slides) {
+            const raw = s as Record<string, unknown>;
+            const templateSlide = raw.template_slide as number | undefined;
+            if (!templateSlide || typeof templateSlide !== 'number') {
+                throw new Error(
+                    'Template mode: each slide must have a template_slide number. ' +
+                    'Got: ' + JSON.stringify(Object.keys(raw).filter(k => raw[k] !== undefined)),
+                );
+            }
+
+            const content = (raw.content as Record<string, string>) ?? {};
+            selections.push({
+                template_slide: templateSlide,
+                content,
+                notes: s.notes,
+            });
+        }
+
+        return cloneFromTemplate(templateData, selections);
     }
 
     /* -------------------------------------------------------------- */

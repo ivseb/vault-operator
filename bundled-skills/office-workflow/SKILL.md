@@ -1,7 +1,7 @@
 ---
 name: office-workflow
 description: Professional workflow for creating Office documents (PPTX, DOCX, XLSX) with structured process, design principles, and quality standards
-trigger: praesentation.*erstell|presentation.*creat|folie.*erstell|deck.*erstell|powerpoint|pptx|dokument.*erstell|document.*creat|docx|word.*erstell|spreadsheet|tabelle.*erstell|xlsx|excel
+trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx|dokument.*erstell|erstell.*dokument|document.*creat|docx|word.*erstell|spreadsheet|tabelle.*erstell|xlsx|excel
 source: bundled
 requiredTools: [create_pptx, create_docx, create_xlsx]
 ---
@@ -26,21 +26,51 @@ Ask about:
 Ask about template/theme. Send a regular text message (NOT ask_followup_question) and STOP your turn.
 
 For presentations:
-"Bevor ich die Praesentation erstelle: Welches Design soll ich verwenden? **Executive** (dunkel, serioes), **Modern** (hell, Blau/Orange), **Minimal** (Schwarz/Weiss). Falls du eine Corporate-Vorlage nutzen moechtest (z.B. Acme), nenne den Namen -- ich verwende dann den passenden Design-Skill."
+"Bevor ich die Praesentation erstelle: Welches Design soll ich verwenden? **Executive** (dunkel, serioes), **Modern** (hell, Blau/Orange), **Minimal** (Schwarz/Weiss). Falls du eine eigene Corporate-Vorlage nutzen moechtest, lade die .pptx-Datei in den Vault -- ich analysiere sie und erstelle einen Design-Skill daraus."
 
 NEVER skip this question. NEVER assume a template from memory.
 
-User responds: "Executive"/"Modern"/"Minimal" -> lowercase as template parameter. Corporate name (e.g. "Acme") -> the matching corporate presentation skill provides all design tokens.
+User responds: "Executive"/"Modern"/"Minimal" -> lowercase as template parameter. Corporate template -> proceed to ANALYZE step.
 
-### Step 3: PLAN
+### Step 3: ANALYZE (Corporate Templates only)
+
+If the user provides a corporate PPTX template:
+
+1. **Check for existing Template Skill**: Look for a matching user skill (e.g. `skills/acme-template/SKILL.md`). If found, skip analysis -- load the skill directly.
+
+2. **First-time analysis**: If no Template Skill exists, run `analyze_pptx_template` with `generate_skill: true`:
+   - This extracts the Element Catalog, Brand-DNA, and Slide Compositions
+   - Generates a Template Skill (SKILL.md) saved as a user skill
+   - Takes ~30-60 seconds for large templates (100+ slides)
+
+3. **Use the Template Skill**: Once available, the Template Skill provides:
+   - **Brand-DNA**: Colors, fonts, spacing for brand consistency
+   - **Element Catalog**: All unique design elements (chevrons, KPI cards, pyramids etc.)
+   - **Slide Compositions**: Which slides use which elements, with Shape-Name mappings
+   - **Shape-Names as content keys**: Use `"TextBox 5": "new content"` instead of text-based keys
+
+**Corporate template mode rules:**
+- Use `template_file` + `template_slide` + `content` instead of `html`. NEVER use the `html` field.
+- The Template Skill provides the slide catalog with ALL available slide types.
+- Apply the Content Classification Framework from the presentation-design skill (Part A) to match content types to template slide compositions.
+- Use the RICH slide types from the template (KPIs, process flows, SWOT, pyramids, org charts, etc.). NEVER build an entire deck from only text slides.
+- Content keys in the `content` object must use **Shape-Names** from the Template Skill (e.g. `"Title 1"`, `"TextBox 5"`).
+
 Draft the document structure and share with user for approval:
-- Presentations: Table with # | Visual Pattern | Action Title | Content Type | Narrative Function
-  - Plan the HTML layout mentally: which patterns (title, content, KPI grid, process, chart, etc.)
+- Presentations (corporate template): Use the Content Classification Framework (presentation-design skill Part A) to classify each content block. Then map to matching slide compositions from the Template Skill. Present a table with # | Template Slide # | Slide Type | Action Title | Content Summary | Why This Type
+- Presentations (default themes): Table with # | Visual Pattern | Action Title | Content Type | Narrative Function
 - Documents: Outline with headings and section descriptions
 - Spreadsheets: Column definitions and data structure
 
+**Corporate template planning rules:**
+- Max 30% of content slides may be plain text. The rest MUST use structured visual layouts.
+- Never use the same slide type on consecutive slides.
+- Apply the Visualization Decision Tree: numbers -> KPI/chart, sequence -> process, comparison -> matrix/two-column.
+- The plan MUST show the template slide number for every slide.
+
 ### Step 5: CREATE
-Call the creation tool with full content data. Use the `html` field per slide for full layout control (see presentation-design skill for HTML format and patterns).
+- **Corporate template:** Call create_pptx with `template_file` and slides using `template_slide` + `content` fields. Use Shape-Names from the Template Skill as content keys.
+- **Default themes:** Call create_pptx with slides using the `html` field (see presentation-design skill Part B for HTML format and patterns).
 
 ## 2. Content Principles
 
@@ -69,12 +99,9 @@ If MCP icon/image tools are available, use them for visual enhancement.
 - Use different layout patterns: title, content+bullets, KPI grid, process flow, chart, table, two-column, section divider
 - Alternate dark-bg and light-bg slides for contrast
 
-## 4. Storytelling Framework (choose based on context)
+## 4. Storytelling Framework
 
-- **Strategy/Decision**: Situation -> Complication -> Resolution
-- **Pitch/Proposal**: Problem -> Solution -> Evidence -> CTA
-- **Status/Report**: What happened -> Why it matters -> What's next
-- **Data/Analysis**: Key Finding -> Evidence -> Implications
+Choose a Storytelling Framework from the presentation-design skill (Part A: "Storytelling Frameworks"). The framework determines the slide sequence and narrative arc -- apply it BEFORE selecting individual slide types.
 
 ## 5. Anti-Patterns (NEVER do these)
 
