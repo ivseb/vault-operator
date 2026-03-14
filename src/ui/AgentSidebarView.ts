@@ -1266,6 +1266,7 @@ export class AgentSidebarView extends ItemView {
         // `let` so onQuestion can create fresh elements for each onboarding turn.
         let { messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl();
         let accumulatedText = '';       // text accumulated during/after tool phase
+        let accumulatedToolContent = '';  // content written by file-writing tools (for task extraction)
         let accumulatedThinking = '';   // full thinking text for collapse/expand
         let hasTools = false;           // have any tools been called in this task?
         let isThinking = false;         // thinking is currently active
@@ -1549,6 +1550,19 @@ export class AgentSidebarView extends ItemView {
 
                     const writeOps = ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file'];
                     if (writeOps.includes(name)) taskWriteCount++;
+
+                    // Collect content from file-writing tools for task extraction (ADR-026)
+                    const taskRelevantOps = ['write_file', 'append_to_file', 'edit_file'];
+                    if (taskRelevantOps.includes(name) && input) {
+                        const inp = input as Record<string, unknown>;
+                        if (typeof inp['content'] === 'string') {
+                            accumulatedToolContent += '\n' + (inp['content'] as string);
+                        }
+                        if (typeof inp['new_str'] === 'string') {
+                            accumulatedToolContent += '\n' + (inp['new_str'] as string);
+                        }
+                    }
+
                     scheduleScroll();
                 },
                 onToolResult: (name, content, isError) => {
@@ -1733,6 +1747,7 @@ export class AgentSidebarView extends ItemView {
                         ({ messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl());
                         // Reset per-turn state
                         accumulatedText = '';
+                        accumulatedToolContent = '';
                         hasTools = false;
                         streamingPara = null;
                         stepsBlockEl = null;
@@ -1895,8 +1910,9 @@ export class AgentSidebarView extends ItemView {
                     this.saveCurrentConversation();
 
                     // Task Extraction Post-Processing (ADR-026, FEATURE-100)
-                    if (this.plugin.settings.taskExtraction?.enabled && accumulatedText) {
-                        void this.maybeExtractTasks(accumulatedText);
+                    const taskScanText = (accumulatedText + accumulatedToolContent).trim();
+                    if (this.plugin.settings.taskExtraction?.enabled && taskScanText) {
+                        void this.maybeExtractTasks(taskScanText);
                     }
 
                     // Auto-title: set fallback title for immediate history display (ADR-022)

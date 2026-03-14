@@ -31,6 +31,10 @@ import type { SlideData, HtmlSlideInput, ChartData, ChartSeries, KpiData, Proces
 /* ------------------------------------------------------------------ */
 
 interface SlideInput {
+    // Template pipeline (corporate)
+    template_slide?: number;
+    content?: Record<string, string>;
+
     // HTML pipeline (preferred)
     html?: string;
     charts?: ChartInput[];
@@ -368,24 +372,37 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
         try {
             // Detect pipeline: Template vs HTML vs Legacy
-            const hasTemplateSlides = templateFile && slides.some(s => (s as Record<string, unknown>).template_slide);
+            const hasTemplateSlides = templateFile && slides.some(s => s.template_slide);
             const hasHtml = slides.some(s => s.html);
             console.debug('[CreatePptxTool] Pipeline detection: hasTemplateSlides:', hasTemplateSlides, 'hasHtml:', hasHtml, 'templateFile:', templateFile);
             if (slides.length > 0) {
-                const firstSlide = slides[0] as Record<string, unknown>;
-                console.debug('[CreatePptxTool] First slide keys:', Object.keys(firstSlide).filter(k => firstSlide[k] !== undefined));
+                const firstSlide = slides[0];
+                console.debug('[CreatePptxTool] First slide keys:', Object.keys(firstSlide).filter(k => (firstSlide as Record<string, unknown>)[k] !== undefined));
             }
 
             // Guard: template_file provided but slides use html instead of template_slide
-            // This means the agent ignored the corporate skill instructions -- reject and guide
             if (templateFile && hasHtml && !hasTemplateSlides) {
                 callbacks.pushToolResult(
                     `**Error: template_file was provided but slides use "html" instead of "template_slide".**\n\n` +
                     `When using a corporate template (template_file), each slide MUST use:\n` +
                     `- \`template_slide\`: 1-based slide number from the template catalog\n` +
-                    `- \`content\`: key-value pairs mapping placeholder text to replacement text\n\n` +
+                    `- \`content\`: key-value pairs mapping Shape-Names to replacement text\n\n` +
                     `Do NOT use the "html" field with template_file. ` +
-                    `Refer to the corporate presentation skill for the slide catalog and correct format.\n\n` +
+                    `Refer to the Template Skill for the slide catalog and Shape-Name mappings.\n\n` +
+                    `Please retry with template_slide + content fields.`,
+                );
+                return;
+            }
+
+            // Guard: template_file provided but slides use only legacy fields (no template_slide, no html)
+            if (templateFile && !hasTemplateSlides && !hasHtml) {
+                callbacks.pushToolResult(
+                    `**Error: template_file was provided but slides don't use "template_slide".**\n\n` +
+                    `When using a corporate template (template_file), each slide MUST use:\n` +
+                    `- \`template_slide\`: 1-based slide number from the template catalog\n` +
+                    `- \`content\`: key-value pairs mapping Shape-Names to replacement text\n\n` +
+                    `The legacy fields (title, bullets, etc.) cannot be used with template_file. ` +
+                    `Refer to the Template Skill for the slide catalog and Shape-Name mappings.\n\n` +
                     `Please retry with template_slide + content fields.`,
                 );
                 return;
@@ -474,20 +491,18 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
         // Convert slide inputs to TemplateSlideInput format
         const selections: TemplateSlideInput[] = [];
-        for (const s of slides) {
-            const raw = s as Record<string, unknown>;
-            const templateSlide = raw.template_slide as number | undefined;
-            if (!templateSlide || typeof templateSlide !== 'number') {
+        for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (!s.template_slide || typeof s.template_slide !== 'number') {
                 throw new Error(
-                    'Template mode: each slide must have a template_slide number. ' +
-                    'Got: ' + JSON.stringify(Object.keys(raw).filter(k => raw[k] !== undefined)),
+                    `Template mode: slide ${i + 1} must have a template_slide number. ` +
+                    'Got: ' + JSON.stringify(Object.keys(s).filter(k => (s as Record<string, unknown>)[k] !== undefined)),
                 );
             }
 
-            const content = (raw.content as Record<string, string>) ?? {};
             selections.push({
-                template_slide: templateSlide,
-                content,
+                template_slide: s.template_slide,
+                content: s.content ?? {},
                 notes: s.notes,
             });
         }

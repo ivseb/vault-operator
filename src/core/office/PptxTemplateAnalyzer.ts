@@ -88,10 +88,22 @@ export type SlideClassification =
     | 'comparison' | 'two-column' | 'table' | 'chart'
     | 'pyramid' | 'matrix' | 'org-chart' | 'timeline' | 'image' | 'blank';
 
+/** Estimated text capacity of a shape (V-4). */
+export interface TextCapacity {
+    /** Maximum characters that fit in this shape. */
+    maxChars: number;
+    /** Maximum lines that fit in this shape. */
+    maxLines: number;
+    /** Font size in pt. */
+    fontSize: number;
+}
+
 /** Information about a single shape on a slide. */
 export interface ShapeInfo {
     /** Shape name from <p:cNvPr name="...">. */
     shapeName: string;
+    /** Human-readable semantic ID (e.g. "kpi_value_1"). */
+    semanticId: string;
     /** Shape ID from <p:cNvPr id="...">. */
     shapeId: string;
     /** Element ID from the catalog (if matched). */
@@ -106,6 +118,8 @@ export interface ShapeInfo {
     isReplaceable: boolean;
     /** Position in EMU. */
     position: { left: number; top: number; width: number; height: number };
+    /** Estimated text capacity (V-4). */
+    textCapacity?: TextCapacity;
 }
 
 /* ------------------------------------------------------------------ */
@@ -239,6 +253,8 @@ interface RawShape {
     placeholderIdx?: number;
     hasText: boolean;
     fingerprint: ShapeFingerprint;
+    /** Raw XML of the <p:sp> block (for font size extraction in V-4). */
+    xml: string;
 }
 
 function findSlideNumbers(zip: JSZip): number[] {
@@ -258,27 +274,15 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
     const xml = await file.async('text');
     const shapes: RawShape[] = [];
 
-    // Find all <p:sp> shapes
-    const spPattern = /<p:sp\b[^>]*>/g;
-    let spMatch: RegExpExecArray | null;
-
-    while ((spMatch = spPattern.exec(xml)) !== null) {
-        const spStart = spMatch.index;
-        const spEnd = findClosingTag(xml, spStart, 'p:sp');
-        if (spEnd < 0) continue;
-
-        const spBlock = xml.substring(spStart, spEnd);
-        const shape = parseShape(spBlock);
-        if (shape) shapes.push(shape);
-    }
-
-    // Also find group shapes <p:grpSp> and extract children
+    // First, identify all <p:grpSp> ranges so we can exclude nested <p:sp> from top-level
+    const grpRanges: Array<{ start: number; end: number }> = [];
     const grpPattern = /<p:grpSp\b[^>]*>/g;
     let grpMatch: RegExpExecArray | null;
     while ((grpMatch = grpPattern.exec(xml)) !== null) {
         const grpStart = grpMatch.index;
         const grpEnd = findClosingTag(xml, grpStart, 'p:grpSp');
         if (grpEnd < 0) continue;
+        grpRanges.push({ start: grpStart, end: grpEnd });
 
         const grpBlock = xml.substring(grpStart, grpEnd);
 
@@ -287,6 +291,9 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
         const grpName = grpNameMatch?.[1] ?? 'Group';
         const grpIdMatch = /<p:cNvPr\b[^>]*\bid="([^"]*)"/.exec(grpBlock);
         const grpId = grpIdMatch?.[1] ?? '0';
+
+        // Count child shapes for fingerprint differentiation
+        const childCount = (grpBlock.match(/<p:sp\b/g) ?? []).length;
 
         // Add the group itself as a structural element
         shapes.push({
@@ -299,8 +306,40 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
             text: '',
             textFieldCount: 0,
             hasText: false,
-            fingerprint: { geometry: 'group', fillType: 'none', lineStyle: 'none', aspectRatio: 1 },
+            fingerprint: { geometry: `group:${childCount}`, fillType: 'none', lineStyle: 'none', aspectRatio: 1 },
+            xml: grpBlock,
         });
+
+        // Extract child shapes from within the group
+        const childSpPattern = /<p:sp\b[^>]*>/g;
+        let childMatch: RegExpExecArray | null;
+        while ((childMatch = childSpPattern.exec(grpBlock)) !== null) {
+            const childStart = childMatch.index;
+            const childEnd = findClosingTag(grpBlock, childStart, 'p:sp');
+            if (childEnd < 0) continue;
+            const childBlock = grpBlock.substring(childStart, childEnd);
+            const shape = parseShape(childBlock);
+            if (shape) shapes.push(shape);
+        }
+    }
+
+    // Find top-level <p:sp> shapes (skip those inside <p:grpSp>)
+    const spPattern = /<p:sp\b[^>]*>/g;
+    let spMatch: RegExpExecArray | null;
+
+    while ((spMatch = spPattern.exec(xml)) !== null) {
+        const spStart = spMatch.index;
+
+        // Skip shapes that are inside a group
+        const insideGroup = grpRanges.some(r => spStart >= r.start && spStart < r.end);
+        if (insideGroup) continue;
+
+        const spEnd = findClosingTag(xml, spStart, 'p:sp');
+        if (spEnd < 0) continue;
+
+        const spBlock = xml.substring(spStart, spEnd);
+        const shape = parseShape(spBlock);
+        if (shape) shapes.push(shape);
     }
 
     return shapes;
@@ -367,6 +406,7 @@ function parseShape(spBlock: string): RawShape | null {
         placeholderIdx,
         hasText,
         fingerprint,
+        xml: spBlock,
     };
 }
 
@@ -469,7 +509,7 @@ function extractText(spBlock: string): { text: string; fieldCount: number } {
         .replace(/&quot;/g, '"')
         .replace(/&apos;/g, "'");
 
-    return { text: decoded, fieldCount: Math.max(fieldCount, 1) };
+    return { text: decoded, fieldCount: fullText.length > 0 ? Math.max(fieldCount, 1) : 0 };
 }
 
 /* ------------------------------------------------------------------ */
@@ -682,6 +722,7 @@ function buildSlideComposition(
 
         return {
             shapeName: rs.shapeName,
+            semanticId: '', // Placeholder, set after classification is known
             shapeId: rs.shapeId,
             elementId: element?.id,
             placeholderType: rs.placeholderType,
@@ -689,10 +730,20 @@ function buildSlideComposition(
             text: rs.text,
             isReplaceable,
             position: rs.position,
+            textCapacity: estimateTextCapacity(rs),
         };
     });
 
-    const classification = classifySlide(rawShapes, shapes);
+    const classification = classifySlide(rawShapes, shapes, layoutName);
+
+    // Generate semantic IDs (V-1) -- only for replaceable shapes, with incrementing index
+    let contentIndex = 1;
+    for (const shape of shapes) {
+        if (shape.isReplaceable) {
+            shape.semanticId = generateSemanticId(classification, slideNum, shape, elementCatalog, contentIndex);
+            contentIndex++;
+        }
+    }
     const description = generateSlideDescription(classification, shapes);
 
     return {
@@ -704,7 +755,7 @@ function buildSlideComposition(
     };
 }
 
-function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[]): SlideClassification {
+function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[], layoutName: string): SlideClassification {
     const contentShapes = shapes.filter(s => s.isReplaceable);
     const nonDecoShapes = rawShapes.filter(rs =>
         rs.hasText || rs.placeholderType === 'title' || rs.placeholderType === 'ctrTitle',
@@ -751,6 +802,28 @@ function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[]): SlideClassif
     );
     if (pyramidShapes.length >= 3) return 'pyramid';
 
+    // Timeline: horizontal arrows/connectors with vertically aligned text
+    const arrowShapes = rawShapes.filter(rs =>
+        rs.geometry.includes('arrow') || rs.geometry.includes('Arrow') ||
+        rs.geometry.includes('line') || rs.geometry.includes('connector'),
+    );
+    if (arrowShapes.length >= 2 && smallTextShapes.length >= 3) return 'timeline';
+
+    // Comparison: two large side-by-side areas with similar geometry (not two-column text)
+    if (largeBodies.length >= 2 && smallTextShapes.length >= 2) {
+        // Has structured elements besides text bodies -> comparison layout
+        const structuredShapes = rawShapes.filter(rs =>
+            !rs.placeholderType && rs.geometry !== 'none' && rs.geometry !== 'prstGeom:rect',
+        );
+        if (structuredShapes.length >= 2) return 'comparison';
+    }
+
+    // Org-chart: hierarchical connectors with multiple small boxes
+    const connectorShapes = rawShapes.filter(rs =>
+        rs.geometry.includes('connector') || rs.geometry.includes('line'),
+    );
+    if (connectorShapes.length >= 2 && smallTextShapes.length >= 4) return 'org-chart';
+
     // Matrix: 4 equal quadrants
     if (smallTextShapes.length === 4) {
         const sizeVariance = calculateSizeVariance(smallTextShapes);
@@ -768,6 +841,15 @@ function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[]): SlideClassif
 
     // Blank: no content shapes
     if (contentShapes.length === 0 && nonDecoShapes.length === 0) return 'blank';
+
+    // Layout name hint: check for keywords that match known classifications
+    const layoutLower = layoutName.toLowerCase();
+    if (/vergleich|compar/.test(layoutLower)) return 'comparison';
+    if (/prozess|process/.test(layoutLower)) return 'process';
+    if (/zeitstrahl|timeline/.test(layoutLower)) return 'timeline';
+    if (/pyramide|pyramid/.test(layoutLower)) return 'pyramid';
+    if (/organi[sz]|org.chart/.test(layoutLower)) return 'org-chart';
+    if (/matrix|swot/.test(layoutLower)) return 'matrix';
 
     return 'content';
 }
@@ -807,148 +889,265 @@ function generateSlideDescription(classification: SlideClassification, shapes: S
 /*  Skill generation                                                   */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/*  Semantic IDs and Text Capacity (V-1, V-4)                          */
+/* ------------------------------------------------------------------ */
+
 /**
- * Generate a Template Skill (SKILL.md) from the analysis result.
+ * Generate a human-readable semantic ID for a shape.
+ * Schema: {slideClassification}_s{slideNum}_{role}_{index}
+ *
+ * Slide number is included to ensure global uniqueness across the template.
+ *
+ * Role derivation priority:
+ * 1. placeholderType (title, body, subTitle)
+ * 2. Element geometry from catalog (chevron, roundRect, etc.)
+ * 3. Fallback: text_{index}
  */
-export function generateTemplateSkill(
-    analysis: TemplateAnalysis,
-    templateName: string,
-    templatePath: string,
+function generateSemanticId(
+    classification: SlideClassification,
+    slideNum: number,
+    shape: ShapeInfo,
+    elementCatalog: DesignElement[],
+    contentIndex: number,
 ): string {
-    const { brandDNA, elementCatalog, slideCompositions } = analysis;
+    const prefix = `${classification}_s${slideNum}`;
 
-    const lines: string[] = [];
+    // 1. Placeholder type
+    if (shape.placeholderType === 'title' || shape.placeholderType === 'ctrTitle')
+        return `${prefix}_title`;
+    if (shape.placeholderType === 'subTitle')
+        return `${prefix}_subtitle`;
+    if (shape.placeholderType === 'body')
+        return `${prefix}_body_${contentIndex}`;
 
-    // Frontmatter
-    const safeName = templateName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    lines.push('---');
-    lines.push(`name: ${safeName}-template`);
-    lines.push(`description: Template-Skill fuer ${templateName} (${analysis.slideCount} Slides, automatisch generiert)`);
-    lines.push(`trigger: ${safeName}|${templateName}`);
-    lines.push('source: user');
-    lines.push('requiredTools: [create_pptx]');
-    lines.push('---');
-    lines.push('');
-
-    // Title
-    lines.push(`# ${templateName} Template`);
-    lines.push('');
-    lines.push(`> Automatisch generiert aus \`${templatePath}\``);
-    lines.push(`> ${analysis.slideCount} Slides, ${elementCatalog.length} einzigartige Design-Elemente`);
-    lines.push('');
-
-    // Brand DNA
-    lines.push('## Brand-DNA');
-    lines.push('');
-    lines.push('### Farben');
-    for (const [name, hex] of Object.entries(brandDNA.colors)) {
-        lines.push(`- ${name}: \`${hex}\``);
-    }
-    lines.push('');
-    lines.push('### Typografie');
-    lines.push(`- Ueberschriften: ${brandDNA.fonts.major}`);
-    lines.push(`- Fliesstext: ${brandDNA.fonts.minor}`);
-    lines.push('');
-
-    // Element catalog (only content-bearing, limit size)
-    const contentElements = elementCatalog.filter(e => e.category === 'content-bearing');
-    const decorativeCount = elementCatalog.filter(e => e.category === 'decorative').length;
-    const structuralCount = elementCatalog.filter(e => e.category === 'structural').length;
-
-    lines.push('## Element-Katalog');
-    lines.push('');
-    lines.push(`${elementCatalog.length} einzigartige Elemente: ${contentElements.length} content-bearing, ${decorativeCount} dekorativ, ${structuralCount} strukturell.`);
-    lines.push('');
-
-    lines.push('### Content-Bearing Elemente');
-    lines.push('');
-    lines.push('| ID | Name | Geometrie | Geeignet fuer | Slides |');
-    lines.push('|----|------|-----------|---------------|--------|');
-    for (const el of contentElements) {
-        const slidesStr = el.appearsOn.length > 5
-            ? `${el.appearsOn.slice(0, 5).join(', ')}...`
-            : el.appearsOn.join(', ');
-        lines.push(`| ${el.id} | ${el.name} | ${el.geometry} | ${el.suggestedUse} | ${slidesStr} |`);
-    }
-    lines.push('');
-
-    // Slide compositions (group by classification, limit detail)
-    lines.push('## Slide-Kompositionen');
-    lines.push('');
-    lines.push('### Uebersicht nach Typ');
-    lines.push('');
-
-    const byClass = new Map<SlideClassification, SlideComposition[]>();
-    for (const comp of slideCompositions) {
-        const existing = byClass.get(comp.classification) ?? [];
-        existing.push(comp);
-        byClass.set(comp.classification, existing);
-    }
-
-    for (const [cls, comps] of byClass) {
-        const slideNums = comps.map(c => c.slideNumber).join(', ');
-        lines.push(`- **${cls}** (${comps.length}x): Slides ${slideNums}`);
-    }
-    lines.push('');
-
-    // Detailed shape-name mapping for each unique classification
-    lines.push('### Slide-Details mit Shape-Name-Mapping');
-    lines.push('');
-    lines.push('Nutze die Shape-Namen als Keys im `content`-Objekt von `create_pptx`:');
-    lines.push('```json');
-    lines.push('{ "template_slide": N, "content": { "Shape-Name": "Neuer Text" } }');
-    lines.push('```');
-    lines.push('');
-
-    // Show one example per classification (avoid repetition)
-    const shownClassifications = new Set<SlideClassification>();
-    for (const comp of slideCompositions) {
-        if (shownClassifications.has(comp.classification)) continue;
-        shownClassifications.add(comp.classification);
-
-        const replaceableShapes = comp.shapes.filter(s => s.isReplaceable);
-        if (replaceableShapes.length === 0) continue;
-
-        lines.push(`#### Slide ${comp.slideNumber}: ${comp.description}`);
-        lines.push(`Layout: ${comp.layoutName}`);
-        lines.push('');
-        lines.push('| Shape-Name | Aktueller Text | Zweck |');
-        lines.push('|------------|----------------|-------|');
-
-        for (const shape of replaceableShapes) {
-            const textPreview = shape.text.length > 50 ? shape.text.substring(0, 47) + '...' : shape.text;
-            const purpose = shape.placeholderType
-                ? `Placeholder: ${shape.placeholderType}${shape.placeholderIdx !== undefined ? ` (idx=${shape.placeholderIdx})` : ''}`
-                : 'Textfeld';
-            lines.push(`| ${shape.shapeName} | ${textPreview} | ${purpose} |`);
+    // 2. Element geometry from catalog
+    if (shape.elementId) {
+        const element = elementCatalog.find(e => e.id === shape.elementId);
+        if (element) {
+            const geom = element.geometry;
+            if (geom.includes('chevron') || geom.includes('homePlate'))
+                return `${prefix}_step_${contentIndex}`;
+            if (geom.includes('roundRect'))
+                return `${prefix}_card_${contentIndex}`;
+            if (geom.includes('triangle'))
+                return `${prefix}_segment_${contentIndex}`;
+            if (geom.includes('custGeom'))
+                return `${prefix}_element_${contentIndex}`;
         }
-        lines.push('');
     }
 
-    // Template file reference
-    lines.push('## Verwendung');
-    lines.push('');
-    lines.push(`Template-Datei: \`${templatePath}\``);
-    lines.push('');
-    lines.push('```json');
-    lines.push('{');
-    lines.push(`  "template_file": "${templatePath}",`);
-    lines.push('  "slides": [');
-    lines.push('    { "template_slide": 1, "content": { "Shape-Name": "Neuer Text" } }');
-    lines.push('  ]');
-    lines.push('}');
-    lines.push('```');
+    // 3. Fallback
+    return `${prefix}_text_${contentIndex}`;
+}
 
-    return lines.join('\n');
+/**
+ * Estimate how much text fits into a shape based on dimensions and font size.
+ */
+function estimateTextCapacity(rawShape: RawShape): TextCapacity | undefined {
+    if (!rawShape.hasText) return undefined;
+
+    // Extract font size from first <a:rPr sz="..."> in the shape XML
+    const szMatch = rawShape.xml.match(/<a:rPr[^>]*\bsz="(\d+)"/);
+    const fontSizePt = szMatch ? parseInt(szMatch[1]) / 100 : 18;
+    const fontSizePx = fontSizePt * 1.333;
+
+    // Convert EMU to pixels (1 inch = 914400 EMU = 96 px)
+    const widthPx = rawShape.position.width / 914400 * 96;
+    const heightPx = rawShape.position.height / 914400 * 96;
+
+    // Estimate characters per line (average char width ~ 0.55 * fontSize)
+    const charsPerLine = Math.floor(widthPx / (fontSizePx * 0.55));
+    // Estimate max lines (line height ~ 1.4 * fontSize)
+    const maxLines = Math.floor(heightPx / (fontSizePx * 1.4));
+
+    if (charsPerLine <= 0 || maxLines <= 0) return undefined;
+
+    return { maxChars: charsPerLine * maxLines, maxLines, fontSize: fontSizePt };
 }
 
 /* ------------------------------------------------------------------ */
+/*  Composition grouping                                               */
+/* ------------------------------------------------------------------ */
+
+/** A group of slides that share the same classification (= same visual composition). */
+export interface CompositionGroup {
+    /** Human-readable name for this composition type. */
+    name: string;
+    /** Slide classification. */
+    classification: SlideClassification;
+    /** Slide numbers that belong to this group. */
+    slideNumbers: number[];
+    /** Semantic meaning heuristic based on classification + geometry. */
+    meaning: string;
+    /** When to use this composition. */
+    useWhen: string;
+    /** Representative shapes (from first slide in group, replaceable only). */
+    representativeShapes: ShapeInfo[];
+}
+
+/**
+ * Group slide compositions by classification into semantic composition groups.
+ * Slides with the same classification are treated as variants of the same visual form.
+ */
+export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup[] {
+    // Group by classification, but sub-group 'content' slides by layout+shape count
+    // to avoid one mega-group with 50+ slides
+    const groups = new Map<string, SlideComposition[]>();
+
+    for (const comp of analysis.slideCompositions) {
+        const groupKey = comp.classification === 'content'
+            ? buildContentSubKey(comp)
+            : comp.classification;
+
+        const existing = groups.get(groupKey) ?? [];
+        existing.push(comp);
+        groups.set(groupKey, existing);
+    }
+
+    const result: CompositionGroup[] = [];
+    for (const [, compositions] of groups) {
+        const slideNumbers = compositions.map(c => c.slideNumber);
+        const firstComp = compositions[0];
+        const replaceableShapes = firstComp.shapes.filter(s => s.isReplaceable);
+        const baseClassification = firstComp.classification;
+
+        // Derive name/meaning from layout for content sub-groups
+        const name = baseClassification === 'content'
+            ? contentSubGroupName(firstComp)
+            : compositionName(baseClassification);
+
+        const meaning = baseClassification === 'content'
+            ? contentSubGroupMeaning(firstComp)
+            : compositionMeaning(baseClassification);
+
+        result.push({
+            name,
+            classification: baseClassification,
+            slideNumbers,
+            meaning,
+            useWhen: compositionUseWhen(baseClassification),
+            representativeShapes: replaceableShapes,
+        });
+    }
+
+    // Sort: title first, then section, then by number of slides (descending)
+    const order: Record<string, number> = { title: 0, section: 1 };
+    result.sort((a, b) => {
+        const oa = order[a.classification] ?? 10;
+        const ob = order[b.classification] ?? 10;
+        if (oa !== ob) return oa - ob;
+        return b.slideNumbers.length - a.slideNumbers.length;
+    });
+
+    return result;
+}
+
+/** Build a sub-group key for 'content' slides using layout name + shape count. */
+function buildContentSubKey(comp: SlideComposition): string {
+    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
+    const layoutSlug = comp.layoutName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
+    return `content-${layoutSlug}-${replaceableCount}shapes`;
+}
+
+/** Layout-name keywords that hint at a specific content type. */
+const LAYOUT_KEYWORDS: Array<[RegExp, string, string]> = [
+    [/vergleich|compar/i, 'Comparison Layout', 'Side-by-side comparison from layout'],
+    [/prozess|process/i, 'Process Layout', 'Step-by-step process from layout'],
+    [/bild|image|photo/i, 'Image Layout', 'Image-focused layout'],
+    [/tabelle|table/i, 'Table Layout', 'Structured data from layout'],
+    [/chart|diagramm/i, 'Chart Layout', 'Data visualization from layout'],
+    [/agenda/i, 'Agenda Layout', 'Agenda or overview from layout'],
+    [/quote|zitat/i, 'Quote Layout', 'Quote or citation from layout'],
+];
+
+function contentSubGroupName(comp: SlideComposition): string {
+    for (const [pattern, name] of LAYOUT_KEYWORDS) {
+        if (pattern.test(comp.layoutName)) return name;
+    }
+    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
+    return `Content (${comp.layoutName}, ${replaceableCount} fields)`;
+}
+
+function contentSubGroupMeaning(comp: SlideComposition): string {
+    for (const [pattern, , meaning] of LAYOUT_KEYWORDS) {
+        if (pattern.test(comp.layoutName)) return meaning;
+    }
+    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
+    return `Content layout "${comp.layoutName}" with ${replaceableCount} replaceable text fields`;
+}
+
+function compositionName(c: SlideClassification): string {
+    const names: Record<SlideClassification, string> = {
+        'title': 'Title Slide',
+        'section': 'Section Divider',
+        'content': 'Content Slide',
+        'kpi': 'KPI Dashboard',
+        'process': 'Process Flow',
+        'comparison': 'Comparison',
+        'two-column': 'Two-Column Layout',
+        'table': 'Table Slide',
+        'chart': 'Chart Slide',
+        'pyramid': 'Pyramid',
+        'matrix': 'Matrix / SWOT',
+        'org-chart': 'Org Chart',
+        'timeline': 'Timeline',
+        'image': 'Image Slide',
+        'blank': 'Blank Slide',
+    };
+    return names[c] ?? c;
+}
+
+function compositionMeaning(c: SlideClassification): string {
+    const meanings: Record<SlideClassification, string> = {
+        'title': 'Opening or closing statement -- sets the thesis or concludes',
+        'section': 'Marks a transition between major topics',
+        'content': 'General content with text and optional visuals',
+        'kpi': 'Key metrics at a glance -- quantifies the message',
+        'process': 'Linear sequence -- order IS the argument',
+        'comparison': 'Side-by-side contrast -- highlights differences',
+        'two-column': 'Two parallel content areas -- juxtaposition or split detail',
+        'table': 'Structured multi-dimensional data',
+        'chart': 'Data visualization -- trends, distributions, comparisons',
+        'pyramid': 'Hierarchy or layered priorities -- foundation supports the top',
+        'matrix': 'Two-axis analysis -- categorize along two dimensions',
+        'org-chart': 'Reporting structure or hierarchy with connections',
+        'timeline': 'Temporal sequence -- shows progression over time',
+        'image': 'Visual-first slide -- image carries the message',
+        'blank': 'Empty canvas for flexible use',
+    };
+    return meanings[c] ?? 'General purpose';
+}
+
+function compositionUseWhen(c: SlideClassification): string {
+    const rules: Record<SlideClassification, string> = {
+        'title': 'Opening slide or final CTA slide',
+        'section': 'Between major sections (every 3-5 content slides)',
+        'content': 'Text-heavy content that does not fit a structured layout',
+        'kpi': '2-6 key metrics that need to stand out',
+        'process': 'Steps, phases, pipelines, workflows',
+        'comparison': 'Before/after, option A vs B, current vs target',
+        'two-column': 'Two related but distinct content blocks',
+        'table': 'Multi-row structured data, feature matrices',
+        'chart': 'Numeric data that reveals trends or distributions',
+        'pyramid': 'Layered priorities, Maslow-style hierarchies, strategic pillars',
+        'matrix': 'SWOT analysis, risk maps, priority grids',
+        'org-chart': 'Team structures, reporting lines, organizational overviews',
+        'timeline': 'Roadmaps, milestones, historical progression',
+        'image': 'Hero visuals, product photos, diagrams',
+        'blank': 'Custom layouts not covered by other types',
+    };
+    return rules[c] ?? 'General content';
+}
+
+/* ------------------------------------------------------------------
 /*  Utility functions                                                  */
 /* ------------------------------------------------------------------ */
 
 function findClosingTag(xml: string, startPos: number, tagName: string): number {
     let depth = 0;
     const closeStr = `</${tagName}>`;
+    const tagLen = tagName.length;
 
     // Skip past the opening tag
     const openEnd = xml.indexOf('>', startPos);
@@ -966,10 +1165,15 @@ function findClosingTag(xml: string, startPos: number, tagName: string): number 
         if (nextClose < 0) return -1;
 
         if (nextOpen >= 0 && nextOpen < nextClose) {
-            // Check if it's an opening tag (not self-closing)
-            const tagEnd = xml.indexOf('>', nextOpen);
-            if (tagEnd >= 0 && xml[tagEnd - 1] !== '/') {
-                depth++;
+            // Verify this is actually our tag, not a prefix match
+            // e.g. <p:sp must not match <p:spPr or <p:spTree
+            const charAfterTag = xml[nextOpen + 1 + tagLen];
+            if (charAfterTag === ' ' || charAfterTag === '>' || charAfterTag === '/' || charAfterTag === '\n' || charAfterTag === '\r' || charAfterTag === '\t') {
+                // Check if it's an opening tag (not self-closing)
+                const tagEnd = xml.indexOf('>', nextOpen);
+                if (tagEnd >= 0 && xml[tagEnd - 1] !== '/') {
+                    depth++;
+                }
             }
             pos = nextOpen + 1;
         } else {

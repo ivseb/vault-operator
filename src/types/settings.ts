@@ -541,6 +541,9 @@ export interface ObsidianAgentSettings {
     // Recipes (PAS-1.5)
     recipes: RecipeSettings;
 
+    // Visual Intelligence (FEATURE-1115)
+    visualIntelligence: VisualIntelligenceSettings;
+
     // Agent Skill Mastery (ADR-016/017/018)
     mastery: MasterySettings;
 
@@ -578,6 +581,17 @@ export interface PluginApiSettings {
      * Only relevant for methods NOT in the built-in allowlist.
      */
     safeMethodOverrides: Record<string, boolean>;
+}
+
+// ---------------------------------------------------------------------------
+// Visual Intelligence Settings (FEATURE-1115)
+// ---------------------------------------------------------------------------
+
+export interface VisualIntelligenceSettings {
+    /** Master toggle — when true, render_presentation tool is available */
+    enabled: boolean;
+    /** Custom LibreOffice path override (for non-standard installations) */
+    libreOfficePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -751,6 +765,9 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         enabled: true,
         recipeToggles: {},
         customRecipes: [],
+    },
+    visualIntelligence: {
+        enabled: true,
     },
     mastery: {
         enabled: true,

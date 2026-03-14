@@ -277,11 +277,18 @@ export class OpenAiProvider implements ApiHandler {
                     if (block.type === 'text') {
                         result.push({ role: 'user', content: block.text });
                     } else if (block.type === 'tool_result') {
-                        // Tool results become separate 'tool' role messages in OpenAI format
+                        // Tool results become separate 'tool' role messages in OpenAI format.
+                        // OpenAI only supports string content — extract text from multimodal arrays.
+                        const textContent = typeof block.content === 'string'
+                            ? block.content
+                            : block.content
+                                .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                                .map((b) => b.text)
+                                .join('\n');
                         result.push({
                             role: 'tool',
                             tool_call_id: block.tool_use_id,
-                            content: block.content,
+                            content: textContent,
                         });
                     }
                 }

@@ -11,7 +11,7 @@
  * 5. Loop until no more tool calls (end_turn)
  */
 
-import type { ApiHandler, MessageParam, ContentBlock } from '../api/types';
+import type { ApiHandler, MessageParam, ContentBlock, ToolResultContentBlock } from '../api/types';
 import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
@@ -188,6 +188,7 @@ export class AgentTask {
             'get_linked_notes', 'search_by_tag', 'get_vault_stats', 'get_daily_note',
             'web_fetch', 'web_search',
             'semantic_search', 'query_base', 'open_note',
+            'get_composition_details',
         ]);
 
         // Feature 6: Accumulate token usage across all iterations
@@ -493,6 +494,27 @@ export class AgentTask {
                         t.type === 'tool_use' && !toolErrorIds.has(t.id)
                 );
 
+                // Helper: extract display text from a tool result (string or multimodal array).
+                // Used for UI callbacks that only accept strings.
+                const extractTextContent = (content: string | ToolResultContentBlock[]): string => {
+                    if (typeof content === 'string') return content;
+                    return content
+                        .filter((b): b is ToolResultContentBlock & { type: 'text' } => b.type === 'text')
+                        .map((b) => b.text)
+                        .join('\n');
+                };
+
+                // Helper: append a quality gate string to tool result content.
+                const appendQualityGate = (
+                    content: string | ToolResultContentBlock[],
+                    gate: string | undefined,
+                ): string | ToolResultContentBlock[] => {
+                    if (!gate) return content;
+                    if (typeof content === 'string') return content + '\n\n' + gate;
+                    // For multimodal content, append gate as an additional text block
+                    return [...content, { type: 'text' as const, text: '\n\n' + gate }];
+                };
+
                 // Helper: run a single tool through the pipeline and return its result.
                 // Does NOT call onToolResult — caller is responsible for ordering.
                 const runTool = async (toolUse: ContentBlock & { type: 'tool_use' }) => {
@@ -531,7 +553,7 @@ export class AgentTask {
                         repetitionDetector.record(
                             toolUse.name,
                             toolUse.input,
-                            result.content.slice(0, 200),
+                            extractTextContent(result.content).slice(0, 200),
                             iteration,
                         );
                     }
@@ -563,7 +585,7 @@ export class AgentTask {
                         const toolUse = validToolUses[i];
                         const result = results[i];
 
-                        this.taskCallbacks.onToolResult(toolUse.name, result.content, result.is_error ?? false);
+                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
                         if (result.is_error) { consecutiveMistakes++; } else { consecutiveMistakes = 0; }
                         if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
@@ -578,7 +600,7 @@ export class AgentTask {
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: gate ? result.content + '\n\n' + gate : result.content,
+                            content: appendQualityGate(result.content, gate),
                             is_error: result.is_error,
                         });
                     }
@@ -587,7 +609,7 @@ export class AgentTask {
                     for (const toolUse of validToolUses) {
                         const result = await runTool(toolUse);
 
-                        this.taskCallbacks.onToolResult(toolUse.name, result.content, result.is_error ?? false);
+                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
                         if (result.is_error) { consecutiveMistakes++; } else { consecutiveMistakes = 0; }
                         if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
@@ -602,7 +624,7 @@ export class AgentTask {
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: gate ? result.content + '\n\n' + gate : result.content,
+                            content: appendQualityGate(result.content, gate),
                             is_error: result.is_error,
                         });
 
@@ -818,9 +840,16 @@ export class AgentTask {
                     } else if (block.type === 'tool_result') {
                         // tool_result overhead: tool_use_id, type, is_error ~50 tokens
                         count += 50;
-                        // content payload
-                        if ('content' in block && typeof block.content === 'string') {
-                            count += Math.ceil(block.content.length / 4);
+                        // content payload — string or multimodal array
+                        if ('content' in block) {
+                            if (typeof block.content === 'string') {
+                                count += Math.ceil(block.content.length / 4);
+                            } else if (Array.isArray(block.content)) {
+                                for (const sub of block.content) {
+                                    if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                    else if (sub.type === 'image') count += 1000;
+                                }
+                            }
                         }
                     } else if (block.type === 'image') {
                         // Image tokens (flat estimate)

@@ -3,7 +3,7 @@ name: office-workflow
 description: Professional workflow for creating Office documents (PPTX, DOCX, XLSX) with structured process, design principles, and quality standards
 trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx|dokument.*erstell|erstell.*dokument|document.*creat|docx|word.*erstell|spreadsheet|tabelle.*erstell|xlsx|excel
 source: bundled
-requiredTools: [create_pptx, create_docx, create_xlsx]
+requiredTools: [create_pptx, create_docx, create_xlsx, analyze_pptx_template, get_composition_details, render_presentation]
 ---
 
 # Office Document Workflow
@@ -30,34 +30,91 @@ For presentations:
 
 NEVER skip this question. NEVER assume a template from memory.
 
-User responds: "Executive"/"Modern"/"Minimal" -> lowercase as template parameter. Corporate template -> proceed to ANALYZE step.
+User responds: "Executive"/"Modern"/"Minimal" -> lowercase as template parameter, proceed to Step 4 (PLAN).
+User mentions a corporate .pptx template -> proceed to Step 3 (TEMPLATE SKILL).
 
-### Step 3: ANALYZE (Corporate Templates only)
+### Step 3: TEMPLATE SKILL (Corporate Templates only)
 
-If the user provides a corporate PPTX template:
+If the user wants to use a corporate PPTX template:
 
-1. **Check for existing Template Skill**: Look for a matching user skill (e.g. `skills/acme-template/SKILL.md`). If found, skip analysis -- load the skill directly.
+#### A. Check for existing Template Skill
+Look in `<available_skills>` for a matching template skill (e.g. "acme-template"). If found, skip to "Use the Template Skill" below.
 
-2. **First-time analysis**: If no Template Skill exists, run `analyze_pptx_template` with `generate_skill: true`:
-   - This extracts the Element Catalog, Brand-DNA, and Slide Compositions
-   - Generates a Template Skill (SKILL.md) saved as a user skill
-   - Takes ~30-60 seconds for large templates (100+ slides)
+#### B. No Template Skill? Guide the user through template analysis
 
-3. **Use the Template Skill**: Once available, the Template Skill provides:
-   - **Brand-DNA**: Colors, fonts, spacing for brand consistency
-   - **Element Catalog**: All unique design elements (chevrons, KPI cards, pyramids etc.)
-   - **Slide Compositions**: Which slides use which elements, with Shape-Name mappings
-   - **Shape-Names as content keys**: Use `"TextBox 5": "new content"` instead of text-based keys
+This is a multi-step guided process. Send clear messages at each step and STOP to wait for the user.
+
+**B1. Locate the template**
+If the user already mentioned a .pptx file path, use it. Otherwise send:
+"Ich sehe, dass fuer diese Vorlage noch kein Template-Skill existiert. Kein Problem -- ich kann die Vorlage analysieren und einen erstellen. Wo liegt die .pptx-Datei im Vault? (z.B. `Templates/MeineVorlage.pptx`)"
+STOP and wait for the user's response.
+
+**B2. Run structural analysis**
+Call `analyze_pptx_template` with the template path. This extracts Brand-DNA, slide compositions, shape mappings and generates:
+- **SKILL.md** (~5k chars): Compact Visual Design Language Document (auto-installed as user skill)
+- **compositions.json**: Full shape details for on-demand retrieval
+
+**B3. Visual analysis (required)**
+This step is MANDATORY. The structural analysis alone produces only raw shape data without semantic meaning. The visual analysis is what makes the template skill actually useful. Do NOT skip this step.
+
+**If Visual Intelligence is enabled (default):**
+1. Call `render_presentation` with the template PPTX file to render all slides as images
+2. Visually inspect the rendered slide images and identify for each composition:
+   - Semantic meaning: What does this visual form communicate? (e.g. "linear progress", "comparison of two options")
+   - Usage rules: When to use this composition, when NOT to use it
+   - Text constraints: Estimate max characters per shape from the visual layout
+3. Update `compositions.json` via `edit_file` with enriched data (bedeutung, einsetzen_wenn, nicht_einsetzen_wenn, max_chars)
+4. Update the SKILL.md composition descriptions with the semantic meanings
+
+After enrichment, send:
+"Die Template-Analyse ist abgeschlossen. Ich habe [N] Kompositionen gefunden und visuell analysiert -- mit Bedeutung, Einsatzregeln und Textkapazitaeten. Der Template-Skill ist jetzt einsatzbereit.
+
+Soll ich mit der Praesentation weitermachen?"
+
+**If Visual Intelligence is NOT enabled:**
+Send this message and STOP:
+"Die strukturelle Analyse ist fertig -- ich habe [N] Kompositionen gefunden. Um die Vorlage aber wirklich gut nutzen zu koennen, muss ich die Slides auch visuell sehen. Dafuer gibt es zwei Optionen:
+
+**Option 1 (empfohlen):** Aktiviere **Visual Intelligence** in den Obsilo-Settings (Settings > Visual Intelligence). Dafuer muss LibreOffice installiert sein (kostenlos). Dann kann ich die Vorlage selbst rendern und analysieren.
+
+**Option 2:** Exportiere die Vorlage als PDF (PowerPoint: Datei > Exportieren > PDF) und speichere sie im Vault. Dann schick mir den Pfad."
+STOP and wait for the user's response.
+
+If user enables Visual Intelligence: proceed with `render_presentation` as above.
+If user provides a PDF path: Use `read_document` to read the PDF visually, then enrich as described above.
+
+#### B4. Failure Recovery (MANDATORY)
+If ANY step in the template analysis pipeline fails:
+- **render_presentation fails or returns fewer slides than expected:** Report the exact error to the user. Do NOT proceed with incomplete visual data. Do NOT fabricate composition meanings.
+- **get_composition_details cannot find the file:** Verify the template name matches exactly (the tool normalizes to lowercase with hyphens). Report the available templates from the error message.
+- **NEVER manually create or edit SKILL.md files for templates.** Always use `analyze_pptx_template`. The structural analysis pipeline generates shape mappings from the actual OOXML -- manual creation will use wrong shape names and produce broken presentations.
+- **NEVER work around a failed tool by manually recreating its output.** Report the error to the user and let them fix the underlying issue (install LibreOffice, install poppler-utils, etc.).
+
+STOP and wait for the user's response before proceeding to Step 4.
+
+#### C. Use the Template Skill
+The Template Skill (Visual Design Language Document) provides:
+- **Brand-DNA**: Colors, fonts, visual tone
+- **Compositions**: Available visual forms with semantic meaning, usage rules, and capacity limits
+- **Shape-Mappings**: Load on-demand via `get_composition_details` -- provides exact Shape-Names and constraints per composition
+
+**Before creating slides:** Call `get_composition_details` with the template name and the composition IDs you plan to use. This returns the shape names, text capacities, and constraints you need for the `content` field.
 
 **Corporate template mode rules:**
 - Use `template_file` + `template_slide` + `content` instead of `html`. NEVER use the `html` field.
-- The Template Skill provides the slide catalog with ALL available slide types.
-- Apply the Content Classification Framework from the presentation-design skill (Part A) to match content types to template slide compositions.
-- Use the RICH slide types from the template (KPIs, process flows, SWOT, pyramids, org charts, etc.). NEVER build an entire deck from only text slides.
-- Content keys in the `content` object must use **Shape-Names** from the Template Skill (e.g. `"Title 1"`, `"TextBox 5"`).
+- Think in **compositions** (semantic meaning), not slide numbers. Choose the composition whose MEANING matches your content, then use its slide number and shape mapping.
+- Apply Design Reasoning from the presentation-design skill: What is the message? What cognitive operation? Which visual form?
+- Use the RICH compositions from the template (KPIs, process flows, SWOT, pyramids, org charts, etc.). NEVER build an entire deck from only text slides.
+- Content keys in the `content` object must use **Shape-Names** (the OOXML `name` attribute) from the composition's shape mapping.
+  - Shape-Name (USE THIS as content key): `"Titel 1"`, `"TextBox 5"`, `"Inhaltsplatzhalter 3"`
+  - Placeholder text (NEVER use as content key): `"Klicken Sie hier, um Text einzugeben"`, `"Title goes here"`
+  - The shape name is the TECHNICAL identifier from the XML. The placeholder text is the VISIBLE default content shown in PowerPoint. They are NOT the same thing.
+- Respect **capacity limits** from `get_composition_details` (max_chars, font_size_pt per shape).
+
+### Step 4: PLAN
 
 Draft the document structure and share with user for approval:
-- Presentations (corporate template): Use the Content Classification Framework (presentation-design skill Part A) to classify each content block. Then map to matching slide compositions from the Template Skill. Present a table with # | Template Slide # | Slide Type | Action Title | Content Summary | Why This Type
+- Presentations (corporate template): Use Design Reasoning + Content Classification from presentation-design skill to classify each content block. Then map to matching compositions from the Template Skill based on semantic meaning. Present a table with # | Composition | Template Slide # | Action Title | Content Summary | Why This Composition
 - Presentations (default themes): Table with # | Visual Pattern | Action Title | Content Type | Narrative Function
 - Documents: Outline with headings and section descriptions
 - Spreadsheets: Column definitions and data structure
@@ -69,8 +126,22 @@ Draft the document structure and share with user for approval:
 - The plan MUST show the template slide number for every slide.
 
 ### Step 5: CREATE
-- **Corporate template:** Call create_pptx with `template_file` and slides using `template_slide` + `content` fields. Use Shape-Names from the Template Skill as content keys.
-- **Default themes:** Call create_pptx with slides using the `html` field (see presentation-design skill Part B for HTML format and patterns).
+- **Corporate template:** Call create_pptx with `template_file` and slides using `template_slide` + `content` fields. Use Shape-Names from `get_composition_details` as content keys.
+- **Default themes:** Call create_pptx with slides using the `html` field (see "HTML Slide Format" section in presentation-design skill).
+
+### Step 6: VISUAL VERIFY (Corporate templates, if Visual Intelligence enabled)
+1. Call `render_presentation` with the created PPTX file
+2. Inspect each rendered slide image for:
+   - Text overflow or truncation
+   - Bad line breaks or hyphenation
+   - Empty shapes that should have content
+   - Visual imbalance or misalignment
+3. If issues found: fix the content (shorten text, adjust wording) and call `create_pptx` again
+4. **Feedback Loop**: Update `compositions.json` via `edit_file` with learned constraints:
+   - Correct `max_chars` values based on what actually fits
+   - Add notes about line break behavior
+   - Adjust `font_size_pt` if observed differently
+   - Future presentations with the same template benefit automatically
 
 ## 2. Content Principles
 

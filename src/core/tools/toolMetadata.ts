@@ -269,11 +269,29 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     // ── Template Analysis ──────────────────────────────────────────────
     analyze_pptx_template: {
         group: 'read', label: 'Analyze PPTX Template', icon: 'search',
-        signature: 'analyze_pptx_template(template_path, generate_skill?, skill_name?)',
-        description: 'Analyze a PPTX template to extract design elements, brand DNA (colors, fonts), and slide compositions. Optionally generates a reusable Template Skill.',
-        example: 'analyze_pptx_template("Templates/corporate.pptx", true, "Corporate")',
-        whenToUse: 'Before creating presentations with a new template. Extracts element catalog and shape names for accurate content mapping.',
-        commonMistakes: 'Creating presentations without first analyzing the template -- run this tool first to understand available slide types and shape names.',
+        signature: 'analyze_pptx_template(template_path)',
+        description: 'Analyze a PPTX template to extract design elements, brand DNA (colors, fonts), and slide compositions.',
+        example: 'analyze_pptx_template("Templates/corporate.pptx")',
+        whenToUse: 'To understand a template structure -- element catalog, slide types, and shape names.',
+        commonMistakes: 'Creating presentations without a Template Skill -- import one via Settings > Skills > Import.',
+    },
+
+    // ── Visual Intelligence ──────────────────────────────────────────────
+    get_composition_details: {
+        group: 'read', label: 'Get Composition Details', icon: 'layers',
+        signature: 'get_composition_details(template, compositions)',
+        description: 'Get detailed shape mappings and constraints for specific template compositions.',
+        example: 'get_composition_details("acme-corporate", ["chevron-kette", "kpi-dashboard"])',
+        whenToUse: 'After reading the template skill -- get exact shape names and text limits for create_pptx.',
+        commonMistakes: 'Requesting all compositions at once -- only request the 1-5 you need for your presentation.',
+    },
+    render_presentation: {
+        group: 'skill', label: 'Render Presentation', icon: 'eye',
+        signature: 'render_presentation(file, slides?)',
+        description: 'Render a PPTX to images via LibreOffice for visual quality inspection. Returns slide images.',
+        example: 'render_presentation("Presentations/quarterly.pptx", [1, 3, 5])',
+        whenToUse: 'After creating a presentation with create_pptx -- visually verify text fits, layout is correct.',
+        commonMistakes: 'Forgetting to enable Visual Intelligence in Settings or not having LibreOffice installed.',
     },
 
     // ── Office Document Creation ────────────────────────────────────────

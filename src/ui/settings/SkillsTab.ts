@@ -165,6 +165,27 @@ export class SkillsTab {
                 delBtn.addEventListener('click', () => { void (async () => {
                     try {
                         await skillsManager.deleteSkill(skill.path);
+
+                        // Also delete from plugin skills directory (SelfAuthoredSkillLoader)
+                        // to prevent SyncBridge from restoring the skill on next load
+                        const loader = this.plugin.selfAuthoredSkillLoader;
+                        if (loader) {
+                            const selfSkill = loader.getSkill(skill.name);
+                            if (selfSkill) {
+                                const adapter = this.plugin.app.vault.adapter;
+                                const skillDir = selfSkill.filePath.replace(/\/SKILL\.md$/, '');
+                                const exists = await adapter.exists(skillDir);
+                                if (exists) {
+                                    const listing = await adapter.list(skillDir);
+                                    for (const fp of listing.files) {
+                                        await adapter.remove(fp);
+                                    }
+                                    await adapter.rmdir(skillDir, false);
+                                }
+                                loader.removeSkill(skill.name);
+                            }
+                        }
+
                         this.plugin.settings.manualSkillToggles ??= {};
                         delete this.plugin.settings.manualSkillToggles[skill.path];
                         await this.plugin.saveSettings();

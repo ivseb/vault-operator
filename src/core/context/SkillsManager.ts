@@ -171,9 +171,15 @@ export class SkillsManager {
 
     /**
      * Delete a skill file.
+     * The empty parent directory is left behind (harmless -- discoverSkills
+     * skips directories without SKILL.md).
      */
     async deleteSkill(path: string): Promise<void> {
-        await this.fs.remove(path);
+        try {
+            await this.fs.remove(path);
+        } catch {
+            // Non-fatal: file may already be gone
+        }
     }
 
     /**

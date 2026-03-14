@@ -301,10 +301,36 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             await this.skillLoader.deleteCodeModules(skill);
         }
 
-        // Delete the SKILL.md file
-        const file = this.plugin.app.vault.getAbstractFileByPath(skill.filePath);
-        if (file instanceof TFile) {
-            await this.plugin.app.fileManager.trashFile(file);
+        // Delete the entire skill directory (not just SKILL.md)
+        const adapter = this.plugin.app.vault.adapter;
+        const skillDir = skill.filePath.replace(/\/SKILL\.md$/, '');
+        const exists = await adapter.exists(skillDir);
+        if (exists) {
+            const listing = await adapter.list(skillDir);
+            for (const filePath of listing.files) {
+                await adapter.remove(filePath);
+            }
+            for (const subdir of listing.folders) {
+                const subdirListing = await adapter.list(subdir);
+                for (const subfile of subdirListing.files) {
+                    await adapter.remove(subfile);
+                }
+                if (subdirListing.folders.length === 0) {
+                    await adapter.rmdir(subdir, false);
+                }
+            }
+            await adapter.rmdir(skillDir, false);
+        }
+
+        // Also delete from global storage if available
+        const skillFolderName = skillDir.split('/').pop();
+        if (this.plugin.skillsManager && skillFolderName) {
+            const globalPath = `skills/${skillFolderName}/SKILL.md`;
+            try {
+                await this.plugin.skillsManager.deleteSkill(globalPath);
+            } catch {
+                // Non-fatal if already deleted or not in global storage
+            }
         }
 
         if (skill.codeModules.length > 0) {

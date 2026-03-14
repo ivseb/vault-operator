@@ -36,6 +36,9 @@ export type ToolName =
     | 'create_excalidraw'
     // Vault: template analysis
     | 'analyze_pptx_template'
+    // Vault: visual intelligence
+    | 'render_presentation'
+    | 'get_composition_details'
     // Vault: office document creation
     | 'create_pptx'
     | 'create_docx'
@@ -84,12 +87,14 @@ export interface ToolUse {
 }
 
 /**
- * Tool result response
+ * Tool result response.
+ * content is normally a string. Tools that return multimodal data (e.g. rendered
+ * slide images) may return an array of ToolResultContentBlock instead.
  */
 export interface ToolResult {
     type: 'tool_result';
     tool_use_id: string;
-    content: string;
+    content: string | import('../../api/types').ToolResultContentBlock[];
     is_error?: boolean;
 }
 
@@ -111,9 +116,10 @@ export interface ToolDefinition {
  */
 export interface ToolCallbacks {
     /**
-     * Push a result to be sent back to the LLM
+     * Push a result to be sent back to the LLM.
+     * Pass a ToolResultContentBlock[] for multimodal results (text + images).
      */
-    pushToolResult(content: string): void;
+    pushToolResult(content: string | import('../../api/types').ToolResultContentBlock[]): void;
 
     /**
      * Handle an error during tool execution

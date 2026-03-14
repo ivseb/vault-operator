@@ -45,6 +45,8 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     get_daily_note: 'read',
     query_base: 'read',
     semantic_search: 'read',
+    render_presentation: 'read',
+    get_composition_details: 'read',
     // Note content edits (write_file, edit_file, append_to_file, update_frontmatter)
     write_file: 'note-edit',
     edit_file: 'note-edit',
@@ -55,6 +57,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     delete_file: 'vault-change',
     move_file: 'vault-change',
     generate_canvas: 'vault-change',
+    analyze_pptx_template: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',
     // Web
@@ -232,12 +235,24 @@ export class ToolExecutionPipeline {
 
             // 5. Execute the tool
             const collectedContent: string[] = [];
+            let multimodalContent: import('../../api/types').ToolResultContentBlock[] | null = null;
             let executionHadError = false;
 
             const wrappedCallbacks: ToolCallbacks = {
-                pushToolResult: (content: string) => {
-                    collectedContent.push(content);
-                    if (content.startsWith('<error>')) executionHadError = true;
+                pushToolResult: (content: string | import('../../api/types').ToolResultContentBlock[]) => {
+                    if (typeof content === 'string') {
+                        collectedContent.push(content);
+                        if (content.startsWith('<error>')) executionHadError = true;
+                    } else {
+                        // Multimodal content: store the array, extract text for logging
+                        multimodalContent = content;
+                        for (const block of content) {
+                            if (block.type === 'text') {
+                                collectedContent.push(block.text);
+                                if (block.text.startsWith('<error>')) executionHadError = true;
+                            }
+                        }
+                    }
                     callbacks.pushToolResult(content);
                 },
                 handleError: (tool: string, error: unknown) => callbacks.handleError(tool, error),
@@ -260,12 +275,12 @@ export class ToolExecutionPipeline {
 
             // 6. Persistent operation log + cache write
             const durationMs = Date.now() - startTime;
-            const content = collectedContent.join('\n');
-            await this.logOperation(toolCall, !executionHadError, durationMs, undefined, content);
+            const textContent = collectedContent.join('\n');
+            await this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
 
-            // Cache successful read-only results for deduplication
+            // Cache successful read-only results for deduplication (text-only)
             if (!executionHadError && ToolExecutionPipeline.CACHEABLE.has(toolCall.name)) {
-                this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), content);
+                this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), textContent);
             }
 
             // 7. Chat-Linking: track written .md paths for deferred frontmatter stamping (ADR-022)
@@ -279,7 +294,7 @@ export class ToolExecutionPipeline {
             return {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
-                content,
+                content: multimodalContent ?? textContent,
                 is_error: executionHadError,
             };
         } catch (error) {

@@ -706,6 +706,19 @@ export class SelfAuthoredSkillLoader {
             && file.path.includes('/code/');
     }
 
+    /**
+     * Remove a skill from the in-memory map by name.
+     * Does NOT delete files -- caller is responsible for file cleanup.
+     */
+    removeSkill(name: string): void {
+        const skill = this.skills.get(name);
+        if (skill) {
+            this.unregisterCodeTools(skill);
+            this.skills.delete(name);
+            console.debug(`[SelfAuthoredSkillLoader] Removed skill: ${name}`);
+        }
+    }
+
     private removeSkillByPath(path: string): void {
         for (const [name, skill] of this.skills) {
             if (skill.filePath === path) {

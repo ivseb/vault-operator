@@ -1,6 +1,6 @@
 ---
 name: presentation-design
-description: PPTX design expertise with HTML-based slide layout, element catalog, and quality standards
+description: Universal presentation design principles -- content classification, storytelling frameworks, visual vocabulary, design reasoning. Applies to ALL presentations (default themes AND corporate templates).
 trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx
 source: bundled
 requiredTools: [create_pptx]
@@ -8,11 +8,11 @@ requiredTools: [create_pptx]
 
 # Presentation Design Expertise
 
-You are a professional presentation designer. This skill has two parts:
-- **Part A (Universal)**: Content Classification Framework -- applies to ALL presentations (default themes AND corporate templates)
-- **Part B (Default themes only)**: HTML slide format, layout patterns, palettes -- ONLY for Executive/Modern/Minimal themes. When a corporate template skill is active, IGNORE Part B entirely.
+You are a professional presentation designer. This skill provides universal design principles that apply to ALL presentations -- both default themes and corporate templates.
 
-## A. Content Classification Framework (Universal)
+When a corporate template skill is active, use template_slide + content instead of HTML. For default themes (Executive/Modern/Minimal), see the "HTML Slide Format" section below.
+
+## Content Classification Framework
 
 This framework applies to EVERY presentation, regardless of template. Use it to decide HOW to visualize content.
 
@@ -62,19 +62,19 @@ Content has numbers?
 
 ### Template-Based Slide Creation (Corporate Templates)
 
-When a corporate template skill is active, the Template Skill **extends and overrides** the static Content Classification table above. The process is:
+When a corporate template skill (Visual Design Language Document) is active, it **extends and overrides** the static Content Classification table above. The process is:
 
-1. **Read the Template Skill** -- it lists ALL available slide compositions with Shape-Name mappings and slide classifications
-2. **Build a dynamic mapping**: The Template Skill defines which slide types actually exist in this template. These may include types NOT in the static table above (e.g., quote, team, agenda-checkmarks, custom layouts). Use them.
-3. **Match content to available slides**: For each content block, find the best matching template slide composition:
-   - Direct match: content type matches a template slide classification (e.g., kpi content -> kpi slide) -- use it
-   - Template-specific match: the template offers a specialized slide type for this content (e.g., a "quote" slide for testimonials) -- prefer it over generic alternatives
-   - Fallback: no matching template slide exists -- use the closest available type (e.g., no "timeline" slide -> use "process" slide instead)
-4. **Use Shape-Names as keys** in the `content` object (e.g. `"TextBox 5": "EUR 15.2M"`)
+1. **Read the Template Skill** -- it lists compositions organized by semantic meaning (not by slide number). Each composition has: meaning, when to use, capacity limits, and shape mappings.
+2. **Think in compositions, not slide numbers**: Match your content to the composition whose MEANING fits best. Use the Visual Vocabulary and Design Reasoning sections to decide.
+   - Direct match: content meaning matches a composition (e.g., "5-step process" -> Chevron chain composition)
+   - Template-specific: the template offers specialized compositions not in the static table (e.g., quote, team, agenda-checkmarks) -- prefer them
+   - Fallback: no matching composition exists -- use the closest available type
+3. **Use Shape-Names as keys** in the `content` object -- read them from the composition's shape mapping (e.g. `"TextBox 5": "EUR 15.2M"`)
+4. **Respect capacity limits** stated in each composition (max words per shape, max items)
 5. **Brand-DNA** from the template skill defines colors, fonts, and tonality
-6. **Element catalog** shows what design elements (chevrons, KPI cards, pyramids etc.) exist in the template
+6. **Narrative phase mapping**: The template skill maps compositions to narrative phases (opening, tension, resolution) -- use this to build your slide sequence
 
-**Priority**: Template Skill slide catalog > static Content Classification table. The static table helps you think about WHAT to visualize. The Template Skill tells you HOW to visualize it with the available slides.
+**Priority**: Template Skill compositions > static Content Classification table. The static table helps you think about WHAT to visualize. The Template Skill tells you HOW to visualize it with the available compositions and their semantic meaning.
 
 ### Storytelling Frameworks
 
@@ -185,13 +185,48 @@ For regular updates. Focus on deviations and actions, not re-stating known conte
 5. **Visual variety within phases**: never repeat the same slide type consecutively
 6. **First and last slides** are the most remembered -- make them count
 
-## B. HTML Slide Format (Default Themes Only)
+## Visual Vocabulary -- What Shapes Mean
 
-**Part B applies ONLY to default themes (Executive/Modern/Minimal). When a corporate template skill is active, IGNORE everything below. Corporate templates use `template_slide` + `content`, NOT HTML.**
+Every geometric form carries semantic meaning. Choose the form that matches the cognitive operation your audience should perform.
 
-The office-workflow skill handles the general workflow (context, template, plan, create) and content rules (action titles, density, storytelling). Part B provides PPTX-specific HTML layout format and design patterns.
+| Visual Form | Communicates | Cognitive Effect |
+|---|---|---|
+| Chevron chain | Sequence, linear progress | "This moves forward step by step" |
+| Pyramid | Hierarchy, foundation layers | "The base supports everything above" |
+| Cycle / circular | Iteration, continuity | "This repeats and self-reinforces" |
+| 2x2 Matrix | Two-dimensional analysis | "Think along two axes" |
+| Funnel | Filtering, narrowing down | "Many become few" |
+| Side-by-side columns | Contrast, choice | "Compare these two options" |
+| Radial / hub-spoke | Central concept + periphery | "Everything connects to this core" |
+| Timeline | Temporal sequence | "This happened in this order" |
 
-## B1. HTML Slide Format
+## Design Reasoning (mandatory for every slide)
+
+Before choosing a slide type, answer these four questions:
+
+1. **What is the ONE message** of this slide? (If you cannot state it in one sentence, split the slide.)
+2. **What cognitive operation** should the audience perform? (compare, prioritize, sequence, quantify, relate)
+3. **Which visual form** triggers that operation? (Use the Visual Vocabulary table above.)
+4. **Does the form fit the narrative phase?** (Situation = facts/KPIs, Complication = contrast/comparison, Resolution = process/roadmap)
+
+## Signal-to-Noise Rules
+
+- Every element on a slide must carry information -- remove decorative clutter
+- Decorative elements (logos, borders, backgrounds): max 20% of slide area
+- Whitespace is information: empty space creates hierarchy and guides the eye
+- Data-ink ratio: maximize the share of ink used for actual data vs. chart chrome
+- One key message per slide -- if you need a second, create a second slide
+
+## Composition Density
+
+- Max 7 visual elements per slide (Miller's Law: 7 +/- 2)
+- Text limits: chevron labels max 3 words, bullet items max 8 words, titles max 10 words
+- Body text: max 75 words per slide (excluding speaker notes)
+- Font minimums: titles >= 28px, body >= 14px, labels >= 12px
+
+## HTML Slide Format (Default Themes Only)
+
+**This section applies ONLY to default themes (Executive/Modern/Minimal). When a corporate template skill is active, IGNORE this section entirely. Corporate templates use `template_slide` + `content`, NOT HTML.**
 
 Each slide is defined as annotated HTML on a **1280x720 pixel canvas** (16:9 widescreen).
 Every visual element is a `<div>` with `data-object="true"` and a `data-object-type` attribute.
@@ -247,9 +282,9 @@ Pass table data in the `tables` field:
 {"headers": ["Metric", "Value"], "rows": [["Revenue", "EUR 12.4M"]], "style": {"headerColor": "#1F2937", "headerTextColor": "#FFFFFF", "zebraColor": "#F3F4F6"}}
 ```
 
-## B2. Layout Pattern Library
+### Layout Pattern Library
 
-### Title Slide
+#### Title Slide
 Dark full-bleed background + centered title + subtitle + optional accent bar.
 ```html
 <div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 720px; background-color: #1F2937;"></div>
@@ -258,29 +293,29 @@ Dark full-bleed background + centered title + subtitle + optional accent bar.
 <div data-object="true" data-object-type="textbox" style="position: absolute; left: 200px; top: 370px; width: 880px; height: 50px; font-size: 20px; color: #9CA3AF; text-align: center;">Subtitle</div>
 ```
 
-### Content Slide with Header Bar
+#### Content Slide with Header Bar
 ```html
 <div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 90px; background-color: #1F2937;"></div>
 <div data-object="true" data-object-type="textbox" style="position: absolute; left: 50px; top: 15px; width: 1180px; height: 60px; font-size: 26px; font-weight: bold; color: #FFFFFF;">Action Title</div>
 ```
 
-### KPI Grid (3-4 cards)
+#### KPI Grid (3-4 cards)
 Header bar + row of accent-colored cards with large value + small label.
 - Card positions: left 60/460/860px, top 150px, width 360px, height 220px
 - Value: 36px bold white centered. Label: 15px light color centered.
 
-### Process Flow (3-6 steps)
+#### Process Flow (3-6 steps)
 Header bar + numbered step shapes + arrows between them + descriptions below.
 - Step shapes: colored rectangles with border-radius:12px
 - Arrow: `data-shape="rightArrow"` between steps
 - Description below each step: 12px gray centered
 
-### Two-Column Layout
+#### Two-Column Layout
 Header bar + left/right content areas.
 - Left: shape at left:40, width:580, bg:#F9FAFB. Right: shape at left:660, width:580
 - Column headers: 22px bold
 
-### Section Divider
+#### Section Divider
 Dark background + large section number + section title.
 ```html
 <div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 720px; background-color: #1E3A5F;"></div>
@@ -288,53 +323,30 @@ Dark background + large section number + section title.
 <div data-object="true" data-object-type="textbox" style="position: absolute; left: 100px; top: 340px; width: 800px; height: 60px; font-size: 32px; color: #FFFFFF;">Section Title</div>
 ```
 
-## B3. Default Theme Palettes
+### Default Theme Palettes
 
 Use these colors when no corporate skill is active:
 
-### Executive (default)
+#### Executive (default)
 - Primary: `#1F2937` (dark slate), Accent1: `#3B82F6` (blue), Accent2: `#10B981` (green)
 - Text dark: `#1F2937`, Text light: `#FFFFFF`, Background: `#FFFFFF`
 - Chart: `#3B82F6`, `#10B981`, `#F59E0B`, `#EF4444`, `#8B5CF6`, `#06B6D4`
 
-### Modern
+#### Modern
 - Primary: `#1E40AF`, Accent1: `#F97316`, Accent2: `#8B5CF6`
 - Chart: `#F97316`, `#8B5CF6`, `#3B82F6`, `#10B981`, `#EC4899`, `#14B8A6`
 
-### Minimal
+#### Minimal
 - Primary: `#111827`, Accent1: `#6B7280`, Accent2: `#9CA3AF`
 - Chart: `#6B7280`, `#111827`, `#9CA3AF`, `#4B5563`, `#D1D5DB`, `#374151`
 
-## B4. Design Principles
-
-### Visual Rhythm
-- Alternate between text-heavy and visual slides
-- Section dividers every 3-5 content slides
-- NEVER use the same visual pattern on consecutive slides
-- Alternate dark-bg and light-bg slides for contrast
-
-### Visual Escalation
-For EVERY slide, prefer the most visual format:
-1. Chart -- numeric comparisons/trends
-2. KPI cards -- 2-6 key metrics
-3. Process flow -- sequential steps
-4. Table -- multi-dimensional data
-5. Bullets -- unstructured prose (last resort)
-
-RULE: Numbers in bullets? Convert to chart.
-RULE: Steps in bullets? Convert to process flow.
-RULE: Metric-label pairs? Convert to KPI cards.
-
-### Font Size Minimums
-- Body: >= 14px, Titles: >= 28px
-
-## B5. Table Constraints
+### Table Constraints
 - Max 7 rows (excluding header), max 5 columns
 - Exceeds? Split across slides with "Part 1/2" in title
 - Header row mandatory
 - Use `style.headerColor` matching the theme primary
 
-## B6. Quality Checklist
+### Quality Checklist
 Before finalizing, verify each slide:
 1. Title states a conclusion (action title)?
 2. Substantive content (not title-only)?
@@ -347,10 +359,11 @@ Before finalizing, verify each slide:
 9. All elements within 1280x720 canvas bounds?
 10. Font sizes readable (body >= 14px, titles >= 28px)?
 
-## B7. Design Assets via MCP
+### Design Assets via MCP
 
 If Icons8 MCP tools are available, search for icons to enhance slides:
 - Process flows: icon per step
 - KPI slides: icon per metric
 - Section dividers: thematic icon
 - Use `data-object-type="image"` with the downloaded icon path
+

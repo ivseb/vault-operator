@@ -532,12 +532,62 @@ async function replaceSlideContent(
                 stillUnmatched.push(key);
             }
         }
+        // Phase 3 (V-5): Clean up remaining placeholder text in unmatched shapes
+        xml = cleanupPlaceholderText(xml);
         zip.file(path, xml);
         return stillUnmatched;
     }
 
+    // Phase 3 (V-5): Clean up remaining placeholder text in unmatched shapes
+    xml = cleanupPlaceholderText(xml);
     zip.file(path, xml);
     return unmatched;
+}
+
+/**
+ * Clean up common placeholder/dummy text in shapes that were not matched (V-5).
+ * Extracts concatenated text from all <a:t> runs within each <p:sp> shape,
+ * then clears the text if it starts with a known placeholder pattern.
+ * This handles cases where "Lorem ipsum" is split across multiple <a:r> runs.
+ */
+function cleanupPlaceholderText(xml: string): string {
+    const placeholderStarts = [
+        'Lorem ipsum',
+        'Platzhalter',
+        'Beispieltext',
+        'Click to edit',
+        'Insert text',
+    ];
+
+    // Find each <p:sp>...</p:sp> shape
+    const spPattern = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+    let result = xml;
+    let spMatch: RegExpExecArray | null;
+
+    while ((spMatch = spPattern.exec(xml)) !== null) {
+        const shapeXml = spMatch[0];
+
+        // Extract all <a:t> text content from this shape and concatenate
+        const textParts: string[] = [];
+        const atPattern = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g;
+        let atMatch: RegExpExecArray | null;
+        while ((atMatch = atPattern.exec(shapeXml)) !== null) {
+            textParts.push(atMatch[1]);
+        }
+        const fullText = textParts.join('');
+
+        // Check if concatenated text starts with any placeholder pattern
+        const isPlaceholder = placeholderStarts.some((p) => fullText.startsWith(p));
+        if (isPlaceholder) {
+            // Clear all <a:t> content within this shape
+            const cleaned = shapeXml.replace(
+                /(<a:t[^>]*>)[\s\S]*?(<\/a:t>)/g,
+                '$1$2',
+            );
+            result = result.replace(shapeXml, cleaned);
+        }
+    }
+    return result;
 }
 
 /**
@@ -556,20 +606,22 @@ function replaceTextInSlide(
         return { xml: s0Result, matched: true };
     }
 
-    // Normalize key to fix common LLM transliterations (ue→ü, --→–, etc.)
-    const normalizedKey = normalizeForMatching(key);
-    const escapedKey = escapeXml(normalizedKey);
+    const escapedKey = escapeXml(key);
     const escapedValue = escapeXml(value);
 
-    // Strategy 1: Exact <a:t> match
-    const exactPattern = new RegExp(
+    // Strategy 1: Exact <a:t> match (NO normalization -- key must match XML text exactly)
+    // V-7: Short keys (<50 chars) use first-match only to avoid replacing
+    // ALL identical <a:t> elements (e.g. multiple chevrons with same text)
+    const isShortKey = escapedKey.length < 50;
+    const s1Flags = isShortKey ? '' : 'g';
+    const s1Pattern = new RegExp(
         `(<a:t[^>]*>)${escapeRegex(escapedKey)}(</a:t>)`,
-        'g',
+        s1Flags,
     );
-    if (exactPattern.test(xml)) {
+    if (s1Pattern.test(xml)) {
         return {
             xml: xml.replace(
-                new RegExp(`(<a:t[^>]*>)${escapeRegex(escapedKey)}(</a:t>)`, 'g'),
+                new RegExp(`(<a:t[^>]*>)${escapeRegex(escapedKey)}(</a:t>)`, s1Flags),
                 `$1${escapedValue}$2`,
             ),
             matched: true,
@@ -648,18 +700,14 @@ function replaceInParagraphs(xml: string, searchText: string, replaceText: strin
 
         replaced = true;
 
-        // Extract <a:pPr> (paragraph properties) to preserve
-        const pPrSelf = paragraph.match(/<a:pPr\b[^>]*\/>/);
-        const pPrOpen = paragraph.match(/<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>/);
-        const pPr = pPrSelf ? pPrSelf[0] : (pPrOpen ? pPrOpen[0] : '');
-
-        // Extract first <a:rPr> for formatting
-        const rPr = extractFirstRPr(paragraph);
+        // Extract formatting (V-2: paragraph-level preservation)
+        const fmt = extractAllParagraphFormats(paragraph)[0] ??
+            { pPr: '', rPr: '<a:rPr lang="de-DE" dirty="0"/>' };
 
         const escapedReplace = escapeXml(replaceText);
 
         // Rebuild paragraph cleanly with single run
-        return `<a:p>${pPr}<a:r>${rPr}<a:t xml:space="preserve">${escapedReplace}</a:t></a:r></a:p>`;
+        return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t xml:space="preserve">${escapedReplace}</a:t></a:r></a:p>`;
     });
 
     return result;
@@ -730,21 +778,16 @@ function replaceInShape(xml: string, searchText: string, replaceText: string): s
         // Preserve <a:bodyPr> and <a:lstStyle> (text alignment, margins, wrapping)
         const bodyProps = extractBodyProperties(txBody);
 
-        // Extract the first <a:rPr> for formatting preservation
-        const rPr = extractFirstRPr(txBody);
+        // Extract formatting from ALL paragraphs (V-2: paragraph-level preservation)
+        const formats = extractAllParagraphFormats(txBody);
 
-        // Also preserve <a:pPr> from the first paragraph
-        const pPrSelf = txBody.match(/<a:pPr\b[^>]*\/>/);
-        const pPrOpen = txBody.match(/<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>/);
-        const pPr = pPrSelf ? pPrSelf[0] : (pPrOpen ? pPrOpen[0] : '');
-
-        // Build new text body content
+        // Build new text body content with per-paragraph formatting
         const escapedValue = escapeXml(replaceText);
         const lines = escapedValue.split('\n');
-        const paragraphs = lines.map((line, idx) => {
+        const paragraphs = lines.map((line, i) => {
             if (!line.trim()) return '<a:p><a:endParaRPr/></a:p>';
-            const pPrTag = idx === 0 && pPr ? pPr : '';
-            return `<a:p>${pPrTag}<a:r>${rPr}<a:t>${line}</a:t></a:r></a:p>`;
+            const fmt = formats[Math.min(i, formats.length - 1)];
+            return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t>${line}</a:t></a:r></a:p>`;
         }).join('');
 
         // Replace the txBody content in the shape (preserving bodyPr + lstStyle)
@@ -863,7 +906,7 @@ function replaceByPlaceholderType(xml: string, phType: string, value: string): s
 function replaceByShapeName(xml: string, key: string, value: string): string {
     // Build a pattern to find <p:cNvPr ... name="KEY" ...> (or name='KEY')
     // The name attribute can appear in any position within the element.
-    const escapedName = escapeXml(key).replace(/"/g, '&quot;');
+    const escapedName = escapeXml(key);
     const namePattern = new RegExp(
         `<p:cNvPr\\b[^>]*\\bname="${escapeRegex(escapedName)}"[^>]*/?>`,
     );
@@ -906,14 +949,17 @@ function replaceShapeAtPhPos(xml: string, phElementStr: string, value: string): 
     // Preserve <a:bodyPr> and <a:lstStyle>
     const bodyProps2 = extractBodyProperties(txBody);
 
-    // Extract the first <a:rPr> for formatting preservation
-    const rPr = extractFirstRPr(txBody);
+    // Extract formatting from ALL paragraphs (V-2: paragraph-level preservation)
+    // This ensures heading stays heading, body stays body, etc.
+    const formats = extractAllParagraphFormats(txBody);
 
-    // Build new text body content with preserved formatting
+    // Build new text body content with per-paragraph formatting
     const lines = value.split('\n');
-    const paragraphs = lines.map(line => {
+    const paragraphs = lines.map((line, i) => {
         if (!line.trim()) return '<a:p><a:endParaRPr/></a:p>';
-        return `<a:p><a:r>${rPr}<a:t>${escapeXml(line)}</a:t></a:r></a:p>`;
+        // Use the format for this line's position, or the last available format
+        const fmt = formats[Math.min(i, formats.length - 1)];
+        return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t>${escapeXml(line)}</a:t></a:r></a:p>`;
     }).join('');
 
     // Replace the txBody content (preserving bodyPr + lstStyle)
@@ -933,8 +979,8 @@ function replaceShapeAtPhPos(xml: string, phElementStr: string, value: string): 
  */
 function findClosingTag(xml: string, startPos: number, tagName: string): number {
     let depth = 0;
-    const openPattern = new RegExp(`<${tagName}[\\s>]`);
     const closeStr = `</${tagName}>`;
+    const tagLen = tagName.length;
 
     // Skip past the opening tag itself (find the '>' that closes the opening tag)
     const openEnd = xml.indexOf('>', startPos);
@@ -948,10 +994,15 @@ function findClosingTag(xml: string, startPos: number, tagName: string): number 
         if (nextClose < 0) return -1; // No closing tag found
 
         if (nextOpen >= 0 && nextOpen < nextClose) {
-            // Check if it's actually an opening tag (not a self-closing or different tag)
-            const afterTag = xml.substring(nextOpen, nextOpen + tagName.length + 2);
-            if (openPattern.test(afterTag)) {
-                depth++;
+            // Verify this is actually our tag, not a prefix match
+            // e.g. <p:sp must not match <p:spPr or <p:spTree
+            const charAfterTag = xml[nextOpen + 1 + tagLen];
+            if (charAfterTag === ' ' || charAfterTag === '>' || charAfterTag === '/' || charAfterTag === '\n' || charAfterTag === '\r' || charAfterTag === '\t') {
+                // Check if it's an opening tag (not self-closing)
+                const tagEnd = xml.indexOf('>', nextOpen);
+                if (tagEnd >= 0 && xml[tagEnd - 1] !== '/') {
+                    depth++;
+                }
             }
             pos = nextOpen + 1;
         } else {
@@ -959,7 +1010,7 @@ function findClosingTag(xml: string, startPos: number, tagName: string): number 
                 return nextClose + closeStr.length;
             }
             depth--;
-            pos = nextClose + 1;
+            pos = nextClose + closeStr.length;
         }
     }
 
@@ -1061,6 +1112,53 @@ function extractFirstRPr(xml: string): string {
     return xml.substring(startPos, endTag + 8); // 8 = '</a:rPr>'.length
 }
 
+/* ------------------------------------------------------------------ */
+/*  Paragraph-level formatting extraction (V-2)                        */
+/* ------------------------------------------------------------------ */
+
+interface ParagraphFormat {
+    /** Paragraph properties (<a:pPr ...> or '') */
+    pPr: string;
+    /** Run properties (<a:rPr ...>) */
+    rPr: string;
+}
+
+/**
+ * Extract formatting from ALL paragraphs in a txBody, not just the first.
+ * This preserves heading/body/label formatting differences across paragraphs.
+ *
+ * For example, a shape with "Title\nBody text" will have different rPr for
+ * each paragraph (bold 24pt vs regular 14pt). Using only the first rPr
+ * would make everything bold 24pt.
+ *
+ * Returns an array of {pPr, rPr} per content paragraph (skipping empty ones).
+ * Falls back to a single default format if nothing is extractable.
+ */
+function extractAllParagraphFormats(txBody: string): ParagraphFormat[] {
+    const formats: ParagraphFormat[] = [];
+    const pPattern = /<a:p\b[^>]*>[\s\S]*?<\/a:p>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = pPattern.exec(txBody)) !== null) {
+        const para = match[0];
+        // Skip paragraphs without text runs (empty spacer paragraphs)
+        if (!/<a:r\b/.test(para)) continue;
+
+        // Extract paragraph properties (<a:pPr>)
+        const pPrSelf = para.match(/<a:pPr\b[^>]*\/>/);
+        const pPrOpen = para.match(/<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>/);
+        const pPr = pPrSelf?.[0] ?? pPrOpen?.[0] ?? '';
+
+        // Extract run properties using existing helper
+        const rPr = extractFirstRPr(para);
+        formats.push({ pPr, rPr });
+    }
+
+    return formats.length > 0
+        ? formats
+        : [{ pPr: '', rPr: '<a:rPr lang="de-DE" dirty="0"/>' }];
+}
+
 /**
  * Extract <a:bodyPr> and <a:lstStyle> elements from txBody content.
  * These must be preserved when replacing text content.
@@ -1084,19 +1182,15 @@ function extractBodyProperties(txBodyContent: string): string {
 }
 
 /**
- * Normalize text for matching: fix common LLM transliterations.
- * Maps ASCII approximations back to their Unicode originals
- * so agent keys match template text even with transliteration.
+ * Normalize text for fuzzy matching: whitespace and dash normalization only.
+ * Does NOT convert umlaut transliterations (ae/oe/ue) because that
+ * destroys English words like "Revenue", "Israel", "Bluetooth".
  */
 function normalizeForMatching(text: string): string {
     return text
-        // German umlaut transliterations (word-internal only via regex would be complex,
-        // so we do global replacement -- safe because template text uses real umlauts)
-        .replace(/ae/g, 'ä').replace(/oe/g, 'ö').replace(/ue/g, 'ü')
-        .replace(/Ae/g, 'Ä').replace(/Oe/g, 'Ö').replace(/Ue/g, 'Ü')
-        // Dash variants → en-dash (template uses – not -- or —)
-        .replace(/\s*--\s*/g, ' – ')
-        .replace(/\s*—\s*/g, ' – ')
+        // Dash variants -> en-dash
+        .replace(/\s*--\s*/g, ' \u2013 ')
+        .replace(/\s*\u2014\s*/g, ' \u2013 ')
         // Normalize whitespace
         .replace(/\s+/g, ' ')
         .trim();
@@ -1183,19 +1277,16 @@ function replaceByPositionalFallback(
 
         if (!isPlaceholder) continue;
 
-        // Replace this shape's content
+        // Replace this shape's content with V-2 paragraph-level formatting
         const bodyProps3 = extractBodyProperties(txBody);
-        const rPr = extractFirstRPr(txBody);
-        const pPrSelf = txBody.match(/<a:pPr\b[^>]*\/>/);
-        const pPrOpen = txBody.match(/<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>/);
-        const pPr = pPrSelf ? pPrSelf[0] : (pPrOpen ? pPrOpen[0] : '');
+        const formats = extractAllParagraphFormats(txBody);
 
         const escapedValue = escapeXml(value);
         const lines = escapedValue.split('\n');
-        const paragraphs = lines.map((line, idx) => {
+        const paragraphs = lines.map((line, i) => {
             if (!line.trim()) return '<a:p><a:endParaRPr/></a:p>';
-            const pPrTag = idx === 0 && pPr ? pPr : '';
-            return `<a:p>${pPrTag}<a:r>${rPr}<a:t>${line}</a:t></a:r></a:p>`;
+            const fmt = formats[Math.min(i, formats.length - 1)];
+            return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t>${line}</a:t></a:r></a:p>`;
         }).join('');
 
         const newSpBlock = spBlock.substring(0, txBStart + txBodyTag3.length + 2) +
