@@ -16,6 +16,13 @@
  */
 
 import JSZip from 'jszip';
+import {
+    EMU_PER_INCH, EMU_PER_PX, EMU_PT_TO_EMU,
+    EMU_DECORATIVE, EMU_SMALL_WIDTH, EMU_SMALL_HEIGHT,
+    EMU_BODY_MIN, EMU_BODY_MAX, EMU_BACKGROUND_W, EMU_BACKGROUND_H,
+    AVG_CHAR_WIDTH_FACTOR, LINE_HEIGHT_FACTOR, PT_TO_PX,
+    findClosingTag, decodeXmlEntities, simpleHash,
+} from './ooxml-utils';
 
 /* ------------------------------------------------------------------ */
 /*  Public types                                                       */
@@ -183,55 +190,68 @@ export async function analyzeTemplate(templateData: ArrayBuffer): Promise<Templa
 /*  Brand DNA extraction                                               */
 /* ------------------------------------------------------------------ */
 
+/** Parse XML string into a DOM Document (Electron provides DOMParser). */
+function parseXml(xml: string): Document {
+    return new DOMParser().parseFromString(xml, 'application/xml');
+}
+
 async function extractBrandDNA(zip: JSZip): Promise<BrandDNA> {
     const colors: Record<string, string> = {};
     const fonts = { major: 'Calibri', minor: 'Calibri' };
     let slideSize = { cx: 12192000, cy: 6858000 }; // Default 16:9
 
-    // Extract colors and fonts from theme1.xml
+    // Extract colors and fonts from theme1.xml via DOMParser
     const themeFile = zip.file('ppt/theme/theme1.xml');
     if (themeFile) {
-        const xml = await themeFile.async('text');
+        const doc = parseXml(await themeFile.async('text'));
 
         // Color scheme: dk1, dk2, lt1, lt2, accent1-6, hlink, folHlink
         const colorNames = ['dk1', 'dk2', 'lt1', 'lt2', 'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6', 'hlink', 'folHlink'];
         for (const name of colorNames) {
-            const colorBlock = extractXmlBlock(xml, `a:${name}`);
-            if (colorBlock) {
-                const hex = extractColorFromBlock(colorBlock);
+            const el = doc.getElementsByTagName(`a:${name}`)[0];
+            if (el) {
+                const hex = extractColorFromElement(el);
                 if (hex) colors[name] = hex;
             }
         }
 
-        // Font scheme: majorFont, minorFont
-        const majorMatch = /<a:majorFont>[\s\S]*?<a:latin\s+typeface="([^"]+)"/.exec(xml);
-        if (majorMatch) fonts.major = majorMatch[1];
+        // Font scheme: majorFont latin typeface, minorFont latin typeface
+        const majorLatin = doc.getElementsByTagName('a:majorFont')[0]?.getElementsByTagName('a:latin')[0];
+        if (majorLatin) fonts.major = majorLatin.getAttribute('typeface') ?? 'Calibri';
 
-        const minorMatch = /<a:minorFont>[\s\S]*?<a:latin\s+typeface="([^"]+)"/.exec(xml);
-        if (minorMatch) fonts.minor = minorMatch[1];
+        const minorLatin = doc.getElementsByTagName('a:minorFont')[0]?.getElementsByTagName('a:latin')[0];
+        if (minorLatin) fonts.minor = minorLatin.getAttribute('typeface') ?? 'Calibri';
     }
 
-    // Extract slide size from presentation.xml
+    // Extract slide size from presentation.xml via DOMParser
     const presFile = zip.file('ppt/presentation.xml');
     if (presFile) {
-        const xml = await presFile.async('text');
-        const sizeMatch = /<p:sldSz\s+cx="(\d+)"\s+cy="(\d+)"/.exec(xml);
-        if (sizeMatch) {
-            slideSize = { cx: parseInt(sizeMatch[1]), cy: parseInt(sizeMatch[2]) };
+        const doc = parseXml(await presFile.async('text'));
+        const sldSz = doc.getElementsByTagName('p:sldSz')[0];
+        if (sldSz) {
+            const cx = sldSz.getAttribute('cx');
+            const cy = sldSz.getAttribute('cy');
+            if (cx && cy) slideSize = { cx: parseInt(cx), cy: parseInt(cy) };
         }
     }
 
     return { colors, fonts, slideSize };
 }
 
-function extractColorFromBlock(block: string): string | null {
+function extractColorFromElement(el: Element): string | null {
     // Try srgbClr (direct hex)
-    const srgbMatch = /srgbClr\s+val="([0-9A-Fa-f]{6})"/.exec(block);
-    if (srgbMatch) return `#${srgbMatch[1]}`;
+    const srgb = el.getElementsByTagName('a:srgbClr')[0];
+    if (srgb) {
+        const val = srgb.getAttribute('val');
+        if (val) return `#${val}`;
+    }
 
     // Try sysClr (system color with lastClr)
-    const sysMatch = /sysClr[^>]*lastClr="([0-9A-Fa-f]{6})"/.exec(block);
-    if (sysMatch) return `#${sysMatch[1]}`;
+    const sys = el.getElementsByTagName('a:sysClr')[0];
+    if (sys) {
+        const lastClr = sys.getAttribute('lastClr');
+        if (lastClr) return `#${lastClr}`;
+    }
 
     return null;
 }
@@ -255,6 +275,75 @@ interface RawShape {
     fingerprint: ShapeFingerprint;
     /** Raw XML of the <p:sp> block (for font size extraction in V-4). */
     xml: string;
+    /** Font size (in pt) inherited from slideLayout, if available. */
+    layoutFontSize?: number;
+}
+
+/**
+ * Extract font sizes from the slideLayout associated with a slide.
+ * Returns a Map keyed by placeholder identifier ("type:title", "idx:1", etc.)
+ * with font size values in points.
+ */
+async function extractLayoutFontSizes(
+    zip: JSZip,
+    slideNum: number,
+): Promise<Map<string, number>> {
+    const result = new Map<string, number>();
+
+    // Find layout number from slide rels
+    const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+    const relsFile = zip.file(relsPath);
+    if (!relsFile) return result;
+
+    const relsXml = await relsFile.async('text');
+    const layoutMatch = /\.\.\/slideLayouts\/slideLayout(\d+)\.xml/.exec(relsXml);
+    if (!layoutMatch) return result;
+
+    const layoutPath = `ppt/slideLayouts/slideLayout${layoutMatch[1]}.xml`;
+    const layoutFile = zip.file(layoutPath);
+    if (!layoutFile) return result;
+
+    const layoutXml = await layoutFile.async('text');
+
+    // Find all <p:sp> blocks in the layout and extract font sizes per placeholder
+    const spPattern = /<p:sp\b[^>]*>/g;
+    let spMatch: RegExpExecArray | null;
+    while ((spMatch = spPattern.exec(layoutXml)) !== null) {
+        const spStart = spMatch.index;
+        const spEnd = findClosingTag(layoutXml, spStart, 'p:sp');
+        if (spEnd < 0) continue;
+        const spBlock = layoutXml.substring(spStart, spEnd);
+
+        // Extract placeholder info
+        const phMatch = /<p:ph\b([^>]*)\/?>/.exec(spBlock);
+        if (!phMatch) continue;
+        const phAttrs = phMatch[1];
+        const typeMatch = /type="([^"]*)"/.exec(phAttrs);
+        const idxMatch = /idx="(\d+)"/.exec(phAttrs);
+
+        // Extract font size: try <a:defRPr sz=""> first (most common in layouts),
+        // then <a:rPr sz="">
+        const defRprSz = spBlock.match(/<a:defRPr[^>]*\bsz="(\d+)"/);
+        const rprSz = spBlock.match(/<a:rPr[^>]*\bsz="(\d+)"/);
+        const szValue = defRprSz?.[1] ?? rprSz?.[1];
+        if (!szValue) continue;
+
+        const fontSizePt = parseInt(szValue) / 100;
+
+        // Store by type and/or idx for flexible lookup
+        if (typeMatch) {
+            result.set(`type:${typeMatch[1]}`, fontSizePt);
+        }
+        if (idxMatch) {
+            result.set(`idx:${idxMatch[1]}`, fontSizePt);
+        }
+        // Also store by type if no explicit type but has idx (body placeholder)
+        if (!typeMatch && idxMatch) {
+            result.set(`type:body`, fontSizePt);
+        }
+    }
+
+    return result;
 }
 
 function findSlideNumbers(zip: JSZip): number[] {
@@ -273,6 +362,9 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
 
     const xml = await file.async('text');
     const shapes: RawShape[] = [];
+
+    // Pre-load font sizes from the associated slideLayout for inheritance
+    const layoutFontSizes = await extractLayoutFontSizes(zip, slideNum);
 
     // First, identify all <p:grpSp> ranges so we can exclude nested <p:sp> from top-level
     const grpRanges: Array<{ start: number; end: number }> = [];
@@ -340,6 +432,20 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
         const spBlock = xml.substring(spStart, spEnd);
         const shape = parseShape(spBlock);
         if (shape) shapes.push(shape);
+    }
+
+    // Apply layout font sizes to shapes that have placeholders
+    for (const shape of shapes) {
+        if (shape.layoutFontSize !== undefined) continue; // Already set
+        // Try matching by placeholder type, then by placeholder idx
+        if (shape.placeholderType) {
+            const byType = layoutFontSizes.get(`type:${shape.placeholderType}`);
+            if (byType) { shape.layoutFontSize = byType; continue; }
+        }
+        if (shape.placeholderIdx !== undefined) {
+            const byIdx = layoutFontSizes.get(`idx:${shape.placeholderIdx}`);
+            if (byIdx) { shape.layoutFontSize = byIdx; }
+        }
     }
 
     return shapes;
@@ -466,7 +572,7 @@ function extractLine(spBlock: string): string {
     if (/<a:noFill\s*\/>/.test(content)) return 'none';
 
     const widthMatch = /w="(\d+)"/.exec(attrs);
-    const width = widthMatch ? Math.round(parseInt(widthMatch[1]) / 12700) : 1; // EMU to pt
+    const width = widthMatch ? Math.round(parseInt(widthMatch[1]) / EMU_PT_TO_EMU) : 1;
 
     const schemeMatch = /schemeClr\s+val="([^"]*)"/.exec(content);
     const colorPart = schemeMatch ? `:${schemeMatch[1]}` : '';
@@ -502,12 +608,7 @@ function extractText(spBlock: string): { text: string; fieldCount: number } {
         if (/<a:t[^>]*>/.test(pMatch[0])) fieldCount++;
     }
 
-    const decoded = fullText
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&apos;/g, "'");
+    const decoded = decodeXmlEntities(fullText);
 
     return { text: decoded, fieldCount: fullText.length > 0 ? Math.max(fieldCount, 1) : 0 };
 }
@@ -573,7 +674,7 @@ function categorizeElement(shape: RawShape): ElementCategory {
     const geom = shape.geometry;
 
     // Background shapes (full-width, tall rectangles)
-    if (geom.includes('rect') && shape.position.width > 10000000 && shape.position.height > 5000000) {
+    if (geom.includes('rect') && shape.position.width > EMU_BACKGROUND_W && shape.position.height > EMU_BACKGROUND_H) {
         return 'background';
     }
 
@@ -593,7 +694,7 @@ function categorizeElement(shape: RawShape): ElementCategory {
     }
 
     // Decorative: thin bars, small shapes without text
-    if (!shape.hasText && (shape.position.height < 100000 || shape.position.width < 100000)) {
+    if (!shape.hasText && (shape.position.height < EMU_DECORATIVE || shape.position.width < EMU_DECORATIVE)) {
         return 'decorative';
     }
 
@@ -677,21 +778,25 @@ async function getLayoutName(zip: JSZip, slideNum: number): Promise<string> {
     const relsFile = zip.file(relsPath);
     if (!relsFile) return 'Unknown';
 
-    const relsXml = await relsFile.async('text');
+    // Parse rels XML to find slideLayout relationship
+    const relsDoc = parseXml(await relsFile.async('text'));
+    const rels = relsDoc.getElementsByTagName('Relationship');
+    let layoutNum: string | null = null;
+    for (let i = 0; i < rels.length; i++) {
+        const target = rels[i].getAttribute('Target') ?? '';
+        const match = /\.\.\/slideLayouts\/slideLayout(\d+)\.xml/.exec(target);
+        if (match) { layoutNum = match[1]; break; }
+    }
+    if (!layoutNum) return 'Unknown';
 
-    // Find slideLayout relationship
-    const layoutMatch = /Target="\.\.\/slideLayouts\/slideLayout(\d+)\.xml"/.exec(relsXml);
-    if (!layoutMatch) return 'Unknown';
-
-    const layoutNum = layoutMatch[1];
     const layoutPath = `ppt/slideLayouts/slideLayout${layoutNum}.xml`;
     const layoutFile = zip.file(layoutPath);
     if (!layoutFile) return `Layout ${layoutNum}`;
 
-    // Try to extract layout name from cSld element
-    const layoutXml = await layoutFile.async('text');
-    const nameMatch = /<p:cSld\b[^>]*\bname="([^"]*)"/.exec(layoutXml);
-    return nameMatch?.[1] ?? `Layout ${layoutNum}`;
+    // Extract layout name from cSld element via DOMParser
+    const layoutDoc = parseXml(await layoutFile.async('text'));
+    const cSld = layoutDoc.getElementsByTagName('p:cSld')[0];
+    return cSld?.getAttribute('name') ?? `Layout ${layoutNum}`;
 }
 
 function buildSlideComposition(
@@ -755,101 +860,125 @@ function buildSlideComposition(
     };
 }
 
-function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[], layoutName: string): SlideClassification {
-    const contentShapes = shapes.filter(s => s.isReplaceable);
-    const nonDecoShapes = rawShapes.filter(rs =>
-        rs.hasText || rs.placeholderType === 'title' || rs.placeholderType === 'ctrTitle',
-    );
+/* ------------------------------------------------------------------ */
+/*  Rule-based slide classification                                    */
+/* ------------------------------------------------------------------ */
 
-    // Title slide: has ctrTitle or title+subtitle, few other shapes
-    const hasTitle = rawShapes.some(rs => rs.placeholderType === 'title' || rs.placeholderType === 'ctrTitle');
-    const hasSubtitle = rawShapes.some(rs => rs.placeholderType === 'subTitle');
-    if (hasTitle && hasSubtitle && contentShapes.length <= 3) return 'title';
+interface ClassificationContext {
+    raw: RawShape[];
+    content: ShapeInfo[];
+    hasTitle: boolean;
+    hasSubtitle: boolean;
+    hasBody: boolean;
+    smallText: RawShape[];
+    largeBodies: RawShape[];
+    layoutName: string;
+}
 
-    // Section divider: large title, no body content
-    if (hasTitle && !rawShapes.some(rs => rs.placeholderType === 'body') && contentShapes.length <= 2) return 'section';
+interface ClassificationRule {
+    classification: SlideClassification;
+    test: (ctx: ClassificationContext) => boolean;
+}
 
-    // KPI: 3-6 similar small shapes with text (similar size, grid-like)
-    const smallTextShapes = rawShapes.filter(rs =>
-        rs.hasText && !rs.placeholderType &&
-        rs.position.width < 5000000 && rs.position.height < 3000000,
-    );
-    if (smallTextShapes.length >= 3 && smallTextShapes.length <= 8) {
-        const sizeVariance = calculateSizeVariance(smallTextShapes);
-        if (sizeVariance < 0.3) return 'kpi';
-    }
-
-    // Process: chevrons, arrows, or sequential numbered shapes
-    const chevrons = rawShapes.filter(rs =>
-        rs.geometry.includes('chevron') || rs.geometry.includes('homePlate'),
-    );
-    if (chevrons.length >= 3) return 'process';
-
+const CLASSIFICATION_RULES: ClassificationRule[] = [
+    // Title slide: ctrTitle or title+subtitle, few other shapes
+    { classification: 'title', test: (ctx) =>
+        ctx.hasTitle && ctx.hasSubtitle && ctx.content.length <= 3,
+    },
+    // Section divider: title, no body, few content shapes
+    { classification: 'section', test: (ctx) =>
+        ctx.hasTitle && !ctx.hasBody && ctx.content.length <= 2,
+    },
+    // KPI: 3-8 similar small text shapes (grid-like)
+    { classification: 'kpi', test: (ctx) =>
+        ctx.smallText.length >= 3 && ctx.smallText.length <= 8 &&
+        calculateSizeVariance(ctx.smallText) < 0.3,
+    },
+    // Process: 3+ chevrons or homePlate shapes
+    { classification: 'process', test: (ctx) =>
+        ctx.raw.filter(rs => rs.geometry.includes('chevron') || rs.geometry.includes('homePlate')).length >= 3,
+    },
     // Two-column: two large content areas side by side
-    const largeBodies = rawShapes.filter(rs =>
-        rs.hasText && rs.position.width > 3000000 && rs.position.width < 7000000,
-    );
-    if (largeBodies.length === 2) {
-        const leftRight = largeBodies.sort((a, b) => a.position.left - b.position.left);
-        if (leftRight[1].position.left > leftRight[0].position.left + leftRight[0].position.width * 0.5) {
-            return 'two-column';
-        }
+    { classification: 'two-column', test: (ctx) => {
+        if (ctx.largeBodies.length !== 2) return false;
+        const sorted = [...ctx.largeBodies].sort((a, b) => a.position.left - b.position.left);
+        return sorted[1].position.left > sorted[0].position.left + sorted[0].position.width * 0.5;
+    }},
+    // Pyramid: 3+ trapezoid/triangle shapes
+    { classification: 'pyramid', test: (ctx) =>
+        ctx.raw.filter(rs => rs.geometry.includes('trapezoid') || rs.geometry.includes('triangle')).length >= 3,
+    },
+    // Timeline: arrows/connectors + multiple small text shapes
+    { classification: 'timeline', test: (ctx) => {
+        const arrows = ctx.raw.filter(rs =>
+            rs.geometry.includes('arrow') || rs.geometry.includes('Arrow') ||
+            rs.geometry.includes('line') || rs.geometry.includes('connector'));
+        return arrows.length >= 2 && ctx.smallText.length >= 3;
+    }},
+    // Comparison: large bodies + structured shapes
+    { classification: 'comparison', test: (ctx) => {
+        if (ctx.largeBodies.length < 2 || ctx.smallText.length < 2) return false;
+        const structured = ctx.raw.filter(rs =>
+            !rs.placeholderType && rs.geometry !== 'none' && rs.geometry !== 'prstGeom:rect');
+        return structured.length >= 2;
+    }},
+    // Org-chart: connectors + many small text boxes
+    { classification: 'org-chart', test: (ctx) => {
+        const connectors = ctx.raw.filter(rs =>
+            rs.geometry.includes('connector') || rs.geometry.includes('line'));
+        return connectors.length >= 2 && ctx.smallText.length >= 4;
+    }},
+    // Matrix: exactly 4 equal-sized quadrants
+    { classification: 'matrix', test: (ctx) =>
+        ctx.smallText.length === 4 && calculateSizeVariance(ctx.smallText) < 0.2,
+    },
+    // Chart, table, image placeholders
+    { classification: 'chart', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'chart') },
+    { classification: 'table', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'tbl') },
+    { classification: 'image', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'pic') },
+    // Blank: no content
+    { classification: 'blank', test: (ctx) => {
+        const nonDeco = ctx.raw.filter(rs =>
+            rs.hasText || rs.placeholderType === 'title' || rs.placeholderType === 'ctrTitle');
+        return ctx.content.length === 0 && nonDeco.length === 0;
+    }},
+];
+
+/** Layout name patterns that hint at specific classifications. */
+const LAYOUT_CLASSIFICATION_HINTS: Array<[RegExp, SlideClassification]> = [
+    [/vergleich|compar/i, 'comparison'],
+    [/prozess|process/i, 'process'],
+    [/zeitstrahl|timeline/i, 'timeline'],
+    [/pyramide|pyramid/i, 'pyramid'],
+    [/organi[sz]|org.chart/i, 'org-chart'],
+    [/matrix|swot/i, 'matrix'],
+];
+
+function classifySlide(rawShapes: RawShape[], shapes: ShapeInfo[], layoutName: string): SlideClassification {
+    const ctx: ClassificationContext = {
+        raw: rawShapes,
+        content: shapes.filter(s => s.isReplaceable),
+        hasTitle: rawShapes.some(rs => rs.placeholderType === 'title' || rs.placeholderType === 'ctrTitle'),
+        hasSubtitle: rawShapes.some(rs => rs.placeholderType === 'subTitle'),
+        hasBody: rawShapes.some(rs => rs.placeholderType === 'body'),
+        smallText: rawShapes.filter(rs =>
+            rs.hasText && !rs.placeholderType &&
+            rs.position.width < EMU_SMALL_WIDTH && rs.position.height < EMU_SMALL_HEIGHT),
+        largeBodies: rawShapes.filter(rs =>
+            rs.hasText && rs.position.width > EMU_BODY_MIN && rs.position.width < EMU_BODY_MAX),
+        layoutName,
+    };
+
+    // Test rules in priority order
+    for (const rule of CLASSIFICATION_RULES) {
+        if (rule.test(ctx)) return rule.classification;
     }
 
-    // Pyramid: trapezoid/triangle shapes stacked
-    const pyramidShapes = rawShapes.filter(rs =>
-        rs.geometry.includes('trapezoid') || rs.geometry.includes('triangle'),
-    );
-    if (pyramidShapes.length >= 3) return 'pyramid';
-
-    // Timeline: horizontal arrows/connectors with vertically aligned text
-    const arrowShapes = rawShapes.filter(rs =>
-        rs.geometry.includes('arrow') || rs.geometry.includes('Arrow') ||
-        rs.geometry.includes('line') || rs.geometry.includes('connector'),
-    );
-    if (arrowShapes.length >= 2 && smallTextShapes.length >= 3) return 'timeline';
-
-    // Comparison: two large side-by-side areas with similar geometry (not two-column text)
-    if (largeBodies.length >= 2 && smallTextShapes.length >= 2) {
-        // Has structured elements besides text bodies -> comparison layout
-        const structuredShapes = rawShapes.filter(rs =>
-            !rs.placeholderType && rs.geometry !== 'none' && rs.geometry !== 'prstGeom:rect',
-        );
-        if (structuredShapes.length >= 2) return 'comparison';
-    }
-
-    // Org-chart: hierarchical connectors with multiple small boxes
-    const connectorShapes = rawShapes.filter(rs =>
-        rs.geometry.includes('connector') || rs.geometry.includes('line'),
-    );
-    if (connectorShapes.length >= 2 && smallTextShapes.length >= 4) return 'org-chart';
-
-    // Matrix: 4 equal quadrants
-    if (smallTextShapes.length === 4) {
-        const sizeVariance = calculateSizeVariance(smallTextShapes);
-        if (sizeVariance < 0.2) return 'matrix';
-    }
-
-    // Chart placeholder
-    if (rawShapes.some(rs => rs.placeholderType === 'chart')) return 'chart';
-
-    // Table placeholder
-    if (rawShapes.some(rs => rs.placeholderType === 'tbl')) return 'table';
-
-    // Image placeholder
-    if (rawShapes.some(rs => rs.placeholderType === 'pic')) return 'image';
-
-    // Blank: no content shapes
-    if (contentShapes.length === 0 && nonDecoShapes.length === 0) return 'blank';
-
-    // Layout name hint: check for keywords that match known classifications
+    // Fallback: layout name hints
     const layoutLower = layoutName.toLowerCase();
-    if (/vergleich|compar/.test(layoutLower)) return 'comparison';
-    if (/prozess|process/.test(layoutLower)) return 'process';
-    if (/zeitstrahl|timeline/.test(layoutLower)) return 'timeline';
-    if (/pyramide|pyramid/.test(layoutLower)) return 'pyramid';
-    if (/organi[sz]|org.chart/.test(layoutLower)) return 'org-chart';
-    if (/matrix|swot/.test(layoutLower)) return 'matrix';
+    for (const [pattern, classification] of LAYOUT_CLASSIFICATION_HINTS) {
+        if (pattern.test(layoutLower)) return classification;
+    }
 
     return 'content';
 }
@@ -864,25 +993,8 @@ function calculateSizeVariance(shapes: RawShape[]): number {
 
 function generateSlideDescription(classification: SlideClassification, shapes: ShapeInfo[]): string {
     const replaceableCount = shapes.filter(s => s.isReplaceable).length;
-    const classNames: Record<SlideClassification, string> = {
-        'title': 'Titelfolie',
-        'section': 'Section-Divider',
-        'content': 'Content-Folie',
-        'kpi': 'KPI-Dashboard',
-        'process': 'Prozessablauf',
-        'comparison': 'Vergleich',
-        'two-column': 'Zwei-Spalten',
-        'table': 'Tabellen-Folie',
-        'chart': 'Diagramm-Folie',
-        'pyramid': 'Pyramide',
-        'matrix': 'Matrix/SWOT',
-        'org-chart': 'Organigramm',
-        'timeline': 'Zeitstrahl',
-        'image': 'Bild-Folie',
-        'blank': 'Leere Folie',
-    };
-
-    return `${classNames[classification]} (${replaceableCount} ersetzbare Textfelder)`;
+    const meta = COMPOSITION_METADATA[classification];
+    return `${meta.displayName} (${replaceableCount} ersetzbare Textfelder)`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -947,23 +1059,43 @@ function generateSemanticId(
 function estimateTextCapacity(rawShape: RawShape): TextCapacity | undefined {
     if (!rawShape.hasText) return undefined;
 
-    // Extract font size from first <a:rPr sz="..."> in the shape XML
-    const szMatch = rawShape.xml.match(/<a:rPr[^>]*\bsz="(\d+)"/);
-    const fontSizePt = szMatch ? parseInt(szMatch[1]) / 100 : 18;
-    const fontSizePx = fontSizePt * 1.333;
+    // 4-level font size fallback:
+    // 1. Explicit <a:rPr sz=""> in shape XML (run-level)
+    // 2. <a:defRPr sz=""> in shape XML (default run properties, common in placeholders)
+    // 3. Font size inherited from slideLayout (via placeholder type/idx matching)
+    // 4. Default: 18pt
+    const rprSz = rawShape.xml.match(/<a:rPr[^>]*\bsz="(\d+)"/);
+    const defRprSz = rawShape.xml.match(/<a:defRPr[^>]*\bsz="(\d+)"/);
+    let fontSizePt: number;
+    if (rprSz) {
+        fontSizePt = parseInt(rprSz[1]) / 100;
+    } else if (defRprSz) {
+        fontSizePt = parseInt(defRprSz[1]) / 100;
+    } else if (rawShape.layoutFontSize) {
+        fontSizePt = rawShape.layoutFontSize;
+    } else {
+        fontSizePt = 18;
+    }
+    const fontSizePx = fontSizePt * PT_TO_PX;
 
-    // Convert EMU to pixels (1 inch = 914400 EMU = 96 px)
-    const widthPx = rawShape.position.width / 914400 * 96;
-    const heightPx = rawShape.position.height / 914400 * 96;
+    const widthPx = rawShape.position.width / EMU_PER_PX;
+    const heightPx = rawShape.position.height / EMU_PER_PX;
 
-    // Estimate characters per line (average char width ~ 0.55 * fontSize)
-    const charsPerLine = Math.floor(widthPx / (fontSizePx * 0.55));
-    // Estimate max lines (line height ~ 1.4 * fontSize)
-    const maxLines = Math.floor(heightPx / (fontSizePx * 1.4));
+    const charsPerLine = Math.floor(widthPx / (fontSizePx * AVG_CHAR_WIDTH_FACTOR));
+    const maxLines = Math.floor(heightPx / (fontSizePx * LINE_HEIGHT_FACTOR));
 
     if (charsPerLine <= 0 || maxLines <= 0) return undefined;
 
-    return { maxChars: charsPerLine * maxLines, maxLines, fontSize: fontSizePt };
+    const maxChars = charsPerLine * maxLines;
+
+    // Plausibility check: if shape is large but computed capacity is very small,
+    // the font is likely huge (section dividers, headlines). Ensure at least
+    // single-line capacity is reported.
+    if (maxChars < 3 && widthPx * heightPx > 50000) {
+        return { maxChars: Math.max(charsPerLine, 1), maxLines: 1, fontSize: fontSizePt };
+    }
+
+    return { maxChars, maxLines, fontSize: fontSizePt };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1013,20 +1145,21 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
         const baseClassification = firstComp.classification;
 
         // Derive name/meaning from layout for content sub-groups
+        const meta = COMPOSITION_METADATA[baseClassification];
         const name = baseClassification === 'content'
             ? contentSubGroupName(firstComp)
-            : compositionName(baseClassification);
+            : meta.name;
 
         const meaning = baseClassification === 'content'
             ? contentSubGroupMeaning(firstComp)
-            : compositionMeaning(baseClassification);
+            : meta.meaning;
 
         result.push({
             name,
             classification: baseClassification,
             slideNumbers,
             meaning,
-            useWhen: compositionUseWhen(baseClassification),
+            useWhen: meta.useWhen,
             representativeShapes: replaceableShapes,
         });
     }
@@ -1077,132 +1210,38 @@ function contentSubGroupMeaning(comp: SlideComposition): string {
     return `Content layout "${comp.layoutName}" with ${replaceableCount} replaceable text fields`;
 }
 
-function compositionName(c: SlideClassification): string {
-    const names: Record<SlideClassification, string> = {
-        'title': 'Title Slide',
-        'section': 'Section Divider',
-        'content': 'Content Slide',
-        'kpi': 'KPI Dashboard',
-        'process': 'Process Flow',
-        'comparison': 'Comparison',
-        'two-column': 'Two-Column Layout',
-        'table': 'Table Slide',
-        'chart': 'Chart Slide',
-        'pyramid': 'Pyramid',
-        'matrix': 'Matrix / SWOT',
-        'org-chart': 'Org Chart',
-        'timeline': 'Timeline',
-        'image': 'Image Slide',
-        'blank': 'Blank Slide',
-    };
-    return names[c] ?? c;
-}
-
-function compositionMeaning(c: SlideClassification): string {
-    const meanings: Record<SlideClassification, string> = {
-        'title': 'Opening or closing statement -- sets the thesis or concludes',
-        'section': 'Marks a transition between major topics',
-        'content': 'General content with text and optional visuals',
-        'kpi': 'Key metrics at a glance -- quantifies the message',
-        'process': 'Linear sequence -- order IS the argument',
-        'comparison': 'Side-by-side contrast -- highlights differences',
-        'two-column': 'Two parallel content areas -- juxtaposition or split detail',
-        'table': 'Structured multi-dimensional data',
-        'chart': 'Data visualization -- trends, distributions, comparisons',
-        'pyramid': 'Hierarchy or layered priorities -- foundation supports the top',
-        'matrix': 'Two-axis analysis -- categorize along two dimensions',
-        'org-chart': 'Reporting structure or hierarchy with connections',
-        'timeline': 'Temporal sequence -- shows progression over time',
-        'image': 'Visual-first slide -- image carries the message',
-        'blank': 'Empty canvas for flexible use',
-    };
-    return meanings[c] ?? 'General purpose';
-}
-
-function compositionUseWhen(c: SlideClassification): string {
-    const rules: Record<SlideClassification, string> = {
-        'title': 'Opening slide or final CTA slide',
-        'section': 'Between major sections (every 3-5 content slides)',
-        'content': 'Text-heavy content that does not fit a structured layout',
-        'kpi': '2-6 key metrics that need to stand out',
-        'process': 'Steps, phases, pipelines, workflows',
-        'comparison': 'Before/after, option A vs B, current vs target',
-        'two-column': 'Two related but distinct content blocks',
-        'table': 'Multi-row structured data, feature matrices',
-        'chart': 'Numeric data that reveals trends or distributions',
-        'pyramid': 'Layered priorities, Maslow-style hierarchies, strategic pillars',
-        'matrix': 'SWOT analysis, risk maps, priority grids',
-        'org-chart': 'Team structures, reporting lines, organizational overviews',
-        'timeline': 'Roadmaps, milestones, historical progression',
-        'image': 'Hero visuals, product photos, diagrams',
-        'blank': 'Custom layouts not covered by other types',
-    };
-    return rules[c] ?? 'General content';
-}
-
-/* ------------------------------------------------------------------
-/*  Utility functions                                                  */
+/* ------------------------------------------------------------------ */
+/*  Consolidated composition metadata                                  */
 /* ------------------------------------------------------------------ */
 
-function findClosingTag(xml: string, startPos: number, tagName: string): number {
-    let depth = 0;
-    const closeStr = `</${tagName}>`;
-    const tagLen = tagName.length;
+export type NarrativePhase = 'opening' | 'tension' | 'resolution' | 'any';
 
-    // Skip past the opening tag
-    const openEnd = xml.indexOf('>', startPos);
-    if (openEnd < 0) return -1;
-
-    // Check for self-closing tag
-    if (xml[openEnd - 1] === '/') return openEnd + 1;
-
-    let pos = openEnd + 1;
-
-    while (pos < xml.length) {
-        const nextOpen = xml.indexOf(`<${tagName}`, pos);
-        const nextClose = xml.indexOf(closeStr, pos);
-
-        if (nextClose < 0) return -1;
-
-        if (nextOpen >= 0 && nextOpen < nextClose) {
-            // Verify this is actually our tag, not a prefix match
-            // e.g. <p:sp must not match <p:spPr or <p:spTree
-            const charAfterTag = xml[nextOpen + 1 + tagLen];
-            if (charAfterTag === ' ' || charAfterTag === '>' || charAfterTag === '/' || charAfterTag === '\n' || charAfterTag === '\r' || charAfterTag === '\t') {
-                // Check if it's an opening tag (not self-closing)
-                const tagEnd = xml.indexOf('>', nextOpen);
-                if (tagEnd >= 0 && xml[tagEnd - 1] !== '/') {
-                    depth++;
-                }
-            }
-            pos = nextOpen + 1;
-        } else {
-            if (depth === 0) {
-                return nextClose + closeStr.length;
-            }
-            depth--;
-            pos = nextClose + closeStr.length;
-        }
-    }
-
-    return -1;
+interface CompositionMeta {
+    name: string;
+    displayName: string;
+    meaning: string;
+    useWhen: string;
+    narrativePhase: NarrativePhase;
 }
 
-function extractXmlBlock(xml: string, tagName: string): string | null {
-    const startIdx = xml.indexOf(`<${tagName}`);
-    if (startIdx < 0) return null;
-    const endTag = `</${tagName}>`;
-    const endIdx = xml.indexOf(endTag, startIdx);
-    if (endIdx < 0) return null;
-    return xml.substring(startIdx, endIdx + endTag.length);
-}
+const COMPOSITION_METADATA: Record<SlideClassification, CompositionMeta> = {
+    'title':      { name: 'Title Slide',        displayName: 'Titelfolie',       meaning: 'Opening or closing statement -- sets the thesis or concludes',       useWhen: 'Opening slide or final CTA slide',                          narrativePhase: 'opening' },
+    'section':    { name: 'Section Divider',     displayName: 'Section-Divider',  meaning: 'Marks a transition between major topics',                            useWhen: 'Between major sections (every 3-5 content slides)',         narrativePhase: 'any' },
+    'content':    { name: 'Content Slide',       displayName: 'Content-Folie',    meaning: 'General content with text and optional visuals',                      useWhen: 'Text-heavy content that does not fit a structured layout',  narrativePhase: 'any' },
+    'kpi':        { name: 'KPI Dashboard',       displayName: 'KPI-Dashboard',    meaning: 'Key metrics at a glance -- quantifies the message',                  useWhen: '2-6 key metrics that need to stand out',                    narrativePhase: 'opening' },
+    'process':    { name: 'Process Flow',        displayName: 'Prozessablauf',    meaning: 'Linear sequence -- order IS the argument',                           useWhen: 'Steps, phases, pipelines, workflows',                      narrativePhase: 'resolution' },
+    'comparison': { name: 'Comparison',          displayName: 'Vergleich',        meaning: 'Side-by-side contrast -- highlights differences',                    useWhen: 'Before/after, option A vs B, current vs target',            narrativePhase: 'tension' },
+    'two-column': { name: 'Two-Column Layout',   displayName: 'Zwei-Spalten',     meaning: 'Two parallel content areas -- juxtaposition or split detail',        useWhen: 'Two related but distinct content blocks',                   narrativePhase: 'tension' },
+    'table':      { name: 'Table Slide',         displayName: 'Tabellen-Folie',   meaning: 'Structured multi-dimensional data',                                  useWhen: 'Multi-row structured data, feature matrices',               narrativePhase: 'any' },
+    'chart':      { name: 'Chart Slide',         displayName: 'Diagramm-Folie',   meaning: 'Data visualization -- trends, distributions, comparisons',           useWhen: 'Numeric data that reveals trends or distributions',         narrativePhase: 'any' },
+    'pyramid':    { name: 'Pyramid',             displayName: 'Pyramide',         meaning: 'Hierarchy or layered priorities -- foundation supports the top',     useWhen: 'Layered priorities, Maslow-style hierarchies',              narrativePhase: 'resolution' },
+    'matrix':     { name: 'Matrix / SWOT',       displayName: 'Matrix/SWOT',      meaning: 'Two-axis analysis -- categorize along two dimensions',               useWhen: 'SWOT analysis, risk maps, priority grids',                  narrativePhase: 'tension' },
+    'org-chart':  { name: 'Org Chart',           displayName: 'Organigramm',      meaning: 'Reporting structure or hierarchy with connections',                  useWhen: 'Team structures, reporting lines',                          narrativePhase: 'any' },
+    'timeline':   { name: 'Timeline',            displayName: 'Zeitstrahl',       meaning: 'Temporal sequence -- shows progression over time',                   useWhen: 'Roadmaps, milestones, historical progression',              narrativePhase: 'resolution' },
+    'image':      { name: 'Image Slide',         displayName: 'Bild-Folie',       meaning: 'Visual-first slide -- image carries the message',                    useWhen: 'Hero visuals, product photos, diagrams',                    narrativePhase: 'any' },
+    'blank':      { name: 'Blank Slide',         displayName: 'Leere Folie',      meaning: 'Empty canvas for flexible use',                                     useWhen: 'Custom layouts not covered by other types',                 narrativePhase: 'any' },
+};
 
-function simpleHash(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash |= 0; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(16).substring(0, 6);
-}
+/** Export for use in AnalyzePptxTemplateTool narrative phase mapping. */
+export { COMPOSITION_METADATA };
+

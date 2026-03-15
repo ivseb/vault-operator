@@ -16,6 +16,12 @@
  */
 
 import JSZip from 'jszip';
+import {
+    DEFAULT_LANG, DEFAULT_RPR,
+    findClosingTag, escapeXml, escapeRegex,
+    extractAllParagraphFormats, extractBodyProperties,
+    type ParagraphFormat,
+} from './ooxml-utils';
 
 /* ------------------------------------------------------------------ */
 /*  Public types                                                       */
@@ -517,28 +523,7 @@ async function replaceSlideContent(
         }
     }
 
-    // Phase 2: For remaining unmatched keys, try positional fallback
-    // This handles cases where the agent sends generic keys like "Body", "Text",
-    // or the actual replacement value as the key.
-    if (unmatched.length > 0) {
-        const stillUnmatched: string[] = [];
-        for (const key of unmatched) {
-            const value = content[key];
-            if (value === undefined) continue;
-            const result = replaceByPositionalFallback(xml, key, value);
-            if (result.matched) {
-                xml = result.xml;
-            } else {
-                stillUnmatched.push(key);
-            }
-        }
-        // Phase 3 (V-5): Clean up remaining placeholder text in unmatched shapes
-        xml = cleanupPlaceholderText(xml);
-        zip.file(path, xml);
-        return stillUnmatched;
-    }
-
-    // Phase 3 (V-5): Clean up remaining placeholder text in unmatched shapes
+    // Clean up remaining placeholder text in unmatched shapes (V-5)
     xml = cleanupPlaceholderText(xml);
     zip.file(path, xml);
     return unmatched;
@@ -559,13 +544,17 @@ function cleanupPlaceholderText(xml: string): string {
         'Insert text',
     ];
 
-    // Find each <p:sp>...</p:sp> shape
-    const spPattern = /<p:sp\b[\s\S]*?<\/p:sp>/g;
+    // Find each <p:sp> shape using findClosingTag for robust nesting
+    const spPattern = /<p:sp\b[^>]*>/g;
     let result = xml;
     let spMatch: RegExpExecArray | null;
 
     while ((spMatch = spPattern.exec(xml)) !== null) {
-        const shapeXml = spMatch[0];
+        const spStart = spMatch.index;
+        const spEnd = findClosingTag(xml, spStart, 'p:sp');
+        if (spEnd < 0) continue;
+
+        const shapeXml = xml.substring(spStart, spEnd);
 
         // Extract all <a:t> text content from this shape and concatenate
         const textParts: string[] = [];
@@ -574,7 +563,7 @@ function cleanupPlaceholderText(xml: string): string {
         while ((atMatch = atPattern.exec(shapeXml)) !== null) {
             textParts.push(atMatch[1]);
         }
-        const fullText = textParts.join('');
+        const fullText = textParts.join('').trim();
 
         // Check if concatenated text starts with any placeholder pattern
         const isPlaceholder = placeholderStarts.some((p) => fullText.startsWith(p));
@@ -610,7 +599,7 @@ function replaceTextInSlide(
     const escapedValue = escapeXml(value);
 
     // Strategy 1: Exact <a:t> match (NO normalization -- key must match XML text exactly)
-    // V-7: Short keys (<50 chars) use first-match only to avoid replacing
+    // Short keys (<50 chars) use first-match only to avoid replacing
     // ALL identical <a:t> elements (e.g. multiple chevrons with same text)
     const isShortKey = escapedKey.length < 50;
     const s1Flags = isShortKey ? '' : 'g';
@@ -628,26 +617,11 @@ function replaceTextInSlide(
         };
     }
 
-    // Strategy 2: Cross-run paragraph match (text split across <a:r> runs in one <a:p>)
-    const paraResult = replaceInParagraphs(xml, key, value);
-    if (paraResult !== xml) {
-        return { xml: paraResult, matched: true };
-    }
-
     // Strategy 3: Shape-level match (text split across multiple <a:p> paragraphs in one shape)
     if (key.length > 3) {
         const shapeResult = replaceInShape(xml, key, value);
         if (shapeResult !== xml) {
             return { xml: shapeResult, matched: true };
-        }
-    }
-
-    // Strategy 4: Substring match (key is contained in <a:t> text)
-    // Only for keys longer than 3 chars to avoid false positives
-    if (key.length > 3) {
-        const substringResult = replaceBySubstring(xml, key, value);
-        if (substringResult !== xml) {
-            return { xml: substringResult, matched: true };
         }
     }
 
@@ -663,57 +637,7 @@ function replaceTextInSlide(
     return { xml, matched: false };
 }
 
-/* ------------------------------------------------------------------ */
-/*  Strategy 2: Cross-run paragraph replacement                        */
-/* ------------------------------------------------------------------ */
-
-/**
- * Find paragraphs containing the search text split across runs
- * and replace while preserving the first run's formatting.
- *
- * When a match is found, the entire paragraph is rebuilt from scratch
- * with a single <a:r> run containing the replacement text. This avoids
- * complex offset tracking that can produce invalid XML.
- */
-function replaceInParagraphs(xml: string, searchText: string, replaceText: string): string {
-    const pPattern = /<a:p\b[^>]*>[\s\S]*?<\/a:p>/g;
-    let replaced = false;
-
-    const result = xml.replace(pPattern, (paragraph) => {
-        if (replaced) return paragraph; // Only replace first match
-
-        // Concatenate all <a:t> text within this paragraph
-        const textPattern = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g;
-        let fullText = '';
-        let match: RegExpExecArray | null;
-        while ((match = textPattern.exec(paragraph)) !== null) {
-            fullText += match[1];
-        }
-
-        // Strategy 2 only fires for EXACT cross-run matches (search = full paragraph text).
-        // Substring matches within a paragraph are handled by Strategy 3 (shape) or 4 (substring).
-        // Normalize both sides to handle whitespace and Unicode variations.
-        const escapedSearch = escapeXml(searchText);
-        const normalizedFull = normalizeForMatching(fullText);
-        const normalizedSearch = normalizeForMatching(escapedSearch);
-        if (normalizedFull !== normalizedSearch) return paragraph;
-
-        replaced = true;
-
-        // Extract formatting (V-2: paragraph-level preservation)
-        const fmt = extractAllParagraphFormats(paragraph)[0] ??
-            { pPr: '', rPr: '<a:rPr lang="de-DE" dirty="0"/>' };
-
-        const escapedReplace = escapeXml(replaceText);
-
-        // Rebuild paragraph cleanly with single run
-        return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t xml:space="preserve">${escapedReplace}</a:t></a:r></a:p>`;
-    });
-
-    return result;
-}
-
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
 /*  Strategy 3: Shape-level cross-paragraph match                      */
 /* ------------------------------------------------------------------ */
 
@@ -763,14 +687,7 @@ function replaceInShape(xml: string, searchText: string, replaceText: string): s
         const normalizedAll = allText.replace(/\s+/g, ' ').trim();
         const normalizedSearch = escapedSearch.replace(/\s+/g, ' ').trim();
 
-        // Also try space-stripped comparison: template runs may omit spaces
-        // between words (e.g., "PlatzhalterKapitelname" vs "Platzhalter Kapitelname")
-        const strippedAll = allText.replace(/\s+/g, '');
-        const strippedSearch = escapedSearch.replace(/\s+/g, '');
-
-        if (!normalizedAll.includes(normalizedSearch) &&
-            !allText.includes(escapedSearch) &&
-            !strippedAll.includes(strippedSearch)) {
+        if (!normalizedAll.includes(normalizedSearch)) {
             continue;
         }
 
@@ -801,36 +718,7 @@ function replaceInShape(xml: string, searchText: string, replaceText: string): s
     return xml; // No match
 }
 
-/* ------------------------------------------------------------------ */
-/*  Strategy 4: Substring match (was Strategy 3)                       */
-/* ------------------------------------------------------------------ */
-
-/**
- * Find an <a:t> element whose text CONTAINS the key (not exact match)
- * and replace the entire <a:t> content with the value.
- * Only the FIRST match is replaced to avoid unintended replacements.
- */
-function replaceBySubstring(xml: string, key: string, value: string): string {
-    const escapedKey = escapeXml(key);
-    const escapedValue = escapeXml(value);
-
-    // Find <a:t> elements that contain our key as a substring
-    const pattern = /<a:t([^>]*)>([^<]*)<\/a:t>/g;
-    let matched = false;
-
-    const result = xml.replace(pattern, (full, attrs, text) => {
-        if (matched) return full; // Only replace first match
-        if (text.includes(escapedKey)) {
-            matched = true;
-            return `<a:t${attrs}>${escapedValue}</a:t>`;
-        }
-        return full;
-    });
-
-    return matched ? result : xml;
-}
-
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------
 /*  Strategy 5: Placeholder type match (was Strategy 4)                */
 /* ------------------------------------------------------------------ */
 
@@ -970,53 +858,6 @@ function replaceShapeAtPhPos(xml: string, phElementStr: string, value: string): 
     return xml.substring(0, spStart) + newSpBlock + xml.substring(spEnd);
 }
 
-/**
- * Find the position AFTER the closing tag for a given element.
- * Handles nested elements of the same name.
- *
- * startPos must point to the opening '<' of the element.
- * The search begins AFTER the opening tag to avoid counting it.
- */
-function findClosingTag(xml: string, startPos: number, tagName: string): number {
-    let depth = 0;
-    const closeStr = `</${tagName}>`;
-    const tagLen = tagName.length;
-
-    // Skip past the opening tag itself (find the '>' that closes the opening tag)
-    const openEnd = xml.indexOf('>', startPos);
-    if (openEnd < 0) return -1;
-    let pos = openEnd + 1;
-
-    while (pos < xml.length) {
-        const nextOpen = xml.indexOf(`<${tagName}`, pos);
-        const nextClose = xml.indexOf(closeStr, pos);
-
-        if (nextClose < 0) return -1; // No closing tag found
-
-        if (nextOpen >= 0 && nextOpen < nextClose) {
-            // Verify this is actually our tag, not a prefix match
-            // e.g. <p:sp must not match <p:spPr or <p:spTree
-            const charAfterTag = xml[nextOpen + 1 + tagLen];
-            if (charAfterTag === ' ' || charAfterTag === '>' || charAfterTag === '/' || charAfterTag === '\n' || charAfterTag === '\r' || charAfterTag === '\t') {
-                // Check if it's an opening tag (not self-closing)
-                const tagEnd = xml.indexOf('>', nextOpen);
-                if (tagEnd >= 0 && xml[tagEnd - 1] !== '/') {
-                    depth++;
-                }
-            }
-            pos = nextOpen + 1;
-        } else {
-            if (depth === 0) {
-                return nextClose + closeStr.length;
-            }
-            depth--;
-            pos = nextClose + closeStr.length;
-        }
-    }
-
-    return -1;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Notes replacement                                                  */
 /* ------------------------------------------------------------------ */
@@ -1066,7 +907,7 @@ async function replaceNotesContent(
     // Build new paragraphs
     const lines = notes.split('\n').filter(l => l.trim());
     const paragraphs = lines.map(line =>
-        `<a:p><a:r><a:rPr lang="de-DE" dirty="0"/><a:t>${escapeXml(line)}</a:t></a:r></a:p>`,
+        `<a:p><a:r>${DEFAULT_RPR}<a:t>${escapeXml(line)}</a:t></a:r></a:p>`,
     ).join('');
 
     const newSpBlock = spBlock.substring(0, txBodyStart + notesTxTag.length + 2) +
@@ -1075,242 +916,4 @@ async function replaceNotesContent(
 
     notesXml = notesXml.substring(0, spStart) + newSpBlock + notesXml.substring(spEnd);
     zip.file(notesPath, notesXml);
-}
-
-/* ------------------------------------------------------------------ */
-/*  XML utilities                                                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * Extract the first complete <a:rPr> element from XML text.
- * Handles both self-closing (<a:rPr .../>) and non-self-closing (<a:rPr ...>...</a:rPr>) forms.
- * Returns the full element string, or a sensible default.
- */
-function extractFirstRPr(xml: string): string {
-    const fallback = '<a:rPr lang="de-DE" dirty="0"/>';
-
-    // Try self-closing first (most common)
-    const selfClose = xml.match(/<a:rPr\b[^>]*\/>/);
-    // Try non-self-closing
-    const openTag = xml.match(/<a:rPr\b[^>]*>/);
-
-    if (!openTag) return fallback;
-
-    // Check if self-closing
-    if (openTag[0].endsWith('/>')) return openTag[0];
-
-    // If we found a self-closing AND a non-self-closing, use whichever comes first
-    if (selfClose && selfClose.index !== undefined && openTag.index !== undefined) {
-        if (selfClose.index < openTag.index) return selfClose[0];
-    }
-
-    // Non-self-closing: find the matching </a:rPr>
-    const startPos = openTag.index ?? 0;
-    const endTag = xml.indexOf('</a:rPr>', startPos);
-    if (endTag < 0) return selfClose ? selfClose[0] : fallback;
-
-    return xml.substring(startPos, endTag + 8); // 8 = '</a:rPr>'.length
-}
-
-/* ------------------------------------------------------------------ */
-/*  Paragraph-level formatting extraction (V-2)                        */
-/* ------------------------------------------------------------------ */
-
-interface ParagraphFormat {
-    /** Paragraph properties (<a:pPr ...> or '') */
-    pPr: string;
-    /** Run properties (<a:rPr ...>) */
-    rPr: string;
-}
-
-/**
- * Extract formatting from ALL paragraphs in a txBody, not just the first.
- * This preserves heading/body/label formatting differences across paragraphs.
- *
- * For example, a shape with "Title\nBody text" will have different rPr for
- * each paragraph (bold 24pt vs regular 14pt). Using only the first rPr
- * would make everything bold 24pt.
- *
- * Returns an array of {pPr, rPr} per content paragraph (skipping empty ones).
- * Falls back to a single default format if nothing is extractable.
- */
-function extractAllParagraphFormats(txBody: string): ParagraphFormat[] {
-    const formats: ParagraphFormat[] = [];
-    const pPattern = /<a:p\b[^>]*>[\s\S]*?<\/a:p>/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = pPattern.exec(txBody)) !== null) {
-        const para = match[0];
-        // Skip paragraphs without text runs (empty spacer paragraphs)
-        if (!/<a:r\b/.test(para)) continue;
-
-        // Extract paragraph properties (<a:pPr>)
-        const pPrSelf = para.match(/<a:pPr\b[^>]*\/>/);
-        const pPrOpen = para.match(/<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>/);
-        const pPr = pPrSelf?.[0] ?? pPrOpen?.[0] ?? '';
-
-        // Extract run properties using existing helper
-        const rPr = extractFirstRPr(para);
-        formats.push({ pPr, rPr });
-    }
-
-    return formats.length > 0
-        ? formats
-        : [{ pPr: '', rPr: '<a:rPr lang="de-DE" dirty="0"/>' }];
-}
-
-/**
- * Extract <a:bodyPr> and <a:lstStyle> elements from txBody content.
- * These must be preserved when replacing text content.
- */
-function extractBodyProperties(txBodyContent: string): string {
-    let result = '';
-
-    // Extract <a:bodyPr> (self-closing or with content)
-    const bodyPrSelf = txBodyContent.match(/<a:bodyPr\b[^>]*\/>/);
-    const bodyPrOpen = txBodyContent.match(/<a:bodyPr\b[^>]*>[\s\S]*?<\/a:bodyPr>/);
-    if (bodyPrSelf) result += bodyPrSelf[0];
-    else if (bodyPrOpen) result += bodyPrOpen[0];
-
-    // Extract <a:lstStyle> (self-closing or with content)
-    const lstSelf = txBodyContent.match(/<a:lstStyle\b[^>]*\/>/);
-    const lstOpen = txBodyContent.match(/<a:lstStyle\b[^>]*>[\s\S]*?<\/a:lstStyle>/);
-    if (lstSelf) result += lstSelf[0];
-    else if (lstOpen) result += lstOpen[0];
-
-    return result;
-}
-
-/**
- * Normalize text for fuzzy matching: whitespace and dash normalization only.
- * Does NOT convert umlaut transliterations (ae/oe/ue) because that
- * destroys English words like "Revenue", "Israel", "Bluetooth".
- */
-function normalizeForMatching(text: string): string {
-    return text
-        // Dash variants -> en-dash
-        .replace(/\s*--\s*/g, ' \u2013 ')
-        .replace(/\s*\u2014\s*/g, ' \u2013 ')
-        // Normalize whitespace
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
-/* ------------------------------------------------------------------ */
-/*  Strategy 6: Positional fallback for unmatched keys                  */
-/* ------------------------------------------------------------------ */
-
-/**
- * Last-resort matching: find the first remaining content shape
- * (not title, footer, or slide number) and replace its text.
- *
- * This handles cases where the agent sends:
- * - Generic keys like "Body", "Content", "Description" that don't match any strategy
- * - The replacement VALUE as the key (agent confuses key/value)
- * - Abbreviated or modified versions of the template text
- *
- * Classifies the key as title-like or body-like based on the placeholder
- * structure already present on the slide.
- */
-function replaceByPositionalFallback(
-    xml: string,
-    key: string,
-    value: string,
-): { xml: string; matched: boolean } {
-    const k = key.toLowerCase().trim();
-
-    // Determine if the key seems title-like or body-like
-    const titleLike = k === 'title' || k === 'titel' || k === 'heading' || k === 'überschrift';
-
-    if (titleLike) {
-        // Try to replace title shape content
-        const phMatch = xml.match(/<p:ph[^>]*type="(?:title|ctrTitle)"[^>]*\/>/);
-        if (phMatch) {
-            const result = replaceShapeAtPhPos(xml, phMatch[0], value);
-            if (result !== xml) return { xml: result, matched: true };
-        }
-        return { xml, matched: false };
-    }
-
-    // Body-like key: find the first content shape that isn't title/footer/sldNum
-    // and still has template placeholder text (contains "Lorem", "Platzhalter", etc.)
-    const spPattern = /<p:sp\b[^>]*>/g;
-    let spMatch: RegExpExecArray | null;
-
-    while ((spMatch = spPattern.exec(xml)) !== null) {
-        const spStart = spMatch.index;
-        const spEnd = findClosingTag(xml, spStart, 'p:sp');
-        if (spEnd < 0) continue;
-
-        const spBlock = xml.substring(spStart, spEnd);
-
-        // Skip title, footer, slide number shapes
-        if (/<p:ph[^>]*type="(?:title|ctrTitle|ftr|sldNum)"[^>]*\/?>/.test(spBlock)) continue;
-
-        // Must have a txBody with text
-        let txBodyTag3 = 'p:txBody';
-        let txBStart = spBlock.indexOf('<p:txBody>');
-        if (txBStart < 0) { txBStart = spBlock.indexOf('<a:txBody>'); txBodyTag3 = 'a:txBody'; }
-        if (txBStart < 0) continue;
-        const txBEnd = spBlock.indexOf(`</${txBodyTag3}>`);
-        if (txBEnd < 0) continue;
-
-        const txBody = spBlock.substring(txBStart + txBodyTag3.length + 2, txBEnd);
-
-        // Extract text to check if it's still template placeholder text
-        const textPattern = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g;
-        let allText = '';
-        let tMatch: RegExpExecArray | null;
-        while ((tMatch = textPattern.exec(txBody)) !== null) {
-            allText += tMatch[1];
-        }
-
-        if (!allText.trim()) continue;
-
-        // Check if shape has placeholder-like text (strong signal it should be replaced)
-        const normalizedText = allText.replace(/\s+/g, ' ').toLowerCase();
-        const isPlaceholder = normalizedText.includes('lorem') ||
-            normalizedText.includes('platzhalter') ||
-            normalizedText.includes('überschrift') ||
-            normalizedText.includes('text') ||
-            normalizedText.includes('beispiel');
-
-        if (!isPlaceholder) continue;
-
-        // Replace this shape's content with V-2 paragraph-level formatting
-        const bodyProps3 = extractBodyProperties(txBody);
-        const formats = extractAllParagraphFormats(txBody);
-
-        const escapedValue = escapeXml(value);
-        const lines = escapedValue.split('\n');
-        const paragraphs = lines.map((line, i) => {
-            if (!line.trim()) return '<a:p><a:endParaRPr/></a:p>';
-            const fmt = formats[Math.min(i, formats.length - 1)];
-            return `<a:p>${fmt.pPr}<a:r>${fmt.rPr}<a:t>${line}</a:t></a:r></a:p>`;
-        }).join('');
-
-        const newSpBlock = spBlock.substring(0, txBStart + txBodyTag3.length + 2) +
-            bodyProps3 + paragraphs +
-            spBlock.substring(txBEnd);
-
-        return {
-            xml: xml.substring(0, spStart) + newSpBlock + xml.substring(spEnd),
-            matched: true,
-        };
-    }
-
-    return { xml, matched: false };
-}
-
-function escapeXml(text: string): string {
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
-}
-
-function escapeRegex(text: string): string {
-    return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

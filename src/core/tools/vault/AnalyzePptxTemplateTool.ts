@@ -9,11 +9,14 @@
  */
 
 import { TFile } from 'obsidian';
+import * as path from 'path';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type { ToolResultContentBlock } from '../../../api/types';
 import type ObsidianAgentPlugin from '../../../main';
-import { analyzeTemplate, groupByComposition } from '../../office/PptxTemplateAnalyzer';
-import type { TemplateAnalysis } from '../../office/PptxTemplateAnalyzer';
+import { analyzeTemplate, groupByComposition, COMPOSITION_METADATA } from '../../office/PptxTemplateAnalyzer';
+import type { TemplateAnalysis, SlideClassification } from '../../office/PptxTemplateAnalyzer';
+import { renderPptxToImages } from '../../office/pptxRenderer';
 
 export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
     readonly name = 'analyze_pptx_template' as const;
@@ -97,27 +100,69 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                 await this.plugin.selfAuthoredSkillLoader.loadAll();
             }
 
-            callbacks.pushToolResult(
+            // Build summary text
+            const summaryText =
                 `Template analysis complete: ${templateName}\n\n` +
                 `- ${analysis.slideCount} slides analyzed\n` +
                 `- ${contentComps.length} composition types identified\n` +
                 `- Brand DNA: ${analysis.brandDNA.fonts.major} / ${analysis.brandDNA.fonts.minor}\n\n` +
                 `Generated files:\n` +
                 `1. **SKILL.md** (${skillContent.length} chars): ${skillPath} (auto-installed as user skill)\n` +
-                `2. **compositions.json**: ${compositionsPath}\n\n` +
-                `NEXT STEP (mandatory -- do NOT skip):\n` +
-                `Visually analyze the template slides to enrich compositions with semantic meaning, ` +
-                `usage rules, and text constraints.\n\n` +
-                `If Visual Intelligence is enabled: call render_presentation with the template file ` +
-                `("${templatePath}") to render all slides, then visually inspect them.\n` +
-                `If Visual Intelligence is NOT enabled: ask the user to either enable it ` +
-                `(Settings > Visual Intelligence, requires LibreOffice) or provide a PDF export.\n\n` +
-                `After visual inspection, update compositions.json via edit_file with:\n` +
-                `- bedeutung (semantic meaning of each composition)\n` +
-                `- einsetzen_wenn / nicht_einsetzen_wenn (usage rules)\n` +
-                `- max_chars per shape (estimated from visual layout)\n` +
-                `Do NOT proceed to presentation creation without visual analysis.`,
-            );
+                `2. **compositions.json**: ${compositionsPath}\n\n`;
+
+            // Attempt integrated visual rendering
+            const renderResult = await this.renderTemplateSlides(templatePath);
+
+            if (renderResult.success && renderResult.slides.length > 0) {
+                // Multimodal result: text + slide images
+                const contentBlocks: ToolResultContentBlock[] = [
+                    {
+                        type: 'text',
+                        text: summaryText +
+                            `Rendered ${renderResult.slides.length} of ${renderResult.totalSlides} slides.\n\n` +
+                            `NEXT STEP (mandatory -- do NOT skip):\n` +
+                            `Visually inspect each slide image below. Then update compositions.json via edit_file with:\n` +
+                            `- bedeutung (semantic meaning of each composition)\n` +
+                            `- einsetzen_wenn / nicht_einsetzen_wenn (usage rules)\n` +
+                            `- max_chars per shape (estimated from visual layout)\n` +
+                            `Do NOT proceed to presentation creation without visual analysis.`,
+                    },
+                ];
+
+                for (const slide of renderResult.slides) {
+                    contentBlocks.push(
+                        { type: 'text', text: `\n--- Slide ${slide.slideNumber} ---` },
+                        {
+                            type: 'image',
+                            source: {
+                                type: 'base64',
+                                media_type: 'image/png',
+                                data: slide.base64,
+                            },
+                        },
+                    );
+                }
+
+                callbacks.pushToolResult(contentBlocks);
+            } else {
+                // Text-only fallback with rendering warning
+                const renderWarning = renderResult.error
+                    ? `Visual rendering unavailable: ${renderResult.error}\n\n`
+                    : 'Visual rendering unavailable.\n\n';
+
+                callbacks.pushToolResult(
+                    summaryText + renderWarning +
+                    `NEXT STEP (mandatory -- do NOT skip):\n` +
+                    `Visual rendering failed. Either:\n` +
+                    `1. Fix the issue (install LibreOffice + poppler-utils) and call render_presentation manually\n` +
+                    `2. Ask the user to provide a PDF export of the template\n\n` +
+                    `After visual inspection, update compositions.json via edit_file with:\n` +
+                    `- bedeutung (semantic meaning of each composition)\n` +
+                    `- einsetzen_wenn / nicht_einsetzen_wenn (usage rules)\n` +
+                    `- max_chars per shape (estimated from visual layout)\n` +
+                    `Do NOT proceed to presentation creation without visual analysis.`,
+                );
+            }
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error('[AnalyzePptxTemplateTool]', msg);
@@ -136,21 +181,45 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
         await this.plugin.app.vault.adapter.write(filePath, content);
     }
 
-    private async ensureFolder(folderPath: string): Promise<void> {
-        const vault = this.plugin.app.vault;
-        // Create folder hierarchy recursively (ignore if already exists)
-        const parts = folderPath.split('/');
-        let current = '';
-        for (const part of parts) {
-            current = current ? `${current}/${part}` : part;
-            if (!vault.getAbstractFileByPath(current)) {
-                try {
-                    await vault.createFolder(current);
-                } catch {
-                    // Folder may already exist on disk but not in vault cache -- ignore
-                }
+    /**
+     * Render template slides via LibreOffice + PDF-to-PNG pipeline.
+     * Best-effort: returns empty result on failure instead of throwing.
+     */
+    private async renderTemplateSlides(
+        templatePath: string,
+    ): Promise<{ success: boolean; slides: { slideNumber: number; base64: string }[]; totalSlides: number; error?: string }> {
+        try {
+            const adapter = this.plugin.app.vault.adapter;
+            // eslint-disable-next-line -- need FileSystemAdapter for basePath
+            const vaultRoot: string = (adapter as import('obsidian').FileSystemAdapter).basePath
+                ?? (adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
+            if (!vaultRoot) {
+                return { success: false, slides: [], totalSlides: 0, error: 'Cannot determine vault root path' };
             }
+
+            const absolutePptxPath = path.join(vaultRoot, templatePath);
+            const customPath = this.plugin.settings.visualIntelligence?.libreOfficePath;
+
+            return await renderPptxToImages(absolutePptxPath, {
+                customLibreOfficePath: customPath,
+                maxSlides: 20, // Templates can have many slides; render more than default
+            });
+        } catch (err) {
+            return {
+                success: false,
+                slides: [],
+                totalSlides: 0,
+                error: err instanceof Error ? err.message : String(err),
+            };
         }
+    }
+
+    private async ensureFolder(folderPath: string): Promise<void> {
+        // Use adapter.mkdir() which works at filesystem level,
+        // independent of Obsidian's metadata cache.
+        // This is essential for paths under .obsidian/ (configDir)
+        // which are not indexed by the vault.
+        await this.plugin.app.vault.adapter.mkdir(folderPath);
     }
 }
 
@@ -206,7 +275,10 @@ function generateSkillMd(
             ? `${group.slideNumbers.slice(0, 5).join(', ')}... (+${group.slideNumbers.length - 5})`
             : group.slideNumbers.join(', ');
         const compId = idMap.get(i) ?? compositionId(group.classification);
-        lines.push(`- **${group.name}** (ID: \`${compId}\`, Slides ${numsStr}): ${group.meaning}`);
+        let compLine = `- **${group.name}** (ID: \`${compId}\`, Slides ${numsStr}): ${group.meaning}`;
+        const warning = generateCompositionWarnings(group, analysis);
+        if (warning) compLine += ` -- WARNING: ${warning}`;
+        lines.push(compLine);
     }
     lines.push('');
 
@@ -216,34 +288,50 @@ function generateSkillMd(
     lines.push('| Phase | Compositions | Rationale |');
     lines.push('|-------|-------------|-----------|');
 
-    type ClassSet = Set<string>;
-    const openingTypes: ClassSet = new Set(['title', 'kpi']);
-    const tensionTypes: ClassSet = new Set(['comparison', 'two-column', 'matrix']);
-    const resolutionTypes: ClassSet = new Set(['process', 'pyramid', 'timeline']);
+    const phaseRationale: Record<string, string> = {
+        opening: 'Establish facts',
+        tension: 'Build contrast',
+        resolution: 'Show path forward',
+        any: 'Flexible',
+    };
 
-    const opening = contentCompositions.filter(c => openingTypes.has(c.classification)).map(c => c.name);
-    const tension = contentCompositions.filter(c => tensionTypes.has(c.classification)).map(c => c.name);
-    const resolution = contentCompositions.filter(c => resolutionTypes.has(c.classification)).map(c => c.name);
+    const byPhase = new Map<string, string[]>();
+    for (const comp of contentCompositions) {
+        const phase = COMPOSITION_METADATA[comp.classification as SlideClassification]?.narrativePhase ?? 'any';
+        const list = byPhase.get(phase) ?? [];
+        list.push(comp.name);
+        byPhase.set(phase, list);
+    }
 
-    if (opening.length > 0) lines.push(`| Opening | ${opening.join(', ')} | Establish facts |`);
-    if (tension.length > 0) lines.push(`| Tension | ${tension.join(', ')} | Build contrast |`);
-    if (resolution.length > 0) lines.push(`| Resolution | ${resolution.join(', ')} | Show path forward |`);
-
-    const versatile = contentCompositions.filter(c =>
-        !openingTypes.has(c.classification) &&
-        !tensionTypes.has(c.classification) &&
-        !resolutionTypes.has(c.classification) &&
-        c.classification !== 'blank' && c.classification !== 'image',
-    ).map(c => c.name);
-    if (versatile.length > 0) lines.push(`| Any phase | ${versatile.join(', ')} | Flexible |`);
+    for (const phase of ['opening', 'tension', 'resolution', 'any']) {
+        const names = byPhase.get(phase);
+        if (names && names.length > 0) {
+            const label = phase === 'any' ? 'Any phase' : phase.charAt(0).toUpperCase() + phase.slice(1);
+            lines.push(`| ${label} | ${names.join(', ')} | ${phaseRationale[phase]} |`);
+        }
+    }
     lines.push('');
 
     // Design rules
     lines.push('## Design Rules');
+    lines.push('');
+    lines.push('### Critical Rules');
     lines.push(`- Template file: \`${templatePath}\``);
     lines.push('- Use `template_file` + `template_slide` + `content` (NEVER use `html` field)');
-    lines.push('- Shape names in `content` must match exactly (case-sensitive)');
-    lines.push('- Use `get_composition_details` before create_pptx to get shape names and constraints');
+    lines.push('- **Fill EVERY shape**: When `get_composition_details` lists N shapes, your `content` object MUST have N keys. Unfilled shapes are CLEARED by the cloner and appear as blank empty areas.');
+    lines.push('- **Transform content**: NEVER copy source text verbatim. Restructure: paragraphs -> bullets (max 8 words), numbers -> KPIs, sequences -> process labels (1-3 words per step).');
+    lines.push('- **Action titles**: Every title is an ASSERTION ("17% faster through automation"), not a topic ("Technical Solution").');
+    lines.push('- Shape names in `content` must match exactly (case-sensitive) from `get_composition_details`');
+    lines.push('');
+    lines.push('### Composition Selection');
+    lines.push('- Match composition to content type: numbers -> KPI, sequence -> process, comparison -> two-column/matrix');
+    lines.push('- Max 30% of content slides may be plain text -- the rest MUST use structured visual layouts');
+    lines.push('- Never use the same slide type on consecutive slides');
+    lines.push('- Slides with embedded charts (bar/pie/waterfall) contain STATIC template data -- only use when content matches the chart type');
+    lines.push('- **NEVER invent data**: All numbers, percentages, dates, and facts MUST come from source material. If a KPI shape has no matching data, use qualitative text or choose a different composition.');
+    lines.push('- Compositions with image placeholders (marked `has_image_placeholder: true` in compositions.json) require actual images -- skip them if no images are available');
+    lines.push('');
+    lines.push('### Verification');
     lines.push('- After creating, use `render_presentation` to visually verify (if Visual Intelligence is enabled)');
     lines.push('- Update compositions.json constraints via edit_file when you find text fitting issues');
     lines.push('');
@@ -267,6 +355,7 @@ interface CompositionEntry {
     bedeutung: string;
     einsetzen_wenn: string;
     nicht_einsetzen_wenn: string;
+    has_image_placeholder: boolean;
     shapes: Record<string, Record<string, ShapeDetailEntry>>;
 }
 
@@ -322,12 +411,56 @@ function generateCompositionsJson(
             slides: group.slideNumbers,
             bedeutung: group.meaning,
             einsetzen_wenn: group.useWhen,
-            nicht_einsetzen_wenn: '',
+            nicht_einsetzen_wenn: generateCompositionWarnings(group, analysis),
+            has_image_placeholder: hasImagePlaceholder(group, analysis),
             shapes,
         };
     }
 
     return result;
+}
+
+/**
+ * Generate automatic warnings for a composition based on its classification and shapes.
+ */
+function generateCompositionWarnings(
+    group: ReturnType<typeof groupByComposition>[number],
+    analysis: TemplateAnalysis,
+): string {
+    const warnings: string[] = [];
+
+    if (group.classification === 'chart') {
+        warnings.push('Contains static embedded chart -- only use when data matches chart type');
+    }
+
+    if (group.classification === 'section') {
+        warnings.push('Section divider -- only short titles (max 1 line)');
+    }
+
+    // Check if any slide in this group has image placeholders
+    const hasImagePh = group.slideNumbers.some(slideNum => {
+        const comp = analysis.slideCompositions.find(c => c.slideNumber === slideNum);
+        return comp?.shapes.some(s => s.placeholderType === 'pic') ?? false;
+    });
+
+    if (hasImagePh) {
+        warnings.push('Contains image placeholder -- only use when images are available');
+    }
+
+    return warnings.join('; ');
+}
+
+/**
+ * Check if any slide in a composition group has image placeholders.
+ */
+function hasImagePlaceholder(
+    group: ReturnType<typeof groupByComposition>[number],
+    analysis: TemplateAnalysis,
+): boolean {
+    return group.slideNumbers.some(slideNum => {
+        const comp = analysis.slideCompositions.find(c => c.slideNumber === slideNum);
+        return comp?.shapes.some(s => s.placeholderType === 'pic') ?? false;
+    });
 }
 
 function compositionId(classification: string): string {

@@ -274,60 +274,32 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
-        // Handle slides as array or as JSON string (LLMs sometimes stringify the array)
+        // Deserialize slides: native array or JSON string (LLMs sometimes stringify)
         let rawSlides: SlideInput[] = [];
-        console.debug(
-            '[CreatePptxTool] input.slides type:', typeof input.slides,
-            'isArray:', Array.isArray(input.slides),
-            'truthy:', !!input.slides,
-        );
         if (Array.isArray(input.slides)) {
             rawSlides = input.slides as SlideInput[];
-            console.debug('[CreatePptxTool] Array path: rawSlides.length =', rawSlides.length);
-            // Check if array elements are strings (another serialization layer)
-            if (rawSlides.length > 0 && typeof rawSlides[0] === 'string') {
-                console.debug('[CreatePptxTool] Array elements are strings, attempting parse');
-                try {
-                    rawSlides = rawSlides.map(s =>
-                        typeof s === 'string' ? JSON.parse(s as unknown as string) as SlideInput : s,
-                    );
-                } catch (e) {
-                    console.warn('[CreatePptxTool] Failed to parse array string elements:', e);
-                }
-            }
         } else if (typeof input.slides === 'string') {
-            const slidesStr = input.slides as string;
-            console.debug('[CreatePptxTool] String path, length =', slidesStr.length, 'first 200 chars:', slidesStr.substring(0, 200));
             try {
-                const parsed = JSON.parse(slidesStr);
+                const parsed = JSON.parse(input.slides as string);
                 if (Array.isArray(parsed)) {
                     rawSlides = parsed as SlideInput[];
-                    console.debug('[CreatePptxTool] JSON.parse succeeded, rawSlides.length =', rawSlides.length);
                 } else {
-                    console.warn('[CreatePptxTool] JSON.parse returned non-array:', typeof parsed);
+                    callbacks.pushToolResult(this.formatError(new Error(
+                        'slides must be a JSON array. Received a string that parsed to a non-array.',
+                    )));
+                    return;
                 }
-            } catch (parseErr) {
-                console.warn('[CreatePptxTool] JSON.parse failed:', (parseErr as Error).message);
-                // Fallback: try fixing common JSON issues (literal newlines in string values)
-                try {
-                    // Re-escape literal control chars inside JSON string values
-                    const fixed = slidesStr.replace(
-                        /"(?:[^"\\]|\\.)*"/g,
-                        (m) => m.replace(/[\n\r\t]/g, (c) =>
-                            c === '\n' ? '\\n' : c === '\r' ? '\\r' : '\\t',
-                        ),
-                    );
-                    const parsed2 = JSON.parse(fixed);
-                    if (Array.isArray(parsed2)) {
-                        rawSlides = parsed2 as SlideInput[];
-                        console.debug('[CreatePptxTool] Fixed JSON.parse succeeded, rawSlides.length =', rawSlides.length);
-                    }
-                } catch (fixErr) {
-                    console.warn('[CreatePptxTool] Fixed JSON.parse also failed:', (fixErr as Error).message);
-                }
+            } catch (e) {
+                callbacks.pushToolResult(this.formatError(new Error(
+                    `slides must be a JSON array. JSON parse error: ${(e as Error).message}`,
+                )));
+                return;
             }
         } else if (input.slides !== undefined) {
-            console.warn('[CreatePptxTool] Unexpected slides type:', typeof input.slides, 'value:', String(input.slides).substring(0, 200));
+            callbacks.pushToolResult(this.formatError(new Error(
+                `slides must be an array of slide objects. Received: ${typeof input.slides}`,
+            )));
+            return;
         }
         const templateRef = ((input.template as string) ?? '').trim();
         const templateFile = ((input.template_file as string) ?? '').trim();
@@ -345,7 +317,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         const slides = rawSlides.slice(0, 50);
         const templateName = templateFile ? templateFile.split('/').pop() ?? templateFile : this.getTemplateName(templateRef);
 
-        console.debug('[CreatePptxTool] Final slides.length:', slides.length, 'templateFile:', templateFile ? 'yes' : 'no');
+        console.debug(`[CreatePptxTool] ${slides.length} slides, templateFile: ${templateFile ? 'yes' : 'no'}`);
 
         // Analyze-only mode
         if (slides.length === 0) {
@@ -374,10 +346,17 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             // Detect pipeline: Template vs HTML vs Legacy
             const hasTemplateSlides = templateFile && slides.some(s => s.template_slide);
             const hasHtml = slides.some(s => s.html);
-            console.debug('[CreatePptxTool] Pipeline detection: hasTemplateSlides:', hasTemplateSlides, 'hasHtml:', hasHtml, 'templateFile:', templateFile);
-            if (slides.length > 0) {
-                const firstSlide = slides[0];
-                console.debug('[CreatePptxTool] First slide keys:', Object.keys(firstSlide).filter(k => (firstSlide as Record<string, unknown>)[k] !== undefined));
+            console.debug(`[CreatePptxTool] Pipeline: ${hasTemplateSlides ? 'Template' : hasHtml ? 'HTML' : 'Legacy'}`);
+
+            // Guard: individual slides must not mix html and template_slide
+            for (let i = 0; i < slides.length; i++) {
+                const s = slides[i];
+                if (s.template_slide && s.html) {
+                    callbacks.pushToolResult(this.formatError(new Error(
+                        `Slide ${i + 1}: Cannot use both template_slide and html. Use one or the other.`,
+                    )));
+                    return;
+                }
             }
 
             // Guard: template_file provided but slides use html instead of template_slide

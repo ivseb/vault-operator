@@ -1,6 +1,6 @@
 import { setIcon, TFile, Notice } from 'obsidian';
 import type { ContentBlock, ImageMediaType } from '../../api/types';
-import type { Vault } from 'obsidian';
+import type { Vault, FileSystemAdapter } from 'obsidian';
 import { t } from '../../i18n';
 import { parseDocument } from '../../core/document-parsers/parseDocument';
 import {
@@ -80,6 +80,12 @@ export class AttachmentHandler {
         const mediaType = IMAGE_TYPES[file.type];
         const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
 
+        // Resolve OS file path to vault-relative path if possible.
+        // Electron File objects have a non-standard .path property with the full OS path.
+        const vaultPath = this.resolveOsPathToVaultPath(file);
+        // Use vault path as display name when available (consistent with addVaultFile behavior)
+        const displayName = vaultPath ?? file.name;
+
         if (mediaType) {
             // Image attachment
             const arrayBuffer = await file.arrayBuffer();
@@ -89,8 +95,9 @@ export class AttachmentHandler {
             const base64 = btoa(binary);
             const objectUrl = URL.createObjectURL(file);
             this.pending.push({
-                name: file.name || 'image.png',
+                name: displayName || 'image.png',
                 objectUrl,
+                vaultPath,
                 block: { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
             });
         } else if (DOCUMENT_EXTENSIONS.some(d => file.name.toLowerCase().endsWith(d))) {
@@ -100,15 +107,16 @@ export class AttachmentHandler {
                 const result = await parseDocument(arrayBuffer, ext);
 
                 if (result.text.length > LARGE_DOCUMENT_CHAR_THRESHOLD) {
-                    new Notice(t('ui.attachment.largeDocument', { name: file.name }));
+                    new Notice(t('ui.attachment.largeDocument', { name: displayName }));
                 }
 
                 const item: AttachmentItem = {
-                    name: file.name,
+                    name: displayName,
                     extension: ext,
+                    vaultPath,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${file.name}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${displayName}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
                     },
                 };
 
@@ -126,8 +134,9 @@ export class AttachmentHandler {
         } else if (TEXT_EXTENSIONS.some(te => file.name.toLowerCase().endsWith(te)) || file.type.startsWith('text/')) {
             const text = await file.text();
             this.pending.push({
-                name: file.name,
-                block: { type: 'text', text: `<attached_file name="${file.name}">\n${text}\n</attached_file>` },
+                name: displayName,
+                vaultPath,
+                block: { type: 'text', text: `<attached_file name="${displayName}">\n${text}\n</attached_file>` },
             });
         } else {
             new Notice(t('ui.attachment.unsupported', { name: file.name }));
@@ -224,5 +233,33 @@ export class AttachmentHandler {
         }
         this.pending.length = 0;
         this.chipBar.empty();
+    }
+
+    /**
+     * Try to resolve an OS file picker File to a vault-relative path.
+     *
+     * Electron's File objects have a non-standard `.path` property containing
+     * the full filesystem path (e.g. "/Users/x/Vault/folder/file.pptx").
+     * If the file is inside the vault root, returns the relative vault path
+     * (e.g. "folder/file.pptx"). Otherwise returns undefined.
+     */
+    private resolveOsPathToVaultPath(file: File): string | undefined {
+        // eslint-disable-next-line -- Electron-specific: File.path is not in the standard File API
+        const osPath = (file as unknown as { path?: string }).path;
+        if (!osPath) return undefined;
+
+        // eslint-disable-next-line -- need FileSystemAdapter for basePath
+        const adapter = this.vault.adapter as FileSystemAdapter;
+        const vaultRoot: string = adapter.basePath ?? adapter.getBasePath?.() ?? '';
+        if (!vaultRoot) return undefined;
+
+        // Normalize path separators (Windows uses backslashes)
+        const normalizedOs = osPath.replace(/\\/g, '/');
+        const normalizedRoot = vaultRoot.replace(/\\/g, '/').replace(/\/$/, '');
+
+        if (normalizedOs.startsWith(normalizedRoot + '/')) {
+            return normalizedOs.slice(normalizedRoot.length + 1);
+        }
+        return undefined;
     }
 }

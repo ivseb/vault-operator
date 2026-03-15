@@ -126,6 +126,60 @@ Draft the document structure and share with user for approval:
 - The plan MUST show the template slide number for every slide.
 
 ### Step 5: CREATE
+
+#### 5a: Content Transformation (corporate templates -- MANDATORY)
+
+Before calling create_pptx, transform source content into slide-ready content. NEVER copy source text verbatim into shapes.
+
+**Rule 1: Fill EVERY shape in the composition.**
+When you load a composition via `get_composition_details`, the response lists ALL shapes for that slide. Your `content` object MUST include a key for EVERY listed shape. Unfilled shapes with placeholder text are CLEARED by the template cloner -- they appear as blank empty areas on the slide.
+
+BAD (only 2 of 10+ shapes filled -- rest will be empty):
+```json
+{ "template_slide": 64, "content": { "Titel 1": "Pipeline", "TextBox 1": "Schritt 1" } }
+```
+
+GOOD (ALL shapes filled with meaningful content):
+```json
+{ "template_slide": 64, "content": { "Titel 1": "Technische Pipeline", "TextBox 1": "Erfassung", "TextBox 2": "Verarbeitung", "TextBox 3": "Analyse", "TextBox 4": "Ergebnis", "TextBox 5": "Bericht", "Textplatzhalter 6": "Daten sammeln\nQuellen anbinden", "Textplatzhalter 7": "Normalisierung\nBereinigung", "Textplatzhalter 8": "Muster erkennen\nAbweichungen detektieren", "Textplatzhalter 9": "Aenderungen visualisieren\nFarbcodierung", "Textplatzhalter 10": "Ergebnisse exportieren\nChange-Log erstellen" } }
+```
+
+**Rule 2: Transform, don't copy.**
+Source text is NEVER slide-ready. Always restructure:
+- Long paragraph → 3-5 bullet points (max 8 words each)
+- List of facts → KPI cards or table
+- Sequential steps → process chevron labels (1-3 words) + descriptions (1 sentence)
+- Comparison → two-column layout with parallel structure
+- Quote → max 200 characters, keep the punch line
+
+BAD (copy-paste from source):
+```
+"Inhaltsplatzhalter 3": "Manuelle Planvergleiche sind bei grossen Projekten mit vielen Revisionen extrem zeitintensiv. Besonders bei komplexen Industrieplaenen mit Hunderten Seiten pro Revision."
+```
+
+GOOD (transformed for slide):
+```
+"Inhaltsplatzhalter 3": "Zeitaufwand\nHunderte Seiten pro Revision\nManuelle Vergleiche extrem zeitintensiv\n\nFehleranfaelligkeit\nAenderungen werden uebersehen\nRueckschleifenkosten steigen"
+```
+
+**Rule 3: Match composition to content, not content to composition.**
+Do NOT pick a text slide and force all content into it. Instead:
+1. Classify each content block (numbers? sequence? comparison? hierarchy?)
+2. Find the composition whose VISUAL FORM matches (use Visualization Decision Tree from presentation-design skill)
+3. Reshape the content to fit that composition's shapes
+
+**Rule 4: No chart slides without matching data.**
+Some template slides contain STATIC embedded charts (bar charts, pie charts, waterfall diagrams). These charts show the template's sample data and CANNOT be replaced via text content. Only use chart slides when your content semantically matches the chart type.
+
+**Rule 5: NEVER invent data.**
+All numbers, percentages, dates, names, and facts in slide content MUST come directly from the source material. If a shape requires a KPI/number and the source has none:
+- Use a qualitative description instead ("Deutliche Verbesserung" not "25,3%")
+- Or choose a different composition that doesn't need numeric data
+- NEVER generate plausible-sounding numbers -- they are hallucinations and destroy the presentation's credibility
+- "Transform" means restructure the FORMAT (paragraph -> bullets), not fabricate new DATA
+
+#### 5b: Generate the document
+
 - **Corporate template:** Call create_pptx with `template_file` and slides using `template_slide` + `content` fields. Use Shape-Names from `get_composition_details` as content keys.
 - **Default themes:** Call create_pptx with slides using the `html` field (see "HTML Slide Format" section in presentation-design skill).
 
@@ -182,6 +236,10 @@ Choose a Storytelling Framework from the presentation-design skill (Part A: "Sto
 - Same visual pattern repeated on consecutive slides
 - Charts without interpretation in speaker notes
 - Skipping the template/theme question
+- Unfilled shapes (EVERY shape from get_composition_details MUST have content -- unfilled shapes are cleared and appear blank)
+- Copy-pasted source text (ALWAYS transform: paragraphs → bullets, numbers → KPIs, sequences → process flows)
+- Chart slides with wrong content (embedded bar/pie/waterfall charts show STATIC template data -- only use when content matches the chart type)
+- Hallucinated numbers/data (NEVER invent percentages, KPIs, dates, or facts -- every data point must be traceable to the source material)
 
 ## 6. After Creation
 

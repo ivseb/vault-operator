@@ -170,15 +170,25 @@ export class SkillsManager {
     }
 
     /**
-     * Delete a skill file.
-     * The empty parent directory is left behind (harmless -- discoverSkills
-     * skips directories without SKILL.md).
+     * Delete a skill file and its parent directory if empty afterward.
      */
     async deleteSkill(path: string): Promise<void> {
         try {
             await this.fs.remove(path);
         } catch {
             // Non-fatal: file may already be gone
+        }
+        // Clean up empty parent directory (e.g. skills/my-skill/)
+        const parentDir = path.substring(0, path.lastIndexOf('/'));
+        if (parentDir) {
+            try {
+                const listing = await this.fs.list(parentDir);
+                if (listing.files.length === 0 && listing.folders.length === 0) {
+                    await this.fs.remove(parentDir);
+                }
+            } catch {
+                // Non-fatal: directory may not exist
+            }
         }
     }
 

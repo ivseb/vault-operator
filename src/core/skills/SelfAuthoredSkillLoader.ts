@@ -732,9 +732,10 @@ export class SelfAuthoredSkillLoader {
     }
 
     private async updateFrontmatterField(filePath: string, key: string, value: string): Promise<void> {
-        const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-        if (!(file instanceof TFile)) return;
-        const content = await this.plugin.app.vault.read(file);
+        // Use adapter — vault API doesn't index .obsidian/ paths
+        const adapter = this.plugin.app.vault.adapter;
+        if (!(await adapter.exists(filePath))) return;
+        const content = await adapter.read(filePath);
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) return;
 
@@ -745,6 +746,6 @@ export class SelfAuthoredSkillLoader {
             : fm + `\n${key}: ${value}`;
 
         const newContent = content.replace(fmMatch[0], `---\n${updated}\n---`);
-        await this.plugin.app.vault.modify(file, newContent);
+        await adapter.write(filePath, newContent);
     }
 }

@@ -14,7 +14,6 @@
  * Part of Self-Development Phase 2+3: Skill Self-Authoring + Code Modules.
  */
 
-import { TFile, TFolder } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -182,13 +181,13 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (!params.description) throw new Error('Missing "description" for create action.');
         if (!params.body) throw new Error('Missing "body" for create action.');
 
+        const adapter = this.plugin.app.vault.adapter;
         const slug = this.slugify(params.name);
         const dirPath = `${this.skillLoader.getSkillsDir()}/${slug}`;
         const filePath = `${dirPath}/SKILL.md`;
 
-        // Check if skill already exists
-        const existing = this.plugin.app.vault.getAbstractFileByPath(filePath);
-        if (existing instanceof TFile) {
+        // Check if skill already exists (use adapter — vault API doesn't index .obsidian/)
+        if (await adapter.exists(filePath)) {
             throw new Error(`Skill "${params.name}" already exists at ${filePath}. Use "update" action.`);
         }
 
@@ -197,18 +196,29 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             this.compiler.validateNames(params.code_modules);
         }
 
-        // Ensure directory exists
-        const dir = this.plugin.app.vault.getAbstractFileByPath(dirPath);
-        if (!(dir instanceof TFolder)) {
-            await this.plugin.app.vault.createFolder(dirPath);
-        }
+        // Ensure directory exists (adapter.mkdir works for .obsidian/ paths)
+        await adapter.mkdir(dirPath);
 
         // Build code module filenames for frontmatter
         const codeModuleNames = params.code_modules?.map(m => CodeModuleCompiler.toolNameToFileName(m.name)) ?? [];
 
         // Build SKILL.md content
         const content = this.buildSkillMd(params, codeModuleNames);
-        await this.plugin.app.vault.create(filePath, content);
+        // Use adapter.write — vault.create doesn't work reliably for .obsidian/ paths
+        await adapter.write(filePath, content);
+
+        // Also write to global storage immediately (don't wait for SyncBridge)
+        if (this.plugin.skillsManager) {
+            try {
+                await this.plugin.skillsManager.createSkill(`skills/${slug}`, content);
+            } catch {
+                // Non-fatal: SyncBridge will catch up on next push
+            }
+        }
+
+        // Reload skills so the new skill is immediately available in-memory
+        // (vault events don't fire for .obsidian/ paths, so hot-reload won't trigger)
+        await this.skillLoader.loadAll();
 
         // Process code modules via compiler
         const codeResults: string[] = [];
@@ -225,7 +235,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             : '';
 
         callbacks.pushToolResult(this.formatSuccess(
-            `Skill "${params.name}" created at ${filePath}. It will be available immediately via hot-reload.${codeMsg}`
+            `Skill "${params.name}" created at ${filePath}.${codeMsg}`
         ));
     }
 
@@ -240,8 +250,11 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (!skill) throw new Error(`Skill "${params.name}" not found. Use "list" to see available skills.`);
         if (skill.source === 'bundled') throw new Error(`Bundled skills cannot be updated.`);
 
-        const file = this.plugin.app.vault.getAbstractFileByPath(skill.filePath);
-        if (!(file instanceof TFile)) throw new Error(`Skill file not found: ${skill.filePath}`);
+        // Use adapter — vault API doesn't index .obsidian/ paths
+        const adapter = this.plugin.app.vault.adapter;
+        if (!(await adapter.exists(skill.filePath))) {
+            throw new Error(`Skill file not found: ${skill.filePath}`);
+        }
 
         // Validate code modules if present
         if (params.code_modules?.length) {
@@ -263,7 +276,21 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             source: skill.source,
         }, allCodeModules);
 
-        await this.plugin.app.vault.modify(file, content);
+        // Use adapter.write — vault.modify doesn't work reliably for .obsidian/ paths
+        await adapter.write(skill.filePath, content);
+
+        // Also write to global storage immediately (don't wait for SyncBridge)
+        const slug = skill.filePath.split('/').slice(-2, -1)[0]; // extract slug from path
+        if (this.plugin.skillsManager && slug) {
+            try {
+                await this.plugin.skillsManager.writeFile(`skills/${slug}/SKILL.md`, content);
+            } catch {
+                // Non-fatal: SyncBridge will catch up on next push
+            }
+        }
+
+        // Reload skills so the updated skill is immediately available in-memory
+        await this.skillLoader.loadAll();
 
         // Process code modules via compiler
         const codeResults: string[] = [];
@@ -336,6 +363,9 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (skill.codeModules.length > 0) {
             context.invalidateToolCache?.();
         }
+
+        // Remove from in-memory map (loadAll would also work but is heavier)
+        this.skillLoader.removeSkill(params.name ?? '');
 
         callbacks.pushToolResult(this.formatSuccess(`Skill "${params.name}" deleted.`));
     }

@@ -153,8 +153,10 @@ export class SyncBridge {
     // ── Internal sync logic ───────────────────────────────────────────────
 
     /**
-     * Sync a directory in one direction, copying only files that are newer
-     * at the source than at the destination.
+     * Sync a directory in one direction:
+     * 1. Copy files that are newer at source than destination
+     * 2. Delete files that exist only at destination (were deleted from source)
+     * 3. Remove empty directories on destination side
      */
     private async syncDirectory(
         srcDir: string,
@@ -162,23 +164,41 @@ export class SyncBridge {
         direction: 'vault-to-global' | 'global-to-vault',
         recursive: boolean,
     ): Promise<void> {
-        // List source files
-        const srcFiles = await this.listFiles(srcDir, direction === 'vault-to-global' ? 'vault' : 'global', recursive);
-        if (srcFiles.length === 0) return;
+        const srcSide = direction === 'vault-to-global' ? 'vault' : 'global';
+        const destSide = direction === 'vault-to-global' ? 'global' : 'vault';
 
+        // List source and destination files
+        const srcFiles = await this.listFiles(srcDir, srcSide, recursive);
+        const destFiles = await this.listFiles(destDir, destSide, recursive);
+
+        // Copy newer files from source to destination
         for (const srcRelFile of srcFiles) {
-            // srcRelFile is relative to srcDir (e.g., "user-profile.md" or "sessions/abc.md")
             const srcFullPath = `${srcDir}/${srcRelFile}`;
             const destFullPath = `${destDir}/${srcRelFile}`;
 
-            const srcMtime = await this.getMtime(srcFullPath, direction === 'vault-to-global' ? 'vault' : 'global');
-            const destMtime = await this.getMtime(destFullPath, direction === 'vault-to-global' ? 'global' : 'vault');
+            const srcMtime = await this.getMtime(srcFullPath, srcSide);
+            const destMtime = await this.getMtime(destFullPath, destSide);
 
-            // Copy if source is newer or destination doesn't exist
             if (srcMtime > destMtime) {
                 await this.copyFile(srcFullPath, destFullPath, direction);
             }
         }
+
+        // Delete files that exist only on the destination side
+        const srcSet = new Set(srcFiles);
+        for (const destRelFile of destFiles) {
+            if (!srcSet.has(destRelFile)) {
+                const destFullPath = `${destDir}/${destRelFile}`;
+                try {
+                    await this.removeFile(destFullPath, destSide);
+                } catch (e) {
+                    console.warn(`[SyncBridge] delete orphan ${destFullPath} failed:`, e);
+                }
+            }
+        }
+
+        // Clean up empty directories on destination side
+        await this.removeEmptyDirs(destDir, destSide, recursive);
     }
 
     /**
@@ -257,6 +277,55 @@ export class SyncBridge {
         } else {
             const stat = await this.globalFs.stat(filePath);
             return stat?.mtime ?? 0;
+        }
+    }
+
+    /**
+     * Remove a file on a given side.
+     */
+    private async removeFile(filePath: string, side: 'vault' | 'global'): Promise<void> {
+        if (side === 'vault') {
+            await this.vault.adapter.remove(filePath);
+        } else {
+            await this.globalFs.remove(filePath);
+        }
+    }
+
+    /**
+     * Recursively remove empty directories on a given side.
+     * A directory is empty if it contains no files and no non-empty subdirectories.
+     */
+    private async removeEmptyDirs(dir: string, side: 'vault' | 'global', recursive: boolean): Promise<void> {
+        const dirExists = side === 'vault'
+            ? await this.vault.adapter.exists(dir)
+            : await this.globalFs.exists(dir);
+        if (!dirExists) return;
+
+        const listed = side === 'vault'
+            ? await this.vault.adapter.list(dir)
+            : await this.globalFs.list(dir);
+
+        if (recursive) {
+            for (const folder of listed.folders) {
+                await this.removeEmptyDirs(folder, side, true);
+            }
+        }
+
+        // Re-list after recursive cleanup (subdirs may now be gone)
+        const afterCleanup = side === 'vault'
+            ? await this.vault.adapter.list(dir)
+            : await this.globalFs.list(dir);
+
+        if (afterCleanup.files.length === 0 && afterCleanup.folders.length === 0) {
+            try {
+                if (side === 'vault') {
+                    await this.vault.adapter.rmdir(dir, false);
+                } else {
+                    await this.globalFs.remove(dir);
+                }
+            } catch {
+                // Non-fatal: directory may be in use or already removed
+            }
         }
     }
 

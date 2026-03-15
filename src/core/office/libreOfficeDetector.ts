@@ -16,6 +16,8 @@ export interface LibreOfficeStatus {
 const KNOWN_PATHS: Record<string, string[]> = {
     darwin: [
         '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+        '/opt/homebrew/bin/soffice',
+        '/usr/local/bin/soffice',
     ],
     linux: [
         '/usr/bin/soffice',

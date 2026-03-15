@@ -94,15 +94,29 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         // Normalize template name (same logic as AnalyzePptxTemplateTool slug derivation)
         const template = rawTemplate.toLowerCase().replace(/[_\s]+/g, '-');
 
-        // Find compositions.json in vault
+        // Find compositions.json via adapter (filesystem-level, cache-independent).
+        // vault.getFileByPath() uses the metadata cache which may not know about
+        // files written via vault.adapter.write() by AnalyzePptxTemplateTool.
         const filePath = `.obsilo/templates/${template}.compositions.json`;
-        const file = this.app.vault.getFileByPath(filePath);
+        const adapter = this.app.vault.adapter;
+        const fileExists = await adapter.exists(filePath);
 
-        if (!file) {
+        if (!fileExists) {
             // List available composition files for a helpful error message
-            const availableTemplates = this.app.vault.getFiles()
-                .filter(f => f.path.startsWith('.obsilo/templates/') && f.path.endsWith('.compositions.json'))
-                .map(f => f.path.replace('.obsilo/templates/', '').replace('.compositions.json', ''));
+            const templatesDir = '.obsilo/templates';
+            const dirExists = await adapter.exists(templatesDir);
+            let availableTemplates: string[] = [];
+
+            if (dirExists) {
+                try {
+                    const listed = await adapter.list(templatesDir);
+                    availableTemplates = (listed.files ?? [])
+                        .filter((f: string) => f.endsWith('.compositions.json'))
+                        .map((f: string) => f.replace('.obsilo/templates/', '').replace('.compositions.json', ''));
+                } catch {
+                    // Directory listing failed -- non-fatal
+                }
+            }
 
             if (availableTemplates.length > 0) {
                 callbacks.pushToolResult(this.formatError(new Error(
@@ -121,7 +135,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         }
 
         try {
-            const content = await this.app.vault.read(file);
+            const content = await adapter.read(filePath);
             const data = JSON.parse(content) as CompositionsFile;
 
             if (!data.compositions) {

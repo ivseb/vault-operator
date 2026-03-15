@@ -224,6 +224,56 @@ Before choosing a slide type, answer these four questions:
 - Body text: max 75 words per slide (excluding speaker notes)
 - Font minimums: titles >= 28px, body >= 14px, labels >= 12px
 
+## Content Transformation (Corporate Templates)
+
+Source material (notes, documents, briefs) must be TRANSFORMED for slides. Never copy text verbatim.
+
+### Transformation Patterns
+
+| Source Content | Target | Transformation |
+|---|---|---|
+| Paragraph with 4 arguments | 4 bullet points | Extract core assertion per argument, max 8 words each |
+| Step-by-step description | Process chevrons | 1-3 word label per step + 1-sentence description below |
+| "We achieved X, Y, Z" | KPI cards | Extract number + unit + trend indicator per metric |
+| "Option A vs Option B" | Two-column comparison | Parallel structure: same categories, contrasting values |
+| Long quote | Quote slide | Shorten to max 200 chars, keep the punch line |
+| 4 parallel aspects | Cycle/puzzle diagram | 1-word label + 2-line description per quadrant |
+| Inputs leading to result | Funnel/convergence | Short label per input + conclusion on right |
+
+### Data Integrity Rule
+
+NEVER invent numbers, percentages, dates, or facts that are not in the source material. "Transform" means restructure the FORMAT, not fabricate new DATA.
+
+- KPI shape but source has no number -> use qualitative text ("Deutliche Verbesserung") or choose a different composition
+- Trend/change shape but source has no comparison -> describe the current state, not a fictional delta
+- Every data point on a slide must be traceable to the source document
+- If a composition requires numeric data you don't have, pick a different composition type (e.g. content/process instead of KPI)
+
+### Shape Completeness Rule
+
+Corporate template compositions define a FIXED set of shapes. The template cloner CLEARS unfilled placeholder text -- unfilled shapes appear as blank empty areas on the slide. Therefore:
+
+1. Count ALL shapes listed in the `get_composition_details` response
+2. Provide content for EVERY shape -- no exceptions
+3. If a composition has more shapes than you have content points:
+   - Choose a different composition with fewer shapes, OR
+   - Add relevant content to fill remaining shapes (sub-points, examples, context)
+4. If a composition has fewer shapes than content points:
+   - Consolidate content to fit, OR
+   - Split across two slides
+
+### Slides with Embedded Charts/Diagrams
+
+Some template slides contain STATIC charts (bar charts, pie charts, waterfall diagrams) embedded as OOXML chart objects. These charts CANNOT be replaced via text content -- they show the template's sample data.
+
+**Rules for chart slides:**
+- ONLY use chart slides when your content semantically matches the chart type
+- Bar chart slide → only for categorical comparisons with numeric data
+- Pie/donut slide → only for parts-of-a-whole data
+- Waterfall slide → only for incremental value changes
+- If no chart matches your content, use a text or process slide instead
+- When in doubt, prefer a process or comparison composition over a chart slide
+
 ## HTML Slide Format (Default Themes Only)
 
 **This section applies ONLY to default themes (Executive/Modern/Minimal). When a corporate template skill is active, IGNORE this section entirely. Corporate templates use `template_slide` + `content`, NOT HTML.**

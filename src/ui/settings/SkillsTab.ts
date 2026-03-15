@@ -239,7 +239,7 @@ export class SkillsTab {
 
     private buildSelfAuthoredSkillsSection(containerEl: HTMLElement): void {
         const loader = this.plugin.selfAuthoredSkillLoader;
-        containerEl.createEl('h3', { text: 'Agent-created skills (sandbox custom tools)' });
+        containerEl.createEl('h3', { text: 'Vault Skills (agent-created & template skills)' });
 
         if (!loader) {
             containerEl.createEl('p', {
@@ -253,7 +253,7 @@ export class SkillsTab {
         if (skills.length === 0) {
             containerEl.createEl('p', {
                 cls: 'agent-empty-state',
-                text: 'No agent-created custom tools yet. The agent can create sandbox tools via the manage_skill tool. These tools run in the sandbox and are limited to text/JSON processing.',
+                text: 'No vault skills yet. The agent can create skills via the manage_skill tool, including template skills from corporate PPTX analysis.',
             });
             return;
         }
@@ -272,9 +272,8 @@ export class SkillsTab {
         const refreshSkills = async () => {
             tbody.empty();
             const allSkills = loader.getAllSkills();
-            // Filter: Agent Created Skills section shows only agent-created skills (source: learned)
-            const currentSkills = allSkills.filter(s => s.source === 'learned');
-            for (const skill of currentSkills) {
+            // Show ALL skills from SelfAuthoredSkillLoader (agent-created AND user/template skills)
+            for (const skill of allSkills) {
                 const tr = tbody.createEl('tr');
 
                 // Status dot
@@ -289,8 +288,9 @@ export class SkillsTab {
                     nameTd.createDiv({ text: skill.description, cls: 'agent-skill-desc agent-skill-desc-clamped' });
                 }
 
-                // Source (show as "Agent" instead of "learned")
-                const sourceText = skill.source === 'learned' ? 'Agent' : skill.source || '-';
+                // Source label
+                const sourceLabels: Record<string, string> = { learned: 'Agent', user: 'Template' };
+                const sourceText = sourceLabels[skill.source ?? ''] ?? skill.source ?? '-';
                 tr.createEl('td', { text: sourceText, cls: 'agent-skill-cmd-cell' });
 
                 // Code modules
