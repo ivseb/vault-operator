@@ -486,7 +486,101 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             });
         }
 
-        return cloneFromTemplate(templateData, selections);
+        // Load repeatable groups + alias map from compositions.json (if available)
+        const compositionsData = await this.loadCompositionsData(templateFile);
+
+        // Resolve aliases to shape IDs for each selection
+        if (compositionsData?.aliasMap) {
+            for (const sel of selections) {
+                const resolvedIds: Record<string, string> = {};
+                for (const key of Object.keys(sel.content)) {
+                    const entry = compositionsData.aliasMap.get(key);
+                    if (entry && entry.slide === sel.template_slide) {
+                        resolvedIds[key] = entry.shapeId;
+                    }
+                }
+                if (Object.keys(resolvedIds).length > 0) {
+                    sel.resolvedIds = resolvedIds;
+                }
+            }
+        }
+
+        return cloneFromTemplate(templateData, selections, compositionsData?.cloneOptions);
+    }
+
+    /**
+     * Load compositions data from the template's compositions.json.
+     * Returns repeatable groups (for shape adaptation) and alias map (for ID-based replacement).
+     * Supports both v1 (name-based) and v2 (alias+ID-based) schemas.
+     */
+    private async loadCompositionsData(templateFile: string): Promise<{
+        cloneOptions: import('../../office/PptxTemplateCloner').CloneOptions;
+        aliasMap?: Map<string, { slide: number; shapeId: string; originalName: string }>;
+    } | undefined> {
+        try {
+            const templateName = templateFile.split('/').pop()?.replace(/\.(pptx|potx)$/i, '') ?? '';
+            const templateSlug = templateName.toLowerCase().replace(/[_\s]+/g, '-');
+            const compositionsPath = `.obsilo/templates/${templateSlug}.compositions.json`;
+            const adapter = this.app.vault.adapter;
+
+            if (!await adapter.exists(compositionsPath)) return undefined;
+
+            const content = await adapter.read(compositionsPath);
+            const data = JSON.parse(content) as {
+                schema_version?: number;
+                alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
+                compositions: Record<string, {
+                    repeatable_groups?: Record<string, Array<{
+                        groupId: string;
+                        axis: 'horizontal' | 'vertical';
+                        shapeNames: string[];
+                        shapeIds?: string[];
+                        boundingBox: { left: number; top: number; width: number; height: number };
+                        gap: number;
+                        shapeSize: { cx: number; cy: number };
+                        columns: Array<{
+                            index: number;
+                            primaryShape: string;
+                            primaryShapeId?: string;
+                            associatedShapes: Array<{ shapeName: string; shapeId?: string; offsetY: number; offsetX: number }>;
+                        }>;
+                    }>>;
+                }>;
+            };
+
+            // Build repeatable groups map
+            const repeatableGroups = new Map<number, import('../../office/PptxTemplateAnalyzer').RepeatableGroup[]>();
+
+            for (const comp of Object.values(data.compositions)) {
+                if (!comp.repeatable_groups) continue;
+                for (const [slideNumStr, groups] of Object.entries(comp.repeatable_groups)) {
+                    const slideNum = parseInt(slideNumStr);
+                    if (isNaN(slideNum) || groups.length === 0) continue;
+                    const existing = repeatableGroups.get(slideNum) ?? [];
+                    existing.push(...groups);
+                    repeatableGroups.set(slideNum, existing);
+                }
+            }
+
+            // Build alias map (v2 only)
+            let aliasMap: Map<string, { slide: number; shapeId: string; originalName: string }> | undefined;
+            if (data.schema_version && data.schema_version >= 2 && data.alias_map) {
+                aliasMap = new Map();
+                for (const [alias, entry] of Object.entries(data.alias_map)) {
+                    aliasMap.set(alias, {
+                        slide: entry.slide,
+                        shapeId: entry.shape_id,
+                        originalName: entry.original_name,
+                    });
+                }
+            }
+
+            const cloneOptions = repeatableGroups.size > 0 ? { repeatableGroups } : {};
+            return { cloneOptions, aliasMap };
+        } catch {
+            // Non-fatal: proceed without shape adaptation
+            return undefined;
+        }
     }
 
     /* -------------------------------------------------------------- */

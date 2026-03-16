@@ -20,8 +20,10 @@ import {
     DEFAULT_LANG, DEFAULT_RPR,
     findClosingTag, escapeXml, escapeRegex,
     extractAllParagraphFormats, extractBodyProperties,
+    parseShapeName, findMaxShapeId, extractSpBlockByName, extractSpBlockById,
     type ParagraphFormat,
 } from './ooxml-utils';
+import type { RepeatableGroup } from './PptxTemplateAnalyzer';
 
 /* ------------------------------------------------------------------ */
 /*  Public types                                                       */
@@ -35,6 +37,8 @@ export interface TemplateSlideInput {
     content: Record<string, string>;
     /** Speaker notes for this slide (replaces existing notes). */
     notes?: string;
+    /** Resolved alias-to-shapeId mapping for ID-based replacement. Keys match content keys. */
+    resolvedIds?: Record<string, string>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -78,6 +82,12 @@ export interface SlideDiagnostic {
     shapeTexts: string[];
 }
 
+/** Options for cloneFromTemplate. */
+export interface CloneOptions {
+    /** Repeatable groups per template slide number for shape adaptation. */
+    repeatableGroups?: Map<number, RepeatableGroup[]>;
+}
+
 /**
  * Clone selected slides from a template .pptx and produce a new .pptx.
  *
@@ -88,6 +98,7 @@ export interface SlideDiagnostic {
 export async function cloneFromTemplate(
     templateData: ArrayBuffer,
     selections: TemplateSlideInput[],
+    options?: CloneOptions,
 ): Promise<CloneResult> {
     if (selections.length === 0) {
         throw new Error('At least one slide selection is required');
@@ -219,12 +230,18 @@ export async function cloneFromTemplate(
             zip.file(`ppt/slides/_rels/slide${dstNum}.xml.rels`, relsXml);
         }
 
+        // Adapt shapes if repeatable groups are available for this slide
+        const groups = options?.repeatableGroups?.get(sel.template_slide);
+        if (groups && groups.length > 0) {
+            await adaptSlideShapes(zip, dstNum, sel.content, groups);
+        }
+
         // Extract all shape texts for diagnostics BEFORE replacement
         const shapeTexts = await extractAllShapeTexts(zip, dstNum);
 
         // Replace text content in the cloned slide
         const contentKeys = Object.keys(sel.content);
-        const unmatchedKeys = await replaceSlideContent(zip, dstNum, sel.content);
+        const unmatchedKeys = await replaceSlideContent(zip, dstNum, sel.content, sel.resolvedIds);
         const matchedKeys = contentKeys.filter(k => !unmatchedKeys.includes(k));
 
         if (unmatchedKeys.length > 0) {
@@ -500,10 +517,372 @@ async function extractAllShapeTexts(zip: JSZip, slideNum: number): Promise<strin
  *
  * Returns array of unmatched keys for diagnostics.
  */
+
+/* ------------------------------------------------------------------ */
+/*  Shape Adaptation Engine                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Adapt shapes within a cloned slide based on repeatable groups.
+ * Detects mismatch between content keys and group shapes:
+ * - Fewer content keys than shapes: remove excess shapes + associated shapes, redistribute
+ * - More content keys than shapes: duplicate shapes + associated shapes, redistribute
+ *
+ * This runs BEFORE replaceSlideContent so that the shape names match the content keys.
+ */
+async function adaptSlideShapes(
+    zip: JSZip,
+    slideNum: number,
+    content: Record<string, string>,
+    groups: RepeatableGroup[],
+): Promise<void> {
+    const slidePath = `ppt/slides/slide${slideNum}.xml`;
+    const file = zip.file(slidePath);
+    if (!file) return;
+
+    let xml = await file.async('string');
+    const contentKeys = new Set(Object.keys(content));
+
+    for (const group of groups) {
+        // Determine if we have IDs for reliable identification (v2 compositions)
+        const hasIds = group.shapeIds && group.shapeIds.length === group.shapeNames.length;
+
+        // Count how many content keys match this group's shapes (directly or via name prefix)
+        const matchingKeys: string[] = [];
+
+        // Direct matches
+        for (const shapeName of group.shapeNames) {
+            if (contentKeys.has(shapeName)) {
+                matchingKeys.push(shapeName);
+            }
+        }
+
+        // Check for extra keys with incrementing numbers (for adding shapes)
+        const lastShape = group.shapeNames[group.shapeNames.length - 1];
+        const parsed = parseShapeName(lastShape);
+        if (parsed) {
+            for (let n = parsed.num + 1; n <= parsed.num + 10; n++) {
+                const candidateName = `${parsed.base} ${n}`;
+                if (contentKeys.has(candidateName)) {
+                    matchingKeys.push(candidateName);
+                }
+            }
+        }
+
+        const targetCount = matchingKeys.length;
+        const currentCount = group.shapeNames.length;
+
+        if (targetCount === 0 || targetCount === currentCount) continue;
+
+        if (targetCount < currentCount) {
+            // REMOVE excess shapes
+            const removeIndices = Array.from({ length: currentCount - targetCount }, (_, i) => targetCount + i);
+
+            // Remove excess shapes and their associated shapes
+            for (const idx of removeIndices) {
+                if (hasIds) {
+                    xml = removeShapeById(xml, group.shapeIds![idx]);
+                } else {
+                    xml = removeShapeByName(xml, group.shapeNames[idx]);
+                }
+                // Also remove associated shapes from the column
+                const col = group.columns[idx];
+                if (col) {
+                    for (const assoc of col.associatedShapes) {
+                        if (hasIds && assoc.shapeId) {
+                            xml = removeShapeById(xml, assoc.shapeId);
+                        } else {
+                            xml = removeShapeByName(xml, assoc.shapeName);
+                        }
+                    }
+                }
+            }
+
+            // Redistribute remaining shapes
+            const positions = redistributePositions(
+                targetCount, group.boundingBox, group.shapeSize, group.axis,
+            );
+            for (let i = 0; i < targetCount; i++) {
+                if (hasIds) {
+                    xml = updateShapePositionById(xml, group.shapeIds![i], positions[i]);
+                } else {
+                    xml = updateShapePosition(xml, group.shapeNames[i], positions[i]);
+                }
+                // Also move associated shapes
+                const col = group.columns[i];
+                if (col) {
+                    for (const assoc of col.associatedShapes) {
+                        const assocPos: ShapePosition = {
+                            left: positions[i].left + assoc.offsetX,
+                            top: positions[i].top + assoc.offsetY,
+                            width: positions[i].width,
+                            height: -1,
+                        };
+                        if (hasIds && assoc.shapeId) {
+                            xml = updateShapePositionById(xml, assoc.shapeId, assocPos);
+                        } else {
+                            xml = updateShapePosition(xml, assoc.shapeName, assocPos);
+                        }
+                    }
+                }
+            }
+        } else if (targetCount > currentCount) {
+            // DUPLICATE shapes to add more
+            const lastShapeName = group.shapeNames[group.shapeNames.length - 1];
+            const lastShapeId = hasIds ? group.shapeIds![group.shapeIds!.length - 1] : undefined;
+            let maxId = findMaxShapeId(xml);
+
+            // Duplicate shapes and associated shapes
+            for (let i = currentCount; i < targetCount; i++) {
+                const newParsed = parseShapeName(lastShapeName);
+                const newName = newParsed
+                    ? `${newParsed.base} ${newParsed.num + (i - currentCount + 1)}`
+                    : `${lastShapeName} Copy ${i - currentCount + 1}`;
+
+                maxId++;
+                if (lastShapeId) {
+                    xml = duplicateShapeById(xml, lastShapeId, newName, maxId);
+                } else {
+                    xml = duplicateShape(xml, lastShapeName, newName, maxId);
+                }
+
+                // Duplicate associated shapes
+                const lastCol = group.columns[group.columns.length - 1];
+                if (lastCol) {
+                    for (const assoc of lastCol.associatedShapes) {
+                        const assocParsed = parseShapeName(assoc.shapeName);
+                        const newAssocName = assocParsed
+                            ? `${assocParsed.base} ${assocParsed.num + (i - currentCount + 1)}`
+                            : `${assoc.shapeName} Copy ${i - currentCount + 1}`;
+                        maxId++;
+                        if (hasIds && assoc.shapeId) {
+                            xml = duplicateShapeById(xml, assoc.shapeId, newAssocName, maxId);
+                        } else {
+                            xml = duplicateShape(xml, assoc.shapeName, newAssocName, maxId);
+                        }
+                    }
+                }
+            }
+
+            // Build full list of shape names for new shapes (for repositioning)
+            const allShapeNames: string[] = [...group.shapeNames];
+            for (let i = currentCount; i < targetCount; i++) {
+                const newParsed = parseShapeName(lastShapeName);
+                const newName = newParsed
+                    ? `${newParsed.base} ${newParsed.num + (i - currentCount + 1)}`
+                    : `${lastShapeName} Copy ${i - currentCount + 1}`;
+                allShapeNames.push(newName);
+            }
+
+            // Redistribute all shapes
+            const positions = redistributePositions(
+                targetCount, group.boundingBox, group.shapeSize, group.axis,
+            );
+            for (let i = 0; i < allShapeNames.length; i++) {
+                // Original shapes: use ID if available, new shapes: use name (they have unique names)
+                if (hasIds && i < currentCount) {
+                    xml = updateShapePositionById(xml, group.shapeIds![i], positions[i]);
+                } else {
+                    xml = updateShapePosition(xml, allShapeNames[i], positions[i]);
+                }
+
+                // Move associated shapes
+                const colIdx = Math.min(i, group.columns.length - 1);
+                const col = group.columns[colIdx];
+                if (col) {
+                    for (let a = 0; a < col.associatedShapes.length; a++) {
+                        const assoc = col.associatedShapes[a];
+                        const assocPos: ShapePosition = {
+                            left: positions[i].left + assoc.offsetX,
+                            top: positions[i].top + assoc.offsetY,
+                            width: positions[i].width,
+                            height: -1,
+                        };
+                        if (i < currentCount && hasIds && assoc.shapeId) {
+                            xml = updateShapePositionById(xml, assoc.shapeId, assocPos);
+                        } else {
+                            // New duplicated shapes: use computed name
+                            let assocName: string;
+                            if (i < currentCount) {
+                                assocName = assoc.shapeName;
+                            } else {
+                                const assocParsed = parseShapeName(assoc.shapeName);
+                                assocName = assocParsed
+                                    ? `${assocParsed.base} ${assocParsed.num + (i - currentCount + 1)}`
+                                    : `${assoc.shapeName} Copy ${i - currentCount + 1}`;
+                            }
+                            xml = updateShapePosition(xml, assocName, assocPos);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    zip.file(slidePath, xml);
+}
+
+/** Remove a shape by its name from slide XML. */
+function removeShapeByName(xml: string, shapeName: string): string {
+    const spBlock = extractSpBlockByName(xml, shapeName);
+    if (!spBlock) return xml;
+    return xml.replace(spBlock, '');
+}
+
+/** Remove a shape by its ID (unique per slide) from slide XML. */
+function removeShapeById(xml: string, shapeId: string): string {
+    const spBlock = extractSpBlockById(xml, shapeId);
+    if (!spBlock) return xml;
+    return xml.replace(spBlock, '');
+}
+
+/** Duplicate a shape with a new name and ID (source found by name). */
+function duplicateShape(
+    xml: string,
+    sourceShapeName: string,
+    newName: string,
+    newId: number,
+): string {
+    const spBlock = extractSpBlockByName(xml, sourceShapeName);
+    if (!spBlock) return xml;
+
+    // Replace name and id in the duplicated block
+    const escapedOldName = escapeRegex(escapeXml(sourceShapeName));
+    let newBlock = spBlock
+        .replace(new RegExp(`name="${escapedOldName}"`), `name="${escapeXml(newName)}"`)
+        .replace(/\bid="(\d+)"/, `id="${newId}"`);
+
+    // Insert before </p:spTree>
+    const insertPoint = xml.indexOf('</p:spTree>');
+    if (insertPoint < 0) return xml;
+    return xml.substring(0, insertPoint) + newBlock + xml.substring(insertPoint);
+}
+
+/** Duplicate a shape found by ID (unique per slide). */
+function duplicateShapeById(
+    xml: string,
+    sourceId: string,
+    newName: string,
+    newId: number,
+): string {
+    const spBlock = extractSpBlockById(xml, sourceId);
+    if (!spBlock) return xml;
+
+    let newBlock = spBlock
+        .replace(/\bname="[^"]*"/, `name="${escapeXml(newName)}"`)
+        .replace(/\bid="(\d+)"/, `id="${newId}"`);
+
+    const insertPoint = xml.indexOf('</p:spTree>');
+    if (insertPoint < 0) return xml;
+    return xml.substring(0, insertPoint) + newBlock + xml.substring(insertPoint);
+}
+
+interface ShapePosition {
+    left: number;
+    top: number;
+    width: number;
+    height: number; // -1 means keep original
+}
+
+/** Calculate evenly distributed positions for shapes within a bounding box. */
+function redistributePositions(
+    count: number,
+    boundingBox: { left: number; top: number; width: number; height: number },
+    shapeSize: { cx: number; cy: number },
+    axis: 'horizontal' | 'vertical',
+): ShapePosition[] {
+    if (count <= 0) return [];
+
+    if (axis === 'horizontal') {
+        const totalShapeW = count * shapeSize.cx;
+        let totalGap = boundingBox.width - totalShapeW;
+        let w = shapeSize.cx;
+
+        if (totalGap < 0) {
+            // Shapes don't fit -> scale down width
+            w = Math.floor(boundingBox.width / count * 0.9);
+            totalGap = boundingBox.width - count * w;
+        }
+
+        const gap = count > 1 ? Math.floor(totalGap / (count - 1)) : 0;
+
+        return Array.from({ length: count }, (_, i) => ({
+            left: boundingBox.left + i * (w + gap),
+            top: boundingBox.top,
+            width: w,
+            height: shapeSize.cy,
+        }));
+    } else {
+        const totalShapeH = count * shapeSize.cy;
+        let totalGap = boundingBox.height - totalShapeH;
+        let h = shapeSize.cy;
+
+        if (totalGap < 0) {
+            h = Math.floor(boundingBox.height / count * 0.9);
+            totalGap = boundingBox.height - count * h;
+        }
+
+        const gap = count > 1 ? Math.floor(totalGap / (count - 1)) : 0;
+
+        return Array.from({ length: count }, (_, i) => ({
+            left: boundingBox.left,
+            top: boundingBox.top + i * (h + gap),
+            width: shapeSize.cx,
+            height: h,
+        }));
+    }
+}
+
+/** Update the position and size of a shape in slide XML (found by name). */
+function updateShapePosition(xml: string, shapeName: string, pos: ShapePosition): string {
+    const spBlock = extractSpBlockByName(xml, shapeName);
+    if (!spBlock) return xml;
+    return applyPositionToBlock(xml, spBlock, pos);
+}
+
+/** Update the position and size of a shape in slide XML (found by ID). */
+function updateShapePositionById(xml: string, shapeId: string, pos: ShapePosition): string {
+    const spBlock = extractSpBlockById(xml, shapeId);
+    if (!spBlock) return xml;
+    return applyPositionToBlock(xml, spBlock, pos);
+}
+
+/** Apply position update to an extracted shape block. */
+function applyPositionToBlock(xml: string, spBlock: string, pos: ShapePosition): string {
+    let updated = spBlock;
+
+    // Update position (a:off)
+    updated = updated.replace(
+        /<a:off\s+x="(\d+)"\s+y="(\d+)"/,
+        `<a:off x="${pos.left}" y="${pos.top}"`,
+    );
+
+    // Update size (a:ext) -- skip if height is -1 (keep original)
+    if (pos.height > 0) {
+        updated = updated.replace(
+            /<a:ext\s+cx="(\d+)"\s+cy="(\d+)"/,
+            `<a:ext cx="${pos.width}" cy="${pos.height}"`,
+        );
+    } else if (pos.width > 0) {
+        // Only update width, keep height
+        updated = updated.replace(
+            /<a:ext\s+cx="(\d+)"/,
+            `<a:ext cx="${pos.width}"`,
+        );
+    }
+
+    return xml.replace(spBlock, updated);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Text replacement                                                   */
+/* ------------------------------------------------------------------ */
+
 async function replaceSlideContent(
     zip: JSZip,
     slideNum: number,
     content: Record<string, string>,
+    resolvedIds?: Record<string, string>,
 ): Promise<string[]> {
     const path = `ppt/slides/slide${slideNum}.xml`;
     const file = zip.file(path);
@@ -512,10 +891,10 @@ async function replaceSlideContent(
     let xml = await file.async('text');
     const unmatched: string[] = [];
 
-    // Phase 1: Try strategies 1-5 for each key
+    // Phase 1: Try strategies for each key
     for (const [key, value] of Object.entries(content)) {
         if (!key || value === undefined) continue;
-        const result = replaceTextInSlide(xml, key, value);
+        const result = replaceTextInSlide(xml, key, value, resolvedIds);
         if (result.matched) {
             xml = result.xml;
         } else {
@@ -586,8 +965,20 @@ function replaceTextInSlide(
     xml: string,
     key: string,
     value: string,
+    resolvedIds?: Record<string, string>,
 ): { xml: string; matched: boolean } {
-    // Strategy 0: Shape-Name-Matching (highest priority)
+    // Strategy -1: ID-based matching (highest priority)
+    // If the key has a resolved shape ID, use it directly. This handles duplicate
+    // shape names (e.g. "Textplatzhalter 2" appearing 3-5x per slide) by targeting
+    // the specific shape via its unique <p:cNvPr id="N"> attribute.
+    if (resolvedIds && resolvedIds[key]) {
+        const sIdResult = replaceByShapeId(xml, resolvedIds[key], value);
+        if (sIdResult !== xml) {
+            return { xml: sIdResult, matched: true };
+        }
+    }
+
+    // Strategy 0: Shape-Name-Matching
     // Matches key against <p:cNvPr name="KEY"> -- shape names are unique per slide.
     // This avoids ambiguity of text-based matching (e.g. "Lorem ipsum" in many shapes).
     const s0Result = replaceByShapeName(xml, key, value);
@@ -780,6 +1171,25 @@ function replaceByPlaceholderType(xml: string, phType: string, value: string): s
     }
 
     return xml; // No match
+}
+
+/**
+ * Strategy S-1: Replace text in a shape identified by its unique OOXML shape ID.
+ *
+ * Shape IDs come from <p:cNvPr id="42" ...> and are guaranteed unique per slide.
+ * This resolves the duplicate-name problem where multiple shapes share the same
+ * PowerPoint-internal name (e.g. "Textplatzhalter 2" appearing 3-5x per slide).
+ *
+ * @returns Modified XML if matched, unchanged XML if no match
+ */
+function replaceByShapeId(xml: string, shapeId: string, value: string): string {
+    const idPattern = new RegExp(
+        `<p:cNvPr\\b[^>]*\\bid="${escapeRegex(shapeId)}"[^>]*/?>`,
+    );
+    const match = idPattern.exec(xml);
+    if (!match) return xml;
+
+    return replaceShapeAtPhPos(xml, match[0], value);
 }
 
 /**

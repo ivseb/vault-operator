@@ -185,10 +185,18 @@ export class SyncBridge {
         }
 
         // Delete files that exist only on the destination side
+        // IMPORTANT: Never delete bundled skills — they are deployed by the build
+        // pipeline and not tracked in global storage.
         const srcSet = new Set(srcFiles);
         for (const destRelFile of destFiles) {
             if (!srcSet.has(destRelFile)) {
                 const destFullPath = `${destDir}/${destRelFile}`;
+
+                // Guard: skip bundled skill files (they only exist in the plugin dir)
+                if (await this.isBundledSkillFile(destFullPath, destSide)) {
+                    continue;
+                }
+
                 try {
                     await this.removeFile(destFullPath, destSide);
                 } catch (e) {
@@ -317,6 +325,9 @@ export class SyncBridge {
             : await this.globalFs.list(dir);
 
         if (afterCleanup.files.length === 0 && afterCleanup.folders.length === 0) {
+            // Guard: never remove bundled skill directories
+            if (await this.isBundledSkillFile(dir + '/SKILL.md', side)) return;
+
             try {
                 if (side === 'vault') {
                     await this.vault.adapter.rmdir(dir, false);
@@ -326,6 +337,39 @@ export class SyncBridge {
             } catch {
                 // Non-fatal: directory may be in use or already removed
             }
+        }
+    }
+
+    /**
+     * Check if a file belongs to a bundled skill (source: bundled in SKILL.md).
+     * Bundled skills are deployed by the build pipeline and must never be
+     * deleted by SyncBridge orphan cleanup.
+     */
+    private async isBundledSkillFile(filePath: string, side: 'vault' | 'global'): Promise<boolean> {
+        // Only relevant for files inside a skills/ directory
+        if (!filePath.includes('/skills/')) return false;
+
+        // Find the SKILL.md in the same skill folder
+        // filePath could be e.g. .../skills/office-workflow/SKILL.md
+        // or .../skills/office-workflow/code/something.ts
+        const parts = filePath.split('/');
+        const skillsIdx = parts.lastIndexOf('skills');
+        if (skillsIdx < 0 || skillsIdx + 1 >= parts.length) return false;
+
+        const skillMdPath = parts.slice(0, skillsIdx + 2).join('/') + '/SKILL.md';
+
+        try {
+            let content: string;
+            if (side === 'vault') {
+                if (!(await this.vault.adapter.exists(skillMdPath))) return false;
+                content = await this.vault.adapter.read(skillMdPath);
+            } else {
+                if (!(await this.globalFs.exists(skillMdPath))) return false;
+                content = await this.globalFs.read(skillMdPath);
+            }
+            return /^source:\s*bundled/m.test(content);
+        } catch {
+            return false;
         }
     }
 

@@ -45,6 +45,7 @@ import { CreateXlsxTool } from './vault/CreateXlsxTool';
 import { AnalyzePptxTemplateTool } from './vault/AnalyzePptxTemplateTool';
 // Import tools — vault: visual intelligence
 import { RenderPresentationTool } from './vault/RenderPresentationTool';
+import { CheckPresentationQualityTool } from './vault/CheckPresentationQualityTool';
 import { GetCompositionDetailsTool } from './vault/GetCompositionDetailsTool';
 // Import tools — vault: bases (Phase C4)
 import { CreateBaseTool } from './vault/CreateBaseTool';
@@ -165,6 +166,7 @@ export class ToolRegistry {
         this.register(new AnalyzePptxTemplateTool(this.plugin));
         // Vault: visual intelligence
         this.register(new RenderPresentationTool(this.plugin));
+        this.register(new CheckPresentationQualityTool(this.plugin));
         this.register(new GetCompositionDetailsTool(this.plugin));
         // Vault: bases (Phase C4)
         this.register(new CreateBaseTool(this.plugin));

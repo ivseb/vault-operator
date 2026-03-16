@@ -592,6 +592,8 @@ export interface VisualIntelligenceSettings {
     enabled: boolean;
     /** Custom LibreOffice path override (for non-standard installations) */
     libreOfficePath?: string;
+    /** User has approved multimodal template analysis (LibreOffice rendering + Claude Vision API calls) */
+    multimodalAnalysisApproved: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -768,6 +770,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     },
     visualIntelligence: {
         enabled: true,
+        multimodalAnalysisApproved: false,
     },
     mastery: {
         enabled: true,

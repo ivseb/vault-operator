@@ -37,9 +37,29 @@ export class VisualIntelligenceTab {
                     .setValue(this.plugin.settings.visualIntelligence?.enabled ?? false)
                     .onChange(async (value) => {
                         if (!this.plugin.settings.visualIntelligence) {
-                            this.plugin.settings.visualIntelligence = { enabled: false };
+                            this.plugin.settings.visualIntelligence = { enabled: false, multimodalAnalysisApproved: false };
                         }
                         this.plugin.settings.visualIntelligence.enabled = value;
+                        await this.plugin.saveSettings();
+                    });
+            });
+
+        // Multimodal Template Analysis toggle
+        new Setting(containerEl)
+            .setName('Multimodal Template Analysis')
+            .setDesc(
+                'When enabled, template analysis uses LibreOffice rendering + Claude Vision to generate ' +
+                'semantic shape aliases, visual descriptions, and usage rules automatically. ' +
+                'This incurs additional API costs (~$0.50-2.00 per template analysis).',
+            )
+            .addToggle((toggle) => {
+                toggle
+                    .setValue(this.plugin.settings.visualIntelligence?.multimodalAnalysisApproved ?? false)
+                    .onChange(async (value) => {
+                        if (!this.plugin.settings.visualIntelligence) {
+                            this.plugin.settings.visualIntelligence = { enabled: false, multimodalAnalysisApproved: false };
+                        }
+                        this.plugin.settings.visualIntelligence.multimodalAnalysisApproved = value;
                         await this.plugin.saveSettings();
                     });
             });
@@ -107,7 +127,7 @@ export class VisualIntelligenceTab {
                     .setValue(this.plugin.settings.visualIntelligence?.libreOfficePath ?? '')
                     .onChange(async (value) => {
                         if (!this.plugin.settings.visualIntelligence) {
-                            this.plugin.settings.visualIntelligence = { enabled: false };
+                            this.plugin.settings.visualIntelligence = { enabled: false, multimodalAnalysisApproved: false };
                         }
                         this.plugin.settings.visualIntelligence.libreOfficePath = value || undefined;
                         await this.plugin.saveSettings();

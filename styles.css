@@ -3551,8 +3551,8 @@
 }
 
 .agent-skill-th-status { width: 16px; }
-.agent-skill-th-cmds { width: 60px; }
-.agent-skill-th-actions { width: 100px; }
+.agent-skill-th-cmds { width: 80px; }
+.agent-skill-th-actions { width: 80px; }
 .agent-skill-th-toggle { width: 50px; text-align: center; }
 
 .agent-skill-table tbody tr {
@@ -3596,8 +3596,8 @@
     vertical-align: top;
     padding-top: 5px;
     padding-bottom: 5px;
-    max-width: 300px;
     word-wrap: break-word;
+    overflow: hidden;
     overflow-wrap: break-word;
 }
 
@@ -3624,14 +3624,37 @@
     text-overflow: ellipsis;
 }
 
+.agent-skill-source-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.agent-skill-source-bundled {
+    background-color: var(--background-modifier-success);
+    color: var(--text-on-accent);
+}
+
+.agent-skill-source-learned {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.agent-skill-source-user {
+    background-color: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
 .agent-skill-cmd-cell {
-    width: 60px;
+    width: 80px;
     text-align: center;
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
     word-break: keep-all;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
     white-space: nowrap;
 }
 

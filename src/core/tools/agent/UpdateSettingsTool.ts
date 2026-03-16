@@ -65,6 +65,9 @@ const WRITABLE_PATHS = new Set([
     // Onboarding
     'onboarding.completed',
     'onboarding.currentStep',
+    // Visual Intelligence
+    'visualIntelligence.enabled',
+    'visualIntelligence.multimodalAnalysisApproved',
     // Debug
     'debugMode',
 ]);

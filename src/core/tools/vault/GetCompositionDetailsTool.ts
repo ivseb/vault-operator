@@ -15,6 +15,7 @@ import type ObsidianAgentPlugin from '../../../main';
 /** Shape detail within a composition */
 interface ShapeDetail {
     zweck: string;
+    shape_id?: string;
     max_chars?: number;
     min_chars?: number;
     font_size_pt?: number;
@@ -29,12 +30,35 @@ interface CompositionEntry {
     bedeutung?: string;
     einsetzen_wenn?: string;
     nicht_einsetzen_wenn?: string;
+    visual_structure?: string;
+    decorative_element_count?: number;
+    has_fixed_visuals?: boolean;
+    repeatable_groups?: Record<string, RepeatableGroupInfo[]>;
     shapes: Record<string, Record<string, ShapeDetail>>;
+}
+
+/** Repeatable group info from compositions.json */
+interface RepeatableGroupInfo {
+    groupId: string;
+    axis: 'horizontal' | 'vertical';
+    shapeNames: string[];
+    shapeIds?: string[];
+    boundingBox: { left: number; top: number; width: number; height: number };
+    gap: number;
+    shapeSize: { cx: number; cy: number };
+    columns: Array<{
+        index: number;
+        primaryShape: string;
+        primaryShapeId?: string;
+        associatedShapes: Array<{ shapeName: string; shapeId?: string; offsetY: number; offsetX: number }>;
+    }>;
 }
 
 /** Root structure of compositions.json */
 interface CompositionsFile {
+    schema_version?: number;
     template: string;
+    alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
 }
 
@@ -156,7 +180,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
                     continue;
                 }
 
-                results.push(this.formatComposition(id, comp));
+                results.push(this.formatComposition(id, comp, data.schema_version ?? 1));
             }
 
             // Build response
@@ -177,8 +201,9 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         }
     }
 
-    private formatComposition(id: string, comp: CompositionEntry): string {
+    private formatComposition(id: string, comp: CompositionEntry, schemaVersion: number): string {
         const lines: string[] = [];
+        const isV2 = schemaVersion >= 2;
 
         lines.push(`### ${comp.name} (ID: ${id})`);
         lines.push(`**Slides:** ${comp.slides.join(', ')}`);
@@ -186,16 +211,19 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         if (comp.bedeutung) lines.push(`**Bedeutung:** ${comp.bedeutung}`);
         if (comp.einsetzen_wenn) lines.push(`**Einsetzen wenn:** ${comp.einsetzen_wenn}`);
         if (comp.nicht_einsetzen_wenn) lines.push(`**Nicht einsetzen wenn:** ${comp.nicht_einsetzen_wenn}`);
+        if (comp.visual_structure) lines.push(`**Visual Structure:** ${comp.visual_structure}`);
+        if (comp.has_fixed_visuals) lines.push(`**Fixed Visuals:** ${comp.decorative_element_count ?? 0} fixed decorative elements (icons/images that cannot be replaced)`);
 
         // Shape mappings per slide
+        const keyLabel = isV2 ? 'semantic aliases' : 'shape names';
         for (const [slideNum, shapes] of Object.entries(comp.shapes)) {
-            lines.push(`\n**Slide ${slideNum} — IMPORTANT: Use these exact shape names as content keys in create_pptx:**`);
+            lines.push(`\n**Slide ${slideNum} -- Use these exact ${keyLabel} as content keys in create_pptx:**`);
             lines.push('```yaml');
-            lines.push('# Copy this structure into your create_pptx call:');
             lines.push(`template_slide: ${slideNum}`);
             lines.push('content:');
             for (const [shapeName, detail] of Object.entries(shapes)) {
                 const constraints: string[] = [];
+                if (detail.zweck) constraints.push(detail.zweck);
                 if (detail.max_chars) constraints.push(`max ${detail.max_chars} chars`);
                 if (detail.font_size_pt) constraints.push(`${detail.font_size_pt}pt`);
                 if (detail.width_cm) constraints.push(`${detail.width_cm}cm wide`);
@@ -204,8 +232,30 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
                 if (detail.notes) lines.push(`    # ${detail.notes}`);
             }
             lines.push('```');
-            lines.push('> Shape names above are OOXML name attributes. Use them EXACTLY as content keys.');
-            lines.push('> Do NOT use placeholder text (e.g. "Klicken Sie hier...") as content keys.');
+            if (isV2) {
+                lines.push('> Keys above are semantic aliases mapped to unique shape IDs. Use them EXACTLY as content keys.');
+            } else {
+                lines.push('> Shape names above are OOXML name attributes. Use them EXACTLY as content keys.');
+            }
+
+            // Show repeatable groups for this slide
+            const slideGroups = comp.repeatable_groups?.[slideNum];
+            if (slideGroups && slideGroups.length > 0) {
+                lines.push('');
+                lines.push(`**Adaptable:** This slide has ${slideGroups.length} repeatable group(s). Shape count can be adjusted:`);
+                for (const rg of slideGroups) {
+                    const shapeCount = rg.shapeNames.length;
+                    const minCount = 2;
+                    const maxCount = shapeCount + 3;
+                    lines.push(`- **${rg.groupId}** (${rg.axis}): ${shapeCount}x shapes [${rg.shapeNames.slice(0, 3).join(', ')}${shapeCount > 3 ? '...' : ''}]. Adaptable to ${minCount}-${maxCount} shapes.`);
+                    if (rg.columns.some(c => c.associatedShapes.length > 0)) {
+                        const assocCount = rg.columns[0].associatedShapes.length;
+                        lines.push(`  - Each shape has ${assocCount} associated element(s) that move together (e.g. description boxes below).`);
+                    }
+                    lines.push(`  - To use FEWER: only provide content for the shapes you need (extras are removed automatically).`);
+                    lines.push(`  - To use MORE: provide content for additional shapes with incrementing numbers.`);
+                }
+            }
         }
 
         return lines.join('\n');

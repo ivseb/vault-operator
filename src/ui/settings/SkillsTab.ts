@@ -2,7 +2,26 @@ import { App, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { ContentEditorModal } from './ContentEditorModal';
 import type { PluginSkillMeta } from '../../core/skills/types';
+import type { SelfAuthoredSkill } from '../../core/skills/SelfAuthoredSkillLoader';
 import { t } from '../../i18n';
+
+
+/**
+ * Unified skill entry for the merged skill list.
+ * Combines data from SkillsManager (global) and SelfAuthoredSkillLoader (plugin-local).
+ */
+interface UnifiedSkill {
+    name: string;
+    description: string;
+    source: 'bundled' | 'learned' | 'user';
+    /** Path in global storage (SkillsManager) -- used for toggles */
+    globalPath?: string;
+    /** SelfAuthoredSkill reference (plugin-local) */
+    selfAuthored?: SelfAuthoredSkill;
+    /** Has code modules */
+    hasCodeModules: boolean;
+    codeToolNames: string[];
+}
 
 
 export class SkillsTab {
@@ -14,14 +33,8 @@ export class SkillsTab {
         // -- Introduction: What are Skills? --
         this.buildIntroSection(containerEl);
 
-        // -- Manual Skills (first) --
-        this.buildManualSkillsSection(containerEl);
-
-        // -- Separator --
-        containerEl.createEl('hr');
-
-        // -- Self-Authored Skills (agent-created, with optional code modules) --
-        this.buildSelfAuthoredSkillsSection(containerEl);
+        // -- Unified Skills Section (merged Manual + Vault Skills) --
+        this.buildUnifiedSkillsSection(containerEl);
 
         // -- Separator --
         containerEl.createEl('hr');
@@ -42,12 +55,13 @@ export class SkillsTab {
         infoText.createEl('p', { text: t('settings.skills.introDiff') });
     }
 
-    // -- Manual Skills --
+    // -- Unified Skills Section --
 
-    private buildManualSkillsSection(containerEl: HTMLElement): void {
+    private buildUnifiedSkillsSection(containerEl: HTMLElement): void {
         containerEl.createEl('h3', { text: t('settings.skills.headingManual') });
 
         const skillsManager = this.plugin.skillsManager;
+        const loader = this.plugin.selfAuthoredSkillLoader;
 
         // -- Create new skill --
         const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });
@@ -82,19 +96,16 @@ export class SkillsTab {
             fileInput.click();
         });
 
-        // -- Skill list (table layout matching Plugin Skills) --
+        // -- Skill list --
         const listEl = containerEl.createDiv({ cls: 'agent-rules-list' });
 
         const refreshList = async () => {
             listEl.empty();
-            if (!skillsManager) {
-                listEl.createEl('p', { cls: 'agent-settings-desc', text: t('settings.skills.managerNotAvailable') });
-                return;
-            }
-            const allSkills = await skillsManager.discoverSkills();
-            // Filter: Manual Skills section shows only user-created skills (NOT agent-created)
-            const skills = allSkills.filter(s => s.source !== 'learned');
-            if (skills.length === 0) {
+
+            // Collect and merge skills from both sources
+            const unified = await this.collectUnifiedSkills();
+
+            if (unified.length === 0) {
                 listEl.createEl('p', { cls: 'agent-empty-state', text: t('settings.skills.empty') });
                 return;
             }
@@ -104,14 +115,16 @@ export class SkillsTab {
             const hr = thead.createEl('tr');
             hr.createEl('th', { text: '', cls: 'agent-skill-th-status' });
             hr.createEl('th', { text: t('settings.skills.headerSkill') });
+            hr.createEl('th', { text: 'Source', cls: 'agent-skill-th-cmds' });
             hr.createEl('th', { text: '', cls: 'agent-skill-th-actions' });
             hr.createEl('th', { text: t('settings.skills.headerAgent'), cls: 'agent-skill-th-toggle' });
 
             const tbody = table.createEl('tbody');
 
-            for (const skill of skills) {
+            for (const skill of unified) {
                 this.plugin.settings.manualSkillToggles ??= {};
-                const isActive = this.plugin.settings.manualSkillToggles[skill.path] !== false;
+                const toggleKey = skill.globalPath ?? skill.selfAuthored?.filePath ?? skill.name;
+                const isActive = this.plugin.settings.manualSkillToggles[toggleKey] !== false;
 
                 const tr = tbody.createEl('tr', {
                     cls: isActive ? '' : 'agent-skill-disabled',
@@ -126,74 +139,43 @@ export class SkillsTab {
                 const nameTd = tr.createEl('td', { cls: 'agent-skill-name-cell' });
                 nameTd.createDiv({ text: skill.name, cls: 'agent-skill-name' });
                 if (skill.description) {
-                    nameTd.createDiv({ text: skill.description, cls: 'agent-skill-desc' });
+                    nameTd.createDiv({ text: skill.description, cls: 'agent-skill-desc agent-skill-desc-clamped' });
                 }
+
+                // Source label
+                const sourceLabel = this.getSourceLabel(skill);
+                const sourceTd = tr.createEl('td', { cls: 'agent-skill-cmd-cell' });
+                const badge = sourceTd.createSpan({ text: sourceLabel, cls: 'agent-skill-source-badge' });
+                badge.addClass(`agent-skill-source-${skill.source}`);
 
                 // Actions (edit, export, delete)
                 const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
 
+                // Edit
                 const editBtn = actionsTd.createEl('button', {
                     cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.edit') },
                 });
                 setIcon(editBtn, 'pencil');
-                editBtn.addEventListener('click', () => { void (async () => {
-                    const content = await skillsManager.readFile(skill.path);
-                    new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, (newContent) => {
-                        return skillsManager.writeFile(skill.path, newContent);
-                    }).open();
-                })(); });
+                editBtn.addEventListener('click', () => { void this.editSkill(skill); });
 
-                const exportSkillBtn = actionsTd.createEl('button', {
+                // Export
+                const exportBtn = actionsTd.createEl('button', {
                     cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.export') },
                 });
-                setIcon(exportSkillBtn, 'download');
-                exportSkillBtn.addEventListener('click', () => { void (async () => {
-                    const content = await skillsManager.readFile(skill.path);
-                    const blob = new Blob([content], { type: 'text/markdown' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `SKILL-${skill.name}.md`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                })(); });
+                setIcon(exportBtn, 'download');
+                exportBtn.addEventListener('click', () => { void this.exportSkill(skill); });
 
-                const delBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.delete') },
-                });
-                setIcon(delBtn, 'trash-2');
-                delBtn.addEventListener('click', () => { void (async () => {
-                    try {
-                        await skillsManager.deleteSkill(skill.path);
-
-                        // Also delete from plugin skills directory (SelfAuthoredSkillLoader)
-                        // to prevent SyncBridge from restoring the skill on next load
-                        const loader = this.plugin.selfAuthoredSkillLoader;
-                        if (loader) {
-                            const selfSkill = loader.getSkill(skill.name);
-                            if (selfSkill) {
-                                const adapter = this.plugin.app.vault.adapter;
-                                const skillDir = selfSkill.filePath.replace(/\/SKILL\.md$/, '');
-                                const exists = await adapter.exists(skillDir);
-                                if (exists) {
-                                    const listing = await adapter.list(skillDir);
-                                    for (const fp of listing.files) {
-                                        await adapter.remove(fp);
-                                    }
-                                    await adapter.rmdir(skillDir, false);
-                                }
-                                loader.removeSkill(skill.name);
-                            }
-                        }
-
-                        this.plugin.settings.manualSkillToggles ??= {};
-                        delete this.plugin.settings.manualSkillToggles[skill.path];
-                        await this.plugin.saveSettings();
+                // Delete (not for bundled skills)
+                if (skill.source !== 'bundled') {
+                    const delBtn = actionsTd.createEl('button', {
+                        cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.delete') },
+                    });
+                    setIcon(delBtn, 'trash-2');
+                    delBtn.addEventListener('click', () => { void (async () => {
+                        await this.deleteSkill(skill);
                         await refreshList();
-                    } catch {
-                        new Notice(t('settings.skills.deleteFailed'));
-                    }
-                })(); });
+                    })(); });
+                }
 
                 // Toggle
                 const toggleTd = tr.createEl('td', { cls: 'agent-skill-toggle-cell' });
@@ -202,8 +184,8 @@ export class SkillsTab {
                 });
                 toggleContainer.addEventListener('click', () => {
                     this.plugin.settings.manualSkillToggles ??= {};
-                    const current = this.plugin.settings.manualSkillToggles[skill.path] !== false;
-                    this.plugin.settings.manualSkillToggles[skill.path] = !current;
+                    const current = this.plugin.settings.manualSkillToggles[toggleKey] !== false;
+                    this.plugin.settings.manualSkillToggles[toggleKey] = !current;
                     void this.plugin.saveSettings();
                     toggleContainer.toggleClass('is-enabled', !current);
                     dot.removeClass(current ? 'agent-skill-dot-on' : 'agent-skill-dot-off');
@@ -235,180 +217,182 @@ export class SkillsTab {
         void refreshList();
     }
 
-    // -- Self-Authored Skills (agent-created) --
+    // -- Helpers for unified skills --
 
-    private buildSelfAuthoredSkillsSection(containerEl: HTMLElement): void {
+    /**
+     * Collect skills from both SkillsManager (global) and SelfAuthoredSkillLoader (plugin-local),
+     * deduplicate by name, and return a unified list sorted by source priority.
+     */
+    private async collectUnifiedSkills(): Promise<UnifiedSkill[]> {
+        const byName = new Map<string, UnifiedSkill>();
+
+        // 1. SelfAuthoredSkillLoader (plugin-local: bundled + agent + template)
         const loader = this.plugin.selfAuthoredSkillLoader;
-        containerEl.createEl('h3', { text: 'Vault Skills (agent-created & template skills)' });
-
-        if (!loader) {
-            containerEl.createEl('p', {
-                cls: 'agent-settings-desc',
-                text: 'Custom tool loader not available.',
-            });
-            return;
+        if (loader) {
+            for (const skill of loader.getAllSkills()) {
+                byName.set(skill.name, {
+                    name: skill.name,
+                    description: skill.description,
+                    source: skill.source,
+                    selfAuthored: skill,
+                    hasCodeModules: skill.codeModules.length > 0,
+                    codeToolNames: skill.codeModuleInfos.map(m => m.name),
+                });
+            }
         }
 
-        const skills = loader.getAllSkills();
-        if (skills.length === 0) {
-            containerEl.createEl('p', {
-                cls: 'agent-empty-state',
-                text: 'No vault skills yet. The agent can create skills via the manage_skill tool, including template skills from corporate PPTX analysis.',
-            });
-            return;
-        }
-
-        const table = containerEl.createEl('table', { cls: 'agent-skill-table' });
-        const thead = table.createEl('thead');
-        const hr = thead.createEl('tr');
-        hr.createEl('th', { text: '', cls: 'agent-skill-th-status' });
-        hr.createEl('th', { text: 'Skill' });
-        hr.createEl('th', { text: 'Source', cls: 'agent-skill-th-cmds' });
-        hr.createEl('th', { text: 'Custom Tools', cls: 'agent-skill-th-cmds' });
-        hr.createEl('th', { text: '', cls: 'agent-skill-th-actions' }); // Actions column
-
-        const tbody = table.createEl('tbody');
-
-        const refreshSkills = async () => {
-            tbody.empty();
-            const allSkills = loader.getAllSkills();
-            // Show ALL skills from SelfAuthoredSkillLoader (agent-created AND user/template skills)
-            for (const skill of allSkills) {
-                const tr = tbody.createEl('tr');
-
-                // Status dot
-                const statusTd = tr.createEl('td', { cls: 'agent-skill-status-cell' });
-                const dot = statusTd.createSpan({ cls: 'agent-skill-dot agent-skill-dot-on' });
-                dot.setAttribute('aria-label', 'Active');
-
-                // Name + description (max 3 lines with line-clamp)
-                const nameTd = tr.createEl('td', { cls: 'agent-skill-name-cell' });
-                nameTd.createDiv({ text: skill.name, cls: 'agent-skill-name' });
-                if (skill.description) {
-                    nameTd.createDiv({ text: skill.description, cls: 'agent-skill-desc agent-skill-desc-clamped' });
-                }
-
-                // Source label
-                const sourceLabels: Record<string, string> = { learned: 'Agent', user: 'Template' };
-                const sourceText = sourceLabels[skill.source ?? ''] ?? skill.source ?? '-';
-                tr.createEl('td', { text: sourceText, cls: 'agent-skill-cmd-cell' });
-
-                // Code modules
-                const codeTd = tr.createEl('td', { cls: 'agent-skill-cmd-cell' });
-                if (skill.codeModules.length > 0) {
-                    const toolNames = skill.codeModuleInfos.map(m => m.name);
-                    codeTd.createDiv({
-                        text: toolNames.join(', '),
-                        cls: 'agent-skill-desc',
+        // 2. SkillsManager (global storage: user-created, synced)
+        const skillsManager = this.plugin.skillsManager;
+        if (skillsManager) {
+            const globalSkills = await skillsManager.discoverSkills();
+            for (const skill of globalSkills) {
+                if (!byName.has(skill.name)) {
+                    // Only add if not already present from SelfAuthoredSkillLoader
+                    byName.set(skill.name, {
+                        name: skill.name,
+                        description: skill.description ?? '',
+                        source: (skill.source as UnifiedSkill['source']) ?? 'user',
+                        globalPath: skill.path,
+                        hasCodeModules: false,
+                        codeToolNames: [],
                     });
                 } else {
-                    codeTd.setText('-');
+                    // Merge: add global path reference for toggle compatibility
+                    const existing = byName.get(skill.name);
+                    if (existing) {
+                        existing.globalPath = skill.path;
+                    }
                 }
-
-                // Actions (edit, export, delete)
-                const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
-
-                // Edit button
-                const editBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': 'Edit' },
-                });
-                setIcon(editBtn, 'pencil');
-                editBtn.addEventListener('click', () => { void (async () => {
-                    const adapter = this.plugin.app.vault.adapter;
-                    try {
-                        const content = await adapter.read(skill.filePath);
-                        new ContentEditorModal(this.app, `Edit: ${skill.name}`, content, async (newContent) => {
-                            await adapter.write(skill.filePath, newContent);
-                        }).open();
-                    } catch (e) {
-                        new Notice('Failed to edit skill');
-                        console.error('[SkillsTab] Edit failed:', e);
-                    }
-                })(); });
-
-                // Export button
-                const exportBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': 'Export' },
-                });
-                setIcon(exportBtn, 'download');
-                exportBtn.addEventListener('click', () => { void (async () => {
-                    const adapter = this.plugin.app.vault.adapter;
-                    try {
-                        const content = await adapter.read(skill.filePath);
-                        const blob = new Blob([content], { type: 'text/markdown' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = `SKILL-${skill.name}.md`;
-                        a.click();
-                        URL.revokeObjectURL(url);
-                    } catch (e) {
-                        new Notice('Failed to export skill');
-                        console.error('[SkillsTab] Export failed:', e);
-                    }
-                })(); });
-
-                // Delete button
-                const delBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': 'Delete' },
-                });
-                setIcon(delBtn, 'trash-2');
-                delBtn.addEventListener('click', () => { void (async () => {
-                    try {
-                        const adapter = this.plugin.app.vault.adapter;
-                        const skillDir = skill.filePath.replace(/\/SKILL\.md$/, '');
-
-                        // Unregister code tools first
-                        loader.unregisterCodeTools(skill);
-
-                        // Delete from vault (.obsidian/plugins/obsilo-agent/skills/)
-                        // First remove all files, then the directory
-                        const exists = await adapter.exists(skillDir);
-                        if (exists) {
-                            const listing = await adapter.list(skillDir);
-                            // Delete all files in skill directory
-                            for (const filePath of listing.files) {
-                                await adapter.remove(filePath);
-                            }
-                            // Delete subdirectories recursively
-                            for (const subdir of listing.folders) {
-                                const subdirListing = await adapter.list(subdir);
-                                for (const subfile of subdirListing.files) {
-                                    await adapter.remove(subfile);
-                                }
-                                if (subdirListing.folders.length === 0) {
-                                    await adapter.rmdir(subdir, false);
-                                }
-                            }
-                            // Delete the main skill directory
-                            await adapter.rmdir(skillDir, false);
-                        }
-
-                        // Also delete from global storage (~/.obsidian-agent/skills/)
-                        // Extract the skill folder name from the path
-                        const skillFolderName = skillDir.split('/').pop();
-                        if (this.plugin.skillsManager && skillFolderName) {
-                            const globalPath = `skills/${skillFolderName}/SKILL.md`;
-                            try {
-                                await this.plugin.skillsManager.deleteSkill(globalPath);
-                            } catch {
-                                // Non-fatal if already deleted
-                            }
-                        }
-
-                        // Reload skills
-                        await loader.loadAll();
-                        await refreshSkills();
-                        new Notice(`Skill "${skill.name}" deleted`);
-                    } catch (e) {
-                        new Notice('Failed to delete skill');
-                        console.error('[SkillsTab] Delete failed:', e);
-                    }
-                })(); });
             }
-        };
+        }
 
-        void refreshSkills();
+        // Sort: bundled first, then user/template, then agent-created
+        const order: Record<string, number> = { bundled: 0, user: 1, learned: 2 };
+        return [...byName.values()].sort((a, b) => {
+            const oa = order[a.source] ?? 1;
+            const ob = order[b.source] ?? 1;
+            if (oa !== ob) return oa - ob;
+            return a.name.localeCompare(b.name);
+        });
+    }
+
+    private getSourceLabel(skill: UnifiedSkill): string {
+        switch (skill.source) {
+            case 'bundled': return 'Built-in';
+            case 'learned': return 'Agent';
+            case 'user': return 'Template';
+            default: return skill.source;
+        }
+    }
+
+    private async editSkill(skill: UnifiedSkill): Promise<void> {
+        try {
+            if (skill.selfAuthored) {
+                const adapter = this.plugin.app.vault.adapter;
+                const content = await adapter.read(skill.selfAuthored.filePath);
+                new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, async (newContent) => {
+                    await adapter.write(skill.selfAuthored!.filePath, newContent);
+                }).open();
+            } else if (skill.globalPath && this.plugin.skillsManager) {
+                const content = await this.plugin.skillsManager.readFile(skill.globalPath);
+                new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, (newContent) => {
+                    return this.plugin.skillsManager!.writeFile(skill.globalPath!, newContent);
+                }).open();
+            }
+        } catch (e) {
+            new Notice('Failed to edit skill');
+            console.error('[SkillsTab] Edit failed:', e);
+        }
+    }
+
+    private async exportSkill(skill: UnifiedSkill): Promise<void> {
+        try {
+            let content: string;
+            if (skill.selfAuthored) {
+                content = await this.plugin.app.vault.adapter.read(skill.selfAuthored.filePath);
+            } else if (skill.globalPath && this.plugin.skillsManager) {
+                content = await this.plugin.skillsManager.readFile(skill.globalPath);
+            } else {
+                return;
+            }
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SKILL-${skill.name}.md`;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            new Notice('Failed to export skill');
+            console.error('[SkillsTab] Export failed:', e);
+        }
+    }
+
+    private async deleteSkill(skill: UnifiedSkill): Promise<void> {
+        if (skill.source === 'bundled') return; // Never delete bundled skills
+
+        try {
+            const adapter = this.plugin.app.vault.adapter;
+            const loader = this.plugin.selfAuthoredSkillLoader;
+
+            // Delete from plugin-local (SelfAuthoredSkillLoader)
+            if (skill.selfAuthored && loader) {
+                loader.unregisterCodeTools(skill.selfAuthored);
+                const skillDir = skill.selfAuthored.filePath.replace(/\/SKILL\.md$/, '');
+                const exists = await adapter.exists(skillDir);
+                if (exists) {
+                    const listing = await adapter.list(skillDir);
+                    for (const filePath of listing.files) {
+                        await adapter.remove(filePath);
+                    }
+                    for (const subdir of listing.folders) {
+                        const subdirListing = await adapter.list(subdir);
+                        for (const subfile of subdirListing.files) {
+                            await adapter.remove(subfile);
+                        }
+                        if (subdirListing.folders.length === 0) {
+                            await adapter.rmdir(subdir, false);
+                        }
+                    }
+                    await adapter.rmdir(skillDir, false);
+                }
+                loader.removeSkill(skill.name);
+            }
+
+            // Delete from global storage (SkillsManager)
+            if (skill.globalPath && this.plugin.skillsManager) {
+                try {
+                    await this.plugin.skillsManager.deleteSkill(skill.globalPath);
+                } catch {
+                    // Non-fatal if already deleted
+                }
+            } else if (this.plugin.skillsManager && skill.selfAuthored) {
+                // Try to find and delete from global by folder name
+                const skillDir = skill.selfAuthored.filePath.replace(/\/SKILL\.md$/, '');
+                const skillFolderName = skillDir.split('/').pop();
+                if (skillFolderName) {
+                    try {
+                        await this.plugin.skillsManager.deleteSkill(`skills/${skillFolderName}/SKILL.md`);
+                    } catch {
+                        // Non-fatal
+                    }
+                }
+            }
+
+            // Clean up toggle
+            const toggleKey = skill.globalPath ?? skill.selfAuthored?.filePath ?? skill.name;
+            this.plugin.settings.manualSkillToggles ??= {};
+            delete this.plugin.settings.manualSkillToggles[toggleKey];
+            await this.plugin.saveSettings();
+
+            // Reload if loader available
+            if (loader) await loader.loadAll();
+
+            new Notice(`Skill "${skill.name}" deleted`);
+        } catch (e) {
+            new Notice(t('settings.skills.deleteFailed'));
+            console.error('[SkillsTab] Delete failed:', e);
+        }
     }
 
     // -- Obsidian Plugin Skills (PAS-1) --

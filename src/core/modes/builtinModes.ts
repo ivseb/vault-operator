@@ -24,7 +24,7 @@ export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = 
     web:   ['web_fetch', 'web_search'],
     agent: ['ask_followup_question', 'attempt_completion', 'update_todo_list', 'new_task', 'switch_mode', 'update_settings', 'configure_model', 'read_agent_logs', 'manage_mcp_server', 'manage_skill', 'evaluate_expression', 'manage_source'],
     mcp:   ['use_mcp_tool'],
-    skill: ['execute_command', 'execute_recipe', 'call_plugin_api', 'resolve_capability_gap', 'enable_plugin', 'render_presentation'],
+    skill: ['execute_command', 'execute_recipe', 'call_plugin_api', 'resolve_capability_gap', 'enable_plugin', 'render_presentation', 'check_presentation_quality'],
 };
 
 // ---------------------------------------------------------------------------

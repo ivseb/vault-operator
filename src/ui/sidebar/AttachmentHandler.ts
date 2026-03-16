@@ -110,13 +110,20 @@ export class AttachmentHandler {
                     new Notice(t('ui.attachment.largeDocument', { name: displayName }));
                 }
 
+                // Auto-save external PPTX/POTX files to vault for template analysis
+                let resolvedVaultPath = vaultPath;
+                if (!resolvedVaultPath && (ext === 'pptx' || ext === 'potx')) {
+                    resolvedVaultPath = await this.saveExternalTemplateToVault(file.name, arrayBuffer);
+                }
+
+                const vaultPathAttr = resolvedVaultPath ? ` vault_path="${resolvedVaultPath}"` : '';
                 const item: AttachmentItem = {
                     name: displayName,
                     extension: ext,
-                    vaultPath,
+                    vaultPath: resolvedVaultPath,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${displayName}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${displayName}" format="${ext}"${vaultPathAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
                     },
                 };
 
@@ -164,7 +171,7 @@ export class AttachmentHandler {
                     vaultPath: file.path,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${file.path}" format="${ext}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${file.path}" format="${ext}" vault_path="${file.path}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
                     },
                 };
 
@@ -233,6 +240,32 @@ export class AttachmentHandler {
         }
         this.pending.length = 0;
         this.chipBar.empty();
+    }
+
+    /**
+     * Save an external PPTX/POTX file to the vault so that template analysis tools can access it.
+     * Files are saved to "Tools & Settings/Templates/{filename}".
+     * Returns the vault-relative path, or undefined on failure.
+     */
+    private async saveExternalTemplateToVault(fileName: string, data: ArrayBuffer): Promise<string | undefined> {
+        try {
+            const templateDir = 'Tools & Settings/Templates';
+            await this.vault.adapter.mkdir(templateDir);
+
+            const targetPath = `${templateDir}/${fileName}`;
+            const existing = this.vault.getAbstractFileByPath(targetPath);
+            if (existing instanceof TFile) {
+                await this.vault.modifyBinary(existing, data);
+            } else {
+                await this.vault.createBinary(targetPath, data);
+            }
+
+            new Notice(`Template saved to vault: ${targetPath}`);
+            return targetPath;
+        } catch (err) {
+            console.warn('[AttachmentHandler] Failed to save external template to vault:', err);
+            return undefined;
+        }
     }
 
     /**

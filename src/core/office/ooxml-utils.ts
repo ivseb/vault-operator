@@ -260,6 +260,77 @@ export function normalizeForMatching(text: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Shape XML manipulation                                             */
+/* ------------------------------------------------------------------ */
+
+/** Parse shape name into base prefix + numeric suffix. */
+export function parseShapeName(name: string): { base: string; num: number } | null {
+    const match = /^(.+?)\s*(\d+)$/.exec(name.trim());
+    if (!match) return null;
+    return { base: match[1].trim(), num: parseInt(match[2]) };
+}
+
+/** Find the highest <p:cNvPr id="N"> in slide XML. */
+export function findMaxShapeId(xml: string): number {
+    let max = 0;
+    const pattern = /id="(\d+)"/g;
+    let m: RegExpExecArray | null;
+    while ((m = pattern.exec(xml)) !== null) {
+        const id = parseInt(m[1]);
+        if (id > max) max = id;
+    }
+    return max;
+}
+
+/**
+ * Extract the complete <p:sp>...</p:sp> block containing a shape with the given name.
+ * Returns null if no shape with that name is found.
+ */
+export function extractSpBlockByName(xml: string, shapeName: string): string | null {
+    const escapedName = escapeRegex(escapeXml(shapeName));
+    const namePattern = new RegExp(`name="${escapedName}"`);
+    const match = namePattern.exec(xml);
+    if (!match) return null;
+
+    // Walk backwards to find the <p:sp opening
+    const spStart = xml.lastIndexOf('<p:sp', match.index);
+    if (spStart < 0) return null;
+
+    // Verify this <p:sp is actually for this shape (no intervening </p:sp>)
+    const closeBetween = xml.indexOf('</p:sp>', spStart);
+    if (closeBetween >= 0 && closeBetween < match.index) return null;
+
+    const spEnd = findClosingTag(xml, spStart, 'p:sp');
+    if (spEnd < 0) return null;
+
+    return xml.substring(spStart, spEnd);
+}
+
+/**
+ * Extract the complete <p:sp>...</p:sp> block containing a shape with the given ID.
+ * Uses the `id` attribute from `<p:cNvPr id="N" ...>` which is unique per slide.
+ * Returns null if no shape with that ID is found.
+ */
+export function extractSpBlockById(xml: string, shapeId: string): string | null {
+    const idPattern = new RegExp(`<p:cNvPr\\b[^>]*\\bid="${escapeRegex(shapeId)}"[^>]*/?>`)
+    const match = idPattern.exec(xml);
+    if (!match) return null;
+
+    // Walk backwards to find the <p:sp opening
+    const spStart = xml.lastIndexOf('<p:sp', match.index);
+    if (spStart < 0) return null;
+
+    // Verify this <p:sp is actually for this shape (no intervening </p:sp>)
+    const closeBetween = xml.indexOf('</p:sp>', spStart);
+    if (closeBetween >= 0 && closeBetween < match.index) return null;
+
+    const spEnd = findClosingTag(xml, spStart, 'p:sp');
+    if (spEnd < 0) return null;
+
+    return xml.substring(spStart, spEnd);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Hashing                                                            */
 /* ------------------------------------------------------------------ */
 

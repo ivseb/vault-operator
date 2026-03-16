@@ -43,12 +43,40 @@ Content has numbers?
        Parts of a whole -> Pie/donut chart
   No -> Describes a sequence?
        Yes -> Process flow / chevrons / timeline
-       No -> Is it a comparison?
-            Yes -> Two-column / matrix / SWOT
-            No -> Is it hierarchical?
-                 Yes -> Pyramid / org chart
-                 No -> Content slide (bullets)
+       No -> Are there parallel aspects (same weight)?
+            Yes -> KPI cards / puzzle / cycle diagram
+            No -> Is it a comparison?
+                 Yes -> Two-column / matrix / SWOT
+                 No -> Multiple inputs converging to one result?
+                      Yes -> Funnel / convergence layout
+                      No -> Is it hierarchical?
+                           Yes -> Pyramid / org chart
+                           No -> Content slide (bullets -- LAST RESORT)
 ```
+
+### Content Pattern Examples
+
+| Content Pattern | WRONG Composition | RIGHT Composition | Why |
+|---|---|---|---|
+| "4 parallel benefits" | Text slide with bullets | KPI cards or puzzle | Parallel items = equal weight, need visual equality |
+| "Step 1, 2, 3" | Hierarchy/pyramid | Process chevrons | Sequence is not hierarchy -- order matters, not rank |
+| "Before vs After" | Text slide | Two-column comparison | Contrast = juxtaposition, not text list |
+| "3 factors lead to result" | Bullet list | Funnel/convergence | Multiple to one = visual narrowing |
+| "Revenue: 12M, Growth: 34%" | Text paragraph | KPI cards | Numbers MUST be visually prominent |
+| "5 team members and roles" | Text bullets | Org chart or cards | People + roles = structured visual |
+| "Q1, Q2, Q3, Q4 milestones" | Bullets | Timeline | Temporal data = timeline axis |
+
+### When NOT to Use Text Slides
+
+Before choosing a text/content slide, check this list. If ANY item applies, use a structured composition instead:
+
+1. **Content has numbers or percentages** -> Use KPI cards or chart
+2. **Content describes sequential steps** -> Use process flow / chevrons
+3. **Content compares two or more options** -> Use two-column or matrix
+4. **Content lists parallel items of equal importance** -> Use cards, cycle, or puzzle
+5. **Content shows cause-and-effect or convergence** -> Use funnel or convergence layout
+
+Text slides are the LAST RESORT -- only when content is truly unstructured prose that cannot be classified above.
 
 ### Composition Rules
 

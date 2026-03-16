@@ -293,6 +293,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'After creating a presentation with create_pptx -- visually verify text fits, layout is correct.',
         commonMistakes: 'Forgetting to enable Visual Intelligence in Settings or not having LibreOffice installed.',
     },
+    check_presentation_quality: {
+        group: 'skill', label: 'Quality Check', icon: 'check-circle',
+        signature: 'check_presentation_quality(file)',
+        description: 'Render a PPTX and perform automated visual quality check using Claude Vision. Returns a structured QA report with pass/warn/fail per slide and fix suggestions.',
+        example: 'check_presentation_quality("Presentations/quarterly.pptx")',
+        whenToUse: 'After creating a presentation with create_pptx -- automated quality gate before delivery.',
+        commonMistakes: 'Not having Visual Intelligence enabled or no active model configured.',
+    },
 
     // ── Office Document Creation ────────────────────────────────────────
     create_pptx: {

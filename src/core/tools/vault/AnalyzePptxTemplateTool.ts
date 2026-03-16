@@ -14,9 +14,13 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type { ToolResultContentBlock } from '../../../api/types';
 import type ObsidianAgentPlugin from '../../../main';
-import { analyzeTemplate, groupByComposition, COMPOSITION_METADATA } from '../../office/PptxTemplateAnalyzer';
-import type { TemplateAnalysis, SlideClassification } from '../../office/PptxTemplateAnalyzer';
+import { analyzeTemplate, groupByComposition, COMPOSITION_METADATA, generateDeterministicAliases } from '../../office/PptxTemplateAnalyzer';
+import type { TemplateAnalysis, SlideClassification, RepeatableGroup, AliasEntry } from '../../office/PptxTemplateAnalyzer';
 import { renderPptxToImages } from '../../office/pptxRenderer';
+import { analyzeTemplateMultimodal } from '../../office/MultimodalAnalyzer';
+import type { MultimodalResult, CompositionVisualMeta } from '../../office/MultimodalAnalyzer';
+import { buildApiHandler } from '../../../api/index';
+import { modelToLLMProvider } from '../../../types/settings';
 
 export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
     readonly name = 'analyze_pptx_template' as const;
@@ -40,6 +44,11 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                     template_path: {
                         type: 'string',
                         description: 'Vault path to the .pptx template file to analyze.',
+                    },
+                    skip_multimodal: {
+                        type: 'boolean',
+                        description: 'Set to true to skip the multimodal analysis prompt and use deterministic aliases. ' +
+                            'Use this when the user has declined multimodal analysis.',
                     },
                 },
                 required: ['template_path'],
@@ -74,9 +83,83 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             const templateName = deriveNameFromPath(templatePath);
             const templateSlug = templateName.toLowerCase().replace(/\s+/g, '-');
 
-            // Generate both output files
+            // Render ALL slides for multimodal analysis (no cap)
+            const allSlidesResult = await this.renderTemplateSlides(templatePath, { maxSlides: 999 });
+
+            // Capped set for agent display (max 20 to avoid context bloat)
+            const displayResult = {
+                ...allSlidesResult,
+                slides: allSlidesResult.slides.slice(0, 20),
+            };
+
+            // Multimodal analysis: if approved and slides rendered, use Claude Vision
+            let multimodalResult: MultimodalResult | undefined;
+            const viSettings = this.plugin.settings.visualIntelligence;
+            const multimodalApproved = viSettings?.multimodalAnalysisApproved ?? false;
+            const viEnabled = viSettings?.enabled ?? false;
+
+            const skipMultimodal = (input.skip_multimodal as boolean) ?? false;
+
+            // Early return: when multimodal could run but is not enabled, ask the user FIRST
+            // Do NOT generate files or show slides -- force the agent to handle the question before proceeding
+            if (!multimodalApproved && !skipMultimodal && allSlidesResult.success && allSlidesResult.slides.length > 0) {
+                const batchCount = Math.ceil(allSlidesResult.slides.length / 5);
+                const costEstimate = `${allSlidesResult.slides.length} Folien werden in ~${batchCount} Batches analysiert (ca. ${batchCount * 5}-${batchCount * 10}K Token).`;
+
+                const hint = !viEnabled
+                    ? 'STOP -- Multimodale Template-Analyse ist verfuegbar aber deaktiviert.\n\n' +
+                      'LibreOffice hat erfolgreich ' + allSlidesResult.slides.length + ' von ' + allSlidesResult.totalSlides + ' Folien gerendert. ' +
+                      'Die multimodale Analyse nutzt Claude Vision, um diese Folienbilder visuell zu analysieren und generiert ' +
+                      'semantische Shape-Aliase, Nutzungsregeln und Kapazitaetslimits -- deutlich bessere Ergebnisse ' +
+                      'als deterministische Aliase.\n\n' +
+                      costEstimate + '\n\n' +
+                      'AKTION ERFORDERLICH: Frage den Nutzer, ob er die multimodale Analyse aktivieren moechte.\n' +
+                      'Wenn ja: nutze `update_settings` mit path "visualIntelligence.enabled" = true UND ' +
+                      '"visualIntelligence.multimodalAnalysisApproved" = true, dann rufe `analyze_pptx_template` erneut auf.\n' +
+                      'Wenn nein: rufe `analyze_pptx_template` erneut auf mit `skip_multimodal: true` -- generiert deterministische Aliase.'
+                    : 'STOP -- Multimodale Template-Analyse ist verfuegbar aber nicht freigegeben.\n\n' +
+                      'Visual Intelligence ist aktiviert und LibreOffice hat ' + allSlidesResult.slides.length + ' Folien gerendert. ' +
+                      'Die multimodale Analyse (Claude Vision) ist jedoch nicht freigegeben.\n' +
+                      costEstimate + '\n\n' +
+                      'AKTION ERFORDERLICH: Frage den Nutzer, ob er die multimodale Analyse aktivieren moechte.\n' +
+                      'Wenn ja: nutze `update_settings` mit path "visualIntelligence.multimodalAnalysisApproved" = true, ' +
+                      'dann rufe `analyze_pptx_template` erneut auf.\n' +
+                      'Wenn nein: rufe `analyze_pptx_template` erneut auf mit `skip_multimodal: true` -- generiert deterministische Aliase.';
+                callbacks.pushToolResult(hint);
+                return; // Do NOT continue -- no files generated, no slides shown
+            }
+
+            if (multimodalApproved && allSlidesResult.success && allSlidesResult.slides.length > 0) {
+                try {
+                    const activeModel = this.plugin.getActiveModel();
+                    if (activeModel) {
+                        const apiHandler = buildApiHandler(modelToLLMProvider(activeModel));
+                        callbacks.pushToolResult(`Starting multimodal analysis of ${allSlidesResult.slides.length} slides (all ${allSlidesResult.totalSlides} rendered)...`);
+
+                        multimodalResult = await analyzeTemplateMultimodal(
+                            allSlidesResult.slides,
+                            analysis.slideCompositions,
+                            apiHandler,
+                            (msg) => {
+                                console.debug('[MultimodalAnalyzer]', msg);
+                                callbacks.pushToolResult(msg);
+                            },
+                        );
+
+                        console.debug(
+                            `[MultimodalAnalyzer] Complete: ${multimodalResult.aliases.size} aliases, ` +
+                            `${multimodalResult.compositionMeta.size} composition descriptions`,
+                        );
+                    }
+                } catch (err) {
+                    console.warn('[AnalyzePptxTemplateTool] Multimodal analysis failed, using deterministic aliases:', err);
+                    // Fall through to deterministic aliases
+                }
+            }
+
+            // Generate both output files (with multimodal data if available)
             const skillContent = generateSkillMd(analysis, templatePath, templateName, templateSlug);
-            const compositionsContent = generateCompositionsJson(analysis, templateSlug);
+            const compositionsContent = generateCompositionsJson(analysis, templateSlug, multimodalResult);
 
             // Write SKILL.md to plugin skills directory (where SelfAuthoredSkillLoader reads from)
             const pluginSkillsDir = `${vault.configDir}/plugins/${this.plugin.manifest.id}/skills/${templateSlug}`;
@@ -101,35 +184,45 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             }
 
             // Build summary text
+            const analysisMode = multimodalResult
+                ? `Multimodal analysis (${multimodalResult.aliases.size} semantic aliases generated)`
+                : 'Deterministic aliases (multimodal analysis not available)';
             const summaryText =
                 `Template analysis complete: ${templateName}\n\n` +
                 `- ${analysis.slideCount} slides analyzed\n` +
                 `- ${contentComps.length} composition types identified\n` +
-                `- Brand DNA: ${analysis.brandDNA.fonts.major} / ${analysis.brandDNA.fonts.minor}\n\n` +
+                `- Brand DNA: ${analysis.brandDNA.fonts.major} / ${analysis.brandDNA.fonts.minor}\n` +
+                `- Analysis mode: ${analysisMode}\n\n` +
                 `Generated files:\n` +
                 `1. **SKILL.md** (${skillContent.length} chars): ${skillPath} (auto-installed as user skill)\n` +
-                `2. **compositions.json**: ${compositionsPath}\n\n`;
+                `2. **compositions.json** (v2): ${compositionsPath}\n\n`;
 
-            // Attempt integrated visual rendering
-            const renderResult = await this.renderTemplateSlides(templatePath);
-
-            if (renderResult.success && renderResult.slides.length > 0) {
+            if (displayResult.success && displayResult.slides.length > 0) {
                 // Multimodal result: text + slide images
+                const multimodalStats = multimodalResult
+                    ? `Rendered ${allSlidesResult.slides.length} of ${allSlidesResult.totalSlides} slides for multimodal analysis.\n` +
+                      `Displaying ${displayResult.slides.length} of ${allSlidesResult.slides.length} slides below for visual reference.\n\n`
+                    : `Rendered ${displayResult.slides.length} of ${allSlidesResult.totalSlides} slides.\n\n`;
+
+                const nextStep = multimodalResult
+                    ? `Multimodal analysis completed successfully. Compositions are enriched with semantic aliases and visual descriptions.\n` +
+                      `You can now proceed to create presentations using these compositions.\n` +
+                      `Use \`get_composition_details\` to see the semantic shape aliases for each composition.`
+                    : `NEXT STEP (mandatory -- do NOT skip):\n` +
+                      `Visually inspect each slide image below. Then update compositions.json via edit_file with:\n` +
+                      `- bedeutung (semantic meaning of each composition)\n` +
+                      `- einsetzen_wenn / nicht_einsetzen_wenn (usage rules)\n` +
+                      `- max_chars per shape (estimated from visual layout)\n` +
+                      `Do NOT proceed to presentation creation without visual analysis.`;
+
                 const contentBlocks: ToolResultContentBlock[] = [
                     {
                         type: 'text',
-                        text: summaryText +
-                            `Rendered ${renderResult.slides.length} of ${renderResult.totalSlides} slides.\n\n` +
-                            `NEXT STEP (mandatory -- do NOT skip):\n` +
-                            `Visually inspect each slide image below. Then update compositions.json via edit_file with:\n` +
-                            `- bedeutung (semantic meaning of each composition)\n` +
-                            `- einsetzen_wenn / nicht_einsetzen_wenn (usage rules)\n` +
-                            `- max_chars per shape (estimated from visual layout)\n` +
-                            `Do NOT proceed to presentation creation without visual analysis.`,
+                        text: summaryText + multimodalStats + nextStep,
                     },
                 ];
 
-                for (const slide of renderResult.slides) {
+                for (const slide of displayResult.slides) {
                     contentBlocks.push(
                         { type: 'text', text: `\n--- Slide ${slide.slideNumber} ---` },
                         {
@@ -146,8 +239,8 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                 callbacks.pushToolResult(contentBlocks);
             } else {
                 // Text-only fallback with rendering warning
-                const renderWarning = renderResult.error
-                    ? `Visual rendering unavailable: ${renderResult.error}\n\n`
+                const renderWarning = allSlidesResult.error
+                    ? `Visual rendering unavailable: ${allSlidesResult.error}\n\n`
                     : 'Visual rendering unavailable.\n\n';
 
                 callbacks.pushToolResult(
@@ -187,6 +280,7 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
      */
     private async renderTemplateSlides(
         templatePath: string,
+        options?: { maxSlides?: number },
     ): Promise<{ success: boolean; slides: { slideNumber: number; base64: string }[]; totalSlides: number; error?: string }> {
         try {
             const adapter = this.plugin.app.vault.adapter;
@@ -202,7 +296,7 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
 
             return await renderPptxToImages(absolutePptxPath, {
                 customLibreOfficePath: customPath,
-                maxSlides: 20, // Templates can have many slides; render more than default
+                maxSlides: options?.maxSlides ?? 20,
             });
         } catch (err) {
             return {
@@ -344,7 +438,10 @@ function generateSkillMd(
 /* ------------------------------------------------------------------ */
 
 interface CompositionsFile {
+    schema_version: number;
     template: string;
+    /** Global alias-to-shape mapping. Each alias is unique across the template. */
+    alias_map: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
 }
 
@@ -356,11 +453,32 @@ interface CompositionEntry {
     einsetzen_wenn: string;
     nicht_einsetzen_wenn: string;
     has_image_placeholder: boolean;
+    decorative_element_count: number;
+    has_fixed_visuals: boolean;
+    visual_structure: string;
+    repeatable_groups: Record<string, RepeatableGroupEntry[]>;
     shapes: Record<string, Record<string, ShapeDetailEntry>>;
+}
+
+interface RepeatableGroupEntry {
+    groupId: string;
+    axis: 'horizontal' | 'vertical';
+    shapeNames: string[];
+    shapeIds?: string[];
+    boundingBox: { left: number; top: number; width: number; height: number };
+    gap: number;
+    shapeSize: { cx: number; cy: number };
+    columns: Array<{
+        index: number;
+        primaryShape: string;
+        primaryShapeId?: string;
+        associatedShapes: Array<{ shapeName: string; shapeId?: string; offsetY: number; offsetX: number }>;
+    }>;
 }
 
 interface ShapeDetailEntry {
     zweck: string;
+    shape_id: string;
     max_chars?: number;
     font_size_pt?: number;
 }
@@ -368,12 +486,41 @@ interface ShapeDetailEntry {
 function generateCompositionsJson(
     analysis: TemplateAnalysis,
     templateSlug: string,
+    multimodalResult?: MultimodalResult,
 ): CompositionsFile {
     const compositions = groupByComposition(analysis);
     const contentCompositions = compositions.filter(c => c.classification !== 'blank');
 
+    // Use multimodal aliases if available, otherwise fall back to deterministic
+    let aliasMap: Map<string, AliasEntry>;
+    if (multimodalResult && multimodalResult.aliases.size > 0) {
+        aliasMap = multimodalResult.aliases;
+    } else {
+        aliasMap = generateDeterministicAliases(analysis.slideCompositions);
+    }
+
+    // Build reverse lookup: (slide, shapeId) -> alias
+    const reverseAliasMap = new Map<string, string>();
+    for (const [alias, entry] of aliasMap) {
+        reverseAliasMap.set(`${entry.slide}:${entry.shapeId}`, alias);
+    }
+
+    // Build alias_map for JSON output (include purpose from multimodal analysis if available)
+    const aliasMapJson: Record<string, { slide: number; shape_id: string; original_name: string; purpose?: string }> = {};
+    for (const [alias, entry] of aliasMap) {
+        const purposeEntry = entry as { purpose?: string };
+        aliasMapJson[alias] = {
+            slide: entry.slide,
+            shape_id: entry.shapeId,
+            original_name: entry.originalName,
+            ...(purposeEntry.purpose ? { purpose: purposeEntry.purpose } : {}),
+        };
+    }
+
     const result: CompositionsFile = {
+        schema_version: 2,
         template: templateSlug,
+        alias_map: aliasMapJson,
         compositions: {},
     };
 
@@ -392,27 +539,87 @@ function generateCompositionsJson(
 
             const slideShapes: Record<string, ShapeDetailEntry> = {};
             for (const shape of replaceable) {
+                // Use alias as key if available, otherwise fall back to shape name
+                const alias = reverseAliasMap.get(`${slideNum}:${shape.shapeId}`);
+                const key = alias ?? shape.shapeName;
+
+                // Use multimodal purpose (semantic, from Claude Vision) if available,
+                // otherwise fall back to generic placeholderType / semanticId
+                const multimodalPurpose = alias
+                    ? (aliasMap.get(alias) as { purpose?: string } | undefined)?.purpose
+                    : undefined;
+
                 const detail: ShapeDetailEntry = {
-                    zweck: shape.placeholderType ?? shape.semanticId,
+                    zweck: multimodalPurpose || shape.placeholderType || shape.semanticId,
+                    shape_id: shape.shapeId,
                 };
                 if (shape.textCapacity) {
                     detail.max_chars = shape.textCapacity.maxChars;
                     detail.font_size_pt = shape.textCapacity.fontSize;
                 }
-                slideShapes[shape.shapeName] = detail;
+
+                // Dimensions-based fallback for replaceable shapes without textCapacity
+                if (!detail.max_chars) {
+                    const widthPt = shape.position.width / 12700;
+                    const heightPt = shape.position.height / 12700;
+                    const defaultFontPt = 18;
+                    const charsPerLine = Math.floor(widthPt / (defaultFontPt * 0.55));
+                    const maxLines = Math.floor(heightPt / (defaultFontPt * 1.5));
+                    if (charsPerLine > 0 && maxLines > 0) {
+                        detail.max_chars = charsPerLine * maxLines;
+                        detail.font_size_pt = defaultFontPt;
+                    }
+                }
+
+                slideShapes[key] = detail;
             }
 
             shapes[String(slideNum)] = slideShapes;
         }
 
+        // Collect repeatable groups per slide (with shapeIds)
+        const repeatableGroupsMap: Record<string, RepeatableGroupEntry[]> = {};
+        for (const slideNum of group.slideNumbers) {
+            const comp = analysis.slideCompositions.find(c => c.slideNumber === slideNum);
+            if (!comp || comp.repeatableGroups.length === 0) continue;
+            repeatableGroupsMap[String(slideNum)] = comp.repeatableGroups.map(rg => ({
+                groupId: rg.groupId,
+                axis: rg.axis,
+                shapeNames: rg.shapeNames,
+                shapeIds: rg.shapeIds,
+                boundingBox: rg.boundingBox,
+                gap: rg.gap,
+                shapeSize: rg.shapeSize,
+                columns: rg.columns.map(col => ({
+                    index: col.index,
+                    primaryShape: col.primaryShape,
+                    primaryShapeId: col.primaryShapeId,
+                    associatedShapes: col.associatedShapes.map(as => ({
+                        shapeName: as.shapeName,
+                        shapeId: as.shapeId,
+                        offsetY: as.offsetY,
+                        offsetX: as.offsetX,
+                    })),
+                })),
+            }));
+        }
+
+        // Enrich with multimodal metadata if available (use first slide as representative)
+        const firstSlideStr = String(group.slideNumbers[0]);
+        const multiMeta = multimodalResult?.compositionMeta.get(firstSlideStr);
+
         result.compositions[compId] = {
             name: group.name,
             classification: group.classification,
             slides: group.slideNumbers,
-            bedeutung: group.meaning,
-            einsetzen_wenn: group.useWhen,
-            nicht_einsetzen_wenn: generateCompositionWarnings(group, analysis),
+            bedeutung: multiMeta?.bedeutung ?? group.meaning,
+            einsetzen_wenn: multiMeta?.einsetzen_wenn ?? group.useWhen,
+            nicht_einsetzen_wenn: multiMeta?.nicht_einsetzen_wenn ?? generateCompositionWarnings(group, analysis),
             has_image_placeholder: hasImagePlaceholder(group, analysis),
+            decorative_element_count: group.decorativeElementCount,
+            has_fixed_visuals: group.hasFixedVisuals,
+            visual_structure: multiMeta?.visual_description ?? buildVisualStructureDescription(group, analysis),
+            repeatable_groups: repeatableGroupsMap,
             shapes,
         };
     }
@@ -447,7 +654,38 @@ function generateCompositionWarnings(
         warnings.push('Contains image placeholder -- only use when images are available');
     }
 
+    if (group.hasFixedVisuals) {
+        warnings.push(`Has ${group.decorativeElementCount} fixed decorative elements (icons/images) that cannot be replaced`);
+    }
+
     return warnings.join('; ');
+}
+
+/**
+ * Build a human-readable description of the visual structure of a composition.
+ * E.g. "3x TextBox + 2x Inhaltsplatzhalter + Titel" or "5 chevron shapes + 5 description boxes".
+ */
+function buildVisualStructureDescription(
+    group: ReturnType<typeof groupByComposition>[number],
+    analysis: TemplateAnalysis,
+): string {
+    // Use first slide as representative
+    const firstSlideNum = group.slideNumbers[0];
+    const comp = analysis.slideCompositions.find(c => c.slideNumber === firstSlideNum);
+    if (!comp) return '';
+
+    const replaceable = comp.shapes.filter(s => s.isReplaceable);
+    if (replaceable.length === 0) return '';
+
+    const byPrefix = new Map<string, number>();
+    for (const shape of replaceable) {
+        const prefix = shape.shapeName.replace(/\s*\d+$/, '') || shape.shapeName;
+        byPrefix.set(prefix, (byPrefix.get(prefix) ?? 0) + 1);
+    }
+
+    return [...byPrefix]
+        .map(([p, c]) => c > 1 ? `${c}x ${p}` : p)
+        .join(' + ');
 }
 
 /**

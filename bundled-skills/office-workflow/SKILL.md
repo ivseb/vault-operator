@@ -3,7 +3,7 @@ name: office-workflow
 description: Professional workflow for creating Office documents (PPTX, DOCX, XLSX) with structured process, design principles, and quality standards
 trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx|dokument.*erstell|erstell.*dokument|document.*creat|docx|word.*erstell|spreadsheet|tabelle.*erstell|xlsx|excel
 source: bundled
-requiredTools: [create_pptx, create_docx, create_xlsx, analyze_pptx_template, get_composition_details, render_presentation]
+requiredTools: [create_pptx, create_docx, create_xlsx, analyze_pptx_template, get_composition_details, render_presentation, check_presentation_quality]
 ---
 
 # Office Document Workflow
@@ -49,15 +49,22 @@ If the user already mentioned a .pptx file path, use it. Otherwise send:
 "Ich sehe, dass fuer diese Vorlage noch kein Template-Skill existiert. Kein Problem -- ich kann die Vorlage analysieren und einen erstellen. Wo liegt die .pptx-Datei im Vault? (z.B. `Templates/MeineVorlage.pptx`)"
 STOP and wait for the user's response.
 
-**B2. Run structural analysis**
-Call `analyze_pptx_template` with the template path. This extracts Brand-DNA, slide compositions, shape mappings and generates:
-- **SKILL.md** (~5k chars): Compact Visual Design Language Document (auto-installed as user skill)
-- **compositions.json**: Full shape details for on-demand retrieval
+**B2. Run structural + multimodal analysis**
+Call `analyze_pptx_template` with the template path. The tool automatically:
+- Extracts Brand-DNA, slide compositions, shape mappings
+- Renders slides via LibreOffice (if Visual Intelligence enabled)
+- Runs multimodal analysis via Claude Vision (if approved) -- generates semantic aliases, usage rules, capacity limits
+- Generates **SKILL.md** (auto-installed as user skill) and **compositions.json** (v2 with aliases)
 
-**B3. Visual analysis (required)**
-This step is MANDATORY. The structural analysis alone produces only raw shape data without semantic meaning. The visual analysis is what makes the template skill actually useful. Do NOT skip this step.
+**IMPORTANT: If the tool reports that multimodal analysis is deactivated**, proactively ask the user:
+"Die multimodale Template-Analyse ist deaktiviert. Diese Funktion nutzt Claude Vision, um die Folien visuell zu analysieren -- das ergibt deutlich bessere Shape-Beschreibungen, Nutzungsregeln und Kapazitaetslimits. Soll ich sie aktivieren?"
 
-**If Visual Intelligence is enabled (default):**
+If the user agrees, use `update_settings` to set `visualIntelligence.enabled` = true and `visualIntelligence.multimodalAnalysisApproved` = true, then re-run `analyze_pptx_template`.
+
+**B3. Visual analysis (fallback only -- when multimodal analysis was NOT available)**
+This step is only needed if multimodal analysis could not run (e.g. LibreOffice not installed, user declined). If multimodal analysis completed successfully, skip to B4.
+
+**If Visual Intelligence is enabled but multimodal was skipped:**
 1. Call `render_presentation` with the template PPTX file to render all slides as images
 2. Visually inspect the rendered slide images and identify for each composition:
    - Semantic meaning: What does this visual form communicate? (e.g. "linear progress", "comparison of two options")
@@ -113,6 +120,16 @@ The Template Skill (Visual Design Language Document) provides:
 
 ### Step 4: PLAN
 
+**Before drafting:** Resolve ambiguities with the user. Send a regular text message and STOP your turn whenever:
+- Source material is incomplete, contradictory, or unclear
+- Multiple compositions could work equally well for a content block (present 2-3 options with reasoning)
+- Content must be heavily condensed and you are unsure what to cut
+- Numbers or data lack context (units, time period, baseline)
+- The narrative arc or slide order is not obvious from the source
+- You are uncertain whether content should be a separate slide or merged with another
+
+Do NOT guess silently. A short clarification question now prevents a wrong slide later.
+
 Draft the document structure and share with user for approval:
 - Presentations (corporate template): Use Design Reasoning + Content Classification from presentation-design skill to classify each content block. Then map to matching compositions from the Template Skill based on semantic meaning. Present a table with # | Composition | Template Slide # | Action Title | Content Summary | Why This Composition
 - Presentations (default themes): Table with # | Visual Pattern | Action Title | Content Type | Narrative Function
@@ -122,8 +139,12 @@ Draft the document structure and share with user for approval:
 **Corporate template planning rules:**
 - Max 30% of content slides may be plain text. The rest MUST use structured visual layouts.
 - Never use the same slide type on consecutive slides.
-- Apply the Visualization Decision Tree: numbers -> KPI/chart, sequence -> process, comparison -> matrix/two-column.
+- Apply the Visualization Decision Tree: numbers -> KPI/chart, sequence -> process, comparison -> matrix/two-column, parallel aspects -> cards/cycle, convergence -> funnel.
 - The plan MUST show the template slide number for every slide.
+- For EVERY slide, document your Design Reasoning in the "Why This Composition" column:
+  - BAD: "Passt zum Inhalt" / "Text slide for overview"
+  - GOOD: "3 sequential steps -> Decision Tree: sequence -> process chevrons (Comp. ID: chevron-kette, Slide 64)"
+  - GOOD: "4 parallel KPIs with numbers -> Decision Tree: metrics -> KPI cards (Comp. ID: kpi-dashboard, Slide 32)"
 
 ### Step 5: CREATE
 
@@ -178,24 +199,49 @@ All numbers, percentages, dates, names, and facts in slide content MUST come dir
 - NEVER generate plausible-sounding numbers -- they are hallucinations and destroy the presentation's credibility
 - "Transform" means restructure the FORMAT (paragraph -> bullets), not fabricate new DATA
 
+**Rule 6: ALWAYS reload composition details when switching template slides.**
+Each composition has different shapes with different names. When you switch from one template_slide to another, you MUST call `get_composition_details` again for the new composition. Using shape names from a previous composition WILL result in empty slides.
+
+**Rule 7: Use Design Reasoning for EVERY slide.**
+Before choosing a composition, apply the Visualization Decision Tree from the presentation-design skill:
+- BAD: "This content is about our process" -> picks first available text slide
+- GOOD: "This content describes 4 sequential steps" -> Decision Tree: sequence -> process flow -> picks chevron composition with 4 shapes
+
+**Rule 8: Ask when unsure -- never assume.**
+During content transformation, ask the user via regular text message and STOP when:
+- A shape requires a specific fact, name, or number not present in the source material
+- You are unsure whether a bullet point is important enough to keep or should be cut
+- The tone is ambiguous (formal corporate vs. casual internal vs. motivational)
+- Visual emphasis is unclear (which KPI is the hero number? which step is the critical one?)
+- You need to split content across slides and the grouping is not obvious
+Keep questions concise and actionable: present your best option and ask for confirmation rather than open-ended questions.
+
 #### 5b: Generate the document
 
 - **Corporate template:** Call create_pptx with `template_file` and slides using `template_slide` + `content` fields. Use Shape-Names from `get_composition_details` as content keys.
 - **Default themes:** Call create_pptx with slides using the `html` field (see "HTML Slide Format" section in presentation-design skill).
 
-### Step 6: VISUAL VERIFY (Corporate templates, if Visual Intelligence enabled)
-1. Call `render_presentation` with the created PPTX file
-2. Inspect each rendered slide image for:
+### Step 6: QUALITY CHECK (if Visual Intelligence enabled)
+1. Call `check_presentation_quality` with the created PPTX file
+2. The tool renders all slides and performs automated visual analysis, checking:
    - Text overflow or truncation
-   - Bad line breaks or hyphenation
    - Empty shapes that should have content
-   - Visual imbalance or misalignment
-3. If issues found: fix the content (shorten text, adjust wording) and call `create_pptx` again
-4. **Feedback Loop**: Update `compositions.json` via `edit_file` with learned constraints:
+   - Layout balance and readability
+   - Consistency across slides
+3. **If status "pass":** Presentation is ready -- inform the user
+4. **If status "needs_revision":**
+   - Apply the suggested fixes (shorten text, adjust wording, change composition)
+   - Call `create_pptx` again with corrected content
+   - Run `check_presentation_quality` again to verify
+   - Maximum 2 revision rounds (then inform user of remaining issues)
+5. **If status "critical":** Inform the user about the problems and suggest alternatives
+6. **Feedback Loop**: Update `compositions.json` via `edit_file` with learned constraints:
    - Correct `max_chars` values based on what actually fits
    - Add notes about line break behavior
    - Adjust `font_size_pt` if observed differently
    - Future presentations with the same template benefit automatically
+
+**Fallback** (without Visual Intelligence): Call `render_presentation` for manual visual inspection.
 
 ## 2. Content Principles
 

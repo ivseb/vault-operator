@@ -88,6 +88,45 @@ export interface SlideComposition {
     shapes: ShapeInfo[];
     /** Summary description for the agent. */
     description: string;
+    /** Repeatable shape groups detected on this slide (e.g. 5 chevrons in a row). */
+    repeatableGroups: RepeatableGroup[];
+}
+
+/** A group of shapes with identical visual fingerprint arranged linearly. */
+export interface RepeatableGroup {
+    /** Unique ID within the slide (e.g. "RG-1"). */
+    groupId: string;
+    /** Arrangement axis. */
+    axis: 'horizontal' | 'vertical';
+    /** Shape names of the primary repeating shapes. */
+    shapeNames: string[];
+    /** Shape IDs (from <p:cNvPr id="N">) parallel to shapeNames. Unique per slide. Optional for v1 backwards compat. */
+    shapeIds?: string[];
+    /** Bounding box enclosing all shapes in the group (EMU). */
+    boundingBox: { left: number; top: number; width: number; height: number };
+    /** Gap between consecutive shapes in EMU (edge-to-edge). */
+    gap: number;
+    /** Size of each individual shape (EMU). */
+    shapeSize: { cx: number; cy: number };
+    /** Column pairings: each primary shape + vertically associated shapes. */
+    columns: ShapeColumn[];
+}
+
+/** A column in a repeatable group: primary shape + associated shapes at the same x-center. */
+export interface ShapeColumn {
+    /** 0-based index within the group. */
+    index: number;
+    /** Name of the primary (repeating) shape. */
+    primaryShape: string;
+    /** Shape ID of the primary shape (from <p:cNvPr id="N">). Optional for v1 backwards compat. */
+    primaryShapeId?: string;
+    /** Shapes vertically associated with this primary shape (same x-center). */
+    associatedShapes: Array<{
+        shapeName: string;
+        shapeId?: string;
+        offsetY: number;
+        offsetX: number;
+    }>;
 }
 
 export type SlideClassification =
@@ -851,13 +890,180 @@ function buildSlideComposition(
     }
     const description = generateSlideDescription(classification, shapes);
 
+    const repeatableGroups = detectRepeatableGroups(rawShapes, shapes);
+
     return {
         slideNumber: slideNum,
         layoutName,
         classification,
         shapes,
         description,
+        repeatableGroups,
     };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Repeatable Group Detection                                         */
+/* ------------------------------------------------------------------ */
+
+/** Size tolerance for fingerprint matching (5%). */
+const SIZE_TOLERANCE = 0.05;
+
+/**
+ * Detect groups of shapes with identical visual fingerprint arranged linearly.
+ * E.g. 5 chevrons in a row, or 3 KPI boxes in a column.
+ *
+ * Algorithm:
+ * 1. Group shapes by fingerprint + similar size
+ * 2. For groups >= 2: detect linear arrangement (horizontal or vertical)
+ * 3. Compute bounding box, gap, and column pairings
+ */
+function detectRepeatableGroups(rawShapes: RawShape[], shapeInfos: ShapeInfo[]): RepeatableGroup[] {
+    // Step 1: Group by fingerprint + size similarity
+    const fpGroups = new Map<string, { raw: RawShape; info: ShapeInfo }[]>();
+
+    for (let i = 0; i < rawShapes.length; i++) {
+        const raw = rawShapes[i];
+        const info = shapeInfos[i];
+
+        // Only consider content-bearing shapes with text
+        if (!info.isReplaceable && !raw.hasText) continue;
+        // Skip very small shapes (decorative)
+        if (raw.position.width < EMU_DECORATIVE || raw.position.height < EMU_DECORATIVE) continue;
+
+        const fpKey = fingerprintKey(raw.fingerprint);
+        const sizeKey = `${Math.round(raw.position.width / 100000)}_${Math.round(raw.position.height / 100000)}`;
+        const groupKey = `${fpKey}|${sizeKey}`;
+
+        const group = fpGroups.get(groupKey) ?? [];
+        group.push({ raw, info });
+        fpGroups.set(groupKey, group);
+    }
+
+    const results: RepeatableGroup[] = [];
+    let groupIndex = 1;
+
+    for (const members of fpGroups.values()) {
+        if (members.length < 2) continue;
+
+        // Step 2: Check for linear arrangement
+        const sorted = [...members];
+
+        // Try horizontal: sort by left, check if tops are similar
+        sorted.sort((a, b) => a.raw.position.left - b.raw.position.left);
+        const avgHeight = sorted.reduce((s, m) => s + m.raw.position.height, 0) / sorted.length;
+        const topVariation = Math.max(...sorted.map(m => m.raw.position.top)) -
+            Math.min(...sorted.map(m => m.raw.position.top));
+        const isHorizontal = topVariation < avgHeight * 0.3;
+
+        // Try vertical: sort by top, check if lefts are similar
+        const sortedV = [...members];
+        sortedV.sort((a, b) => a.raw.position.top - b.raw.position.top);
+        const avgWidth = sortedV.reduce((s, m) => s + m.raw.position.width, 0) / sortedV.length;
+        const leftVariation = Math.max(...sortedV.map(m => m.raw.position.left)) -
+            Math.min(...sortedV.map(m => m.raw.position.left));
+        const isVertical = leftVariation < avgWidth * 0.3;
+
+        if (!isHorizontal && !isVertical) continue;
+
+        const axis: 'horizontal' | 'vertical' = isHorizontal ? 'horizontal' : 'vertical';
+        const arranged = axis === 'horizontal' ? sorted : sortedV;
+
+        // Step 3: Compute bounding box and gap
+        const minLeft = Math.min(...arranged.map(m => m.raw.position.left));
+        const minTop = Math.min(...arranged.map(m => m.raw.position.top));
+        const maxRight = Math.max(...arranged.map(m => m.raw.position.left + m.raw.position.width));
+        const maxBottom = Math.max(...arranged.map(m => m.raw.position.top + m.raw.position.height));
+
+        const boundingBox = {
+            left: minLeft,
+            top: minTop,
+            width: maxRight - minLeft,
+            height: maxBottom - minTop,
+        };
+
+        // Average gap between consecutive shapes
+        let totalGap = 0;
+        for (let i = 1; i < arranged.length; i++) {
+            if (axis === 'horizontal') {
+                const prevRight = arranged[i - 1].raw.position.left + arranged[i - 1].raw.position.width;
+                totalGap += arranged[i].raw.position.left - prevRight;
+            } else {
+                const prevBottom = arranged[i - 1].raw.position.top + arranged[i - 1].raw.position.height;
+                totalGap += arranged[i].raw.position.top - prevBottom;
+            }
+        }
+        const gap = arranged.length > 1 ? Math.round(totalGap / (arranged.length - 1)) : 0;
+
+        const shapeSize = {
+            cx: arranged[0].raw.position.width,
+            cy: arranged[0].raw.position.height,
+        };
+
+        // Step 4: Column pairing -- find associated shapes at same x-center (or y-center for vertical)
+        const usedInGroups = new Set(arranged.map(m => m.info.shapeName));
+        const columns: ShapeColumn[] = arranged.map((member, idx) => {
+            const associatedShapes: ShapeColumn['associatedShapes'] = [];
+            const primaryCenterX = member.raw.position.left + member.raw.position.width / 2;
+            const primaryCenterY = member.raw.position.top + member.raw.position.height / 2;
+            const halfWidth = member.raw.position.width / 2;
+            const halfHeight = member.raw.position.height / 2;
+
+            for (let i = 0; i < rawShapes.length; i++) {
+                const candidate = rawShapes[i];
+                const candidateInfo = shapeInfos[i];
+                if (usedInGroups.has(candidateInfo.shapeName)) continue;
+                // Skip shapes wider than 200% of primary (likely background)
+                if (candidate.position.width > member.raw.position.width * 2) continue;
+
+                const candidateCenterX = candidate.position.left + candidate.position.width / 2;
+                const candidateCenterY = candidate.position.top + candidate.position.height / 2;
+
+                if (axis === 'horizontal') {
+                    // Check if candidate shares approximate x-center
+                    if (Math.abs(candidateCenterX - primaryCenterX) < halfWidth * 0.6) {
+                        associatedShapes.push({
+                            shapeName: candidateInfo.shapeName,
+                            shapeId: candidateInfo.shapeId,
+                            offsetY: candidate.position.top - member.raw.position.top,
+                            offsetX: candidate.position.left - member.raw.position.left,
+                        });
+                    }
+                } else {
+                    // Vertical: check if candidate shares approximate y-center
+                    if (Math.abs(candidateCenterY - primaryCenterY) < halfHeight * 0.6) {
+                        associatedShapes.push({
+                            shapeName: candidateInfo.shapeName,
+                            shapeId: candidateInfo.shapeId,
+                            offsetY: candidate.position.top - member.raw.position.top,
+                            offsetX: candidate.position.left - member.raw.position.left,
+                        });
+                    }
+                }
+            }
+
+            return {
+                index: idx,
+                primaryShape: member.info.shapeName,
+                primaryShapeId: member.info.shapeId,
+                associatedShapes,
+            };
+        });
+
+        results.push({
+            groupId: `RG-${groupIndex}`,
+            axis,
+            shapeNames: arranged.map(m => m.info.shapeName),
+            shapeIds: arranged.map(m => m.info.shapeId),
+            boundingBox,
+            gap,
+            shapeSize,
+            columns,
+        });
+        groupIndex++;
+    }
+
+    return results;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1057,7 +1263,9 @@ function generateSemanticId(
  * Estimate how much text fits into a shape based on dimensions and font size.
  */
 function estimateTextCapacity(rawShape: RawShape): TextCapacity | undefined {
-    if (!rawShape.hasText) return undefined;
+    // Placeholder shapes (title, body, subTitle, etc.) are ALWAYS fillable
+    // even if they contain no text in the template XML (inherited from layout/master).
+    if (!rawShape.hasText && !rawShape.placeholderType) return undefined;
 
     // 4-level font size fallback:
     // 1. Explicit <a:rPr sz=""> in shape XML (run-level)
@@ -1116,6 +1324,10 @@ export interface CompositionGroup {
     useWhen: string;
     /** Representative shapes (from first slide in group, replaceable only). */
     representativeShapes: ShapeInfo[];
+    /** Count of non-replaceable, non-footer decorative shapes (icons, images, fixed geometry). */
+    decorativeElementCount: number;
+    /** True if composition has fixed icons or images that cannot be replaced. */
+    hasFixedVisuals: boolean;
 }
 
 /**
@@ -1128,9 +1340,10 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
     const groups = new Map<string, SlideComposition[]>();
 
     for (const comp of analysis.slideCompositions) {
-        const groupKey = comp.classification === 'content'
-            ? buildContentSubKey(comp)
-            : comp.classification;
+        // Sub-group ALL classifications by layout + shape structure,
+        // not just 'content'. Prevents e.g. 17 KPI slides from collapsing
+        // into one mega-group when they have different visual structures.
+        const groupKey = buildSubGroupKey(comp);
 
         const existing = groups.get(groupKey) ?? [];
         existing.push(comp);
@@ -1144,15 +1357,29 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
         const replaceableShapes = firstComp.shapes.filter(s => s.isReplaceable);
         const baseClassification = firstComp.classification;
 
-        // Derive name/meaning from layout for content sub-groups
+        // Derive name/meaning: use sub-group variant if this classification was split
         const meta = COMPOSITION_METADATA[baseClassification];
-        const name = baseClassification === 'content'
-            ? contentSubGroupName(firstComp)
-            : meta.name;
+        const totalWithClassification = analysis.slideCompositions
+            .filter(c => c.classification === baseClassification).length;
+        const isSubGrouped = compositions.length < totalWithClassification;
 
-        const meaning = baseClassification === 'content'
-            ? contentSubGroupMeaning(firstComp)
+        const name = isSubGrouped
+            ? subGroupName(firstComp, meta)
+            : meta.name;
+        const meaning = isSubGrouped
+            ? subGroupMeaning(firstComp, meta)
             : meta.meaning;
+
+        // Count decorative elements (non-replaceable, non-footer shapes)
+        const footerTypes = new Set(['ftr', 'sldNum', 'dt']);
+        const decorativeShapes = firstComp.shapes.filter(s =>
+            !s.isReplaceable &&
+            !footerTypes.has(s.placeholderType ?? '')
+        );
+        const hasFixedVisuals = decorativeShapes.some(s =>
+            s.placeholderType === 'pic' ||
+            s.elementId !== undefined
+        );
 
         result.push({
             name,
@@ -1161,6 +1388,8 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
             meaning,
             useWhen: meta.useWhen,
             representativeShapes: replaceableShapes,
+            decorativeElementCount: decorativeShapes.length,
+            hasFixedVisuals,
         });
     }
 
@@ -1176,11 +1405,15 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
     return result;
 }
 
-/** Build a sub-group key for 'content' slides using layout name + shape count. */
-function buildContentSubKey(comp: SlideComposition): string {
+/**
+ * Build a sub-group key for ANY slide classification.
+ * Slides with identical classification + layout + shape count
+ * are true variants (same visual structure, different color scheme).
+ */
+function buildSubGroupKey(comp: SlideComposition): string {
     const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
     const layoutSlug = comp.layoutName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
-    return `content-${layoutSlug}-${replaceableCount}shapes`;
+    return `${comp.classification}-${layoutSlug}-${replaceableCount}-fields`;
 }
 
 /** Layout-name keywords that hint at a specific content type. */
@@ -1194,20 +1427,31 @@ const LAYOUT_KEYWORDS: Array<[RegExp, string, string]> = [
     [/quote|zitat/i, 'Quote Layout', 'Quote or citation from layout'],
 ];
 
-function contentSubGroupName(comp: SlideComposition): string {
+function subGroupName(comp: SlideComposition, meta: CompositionMeta): string {
     for (const [pattern, name] of LAYOUT_KEYWORDS) {
         if (pattern.test(comp.layoutName)) return name;
     }
-    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
-    return `Content (${comp.layoutName}, ${replaceableCount} fields)`;
+    const layoutLabel = comp.layoutName !== 'Unknown' ? comp.layoutName : '';
+    return layoutLabel ? `${meta.name} (${layoutLabel})` : meta.name;
 }
 
-function contentSubGroupMeaning(comp: SlideComposition): string {
+function subGroupMeaning(comp: SlideComposition, meta: CompositionMeta): string {
     for (const [pattern, , meaning] of LAYOUT_KEYWORDS) {
         if (pattern.test(comp.layoutName)) return meaning;
     }
-    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
-    return `Content layout "${comp.layoutName}" with ${replaceableCount} replaceable text fields`;
+    const summary = buildShapeStructureSummary(comp);
+    return summary ? `${meta.meaning} -- ${summary}` : meta.meaning;
+}
+
+function buildShapeStructureSummary(comp: SlideComposition): string {
+    const replaceable = comp.shapes.filter(s => s.isReplaceable);
+    if (replaceable.length === 0) return '';
+    const byPrefix = new Map<string, number>();
+    for (const shape of replaceable) {
+        const prefix = shape.shapeName.replace(/\s*\d+$/, '') || shape.shapeName;
+        byPrefix.set(prefix, (byPrefix.get(prefix) ?? 0) + 1);
+    }
+    return [...byPrefix].map(([p, c]) => c > 1 ? `${c}x ${p}` : p).join(' + ');
 }
 
 /* ------------------------------------------------------------------ */
@@ -1244,4 +1488,76 @@ const COMPOSITION_METADATA: Record<SlideClassification, CompositionMeta> = {
 
 /** Export for use in AnalyzePptxTemplateTool narrative phase mapping. */
 export { COMPOSITION_METADATA };
+
+/* ------------------------------------------------------------------ */
+/*  Deterministic alias generation (Phase 2)                           */
+/* ------------------------------------------------------------------ */
+
+/** Alias entry mapping a semantic alias to a specific shape on a specific slide. */
+export interface AliasEntry {
+    slide: number;
+    shapeId: string;
+    originalName: string;
+}
+
+/**
+ * Generate deterministic, unique aliases for all replaceable shapes across
+ * all slide compositions. Aliases follow the pattern: slide_{N}_{type}_{index}
+ *
+ * This is the fallback when multimodal analysis is not available.
+ * Aliases are globally unique (slide number is part of the key).
+ */
+export function generateDeterministicAliases(
+    compositions: SlideComposition[],
+): Map<string, AliasEntry> {
+    const aliases = new Map<string, AliasEntry>();
+
+    for (const comp of compositions) {
+        const replaceable = comp.shapes.filter(s => s.isReplaceable);
+        if (replaceable.length === 0) continue;
+
+        const prefixCounts = new Map<string, number>();
+
+        for (const shape of replaceable) {
+            const prefix = deriveShapePrefix(shape);
+            const count = (prefixCounts.get(prefix) ?? 0) + 1;
+            prefixCounts.set(prefix, count);
+
+            const alias = `slide_${comp.slideNumber}_${prefix}_${count}`;
+            aliases.set(alias, {
+                slide: comp.slideNumber,
+                shapeId: shape.shapeId,
+                originalName: shape.shapeName,
+            });
+        }
+    }
+
+    return aliases;
+}
+
+/**
+ * Derive a semantic prefix for a shape based on its placeholder type and name.
+ * Used for deterministic alias generation.
+ */
+function deriveShapePrefix(shape: ShapeInfo): string {
+    // Placeholder type has highest priority
+    if (shape.placeholderType === 'ctrTitle' || shape.placeholderType === 'title') return 'title';
+    if (shape.placeholderType === 'subTitle') return 'subtitle';
+    if (shape.placeholderType === 'body') return 'body';
+    if (shape.placeholderType === 'pic') return 'image';
+
+    // Derive from shape name patterns (German and English)
+    const nameLower = shape.shapeName.toLowerCase();
+    if (/chevron|pfeil|f[uü]nfeck/.test(nameLower)) return 'chevron';
+    if (/textplatzhalter|textfeld/.test(nameLower)) return 'text';
+    if (/inhaltsplatzhalter/.test(nameLower)) return 'content';
+    if (/titel/.test(nameLower)) return 'title';
+    if (/untertitel/.test(nameLower)) return 'subtitle';
+    if (/bild|image|picture/.test(nameLower)) return 'image';
+    if (/rechteck|rect/.test(nameLower)) return 'rect';
+    if (/ellipse|kreis|circle/.test(nameLower)) return 'circle';
+    if (/textbox/.test(nameLower)) return 'textbox';
+
+    return 'shape';
+}
 
