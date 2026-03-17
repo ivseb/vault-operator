@@ -355,6 +355,15 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             const hasHtml = slides.some(s => s.html);
             console.debug(`[CreatePptxTool] Pipeline: ${hasTemplateSlides ? 'Template' : hasHtml ? 'HTML' : 'Legacy'}`);
 
+            // ── Tool-Level Enforcement: Gate + Validation for Template Pipeline ──
+            if (hasTemplateSlides) {
+                const gateResult = await this.enforceTemplateGate(templateFile, slides);
+                if (gateResult) {
+                    callbacks.pushToolResult(gateResult);
+                    return;
+                }
+            }
+
             // Guard: individual slides must not mix html and template_slide
             for (let i = 0; i < slides.length; i++) {
                 const s = slides[i];
@@ -452,6 +461,137 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('create_pptx', error);
         }
+    }
+
+    /* -------------------------------------------------------------- */
+    /*  Template Gate — enforces analyze_pptx_template prerequisite    */
+    /* -------------------------------------------------------------- */
+
+    /**
+     * Validates that the template has been analyzed and that slides conform
+     * to the composition schema. Returns an error string if validation fails,
+     * or undefined if everything is OK.
+     *
+     * This is the core of "Option B" enforcement: the LLM can ignore skill
+     * instructions, but it cannot bypass this tool-level gate.
+     */
+    private async enforceTemplateGate(
+        templateFile: string,
+        slides: SlideInput[],
+    ): Promise<string | undefined> {
+        const templateName = templateFile.split('/').pop()?.replace(/\.(pptx|potx)$/i, '') ?? '';
+        const templateSlug = templateName.toLowerCase().replace(/[_\s]+/g, '-');
+        const compositionsPath = `.obsilo/templates/${templateSlug}.compositions.json`;
+        const adapter = this.app.vault.adapter;
+
+        // Gate 1: compositions.json must exist (= analyze_pptx_template was run)
+        if (!await adapter.exists(compositionsPath)) {
+            return (
+                `**BLOCKED: Template not analyzed.**\n\n` +
+                `Before creating a presentation with \`${templateFile}\`, you MUST run:\n` +
+                `\`analyze_pptx_template\` with template_path="${templateFile}"\n\n` +
+                `This generates the compositions.json with shape mappings and design constraints. ` +
+                `Without it, the template pipeline cannot validate your content.\n\n` +
+                `Call \`analyze_pptx_template\` first, then retry \`create_pptx\`.`
+            );
+        }
+
+        // Load compositions for validation
+        let compositionsData: {
+            compositions: Record<string, {
+                slides: number[];
+                shapes: Record<string, Record<string, { max_chars?: number; zweck?: string }>>;
+            }>;
+        };
+        try {
+            const raw = await adapter.read(compositionsPath);
+            compositionsData = JSON.parse(raw);
+        } catch {
+            return (
+                `**BLOCKED: Invalid compositions.json.**\n\n` +
+                `The file \`${compositionsPath}\` exists but cannot be parsed. ` +
+                `Re-run \`analyze_pptx_template\` with template_path="${templateFile}" to regenerate it.`
+            );
+        }
+
+        // Build a set of valid template slide numbers from compositions
+        const validSlideNumbers = new Set<number>();
+        for (const comp of Object.values(compositionsData.compositions)) {
+            for (const num of comp.slides) validSlideNumbers.add(num);
+        }
+
+        // Gate 2: Validate each slide
+        const errors: string[] = [];
+        for (let i = 0; i < slides.length; i++) {
+            const s = slides[i];
+            if (!s.template_slide) continue;
+
+            // 2a: Valid slide number?
+            if (!validSlideNumbers.has(s.template_slide)) {
+                errors.push(
+                    `Slide ${i + 1}: template_slide=${s.template_slide} does not exist in template. ` +
+                    `Valid slides: ${[...validSlideNumbers].sort((a, b) => a - b).join(', ')}`,
+                );
+                continue;
+            }
+
+            // 2b: Find composition and expected shapes for this slide
+            const content = s.content ?? {};
+            const contentKeys = Object.keys(content);
+            for (const comp of Object.values(compositionsData.compositions)) {
+                if (!comp.slides.includes(s.template_slide)) continue;
+                const slideShapes = comp.shapes[String(s.template_slide)];
+                if (!slideShapes) break;
+
+                const expectedShapes = Object.keys(slideShapes);
+
+                // 2c: Missing shapes (unfilled = blank area on slide)
+                const missing = expectedShapes.filter(name => !contentKeys.includes(name));
+                if (missing.length > 0) {
+                    errors.push(
+                        `Slide ${i + 1} (template_slide=${s.template_slide}): ` +
+                        `${missing.length} shape(s) not filled: ${missing.map(n => `"${n}"`).join(', ')}. ` +
+                        `Unfilled shapes appear as blank areas. Provide content for ALL shapes.`,
+                    );
+                }
+
+                // 2d: Unknown content keys (typos or wrong shape names)
+                const unknown = contentKeys.filter(k => !expectedShapes.includes(k));
+                if (unknown.length > 0) {
+                    errors.push(
+                        `Slide ${i + 1} (template_slide=${s.template_slide}): ` +
+                        `Unknown shape name(s): ${unknown.map(n => `"${n}"`).join(', ')}. ` +
+                        `Valid shapes: ${expectedShapes.map(n => `"${n}"`).join(', ')}`,
+                    );
+                }
+
+                // 2e: max_chars violations
+                for (const [shapeName, value] of Object.entries(content)) {
+                    const shapeDef = slideShapes[shapeName];
+                    if (!shapeDef?.max_chars || !value) continue;
+                    if (value.length > shapeDef.max_chars) {
+                        errors.push(
+                            `Slide ${i + 1}, shape "${shapeName}": ` +
+                            `Text too long (${value.length} chars, max ${shapeDef.max_chars}). ` +
+                            `Shorten the text to fit the shape.`,
+                        );
+                    }
+                }
+
+                break; // Found the matching composition
+            }
+        }
+
+        if (errors.length > 0) {
+            return (
+                `**VALIDATION FAILED: ${errors.length} issue(s) found.**\n\n` +
+                `Use \`get_composition_details\` to see the correct shape names and constraints.\n\n` +
+                errors.map((e, i) => `${i + 1}. ${e}`).join('\n') +
+                `\n\nFix these issues and retry \`create_pptx\`.`
+            );
+        }
+
+        return undefined; // All checks passed
     }
 
     /* -------------------------------------------------------------- */

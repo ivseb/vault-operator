@@ -421,8 +421,9 @@ export class ModelConfigModal extends Modal {
         if (this.customBrowserRow) this.customBrowserRow.classList.toggle('agent-u-hidden', p !== 'custom' && p !== 'lmstudio');
         // Max Tokens slider always visible (not provider-specific)
         if (this.promptCachingRow) this.promptCachingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
-        if (this.thinkingRow) this.thinkingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
-        if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle('agent-u-hidden', p !== 'anthropic' || !this.formThinkingEnabled);
+        const supportsThinking = p === 'anthropic' || p === 'openrouter';
+        if (this.thinkingRow) this.thinkingRow.classList.toggle('agent-u-hidden', !supportsThinking);
+        if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle('agent-u-hidden', !supportsThinking || !this.formThinkingEnabled);
 
         // Quick Pick: use embedding suggestions or chat suggestions depending on mode
         const suggestions = this.forEmbedding

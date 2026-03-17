@@ -35,9 +35,9 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             name: 'analyze_pptx_template',
             description:
                 'Analyze a PPTX template to extract its design structure, brand DNA (colors, fonts), and slide compositions. ' +
-                'Generates a compact Template Skill (SKILL.md) and a detailed compositions.json file. ' +
-                'After running this tool, visually inspect the template PDF to enrich the compositions ' +
-                'with semantic meaning, usage rules, and text constraints.',
+                'Generates a Template Skill (SKILL.md) and a detailed compositions.json with semantic shape aliases. ' +
+                'Uses LibreOffice to render slides and Claude Vision for multimodal analysis. ' +
+                'THIS IS THE ONLY WAY to create template skills -- never use manage_skill for templates.',
             input_schema: {
                 type: 'object',
                 properties: {

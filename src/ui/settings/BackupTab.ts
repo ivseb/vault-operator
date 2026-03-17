@@ -130,8 +130,8 @@ function getCategories(): BackupCategory[] {
         {
             id: 'semantic-index',
             label: t('settings.backup.catSemanticIndex'),
-            root: 'vault',
-            dir: '.obsidian-agent/semantic-index',
+            root: 'global',
+            dir: 'semantic-index',
             recursive: false,
             description: t('settings.backup.catSemanticIndexDesc'),
         },
@@ -596,7 +596,7 @@ export class BackupTab {
     private sanitizeSettings(raw: Record<string, unknown>): Record<string, unknown> {
         const allowedKeys = new Set(Object.keys(DEFAULT_SETTINGS));
         // Internal flags that must never be imported
-        const blockedKeys = new Set(['_encrypted', '_globalStorageMigrated']);
+        const blockedKeys = new Set(['_encrypted', '_globalStorageMigrated', '_syncDirMigrated']);
 
         const result: Record<string, unknown> = {};
         let skippedCount = 0;

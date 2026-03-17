@@ -195,9 +195,30 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-        this.syncBridge = new SyncBridge(this.globalFs, this.app.vault, pluginDir);
+        const syncDir = '.obsilo-sync';
+        this.syncBridge = new SyncBridge(this.globalFs, this.app.vault, syncDir);
 
-        // Pull latest data from vault plugin dir (arriving via Obsidian Sync)
+        // One-time migration: pull sync data from old plugin-dir location to global storage,
+        // then push to new .obsilo-sync/ location BEFORE pullFromVault() runs.
+        // Critical: pushToVault() must populate .obsilo-sync/ first, otherwise
+        // pullFromVault() sees an empty .obsilo-sync/ and deletes all global data as orphans.
+        if (!this.settings._syncDirMigrated) {
+            await this.syncBridge.pullFromLegacyPluginDir(pluginDir).catch((e) =>
+                console.warn('[Plugin] SyncBridge plugin-dir migration failed (non-fatal):', e)
+            );
+            // Push global data to .obsilo-sync/ so pullFromVault() won't treat it as orphans
+            await this.syncBridge.pushToVault().catch((e) =>
+                console.warn('[Plugin] SyncBridge initial push to .obsilo-sync/ failed (non-fatal):', e)
+            );
+            // Clean up old sync data from plugin directory (frees ~600 MB)
+            await this.cleanupLegacyPluginDirData(pluginDir).catch((e) =>
+                console.warn('[Plugin] Legacy plugin-dir cleanup failed (non-fatal):', e)
+            );
+            this.settings._syncDirMigrated = true;
+            await this.saveData({ ...this.settings, _syncDirMigrated: true });
+        }
+
+        // Pull latest data from vault sync dir (arriving via Obsidian Sync)
         await this.syncBridge.pullFromVault().catch((e) =>
             console.warn('[Plugin] SyncBridge pull failed (non-fatal):', e)
         );
@@ -1056,6 +1077,67 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Fires on vault modify/create events — debounce prevents thrashing
      * while the user is actively typing in a note.
      */
+    /**
+     * One-time cleanup: remove old sync data from the plugin directory.
+     * Called after migration to .obsilo-sync/ to free ~600 MB from the vault.
+     * Preserves: skills/ (bundled), checkpoints/, dev-env/, main.js, manifest.json, etc.
+     */
+    private async cleanupLegacyPluginDirData(pluginDir: string): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const dirsToRemove = ['history', 'logs', 'recipes', 'episodes', 'patterns', 'rules', 'workflows', 'memory', 'semantic-index'];
+        const filesToRemove = ['pending-extractions.json'];
+
+        for (const dir of dirsToRemove) {
+            const dirPath = `${pluginDir}/${dir}`;
+            try {
+                if (await adapter.exists(dirPath)) {
+                    const listing = await adapter.list(dirPath);
+                    for (const f of listing.files) {
+                        await adapter.remove(f);
+                    }
+                    // Remove subdirectories recursively
+                    for (const sub of listing.folders) {
+                        const subListing = await adapter.list(sub);
+                        for (const sf of subListing.files) {
+                            await adapter.remove(sf);
+                        }
+                        await adapter.rmdir(sub, false).catch(() => {});
+                    }
+                    await adapter.rmdir(dirPath, false).catch(() => {});
+                    console.debug(`[Plugin] Cleaned up legacy ${dir}/ from plugin dir`);
+                }
+            } catch (e) {
+                console.warn(`[Plugin] Failed to clean up ${dirPath} (non-fatal):`, e);
+            }
+        }
+
+        for (const file of filesToRemove) {
+            const filePath = `${pluginDir}/${file}`;
+            try {
+                if (await adapter.exists(filePath)) {
+                    await adapter.remove(filePath);
+                }
+            } catch (e) {
+                console.warn(`[Plugin] Failed to clean up ${filePath} (non-fatal):`, e);
+            }
+        }
+
+        // Also clean up legacy vault-root semantic index (.obsidian-agent/semantic-index/)
+        const legacyIndexDir = '.obsidian-agent/semantic-index';
+        try {
+            if (await adapter.exists(legacyIndexDir)) {
+                const listing = await adapter.list(legacyIndexDir);
+                for (const f of listing.files) {
+                    await adapter.remove(f);
+                }
+                await adapter.rmdir(legacyIndexDir, false).catch(() => {});
+                console.debug('[Plugin] Cleaned up legacy .obsidian-agent/semantic-index/');
+            }
+        } catch (e) {
+            console.warn('[Plugin] Failed to clean up legacy semantic index (non-fatal):', e);
+        }
+    }
+
     private scheduleFileIndex(filePath: string): void {
         if (!this.semanticIndex?.isIndexed) return;
         if (this.settings.semanticExcludedFolders?.some((f) => filePath.startsWith(f + '/'))) return;

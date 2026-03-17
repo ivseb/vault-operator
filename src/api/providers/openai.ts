@@ -131,17 +131,34 @@ export class OpenAiProvider implements ApiHandler {
             temperature = 0.2;
         }
 
+        // OpenRouter extended thinking: when enabled for Anthropic models via OpenRouter,
+        // force temperature to 1 and pass reasoning parameter
+        const openRouterThinking = this.config.type === 'openrouter'
+            && (this.config.thinkingEnabled ?? false);
+        const budgetTokens = this.config.thinkingBudgetTokens ?? 10000;
+        if (openRouterThinking) {
+            temperature = 1;
+        }
+
         // Build request body
         const requestBody: OpenAI.ChatCompletionCreateParamsStreaming = {
             model: this.config.type !== 'azure' ? this.config.model : this.config.model,
             messages: openAiMessages as OpenAI.ChatCompletionMessageParam[],
             tools: openAiTools as OpenAI.ChatCompletionTool[] | undefined,
             temperature: temperature !== undefined ? Math.min(temperature, 2.0) : undefined,
-            max_tokens: this.config.type !== 'azure' ? (this.config.maxTokens ?? 8192) : undefined,
+            max_tokens: this.config.type !== 'azure'
+                ? (openRouterThinking
+                    ? Math.max(this.config.maxTokens ?? 16384, budgetTokens)
+                    : (this.config.maxTokens ?? 8192))
+                : undefined,
             stream: true,
             stream_options: (this.config.type === 'openai' || this.config.type === 'openrouter')
                 ? { include_usage: true }
                 : undefined,
+            // OpenRouter reasoning passthrough for Anthropic models
+            ...(openRouterThinking
+                ? { reasoning: { max_tokens: budgetTokens } } as Record<string, unknown>
+                : {}),
         };
 
         // Azure uses max_completion_tokens instead of max_tokens
@@ -179,6 +196,13 @@ export class OpenAiProvider implements ApiHandler {
             if (!choice) continue;
 
             const delta = choice.delta;
+
+            // OpenRouter reasoning content (extended thinking passthrough)
+            const reasoning = (delta as Record<string, unknown>)?.reasoning_content
+                ?? (delta as Record<string, unknown>)?.reasoning;
+            if (typeof reasoning === 'string' && reasoning) {
+                yield { type: 'thinking', text: reasoning } satisfies ApiStreamChunk;
+            }
 
             // Text content
             if (delta?.content) {

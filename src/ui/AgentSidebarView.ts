@@ -646,7 +646,12 @@ export class AgentSidebarView extends ItemView {
      *   3. Fallback: keyword + trigger matching if LLM unavailable/fails
      *   4. Load full content for matched skills, deduplicate by name
      */
-    private async buildSkillsSection(userMessage: string, allowedSkillNames?: string[]): Promise<string | undefined> {
+    /** Max number of skills injected into system prompt to prevent context overflow. */
+    private static readonly MAX_INJECTED_SKILLS = 5;
+    /** Max total chars of skill content injected into system prompt. */
+    private static readonly MAX_TOTAL_SKILL_CHARS = 40_000;
+
+    private async buildSkillsSection(userMessage: string, allowedSkillNames?: string[]): Promise<{ section: string; activeSkillNames: string[] } | undefined> {
         const skillsManager = this.plugin.skillsManager;
         if (!skillsManager) return undefined;
 
@@ -692,13 +697,21 @@ export class AgentSidebarView extends ItemView {
 
         if (matchedNames.size === 0) return undefined;
 
-        // 4. Load full content for matched skills, deduplicate by name
-        const parts: string[] = [];
-        const seen = new Set<string>();
-
+        // 4. Rank matched skills: bundled +20, user +10 (higher = injected first)
+        const ranked: { name: string; priority: number }[] = [];
         for (const name of matchedNames) {
-            if (seen.has(name)) continue;
-            seen.add(name);
+            const isBundled = bundledSkills.some(s => s.name === name);
+            ranked.push({ name, priority: isBundled ? 20 : 10 });
+        }
+        ranked.sort((a, b) => b.priority - a.priority);
+
+        // 5. Load full content for matched skills with injection cap
+        const parts: string[] = [];
+        const activeSkillNames: string[] = [];
+        let totalChars = 0;
+
+        for (const { name } of ranked) {
+            if (parts.length >= AgentSidebarView.MAX_INJECTED_SKILLS) break;
 
             // Try user skill first
             const userSkill = filteredUserSkills.find(s => s.name === name);
@@ -707,7 +720,10 @@ export class AgentSidebarView extends ItemView {
                     const raw = await skillsManager.readFile(userSkill.path);
                     let body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
                     if (body.length > 16000) body = body.slice(0, 16000) + '\n...(truncated)';
+                    if (totalChars + body.length > AgentSidebarView.MAX_TOTAL_SKILL_CHARS) break;
+                    totalChars += body.length;
                     parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(userSkill.description)}</description>\n    <instructions>${xmlEsc(body)}</instructions>\n  </skill>`);
+                    activeSkillNames.push(name);
                 } catch { /* skip unreadable */ }
                 continue;
             }
@@ -719,15 +735,25 @@ export class AgentSidebarView extends ItemView {
                     const body = selfLoader.getSkillBody(name);
                     if (body) {
                         const trimmed = body.length > 16000 ? body.slice(0, 16000) + '\n...(truncated)' : body;
+                        if (totalChars + trimmed.length > AgentSidebarView.MAX_TOTAL_SKILL_CHARS) break;
+                        totalChars += trimmed.length;
                         parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(bundled.description)}</description>\n    <instructions>${xmlEsc(trimmed)}</instructions>\n  </skill>`);
+                        activeSkillNames.push(name);
                     }
                 }
             }
         }
 
         if (parts.length === 0) return undefined;
-        console.debug(`[buildSkillsSection] Injecting ${parts.length} skill(s): ${[...seen].join(', ')}`);
-        return `<available_skills>\n${parts.join('\n')}\n</available_skills>`;
+        const skipped = ranked.length - parts.length;
+        if (skipped > 0) {
+            console.debug(`[buildSkillsSection] Capped: injected ${parts.length}, skipped ${skipped} lower-priority skills`);
+        }
+        console.debug(`[buildSkillsSection] Injecting ${parts.length} skill(s): ${activeSkillNames.join(', ')}`);
+        return {
+            section: `<available_skills>\n${parts.join('\n')}\n</available_skills>`,
+            activeSkillNames,
+        };
     }
 
     /**
@@ -1977,6 +2003,7 @@ export class AgentSidebarView extends ItemView {
         // Loading skills would trigger keyword matches (e.g. "Setup") causing unnecessary delay.
         const isOnboarding = !this.plugin.settings.onboarding.completed;
         let skillsSection: string | undefined;
+        let activeSkillNames: string[] = [];
         if (!isOnboarding) {
             const userMessageText = typeof messageToSend === 'string'
                 ? messageToSend
@@ -1984,7 +2011,11 @@ export class AgentSidebarView extends ItemView {
             const modeAllowed = this.plugin.settings.modeSkillAllowList?.[activeMode.slug];
             // empty/undefined = all allowed; non-empty = only those skill names
             const allowedSkillNames = modeAllowed && modeAllowed.length > 0 ? modeAllowed : undefined;
-            skillsSection = await this.buildSkillsSection(userMessageText, allowedSkillNames);
+            const skillResult = await this.buildSkillsSection(userMessageText, allowedSkillNames);
+            if (skillResult) {
+                skillsSection = skillResult.section;
+                activeSkillNames = skillResult.activeSkillNames;
+            }
         }
 
         // Apply forced workflow from tool picker (when message doesn't start with slash command)
@@ -2088,6 +2119,7 @@ export class AgentSidebarView extends ItemView {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir: this.app.vault.configDir,
+            activeSkillNames: activeSkillNames.length > 0 ? activeSkillNames : undefined,
             conversationId: this.activeConversationId ?? undefined,
         });
     }

@@ -81,6 +81,8 @@ export interface AgentTaskRunConfig {
     recipesSection?: string;
     selfAuthoredSkillsSection?: string;
     configDir?: string;
+    /** Names of active skills for power steering reminders */
+    activeSkillNames?: string[];
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
 }
@@ -162,6 +164,7 @@ export class AgentTask {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir,
+            activeSkillNames,
             conversationId,
         } = config;
         // Resolve mode to ModeConfig
@@ -366,9 +369,12 @@ export class AgentTask {
                     && iteration > 0
                     && iteration % this.powerSteeringFrequency === 0
                 ) {
+                    const skillReminder = activeSkillNames && activeSkillNames.length > 0
+                        ? `\n\nACTIVE SKILLS: ${activeSkillNames.join(', ')}. Follow their step-by-step workflows. Do not skip steps.`
+                        : '';
                     history.push({
                         role: 'user',
-                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`,
+                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}${skillReminder}\n\nContinue the task.`,
                     });
                 }
 

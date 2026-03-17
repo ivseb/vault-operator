@@ -8,178 +8,108 @@ requiredTools: [create_pptx, create_docx, create_xlsx, analyze_pptx_template, ge
 
 # Office Document Workflow
 
-Apply this workflow whenever creating professional Office documents (PPTX, DOCX, XLSX).
+Follow these 6 steps IN ORDER. Do NOT skip any step.
 
-## 1. Mandatory Workflow
+## Step 1: CONTEXT (mandatory -- ASK and STOP)
 
-Follow these steps IN ORDER for every document creation:
-
-### Step 1: CONTEXT
-Ask about:
+Ask the user:
 - **Goal**: What should the audience learn, decide, or do?
-- **Audience**: Who are they? What do they already know?
-- **Deck Mode** (presentations): Speaker deck (live, max 25 words/slide) or reading deck (self-explanatory, max 170 words/slide)?
-- **Time budget** (speaker decks): How many minutes? (~1 slide per minute)
-- **Material**: Does the user have data, documents, or notes to incorporate?
+- **Audience**: Who? What do they know?
+- **Deck mode** (presentations): Speaker [S] (max 25 words/slide) or Reading [R] (max 170 words/slide)?
+- **Time** (speaker decks): Minutes? (~1 slide/min)
+- **Material**: Existing data, documents, notes?
 
-Carry the deck mode (Speaker [S] / Reading [R]) into ALL subsequent design decisions. Apply [S] or [R] rules from presentation-design skill accordingly.
+STOP. Wait for answer before continuing.
 
-### Step 2: TEMPLATE
-Ask about template/theme. Send a regular text message (NOT ask_followup_question) and STOP your turn.
+## Step 2: TEMPLATE (mandatory -- ASK and STOP)
 
-For presentations:
-"Bevor ich die Praesentation erstelle: Welches Design soll ich verwenden? **Executive** (dunkel, serioes), **Modern** (hell, Blau/Orange), **Minimal** (Schwarz/Weiss). Falls du eine eigene Corporate-Vorlage nutzen moechtest, lade die .pptx-Datei in den Vault -- ich analysiere sie und erstelle einen Design-Skill daraus."
+Ask: "Welches Design? **Executive** (dunkel), **Modern** (hell, Blau/Orange), **Minimal** (Schwarz/Weiss). Eigene Corporate-Vorlage? Lade die .pptx in den Vault."
 
-NEVER skip this question. NEVER assume a template from memory.
+STOP. Wait for answer.
 
-User responds: "Executive"/"Modern"/"Minimal" -> lowercase as template parameter, proceed to Step 4.
-User mentions a corporate .pptx template -> proceed to Step 3.
+- "Executive" / "Modern" / "Minimal" -> template=lowercase, go to Step 4
+- Corporate .pptx mentioned -> go to Step 3
 
-### Step 3: TEMPLATE SKILL (Corporate Templates only)
+## Step 3: TEMPLATE SKILL (corporate .pptx only)
 
-#### A. Check for existing Template Skill
-Look in `<available_skills>` for a matching template skill. If found, skip to "C. Use the Template Skill".
+```
+Matching template skill in <available_skills>?
+YES -> use it, go to Step 4
+NO  -> call analyze_pptx_template(template_path)
+        This generates SKILL.md + compositions.json automatically.
+        NEVER use manage_skill to create template skills manually.
+        STOP. Wait for analysis to complete.
+```
 
-#### B. Guide the user through template analysis
+If multimodal analysis is deactivated: ask user to enable Visual Intelligence via update_settings, then re-run analyze_pptx_template.
 
-**B1. Locate the template**
-If the user already mentioned a .pptx path, use it. Otherwise ask:
-"Wo liegt die .pptx-Datei im Vault? (z.B. `Templates/MeineVorlage.pptx`)"
-STOP and wait.
+If analysis fails: report the error. Do NOT work around it.
 
-**B2. Run structural + multimodal analysis**
-Call `analyze_pptx_template` with the template path. The tool automatically extracts Brand-DNA, compositions, shape mappings, runs multimodal analysis if enabled, and generates SKILL.md + compositions.json.
+### Using the Template Skill
 
-**If multimodal analysis is deactivated**, ask the user to enable Visual Intelligence. If they agree, use `update_settings` to enable it, then re-run `analyze_pptx_template`.
+Before creating slides: call `get_composition_details` for each composition you plan to use.
 
-**B3. Visual analysis fallback**
-Only if multimodal analysis could not run. Use `render_presentation` to render slides, visually inspect them, then enrich `compositions.json` via `edit_file` with semantic meanings and constraints.
+Corporate rules:
+- Use `template_file` + `template_slide` + `content`
+- Content keys = shape names/aliases from get_composition_details
+- Respect max_chars and font_size_pt limits
 
-If Visual Intelligence is NOT available, offer LibreOffice installation or PDF export as alternatives.
+## Step 4: PLAN (mandatory -- share and STOP)
 
-**B4. Failure Recovery**
-If ANY analysis step fails: report the exact error to the user. NEVER manually create SKILL.md files for templates. NEVER work around a failed tool by recreating its output. Always use `analyze_pptx_template`.
+Share structure table for approval:
+- Corporate: # | Composition | Template Slide | Content Summary | Why
+- Default: # | Visual Pattern | Content Type | Narrative Function
 
-STOP and wait before proceeding.
+Planning rules:
+- Storytelling Framework from presentation-design skill FIRST
+- Max 30% text slides [S], 50% [R]. Rest = structured visual layouts
+- Never same slide type consecutively (Two-Slide-Buffer)
+- Decision Tree: numbers->KPI/chart, sequence->process, comparison->matrix
+- Design Reasoning per slide: "3 steps -> chevrons. Emotion: clarity/momentum"
 
-#### C. Use the Template Skill
-The Template Skill provides Brand-DNA, Compositions (semantic meaning, usage rules, capacity limits), and Shape-Mappings (via `get_composition_details`).
+STOP. Wait for approval.
 
-**Before creating slides:** Call `get_composition_details` for compositions you plan to use. This returns shape names, text capacities, shape types, fill colors, and constraints.
+## Step 5: CREATE
 
-**Corporate template rules:**
-- Use `template_file` + `template_slide` + `content`. NEVER use `html`.
-- Think in **compositions** (semantic meaning), not slide numbers
-- Content keys must use shape names/aliases from `get_composition_details`
-- Respect capacity limits (max_chars, font_size_pt per shape)
+### Content Rules (corporate templates)
+1. **Fill EVERY shape** -- unfilled shapes appear blank
+2. **Transform content** -- bullets max 8 words [S], full sentences [R]. Never copy verbatim
+3. **Match composition to content** -- classify first, then find layout
+4. **Never invent data** -- all numbers from source material
+5. **Reload get_composition_details** when switching template slides
+6. **Customize footer_text** -- never leave template defaults
+7. **Image placeholders** -- ask user for images OR use text-only composition
+8. **Color accents** -- place most important content at accent position
 
-### Step 4: PLAN
-
-**Resolve ambiguities first.** Send a text message and STOP when:
-- Source material is incomplete, contradictory, or unclear
-- Multiple compositions could work equally well (present 2-3 options)
-- Content must be heavily condensed and you are unsure what to cut
-- Numbers or data lack context (units, time period, baseline)
-
-Draft the document structure and share for approval:
-- **Corporate template**: Table with # | Composition | Template Slide # | Action Title | Content Summary | Why This Composition
-- **Default themes**: Table with # | Visual Pattern | Action Title | Content Type | Narrative Function
-- Documents: Outline with headings and sections
-- Spreadsheets: Column definitions and data structure
-
-**Planning rules (presentations):**
-- Choose a Storytelling Framework from presentation-design skill FIRST
-- Max 30% text slides [S], max 50% [R]. Rest MUST use structured visual layouts
-- Never same slide type consecutively. Apply Two-Slide-Buffer Rule
-- Apply Visualization Decision Tree: numbers -> KPI/chart, sequence -> process, comparison -> matrix
-- Templates are a design vocabulary, not a rigid script. Vary layouts: alternate data-heavy with visual-light, analytical with emotional
-- For EVERY slide, document Design Reasoning + target emotion:
-  - BAD: "Passt zum Inhalt"
-  - GOOD: "3 sequential steps -> process chevrons (Comp: chevron-kette, Slide 64). Emotion: clarity/momentum"
-
-### Step 5: CREATE
-
-#### 5a: Content Transformation (corporate templates -- MANDATORY)
-
-Before calling create_pptx, transform source content into slide-ready content. NEVER copy source text verbatim.
-
-**Rule 1: Fill EVERY shape.**
-`get_composition_details` lists ALL shapes. Your `content` must include EVERY shape. Unfilled shapes are CLEARED and appear blank.
-
-**Rule 2: Transform, don't copy.**
-- Paragraph -> 3-5 bullets (max 8 words each [S], full sentences allowed [R])
-- Facts/numbers -> KPI cards or table
-- Steps -> chevron labels (1-3 words) + descriptions
-- Comparison -> two-column with parallel structure
-
-**Rule 3: Match composition to content, not content to composition.**
-Classify content first (Decision Tree), then find matching composition.
-
-**Rule 4: No chart slides without matching data.**
-Embedded charts show static template data. Only use when content matches the chart type.
-
-**Rule 5: NEVER invent data.**
-All numbers, percentages, dates MUST come from source material. If a shape needs a number and source has none, use qualitative text or different composition.
-
-**Rule 6: Reload composition details when switching template slides.**
-Each composition has different shape names. Switching without reloading = empty slides.
-
-**Rule 7: Design Reasoning for EVERY slide.**
-Apply Visualization Decision Tree + ask "What should the audience FEEL?" and "Does this repeat a recent layout?"
-
-**Rule 8: Adapt all footers and headers.**
-Template footers (e.g. "Folienbibliothek | Stand November 2025") are PLACEHOLDERS. Use the `footer_text` parameter in create_pptx. Replace with: presentation title, author/company, actual date. NEVER leave template default footers.
-
-**Rule 9: Image decision -- ask or avoid.**
-If a composition has image placeholders (`shape_type: image` in composition details): ASK the user for relevant images OR choose a text-only composition. NEVER silently use template placeholder images.
-
-**Rule 10: Color accents mark the focal point.**
-If a composition has colored accent elements (`fill_color` in composition details), place the MOST IMPORTANT content (result, key finding, climax) at the accent position. NOT random content.
-
-#### 5b: Pre-Flight Gate
-Run the Pre-Flight Self-Check from presentation-design skill (Section O) before calling create_pptx. All 10 items must pass. Fix failures first.
-
-#### 5c: Choose pipeline and generate
-
-**Corporate template -- two modes:**
-
-- **Template mode** (`template_slide` + `content`): Pixel-perfect cloning. Use for simple text replacement where the template composition matches content exactly (title slides, section dividers, straightforward content).
-
-- **HTML mode** (`html` + `template_file` for reference): Full creative freedom. PREFERRED when you need to design -- move elements, emphasize with color, vary layouts, create charts, build custom visualizations. Use Brand-DNA from `get_composition_details` (colors, fonts, canvas size) to stay on-brand. Think like a designer who knows the brand guidelines, not a machine copying coordinates. Use template compositions as **inspiration for layout patterns**, not pixel-perfect blueprints. Deko elements (logo, accent bars) are auto-injected by the pipeline -- do NOT place them manually in HTML.
+### Pipeline Selection
 
 | Slide Type | Mode | Why |
 |---|---|---|
-| Title, section divider | Template | Simple text, exact branding |
-| Content fitting template shapes | Template | Fast, pixel-perfect |
-| KPI dashboards, process flows, comparisons | HTML | Creative layout, color semantics |
-| Charts, data visualizations | HTML | Native editable charts |
-| Anything needing design creativity | HTML | Full control |
+| Title, section divider | template_slide + content | Exact branding |
+| Content fitting template shapes | template_slide + content | Pixel-perfect |
+| KPI, process, comparison, chart | html + template_file | Creative layout |
+| Default themes (no template) | html | Full control |
 
-- **Default themes:** Call create_pptx with slides using the `html` field.
+Deko elements (logo, accent bars) are auto-injected in HTML mode -- do NOT place manually.
 
-### Step 6: QUALITY CHECK (if Visual Intelligence enabled)
-1. Call `check_presentation_quality` with the created PPTX
-2. **If "pass":** Inform user
-3. **If "needs_revision":** Apply fixes, re-create, re-check. Max 2 rounds.
-4. **If "critical":** Inform user, suggest alternatives
-5. **Feedback Loop**: Update `compositions.json` with learned constraints (corrected max_chars, line break behavior, font sizes)
+### Pre-Flight
+Run Section O self-check from presentation-design skill before calling create_pptx.
 
-**Fallback** (without Visual Intelligence): Call `render_presentation` for manual inspection.
+## Step 6: QUALITY CHECK
 
-## 2. Anti-Patterns (NEVER do these)
+If Visual Intelligence enabled: call check_presentation_quality.
+- "pass" -> inform user
+- "needs_revision" -> fix, recreate, recheck (max 2 rounds)
+- Fallback: call render_presentation for manual inspection
 
-- Title-only slides (every slide needs substantive content)
-- Wall of text (>5 bullets or >75 words [S], >170 words [R])
-- Generic titles ("Ueberblick", "Zusammenfassung" without assertion)
-- Same visual pattern on consecutive slides
-- Unfilled shapes (EVERY shape MUST have content)
-- Copy-pasted source text (ALWAYS transform)
-- Chart slides with wrong content type
-- Hallucinated numbers/data (EVERY data point traceable to source)
-- Template placeholder images used without asking
-- Template default footers left unchanged
-- Color accents on random content instead of focal point
+## Anti-Patterns (NEVER)
 
-## 3. After Creation
+- Title-only slides / wall of text (>5 bullets [S], >170 words [R])
+- Same visual pattern consecutively
+- Unfilled shapes / copy-pasted source text / hallucinated data
+- Template placeholder images without asking / default footers unchanged
+- Using manage_skill for template skills (always use analyze_pptx_template)
 
-Offer matching DOCX handout (for presentations). Ask if adjustments are needed.
+## After Creation
+
+Offer DOCX handout (for presentations). Ask if adjustments needed.

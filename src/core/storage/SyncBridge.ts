@@ -2,10 +2,10 @@
  * SyncBridge
  *
  * Bidirectional sync between global storage (~/.obsidian-agent/) and
- * the vault's plugin directory (.obsidian/plugins/obsilo-agent/).
+ * the vault sync directory (.obsilo-sync/).
  *
  * Purpose: Services read/write exclusively to global storage (via
- * GlobalFileService). The SyncBridge keeps the plugin directory in sync
+ * GlobalFileService). The SyncBridge keeps the vault sync directory in sync
  * so that Obsidian Sync can transport changes between devices.
  *
  * Lifecycle:
@@ -121,7 +121,38 @@ export class SyncBridge {
     }
 
     /**
-     * Push changed global files back to vault plugin dir.
+     * One-time migration: pull sync data from the legacy plugin directory
+     * (.obsidian/plugins/obsilo-agent/{category}/) into global storage.
+     * From there, pushToVault() copies it to the new .obsilo-sync/ location.
+     */
+    async pullFromLegacyPluginDir(legacyPluginDir: string): Promise<void> {
+        for (const cat of SYNC_CATEGORIES) {
+            try {
+                await this.syncDirectory(
+                    `${legacyPluginDir}/${cat.vaultDir}`,
+                    cat.globalDir,
+                    'vault-to-global',
+                    cat.recursive,
+                );
+            } catch (e) {
+                console.warn(`[SyncBridge] legacy plugin-dir pull ${cat.globalDir} failed (non-fatal):`, e);
+            }
+        }
+        for (const entry of SYNC_FILES) {
+            try {
+                await this.syncSingleFile(
+                    `${legacyPluginDir}/${entry.vaultPath}`,
+                    entry.globalPath,
+                    'vault-to-global',
+                );
+            } catch (e) {
+                console.warn(`[SyncBridge] legacy plugin-dir pull file failed (non-fatal):`, e);
+            }
+        }
+    }
+
+    /**
+     * Push changed global files back to vault sync dir.
      * Called on save and plugin unload so Obsidian Sync can pick up changes.
      */
     async pushToVault(): Promise<void> {

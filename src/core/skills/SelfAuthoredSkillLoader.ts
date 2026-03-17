@@ -50,6 +50,8 @@ export interface SelfAuthoredSkill {
 export class SelfAuthoredSkillLoader {
     private skills = new Map<string, SelfAuthoredSkill>();
     private readonly skillsDir: string;
+    /** Vault sync directory for user/learned skills (.obsilo-sync/skills/) */
+    private readonly syncSkillsDir: string;
     private esbuildManager: EsbuildWasmManager | null;
     private sandboxExecutor: ISandboxExecutor | null;
     private toolRegistry: ToolRegistry | null;
@@ -65,6 +67,7 @@ export class SelfAuthoredSkillLoader {
         toolRegistry?: ToolRegistry | null,
     ) {
         this.skillsDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}/skills`;
+        this.syncSkillsDir = '.obsilo-sync/skills';
         this.esbuildManager = esbuildManager ?? null;
         this.sandboxExecutor = sandboxExecutor ?? null;
         this.toolRegistry = toolRegistry ?? null;
@@ -85,41 +88,17 @@ export class SelfAuthoredSkillLoader {
     }
 
     /**
-     * Scan the skills directory and load all SKILL.md files.
+     * Scan skills directories and load all SKILL.md files.
+     * Bundled skills come from the plugin dir, user/learned skills from .obsilo-sync/.
      * For skills with code modules, loads cached compiled JS and registers tools.
      */
     async loadAll(): Promise<void> {
         this.skills.clear();
 
-        // Use vault.adapter instead of getAbstractFileByPath for .obsidian directory
-        const adapter = this.plugin.app.vault.adapter;
-        const dirExists = await adapter.exists(this.skillsDir);
-        if (!dirExists) {
-            console.debug(`[SelfAuthoredSkillLoader] Skills directory not found: ${this.skillsDir}`);
-            return;
-        }
-
-        try {
-            const entries = await adapter.list(this.skillsDir);
-
-            // Scan each subfolder for SKILL.md
-            for (const subfolderPath of entries.folders) {
-                const skillPath = `${subfolderPath}/SKILL.md`;
-                const skillExists = await adapter.exists(skillPath);
-
-                if (skillExists) {
-                    // Create a TFile-like object for loadSkillFile compatibility
-                    const content = await adapter.read(skillPath);
-                    const parsed = this.parseSkillMd(content, skillPath);
-                    if (parsed) {
-                        this.skills.set(parsed.name, parsed);
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn(`[SelfAuthoredSkillLoader] Failed to scan skills directory:`, e);
-            return;
-        }
+        // 1. Bundled skills from plugin dir
+        await this.scanSkillsFrom(this.skillsDir);
+        // 2. User/learned skills from vault sync dir
+        await this.scanSkillsFrom(this.syncSkillsDir);
 
         // After all skills are loaded, load cached code modules and register tools
         for (const skill of this.skills.values()) {
@@ -130,6 +109,31 @@ export class SelfAuthoredSkillLoader {
         }
 
         console.debug(`[SelfAuthoredSkillLoader] Loaded ${this.skills.size} skill(s)`);
+    }
+
+    /**
+     * Scan a single skills directory for SKILL.md files in subfolders.
+     */
+    private async scanSkillsFrom(dir: string): Promise<void> {
+        const adapter = this.plugin.app.vault.adapter;
+        const dirExists = await adapter.exists(dir);
+        if (!dirExists) return;
+
+        try {
+            const entries = await adapter.list(dir);
+            for (const subfolderPath of entries.folders) {
+                const skillPath = `${subfolderPath}/SKILL.md`;
+                if (await adapter.exists(skillPath)) {
+                    const content = await adapter.read(skillPath);
+                    const parsed = this.parseSkillMd(content, skillPath);
+                    if (parsed) {
+                        this.skills.set(parsed.name, parsed);
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${dir}:`, e);
+        }
     }
 
     /**
@@ -243,10 +247,11 @@ export class SelfAuthoredSkillLoader {
     }
 
     /**
-     * Get the skills directory path.
+     * Get the skills directory path for new user/learned skills.
+     * Returns .obsilo-sync/skills/ so new skills are synced via Obsidian Sync.
      */
     getSkillsDir(): string {
-        return this.skillsDir;
+        return this.syncSkillsDir;
     }
 
     // -----------------------------------------------------------------------
@@ -697,11 +702,12 @@ export class SelfAuthoredSkillLoader {
     }
 
     private isSkillFile(file: TFile): boolean {
-        return file.path.startsWith(this.skillsDir) && file.name === 'SKILL.md';
+        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(this.syncSkillsDir))
+            && file.name === 'SKILL.md';
     }
 
     private isCodeFile(file: TFile): boolean {
-        return file.path.startsWith(this.skillsDir)
+        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(this.syncSkillsDir))
             && file.extension === 'ts'
             && file.path.includes('/code/');
     }

@@ -238,6 +238,43 @@ async function collectStreamResponse(
     for await (const chunk of stream) {
         if (chunk.type === 'text') text += chunk.text;
     }
+    return repairMojibake(text);
+}
+
+/**
+ * Repair UTF-8 bytes misinterpreted as Latin-1 (Mojibake).
+ *
+ * In Electron, SSE streaming responses may sometimes be decoded with Latin-1
+ * instead of UTF-8 when the Content-Type header lacks an explicit charset.
+ * This produces characteristic patterns like "Ã¤" instead of "ä".
+ *
+ * Detection: check for the Ã-prefix pattern that marks multi-byte UTF-8
+ * sequences read as Latin-1. If found, re-encode the string as Latin-1 bytes
+ * and decode as UTF-8.
+ */
+function repairMojibake(text: string): string {
+    // Quick check: if no Latin-1 artefacts present, return as-is
+    // Ã (U+00C3) followed by a byte in 0x80-0xBF range is the telltale sign
+    if (!/\xC3[\x80-\xBF]/.test(text)) return text;
+
+    try {
+        // Re-encode as Latin-1 bytes, then decode as UTF-8
+        const bytes = new Uint8Array(text.length);
+        for (let i = 0; i < text.length; i++) {
+            const code = text.charCodeAt(i);
+            // Only works if all chars are in 0x00-0xFF range (Latin-1 subset)
+            if (code > 0xFF) return text; // Contains non-Latin-1 chars, abort
+            bytes[i] = code;
+        }
+        const repaired = new TextDecoder('utf-8').decode(bytes);
+        // Sanity check: repaired text should be shorter (multi-byte → single char)
+        if (repaired.length < text.length) {
+            console.debug('[MultimodalAnalyzer] Repaired Mojibake encoding in API response');
+            return repaired;
+        }
+    } catch {
+        // Decoding failed, return original
+    }
     return text;
 }
 

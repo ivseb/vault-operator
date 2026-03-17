@@ -483,7 +483,7 @@ export interface ObsidianAgentSettings {
     semanticBatchSize: number;
     semanticAutoIndex: 'startup' | 'mode-switch' | 'never';
     semanticExcludedFolders: string[];
-    semanticStorageLocation: 'obsidian-sync' | 'local';
+    semanticStorageLocation: 'obsidian-sync' | 'local' | 'global';
     semanticIndexPdfs: boolean;
     /** Chunk size in characters. Changing this invalidates and rebuilds the index. */
     semanticChunkSize: number;
@@ -560,6 +560,8 @@ export interface ObsidianAgentSettings {
     _encrypted?: boolean;
     /** Whether data has been migrated to global storage (~/.obsidian-agent/) — ADR-020 */
     _globalStorageMigrated?: boolean;
+    /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
+    _syncDirMigrated?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
@@ -715,7 +717,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticBatchSize: 20,
     semanticAutoIndex: 'never',
     semanticExcludedFolders: [],
-    semanticStorageLocation: 'obsidian-sync',
+    semanticStorageLocation: 'global',
     semanticIndexPdfs: false,
     semanticChunkSize: 2000,
     hydeEnabled: false,
