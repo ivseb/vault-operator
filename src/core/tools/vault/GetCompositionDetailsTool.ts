@@ -16,6 +16,8 @@ import type ObsidianAgentPlugin from '../../../main';
 interface ShapeDetail {
     zweck: string;
     shape_id?: string;
+    shape_type?: 'image' | 'text';
+    fill_color?: string;
     max_chars?: number;
     min_chars?: number;
     font_size_pt?: number;
@@ -26,6 +28,8 @@ interface ShapeDetail {
 /** Composition entry in compositions.json */
 interface CompositionEntry {
     name: string;
+    classification?: string;
+    narrative_phase?: string;
     slides: number[];
     bedeutung?: string;
     einsetzen_wenn?: string;
@@ -58,6 +62,11 @@ interface RepeatableGroupInfo {
 interface CompositionsFile {
     schema_version?: number;
     template: string;
+    brand_dna?: {
+        colors: Record<string, string>;
+        fonts: { major: string; minor: string };
+        slide_size_px: { w: number; h: number };
+    };
     alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
 }
@@ -186,6 +195,14 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             // Build response
             let output = `## Composition Details (${template})\n\n`;
 
+            // Show BrandDNA for HTML mode reference
+            if (data.brand_dna) {
+                output += `### Brand-DNA\n`;
+                output += `Fonts: ${data.brand_dna.fonts.major} (headings) / ${data.brand_dna.fonts.minor} (body)\n`;
+                output += `Canvas: ${data.brand_dna.slide_size_px.w}x${data.brand_dna.slide_size_px.h}px\n`;
+                output += `Colors: ${Object.entries(data.brand_dna.colors).map(([k, v]) => `${k}=#${v}`).join(', ')}\n\n`;
+            }
+
             if (results.length > 0) {
                 output += results.join('\n\n---\n\n');
             }
@@ -208,6 +225,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         lines.push(`### ${comp.name} (ID: ${id})`);
         lines.push(`**Slides:** ${comp.slides.join(', ')}`);
 
+        if (comp.narrative_phase && comp.narrative_phase !== 'any') lines.push(`**Narrative Phase:** ${comp.narrative_phase}`);
         if (comp.bedeutung) lines.push(`**Bedeutung:** ${comp.bedeutung}`);
         if (comp.einsetzen_wenn) lines.push(`**Einsetzen wenn:** ${comp.einsetzen_wenn}`);
         if (comp.nicht_einsetzen_wenn) lines.push(`**Nicht einsetzen wenn:** ${comp.nicht_einsetzen_wenn}`);
@@ -223,12 +241,15 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             lines.push('content:');
             for (const [shapeName, detail] of Object.entries(shapes)) {
                 const constraints: string[] = [];
+                if (detail.shape_type === 'image') constraints.push('[IMAGE]');
                 if (detail.zweck) constraints.push(detail.zweck);
+                if (detail.fill_color) constraints.push(`fill: ${detail.fill_color}`);
                 if (detail.max_chars) constraints.push(`max ${detail.max_chars} chars`);
                 if (detail.font_size_pt) constraints.push(`${detail.font_size_pt}pt`);
                 if (detail.width_cm) constraints.push(`${detail.width_cm}cm wide`);
                 const constraintStr = constraints.length > 0 ? `  # ${constraints.join(', ')}` : '';
-                lines.push(`  "${shapeName}": "YOUR TEXT HERE"${constraintStr}`);
+                const placeholder = detail.shape_type === 'image' ? 'IMAGE PLACEHOLDER -- ask user or choose text-only composition' : 'YOUR TEXT HERE';
+                lines.push(`  "${shapeName}": "${placeholder}"${constraintStr}`);
                 if (detail.notes) lines.push(`    # ${detail.notes}`);
             }
             lines.push('```');

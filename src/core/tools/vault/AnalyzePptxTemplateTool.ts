@@ -411,8 +411,10 @@ function generateSkillMd(
     lines.push('');
     lines.push('### Critical Rules');
     lines.push(`- Template file: \`${templatePath}\``);
-    lines.push('- Use `template_file` + `template_slide` + `content` (NEVER use `html` field)');
-    lines.push('- **Fill EVERY shape**: When `get_composition_details` lists N shapes, your `content` object MUST have N keys. Unfilled shapes are CLEARED by the cloner and appear as blank empty areas.');
+    lines.push('- **Template mode** (`template_slide` + `content`): For text replacement in existing shapes. Pixel-perfect corporate design.');
+    lines.push('- **HTML mode** (`html` + `template_file`): For creative layouts with Brand-DNA colors/fonts. Deko elements (logo, accent bars) are auto-injected -- do NOT place them manually.');
+    lines.push('- Choose mode per slide: title/section dividers -> Template. KPI/charts/creative -> HTML.');
+    lines.push('- **Fill EVERY shape** (Template mode): When `get_composition_details` lists N shapes, your `content` object MUST have N keys. Unfilled shapes are CLEARED by the cloner and appear as blank empty areas.');
     lines.push('- **Transform content**: NEVER copy source text verbatim. Restructure: paragraphs -> bullets (max 8 words), numbers -> KPIs, sequences -> process labels (1-3 words per step).');
     lines.push('- **Action titles**: Every title is an ASSERTION ("17% faster through automation"), not a topic ("Technical Solution").');
     lines.push('- Shape names in `content` must match exactly (case-sensitive) from `get_composition_details`');
@@ -440,6 +442,21 @@ function generateSkillMd(
 interface CompositionsFile {
     schema_version: number;
     template: string;
+    /** Brand colors, fonts, slide dimensions, and decorative elements for HTML generation */
+    brand_dna?: {
+        colors: Record<string, string>;
+        fonts: { major: string; minor: string };
+        slide_size_px: { w: number; h: number };
+        slide_decorations?: Array<{
+            id: string;
+            type: 'image' | 'shape';
+            position: { x: number; y: number; w: number; h: number };
+            shape_name?: string;
+            fill_color?: string;
+            rotation?: number;
+            image_data?: string;
+        }>;
+    };
     /** Global alias-to-shape mapping. Each alias is unique across the template. */
     alias_map: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
@@ -448,6 +465,7 @@ interface CompositionsFile {
 interface CompositionEntry {
     name: string;
     classification: string;
+    narrative_phase: string;
     slides: number[];
     bedeutung: string;
     einsetzen_wenn: string;
@@ -479,6 +497,8 @@ interface RepeatableGroupEntry {
 interface ShapeDetailEntry {
     zweck: string;
     shape_id: string;
+    shape_type?: 'image' | 'text';
+    fill_color?: string;
     max_chars?: number;
     font_size_pt?: number;
 }
@@ -517,9 +537,30 @@ function generateCompositionsJson(
         };
     }
 
+    // Convert EMU to px for canvas-relative positioning
+    const EMU_TO_PX = 96 / 914400;
     const result: CompositionsFile = {
-        schema_version: 2,
+        schema_version: 3,
         template: templateSlug,
+        brand_dna: {
+            colors: analysis.brandDNA.colors,
+            fonts: analysis.brandDNA.fonts,
+            slide_size_px: {
+                w: Math.round(analysis.brandDNA.slideSize.cx * EMU_TO_PX),
+                h: Math.round(analysis.brandDNA.slideSize.cy * EMU_TO_PX),
+            },
+            ...(analysis.dekoElements.length > 0 ? {
+                slide_decorations: analysis.dekoElements.map(d => ({
+                    id: d.id,
+                    type: d.type,
+                    position: d.position,
+                    ...(d.shapeName ? { shape_name: d.shapeName } : {}),
+                    ...(d.fillColor ? { fill_color: d.fillColor } : {}),
+                    ...(d.rotation ? { rotation: d.rotation } : {}),
+                    ...(d.imageData ? { image_data: d.imageData } : {}),
+                })),
+            } : {}),
+        },
         alias_map: aliasMapJson,
         compositions: {},
     };
@@ -552,6 +593,8 @@ function generateCompositionsJson(
                 const detail: ShapeDetailEntry = {
                     zweck: multimodalPurpose || shape.placeholderType || shape.semanticId,
                     shape_id: shape.shapeId,
+                    shape_type: shape.placeholderType === 'pic' ? 'image' : 'text',
+                    ...(shape.fillColor ? { fill_color: shape.fillColor } : {}),
                 };
                 if (shape.textCapacity) {
                     detail.max_chars = shape.textCapacity.maxChars;
@@ -608,9 +651,12 @@ function generateCompositionsJson(
         const firstSlideStr = String(group.slideNumbers[0]);
         const multiMeta = multimodalResult?.compositionMeta.get(firstSlideStr);
 
+        const narrativePhase = COMPOSITION_METADATA[group.classification as SlideClassification]?.narrativePhase ?? 'any';
+
         result.compositions[compId] = {
             name: group.name,
             classification: group.classification,
+            narrative_phase: narrativePhase,
             slides: group.slideNumbers,
             bedeutung: multiMeta?.bedeutung ?? group.meaning,
             einsetzen_wenn: multiMeta?.einsetzen_wenn ?? group.useWhen,

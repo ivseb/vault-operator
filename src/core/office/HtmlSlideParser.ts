@@ -209,30 +209,32 @@ function renderShape(
     slide.addShape(shapeType, options as PptxGenJS.ShapeProps);
 }
 
+/** CSS-friendly aliases for common shape names */
+const SHAPE_ALIASES: Record<string, string> = {
+    circle: 'ellipse',
+    arrow: 'rightArrow',
+    'round-rect': 'roundRect',
+    'right-arrow': 'rightArrow',
+    'left-arrow': 'leftArrow',
+    'up-arrow': 'upArrow',
+    'down-arrow': 'downArrow',
+    'bent-arrow': 'bentArrow',
+    star: 'star5',
+};
+
 function resolveShapeType(el: HTMLElement, pptx: PptxGenJS): PptxGenJS.SHAPE_NAME {
     const shapeHint = el.dataset.shape ?? '';
-    switch (shapeHint) {
-        case 'ellipse':
-        case 'circle':
-            return pptx.ShapeType.ellipse;
-        case 'triangle':
-            return pptx.ShapeType.triangle;
-        case 'line':
-            return pptx.ShapeType.line;
-        case 'arrow':
-        case 'rightArrow':
-            return pptx.ShapeType.rightArrow;
-        case 'chevron':
-            return pptx.ShapeType.chevron;
-        case 'roundRect':
-            return pptx.ShapeType.roundRect;
-        default: {
-            // Auto-detect: if border-radius is set, use roundRect
-            const br = parsePx(el.style.borderRadius);
-            if (br > 0) return pptx.ShapeType.roundRect;
-            return pptx.ShapeType.rect;
-        }
+    if (!shapeHint) {
+        const br = parsePx(el.style.borderRadius);
+        return br > 0 ? pptx.ShapeType.roundRect : pptx.ShapeType.rect;
     }
+
+    const resolved = SHAPE_ALIASES[shapeHint] ?? shapeHint;
+    const shapeType = (pptx.ShapeType as Record<string, PptxGenJS.SHAPE_NAME>)[resolved];
+    if (shapeType) return shapeType;
+
+    console.debug(`[HtmlSlideParser] Unknown data-shape="${shapeHint}", falling back to rect`);
+    return pptx.ShapeType.rect;
 }
 
 /* ------------------------------------------------------------------ */

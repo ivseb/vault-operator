@@ -129,9 +129,11 @@ export function escapeXml(text: string): string {
         .replace(/'/g, '&apos;');
 }
 
-/** Decode XML entities back to plain text */
+/** Decode XML entities back to plain text (including numeric character references) */
 export function decodeXmlEntities(text: string): string {
     return text
+        .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+        .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')

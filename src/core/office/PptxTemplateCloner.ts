@@ -18,7 +18,7 @@
 import JSZip from 'jszip';
 import {
     DEFAULT_LANG, DEFAULT_RPR,
-    findClosingTag, escapeXml, escapeRegex,
+    findClosingTag, escapeXml, decodeXmlEntities, escapeRegex,
     extractAllParagraphFormats, extractBodyProperties,
     parseShapeName, findMaxShapeId, extractSpBlockByName, extractSpBlockById,
     type ParagraphFormat,
@@ -86,6 +86,8 @@ export interface SlideDiagnostic {
 export interface CloneOptions {
     /** Repeatable groups per template slide number for shape adaptation. */
     repeatableGroups?: Map<number, RepeatableGroup[]>;
+    /** Footer text to apply on all cloned slides (replaces template default footer). */
+    footerText?: string;
 }
 
 /**
@@ -253,6 +255,11 @@ export async function cloneFromTemplate(
             );
         }
 
+        // Replace footer text if provided (applies to all slides)
+        if (options?.footerText) {
+            await replaceFooterText(zip, dstNum, options.footerText);
+        }
+
         // Replace notes if provided
         if (sel.notes !== undefined && notesFileNum) {
             await replaceNotesContent(zip, notesFileNum, sel.notes);
@@ -265,6 +272,12 @@ export async function cloneFromTemplate(
             unmatchedKeys,
             shapeTexts,
         });
+    }
+
+    // ── Step 3.4b: Replace footer in Slide Layouts and Masters ─────
+    // Footers inherited from layouts/masters are not on slide XML.
+    if (options?.footerText) {
+        await replaceFooterInLayoutsAndMasters(zip, options.footerText);
     }
 
     // ── Step 3.5: Remove original template slides from ZIP ──────────
@@ -1008,6 +1021,23 @@ function replaceTextInSlide(
         };
     }
 
+    // Strategy 1b: Exact <a:t> match with decoded XML entities.
+    // Handles cases where PowerPoint stored text as &#xNN; numeric character references.
+    {
+        const atPattern = /<a:t[^>]*>([\s\S]*?)<\/a:t>/g;
+        let atMatch: RegExpExecArray | null;
+        let s1bXml = xml;
+        let s1bMatched = false;
+        while ((atMatch = atPattern.exec(xml)) !== null) {
+            if (decodeXmlEntities(atMatch[1]) === key) {
+                s1bXml = s1bXml.replace(atMatch[0], `<a:t>${escapedValue}</a:t>`);
+                s1bMatched = true;
+                if (isShortKey) break;
+            }
+        }
+        if (s1bMatched) return { xml: s1bXml, matched: true };
+    }
+
     // Strategy 3: Shape-level match (text split across multiple <a:p> paragraphs in one shape)
     if (key.length > 3) {
         const shapeResult = replaceInShape(xml, key, value);
@@ -1209,10 +1239,19 @@ function replaceByShapeName(xml: string, key: string, value: string): string {
         `<p:cNvPr\\b[^>]*\\bname="${escapeRegex(escapedName)}"[^>]*/?>`,
     );
     const match = namePattern.exec(xml);
-    if (!match) return xml;
+    if (match) return replaceShapeAtPhPos(xml, match[0], value);
 
-    // Found the shape -- use replaceShapeAtPhPos to replace text in the enclosing <p:sp>
-    return replaceShapeAtPhPos(xml, match[0], value);
+    // Fallback: match against decoded name attributes.
+    // PowerPoint may store Umlauts as XML numeric character references (e.g. &#220; for Ü).
+    // JSZip text mode preserves these entities, so direct string matching fails.
+    const nameAttrPattern = /<p:cNvPr\b[^>]*\bname="([^"]*)"[^>]*\/?>/g;
+    let attrMatch: RegExpExecArray | null;
+    while ((attrMatch = nameAttrPattern.exec(xml)) !== null) {
+        if (decodeXmlEntities(attrMatch[1]) === key) {
+            return replaceShapeAtPhPos(xml, attrMatch[0], value);
+        }
+    }
+    return xml;
 }
 
 /**
@@ -1266,6 +1305,60 @@ function replaceShapeAtPhPos(xml: string, phElementStr: string, value: string): 
         spBlock.substring(txBodyEnd);
 
     return xml.substring(0, spStart) + newSpBlock + xml.substring(spEnd);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Footer replacement                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Replace the footer placeholder text on a cloned slide.
+ * Finds <p:ph type="ftr"/> and replaces its text content.
+ */
+async function replaceFooterText(
+    zip: JSZip,
+    slideNum: number,
+    footerText: string,
+): Promise<void> {
+    const path = `ppt/slides/slide${slideNum}.xml`;
+    const file = zip.file(path);
+    if (!file) return;
+
+    let xml = await file.async('text');
+
+    // Find footer placeholder: <p:ph type="ftr"/>
+    const phMatch = xml.match(/<p:ph[^>]*type="ftr"[^>]*\/?>/);
+    if (!phMatch) return;
+
+    const result = replaceShapeAtPhPos(xml, phMatch[0], footerText);
+    if (result !== xml) {
+        zip.file(path, result);
+    }
+}
+
+/**
+ * Replace footer placeholder text in ALL slide layouts and slide masters.
+ * Footers are often defined in layouts/masters and inherited by slides,
+ * so replacing only on slide level misses these inherited footers.
+ */
+async function replaceFooterInLayoutsAndMasters(
+    zip: JSZip,
+    footerText: string,
+): Promise<void> {
+    for (const [path, file] of Object.entries(zip.files)) {
+        const isLayout = path.startsWith('ppt/slideLayouts/slideLayout') && path.endsWith('.xml');
+        const isMaster = path.startsWith('ppt/slideMasters/slideMaster') && path.endsWith('.xml');
+        if (!isLayout && !isMaster) continue;
+
+        let xml = await file.async('text');
+        const phMatch = xml.match(/<p:ph[^>]*type="ftr"[^>]*\/?>/);
+        if (!phMatch) continue;
+
+        const result = replaceShapeAtPhPos(xml, phMatch[0], footerText);
+        if (result !== xml) {
+            zip.file(path, result);
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */

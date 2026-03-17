@@ -426,23 +426,92 @@ function addProcessSlide(pptx: PptxGenJS, data: SlideData, theme: ThemeColors): 
  * Each slide's HTML is parsed for data-object-type elements and rendered
  * via PptxGenJS. Charts and tables use hybrid rendering (position from
  * HTML, data from structured input).
+ *
+ * When `options` is provided (hybrid mode), deko elements (logo, accent bars)
+ * are auto-injected behind content on every slide, and the slide size matches
+ * the corporate template.
  */
+export interface HtmlPipelineOptions {
+    /** Decorative elements to inject behind content on every slide. */
+    dekoElements?: DekoElementInput[];
+    /** Slide size in inches (from template). If not set, uses LAYOUT_WIDE (13.33" x 7.5"). */
+    slideSizeInches?: { w: number; h: number };
+}
+
+export interface DekoElementInput {
+    type: 'image' | 'shape';
+    position: { x: number; y: number; w: number; h: number };
+    shapeName?: string;
+    fillColor?: string;
+    rotation?: number;
+    imageData?: string;
+}
+
 export async function generateFromHtml(
     slides: HtmlSlideInput[],
     imageLoader?: ImageLoader,
+    options?: HtmlPipelineOptions,
 ): Promise<ArrayBuffer> {
     const pptx = new PptxGenJS();
-    pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+
+    if (options?.slideSizeInches) {
+        pptx.defineLayout({
+            name: 'CORPORATE',
+            width: options.slideSizeInches.w,
+            height: options.slideSizeInches.h,
+        });
+        pptx.layout = 'CORPORATE';
+    } else {
+        pptx.layout = 'LAYOUT_WIDE'; // 13.33" x 7.5"
+    }
     pptx.author = 'Obsilo Agent';
 
     for (const input of slides) {
         const slide = pptx.addSlide();
+
+        // Inject deko elements FIRST (behind content)
+        if (options?.dekoElements) {
+            injectDekoElements(slide, pptx, options.dekoElements);
+        }
+
         await renderHtmlSlide(slide, pptx, input.html, input.charts, input.tables, imageLoader);
         if (input.notes) slide.addNotes(input.notes);
     }
 
     const output = await pptx.write({ outputType: 'arraybuffer' });
     return output as ArrayBuffer;
+}
+
+/**
+ * Inject decorative elements (logos, accent bars) onto a slide.
+ * Called before content rendering so deko appears behind content.
+ */
+function injectDekoElements(
+    slide: PptxGenJS.Slide,
+    pptx: PptxGenJS,
+    elements: DekoElementInput[],
+): void {
+    for (const deko of elements) {
+        const pos = {
+            x: deko.position.x,
+            y: deko.position.y,
+            w: deko.position.w,
+            h: deko.position.h,
+        };
+
+        if (deko.type === 'image' && deko.imageData) {
+            slide.addImage({ data: deko.imageData, ...pos });
+        } else if (deko.type === 'shape') {
+            const shapeName = deko.shapeName ?? 'rect';
+            const shapeType = (pptx.ShapeType as Record<string, PptxGenJS.SHAPE_NAME>)[shapeName]
+                ?? pptx.ShapeType.rect;
+            slide.addShape(shapeType, {
+                ...pos,
+                fill: deko.fillColor ? { color: deko.fillColor } : undefined,
+                rotate: deko.rotation,
+            });
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */

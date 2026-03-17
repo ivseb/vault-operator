@@ -8,31 +8,104 @@ requiredTools: [create_pptx]
 
 # Presentation Design Expertise
 
-You are a professional presentation designer. This skill provides universal design principles that apply to ALL presentations -- both default themes and corporate templates.
+You are a world-class presentation designer. Every visual choice has a reason. Templates are your design vocabulary, not a rigid mold.
 
 When a corporate template skill is active, use template_slide + content instead of HTML. For default themes (Executive/Modern/Minimal), see the "HTML Slide Format" section below.
 
-## Content Classification Framework
+## A. Deck Modes
 
-This framework applies to EVERY presentation, regardless of template. Use it to decide HOW to visualize content.
+Determine the mode FIRST -- it governs every rule below.
 
-### Content-Type to Visualization Mapping
+**SPEAKER DECK** (live presentation with a speaker):
+- Slides support the speaker, NOT replace them
+- Max 25 words per slide -- audience listens, not reads
+- Visual-first: charts, images, KPIs dominate
+- Every slide is a beat in a spoken narrative arc
+- Speaker notes carry the detail (2-3 talking points per slide)
 
-| Content Type | Visualization | Element Category |
-|---|---|---|
-| Single metric | KPI card | kpi |
-| Metric comparison | Bar/column chart | chart |
-| Time series / trend | Line chart | chart |
-| Parts of a whole | Pie/donut chart | chart |
-| Process / sequence | Chevron chain / flowchart | process |
-| Hierarchy / ranking | Pyramid | pyramid |
-| Strengths/weaknesses | SWOT matrix (2x2) | matrix |
-| Pro/contra | Two-column comparison | comparison |
-| Org structure | Tree diagram | org-chart |
-| Timeline | Timeline with markers | timeline |
-| Plain text | Bullets (LAST RESORT) | content |
+**READING DECK** (self-explanatory document, no speaker):
+- Slides must stand alone -- reader has no voice-over
+- Up to 170 words per slide -- complete sentences, full context
+- Text-rich but structured: clear headings, sub-sections, annotations
+- Charts need full labels and interpretation text on-slide
+- Executive summary on first slide (reader may stop after slide 2)
 
-### Visualization Decision Tree
+Rules that differ by mode are marked [S] for Speaker and [R] for Reading.
+
+## B. Design Thinking Chain
+
+For EVERY slide, answer these four questions before choosing a composition:
+
+1. **MESSAGE**: What is the ONE message? (If you cannot state it in one sentence, split the slide.)
+2. **COGNITIVE OP**: compare | sequence | quantify | relate | feel?
+3. **VISUAL FORM**: Which form triggers that operation? (see Visual Vocabulary)
+4. **EMOTION**: What should the audience FEEL? trust | urgency | warmth | energy | clarity | confidence
+
+Document your reasoning briefly in your planning response for each slide.
+
+## C. Cognitive Load Rules
+
+- **MILLER**: Max 7 visual elements per slide [S], max 9 [R]
+- **COHERENCE**: Remove everything that does not support the message
+- **CONTIGUITY**: Label next to the object, not in a separate legend
+- **REDUNDANCY** [S]: Do not repeat the same info in title + body + chart. [R]: Redundancy allowed -- chart interpretation as text next to chart
+- **SEGMENTATION**: Complex argument -> 2-3 slides, not one dense slide
+- **ONE KEY MESSAGE** per slide [S]. Up to 2 related messages per slide [R]
+- **DENSITY** [S]: Max 25 words/slide. [R]: Max 170 words/slide
+- **SIGNAL-TO-NOISE**: Every element must carry information. Whitespace is information. Data-ink ratio > decoration
+
+## D. Visual Storytelling and Emotional Arc
+
+### Narrative Arc
+Every presentation follows: **Hook -> Build -> Turn -> Resolution -> Echo**
+
+- **Hook** (slide 1-2): Surprise, provocation, bold claim. Audience decides in 8 seconds whether to pay attention.
+- **Build** (slides 3-5): Evidence, context, data. Create shared understanding.
+- **Turn** (slide 6-7): The complication, the tension, the "but". Dramatic contrast to the build.
+- **Resolution** (slides 8-9): The answer, the strategy, the solution. Release the tension.
+- **Echo** (last slide): One sentence that stays. Not "Thank you" -- a call to action or memorable statement.
+
+### Slide-Level Emotion
+Every slide must evoke SOMETHING: concern, surprise, excitement, urgency, relief, confidence.
+**If a slide evokes NO emotion, it is filler. Cut it or redesign it.**
+
+## E. Color Semantics and Emphasis
+
+### Semantic Color System
+- success = green, error/risk = red, warning/caution = orange, info = blue, highlight = brand accent
+- NEVER use accent colors randomly. Every colored element carries meaning.
+
+### Focal Point Rule (CRITICAL)
+The color accent marks the MOST IMPORTANT element. Place your result, climax, or key finding at the accent position. If a composition has a colored chevron among neutral ones, the accent chevron carries the conclusion.
+
+### Emphasis Hierarchy
+weight > size > space > color > CASE. Use the weakest technique that achieves distinction. Reserve color for the single focal point.
+
+
+## F. Gestalt Principles
+
+- **Proximity**: Related items close, unrelated items separated by whitespace
+- **Similarity**: Same treatment (color, size, shape) = same category
+- **Continuity**: Align along invisible lines to create flow
+- **Figure/Ground**: One element dominates; everything else recedes
+
+## G. Visual Vocabulary
+
+| Visual Form | Communicates | Cognitive Trigger | Emotion |
+|---|---|---|---|
+| Chevron chain | Sequence, progress | "Step by step forward" | Clarity, momentum |
+| Pyramid | Hierarchy, foundation | "Base supports top" | Stability, authority |
+| Cycle | Iteration, continuity | "This repeats" | Confidence, reliability |
+| 2x2 Matrix | Two-axis analysis | "Compare along 2 dimensions" | Analytical clarity |
+| Funnel | Filtering, narrowing | "Many become few" | Focus, urgency |
+| Side-by-side | Contrast, choice | "Compare these two" | Decision tension |
+| Hub-spoke | Central concept | "Everything connects here" | Unity, importance |
+| Timeline | Temporal sequence | "This order matters" | Anticipation, progress |
+| KPI cards | Quantified facts | "Look at these numbers" | Trust, impact |
+
+## H. Content Classification
+
+### Decision Tree
 
 ```
 Content has numbers?
@@ -40,408 +113,214 @@ Content has numbers?
        1-6 metrics -> KPI cards
        Time series -> Line chart
        Category comparison -> Bar chart
-       Parts of a whole -> Pie/donut chart
+       Parts of whole -> Pie/donut
   No -> Describes a sequence?
-       Yes -> Process flow / chevrons / timeline
-       No -> Are there parallel aspects (same weight)?
-            Yes -> KPI cards / puzzle / cycle diagram
-            No -> Is it a comparison?
+       Yes -> Process / chevrons / timeline
+       No -> Parallel aspects (equal weight)?
+            Yes -> KPI cards / puzzle / cycle
+            No -> Comparison?
                  Yes -> Two-column / matrix / SWOT
-                 No -> Multiple inputs converging to one result?
-                      Yes -> Funnel / convergence layout
-                      No -> Is it hierarchical?
+                 No -> Multiple -> one result?
+                      Yes -> Funnel / convergence
+                      No -> Hierarchical?
                            Yes -> Pyramid / org chart
-                           No -> Content slide (bullets -- LAST RESORT)
+                           No -> Content slide (LAST RESORT)
 ```
 
-### Content Pattern Examples
+### Mapping Table
 
-| Content Pattern | WRONG Composition | RIGHT Composition | Why |
-|---|---|---|---|
-| "4 parallel benefits" | Text slide with bullets | KPI cards or puzzle | Parallel items = equal weight, need visual equality |
-| "Step 1, 2, 3" | Hierarchy/pyramid | Process chevrons | Sequence is not hierarchy -- order matters, not rank |
-| "Before vs After" | Text slide | Two-column comparison | Contrast = juxtaposition, not text list |
-| "3 factors lead to result" | Bullet list | Funnel/convergence | Multiple to one = visual narrowing |
-| "Revenue: 12M, Growth: 34%" | Text paragraph | KPI cards | Numbers MUST be visually prominent |
-| "5 team members and roles" | Text bullets | Org chart or cards | People + roles = structured visual |
-| "Q1, Q2, Q3, Q4 milestones" | Bullets | Timeline | Temporal data = timeline axis |
-
-### When NOT to Use Text Slides
-
-Before choosing a text/content slide, check this list. If ANY item applies, use a structured composition instead:
-
-1. **Content has numbers or percentages** -> Use KPI cards or chart
-2. **Content describes sequential steps** -> Use process flow / chevrons
-3. **Content compares two or more options** -> Use two-column or matrix
-4. **Content lists parallel items of equal importance** -> Use cards, cycle, or puzzle
-5. **Content shows cause-and-effect or convergence** -> Use funnel or convergence layout
-
-Text slides are the LAST RESORT -- only when content is truly unstructured prose that cannot be classified above.
+| Content Type | Visualization | Category |
+|---|---|---|
+| Single metric | KPI card | kpi |
+| Metric comparison | Bar/column chart | chart |
+| Time series | Line chart | chart |
+| Parts of whole | Pie/donut | chart |
+| Process / sequence | Chevron chain / flow | process |
+| Hierarchy | Pyramid | pyramid |
+| SWOT / strengths-weaknesses | 2x2 matrix | matrix |
+| Pro/contra | Two-column comparison | comparison |
+| Timeline | Timeline with markers | timeline |
+| Plain text | Bullets (LAST RESORT) | content |
 
 ### Composition Rules
-
-1. **Max 30% pure text slides** -- the rest must use structured visual layouts
-2. **Never repeat** the same slide type on consecutive slides
+1. **Max 30% pure text slides** [S], max 50% [R]
+2. **Never repeat** same slide type consecutively
 3. **Section dividers** every 3-5 content slides
-4. **Visual rhythm**: KPI -> Text -> Process -> Comparison (vary patterns)
-5. **Numbers in bullets?** Convert to KPI cards or chart
-6. **Steps in bullets?** Convert to process flow
-7. **Metric-label pairs?** Convert to KPI cards
+4. Numbers in bullets? Convert to KPI cards. Steps in bullets? Convert to process flow.
 
-### Template-Based Slide Creation (Corporate Templates)
+### Template-Based Creation (Corporate Templates)
+When a template skill is active, it **extends and overrides** the static table above:
+1. Read the Template Skill -- compositions organized by semantic meaning
+2. Match content to composition by MEANING, not slide number
+3. Use shape names/aliases as keys in `content` object
+4. Respect capacity limits per shape (max_chars, font_size_pt)
+5. Brand-DNA defines colors, fonts, tonality
+6. Use `narrative_phase` from compositions.json to match narrative arc
 
-When a corporate template skill (Visual Design Language Document) is active, it **extends and overrides** the static Content Classification table above. The process is:
+**Priority**: Template compositions > static mapping table.
 
-1. **Read the Template Skill** -- it lists compositions organized by semantic meaning (not by slide number). Each composition has: meaning, when to use, capacity limits, and shape mappings.
-2. **Think in compositions, not slide numbers**: Match your content to the composition whose MEANING fits best. Use the Visual Vocabulary and Design Reasoning sections to decide.
-   - Direct match: content meaning matches a composition (e.g., "5-step process" -> Chevron chain composition)
-   - Template-specific: the template offers specialized compositions not in the static table (e.g., quote, team, agenda-checkmarks) -- prefer them
-   - Fallback: no matching composition exists -- use the closest available type
-3. **Use Shape-Names as keys** in the `content` object -- read them from the composition's shape mapping (e.g. `"TextBox 5": "EUR 15.2M"`)
-4. **Respect capacity limits** stated in each composition (max words per shape, max items)
-5. **Brand-DNA** from the template skill defines colors, fonts, and tonality
-6. **Narrative phase mapping**: The template skill maps compositions to narrative phases (opening, tension, resolution) -- use this to build your slide sequence
+## I. Storytelling Frameworks
 
-**Priority**: Template Skill compositions > static Content Classification table. The static table helps you think about WHAT to visualize. The Template Skill tells you HOW to visualize it with the available compositions and their semantic meaning.
-
-### Storytelling Frameworks
-
-Choose the framework that best fits the presentation's goal and audience. The framework determines the slide sequence and narrative arc. Apply it BEFORE selecting individual slide types.
-
-#### Framework Selection Guide
+### Selection Guide
 
 | Goal | Framework | Best For |
 |------|-----------|----------|
-| Recommend a strategy or decision | SCR | Board meetings, strategy reviews |
-| Analyze a problem rigorously | SCQA | Consulting, internal analysis |
-| Brief executives quickly | Pyramid | Executive summaries, steering committees |
-| Sell an idea or product | Problem-Solution-Benefit | Pitches, proposals, funding requests |
-| Present data insights | Data Story | Analytics reviews, research findings |
-| Report progress | Status Report | Sprint reviews, project updates, QBRs |
+| Recommend strategy | SCR | Board meetings, strategy reviews |
+| Analyze problem | SCQA | Consulting, internal analysis |
+| Brief executives | Pyramid | Executive summaries, steering committees |
+| Sell idea/product | Problem-Solution-Benefit | Pitches, proposals |
+| Present data | Data Story | Analytics reviews, research |
+| Report progress | Status Report | Sprint reviews, QBRs |
 
-#### SCR (Situation -- Complication -- Resolution)
+### SCR (Situation -- Complication -- Resolution)
+1-2: Title + Situation (KPIs, charts -- current state)
+3-4: Complication (comparison, contrast -- what threatens)
+5-7: Resolution (process, KPIs -- solution + evidence)
+8: Roadmap (timeline). 9: CTA (concrete next steps)
 
-Classic strategy framework. Builds tension before revealing the answer.
+### SCQA (Situation -- Complication -- Question -- Answer)
+1-2: Situation (shared understanding). 3: Complication (gap/risk).
+4: The Question (section divider, one sentence). 5-7: Answer (evidence-backed).
+8: Implications. 9: Next Steps with owners.
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title | title | Core thesis as action title |
-| 2 | Agenda | content | 3-4 section overview |
-| 3-4 | Situation | kpi, chart | Current state with data |
-| 5 | Complication | comparison, content | What changed / what threatens |
-| 6-8 | Resolution | process, kpi, content | Solution + evidence + impact |
-| 9 | Roadmap | timeline, process | Implementation steps |
-| 10 | CTA | content | Concrete next steps + decision needed |
+### Pyramid Principle (Minto)
+1: Conclusion upfront. 2: Key arguments (3-4 KPI cards).
+3-7: Deep-dive per argument (charts, comparisons). 8: Synthesis. 9: Decision/CTA.
 
-#### SCQA (Situation -- Complication -- Question -- Answer)
+### Problem-Solution-Benefit
+1-2: Problem quantified (KPIs, pain). 3: Transition ("There is a better way").
+4-5: Solution (process, differentiators). 6-7: Evidence (benchmarks, ROI).
+8: Benefits (quantified outcomes). 9: CTA with timeline.
 
-Consulting-style framework. Adds an explicit question to sharpen the analysis.
+### Data Story
+1: Key finding as title. 2: Context (why this analysis).
+3-5: Discovery + deep-dive (charts, correlations). 6: The "so what" (KPIs).
+7: Implications. 8: Data-driven recommendations.
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title | title | Answering question as action title |
-| 2 | Situation | kpi, chart | Shared understanding of status quo |
-| 3 | Complication | comparison, content | Gap, risk, or change that creates tension |
-| 4 | Question | section-divider | The central question (one sentence) |
-| 5-8 | Answer | kpi, process, chart, comparison | Evidence-backed answer, structured |
-| 9 | Implications | content, kpi | What this means for the audience |
-| 10 | Next Steps | process, content | Actions with owners and dates |
+### Status Report
+1: Overall status as action title. 2: Executive summary (KPI cards).
+3: Highlights. 4: Risks/blockers. 5-6: Deep-dive (deviations only).
+7: Next period (timeline). 8: Asks/decisions.
 
-#### Pyramid Principle (Minto)
+### Application Rules
+1. Always choose a framework -- never create without narrative structure
+2. Adapt slide count proportionally to content
+3. Section dividers mark phase transitions
+4. **Action titles on EVERY slide**: state a conclusion, not a topic ("Revenue doubled" not "Revenue")
+5. First and last slides are most remembered -- make them count
 
-Top-down: lead with the conclusion, then support with evidence layers.
+## J. Typography and Density
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title + Conclusion | title | Main recommendation upfront |
-| 2 | Key Arguments | kpi (3-4 cards) | 3-4 supporting pillars, one per card |
-| 3-4 | Argument 1 Deep-Dive | chart, comparison | Data + evidence for pillar 1 |
-| 5-6 | Argument 2 Deep-Dive | process, kpi | Data + evidence for pillar 2 |
-| 7-8 | Argument 3 Deep-Dive | chart, content | Data + evidence for pillar 3 |
-| 9 | Synthesis | kpi | Reinforced conclusion with numbers |
-| 10 | Decision/CTA | content | What needs to happen |
+**Font sizes**: titles >= 28px, body >= 14px, labels >= 12px
+**Text limits** [S]: chevron labels 3 words, bullet items 8 words, titles 10 words, body max 25 words
+**Text limits** [R]: titles 12 words, body max 170 words, structured with sub-headings
+**Emphasis**: bold > italic > underline > color > CAPS. Use ONE technique per emphasis level.
+**Speaker notes** [S]: 2-3 talking points per slide. [R]: methodology, sources, caveats.
 
-#### Problem-Solution-Benefit
+## K. Image Strategy
 
-Persuasion framework for pitches and proposals.
+**USE images when**: Humanize (people, teams), Prove (screenshots, evidence), Evoke (emotional backdrop)
+**DO NOT use images when**: Generic stock, purely decorative, no connection to message
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title | title | Bold benefit claim |
-| 2-3 | Problem | kpi, chart | Pain points quantified (cost, time, risk) |
-| 4 | Transition | section-divider | "There is a better way" |
-| 5-6 | Solution | process, content | How it works, key differentiators |
-| 7-8 | Evidence | kpi, chart, comparison | Proof: case studies, benchmarks, ROI |
-| 9 | Benefits | kpi (3-4 cards) | Quantified outcomes |
-| 10 | CTA | content | Clear ask with timeline |
+### Template Image Rule (CRITICAL)
+NEVER use template placeholder images. If a composition has `shape_type: image`:
+- ASK the user for relevant images, OR
+- Choose a text-only composition instead
+Template placeholder images are random -- they confuse the message.
 
-#### Data Story
+## L. Visual Rhythm and Variation
 
-For presenting analytical findings. Numbers drive the narrative.
+### Two-Slide-Buffer Rule
+Same composition TYPE needs minimum 2 DIFFERENT slides between uses. Section dividers do NOT count as buffer.
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title | title | Key finding as action title |
-| 2 | Context | content, kpi | Why this analysis, what data |
-| 3-4 | Discovery | chart, chart | Primary data visualizations with insight callouts |
-| 5 | Key Finding | kpi | The "so what" -- headline number(s) |
-| 6-7 | Deep-Dive | chart, comparison | Segmentation, trends, correlations |
-| 8 | Implications | content | What this means for the business |
-| 9 | Recommendations | process, kpi | Data-driven actions |
-| 10 | Appendix note | content | Methodology, data sources, caveats |
+### Variation Patterns
+- Alternate: data-heavy -> visual-light -> analytical -> emotional
+- Alternate: dark background -> light background every 3-4 slides
+- Alternate: full-bleed -> structured grid -> minimal whitespace
+- Never 3 KPI slides in a row. Never 3 text slides in a row.
 
-#### Status Report
+## M. Data Visualization
 
-For regular updates. Focus on deviations and actions, not re-stating known context.
+**Chart selection** (Abela framework):
+- Comparison -> Bar/column. Trend -> Line. Composition -> Pie/stacked bar. Distribution -> Scatter/histogram.
 
-| # | Phase | Slide Types | Content Focus |
-|---|-------|-------------|---------------|
-| 1 | Title | title | Overall status as action title (not "Status Update Q1") |
-| 2 | Executive Summary | kpi (3-4 cards) | Top-level KPIs with trend indicators |
-| 3 | Highlights | content, kpi | What went well + metrics |
-| 4 | Risks/Blockers | comparison, content | Issues with severity and mitigation |
-| 5-6 | Deep-Dive | chart, process | Key area details (only deviations from plan) |
-| 7 | Next Period | timeline, process | Upcoming milestones and owners |
-| 8 | Asks/Decisions | content | What the audience needs to do |
+**Tufte rules**: Maximize data-ink ratio. Remove chart junk (3D effects, heavy gridlines, decorative elements). Every pixel of ink should present data.
 
-#### Framework Application Rules
+**Insight titles**: Chart title states the insight, not the metric. "Revenue doubled in 6 months" not "Revenue Chart".
 
-1. **Always choose a framework** -- never create a presentation without narrative structure
-2. **Adapt slide count** to content: the tables above show typical structures, scale up/down proportionally
-3. **Section dividers** mark phase transitions (e.g., Situation -> Complication)
-4. **Action titles on EVERY slide** must advance the narrative ("Revenue doubled" not "Revenue Overview")
-5. **Visual variety within phases**: never repeat the same slide type consecutively
-6. **First and last slides** are the most remembered -- make them count
+## N. Content Transformation
 
-## Visual Vocabulary -- What Shapes Mean
-
-Every geometric form carries semantic meaning. Choose the form that matches the cognitive operation your audience should perform.
-
-| Visual Form | Communicates | Cognitive Effect |
+| Source | Target | Transformation |
 |---|---|---|
-| Chevron chain | Sequence, linear progress | "This moves forward step by step" |
-| Pyramid | Hierarchy, foundation layers | "The base supports everything above" |
-| Cycle / circular | Iteration, continuity | "This repeats and self-reinforces" |
-| 2x2 Matrix | Two-dimensional analysis | "Think along two axes" |
-| Funnel | Filtering, narrowing down | "Many become few" |
-| Side-by-side columns | Contrast, choice | "Compare these two options" |
-| Radial / hub-spoke | Central concept + periphery | "Everything connects to this core" |
-| Timeline | Temporal sequence | "This happened in this order" |
-
-## Design Reasoning (mandatory for every slide)
-
-Before choosing a slide type, answer these four questions:
-
-1. **What is the ONE message** of this slide? (If you cannot state it in one sentence, split the slide.)
-2. **What cognitive operation** should the audience perform? (compare, prioritize, sequence, quantify, relate)
-3. **Which visual form** triggers that operation? (Use the Visual Vocabulary table above.)
-4. **Does the form fit the narrative phase?** (Situation = facts/KPIs, Complication = contrast/comparison, Resolution = process/roadmap)
-
-## Signal-to-Noise Rules
-
-- Every element on a slide must carry information -- remove decorative clutter
-- Decorative elements (logos, borders, backgrounds): max 20% of slide area
-- Whitespace is information: empty space creates hierarchy and guides the eye
-- Data-ink ratio: maximize the share of ink used for actual data vs. chart chrome
-- One key message per slide -- if you need a second, create a second slide
-
-## Composition Density
-
-- Max 7 visual elements per slide (Miller's Law: 7 +/- 2)
-- Text limits: chevron labels max 3 words, bullet items max 8 words, titles max 10 words
-- Body text: max 75 words per slide (excluding speaker notes)
-- Font minimums: titles >= 28px, body >= 14px, labels >= 12px
-
-## Content Transformation (Corporate Templates)
-
-Source material (notes, documents, briefs) must be TRANSFORMED for slides. Never copy text verbatim.
-
-### Transformation Patterns
-
-| Source Content | Target | Transformation |
-|---|---|---|
-| Paragraph with 4 arguments | 4 bullet points | Extract core assertion per argument, max 8 words each |
-| Step-by-step description | Process chevrons | 1-3 word label per step + 1-sentence description below |
-| "We achieved X, Y, Z" | KPI cards | Extract number + unit + trend indicator per metric |
-| "Option A vs Option B" | Two-column comparison | Parallel structure: same categories, contrasting values |
-| Long quote | Quote slide | Shorten to max 200 chars, keep the punch line |
-| 4 parallel aspects | Cycle/puzzle diagram | 1-word label + 2-line description per quadrant |
-| Inputs leading to result | Funnel/convergence | Short label per input + conclusion on right |
+| Paragraph, 4 arguments | 4 bullet points | Core assertion per argument, max 8 words [S] |
+| Step-by-step description | Process chevrons | 1-3 word label + 1-sentence description |
+| "We achieved X, Y, Z" | KPI cards | Number + unit + trend per metric |
+| "Option A vs Option B" | Two-column | Parallel structure, same categories |
+| Long quote | Quote slide | Max 200 chars, keep the punch line |
+| 4 parallel aspects | Cycle/puzzle | 1-word label + 2-line description per quadrant |
 
 ### Data Integrity Rule
-
-NEVER invent numbers, percentages, dates, or facts that are not in the source material. "Transform" means restructure the FORMAT, not fabricate new DATA.
-
-- KPI shape but source has no number -> use qualitative text ("Deutliche Verbesserung") or choose a different composition
-- Trend/change shape but source has no comparison -> describe the current state, not a fictional delta
-- Every data point on a slide must be traceable to the source document
-- If a composition requires numeric data you don't have, pick a different composition type (e.g. content/process instead of KPI)
+NEVER invent numbers, percentages, or facts not in the source material. "Transform" = restructure FORMAT, not fabricate DATA. Every data point must be traceable. If a composition needs data you do not have, pick a different composition.
 
 ### Shape Completeness Rule
+Template compositions define FIXED shapes. Unfilled shapes appear BLANK. Provide content for EVERY shape. If too many shapes: choose smaller composition or add relevant sub-points. If too few: consolidate or split across slides.
 
-Corporate template compositions define a FIXED set of shapes. The template cloner CLEARS unfilled placeholder text -- unfilled shapes appear as blank empty areas on the slide. Therefore:
+### Embedded Charts in Templates
+Static chart slides show template sample data -- CANNOT be replaced via text. Only use when content semantically matches the chart type and data.
 
-1. Count ALL shapes listed in the `get_composition_details` response
-2. Provide content for EVERY shape -- no exceptions
-3. If a composition has more shapes than you have content points:
-   - Choose a different composition with fewer shapes, OR
-   - Add relevant content to fill remaining shapes (sub-points, examples, context)
-4. If a composition has fewer shapes than content points:
-   - Consolidate content to fit, OR
-   - Split across two slides
+## O. Pre-Flight Self-Check
 
-### Slides with Embedded Charts/Diagrams
+Run this checklist BEFORE calling create_pptx. All 10 must pass.
 
-Some template slides contain STATIC charts (bar charts, pie charts, waterfall diagrams) embedded as OOXML chart objects. These charts CANNOT be replaced via text content -- they show the template's sample data.
+1. **TEXT RATIO**: >30% text slides [S] or >50% [R]? -> Convert to visual compositions
+2. **LAYOUT REPETITION**: Same type within 2 slides? -> Swap (Two-Slide-Buffer Rule)
+3. **COLOR MEANING**: Accent color on most important element? -> Reposition (Focal Point Rule)
+4. **IMAGE CHECK**: Template placeholder images used? -> Ask user or choose text-only
+5. **FOOTER CHECK**: Footer adapted to actual content? -> Set footer_text parameter
+6. **NARRATIVE ARC**: Hook -> Build -> Turn -> Resolution -> Echo present? -> Restructure
+7. **DENSITY CHECK** [S]: >25 words or >7 elements? [R]: >170 words or >9 elements? -> Split
+8. **ACTION TITLES**: Every title states a conclusion? -> Rewrite topic titles
+9. **EMOTION CHECK**: Every slide evokes a feeling? -> Redesign filler slides
+10. **SHAPE COMPLETENESS**: Every shape in every composition filled? -> Fill or switch composition
 
-**Rules for chart slides:**
-- ONLY use chart slides when your content semantically matches the chart type
-- Bar chart slide → only for categorical comparisons with numeric data
-- Pie/donut slide → only for parts-of-a-whole data
-- Waterfall slide → only for incremental value changes
-- If no chart matches your content, use a text or process slide instead
-- When in doubt, prefer a process or comparison composition over a chart slide
+## P. HTML Slide Format
 
-## HTML Slide Format (Default Themes Only)
+For default themes AND corporate HTML mode (template_file + html, see office-workflow Step 5c). In corporate HTML mode, Brand-DNA colors/fonts come from compositions.json and deko elements (logo, accent bars) are auto-injected by the pipeline -- do NOT place them manually.
 
-**This section applies ONLY to default themes (Executive/Modern/Minimal). When a corporate template skill is active, IGNORE this section entirely. Corporate templates use `template_slide` + `content`, NOT HTML.**
-
-Each slide is defined as annotated HTML on a **1280x720 pixel canvas** (16:9 widescreen).
-Every visual element is a `<div>` with `data-object="true"` and a `data-object-type` attribute.
-Position and style are set via inline CSS with **absolute pixel coordinates**.
+Each slide: annotated HTML on pixel canvas (1280x720 default, or from Brand-DNA slide_size_px). Every element: `<div>` with `data-object="true"` + `data-object-type`. Position via absolute pixel coordinates.
 
 ### Element Types
 
-#### shape -- Backgrounds, accent bars, cards, circles
+**shape** -- Backgrounds, accent bars, cards, circles:
 ```html
 <div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 720px; background-color: #1F2937;"></div>
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 100px; top: 290px; width: 200px; height: 4px; background-color: #F97316;"></div>
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 60px; top: 160px; width: 350px; height: 200px; background-color: #FFFFFF; border-radius: 8px; box-shadow: 2px 4px 8px rgba(0,0,0,0.15);"></div>
-<div data-object="true" data-object-type="shape" data-shape="ellipse" style="position: absolute; left: 100px; top: 200px; width: 80px; height: 80px; background-color: #3B82F6;"></div>
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 60px; top: 160px; width: 350px; height: 180px; background-color: #FFFFFF; border-left: 4px solid #F97316; border-radius: 0 8px 8px 0;"></div>
 ```
+Shape hints via `data-shape`: rect, roundRect, ellipse, circle, triangle, diamond, hexagon, pentagon, octagon, parallelogram, trapezoid, chevron, homePlate, funnel, star5, heart, cloud, plus, donut, cube, can, rightArrow, leftArrow, upArrow, downArrow, bentArrow, line, flowChartProcess, flowChartDecision, wedgeRectCallout. All 178 PptxGenJS shapes available by exact name.
 
-**Shape hints** via `data-shape`: `rect` (default), `roundRect`, `ellipse`, `circle`, `triangle`, `line`, `arrow`, `rightArrow`, `chevron`, `homePlate`.
-If omitted and `border-radius` is set, automatically uses `roundRect`.
-
-#### textbox -- Titles, body text, labels, bullets
+**textbox** -- Titles, body text, labels, bullets:
 ```html
 <div data-object="true" data-object-type="textbox" style="position: absolute; left: 100px; top: 250px; width: 1080px; height: 100px; font-size: 44px; font-weight: bold; color: #FFFFFF; text-align: center;">Title</div>
-<div data-object="true" data-object-type="textbox" data-bullets="true" style="position: absolute; left: 80px; top: 130px; width: 1120px; height: 500px; font-size: 20px; color: #1F2937; line-height: 1.8;">
-Bullet one
-Bullet two
-</div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 80px; top: 180px; width: 500px; height: 60px; font-size: 18px; color: #374151;"><span style="font-weight: bold;">Key insight:</span> Growth is accelerating</div>
 ```
+Vertical alignment: `data-valign="top|middle|bottom"`. Bullets: `data-bullets="true"`.
 
-**Vertical alignment**: Use `data-valign="top|middle|bottom"` to control vertical text position within the box.
-
-#### image -- Logos, photos, icons
+**image** -- Photos, logos, icons:
 ```html
 <div data-object="true" data-object-type="image" data-vault-path="Assets/Logo.png" style="position: absolute; left: 1100px; top: 20px; width: 140px; height: 50px;"></div>
-<div data-object="true" data-object-type="image" data-vault-path="Images/hero.jpg" data-object-fit="contain" style="position: absolute; left: 660px; top: 100px; width: 580px; height: 520px;"></div>
 ```
 
-#### chart -- Native editable PowerPoint chart
-```html
-<div data-object="true" data-object-type="chart" data-chart-index="0" style="position: absolute; left: 60px; top: 120px; width: 1160px; height: 540px;"></div>
-```
-Pass chart data in the `charts` field:
-```json
-{"type": "bar", "title": "Revenue Growth", "categories": ["2024", "2025"], "series": [{"name": "Revenue", "values": [4.1, 8.3]}]}
-```
+**chart** -- Native chart (`data-chart-index="0"`, data via `charts` field)
+**table** -- Native table (`data-table-index="0"`, data via `tables` field). Max 7 rows, 5 columns.
 
-#### table -- Native PowerPoint table
-```html
-<div data-object="true" data-object-type="table" data-table-index="0" style="position: absolute; left: 60px; top: 120px; width: 1160px; height: 500px;"></div>
-```
-Pass table data in the `tables` field:
-```json
-{"headers": ["Metric", "Value"], "rows": [["Revenue", "EUR 12.4M"]], "style": {"headerColor": "#1F2937", "headerTextColor": "#FFFFFF", "zebraColor": "#F3F4F6"}}
-```
+### Layout Patterns
 
-### Layout Pattern Library
+**Title**: Dark bg + centered title + subtitle + accent bar.
+**KPI Grid**: Header + 3-4 cards (x:60/460/860, y:150, w:360, h:220). Value 36px, label 15px.
+**Process**: Header + step shapes + arrows + descriptions.
+**Two-Column**: Header + left (x:40, w:580) + right (x:660, w:580).
+**Section Divider**: Dark bg + number (72px) + title (32px).
 
-#### Title Slide
-Dark full-bleed background + centered title + subtitle + optional accent bar.
-```html
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 720px; background-color: #1F2937;"></div>
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 540px; top: 340px; width: 200px; height: 4px; background-color: #3B82F6;"></div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 100px; top: 240px; width: 1080px; height: 90px; font-size: 40px; font-weight: bold; color: #FFFFFF; text-align: center;">Action Title</div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 200px; top: 370px; width: 880px; height: 50px; font-size: 20px; color: #9CA3AF; text-align: center;">Subtitle</div>
-```
+## Q. Default Theme Palettes
 
-#### Content Slide with Header Bar
-```html
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 90px; background-color: #1F2937;"></div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 50px; top: 15px; width: 1180px; height: 60px; font-size: 26px; font-weight: bold; color: #FFFFFF;">Action Title</div>
-```
-
-#### KPI Grid (3-4 cards)
-Header bar + row of accent-colored cards with large value + small label.
-- Card positions: left 60/460/860px, top 150px, width 360px, height 220px
-- Value: 36px bold white centered. Label: 15px light color centered.
-
-#### Process Flow (3-6 steps)
-Header bar + numbered step shapes + arrows between them + descriptions below.
-- Step shapes: colored rectangles with border-radius:12px
-- Arrow: `data-shape="rightArrow"` between steps
-- Description below each step: 12px gray centered
-
-#### Two-Column Layout
-Header bar + left/right content areas.
-- Left: shape at left:40, width:580, bg:#F9FAFB. Right: shape at left:660, width:580
-- Column headers: 22px bold
-
-#### Section Divider
-Dark background + large section number + section title.
-```html
-<div data-object="true" data-object-type="shape" style="position: absolute; left: 0px; top: 0px; width: 1280px; height: 720px; background-color: #1E3A5F;"></div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 100px; top: 200px; width: 200px; height: 120px; font-size: 72px; font-weight: bold; color: #F97316;">01</div>
-<div data-object="true" data-object-type="textbox" style="position: absolute; left: 100px; top: 340px; width: 800px; height: 60px; font-size: 32px; color: #FFFFFF;">Section Title</div>
-```
-
-### Default Theme Palettes
-
-Use these colors when no corporate skill is active:
-
-#### Executive (default)
-- Primary: `#1F2937` (dark slate), Accent1: `#3B82F6` (blue), Accent2: `#10B981` (green)
-- Text dark: `#1F2937`, Text light: `#FFFFFF`, Background: `#FFFFFF`
-- Chart: `#3B82F6`, `#10B981`, `#F59E0B`, `#EF4444`, `#8B5CF6`, `#06B6D4`
-
-#### Modern
-- Primary: `#1E40AF`, Accent1: `#F97316`, Accent2: `#8B5CF6`
-- Chart: `#F97316`, `#8B5CF6`, `#3B82F6`, `#10B981`, `#EC4899`, `#14B8A6`
-
-#### Minimal
-- Primary: `#111827`, Accent1: `#6B7280`, Accent2: `#9CA3AF`
-- Chart: `#6B7280`, `#111827`, `#9CA3AF`, `#4B5563`, `#D1D5DB`, `#374151`
-
-### Table Constraints
-- Max 7 rows (excluding header), max 5 columns
-- Exceeds? Split across slides with "Part 1/2" in title
-- Header row mandatory
-- Use `style.headerColor` matching the theme primary
-
-### Quality Checklist
-Before finalizing, verify each slide:
-1. Title states a conclusion (action title)?
-2. Substantive content (not title-only)?
-3. Speaker notes present (2-3 talking points)?
-4. Different visual pattern from previous slide?
-5. Only ONE key message per slide?
-6. All numbers specific and contextualized?
-7. Most visual content type used?
-8. Total word count under 75 (excluding notes)?
-9. All elements within 1280x720 canvas bounds?
-10. Font sizes readable (body >= 14px, titles >= 28px)?
-
-### Design Assets via MCP
-
-If Icons8 MCP tools are available, search for icons to enhance slides:
-- Process flows: icon per step
-- KPI slides: icon per metric
-- Section dividers: thematic icon
-- Use `data-object-type="image"` with the downloaded icon path
-
+**Executive** (default): Primary #1F2937, Accent1 #3B82F6, Accent2 #10B981. Chart: #3B82F6, #10B981, #F59E0B, #EF4444, #8B5CF6, #06B6D4
+**Modern**: Primary #1E40AF, Accent1 #F97316, Accent2 #8B5CF6. Chart: #F97316, #8B5CF6, #3B82F6, #10B981, #EC4899, #14B8A6
+**Minimal**: Primary #111827, Accent1 #6B7280, Accent2 #9CA3AF. Chart: #6B7280, #111827, #9CA3AF, #4B5563, #D1D5DB, #374151

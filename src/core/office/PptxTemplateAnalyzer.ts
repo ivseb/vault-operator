@@ -38,6 +38,28 @@ export interface TemplateAnalysis {
     elementCatalog: DesignElement[];
     /** Per-slide composition: which elements and shape names are used. */
     slideCompositions: SlideComposition[];
+    /** Global decorative elements (logo, accent bars) for auto-injection in HTML pipeline. */
+    dekoElements: DekoElement[];
+}
+
+/** A decorative element extracted from the template for auto-injection. */
+export interface DekoElement {
+    /** Unique ID (e.g. "deko-1"). */
+    id: string;
+    /** Element type: image (logo) or shape (accent bar, decorative rect). */
+    type: 'image' | 'shape';
+    /** Position in inches (for PptxGenJS). */
+    position: { x: number; y: number; w: number; h: number };
+    /** PptxGenJS shape name (e.g. "rect", "roundRect"). Only for type=shape. */
+    shapeName?: string;
+    /** Fill color as hex without # (e.g. "FF6600"). Only for type=shape. */
+    fillColor?: string;
+    /** Rotation in degrees. */
+    rotation?: number;
+    /** Image as base64 data URL. Only for type=image. */
+    imageData?: string;
+    /** How often this element appears across content slides (0.0-1.0). */
+    frequency: number;
 }
 
 /** Brand DNA extracted from theme1.xml and slide masters. */
@@ -166,6 +188,8 @@ export interface ShapeInfo {
     position: { left: number; top: number; width: number; height: number };
     /** Estimated text capacity (V-4). */
     textCapacity?: TextCapacity;
+    /** Fill color from shape properties (e.g. "solid:accent1", "solid:#FF6600", "none"). */
+    fillColor?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -217,11 +241,15 @@ export async function analyzeTemplate(templateData: ArrayBuffer): Promise<Templa
         slideCompositions.push(composition);
     }
 
+    // Extract global decorative elements for auto-injection in HTML pipeline
+    const dekoElements = await extractGlobalDekoElements(zip, slideCompositions, allShapesBySlide, brandDNA);
+
     return {
         slideCount: slideNums.length,
         brandDNA,
         elementCatalog,
         slideCompositions,
+        dekoElements,
     };
 }
 
@@ -875,6 +903,7 @@ function buildSlideComposition(
             isReplaceable,
             position: rs.position,
             textCapacity: estimateTextCapacity(rs),
+            fillColor: rs.fill !== 'none' ? rs.fill : undefined,
         };
     });
 
@@ -1559,5 +1588,190 @@ function deriveShapePrefix(shape: ShapeInfo): string {
     if (/textbox/.test(nameLower)) return 'textbox';
 
     return 'shape';
+}
+
+/* ------------------------------------------------------------------ */
+/*  Deko element extraction                                            */
+/* ------------------------------------------------------------------ */
+
+/** EMU to inches conversion factor. */
+const EMU_TO_INCH = 1 / EMU_PER_INCH;
+
+/**
+ * Extract global decorative elements that appear on a majority of content slides.
+ * These are non-text shapes (logos, accent bars, decorative rectangles) that
+ * should be auto-injected in the HTML pipeline for corporate consistency.
+ */
+async function extractGlobalDekoElements(
+    zip: JSZip,
+    compositions: SlideComposition[],
+    allShapesBySlide: Map<number, RawShape[]>,
+    brandDNA: BrandDNA,
+): Promise<DekoElement[]> {
+    // Only consider content slides (not title/section/blank)
+    const contentSlides = compositions.filter(c =>
+        c.classification !== 'title' && c.classification !== 'section' && c.classification !== 'blank'
+    );
+    if (contentSlides.length < 2) return [];
+
+    const footerTypes = new Set(['ftr', 'sldNum', 'dt']);
+
+    // Fingerprint -> { raw shape, slide numbers it appears on }
+    const dekoFingerprints = new Map<string, { raw: RawShape; slideNums: number[]; slideNum: number }>();
+
+    for (const comp of contentSlides) {
+        const rawShapes = allShapesBySlide.get(comp.slideNumber) ?? [];
+
+        for (const raw of rawShapes) {
+            // Skip text-bearing (replaceable) shapes
+            if (raw.hasText && raw.text.trim().length > 10) continue;
+            // Skip footer/date/slide-number placeholders
+            if (raw.placeholderType && footerTypes.has(raw.placeholderType)) continue;
+            // Skip title/subtitle/body placeholders
+            if (raw.placeholderType === 'title' || raw.placeholderType === 'ctrTitle' ||
+                raw.placeholderType === 'subTitle' || raw.placeholderType === 'body') continue;
+            // Skip very small shapes (bullets, icons)
+            if (raw.position.width < EMU_DECORATIVE && raw.position.height < EMU_DECORATIVE) continue;
+            // Skip groups (structural containers)
+            if (raw.geometry === 'group') continue;
+
+            // Fingerprint: geometry + fill + rough position zone (snap to grid)
+            const posZone = `${Math.round(raw.position.left / 500000)}_${Math.round(raw.position.top / 500000)}`;
+            const fp = `${raw.geometry}|${raw.fill}|${posZone}`;
+
+            if (!dekoFingerprints.has(fp)) {
+                dekoFingerprints.set(fp, { raw, slideNums: [comp.slideNumber], slideNum: comp.slideNumber });
+            } else {
+                dekoFingerprints.get(fp)!.slideNums.push(comp.slideNumber);
+            }
+        }
+    }
+
+    const threshold = contentSlides.length * 0.5;
+    const dekoElements: DekoElement[] = [];
+    let dekoId = 1;
+
+    for (const [, entry] of dekoFingerprints) {
+        if (entry.slideNums.length < threshold) continue;
+
+        const { raw } = entry;
+        const frequency = entry.slideNums.length / contentSlides.length;
+
+        const pos = {
+            x: Math.round(raw.position.left * EMU_TO_INCH * 100) / 100,
+            y: Math.round(raw.position.top * EMU_TO_INCH * 100) / 100,
+            w: Math.round(raw.position.width * EMU_TO_INCH * 100) / 100,
+            h: Math.round(raw.position.height * EMU_TO_INCH * 100) / 100,
+        };
+
+        // Check if this is an image shape (has blip reference)
+        const hasBlip = /<a:blip\b[^>]*r:embed="([^"]+)"/.test(raw.xml);
+
+        if (hasBlip) {
+            const imageData = await extractImageFromShape(zip, entry.slideNum, raw.xml);
+            if (imageData) {
+                dekoElements.push({
+                    id: `deko-${dekoId++}`,
+                    type: 'image',
+                    position: pos,
+                    imageData,
+                    frequency,
+                });
+            }
+        } else {
+            // Shape element
+            const shapeName = prstGeomToPptxName(raw.geometry);
+            const fillColor = extractFillColorHex(raw.fill, brandDNA);
+
+            dekoElements.push({
+                id: `deko-${dekoId++}`,
+                type: 'shape',
+                position: pos,
+                shapeName: shapeName ?? 'rect',
+                fillColor,
+                rotation: extractRotation(raw.xml),
+                frequency,
+            });
+        }
+    }
+
+    return dekoElements;
+}
+
+/** Convert prstGeom name to PptxGenJS shape name. */
+function prstGeomToPptxName(geometry: string): string | undefined {
+    if (geometry.startsWith('prstGeom:')) return geometry.substring(9);
+    return undefined;
+}
+
+/** Resolve fill color to hex string (without #). */
+function extractFillColorHex(fill: string, brandDNA: BrandDNA): string | undefined {
+    if (fill.startsWith('solid:#')) return fill.substring(7);
+    if (fill.startsWith('solid:')) {
+        const schemeName = fill.substring(6);
+        const hex = brandDNA.colors[schemeName];
+        return hex?.replace('#', '');
+    }
+    return undefined;
+}
+
+/** Extract rotation from shape XML (in degrees). */
+function extractRotation(xml: string): number | undefined {
+    const rotMatch = /<a:xfrm[^>]*\brot="(-?\d+)"/.exec(xml);
+    if (!rotMatch) return undefined;
+    const rot60k = parseInt(rotMatch[1]);
+    const degrees = rot60k / 60000;
+    return degrees !== 0 ? degrees : undefined;
+}
+
+/**
+ * Extract an embedded image from a shape's blip reference.
+ * Resolves rId -> relationship target -> media file -> base64.
+ */
+async function extractImageFromShape(
+    zip: JSZip,
+    slideNum: number,
+    shapeXml: string,
+): Promise<string | undefined> {
+    const blipMatch = shapeXml.match(/<a:blip\b[^>]*r:embed="([^"]+)"/);
+    if (!blipMatch) return undefined;
+
+    const relsPath = `ppt/slides/_rels/slide${slideNum}.xml.rels`;
+    const relsXml = await zip.file(relsPath)?.async('text');
+    if (!relsXml) return undefined;
+
+    const rId = blipMatch[1];
+    const targetMatch = new RegExp(`Id="${rId}"[^>]*Target="([^"]+)"`).exec(relsXml);
+    if (!targetMatch) return undefined;
+
+    const target = targetMatch[1];
+    const mediaPath = target.startsWith('..')
+        ? `ppt/${target.replace('../', '')}`
+        : target;
+
+    const mediaFile = zip.file(mediaPath);
+    if (!mediaFile) return undefined;
+
+    const buffer = await mediaFile.async('uint8array');
+
+    // Skip very large images (>200KB) to keep compositions.json manageable
+    if (buffer.length > 200_000) return undefined;
+
+    const ext = mediaPath.split('.').pop()?.toLowerCase() ?? 'png';
+    const mimeMap: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', svg: 'image/svg+xml', emf: 'image/emf',
+        wmf: 'image/wmf',
+    };
+
+    // Convert to base64 in chunks to avoid call stack overflow
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < buffer.length; i += chunkSize) {
+        const chunk = buffer.subarray(i, Math.min(i + chunkSize, buffer.length));
+        binary += String.fromCharCode(...chunk);
+    }
+    const base64 = btoa(binary);
+    return `data:${mimeMap[ext] ?? 'image/png'};base64,${base64}`;
 }
 

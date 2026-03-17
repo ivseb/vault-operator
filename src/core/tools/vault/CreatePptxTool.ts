@@ -22,6 +22,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
 import { generateFreshPptx, generateFromHtml } from '../../office';
+import type { HtmlPipelineOptions, DekoElementInput } from '../../office/PptxFreshGenerator';
 import { cloneFromTemplate } from '../../office/PptxTemplateCloner';
 import type { TemplateSlideInput, CloneResult, SlideDiagnostic } from '../../office/PptxTemplateCloner';
 import type { SlideData, HtmlSlideInput, ChartData, ChartSeries, KpiData, ProcessStep, TableData } from '../../office';
@@ -259,6 +260,12 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                         type: 'string',
                         description: 'Presentation title (metadata)',
                     },
+                    footer_text: {
+                        type: 'string',
+                        description:
+                            'Footer text for all slides in template mode (replaces template default footer). ' +
+                            'Example: "Projektname | Autor | März 2026". Only works with template_file.',
+                    },
                     template: {
                         type: 'string',
                         description:
@@ -359,18 +366,11 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 }
             }
 
-            // Guard: template_file provided but slides use html instead of template_slide
+            // Hybrid HTML mode: template_file + html slides is valid.
+            // Agent uses BrandDNA/compositions from template for design reference,
+            // then generates HTML with full creative freedom.
             if (templateFile && hasHtml && !hasTemplateSlides) {
-                callbacks.pushToolResult(
-                    `**Error: template_file was provided but slides use "html" instead of "template_slide".**\n\n` +
-                    `When using a corporate template (template_file), each slide MUST use:\n` +
-                    `- \`template_slide\`: 1-based slide number from the template catalog\n` +
-                    `- \`content\`: key-value pairs mapping Shape-Names to replacement text\n\n` +
-                    `Do NOT use the "html" field with template_file. ` +
-                    `Refer to the Template Skill for the slide catalog and Shape-Name mappings.\n\n` +
-                    `Please retry with template_slide + content fields.`,
-                );
-                return;
+                console.debug('[CreatePptxTool] Hybrid mode: template_file + html slides (corporate HTML)');
             }
 
             // Guard: template_file provided but slides use only legacy fields (no template_slide, no html)
@@ -393,14 +393,16 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
             if (hasTemplateSlides) {
                 // Template Pipeline -- clone from corporate template
-                const cloneResult = await this.generateViaTemplate(templateFile, slides);
+                const footerText = ((input.footer_text as string) ?? '').trim() || undefined;
+                const cloneResult = await this.generateViaTemplate(templateFile, slides, footerText);
                 buffer = cloneResult.buffer;
                 diagnostics = cloneResult.slideDiagnostics;
                 pipeline = 'Template';
             } else if (hasHtml) {
-                // HTML Pipeline
-                buffer = await this.generateViaHtml(slides);
-                pipeline = 'HTML';
+                // HTML Pipeline (or Hybrid HTML when template_file is set)
+                const hybridOptions = templateFile ? await this.loadHybridOptions(templateFile) : undefined;
+                buffer = await this.generateViaHtml(slides, hybridOptions);
+                pipeline = hybridOptions ? 'Hybrid HTML' : 'HTML';
             } else {
                 // Legacy Pipeline
                 buffer = await this.generateViaLegacy(slides, templateRef);
@@ -456,7 +458,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     /*  Template Pipeline (corporate)                                  */
     /* -------------------------------------------------------------- */
 
-    private async generateViaTemplate(templateFile: string, slides: SlideInput[]): Promise<CloneResult> {
+    private async generateViaTemplate(templateFile: string, slides: SlideInput[], footerText?: string): Promise<CloneResult> {
         // Load template from vault
         const file = this.app.vault.getAbstractFileByPath(templateFile);
         if (!(file instanceof TFile)) {
@@ -505,7 +507,12 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             }
         }
 
-        return cloneFromTemplate(templateData, selections, compositionsData?.cloneOptions);
+        const cloneOptions: import('../../office/PptxTemplateCloner').CloneOptions = {
+            ...compositionsData?.cloneOptions,
+            ...(footerText ? { footerText } : {}),
+        };
+        const hasOptions = cloneOptions.repeatableGroups || cloneOptions.footerText;
+        return cloneFromTemplate(templateData, selections, hasOptions ? cloneOptions : undefined);
     }
 
     /**
@@ -587,7 +594,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     /*  HTML Pipeline                                                  */
     /* -------------------------------------------------------------- */
 
-    private async generateViaHtml(slides: SlideInput[]): Promise<ArrayBuffer> {
+    private async generateViaHtml(slides: SlideInput[], hybridOptions?: HtmlPipelineOptions): Promise<ArrayBuffer> {
         const htmlSlides: HtmlSlideInput[] = slides.map(s => ({
             html: s.html ?? '',
             charts: s.charts ? this.convertChartInputs(s.charts) : undefined,
@@ -596,7 +603,51 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         }));
 
         const imageLoader = (path: string) => this.loadImageAsBase64(path);
-        return generateFromHtml(htmlSlides, imageLoader);
+        return generateFromHtml(htmlSlides, imageLoader, hybridOptions);
+    }
+
+    /**
+     * Load hybrid pipeline options from compositions.json for a template file.
+     * Extracts slide size and deko elements for auto-injection in HTML pipeline.
+     */
+    private async loadHybridOptions(templateFile: string): Promise<HtmlPipelineOptions | undefined> {
+        try {
+            const slug = templateFile
+                .split('/').pop()
+                ?.replace(/\.(pptx|potx)$/i, '')
+                .toLowerCase()
+                .replace(/[_\s]+/g, '-') ?? '';
+            const compositionsPath = `.obsilo/templates/${slug}.compositions.json`;
+
+            const file = this.app.vault.getAbstractFileByPath(compositionsPath);
+            if (!(file instanceof TFile)) return undefined;
+
+            const raw = await this.app.vault.read(file);
+            const data = JSON.parse(raw);
+            if (!data.brand_dna) return undefined;
+
+            const dekoElements: DekoElementInput[] = (data.brand_dna.slide_decorations ?? []).map(
+                (d: Record<string, unknown>) => ({
+                    type: d.type as 'image' | 'shape',
+                    position: d.position as { x: number; y: number; w: number; h: number },
+                    shapeName: d.shape_name as string | undefined,
+                    fillColor: d.fill_color as string | undefined,
+                    rotation: d.rotation as number | undefined,
+                    imageData: d.image_data as string | undefined,
+                }),
+            );
+
+            return {
+                dekoElements: dekoElements.length > 0 ? dekoElements : undefined,
+                slideSizeInches: {
+                    w: (data.brand_dna.slide_size_px?.w ?? 1280) / 96,
+                    h: (data.brand_dna.slide_size_px?.h ?? 720) / 96,
+                },
+            };
+        } catch (e) {
+            console.debug('[CreatePptxTool] Failed to load hybrid options:', e);
+            return undefined;
+        }
     }
 
     private convertChartInputs(inputs: ChartInput[]): ChartData[] {
