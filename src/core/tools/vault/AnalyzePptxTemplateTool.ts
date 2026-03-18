@@ -916,9 +916,11 @@ function generateSkillMd(
 
     // Pipeline selection guidance depends on whether scaffolding is available
     if (scaffoldingMap && scaffoldingMap.size > 0) {
-        lines.push('- **clone is DEFAULT** (`template_slide` + `content`): Best for corporate slides whose design lives in replaceable shapes (titles, chevrons, KPI boxes, ribbons).');
-        lines.push('- **html** (`html` + `composition_id`): Preferred for compositions with static embedded charts/tables or when no template composition fits your content. Scaffold (header, footer, logo, deko) is auto-injected per composition.');
-        lines.push('- Use each composition\'s `recommended_pipeline` field to decide. When in doubt, prefer **clone** for corporate templates.');
+        lines.push('- **Mixed decks are PREFERRED** for corporate templates: choose the best mode per slide instead of forcing the whole deck into clone.');
+        lines.push('- **html** (`html` + `composition_id`): Preferred for most text/content slides where the scaffold should stay corporate, but the actual content needs flexible layout, placeholders, image slots, or stronger storytelling.');
+        lines.push('- **clone** (`template_slide` + `content`): Use for structural slides and design-carrying layouts whose meaning lives in the template shapes themselves (titles, dividers, chevrons, KPI boxes, pyramids, rigid process flows).');
+        lines.push('- **Treat template slides as reference implementations, not strict mandates**: If a composition is only a mediocre fit, create a better branded visual in HTML instead of forcing the content into the sample layout.');
+        lines.push('- Use each composition\'s `recommended_pipeline` and `recommended_pipeline_reason` to decide. When in doubt, prefer **html + composition_id** for content-heavy slides and **clone** for rigid structured shapes.');
         lines.push('- Call `get_composition_details` to see exact shape names, content_area, style_guide, layout_hint, and scaffold_elements per composition');
         lines.push('- Mixed decks are allowed: use `template_slide` for clone-recommended compositions and `html` + `composition_id` for html-recommended compositions.');
     } else {
@@ -929,6 +931,7 @@ function generateSkillMd(
 
     lines.push('- **Fill EVERY shape** (Template mode): When `get_composition_details` lists N shapes, your `content` object MUST have N keys. Unfilled shapes are CLEARED by the cloner and appear as blank empty areas.');
     lines.push('- **Transform content**: NEVER copy source text verbatim. Restructure: paragraphs -> bullets (max 8 words), numbers -> KPIs, sequences -> process labels (1-3 words per step).');
+    lines.push('- **Hybrid over filler**: If a slide really wants screenshots, example plans, or flexible explanatory blocks, prefer `html` + `composition_id` over forcing generic text into an ill-fitting clone layout.');
     lines.push('- **Action titles**: Every title is an ASSERTION ("17% faster through automation"), not a topic ("Technical Solution").');
     lines.push('- Shape names in `content` must match exactly (case-sensitive) from `get_composition_details`');
     lines.push('');
@@ -943,11 +946,13 @@ function generateSkillMd(
         if (multiFileData?.iconCatalog && multiFileData.iconCatalog.length > 0) {
             lines.push('5. Pick icons from Available Icons catalog instead of inheriting fixed template icons');
         }
+        lines.push('6. If example images are missing, ASK the user or place explicit placeholders instead of reusing unrelated template visuals');
         lines.push('');
     }
 
     lines.push('### Composition Selection');
     lines.push('- Match composition to content type: numbers -> KPI, sequence -> process, comparison -> two-column/matrix');
+    lines.push('- Choose the BEST visual for the statement, not the closest template sample. If the sample layout limits clarity, create a new branded visual in HTML.');
     lines.push('- Max 30% of content slides may be plain text -- the rest MUST use structured visual layouts');
     lines.push('- Never use the same slide type on consecutive slides');
     lines.push('- Slides with embedded charts (bar/pie/waterfall) contain STATIC template data -- only use when content matches the chart type');
@@ -1012,8 +1017,12 @@ interface CompositionEntry {
     has_static_table?: boolean;
     has_static_picture?: boolean;
     visual_structure: string;
-    /** Recommended pipeline for this composition: clone by default, html as fallback */
+    /** Recommended pipeline for this composition: clone for design-carrying shapes, html for flexible content generation */
     recommended_pipeline?: 'clone' | 'html';
+    /** Why this pipeline is recommended */
+    recommended_pipeline_reason?: string;
+    /** Whether html + composition_id can use this composition's scaffold */
+    supports_html_overlay?: boolean;
     /** Per-composition scaffold elements (header, footer, logo, deko) as DekoElement objects */
     scaffold_elements?: Array<{
         id: string;
@@ -1250,6 +1259,8 @@ function generateCompositionsJson(
             ...(Object.keys(slideWarnings).length > 0 ? { slide_warnings: slideWarnings } : {}),
             ...(scaffolding ? {
                 recommended_pipeline: scaffolding.recommended_pipeline,
+                recommended_pipeline_reason: buildPipelineReason(group, scaffolding.recommended_pipeline),
+                supports_html_overlay: true,
                 scaffold_elements: scaffolding.scaffold_elements.map(d => ({
                     id: d.id,
                     type: d.type,
@@ -1304,10 +1315,33 @@ function generateCompositionWarnings(
     }
 
     if (group.hasFixedVisuals) {
-        warnings.push(`Has ${group.decorativeElementCount} fixed decorative elements (icons/images) that cannot be replaced`);
+        warnings.push(`Has ${group.decorativeElementCount} fixed decorative elements (icons/images); only use this composition when those visuals semantically fit your story`);
     }
 
     return warnings.join('; ');
+}
+
+function buildPipelineReason(
+    group: ReturnType<typeof groupByComposition>[number],
+    pipeline: 'clone' | 'html',
+): string {
+    if (group.classification === 'title' || group.classification === 'section') {
+        return 'Structural corporate slide: cloning preserves the exact master layout and typography.';
+    }
+
+    if (group.staticChartCount > 0 || group.classification === 'chart') {
+        return 'The template contains static embedded charts, so the content should be rebuilt in HTML while keeping the corporate scaffold.';
+    }
+
+    if (group.staticTableCount > 0 || group.classification === 'table') {
+        return 'The template contains static embedded tables, so HTML is safer than cloning stale table content.';
+    }
+
+    if (pipeline === 'html') {
+        return 'This composition works best as scaffold + HTML overlay: keep the corporate chrome, but treat the sample layout as a reference and build the best-fitting branded visual inside the content area.';
+    }
+
+    return 'This composition carries meaning in the template shapes themselves, so clone mode preserves the intended geometry, styling, and alignment.';
 }
 
 function buildSlideWarnings(

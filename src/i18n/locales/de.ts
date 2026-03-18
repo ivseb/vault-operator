@@ -672,6 +672,7 @@ export const de: Translations = {
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Benutzerdefiniert',
     'provider.github-copilot': 'GitHub Copilot',
+    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels
@@ -1260,4 +1261,24 @@ export const de: Translations = {
     'copilot.authSuccess': 'Erfolgreich mit GitHub Copilot verbunden.',
     'copilot.authFailed': 'Authentifizierung fehlgeschlagen: {error}',
     'copilot.signedOut': 'Von GitHub Copilot abgemeldet.',
+
+    // Kilo Gateway
+    'kilo.auth': 'Kilo-Konto',
+    'kilo.authDesc': 'Melde dich mit deinem Kilo-Konto an, um Kilo Gateway-Modelle zu nutzen.',
+    'kilo.signIn': 'Mit Kilo anmelden',
+    'kilo.manualToken': 'API-Token verwenden',
+    'kilo.manualTokenPlaceholder': 'Kilo API-Token einfügen',
+    'kilo.manualTokenConfirm': 'Verbinden',
+    'kilo.manualTokenValidating': 'Wird validiert...',
+    'kilo.manualTokenInvalid': 'Ungültiger Token: {error}',
+    'kilo.disconnect': 'Verbindung trennen',
+    'kilo.disconnected': 'Verbindung zu Kilo Gateway getrennt.',
+    'kilo.authenticated': 'Verbunden als {account}',
+    'kilo.authenticatedNoLabel': 'Verbunden',
+    'kilo.notConnected': 'Nicht verbunden',
+    'kilo.deviceFlow.openBrowser': 'Öffne den Link unten und gib den Code ein:',
+    'kilo.deviceFlow.code': 'Dein Code: {code}',
+    'kilo.deviceFlow.waiting': 'Warte auf Autorisierung...',
+    'kilo.deviceFlow.success': 'Erfolgreich mit Kilo Gateway verbunden.',
+    'kilo.deviceFlow.failed': 'Autorisierung fehlgeschlagen: {error}',
 };

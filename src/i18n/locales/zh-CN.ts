@@ -669,6 +669,7 @@ export const zhCN: Translations = {
     'provider.azure': 'Azure OpenAI',
     'provider.custom': '自定义',
     'provider.github-copilot': 'GitHub Copilot',
+    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels

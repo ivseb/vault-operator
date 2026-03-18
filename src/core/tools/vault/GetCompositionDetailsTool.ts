@@ -40,8 +40,10 @@ interface CompositionEntry {
     has_static_chart?: boolean;
     has_static_table?: boolean;
     has_static_picture?: boolean;
-    /** Recommended pipeline: clone by default for corporate templates, html as fallback (v4) */
+    /** Recommended pipeline: clone for design-carrying shapes, html for flexible content generation (v4) */
     recommended_pipeline?: 'clone' | 'html';
+    recommended_pipeline_reason?: string;
+    supports_html_overlay?: boolean;
     /** Per-composition scaffold elements count (v4) */
     scaffold_elements?: Array<{ id: string; type: string }>;
     /** Content area bounding box in px (v4) */
@@ -261,6 +263,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         lines.push(`### ${comp.name} (ID: ${id})`);
         lines.push(`**Slides:** ${comp.slides.join(', ')}`);
         if (isV4 && comp.recommended_pipeline) lines.push(`**Pipeline:** ${comp.recommended_pipeline}`);
+        if (isV4 && comp.recommended_pipeline_reason) lines.push(`**Pipeline Reason:** ${comp.recommended_pipeline_reason}`);
 
         if (comp.narrative_phase && comp.narrative_phase !== 'any') lines.push(`**Narrative Phase:** ${comp.narrative_phase}`);
         if (comp.bedeutung) lines.push(`**Bedeutung:** ${comp.bedeutung}`);
@@ -291,6 +294,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         }
         if (isV4 && comp.layout_hint) lines.push(`**Layout Hint:** ${comp.layout_hint}`);
         if (isV4 && comp.scaffold_elements) lines.push(`**Scaffold Elements:** ${comp.scaffold_elements.length} (auto-injected via composition_id)`);
+        if (isV4 && comp.supports_html_overlay) lines.push('**Hybrid HTML Overlay:** Supported via `html` + `composition_id`');
         if (isV4 && comp.html_skeleton) {
             lines.push('\n**HTML Skeleton (starting point):**');
             lines.push('```html');
@@ -305,7 +309,14 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             lines.push(`html: "<div ...>your content within content_area bounds</div>"`);
             lines.push(`composition_id: "${id}"  # scaffold auto-injected`);
             lines.push('```');
-            lines.push('> Scaffold (header, footer, logo, deko) injected automatically. Design HTML within content_area bounds using style_guide colors/fonts.');
+            lines.push('> Scaffold (header, footer, logo, deko) injected automatically. Design HTML within content_area bounds using style_guide colors/fonts. Treat the template slide as a branded reference, not as a rigid layout you must copy.');
+        } else if (isV4 && comp.supports_html_overlay) {
+            lines.push('\n**Optional hybrid mode:**');
+            lines.push('```yaml');
+            lines.push(`html: "<div ...>your content within content_area bounds</div>"`);
+            lines.push(`composition_id: "${id}"  # scaffold auto-injected`);
+            lines.push('```');
+            lines.push('> Use this when you want more layout freedom than clone mode offers, but still want the corporate scaffold from the template. The template is a branded reference implementation, not a strict visual ceiling.');
         }
 
         // Shape mappings: compact for HTML compositions, full for clone compositions

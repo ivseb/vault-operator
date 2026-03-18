@@ -3,6 +3,7 @@ import type { CustomModel, ProviderType } from '../../types/settings';
 import { PROVIDER_LABELS, MODEL_SUGGESTIONS, EMBEDDING_PROVIDERS, EMBEDDING_SUGGESTIONS } from './constants';
 import { testModelConnection, testEmbeddingConnection, fetchProviderModels, fetchOllamaModels, fetchEmbeddingModels, isTemperatureFixed, maxTemperature } from './testModelConnection';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
+import { KiloAuthService } from '../../core/security/KiloAuthService';
 import { t } from '../../i18n';
 
 /** Derive vendor group for a Copilot model ID (no slash-prefix like OpenRouter). */
@@ -108,6 +109,7 @@ export class ModelConfigModal extends Modal {
     private maxTokensValueEl: HTMLElement | null = null;
     private maxTokensNoteEl: HTMLElement | null = null;
     private copilotAuthRow: HTMLElement | null = null;
+    private kiloAuthRow: HTMLElement | null = null;
     private thinkingBudgetSliderEl: HTMLInputElement | null = null;
     private thinkingBudgetValueEl: HTMLElement | null = null;
 
@@ -175,7 +177,7 @@ export class ModelConfigModal extends Modal {
         // ── Provider ─────────────────────────────────────────────────────
         const provRow = row(t('modal.modelConfig.provider'));
         const provSel = provRow.createEl('select', { cls: 'mcm-select' });
-        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'github-copilot', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
+        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'github-copilot', 'kilo-gateway', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
             const opt = provSel.createEl('option', { value: p, text: PROVIDER_LABELS[p] });
             if (p === this.formProvider) opt.selected = true;
         });
@@ -313,6 +315,10 @@ export class ModelConfigModal extends Modal {
         // ── GitHub Copilot Auth (shown instead of API Key for github-copilot) ──
         this.copilotAuthRow = form.createDiv('mcm-row mcm-copilot-auth');
         this.buildCopilotAuthSection(this.copilotAuthRow);
+
+        // ── Kilo Gateway Auth (shown instead of API Key for kilo-gateway) ──
+        this.kiloAuthRow = form.createDiv('mcm-row mcm-kilo-auth');
+        this.buildKiloAuthSection(this.kiloAuthRow);
 
         // ── Base URL ──────────────────────────────────────────────────────
         this.baseUrlRow = form.createDiv('mcm-row');
@@ -492,9 +498,11 @@ export class ModelConfigModal extends Modal {
 
         // Show/hide fields per provider
         const isCopilot = p === 'github-copilot';
-        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio' || isCopilot);
+        const isKilo = p === 'kilo-gateway';
+        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio' || isCopilot || isKilo);
         if (this.copilotAuthRow) this.copilotAuthRow.classList.toggle('agent-u-hidden', !isCopilot);
-        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'openrouter' || isCopilot);
+        if (this.kiloAuthRow) this.kiloAuthRow.classList.toggle('agent-u-hidden', !isKilo);
+        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'openrouter' || isCopilot || isKilo);
         if (this.apiVersionRow) this.apiVersionRow.classList.toggle('agent-u-hidden', p !== 'azure');
         if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle('agent-u-hidden', p !== 'ollama');
         if (this.customBrowserRow) this.customBrowserRow.classList.toggle('agent-u-hidden', p !== 'custom' && p !== 'lmstudio');
@@ -513,7 +521,7 @@ export class ModelConfigModal extends Modal {
         // Fetch is available for embedding providers with live APIs (not azure — no list endpoint)
         const hasFetchFetch = this.forEmbedding
             ? (p === 'openai' || p === 'openrouter' || p === 'ollama' || p === 'lmstudio' || p === 'custom' || isCopilot)
-            : (p === 'anthropic' || p === 'openai' || p === 'openrouter' || p === 'lmstudio' || isCopilot);
+            : (p === 'anthropic' || p === 'openai' || p === 'openrouter' || p === 'lmstudio' || isCopilot || isKilo);
         if (this.suggestRow) {
             this.suggestRow.classList.toggle('agent-u-hidden', !hasStaticSuggestions && !hasFetchFetch);
             if (this.suggestSelEl) {
@@ -564,6 +572,11 @@ export class ModelConfigModal extends Modal {
         // Update Copilot auth status when visible
         if (isCopilot && this.copilotAuthRow) {
             this.updateCopilotAuthStatus();
+        }
+
+        // Update Kilo auth status when visible
+        if (isKilo && this.kiloAuthRow) {
+            this.updateKiloAuthStatus();
         }
 
         // Render provider setup guide
@@ -926,6 +939,144 @@ export class ModelConfigModal extends Modal {
             btn.disabled = false;
             btn.setText(t('copilot.signIn'));
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Kilo Gateway Auth Section
+    // ---------------------------------------------------------------------------
+
+    private buildKiloAuthSection(container: HTMLElement): void {
+        const label = container.createDiv('mcm-label');
+        label.createSpan({ text: t('kilo.auth') });
+        label.createSpan({ text: t('kilo.authDesc'), cls: 'mcm-desc' });
+
+        const controls = container.createDiv('mcm-kilo-controls');
+
+        // Status badge
+        controls.createDiv({ cls: 'mcm-kilo-status' });
+
+        // Sign in button (Device Flow)
+        const signInBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-signin',
+            text: t('kilo.signIn'),
+        });
+        signInBtn.addEventListener('click', () => { void this.startKiloDeviceAuth(signInBtn); });
+
+        // Manual token button
+        const manualBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-manual',
+            text: t('kilo.manualToken'),
+        });
+        manualBtn.addEventListener('click', () => { void this.showKiloManualTokenInput(controls); });
+
+        // Disconnect button
+        const disconnectBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-signout',
+            text: t('kilo.disconnect'),
+        });
+        disconnectBtn.addEventListener('click', () => { void (async () => {
+            await KiloAuthService.getInstance().disconnect();
+            this.updateKiloAuthStatus();
+            new Notice(t('kilo.disconnected'));
+        })(); });
+
+        this.updateKiloAuthStatus();
+    }
+
+    private updateKiloAuthStatus(): void {
+        if (!this.kiloAuthRow) return;
+        const authService = KiloAuthService.getInstance();
+        const isAuth = authService.isAuthenticated();
+        const session = authService.getSession();
+
+        const statusEl = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-status');
+        if (statusEl) {
+            statusEl.empty();
+            statusEl.classList.toggle('mcm-copilot-status--connected', isAuth);
+            statusEl.classList.toggle('mcm-copilot-status--disconnected', !isAuth);
+            const label = isAuth && session.accountLabel
+                ? t('kilo.authenticated', { account: session.accountLabel })
+                : isAuth
+                    ? t('kilo.authenticatedNoLabel')
+                    : t('kilo.notConnected');
+            statusEl.createSpan({ text: label });
+        }
+
+        const signInBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-signin');
+        const manualBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-manual');
+        const disconnectBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-signout');
+        if (signInBtn) signInBtn.classList.toggle('agent-u-hidden', isAuth);
+        if (manualBtn) manualBtn.classList.toggle('agent-u-hidden', isAuth);
+        if (disconnectBtn) disconnectBtn.classList.toggle('agent-u-hidden', !isAuth);
+    }
+
+    private async startKiloDeviceAuth(btn: HTMLButtonElement): Promise<void> {
+        const authService = KiloAuthService.getInstance();
+        btn.disabled = true;
+        btn.setText(t('kilo.deviceFlow.waiting'));
+
+        const abort = new AbortController();
+
+        try {
+            const flow = await authService.startDeviceAuth();
+
+            // Code und URL dem Nutzer anzeigen
+            new Notice(
+                `${t('kilo.deviceFlow.openBrowser')}\n\n${t('kilo.deviceFlow.code', { code: flow.userCode })}\n\n${flow.verificationUri}`,
+                0,
+            );
+
+            window.open(flow.verificationUri);
+
+            await authService.pollForSession(flow.deviceCode, abort.signal);
+
+            new Notice(t('kilo.deviceFlow.success'));
+            this.updateKiloAuthStatus();
+
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (msg !== 'Authorization cancelled') {
+                new Notice(t('kilo.deviceFlow.failed', { error: msg }));
+            }
+        } finally {
+            btn.disabled = false;
+            btn.setText(t('kilo.signIn'));
+        }
+    }
+
+    private async showKiloManualTokenInput(controls: HTMLElement): Promise<void> {
+        // Vorhandenes Inline-Input entfernen
+        controls.querySelector('.mcm-kilo-token-input-row')?.remove();
+
+        const row = controls.createDiv('mcm-kilo-token-input-row');
+        const input = row.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'password', placeholder: t('kilo.manualTokenPlaceholder') },
+        });
+
+        const confirmBtn = row.createEl('button', { text: t('kilo.manualTokenConfirm') });
+        confirmBtn.addEventListener('click', () => { void (async () => {
+            const token = input.value.trim();
+            if (!token) return;
+            confirmBtn.disabled = true;
+            confirmBtn.setText(t('kilo.manualTokenValidating'));
+            try {
+                await KiloAuthService.getInstance().validateAndSetManualToken(token);
+                row.remove();
+                this.updateKiloAuthStatus();
+                new Notice(t('kilo.deviceFlow.success'));
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                new Notice(t('kilo.manualTokenInvalid', { error: msg }));
+                confirmBtn.disabled = false;
+                confirmBtn.setText(t('kilo.manualTokenConfirm'));
+            }
+        })(); });
+
+        const cancelBtn = row.createEl('button', { text: t('modal.modelConfig.cancel') });
+        cancelBtn.addEventListener('click', () => row.remove());
+
+        input.focus();
     }
 
     private save(): void {

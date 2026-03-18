@@ -18,6 +18,7 @@ function getProviderLabels(): Record<string, string> {
         azure: t('provider.azure'),
         custom: t('provider.custom'),
         'github-copilot': t('provider.github-copilot'),
+        'kilo-gateway':   t('provider.kilo-gateway'),
     };
 }
 
@@ -30,6 +31,7 @@ const PROVIDER_COLORS: Record<string, string> = {
     azure: '#0078d4',
     custom: '#78909c',
     'github-copilot': '#6e40c9',
+    'kilo-gateway':   '#ff6200',
 };
 
 // Model suggestions shown in the Quick Pick dropdown per provider
@@ -83,10 +85,16 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'Reasoning',  id: 'o3-mini',                  label: 'o3-mini' },
         { group: 'Reasoning',  id: 'o4-mini',                  label: 'o4-mini' },
     ],
+    // Kilo: keine statischen Suggestions — Modelle kommen dynamisch per Fetch-Button.
+    // kilo/auto als einziger Fallback-Eintrag (ADR-042).
+    'kilo-gateway': [
+        { group: 'Kilo',       id: 'kilo/auto',                label: 'Auto (recommended)' },
+    ],
 };
 
 // Providers that support embedding APIs (Anthropic has none)
 // Note: github-copilot excluded — Copilot API does not support /embeddings endpoint (FEATURE-1204 open question)
+// Note: kilo-gateway excluded — embedding contract not yet verified (ADR-043, FEATURE-1306)
 const EMBEDDING_PROVIDERS: ProviderType[] = ['openai', 'openrouter', 'azure', 'ollama', 'lmstudio', 'custom'];
 
 // Embedding model suggestions per provider (exact API IDs)

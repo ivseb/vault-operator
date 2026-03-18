@@ -671,6 +671,7 @@ export const ja: Translations = {
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'カスタム',
     'provider.github-copilot': 'GitHub Copilot',
+    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels

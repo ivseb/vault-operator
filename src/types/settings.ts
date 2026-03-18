@@ -7,7 +7,7 @@
 // Adapted from Obsidian Copilot's CustomModel pattern
 // ---------------------------------------------------------------------------
 
-export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot';
+export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway';
 
 export interface CustomModel {
     /** Model identifier used in API calls (e.g. "claude-sonnet-4-5-20250929") */
@@ -593,6 +593,18 @@ export interface ObsidianAgentSettings {
     /** Custom OAuth Client ID — escape hatch if the default stops working */
     githubCopilotCustomClientId: string;
 
+    // Kilo Gateway (ADR-041)
+    /** Kilo session token (encrypted via SafeStorageService) */
+    kiloToken: string;
+    /** Auth mode used to obtain the token */
+    kiloAuthMode: 'device-auth' | 'manual-token' | '';
+    /** Organization ID for X-KiloCode-OrganizationId header (optional) */
+    kiloOrganizationId: string;
+    /** Display label from Kilo profile (not sensitive, not encrypted) */
+    kiloAccountLabel: string;
+    /** Epoch seconds of last successful token validation */
+    kiloLastValidatedAt: number;
+
     // Advanced
     debugMode: boolean;
 }
@@ -825,5 +837,10 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     githubCopilotToken: '',
     githubCopilotTokenExpiresAt: 0,
     githubCopilotCustomClientId: '',
+    kiloToken: '',
+    kiloAuthMode: '',
+    kiloOrganizationId: '',
+    kiloAccountLabel: '',
+    kiloLastValidatedAt: 0,
     debugMode: false,
 };

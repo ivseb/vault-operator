@@ -35,6 +35,7 @@ import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
 import { initI18n, t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
+import { KiloAuthService } from './core/security/KiloAuthService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
 import { RecipeMatchingService } from './core/mastery/RecipeMatchingService';
@@ -604,6 +605,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveData(this.encryptSettingsForSave(this.settings));
         });
 
+        // Initialize Kilo Gateway auth service with persisted session (ADR-041)
+        const kiloAuth = KiloAuthService.getInstance();
+        kiloAuth.loadFromSettings(this.settings);
+        kiloAuth.setSaveCallback(async () => {
+            kiloAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
         // Migrate old mode slugs to new built-in mode slugs (Phase 3.1)
         const OLD_MODE_MAP: Record<string, string> = { librarian: 'ask', writer: 'agent', orchestrator: 'agent', researcher: 'ask', curator: 'agent', architect: 'agent' };
         if (OLD_MODE_MAP[this.settings.currentMode]) {
@@ -854,6 +863,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.githubCopilotToken) {
             settings.githubCopilotToken = this.safeStorage.decrypt(settings.githubCopilotToken);
         }
+        // Kilo Gateway token (ADR-041)
+        if (settings.kiloToken) {
+            settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
+        }
     }
 
     /**
@@ -891,6 +904,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
         if (copy.githubCopilotToken && !this.safeStorage.isEncrypted(copy.githubCopilotToken)) {
             copy.githubCopilotToken = this.safeStorage.encrypt(copy.githubCopilotToken);
+        }
+        // Kilo Gateway token (ADR-041)
+        if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
+            copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
         }
         copy._encrypted = true;
         return copy;

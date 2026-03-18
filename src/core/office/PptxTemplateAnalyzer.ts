@@ -1764,7 +1764,7 @@ export interface CompositionScaffolding {
     style_guide: CompositionStyleGuide;
     /** Layout hint derived from content shape arrangement. */
     layout_hint: string;
-    /** Recommended pipeline: clone by default for corporate templates, html only as fallback. */
+    /** Recommended pipeline: clone for design-carrying template shapes, html for flexible content generation. */
     recommended_pipeline: 'clone' | 'html';
     /** Optional HTML skeleton with placeholders for complex layouts. */
     html_skeleton?: string;
@@ -2076,6 +2076,25 @@ function deriveLayoutHint(
     return 'single-column';
 }
 
+function isGenericTextPlaceholder(shape: ShapeInfo): boolean {
+    return shape.placeholderType === 'title' ||
+        shape.placeholderType === 'ctrTitle' ||
+        shape.placeholderType === 'subTitle' ||
+        shape.placeholderType === 'body';
+}
+
+function isDesignCarryingContentShape(shape: ShapeInfo): boolean {
+    if (shape.objectType !== 'shape') return true;
+
+    if (shape.placeholderType && !isGenericTextPlaceholder(shape)) return true;
+
+    const hasOwnFill = !!shape.fillColor && shape.fillColor !== 'none';
+    const isPlainRect = shape.geometry === 'prstGeom:rect' || shape.geometry === 'rect' || shape.geometry === 'none';
+    const isLineLike = shape.geometry.includes('line');
+
+    return hasOwnFill && !isPlainRect && !isLineLike;
+}
+
 /** Determine recommended pipeline for a composition. */
 function recommendPipeline(
     group: CompositionGroup,
@@ -2090,14 +2109,35 @@ function recommendPipeline(
         return 'html';
     }
 
-    // Corporate templates encode a lot of their visual identity directly in the
-    // content-bearing shapes (colored chevrons, KPI boxes, labeled ribbons, etc.).
-    // As soon as we have at least one replaceable shape, cloning preserves that
-    // geometry and styling with pixel-perfect fidelity.
-    if (contentShapes.length > 0) return 'clone';
+    if (contentShapes.length === 0) return 'html';
 
-    // HTML is the fallback only when there is no content-bearing shape to reuse.
-    return 'html';
+    // Highly structured layouts usually encode their meaning directly in the
+    // template geometry (chevrons, KPI boxes, pyramids, timelines, org nodes).
+    if (group.classification === 'process' ||
+        group.classification === 'kpi' ||
+        group.classification === 'pyramid' ||
+        group.classification === 'timeline' ||
+        group.classification === 'org-chart') {
+        return 'clone';
+    }
+
+    // If the replaceable shapes themselves carry the visual design, cloning is
+    // still the safest option because HTML would have to recreate those shapes.
+    if (contentShapes.some(isDesignCarryingContentShape)) return 'clone';
+
+    // Generic text-driven content slides benefit from HTML overlay:
+    // corporate scaffold stays cloned, but the actual content can be laid out
+    // flexibly within the content area.
+    if (group.classification === 'content' ||
+        group.classification === 'two-column' ||
+        group.classification === 'comparison' ||
+        group.classification === 'matrix' ||
+        group.classification === 'image' ||
+        group.hasFixedVisuals) {
+        return 'html';
+    }
+
+    return 'clone';
 }
 
 /** Generate an HTML skeleton for a composition based on layout and style. */
