@@ -791,6 +791,8 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     taskExtraction: {
         enabled: true,
         taskFolder: 'Tasks',
+        preferTaskNotesPlugin: true,
+        taskNotesHintDismissed: false,
     },
     debugMode: false,
 };

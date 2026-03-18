@@ -58,6 +58,15 @@ export interface HtmlSlideInput {
     tables?: TableData[];
     /** Speaker notes for this slide. */
     notes?: string;
+    /** Per-slide scaffold/deko elements (overrides global dekoElements from options). */
+    dekoElements?: Array<{
+        type: 'image' | 'shape';
+        position: { x: number; y: number; w: number; h: number };
+        shapeName?: string;
+        fillColor?: string;
+        rotation?: number;
+        imageData?: string;
+    }>;
 }
 
 /** Structured table data for hybrid rendering (position from HTML, data from here). */

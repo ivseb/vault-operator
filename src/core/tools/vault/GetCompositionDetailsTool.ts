@@ -37,6 +37,22 @@ interface CompositionEntry {
     visual_structure?: string;
     decorative_element_count?: number;
     has_fixed_visuals?: boolean;
+    /** Recommended pipeline: 'clone' for structural slides, 'html' for content (v4) */
+    recommended_pipeline?: 'clone' | 'html';
+    /** Per-composition scaffold elements count (v4) */
+    scaffold_elements?: Array<{ id: string; type: string }>;
+    /** Content area bounding box in px (v4) */
+    content_area?: { x: number; y: number; w: number; h: number };
+    /** Style guide for content rendering (v4) */
+    style_guide?: {
+        title?: { font_size_pt: number; color: string; font_weight: string };
+        body?: { font_size_pt: number; color: string };
+        accent_color?: string;
+    };
+    /** Layout hint for content arrangement (v4) */
+    layout_hint?: string;
+    /** HTML skeleton with placeholders (v4) */
+    html_skeleton?: string;
     repeatable_groups?: Record<string, RepeatableGroupInfo[]>;
     shapes: Record<string, Record<string, ShapeDetail>>;
 }
@@ -67,6 +83,21 @@ interface CompositionsFile {
         fonts: { major: string; minor: string };
         slide_size_px: { w: number; h: number };
     };
+    /** Design rules from Style Guide (v4) */
+    design_rules?: {
+        color_usage: string[];
+        typography: string[];
+        layout: string[];
+        dos: string[];
+        donts: string[];
+    };
+    /** Icon catalog from Icon Gallery (v4) */
+    icon_catalog?: Array<{
+        name: string;
+        category: string;
+        description: string;
+        usage_hint?: string;
+    }>;
     alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
 }
@@ -221,9 +252,11 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
     private formatComposition(id: string, comp: CompositionEntry, schemaVersion: number): string {
         const lines: string[] = [];
         const isV2 = schemaVersion >= 2;
+        const isV4 = schemaVersion >= 4;
 
         lines.push(`### ${comp.name} (ID: ${id})`);
         lines.push(`**Slides:** ${comp.slides.join(', ')}`);
+        if (isV4 && comp.recommended_pipeline) lines.push(`**Pipeline:** ${comp.recommended_pipeline}`);
 
         if (comp.narrative_phase && comp.narrative_phase !== 'any') lines.push(`**Narrative Phase:** ${comp.narrative_phase}`);
         if (comp.bedeutung) lines.push(`**Bedeutung:** ${comp.bedeutung}`);
@@ -232,49 +265,93 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         if (comp.visual_structure) lines.push(`**Visual Structure:** ${comp.visual_structure}`);
         if (comp.has_fixed_visuals) lines.push(`**Fixed Visuals:** ${comp.decorative_element_count ?? 0} fixed decorative elements (icons/images that cannot be replaced)`);
 
-        // Shape mappings per slide
-        const keyLabel = isV2 ? 'semantic aliases' : 'shape names';
-        for (const [slideNum, shapes] of Object.entries(comp.shapes)) {
-            lines.push(`\n**Slide ${slideNum} -- Use these exact ${keyLabel} as content keys in create_pptx:**`);
-            lines.push('```yaml');
-            lines.push(`template_slide: ${slideNum}`);
-            lines.push('content:');
-            for (const [shapeName, detail] of Object.entries(shapes)) {
-                const constraints: string[] = [];
-                if (detail.shape_type === 'image') constraints.push('[IMAGE]');
-                if (detail.zweck) constraints.push(detail.zweck);
-                if (detail.fill_color) constraints.push(`fill: ${detail.fill_color}`);
-                if (detail.max_chars) constraints.push(`max ${detail.max_chars} chars`);
-                if (detail.font_size_pt) constraints.push(`${detail.font_size_pt}pt`);
-                if (detail.width_cm) constraints.push(`${detail.width_cm}cm wide`);
-                const constraintStr = constraints.length > 0 ? `  # ${constraints.join(', ')}` : '';
-                const placeholder = detail.shape_type === 'image' ? 'IMAGE PLACEHOLDER -- ask user or choose text-only composition' : 'YOUR TEXT HERE';
-                lines.push(`  "${shapeName}": "${placeholder}"${constraintStr}`);
-                if (detail.notes) lines.push(`    # ${detail.notes}`);
-            }
+        // Scaffolding info (v4)
+        if (isV4 && comp.content_area) {
+            const ca = comp.content_area;
+            lines.push(`\n**Content Area:** x=${ca.x}, y=${ca.y}, w=${ca.w}, h=${ca.h} (px, 1280x720 canvas)`);
+        }
+        if (isV4 && comp.style_guide) {
+            const sg = comp.style_guide;
+            const parts: string[] = [];
+            if (sg.title) parts.push(`Title: ${sg.title.font_size_pt}pt ${sg.title.color} ${sg.title.font_weight}`);
+            if (sg.body) parts.push(`Body: ${sg.body.font_size_pt}pt ${sg.body.color}`);
+            if (sg.accent_color) parts.push(`Accent: ${sg.accent_color}`);
+            if (parts.length > 0) lines.push(`**Style Guide:** ${parts.join(' | ')}`);
+        }
+        if (isV4 && comp.layout_hint) lines.push(`**Layout Hint:** ${comp.layout_hint}`);
+        if (isV4 && comp.scaffold_elements) lines.push(`**Scaffold Elements:** ${comp.scaffold_elements.length} (auto-injected via composition_id)`);
+        if (isV4 && comp.html_skeleton) {
+            lines.push('\n**HTML Skeleton (starting point):**');
+            lines.push('```html');
+            lines.push(comp.html_skeleton);
             lines.push('```');
-            if (isV2) {
-                lines.push('> Keys above are semantic aliases mapped to unique shape IDs. Use them EXACTLY as content keys.');
-            } else {
-                lines.push('> Shape names above are OOXML name attributes. Use them EXACTLY as content keys.');
-            }
+        }
 
-            // Show repeatable groups for this slide
-            const slideGroups = comp.repeatable_groups?.[slideNum];
-            if (slideGroups && slideGroups.length > 0) {
-                lines.push('');
-                lines.push(`**Adaptable:** This slide has ${slideGroups.length} repeatable group(s). Shape count can be adjusted:`);
-                for (const rg of slideGroups) {
-                    const shapeCount = rg.shapeNames.length;
-                    const minCount = 2;
-                    const maxCount = shapeCount + 3;
-                    lines.push(`- **${rg.groupId}** (${rg.axis}): ${shapeCount}x shapes [${rg.shapeNames.slice(0, 3).join(', ')}${shapeCount > 3 ? '...' : ''}]. Adaptable to ${minCount}-${maxCount} shapes.`);
-                    if (rg.columns.some(c => c.associatedShapes.length > 0)) {
-                        const assocCount = rg.columns[0].associatedShapes.length;
-                        lines.push(`  - Each shape has ${assocCount} associated element(s) that move together (e.g. description boxes below).`);
+        // HTML mode hint for v4 compositions with html pipeline
+        if (isV4 && comp.recommended_pipeline === 'html') {
+            lines.push('\n**Recommended: Use HTML mode with composition_id:**');
+            lines.push('```yaml');
+            lines.push(`html: "<div ...>your content within content_area bounds</div>"`);
+            lines.push(`composition_id: "${id}"  # scaffold auto-injected`);
+            lines.push('```');
+            lines.push('> Scaffold (header, footer, logo, deko) injected automatically. Design HTML within content_area bounds using style_guide colors/fonts.');
+        }
+
+        // Shape mappings: compact for HTML compositions, full for clone compositions
+        if (isV4 && comp.recommended_pipeline === 'html') {
+            // Compact clone-mode reference for HTML compositions
+            const firstSlide = Object.entries(comp.shapes)[0];
+            if (firstSlide) {
+                const [slideNum, shapes] = firstSlide;
+                const shapeNames = Object.keys(shapes);
+                lines.push(`\n**Clone mode reference** (prefer HTML mode above):`);
+                lines.push(`Slide ${slideNum}: ${shapeNames.join(', ')}`);
+            }
+        } else {
+            // Full shape mappings (clone mode or non-v4)
+            const keyLabel = isV2 ? 'semantic aliases' : 'shape names';
+            for (const [slideNum, shapes] of Object.entries(comp.shapes)) {
+                lines.push(`\n**Slide ${slideNum} -- Use these exact ${keyLabel} as content keys in create_pptx:**`);
+                lines.push('```yaml');
+                lines.push(`template_slide: ${slideNum}`);
+                lines.push('content:');
+                for (const [shapeName, detail] of Object.entries(shapes)) {
+                    const constraints: string[] = [];
+                    if (detail.shape_type === 'image') constraints.push('[IMAGE]');
+                    if (detail.zweck) constraints.push(detail.zweck);
+                    if (detail.fill_color) constraints.push(`fill: ${detail.fill_color}`);
+                    if (detail.max_chars) constraints.push(`max ${detail.max_chars} chars`);
+                    if (detail.font_size_pt) constraints.push(`${detail.font_size_pt}pt`);
+                    if (detail.width_cm) constraints.push(`${detail.width_cm}cm wide`);
+                    const constraintStr = constraints.length > 0 ? `  # ${constraints.join(', ')}` : '';
+                    const placeholder = detail.shape_type === 'image' ? 'IMAGE PLACEHOLDER -- ask user or choose text-only composition' : 'YOUR TEXT HERE';
+                    lines.push(`  "${shapeName}": "${placeholder}"${constraintStr}`);
+                    if (detail.notes) lines.push(`    # ${detail.notes}`);
+                }
+                lines.push('```');
+                if (isV2) {
+                    lines.push('> Keys above are semantic aliases mapped to unique shape IDs. Use them EXACTLY as content keys.');
+                } else {
+                    lines.push('> Shape names above are OOXML name attributes. Use them EXACTLY as content keys.');
+                }
+
+                // Show repeatable groups for this slide
+                const slideGroups = comp.repeatable_groups?.[slideNum];
+                if (slideGroups && slideGroups.length > 0) {
+                    lines.push('');
+                    lines.push(`**Adaptable:** This slide has ${slideGroups.length} repeatable group(s). Shape count can be adjusted:`);
+                    for (const rg of slideGroups) {
+                        const shapeCount = rg.shapeNames.length;
+                        const minCount = 2;
+                        const maxCount = shapeCount + 3;
+                        lines.push(`- **${rg.groupId}** (${rg.axis}): ${shapeCount}x shapes [${rg.shapeNames.slice(0, 3).join(', ')}${shapeCount > 3 ? '...' : ''}]. Adaptable to ${minCount}-${maxCount} shapes.`);
+                        if (rg.columns.some(c => c.associatedShapes.length > 0)) {
+                            const assocCount = rg.columns[0].associatedShapes.length;
+                            lines.push(`  - Each shape has ${assocCount} associated element(s) that move together (e.g. description boxes below).`);
+                        }
+                        lines.push(`  - To use FEWER: only provide content for the shapes you need (extras are removed automatically).`);
+                        lines.push(`  - To use MORE: provide content for additional shapes with incrementing numbers.`);
                     }
-                    lines.push(`  - To use FEWER: only provide content for the shapes you need (extras are removed automatically).`);
-                    lines.push(`  - To use MORE: provide content for additional shapes with incrementing numbers.`);
                 }
             }
         }

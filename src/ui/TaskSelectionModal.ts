@@ -11,15 +11,18 @@ import type { TaskItem } from '../core/tasks/types';
 export class TaskSelectionModal extends Modal {
     private readonly items: TaskItem[];
     private readonly onConfirm: (selected: TaskItem[]) => void | Promise<void>;
+    private readonly useTaskNotes: boolean;
     private selected: Set<number>;
 
     constructor(
         app: App,
         items: TaskItem[],
+        useTaskNotes: boolean,
         onConfirm: (selected: TaskItem[]) => void | Promise<void>,
     ) {
         super(app);
         this.items = items;
+        this.useTaskNotes = useTaskNotes;
         this.onConfirm = onConfirm;
         this.selected = new Set(items.map((_, i) => i)); // all selected by default
     }
@@ -37,6 +40,15 @@ export class TaskSelectionModal extends Modal {
         contentEl.createEl('p', {
             text: 'Welche Aufgaben sollen als Task-Notes erstellt werden?',
             cls: 'task-selection-subtitle',
+        });
+
+        // Format hint
+        const hintText = this.useTaskNotes
+            ? 'Tasks werden im TaskNotes-Format erstellt.'
+            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung.';
+        contentEl.createEl('p', {
+            text: hintText,
+            cls: 'task-selection-hint',
         });
 
         // Toggle all

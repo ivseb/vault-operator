@@ -41,6 +41,9 @@ interface SlideInput {
     charts?: ChartInput[];
     tables?: TableInput[];
 
+    // Per-composition scaffolding (HTML pipeline with corporate template)
+    composition_id?: string;
+
     // Legacy pipeline (fallback)
     title?: string;
     subtitle?: string;
@@ -66,6 +69,29 @@ interface TableInput {
     headers?: string[];
     rows?: (string | number | null)[][];
     style?: { headerColor?: string; headerTextColor?: string; zebraColor?: string };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Unified compositions data                                          */
+/* ------------------------------------------------------------------ */
+
+interface FullCompositionsData {
+    schemaVersion: number;
+    repeatableGroups: Map<number, import('../../office/PptxTemplateAnalyzer').RepeatableGroup[]>;
+    aliasMap?: Map<string, { slide: number; shapeId: string; originalName: string }>;
+    slideSizeInches: { w: number; h: number };
+    globalDekoElements?: DekoElementInput[];
+    compositionScaffolds?: Map<string, DekoElementInput[]>;
+    compositionData?: Map<string, {
+        contentArea: { x: number; y: number; w: number; h: number };
+        styleGuide: {
+            title?: { font_size_pt: number; color: string; font_weight: string };
+            body?: { font_size_pt: number; color: string };
+            accent_color?: string;
+        };
+        layoutHint: string;
+        slides: number[];
+    }>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -139,6 +165,13 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                                         'Use <div data-object="true" data-object-type="shape|textbox|image|chart|table" ' +
                                         'style="position: absolute; left: Xpx; top: Ypx; width: Wpx; height: Hpx; ..."> ' +
                                         'for each element. See presentation-design skill for element catalog and patterns.',
+                                },
+                                composition_id: {
+                                    type: 'string',
+                                    description:
+                                        'HTML mode with per-composition scaffolding: ID of the composition from compositions.json. ' +
+                                        'When set, the scaffold elements (header, footer, logo, deko) for this composition are ' +
+                                        'auto-injected. Design your HTML within the content_area bounds from get_composition_details.',
                                 },
                                 charts: {
                                     type: 'array',
@@ -350,14 +383,19 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         }
 
         try {
-            // Detect pipeline: Template vs HTML vs Legacy
+            // Detect pipeline: Template vs HTML vs Legacy vs Mixed
             const hasTemplateSlides = templateFile && slides.some(s => s.template_slide);
             const hasHtml = slides.some(s => s.html);
-            console.debug(`[CreatePptxTool] Pipeline: ${hasTemplateSlides ? 'Template' : hasHtml ? 'HTML' : 'Legacy'}`);
+            const isMixed = hasTemplateSlides && hasHtml;
+            console.debug(`[CreatePptxTool] Pipeline: ${isMixed ? 'Mixed' : hasTemplateSlides ? 'Template' : hasHtml ? 'HTML' : 'Legacy'}`);
 
             // ── Tool-Level Enforcement: Gate + Validation for Template Pipeline ──
             if (hasTemplateSlides) {
-                const gateResult = await this.enforceTemplateGate(templateFile, slides);
+                // Only validate template_slide slides (not html slides in mixed mode)
+                const templateOnlySlides = isMixed
+                    ? slides.map((s, i) => s.template_slide ? { ...s } : { ...s, template_slide: undefined } as SlideInput).filter(s => s.template_slide)
+                    : slides;
+                const gateResult = await this.enforceTemplateGate(templateFile, templateOnlySlides);
                 if (gateResult) {
                     callbacks.pushToolResult(gateResult);
                     return;
@@ -385,13 +423,13 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             // Guard: template_file provided but slides use only legacy fields (no template_slide, no html)
             if (templateFile && !hasTemplateSlides && !hasHtml) {
                 callbacks.pushToolResult(
-                    `**Error: template_file was provided but slides don't use "template_slide".**\n\n` +
+                    `**Error: template_file was provided but slides don't use "template_slide" or "html".**\n\n` +
                     `When using a corporate template (template_file), each slide MUST use:\n` +
-                    `- \`template_slide\`: 1-based slide number from the template catalog\n` +
-                    `- \`content\`: key-value pairs mapping Shape-Names to replacement text\n\n` +
+                    `- \`template_slide\` + \`content\`: Clone and fill shapes from template (pixel-perfect)\n` +
+                    `- \`html\` (+ optional \`composition_id\`): Custom HTML layout with corporate scaffolding\n\n` +
                     `The legacy fields (title, bullets, etc.) cannot be used with template_file. ` +
                     `Refer to the Template Skill for the slide catalog and Shape-Name mappings.\n\n` +
-                    `Please retry with template_slide + content fields.`,
+                    `Please retry with template_slide + content or html fields.`,
                 );
                 return;
             }
@@ -400,7 +438,40 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             let pipeline: string;
             let diagnostics: SlideDiagnostic[] = [];
 
-            if (hasTemplateSlides) {
+            if (isMixed) {
+                // Mixed Mode: ALL slides through single PptxGenJS instance.
+                // Template slides are converted to scaffold+HTML, preserving slide order.
+                const fullData = await this.loadFullCompositionsData(templateFile);
+                const hybridOptions: HtmlPipelineOptions | undefined = fullData ? {
+                    slideSizeInches: fullData.slideSizeInches,
+                    dekoElements: fullData.globalDekoElements,
+                } : undefined;
+
+                const allHtmlSlides: HtmlSlideInput[] = slides.map(s => {
+                    if (s.template_slide && fullData) {
+                        return this.convertTemplateSlideToHtml(s, fullData);
+                    }
+                    // HTML slide -- use composition_id scaffold if available
+                    const dekoElements = s.composition_id && fullData?.compositionScaffolds
+                        ? fullData.compositionScaffolds.get(s.composition_id) : undefined;
+                    return {
+                        html: s.html ?? '',
+                        charts: s.charts ? this.convertChartInputs(s.charts) : undefined,
+                        tables: s.tables ? this.convertTableInputs(s.tables) : undefined,
+                        notes: s.notes,
+                        dekoElements: dekoElements ?? fullData?.globalDekoElements,
+                    };
+                });
+
+                const imageLoader = (p: string) => this.loadImageAsBase64(p);
+                buffer = await generateFromHtml(allHtmlSlides, imageLoader, hybridOptions);
+                pipeline = 'Mixed';
+
+                console.debug(
+                    `[CreatePptxTool] Mixed mode: ${slides.filter(s => s.template_slide).length} template + ` +
+                    `${slides.filter(s => s.html).length} HTML slides, all via PptxGenJS.`,
+                );
+            } else if (hasTemplateSlides) {
                 // Template Pipeline -- clone from corporate template
                 const footerText = ((input.footer_text as string) ?? '').trim() || undefined;
                 const cloneResult = await this.generateViaTemplate(templateFile, slides, footerText);
@@ -409,8 +480,17 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 pipeline = 'Template';
             } else if (hasHtml) {
                 // HTML Pipeline (or Hybrid HTML when template_file is set)
-                const hybridOptions = templateFile ? await this.loadHybridOptions(templateFile) : undefined;
-                buffer = await this.generateViaHtml(slides, hybridOptions);
+                let hybridOptions: HtmlPipelineOptions | undefined;
+                if (templateFile) {
+                    const fullData = await this.loadFullCompositionsData(templateFile);
+                    if (fullData) {
+                        hybridOptions = {
+                            slideSizeInches: fullData.slideSizeInches,
+                            dekoElements: fullData.globalDekoElements,
+                        };
+                    }
+                }
+                buffer = await this.generateViaHtml(slides, hybridOptions, templateFile);
                 pipeline = hybridOptions ? 'Hybrid HTML' : 'HTML';
             } else {
                 // Legacy Pipeline
@@ -628,15 +708,15 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             });
         }
 
-        // Load repeatable groups + alias map from compositions.json (if available)
-        const compositionsData = await this.loadCompositionsData(templateFile);
+        // Load all compositions data from compositions.json (if available)
+        const fullData = await this.loadFullCompositionsData(templateFile);
 
         // Resolve aliases to shape IDs for each selection
-        if (compositionsData?.aliasMap) {
+        if (fullData?.aliasMap) {
             for (const sel of selections) {
                 const resolvedIds: Record<string, string> = {};
                 for (const key of Object.keys(sel.content)) {
-                    const entry = compositionsData.aliasMap.get(key);
+                    const entry = fullData.aliasMap.get(key);
                     if (entry && entry.slide === sel.template_slide) {
                         resolvedIds[key] = entry.shapeId;
                     }
@@ -648,35 +728,70 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         }
 
         const cloneOptions: import('../../office/PptxTemplateCloner').CloneOptions = {
-            ...compositionsData?.cloneOptions,
+            ...(fullData?.repeatableGroups?.size ? { repeatableGroups: fullData.repeatableGroups } : {}),
             ...(footerText ? { footerText } : {}),
         };
         const hasOptions = cloneOptions.repeatableGroups || cloneOptions.footerText;
         return cloneFromTemplate(templateData, selections, hasOptions ? cloneOptions : undefined);
     }
 
-    /**
-     * Load compositions data from the template's compositions.json.
-     * Returns repeatable groups (for shape adaptation) and alias map (for ID-based replacement).
-     * Supports both v1 (name-based) and v2 (alias+ID-based) schemas.
-     */
-    private async loadCompositionsData(templateFile: string): Promise<{
-        cloneOptions: import('../../office/PptxTemplateCloner').CloneOptions;
-        aliasMap?: Map<string, { slide: number; shapeId: string; originalName: string }>;
-    } | undefined> {
-        try {
-            const templateName = templateFile.split('/').pop()?.replace(/\.(pptx|potx)$/i, '') ?? '';
-            const templateSlug = templateName.toLowerCase().replace(/[_\s]+/g, '-');
-            const compositionsPath = `.obsilo/templates/${templateSlug}.compositions.json`;
-            const adapter = this.app.vault.adapter;
+    /* -------------------------------------------------------------- */
+    /*  Unified compositions.json loader                               */
+    /* -------------------------------------------------------------- */
 
+    // No cache -- compositions.json can change between calls (re-analysis)
+
+    /**
+     * Load ALL data from compositions.json in one pass.
+     * Returns repeatable groups, alias map, hybrid options, scaffold data, and composition metadata.
+     */
+    private async loadFullCompositionsData(templateFile: string): Promise<FullCompositionsData | undefined> {
+        const slug = templateFile
+            .split('/').pop()
+            ?.replace(/\.(pptx|potx)$/i, '')
+            .toLowerCase()
+            .replace(/[_\s]+/g, '-') ?? '';
+
+        try {
+            const compositionsPath = `.obsilo/templates/${slug}.compositions.json`;
+            const adapter = this.app.vault.adapter;
             if (!await adapter.exists(compositionsPath)) return undefined;
 
             const content = await adapter.read(compositionsPath);
             const data = JSON.parse(content) as {
                 schema_version?: number;
+                brand_dna?: {
+                    slide_size_px?: { w: number; h: number };
+                    slide_decorations?: Array<{
+                        id?: string;
+                        type: string;
+                        position: { x: number; y: number; w: number; h: number };
+                        shape_name?: string;
+                        fill_color?: string;
+                        rotation?: number;
+                        image_data?: string;
+                        image_path?: string;
+                    }>;
+                };
                 alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
                 compositions: Record<string, {
+                    slides?: number[];
+                    content_area?: { x: number; y: number; w: number; h: number };
+                    style_guide?: {
+                        title?: { font_size_pt: number; color: string; font_weight: string };
+                        body?: { font_size_pt: number; color: string };
+                        accent_color?: string;
+                    };
+                    layout_hint?: string;
+                    scaffold_elements?: Array<{
+                        type: 'image' | 'shape';
+                        position: { x: number; y: number; w: number; h: number };
+                        shape_name?: string;
+                        fill_color?: string;
+                        rotation?: number;
+                        image_data?: string;
+                        image_path?: string;
+                    }>;
                     repeatable_groups?: Record<string, Array<{
                         groupId: string;
                         axis: 'horizontal' | 'vertical';
@@ -695,9 +810,11 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 }>;
             };
 
+            const schemaVersion = data.schema_version ?? 1;
+            const isV4 = schemaVersion >= 4;
+
             // Build repeatable groups map
             const repeatableGroups = new Map<number, import('../../office/PptxTemplateAnalyzer').RepeatableGroup[]>();
-
             for (const comp of Object.values(data.compositions)) {
                 if (!comp.repeatable_groups) continue;
                 for (const [slideNumStr, groups] of Object.entries(comp.repeatable_groups)) {
@@ -709,9 +826,9 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 }
             }
 
-            // Build alias map (v2 only)
+            // Build alias map (v2+)
             let aliasMap: Map<string, { slide: number; shapeId: string; originalName: string }> | undefined;
-            if (data.schema_version && data.schema_version >= 2 && data.alias_map) {
+            if (schemaVersion >= 2 && data.alias_map) {
                 aliasMap = new Map();
                 for (const [alias, entry] of Object.entries(data.alias_map)) {
                     aliasMap.set(alias, {
@@ -722,10 +839,103 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 }
             }
 
-            const cloneOptions = repeatableGroups.size > 0 ? { repeatableGroups } : {};
-            return { cloneOptions, aliasMap };
+            // Load global deko elements (with image_path resolution)
+            const globalDekoElements: DekoElementInput[] = [];
+            for (const d of (data.brand_dna?.slide_decorations ?? [])) {
+                const elem: DekoElementInput = {
+                    type: d.type as 'image' | 'shape',
+                    position: d.position,
+                    shapeName: d.shape_name,
+                    fillColor: d.fill_color,
+                    rotation: d.rotation,
+                };
+                // Resolve image_path to imageData
+                if (d.image_path) {
+                    elem.imageData = await this.loadScaffoldImage(adapter, `.obsilo/templates/${d.image_path}`);
+                } else if (d.image_data) {
+                    elem.imageData = d.image_data;
+                }
+                globalDekoElements.push(elem);
+            }
+
+            // Load per-composition scaffold + metadata (v4)
+            let compositionScaffolds: Map<string, DekoElementInput[]> | undefined;
+            let compositionData: Map<string, {
+                contentArea: { x: number; y: number; w: number; h: number };
+                styleGuide: {
+                    title?: { font_size_pt: number; color: string; font_weight: string };
+                    body?: { font_size_pt: number; color: string };
+                    accent_color?: string;
+                };
+                layoutHint: string;
+                slides: number[];
+            }> | undefined;
+
+            if (isV4) {
+                compositionScaffolds = new Map();
+                compositionData = new Map();
+
+                for (const [compId, comp] of Object.entries(data.compositions)) {
+                    // Scaffold elements
+                    if (comp.scaffold_elements && comp.scaffold_elements.length > 0) {
+                        const elements: DekoElementInput[] = [];
+                        for (const se of comp.scaffold_elements) {
+                            const elem: DekoElementInput = {
+                                type: se.type,
+                                position: se.position,
+                                shapeName: se.shape_name,
+                                fillColor: se.fill_color,
+                                rotation: se.rotation,
+                            };
+                            if (se.image_path) {
+                                elem.imageData = await this.loadScaffoldImage(adapter, `.obsilo/templates/${se.image_path}`);
+                            } else if (se.image_data) {
+                                elem.imageData = se.image_data;
+                            }
+                            elements.push(elem);
+                        }
+                        compositionScaffolds.set(compId, elements);
+                    }
+
+                    // Composition metadata
+                    if (comp.content_area) {
+                        compositionData.set(compId, {
+                            contentArea: comp.content_area,
+                            styleGuide: comp.style_guide ?? {},
+                            layoutHint: comp.layout_hint ?? '',
+                            slides: comp.slides ?? [],
+                        });
+                    }
+                }
+            }
+
+            const slideSizePx = data.brand_dna?.slide_size_px ?? { w: 1280, h: 720 };
+            const result: FullCompositionsData = {
+                schemaVersion,
+                repeatableGroups,
+                aliasMap,
+                slideSizeInches: { w: slideSizePx.w / 96, h: slideSizePx.h / 96 },
+                globalDekoElements: globalDekoElements.length > 0 ? globalDekoElements : undefined,
+                compositionScaffolds: compositionScaffolds?.size ? compositionScaffolds : undefined,
+                compositionData: compositionData?.size ? compositionData : undefined,
+            };
+
+            return result;
         } catch {
-            // Non-fatal: proceed without shape adaptation
+            return undefined;
+        }
+    }
+
+    /** Load a scaffold image from disk and convert to base64 data URL. */
+    private async loadScaffoldImage(
+        adapter: { exists: (p: string) => Promise<boolean>; readBinary: (p: string) => Promise<ArrayBuffer> },
+        imagePath: string,
+    ): Promise<string | undefined> {
+        try {
+            if (!await adapter.exists(imagePath)) return undefined;
+            const imgBuffer = await adapter.readBinary(imagePath);
+            return `data:image/png;base64,${bufferToBase64(new Uint8Array(imgBuffer))}`;
+        } catch {
             return undefined;
         }
     }
@@ -734,60 +944,126 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
     /*  HTML Pipeline                                                  */
     /* -------------------------------------------------------------- */
 
-    private async generateViaHtml(slides: SlideInput[], hybridOptions?: HtmlPipelineOptions): Promise<ArrayBuffer> {
-        const htmlSlides: HtmlSlideInput[] = slides.map(s => ({
-            html: s.html ?? '',
-            charts: s.charts ? this.convertChartInputs(s.charts) : undefined,
-            tables: s.tables ? this.convertTableInputs(s.tables) : undefined,
-            notes: s.notes,
-        }));
+    private async generateViaHtml(
+        slides: SlideInput[],
+        hybridOptions?: HtmlPipelineOptions,
+        templateFile?: string,
+    ): Promise<ArrayBuffer> {
+        // Load per-composition scaffold data if any slide uses composition_id
+        let compositionScaffolds: Map<string, DekoElementInput[]> | undefined;
+        if (templateFile && slides.some(s => s.composition_id)) {
+            const fullData = await this.loadFullCompositionsData(templateFile);
+            compositionScaffolds = fullData?.compositionScaffolds;
+        }
+
+        const htmlSlides: HtmlSlideInput[] = slides.map(s => {
+            // Per-slide scaffold from composition_id overrides global deko
+            let dekoElements: HtmlSlideInput['dekoElements'] | undefined;
+            if (s.composition_id && compositionScaffolds) {
+                const scaffoldDeko = compositionScaffolds.get(s.composition_id);
+                if (scaffoldDeko) {
+                    dekoElements = scaffoldDeko;
+                }
+            }
+            return {
+                html: s.html ?? '',
+                charts: s.charts ? this.convertChartInputs(s.charts) : undefined,
+                tables: s.tables ? this.convertTableInputs(s.tables) : undefined,
+                notes: s.notes,
+                dekoElements,
+            };
+        });
 
         const imageLoader = (path: string) => this.loadImageAsBase64(path);
         return generateFromHtml(htmlSlides, imageLoader, hybridOptions);
     }
 
     /**
-     * Load hybrid pipeline options from compositions.json for a template file.
-     * Extracts slide size and deko elements for auto-injection in HTML pipeline.
+     * Convert a template-slide input to an HtmlSlideInput for mixed-mode.
+     * Uses scaffold elements as dekoElements and converts content dict
+     * to positioned HTML textboxes within content_area.
      */
-    private async loadHybridOptions(templateFile: string): Promise<HtmlPipelineOptions | undefined> {
-        try {
-            const slug = templateFile
-                .split('/').pop()
-                ?.replace(/\.(pptx|potx)$/i, '')
-                .toLowerCase()
-                .replace(/[_\s]+/g, '-') ?? '';
-            const compositionsPath = `.obsilo/templates/${slug}.compositions.json`;
+    private convertTemplateSlideToHtml(
+        slide: SlideInput,
+        fullData: FullCompositionsData,
+    ): HtmlSlideInput {
+        const slideNum = slide.template_slide!;
+        const content = slide.content ?? {};
 
-            const file = this.app.vault.getAbstractFileByPath(compositionsPath);
-            if (!(file instanceof TFile)) return undefined;
+        // Find composition for this slide number
+        let dekoElements: DekoElementInput[] | undefined;
+        let contentArea = { x: 40, y: 40, w: 1200, h: 640 };
+        let styleGuide: {
+            title?: { font_size_pt: number; color: string; font_weight: string };
+            body?: { font_size_pt: number; color: string };
+            accent_color?: string;
+        } | undefined;
 
-            const raw = await this.app.vault.read(file);
-            const data = JSON.parse(raw);
-            if (!data.brand_dna) return undefined;
-
-            const dekoElements: DekoElementInput[] = (data.brand_dna.slide_decorations ?? []).map(
-                (d: Record<string, unknown>) => ({
-                    type: d.type as 'image' | 'shape',
-                    position: d.position as { x: number; y: number; w: number; h: number },
-                    shapeName: d.shape_name as string | undefined,
-                    fillColor: d.fill_color as string | undefined,
-                    rotation: d.rotation as number | undefined,
-                    imageData: d.image_data as string | undefined,
-                }),
-            );
-
-            return {
-                dekoElements: dekoElements.length > 0 ? dekoElements : undefined,
-                slideSizeInches: {
-                    w: (data.brand_dna.slide_size_px?.w ?? 1280) / 96,
-                    h: (data.brand_dna.slide_size_px?.h ?? 720) / 96,
-                },
-            };
-        } catch (e) {
-            console.debug('[CreatePptxTool] Failed to load hybrid options:', e);
-            return undefined;
+        if (fullData.compositionData) {
+            for (const [compId, comp] of fullData.compositionData) {
+                if (comp.slides.includes(slideNum)) {
+                    dekoElements = fullData.compositionScaffolds?.get(compId);
+                    contentArea = comp.contentArea;
+                    styleGuide = comp.styleGuide;
+                    break;
+                }
+            }
         }
+
+        if (!dekoElements) {
+            dekoElements = fullData.globalDekoElements;
+        }
+
+        const entries = Object.entries(content);
+        const titleColor = styleGuide?.title?.color ?? '#333333';
+        const titleSize = styleGuide?.title?.font_size_pt ?? 28;
+        const bodyColor = styleGuide?.body?.color ?? '#333333';
+        const bodySize = styleGuide?.body?.font_size_pt ?? 16;
+        const htmlParts: string[] = [];
+
+        // First entry = title, rest = body content stacked vertically
+        if (entries.length > 0) {
+            const [, titleText] = entries[0];
+            htmlParts.push(
+                `<div data-object="true" data-object-type="textbox" ` +
+                `style="position:absolute;left:${contentArea.x}px;top:${contentArea.y}px;` +
+                `width:${contentArea.w}px;height:60px;` +
+                `font-size:${titleSize}px;color:${titleColor};font-weight:bold;">` +
+                `${this.escapeHtml(titleText)}</div>`,
+            );
+        }
+
+        const bodyY = contentArea.y + 80;
+        const bodyH = contentArea.h - 80;
+        const bodyEntries = entries.slice(1);
+        const perItemH = bodyEntries.length > 0 ? Math.floor(bodyH / bodyEntries.length) : bodyH;
+
+        for (let i = 0; i < bodyEntries.length; i++) {
+            const [, text] = bodyEntries[i];
+            htmlParts.push(
+                `<div data-object="true" data-object-type="textbox" ` +
+                `style="position:absolute;left:${contentArea.x}px;` +
+                `top:${bodyY + i * perItemH}px;` +
+                `width:${contentArea.w}px;height:${perItemH}px;` +
+                `font-size:${bodySize}px;color:${bodyColor};">` +
+                `${this.escapeHtml(text)}</div>`,
+            );
+        }
+
+        return {
+            html: htmlParts.join('\n'),
+            dekoElements,
+            notes: slide.notes,
+        };
+    }
+
+    private escapeHtml(text: string): string {
+        return text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     private convertChartInputs(inputs: ChartInput[]): ChartData[] {

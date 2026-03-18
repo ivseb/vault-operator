@@ -24,6 +24,42 @@ export interface MultimodalResult {
     compositionMeta: Map<string, CompositionVisualMeta>;
 }
 
+/** Design rules extracted from a Style Guide document. */
+export interface DesignRules {
+    color_usage: string[];
+    typography: string[];
+    layout: string[];
+    dos: string[];
+    donts: string[];
+}
+
+/** An icon extracted from an Icon Gallery document. */
+export interface IconEntry {
+    id: string;
+    name: string;
+    category: string;
+    description: string;
+    usage_hint: string;
+    image_data?: string;
+}
+
+/** Usage guidelines extracted from a How-to-Use document. */
+export interface UsageGuidelines {
+    layout_guidance: string[];
+    best_practices: string[];
+    common_mistakes: string[];
+}
+
+/** Auto-detected role for an additional document. */
+export type DocumentRole = 'main' | 'styleguide' | 'icons' | 'howto';
+
+/** Result of auto-detecting a document's role. */
+export interface RoleDetectionResult {
+    role: DocumentRole;
+    confidence: number;
+    reasoning: string;
+}
+
 export interface CompositionVisualMeta {
     bedeutung: string;
     einsetzen_wenn: string;
@@ -279,6 +315,42 @@ function repairMojibake(text: string): string {
 }
 
 /**
+ * Robust JSON extraction from LLM responses.
+ * Strips markdown fences, repairs UTF-8 mojibake, and falls back to regex extraction.
+ */
+function parseJsonResponse<T>(responseText: string): T {
+    let json = responseText.trim();
+    // Strip markdown fences
+    if (json.startsWith('```')) {
+        json = json.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
+    }
+    // Try direct parse
+    try {
+        return JSON.parse(json) as T;
+    } catch {
+        // Regex fallback: find balanced JSON by locating first { or [ and
+        // trying to parse progressively shorter substrings from it.
+        const firstBrace = json.indexOf('{');
+        const firstBracket = json.indexOf('[');
+        const start = firstBrace >= 0 && (firstBracket < 0 || firstBrace < firstBracket)
+            ? firstBrace : firstBracket;
+        if (start >= 0) {
+            const closer = json[start] === '{' ? '}' : ']';
+            // Try from last occurrence of closer backwards
+            let end = json.lastIndexOf(closer);
+            while (end > start) {
+                try {
+                    return JSON.parse(json.substring(start, end + 1)) as T;
+                } catch {
+                    end = json.lastIndexOf(closer, end - 1);
+                }
+            }
+        }
+        throw new Error('No valid JSON found in LLM response');
+    }
+}
+
+/**
  * Parse the LLM's JSON response into MultimodalResult.
  * Tolerant of minor formatting issues (markdown fences, trailing commas).
  */
@@ -286,14 +358,8 @@ function parseMultimodalResponse(responseText: string): MultimodalResult {
     const aliases = new Map<string, AliasEntry & { purpose: string }>();
     const compositionMeta = new Map<string, CompositionVisualMeta>();
 
-    // Strip markdown code fences if present
-    let json = responseText.trim();
-    if (json.startsWith('```')) {
-        json = json.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
-    }
-
     try {
-        const parsed = JSON.parse(json) as {
+        const parsed = parseJsonResponse<{
             slides: Record<string, {
                 bedeutung: string;
                 einsetzen_wenn: string;
@@ -305,7 +371,7 @@ function parseMultimodalResponse(responseText: string): MultimodalResult {
                     purpose: string;
                 }>;
             }>;
-        };
+        }>(responseText);
 
         for (const [slideNumStr, slideData] of Object.entries(parsed.slides)) {
             const slideNum = parseInt(slideNumStr);
@@ -334,4 +400,384 @@ function parseMultimodalResponse(responseText: string): MultimodalResult {
     }
 
     return { aliases, compositionMeta };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Document Role Detection (Multi-File Intake)                        */
+/* ------------------------------------------------------------------ */
+
+const ROLE_DETECTION_PROMPT = `Du bist ein Corporate-Design-Experte. Analysiere die ersten Folien dieses Dokuments und bestimme seine Rolle.
+
+Moegliche Rollen:
+- "main": Praesentationsvorlage mit verschiedenen Slide-Layouts
+- "styleguide": Design-Richtlinien mit Farbpaletten, Typografie-Beispielen, Do/Don't
+- "icons": Icon-Galerie mit vielen kleinen Symbolen/Icons im Grid
+- "howto": Nutzungsanleitung mit Beispielen und Instruktionen
+
+Antworte als JSON (kein Markdown, keine Erklaerungen):
+{
+  "role": "main|styleguide|icons|howto",
+  "confidence": 0.0-1.0,
+  "reasoning": "Kurze Begruendung"
+}`;
+
+/**
+ * Auto-detect the role of a PPTX/POTX document by analyzing its first slides.
+ */
+export async function detectDocumentRole(
+    renderedSlides: RenderedSlide[],
+    apiHandler: ApiHandler,
+    abortSignal?: AbortSignal,
+): Promise<RoleDetectionResult> {
+    // Use max 3 slides for role detection
+    const sample = renderedSlides.slice(0, 3);
+
+    const contentBlocks: ContentBlock[] = [
+        { type: 'text', text: `Analysiere die ersten ${sample.length} Folien dieses Dokuments:` },
+    ];
+
+    for (const slide of sample) {
+        contentBlocks.push({
+            type: 'text',
+            text: `--- Folie ${slide.slideNumber} ---`,
+        });
+        contentBlocks.push({
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
+        });
+    }
+
+    const messages: MessageParam[] = [{ role: 'user', content: contentBlocks }];
+    const responseText = await collectStreamResponse(apiHandler, ROLE_DETECTION_PROMPT, messages, abortSignal);
+
+    try {
+        const parsed = parseJsonResponse<RoleDetectionResult>(responseText);
+        return {
+            role: (['main', 'styleguide', 'icons', 'howto'].includes(parsed.role)
+                ? parsed.role : 'main') as DocumentRole,
+            confidence: Math.max(0, Math.min(1, parsed.confidence ?? 0.5)),
+            reasoning: parsed.reasoning ?? '',
+        };
+    } catch {
+        return { role: 'main', confidence: 0.3, reasoning: 'Could not parse LLM response' };
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Style Guide Analysis                                               */
+/* ------------------------------------------------------------------ */
+
+const STYLE_GUIDE_PROMPT = `Du bist ein Corporate-Design-Experte. Analysiere diese Folien eines Style Guides.
+
+Extrahiere ALLE Design-Regeln in diesen Kategorien:
+1. color_usage: Wann welche Farbe verwendet werden soll (z.B. "Primaerblau nur fuer Headlines")
+2. typography: Schriftart-Regeln (z.B. "Headlines: 28-36pt, Bold")
+3. layout: Layout-Richtlinien (z.B. "Max 7 visuelle Elemente pro Folie")
+4. dos: Empfehlungen (z.B. "Klare Hierarchie durch Groessenunterschiede")
+5. donts: Verbote (z.B. "Keine Fliesstexte auf Slides")
+
+Sei gruendlich -- extrahiere JEDE Regel die du findest. Schreibe jede Regel als kurzen, praegnanten Satz.
+
+Antworte als JSON (kein Markdown, keine Erklaerungen):
+{
+  "color_usage": ["..."],
+  "typography": ["..."],
+  "layout": ["..."],
+  "dos": ["..."],
+  "donts": ["..."]
+}`;
+
+/**
+ * Extract design rules from a Style Guide document via multimodal analysis.
+ */
+export async function extractDesignRules(
+    renderedSlides: RenderedSlide[],
+    apiHandler: ApiHandler,
+    onProgress?: (msg: string) => void,
+    abortSignal?: AbortSignal,
+): Promise<DesignRules> {
+    const totalBatches = Math.ceil(renderedSlides.length / BATCH_SIZE);
+    const allRules: DesignRules = {
+        color_usage: [], typography: [], layout: [], dos: [], donts: [],
+    };
+
+    for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        if (abortSignal?.aborted) break;
+
+        const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
+        onProgress?.(`Style Guide analysis batch ${batchIdx + 1}/${totalBatches}...`);
+
+        const contentBlocks: ContentBlock[] = [
+            { type: 'text', text: `Analysiere folgende ${batch.length} Style-Guide-Folien:` },
+        ];
+
+        for (const slide of batch) {
+            contentBlocks.push({ type: 'text', text: `--- Folie ${slide.slideNumber} ---` });
+            contentBlocks.push({
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
+            });
+        }
+
+        const messages: MessageParam[] = [{ role: 'user', content: contentBlocks }];
+        const responseText = await collectStreamResponse(apiHandler, STYLE_GUIDE_PROMPT, messages, abortSignal);
+
+        try {
+            const parsed = parseJsonResponse<DesignRules>(responseText);
+            if (parsed.color_usage) allRules.color_usage.push(...parsed.color_usage);
+            if (parsed.typography) allRules.typography.push(...parsed.typography);
+            if (parsed.layout) allRules.layout.push(...parsed.layout);
+            if (parsed.dos) allRules.dos.push(...parsed.dos);
+            if (parsed.donts) allRules.donts.push(...parsed.donts);
+        } catch {
+            console.warn('[MultimodalAnalyzer] Failed to parse style guide batch');
+        }
+    }
+
+    // Deduplicate
+    allRules.color_usage = [...new Set(allRules.color_usage)];
+    allRules.typography = [...new Set(allRules.typography)];
+    allRules.layout = [...new Set(allRules.layout)];
+    allRules.dos = [...new Set(allRules.dos)];
+    allRules.donts = [...new Set(allRules.donts)];
+
+    return allRules;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Icon Gallery Analysis                                              */
+/* ------------------------------------------------------------------ */
+
+const ICON_GALLERY_PROMPT = `Du bist ein Corporate-Design-Experte. Analysiere diese Folien einer Icon-Galerie.
+
+Fuer JEDES sichtbare Icon/Symbol:
+1. name: Kurzer, beschreibender Name (z.B. "Windrad", "Solarpanel", "Dokument")
+2. category: Oberkategorie (z.B. "Energie", "Finanzen", "IT", "Kommunikation")
+3. description: Was zeigt das Icon? (1 Satz)
+4. usage_hint: Wann passt dieses Icon? (1 Satz)
+
+Sei gruendlich -- erfasse JEDES einzelne Icon auf den Folien.
+
+Antworte als JSON Array (kein Markdown, keine Erklaerungen):
+[
+  { "name": "...", "category": "...", "description": "...", "usage_hint": "..." }
+]`;
+
+/**
+ * Extract icon catalog from an Icon Gallery document via multimodal analysis.
+ * Note: Image data for icons is extracted separately from the PPTX shapes.
+ */
+export async function extractIconCatalog(
+    renderedSlides: RenderedSlide[],
+    apiHandler: ApiHandler,
+    onProgress?: (msg: string) => void,
+    abortSignal?: AbortSignal,
+): Promise<IconEntry[]> {
+    const allIcons: IconEntry[] = [];
+    const totalBatches = Math.ceil(renderedSlides.length / BATCH_SIZE);
+    let iconId = 1;
+
+    for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        if (abortSignal?.aborted) break;
+
+        const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
+        onProgress?.(`Icon catalog analysis batch ${batchIdx + 1}/${totalBatches}...`);
+
+        const contentBlocks: ContentBlock[] = [
+            { type: 'text', text: `Analysiere folgende ${batch.length} Icon-Galerie-Folien:` },
+        ];
+
+        for (const slide of batch) {
+            contentBlocks.push({ type: 'text', text: `--- Folie ${slide.slideNumber} ---` });
+            contentBlocks.push({
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
+            });
+        }
+
+        const messages: MessageParam[] = [{ role: 'user', content: contentBlocks }];
+        const responseText = await collectStreamResponse(apiHandler, ICON_GALLERY_PROMPT, messages, abortSignal);
+
+        try {
+            const parsed = parseJsonResponse<Array<{
+                name: string; category: string; description: string; usage_hint: string;
+            }>>(responseText);
+            for (const icon of parsed) {
+                allIcons.push({
+                    id: `icon-${iconId++}`,
+                    name: icon.name ?? 'Unknown',
+                    category: icon.category ?? 'Allgemein',
+                    description: icon.description ?? '',
+                    usage_hint: icon.usage_hint ?? '',
+                });
+            }
+        } catch {
+            console.warn('[MultimodalAnalyzer] Failed to parse icon gallery batch');
+        }
+    }
+
+    return allIcons;
+}
+
+/* ------------------------------------------------------------------ */
+/*  How-to-Use Analysis                                                */
+/* ------------------------------------------------------------------ */
+
+const HOWTO_PROMPT = `Du bist ein Corporate-Design-Experte. Analysiere diese Folien einer Nutzungsanleitung/How-to-Use.
+
+Extrahiere ALLE Richtlinien in diesen Kategorien:
+1. layout_guidance: Konkrete Empfehlungen fuer Folienlayouts (z.B. "KPI-Slides: max 4 Kennzahlen")
+2. best_practices: Allgemeine Best Practices (z.B. "Jeder Titel ist eine Aussage, kein Thema")
+3. common_mistakes: Haeufige Fehler die vermieden werden sollten
+
+Sei gruendlich -- extrahiere JEDE Richtlinie.
+
+Antworte als JSON (kein Markdown, keine Erklaerungen):
+{
+  "layout_guidance": ["..."],
+  "best_practices": ["..."],
+  "common_mistakes": ["..."]
+}`;
+
+/**
+ * Extract usage guidelines from a How-to-Use document via multimodal analysis.
+ */
+export async function extractUsageGuidelines(
+    renderedSlides: RenderedSlide[],
+    apiHandler: ApiHandler,
+    onProgress?: (msg: string) => void,
+    abortSignal?: AbortSignal,
+): Promise<UsageGuidelines> {
+    const allGuidelines: UsageGuidelines = {
+        layout_guidance: [], best_practices: [], common_mistakes: [],
+    };
+    const totalBatches = Math.ceil(renderedSlides.length / BATCH_SIZE);
+
+    for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        if (abortSignal?.aborted) break;
+
+        const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
+        onProgress?.(`How-to-Use analysis batch ${batchIdx + 1}/${totalBatches}...`);
+
+        const contentBlocks: ContentBlock[] = [
+            { type: 'text', text: `Analysiere folgende ${batch.length} Anleitungsfolien:` },
+        ];
+
+        for (const slide of batch) {
+            contentBlocks.push({ type: 'text', text: `--- Folie ${slide.slideNumber} ---` });
+            contentBlocks.push({
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
+            });
+        }
+
+        const messages: MessageParam[] = [{ role: 'user', content: contentBlocks }];
+        const responseText = await collectStreamResponse(apiHandler, HOWTO_PROMPT, messages, abortSignal);
+
+        try {
+            const parsed = parseJsonResponse<UsageGuidelines>(responseText);
+            if (parsed.layout_guidance) allGuidelines.layout_guidance.push(...parsed.layout_guidance);
+            if (parsed.best_practices) allGuidelines.best_practices.push(...parsed.best_practices);
+            if (parsed.common_mistakes) allGuidelines.common_mistakes.push(...parsed.common_mistakes);
+        } catch {
+            console.warn('[MultimodalAnalyzer] Failed to parse how-to-use batch');
+        }
+    }
+
+    // Deduplicate
+    allGuidelines.layout_guidance = [...new Set(allGuidelines.layout_guidance)];
+    allGuidelines.best_practices = [...new Set(allGuidelines.best_practices)];
+    allGuidelines.common_mistakes = [...new Set(allGuidelines.common_mistakes)];
+
+    return allGuidelines;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Vision-based HTML Skeletons                                        */
+/* ------------------------------------------------------------------ */
+
+/** Input for a composition that needs a vision-based skeleton. */
+export interface VisionSkeletonInput {
+    compositionId: string;
+    representativeSlide: number;
+    contentArea: { x: number; y: number; w: number; h: number };
+    styleGuide: {
+        title?: { font_size_pt: number; color: string; font_weight: string };
+        body?: { font_size_pt: number; color: string };
+        accent_color?: string;
+    };
+    recommendedPipeline: 'clone' | 'html';
+}
+
+const SKELETON_PROMPT_PREFIX = `Analyze this slide and generate an HTML skeleton that recreates its visual layout.
+
+Rules:
+- Use <div data-object="true" data-object-type="textbox|shape"> with absolute positioning (style="position:absolute;...")
+- Use {{title}}, {{content_1}}, {{content_2}} etc. as text placeholders
+- Match the visual arrangement (columns, rows, spacing) from the slide
+- Stay within content area bounds
+- Max 2000 chars
+
+Return ONLY the HTML, no explanation.`;
+
+/**
+ * Generate HTML skeletons for compositions using Claude Vision.
+ * Analyzes the rendered slide image and produces a layout-faithful skeleton
+ * instead of a generic deterministic one.
+ */
+export async function generateVisionSkeletons(
+    renderedSlides: RenderedSlide[],
+    compositionGroups: VisionSkeletonInput[],
+    apiHandler: ApiHandler,
+    onProgress?: (msg: string) => void,
+    abortSignal?: AbortSignal,
+): Promise<Map<string, string>> {
+    const skeletons = new Map<string, string>();
+
+    for (const comp of compositionGroups) {
+        if (abortSignal?.aborted) break;
+        if (comp.recommendedPipeline !== 'html') continue;
+
+        const slide = renderedSlides.find(s => s.slideNumber === comp.representativeSlide);
+        if (!slide) continue;
+
+        onProgress?.(`Generating HTML skeleton for ${comp.compositionId}...`);
+
+        const ca = comp.contentArea;
+        const prompt = `${SKELETON_PROMPT_PREFIX}
+
+Canvas: 1280x720px. Content area: x=${ca.x}, y=${ca.y}, w=${ca.w}, h=${ca.h}.
+Title font-size: ${comp.styleGuide.title?.font_size_pt ?? 28}px.
+Body font-size: ${comp.styleGuide.body?.font_size_pt ?? 16}px.`;
+
+        const contentBlocks: ContentBlock[] = [
+            {
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
+            },
+            { type: 'text', text: prompt },
+        ];
+
+        const messages: MessageParam[] = [{ role: 'user', content: contentBlocks }];
+
+        try {
+            const responseText = await collectStreamResponse(
+                apiHandler, 'You are an HTML layout expert.', messages, abortSignal,
+            );
+
+            // Extract HTML from response (strip markdown fences if present)
+            let html = responseText.trim();
+            if (html.startsWith('```')) {
+                html = html.replace(/^```(?:html)?\s*/, '').replace(/\s*```$/, '');
+            }
+
+            if (html.length > 0 && html.length <= 2000) {
+                skeletons.set(comp.compositionId, html);
+            }
+        } catch (err) {
+            console.warn(`[MultimodalAnalyzer] Vision skeleton generation failed for ${comp.compositionId}:`, err);
+        }
+    }
+
+    return skeletons;
 }

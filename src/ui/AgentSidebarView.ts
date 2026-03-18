@@ -21,6 +21,7 @@ import { ContextDisplay } from './sidebar/ContextDisplay';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
 import { scan as scanTasks } from '../core/tasks/TaskExtractor';
 import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
+import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
 
@@ -2220,15 +2221,27 @@ export class AgentSidebarView extends ItemView {
             const sourceNote = this.app.workspace.getActiveFile()?.basename ?? '';
             const settings = this.plugin.settings.taskExtraction;
 
+            const taskNotesActive = this.isTaskNotesActive();
+            const useTaskNotes = taskNotesActive && (settings.preferTaskNotesPlugin ?? true);
+
+            // Show recommendation if TaskNotes is not active and hint not dismissed
+            if (!taskNotesActive && !(settings.taskNotesHintDismissed ?? false)) {
+                this.showTaskNotesRecommendation();
+            }
+
             new TaskSelectionModal(
                 this.app,
                 items,
+                useTaskNotes,
                 async (selected) => {
                     try {
-                        const creator = new TaskNoteCreator(this.app);
+                        const creator = useTaskNotes
+                            ? new TaskNotesAdapter(this.app)
+                            : new TaskNoteCreator(this.app);
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
-                            new Notice(`${created.length} Task-Note${created.length === 1 ? '' : 's'} erstellt`);
+                            const format = useTaskNotes ? ' (TaskNotes-Format)' : '';
+                            new Notice(`${created.length} Task-Note${created.length === 1 ? '' : 's'} erstellt${format}`);
                         }
                     } catch (err) {
                         console.warn('[TaskExtraction] Failed to create task notes:', err);
@@ -2237,8 +2250,46 @@ export class AgentSidebarView extends ItemView {
                 },
             ).open();
         } catch (err) {
-            console.warn('[TaskExtraction] Scan failed:', err);
+            console.error('[TaskExtraction] Scan failed:', err);
+            new Notice(`Task-Extraction Fehler: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+
+    /** Checks whether the TaskNotes community plugin is currently enabled */
+    private isTaskNotesActive(): boolean {
+        const plugins = (this.app as unknown as { plugins?: { enabledPlugins?: Set<string> } }).plugins;
+        return plugins?.enabledPlugins?.has('tasknotes') ?? false;
+    }
+
+    /** Shows a non-blocking recommendation notice for the TaskNotes plugin */
+    private showTaskNotesRecommendation(): void {
+        const plugins = (this.app as unknown as { plugins?: { manifests?: Record<string, unknown> } }).plugins;
+        const isInstalled = !!plugins?.manifests?.['tasknotes'];
+
+        const message = isInstalled
+            ? 'Das Community Plugin "TaskNotes" ist installiert aber nicht aktiv. Aktiviere es fuer erweiterte Task-Verwaltung (Kanban, Kalender, Recurring Tasks).'
+            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung mit Kanban, Kalender und Recurring Tasks. Installierbar ueber Einstellungen > Community Plugins.';
+
+        const fragment = createFragment((frag) => {
+            frag.createSpan({ text: message });
+            const dismissLink = frag.createEl('a', {
+                text: 'Nicht mehr anzeigen',
+                cls: 'agent-u-task-hint-dismiss',
+            });
+            dismissLink.style.setProperty('display', 'block');
+            dismissLink.style.setProperty('margin-top', '6px');
+            dismissLink.style.setProperty('font-size', '0.85em');
+            dismissLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.plugin.settings.taskExtraction = {
+                    ...this.plugin.settings.taskExtraction,
+                    taskNotesHintDismissed: true,
+                };
+                void this.plugin.saveSettings();
+                notice.hide();
+            });
+        });
+        const notice = new Notice(fragment, 12000);
     }
 
     /** Enqueue memory extraction if the conversation meets the threshold. Fire-and-forget. */

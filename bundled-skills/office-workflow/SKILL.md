@@ -29,13 +29,18 @@ STOP. Wait for answer.
 
 - "Executive" / "Modern" / "Minimal" -> template=lowercase, go to Step 4
 - Corporate .pptx mentioned -> go to Step 3
+- Multiple files (Style Guide, Icons, How-to-Use) -> collect ALL file paths, go to Step 3
 
 ## Step 3: TEMPLATE SKILL (corporate .pptx only)
 
 ```
 Matching template skill in <available_skills>?
 YES -> use it, go to Step 4
-NO  -> call analyze_pptx_template(template_path)
+NO  -> call analyze_pptx_template(template_path, additional_files)
+        Pass ALL corporate design files:
+        - Main template as template_path
+        - Style Guide, Icon Gallery, How-to-Use as additional_files
+          (role auto-detected, or specify explicitly)
         This generates SKILL.md + compositions.json automatically.
         NEVER use manage_skill to create template skills manually.
         STOP. Wait for analysis to complete.
@@ -48,16 +53,23 @@ If analysis fails: report the error. Do NOT work around it.
 ### Using the Template Skill
 
 Before creating slides: call `get_composition_details` for each composition you plan to use.
+Check `recommended_pipeline` per composition to decide clone vs html mode.
 
-Corporate rules:
+Corporate rules (clone mode):
 - Use `template_file` + `template_slide` + `content`
 - Content keys = shape names/aliases from get_composition_details
 - Respect max_chars and font_size_pt limits
 
+Corporate rules (html mode with scaffolding):
+- Use `template_file` + `html` + `composition_id`
+- Design HTML within `content_area` bounds using `style_guide` colors/fonts
+- Scaffold (header, footer, logo, deko) is auto-injected per composition
+- Optional: Use `html_skeleton` from get_composition_details as starting point
+
 ## Step 4: PLAN (mandatory -- share and STOP)
 
 Share structure table for approval:
-- Corporate: # | Composition | Template Slide | Content Summary | Why
+- Corporate: # | Composition | Pipeline (clone/html) | Content Summary | Why
 - Default: # | Visual Pattern | Content Type | Narrative Function
 
 Planning rules:
@@ -83,14 +95,23 @@ STOP. Wait for approval.
 
 ### Pipeline Selection
 
+**Default: HTML mode** with per-composition scaffolding for content slides.
+
 | Slide Type | Mode | Why |
 |---|---|---|
-| Title, section divider | template_slide + content | Exact branding |
-| Content fitting template shapes | template_slide + content | Pixel-perfect |
-| KPI, process, comparison, chart | html + template_file | Creative layout |
+| Title, section divider, closing | template_slide + content | Exact branding, <=2 shapes |
+| All content slides (KPI, process, comparison, chart) | html + composition_id | Scaffold auto-injected, creative freedom |
+| Content fitting template shapes exactly | template_slide + content | Pixel-perfect fallback |
 | Default themes (no template) | html | Full control |
 
-Deko elements (logo, accent bars) are auto-injected in HTML mode -- do NOT place manually.
+Per-composition scaffolding:
+- Call `get_composition_details` -> read `content_area`, `style_guide`, `layout_hint`
+- Design HTML within `content_area` bounds, use `style_guide` colors/fonts
+- Scaffold (header, footer, logo, deko) auto-injected per composition
+- Pick icons from Available Icons catalog (if available) instead of inheriting fixed ones
+- Optional: Use `html_skeleton` as starting point
+
+Deko elements (logo, accent bars) are auto-injected -- do NOT place manually.
 
 ### Pre-Flight
 Run Section O self-check from presentation-design skill before calling create_pptx.

@@ -10,15 +10,16 @@
 
 import { TFile } from 'obsidian';
 import * as path from 'path';
+import JSZip from 'jszip';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type { ToolResultContentBlock } from '../../../api/types';
 import type ObsidianAgentPlugin from '../../../main';
-import { analyzeTemplate, groupByComposition, COMPOSITION_METADATA, generateDeterministicAliases } from '../../office/PptxTemplateAnalyzer';
-import type { TemplateAnalysis, SlideClassification, RepeatableGroup, AliasEntry } from '../../office/PptxTemplateAnalyzer';
+import { analyzeTemplate, groupByComposition, COMPOSITION_METADATA, generateDeterministicAliases, extractCompositionScaffolding } from '../../office/PptxTemplateAnalyzer';
+import type { TemplateAnalysis, SlideClassification, RepeatableGroup, AliasEntry, CompositionScaffolding } from '../../office/PptxTemplateAnalyzer';
 import { renderPptxToImages } from '../../office/pptxRenderer';
-import { analyzeTemplateMultimodal } from '../../office/MultimodalAnalyzer';
-import type { MultimodalResult, CompositionVisualMeta } from '../../office/MultimodalAnalyzer';
+import { analyzeTemplateMultimodal, detectDocumentRole, extractDesignRules, extractIconCatalog, extractUsageGuidelines, generateVisionSkeletons } from '../../office/MultimodalAnalyzer';
+import type { MultimodalResult, CompositionVisualMeta, DesignRules, IconEntry, UsageGuidelines, DocumentRole, VisionSkeletonInput } from '../../office/MultimodalAnalyzer';
 import { buildApiHandler } from '../../../api/index';
 import { modelToLLMProvider } from '../../../types/settings';
 
@@ -43,7 +44,28 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                 properties: {
                     template_path: {
                         type: 'string',
-                        description: 'Vault path to the .pptx template file to analyze.',
+                        description: 'Vault path to the main .pptx/.potx template file to analyze.',
+                    },
+                    additional_files: {
+                        type: 'array',
+                        description: 'Additional PPTX/POTX files that are part of the corporate design system ' +
+                            '(Style Guide, Icon Gallery, How-to-Use). The tool auto-detects each file\'s role via multimodal analysis, ' +
+                            'or you can specify the role explicitly.',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                path: {
+                                    type: 'string',
+                                    description: 'Vault path to the additional .pptx/.potx file.',
+                                },
+                                role: {
+                                    type: 'string',
+                                    enum: ['styleguide', 'icons', 'howto', 'main'],
+                                    description: 'Role of this file. If omitted, auto-detected via multimodal analysis.',
+                                },
+                            },
+                            required: ['path'],
+                        },
                     },
                     skip_multimodal: {
                         type: 'boolean',
@@ -82,6 +104,9 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             const analysis = await analyzeTemplate(templateData);
             const templateName = deriveNameFromPath(templatePath);
             const templateSlug = templateName.toLowerCase().replace(/\s+/g, '-');
+
+            // Parse additional_files input
+            const additionalFilesInput = (input.additional_files as Array<{ path: string; role?: string }>) ?? [];
 
             // Render ALL slides for multimodal analysis (no cap)
             const allSlidesResult = await this.renderTemplateSlides(templatePath, { maxSlides: 999 });
@@ -157,9 +182,96 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                 }
             }
 
-            // Generate both output files (with multimodal data if available)
-            const skillContent = generateSkillMd(analysis, templatePath, templateName, templateSlug);
-            const compositionsContent = generateCompositionsJson(analysis, templateSlug, multimodalResult);
+            // Extract per-composition scaffolding (Gerüst vs Content classification)
+            const compositions = groupByComposition(analysis);
+            const contentCompositions = compositions.filter(c => c.classification !== 'blank');
+            let scaffoldingMap: Map<number, CompositionScaffolding> | undefined;
+            try {
+                // Load zip separately for scaffold image extraction
+                const zip = await JSZip.loadAsync(templateData);
+                scaffoldingMap = await extractCompositionScaffolding(
+                    analysis,
+                    contentCompositions,
+                    analysis.allShapesBySlide,
+                    zip,
+                );
+                console.debug(`[AnalyzePptxTemplateTool] Scaffolding extracted for ${scaffoldingMap.size} compositions`);
+            } catch (err) {
+                console.warn('[AnalyzePptxTemplateTool] Scaffolding extraction failed:', err);
+                // Non-fatal: continue without scaffolding
+            }
+
+            // Generate vision-based HTML skeletons (replaces deterministic ones)
+            if (scaffoldingMap && multimodalApproved && allSlidesResult.success && allSlidesResult.slides.length > 0) {
+                try {
+                    const activeModel = this.plugin.getActiveModel();
+                    if (activeModel) {
+                        const apiHandler = buildApiHandler(modelToLLMProvider(activeModel));
+                        const skeletonInputs: VisionSkeletonInput[] = [];
+
+                        for (let i = 0; i < contentCompositions.length; i++) {
+                            const group = contentCompositions[i];
+                            const scaffolding = scaffoldingMap.get(i);
+                            if (!scaffolding || scaffolding.recommended_pipeline !== 'html') continue;
+                            skeletonInputs.push({
+                                compositionId: String(i),
+                                representativeSlide: group.slideNumbers[0],
+                                contentArea: scaffolding.content_area,
+                                styleGuide: scaffolding.style_guide,
+                                recommendedPipeline: 'html',
+                            });
+                        }
+
+                        if (skeletonInputs.length > 0) {
+                            callbacks.pushToolResult(`Generating vision-based HTML skeletons for ${skeletonInputs.length} compositions...`);
+                            const visionSkeletons = await generateVisionSkeletons(
+                                allSlidesResult.slides,
+                                skeletonInputs,
+                                apiHandler,
+                                (msg) => {
+                                    console.debug('[MultimodalAnalyzer]', msg);
+                                    callbacks.pushToolResult(msg);
+                                },
+                            );
+
+                            // Overwrite deterministic skeletons with vision-based ones
+                            for (const [idxStr, html] of visionSkeletons) {
+                                const idx = parseInt(idxStr);
+                                const scaffolding = scaffoldingMap.get(idx);
+                                if (scaffolding) {
+                                    scaffolding.html_skeleton = html;
+                                }
+                            }
+                            console.debug(`[AnalyzePptxTemplateTool] ${visionSkeletons.size} vision-based skeletons generated`);
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[AnalyzePptxTemplateTool] Vision skeleton generation failed:', err);
+                    // Non-fatal: keep deterministic skeletons
+                }
+            }
+
+            // Process additional files (Style Guide, Icon Gallery, How-to-Use)
+            let multiFileData: {
+                sourceFiles?: Array<{ path: string; role: string; slide_count: number }>;
+                designRules?: DesignRules;
+                iconCatalog?: IconEntry[];
+                usageGuidelines?: UsageGuidelines;
+            } | undefined;
+
+            if (additionalFilesInput.length > 0 && multimodalApproved) {
+                multiFileData = await this.processAdditionalFiles(
+                    additionalFilesInput, analysis, templatePath, callbacks,
+                );
+            }
+
+            // Generate both output files (with multimodal data, scaffolding, and multi-file data)
+            const skillContent = generateSkillMd(
+                analysis, templatePath, templateName, templateSlug, scaffoldingMap, multiFileData,
+            );
+            const compositionsContent = generateCompositionsJson(
+                analysis, templateSlug, multimodalResult, scaffoldingMap, multiFileData,
+            );
 
             // Write SKILL.md to plugin skills directory (where SelfAuthoredSkillLoader reads from)
             const pluginSkillsDir = `${vault.configDir}/plugins/${this.plugin.manifest.id}/skills/${templateSlug}`;
@@ -174,9 +286,48 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             const compositionsStr = JSON.stringify(compositionsContent, null, 2);
             await this.safeWrite(compositionsPath, compositionsStr);
 
+            // Write scaffold images as separate files (keeps compositions.json lean)
+            let scaffoldImageCount = 0;
+            const adapter = this.plugin.app.vault.adapter;
+            const scaffoldImgDir = `${compositionsDir}/scaffold-images/${templateSlug}`;
+
+            // Collect all DekoElements with imageData (global + per-composition)
+            // Global deko elements go into the base scaffold-images dir
+            const globalImages: Array<{ id: string; imageData: string }> = [];
+            for (const d of analysis.dekoElements) {
+                if (d.imageData) globalImages.push({ id: d.id, imageData: d.imageData });
+            }
+            // Per-composition scaffold elements go into index-based subdirs to avoid ID collisions
+            const perCompImages: Array<{ compIndex: number; id: string; imageData: string }> = [];
+            if (scaffoldingMap) {
+                for (const [compIndex, scaffolding] of scaffoldingMap) {
+                    for (const elem of scaffolding.scaffold_elements) {
+                        if (elem.imageData) perCompImages.push({ compIndex, id: elem.id, imageData: elem.imageData });
+                    }
+                }
+            }
+
+            if (globalImages.length > 0 || perCompImages.length > 0) {
+                await this.ensureFolder(scaffoldImgDir);
+                for (const img of globalImages) {
+                    const base64 = img.imageData.replace(/^data:image\/[\w+.-]+;base64,/, '');
+                    const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+                    await adapter.writeBinary(`${scaffoldImgDir}/${img.id}.png`, binary.buffer as ArrayBuffer);
+                    scaffoldImageCount++;
+                }
+                for (const img of perCompImages) {
+                    const compDir = `${scaffoldImgDir}/${img.compIndex}`;
+                    await this.ensureFolder(compDir);
+                    const base64 = img.imageData.replace(/^data:image\/[\w+.-]+;base64,/, '');
+                    const binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+                    await adapter.writeBinary(`${compDir}/${img.id}.png`, binary.buffer as ArrayBuffer);
+                    scaffoldImageCount++;
+                }
+                console.debug(`[AnalyzePptxTemplateTool] ${scaffoldImageCount} scaffold images written to ${scaffoldImgDir}`);
+            }
+
             // Return summary
-            const compositions = groupByComposition(analysis);
-            const contentComps = compositions.filter(c => c.classification !== 'blank');
+            const contentComps = contentCompositions;
 
             // Trigger skill reload so the new skill is immediately available
             if (this.plugin.selfAuthoredSkillLoader) {
@@ -195,7 +346,12 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
                 `- Analysis mode: ${analysisMode}\n\n` +
                 `Generated files:\n` +
                 `1. **SKILL.md** (${skillContent.length} chars): ${skillPath} (auto-installed as user skill)\n` +
-                `2. **compositions.json** (v2): ${compositionsPath}\n\n`;
+                `2. **compositions.json** (v${compositionsContent.schema_version}): ${compositionsPath}\n` +
+                (scaffoldingMap ? `- Scaffolding: ${scaffoldingMap.size} compositions with per-composition scaffold + content area\n` : '') +
+                (multiFileData?.designRules ? `- Design Rules: extracted from Style Guide\n` : '') +
+                (multiFileData?.iconCatalog?.length ? `- Icon Catalog: ${multiFileData.iconCatalog.length} icons extracted\n` : '') +
+                (multiFileData?.usageGuidelines ? `- Usage Guidelines: extracted from How-to-Use\n` : '') +
+                '\n';
 
             if (displayResult.success && displayResult.slides.length > 0) {
                 // Multimodal result: text + slide images
@@ -315,6 +471,132 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
         // which are not indexed by the vault.
         await this.plugin.app.vault.adapter.mkdir(folderPath);
     }
+
+    /**
+     * Process additional corporate design files (Style Guide, Icon Gallery, How-to-Use).
+     * Each file is rendered, its role detected (or user-provided), and analyzed accordingly.
+     */
+    private async processAdditionalFiles(
+        additionalFiles: Array<{ path: string; role?: string }>,
+        mainAnalysis: TemplateAnalysis,
+        mainTemplatePath: string,
+        callbacks: { pushToolResult: (msg: string | ToolResultContentBlock[]) => void },
+    ): Promise<{
+        sourceFiles: Array<{ path: string; role: string; slide_count: number }>;
+        designRules?: DesignRules;
+        iconCatalog?: IconEntry[];
+        usageGuidelines?: UsageGuidelines;
+    }> {
+        const vault = this.plugin.app.vault;
+        const activeModel = this.plugin.getActiveModel();
+        if (!activeModel) {
+            console.warn('[AnalyzePptxTemplateTool] No active model for multi-file analysis');
+            return { sourceFiles: [{ path: mainTemplatePath, role: 'main', slide_count: mainAnalysis.slideCount }] };
+        }
+        const apiHandler = buildApiHandler(modelToLLMProvider(activeModel));
+
+        const sourceFiles: Array<{ path: string; role: string; slide_count: number }> = [
+            { path: mainTemplatePath, role: 'main', slide_count: mainAnalysis.slideCount },
+        ];
+
+        let designRules: DesignRules | undefined;
+        let iconCatalog: IconEntry[] | undefined;
+        let usageGuidelines: UsageGuidelines | undefined;
+
+        // Phase 1: Validate and filter files
+        const renderJobs = additionalFiles
+            .map(af => ({ af, filePath: af.path.trim() }))
+            .filter(j => {
+                if (!j.filePath.endsWith('.pptx') && !j.filePath.endsWith('.potx')) {
+                    callbacks.pushToolResult(`Skipping ${j.filePath}: not a .pptx/.potx file`);
+                    return false;
+                }
+                const afFile = vault.getAbstractFileByPath(j.filePath);
+                if (!(afFile instanceof TFile)) {
+                    callbacks.pushToolResult(`Skipping ${j.filePath}: file not found`);
+                    return false;
+                }
+                return true;
+            });
+
+        // Phase 2: Parallel rendering (LibreOffice -- no API calls)
+        callbacks.pushToolResult(`Rendering ${renderJobs.length} additional file(s) in parallel...`);
+        const renderResults = await Promise.all(
+            renderJobs.map(j => this.renderTemplateSlides(j.filePath, { maxSlides: 999 })),
+        );
+
+        // Phase 3: Sequential analysis (API calls)
+        for (let i = 0; i < renderJobs.length; i++) {
+            const { af, filePath } = renderJobs[i];
+            const renderResult = renderResults[i];
+            if (!renderResult.success || renderResult.slides.length === 0) {
+                callbacks.pushToolResult(`Skipping ${filePath}: rendering failed (${renderResult.error ?? 'no slides'})`);
+                continue;
+            }
+
+            // Detect or use provided role
+            let role: DocumentRole = (af.role as DocumentRole) ?? 'main';
+            if (!af.role) {
+                try {
+                    callbacks.pushToolResult(`Detecting role of ${filePath.split('/').pop()}...`);
+                    const detection = await detectDocumentRole(
+                        renderResult.slides.slice(0, 3),
+                        apiHandler,
+                    );
+                    role = detection.role;
+                    callbacks.pushToolResult(`Detected: ${role} (confidence: ${detection.confidence.toFixed(2)})`);
+                } catch (err) {
+                    console.warn(`[AnalyzePptxTemplateTool] Role detection failed for ${filePath}:`, err);
+                    role = 'main'; // fallback
+                }
+            }
+
+            sourceFiles.push({ path: filePath, role, slide_count: renderResult.totalSlides });
+
+            // Analyze based on role
+            try {
+                const slides = renderResult.slides;
+                switch (role) {
+                    case 'styleguide': {
+                        callbacks.pushToolResult(`Analyzing Style Guide (${slides.length} slides)...`);
+                        designRules = await extractDesignRules(slides, apiHandler);
+                        callbacks.pushToolResult(
+                            `Style Guide analyzed: ${designRules.color_usage.length} color rules, ` +
+                            `${designRules.typography.length} typography rules, ` +
+                            `${designRules.dos.length} do's, ${designRules.donts.length} don'ts`,
+                        );
+                        break;
+                    }
+                    case 'icons': {
+                        callbacks.pushToolResult(`Analyzing Icon Gallery (${slides.length} slides)...`);
+                        iconCatalog = await extractIconCatalog(slides, apiHandler);
+                        callbacks.pushToolResult(`Icon Gallery analyzed: ${iconCatalog.length} icons extracted`);
+                        break;
+                    }
+                    case 'howto': {
+                        callbacks.pushToolResult(`Analyzing How-to-Use (${slides.length} slides)...`);
+                        usageGuidelines = await extractUsageGuidelines(slides, apiHandler);
+                        callbacks.pushToolResult(
+                            `How-to-Use analyzed: ${usageGuidelines.layout_guidance.length} layout rules, ` +
+                            `${usageGuidelines.best_practices.length} best practices, ` +
+                            `${usageGuidelines.common_mistakes.length} common mistakes`,
+                        );
+                        break;
+                    }
+                    case 'main': {
+                        callbacks.pushToolResult(`Additional main template: ${filePath} (${renderResult.totalSlides} slides) -- logged but not merged`);
+                        break;
+                    }
+                }
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[AnalyzePptxTemplateTool] Analysis of ${filePath} (${role}) failed:`, msg);
+                callbacks.pushToolResult(`Analysis of ${filePath} failed: ${msg}`);
+            }
+        }
+
+        return { sourceFiles, designRules, iconCatalog, usageGuidelines };
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -326,6 +608,13 @@ function generateSkillMd(
     templatePath: string,
     templateName: string,
     templateSlug: string,
+    scaffoldingMap?: Map<number, CompositionScaffolding>,
+    multiFileData?: {
+        sourceFiles?: Array<{ path: string; role: string; slide_count: number }>;
+        designRules?: DesignRules;
+        iconCatalog?: IconEntry[];
+        usageGuidelines?: UsageGuidelines;
+    },
 ): string {
     const compositions = groupByComposition(analysis);
     const contentCompositions = compositions.filter(c => c.classification !== 'blank');
@@ -369,7 +658,9 @@ function generateSkillMd(
             ? `${group.slideNumbers.slice(0, 5).join(', ')}... (+${group.slideNumbers.length - 5})`
             : group.slideNumbers.join(', ');
         const compId = idMap.get(i) ?? compositionId(group.classification);
-        let compLine = `- **${group.name}** (ID: \`${compId}\`, Slides ${numsStr}): ${group.meaning}`;
+        const scaffolding = scaffoldingMap?.get(i);
+        const pipelineStr = scaffolding ? `, Pipeline: ${scaffolding.recommended_pipeline}` : '';
+        let compLine = `- **${group.name}** (ID: \`${compId}\`, Slides ${numsStr}${pipelineStr}): ${group.meaning}`;
         const warning = generateCompositionWarnings(group, analysis);
         if (warning) compLine += ` -- WARNING: ${warning}`;
         lines.push(compLine);
@@ -406,19 +697,113 @@ function generateSkillMd(
     }
     lines.push('');
 
+    // Source Files section (if multi-file analysis)
+    if (multiFileData?.sourceFiles && multiFileData.sourceFiles.length > 1) {
+        lines.push('## Source Files');
+        for (const sf of multiFileData.sourceFiles) {
+            const roleLabel = sf.role === 'main' ? 'Main' : sf.role === 'styleguide' ? 'Style Guide'
+                : sf.role === 'icons' ? 'Icons' : sf.role === 'howto' ? 'How-to-Use' : sf.role;
+            lines.push(`- ${roleLabel}: ${sf.path.split('/').pop()} (${sf.slide_count} Slides)`);
+        }
+        lines.push('');
+    }
+
+    // Design Rules from Style Guide (if available)
+    if (multiFileData?.designRules) {
+        const dr = multiFileData.designRules;
+        lines.push('## Design Rules (from Style Guide)');
+        if (dr.color_usage.length > 0) {
+            lines.push('### Color Usage');
+            for (const rule of dr.color_usage.slice(0, 8)) lines.push(`- ${rule}`);
+        }
+        if (dr.typography.length > 0) {
+            lines.push('### Typography');
+            for (const rule of dr.typography.slice(0, 6)) lines.push(`- ${rule}`);
+        }
+        if (dr.layout.length > 0) {
+            lines.push('### Layout');
+            for (const rule of dr.layout.slice(0, 6)) lines.push(`- ${rule}`);
+        }
+        if (dr.dos.length > 0 || dr.donts.length > 0) {
+            lines.push('### Do\'s / Don\'ts');
+            for (const d of dr.dos.slice(0, 5)) lines.push(`- DO: ${d}`);
+            for (const d of dr.donts.slice(0, 5)) lines.push(`- DON'T: ${d}`);
+        }
+        lines.push('');
+    }
+
+    // Available Icons (if icon catalog present)
+    if (multiFileData?.iconCatalog && multiFileData.iconCatalog.length > 0) {
+        lines.push('## Available Icons');
+        lines.push('');
+        for (const icon of multiFileData.iconCatalog.slice(0, 30)) {
+            const hint = icon.usage_hint ? ` -- ${icon.usage_hint}` : '';
+            lines.push(`- ${icon.name} (${icon.category}): ${icon.description}${hint}`);
+        }
+        if (multiFileData.iconCatalog.length > 30) {
+            lines.push(`- ... and ${multiFileData.iconCatalog.length - 30} more (use get_composition_details for full catalog)`);
+        }
+        lines.push('');
+    }
+
+    // Usage Guidelines (if How-to-Use present)
+    if (multiFileData?.usageGuidelines) {
+        const ug = multiFileData.usageGuidelines;
+        if (ug.best_practices.length > 0 || ug.layout_guidance.length > 0 || ug.common_mistakes.length > 0) {
+            lines.push('## Usage Guidelines (from How-to-Use)');
+            if (ug.layout_guidance.length > 0) {
+                lines.push('### Layout Guidance');
+                for (const g of ug.layout_guidance.slice(0, 6)) lines.push(`- ${g}`);
+            }
+            if (ug.best_practices.length > 0) {
+                lines.push('### Best Practices');
+                for (const p of ug.best_practices.slice(0, 6)) lines.push(`- ${p}`);
+            }
+            if (ug.common_mistakes.length > 0) {
+                lines.push('### Common Mistakes');
+                for (const m of ug.common_mistakes.slice(0, 6)) lines.push(`- ${m}`);
+            }
+            lines.push('');
+        }
+    }
+
     // Design rules
     lines.push('## Design Rules');
     lines.push('');
     lines.push('### Critical Rules');
     lines.push(`- Template file: \`${templatePath}\``);
-    lines.push('- **Template mode** (`template_slide` + `content`): For text replacement in existing shapes. Pixel-perfect corporate design.');
-    lines.push('- **HTML mode** (`html` + `template_file`): For creative layouts with Brand-DNA colors/fonts. Deko elements (logo, accent bars) are auto-injected -- do NOT place them manually.');
-    lines.push('- Choose mode per slide: title/section dividers -> Template. KPI/charts/creative -> HTML.');
+
+    // Pipeline selection guidance depends on whether scaffolding is available
+    if (scaffoldingMap && scaffoldingMap.size > 0) {
+        lines.push('- **HTML is DEFAULT** for all content slides with per-composition scaffolding');
+        lines.push('- **clone** (`template_slide` + `content`): Only for title, section divider, closing (<=2 shapes, no icons). Pixel-perfect.');
+        lines.push('- **html** + `composition_id`: Scaffold (header, footer, logo, deko) auto-injected per composition. Design within content_area.');
+        lines.push('- Call `get_composition_details` to see content_area, style_guide, layout_hint, and scaffold_elements per composition');
+    } else {
+        lines.push('- **Template mode** (`template_slide` + `content`): For text replacement in existing shapes. Pixel-perfect corporate design.');
+        lines.push('- **HTML mode** (`html` + `template_file`): For creative layouts with Brand-DNA colors/fonts. Deko elements (logo, accent bars) are auto-injected -- do NOT place them manually.');
+        lines.push('- Choose mode per slide: title/section dividers -> Template. KPI/charts/creative -> HTML.');
+    }
+
     lines.push('- **Fill EVERY shape** (Template mode): When `get_composition_details` lists N shapes, your `content` object MUST have N keys. Unfilled shapes are CLEARED by the cloner and appear as blank empty areas.');
     lines.push('- **Transform content**: NEVER copy source text verbatim. Restructure: paragraphs -> bullets (max 8 words), numbers -> KPIs, sequences -> process labels (1-3 words per step).');
     lines.push('- **Action titles**: Every title is an ASSERTION ("17% faster through automation"), not a topic ("Technical Solution").');
     lines.push('- Shape names in `content` must match exactly (case-sensitive) from `get_composition_details`');
     lines.push('');
+
+    // Using HTML Mode with Scaffolding (only if scaffolding data available)
+    if (scaffoldingMap && scaffoldingMap.size > 0) {
+        lines.push('### Using HTML Mode with Scaffolding');
+        lines.push('1. Call `get_composition_details` -> read `content_area`, `style_guide`, `layout_hint`');
+        lines.push('2. Generate HTML within `content_area` bounds using `style_guide` colors/fonts');
+        lines.push('3. Scaffold (header, footer, logo, deko) is auto-injected per composition');
+        lines.push('4. Optional: Use `html_skeleton` from composition as starting point');
+        if (multiFileData?.iconCatalog && multiFileData.iconCatalog.length > 0) {
+            lines.push('5. Pick icons from Available Icons catalog instead of inheriting fixed template icons');
+        }
+        lines.push('');
+    }
+
     lines.push('### Composition Selection');
     lines.push('- Match composition to content type: numbers -> KPI, sequence -> process, comparison -> two-column/matrix');
     lines.push('- Max 30% of content slides may be plain text -- the rest MUST use structured visual layouts');
@@ -442,6 +827,8 @@ function generateSkillMd(
 interface CompositionsFile {
     schema_version: number;
     template: string;
+    /** Source files analyzed (main template + additional corporate design files) */
+    source_files?: Array<{ path: string; role: string; slide_count: number }>;
     /** Brand colors, fonts, slide dimensions, and decorative elements for HTML generation */
     brand_dna?: {
         colors: Record<string, string>;
@@ -457,6 +844,12 @@ interface CompositionsFile {
             image_data?: string;
         }>;
     };
+    /** Design rules extracted from Style Guide (if provided) */
+    design_rules?: DesignRules;
+    /** Icon catalog extracted from Icon Gallery (if provided) */
+    icon_catalog?: IconEntry[];
+    /** Usage guidelines extracted from How-to-Use document (if provided) */
+    usage_guidelines?: UsageGuidelines;
     /** Global alias-to-shape mapping. Each alias is unique across the template. */
     alias_map: Record<string, { slide: number; shape_id: string; original_name: string }>;
     compositions: Record<string, CompositionEntry>;
@@ -474,6 +867,30 @@ interface CompositionEntry {
     decorative_element_count: number;
     has_fixed_visuals: boolean;
     visual_structure: string;
+    /** Recommended pipeline for this composition: 'clone' for structural, 'html' for content */
+    recommended_pipeline?: 'clone' | 'html';
+    /** Per-composition scaffold elements (header, footer, logo, deko) as DekoElement objects */
+    scaffold_elements?: Array<{
+        id: string;
+        type: 'image' | 'shape';
+        position: { x: number; y: number; w: number; h: number };
+        shape_name?: string;
+        fill_color?: string;
+        rotation?: number;
+        image_data?: string;
+    }>;
+    /** Content area bounding box in px (1280x720 canvas) */
+    content_area?: { x: number; y: number; w: number; h: number };
+    /** Style guide derived from the composition's shapes */
+    style_guide?: {
+        title?: { font_size_pt: number; color: string; font_weight: string };
+        body?: { font_size_pt: number; color: string };
+        accent_color?: string;
+    };
+    /** Layout hint: single-column, two-column, grid-NxM, kpi-row, process-horizontal */
+    layout_hint?: string;
+    /** Optional HTML skeleton with placeholders for complex layouts */
+    html_skeleton?: string;
     repeatable_groups: Record<string, RepeatableGroupEntry[]>;
     shapes: Record<string, Record<string, ShapeDetailEntry>>;
 }
@@ -507,6 +924,13 @@ function generateCompositionsJson(
     analysis: TemplateAnalysis,
     templateSlug: string,
     multimodalResult?: MultimodalResult,
+    scaffoldingMap?: Map<number, CompositionScaffolding>,
+    multiFileData?: {
+        sourceFiles?: Array<{ path: string; role: string; slide_count: number }>;
+        designRules?: DesignRules;
+        iconCatalog?: IconEntry[];
+        usageGuidelines?: UsageGuidelines;
+    },
 ): CompositionsFile {
     const compositions = groupByComposition(analysis);
     const contentCompositions = compositions.filter(c => c.classification !== 'blank');
@@ -539,9 +963,11 @@ function generateCompositionsJson(
 
     // Convert EMU to px for canvas-relative positioning
     const EMU_TO_PX = 96 / 914400;
+    const hasScaffolding = scaffoldingMap && scaffoldingMap.size > 0;
     const result: CompositionsFile = {
-        schema_version: 3,
+        schema_version: hasScaffolding ? 4 : 3,
         template: templateSlug,
+        ...(multiFileData?.sourceFiles ? { source_files: multiFileData.sourceFiles } : {}),
         brand_dna: {
             colors: analysis.brandDNA.colors,
             fonts: analysis.brandDNA.fonts,
@@ -557,10 +983,13 @@ function generateCompositionsJson(
                     ...(d.shapeName ? { shape_name: d.shapeName } : {}),
                     ...(d.fillColor ? { fill_color: d.fillColor } : {}),
                     ...(d.rotation ? { rotation: d.rotation } : {}),
-                    ...(d.imageData ? { image_data: d.imageData } : {}),
+                    ...(d.imageData ? { image_path: `scaffold-images/${templateSlug}/${d.id}.png` } : {}),
                 })),
             } : {}),
         },
+        ...(multiFileData?.designRules ? { design_rules: multiFileData.designRules } : {}),
+        ...(multiFileData?.iconCatalog?.length ? { icon_catalog: multiFileData.iconCatalog } : {}),
+        ...(multiFileData?.usageGuidelines ? { usage_guidelines: multiFileData.usageGuidelines } : {}),
         alias_map: aliasMapJson,
         compositions: {},
     };
@@ -653,6 +1082,9 @@ function generateCompositionsJson(
 
         const narrativePhase = COMPOSITION_METADATA[group.classification as SlideClassification]?.narrativePhase ?? 'any';
 
+        // Include scaffolding data if available
+        const scaffolding = scaffoldingMap?.get(i);
+
         result.compositions[compId] = {
             name: group.name,
             classification: group.classification,
@@ -665,6 +1097,22 @@ function generateCompositionsJson(
             decorative_element_count: group.decorativeElementCount,
             has_fixed_visuals: group.hasFixedVisuals,
             visual_structure: multiMeta?.visual_description ?? buildVisualStructureDescription(group, analysis),
+            ...(scaffolding ? {
+                recommended_pipeline: scaffolding.recommended_pipeline,
+                scaffold_elements: scaffolding.scaffold_elements.map(d => ({
+                    id: d.id,
+                    type: d.type,
+                    position: d.position,
+                    ...(d.shapeName ? { shape_name: d.shapeName } : {}),
+                    ...(d.fillColor ? { fill_color: d.fillColor } : {}),
+                    ...(d.rotation ? { rotation: d.rotation } : {}),
+                    ...(d.imageData ? { image_path: `scaffold-images/${templateSlug}/${i}/${d.id}.png` } : {}),
+                })),
+                content_area: scaffolding.content_area,
+                style_guide: scaffolding.style_guide,
+                layout_hint: scaffolding.layout_hint,
+                ...(scaffolding.html_skeleton ? { html_skeleton: scaffolding.html_skeleton } : {}),
+            } : {}),
             repeatable_groups: repeatableGroupsMap,
             shapes,
         };

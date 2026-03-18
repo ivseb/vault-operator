@@ -40,6 +40,8 @@ export interface TemplateAnalysis {
     slideCompositions: SlideComposition[];
     /** Global decorative elements (logo, accent bars) for auto-injection in HTML pipeline. */
     dekoElements: DekoElement[];
+    /** Raw shapes per slide for scaffolding extraction. */
+    allShapesBySlide: Map<number, RawShape[]>;
 }
 
 /** A decorative element extracted from the template for auto-injection. */
@@ -250,6 +252,7 @@ export async function analyzeTemplate(templateData: ArrayBuffer): Promise<Templa
         elementCatalog,
         slideCompositions,
         dekoElements,
+        allShapesBySlide,
     };
 }
 
@@ -327,7 +330,7 @@ function extractColorFromElement(el: Element): string | null {
 /*  Shape extraction from slides                                       */
 /* ------------------------------------------------------------------ */
 
-interface RawShape {
+export interface RawShape {
     shapeName: string;
     shapeId: string;
     geometry: string;
@@ -1517,6 +1520,449 @@ const COMPOSITION_METADATA: Record<SlideClassification, CompositionMeta> = {
 
 /** Export for use in AnalyzePptxTemplateTool narrative phase mapping. */
 export { COMPOSITION_METADATA };
+
+/* ------------------------------------------------------------------ */
+/*  Per-Composition Scaffolding Extraction                             */
+/* ------------------------------------------------------------------ */
+
+/** Style guide for a composition's content area, derived from template shapes. */
+export interface CompositionStyleGuide {
+    title?: { font_size_pt: number; color: string; font_weight: string };
+    body?: { font_size_pt: number; color: string };
+    accent_color?: string;
+}
+
+/** Scaffolding data for a single composition. */
+export interface CompositionScaffolding {
+    /** Gerüst-Shapes as PptxGenJS-compatible DekoElement objects. */
+    scaffold_elements: DekoElement[];
+    /** Bounding box of the content area in px (1280x720 canvas). */
+    content_area: { x: number; y: number; w: number; h: number };
+    /** Style guide derived from the composition's content-bearing shapes. */
+    style_guide: CompositionStyleGuide;
+    /** Layout hint derived from content shape arrangement. */
+    layout_hint: string;
+    /** Recommended pipeline: 'clone' for structural slides, 'html' for content. */
+    recommended_pipeline: 'clone' | 'html';
+    /** Optional HTML skeleton with placeholders for complex layouts. */
+    html_skeleton?: string;
+}
+
+/**
+ * Extract scaffolding data for each composition group.
+ *
+ * For each composition, shapes are classified into:
+ * - **Scaffold** (Gerüst): decorative, structural, background, fixed images/icons, footer
+ * - **Content**: content-bearing text placeholders that the agent fills
+ *
+ * Returns a Map keyed by the same index as the CompositionGroup array.
+ */
+export async function extractCompositionScaffolding(
+    analysis: TemplateAnalysis,
+    compositionGroups: CompositionGroup[],
+    allShapesBySlide: Map<number, RawShape[]>,
+    zip?: JSZip,
+): Promise<Map<number, CompositionScaffolding>> {
+    const result = new Map<number, CompositionScaffolding>();
+    const footerTypes = new Set(['ftr', 'sldNum', 'dt']);
+
+    for (let groupIdx = 0; groupIdx < compositionGroups.length; groupIdx++) {
+        const group = compositionGroups[groupIdx];
+        // Use the first slide as representative
+        const slideNum = group.slideNumbers[0];
+        const rawShapes = allShapesBySlide.get(slideNum) ?? [];
+        const comp = analysis.slideCompositions.find(c => c.slideNumber === slideNum);
+        if (!comp) continue;
+
+        // Classify shapes into scaffold vs content
+        const scaffoldRaw: RawShape[] = [];
+        const contentRaw: RawShape[] = [];
+        const contentShapes: ShapeInfo[] = [];
+
+        for (let i = 0; i < rawShapes.length; i++) {
+            const raw = rawShapes[i];
+            const info = comp.shapes[i];
+            if (!info) continue;
+
+            const isScaffold = classifyAsScaffold(raw, info, footerTypes);
+            if (isScaffold) {
+                scaffoldRaw.push(raw);
+            } else {
+                contentRaw.push(raw);
+                contentShapes.push(info);
+            }
+        }
+
+        // Extract scaffold elements as DekoElement objects
+        const scaffoldElements = await extractScaffoldElements(
+            zip, slideNum, scaffoldRaw, analysis.brandDNA,
+        );
+
+        // Calculate content area bounding box (in px, 1280x720 canvas)
+        const contentArea = calculateContentArea(contentRaw, analysis.brandDNA);
+
+        // Derive style guide from content shapes
+        const styleGuide = deriveStyleGuide(contentRaw, contentShapes, analysis.brandDNA);
+
+        // Determine layout hint from content shape arrangement
+        const layoutHint = deriveLayoutHint(contentRaw, contentShapes, comp.classification);
+
+        // Determine recommended pipeline
+        const recommendedPipeline = recommendPipeline(group, contentShapes);
+
+        // Generate HTML skeleton for html-recommended compositions
+        const htmlSkeleton = recommendedPipeline === 'html'
+            ? generateHtmlSkeleton(contentArea, styleGuide, layoutHint, contentShapes, analysis.brandDNA)
+            : undefined;
+
+        result.set(groupIdx, {
+            scaffold_elements: scaffoldElements,
+            content_area: contentArea,
+            style_guide: styleGuide,
+            layout_hint: layoutHint,
+            recommended_pipeline: recommendedPipeline,
+            html_skeleton: htmlSkeleton,
+        });
+    }
+
+    return result;
+}
+
+/** Classify a shape as scaffold (true) or content (false). */
+function classifyAsScaffold(
+    raw: RawShape,
+    info: ShapeInfo,
+    footerTypes: Set<string>,
+): boolean {
+    // Footer shapes are always scaffold
+    if (info.placeholderType && footerTypes.has(info.placeholderType)) return true;
+
+    // Non-replaceable shapes are scaffold (decorative, structural, fixed images)
+    if (!info.isReplaceable) return true;
+
+    // Content-bearing shapes are content
+    return false;
+}
+
+/** Extract scaffold shapes as DekoElement objects (reuses global deko extraction pattern). */
+async function extractScaffoldElements(
+    zip: JSZip | undefined,
+    slideNum: number,
+    scaffoldRaw: RawShape[],
+    brandDNA: BrandDNA,
+): Promise<DekoElement[]> {
+    const elements: DekoElement[] = [];
+    let idx = 1;
+
+    for (const raw of scaffoldRaw) {
+        // Skip very small shapes (bullets, decorative dots)
+        if (raw.position.width < EMU_DECORATIVE && raw.position.height < EMU_DECORATIVE) continue;
+        // Skip groups (structural containers -- their children are already extracted individually)
+        if (raw.geometry === 'group') continue;
+
+        const pos = {
+            x: Math.round(raw.position.left * EMU_TO_INCH * 100) / 100,
+            y: Math.round(raw.position.top * EMU_TO_INCH * 100) / 100,
+            w: Math.round(raw.position.width * EMU_TO_INCH * 100) / 100,
+            h: Math.round(raw.position.height * EMU_TO_INCH * 100) / 100,
+        };
+
+        const hasBlip = /<a:blip\b[^>]*r:embed="([^"]+)"/.test(raw.xml);
+
+        if (hasBlip) {
+            let imageData: string | undefined;
+            if (zip) {
+                imageData = await extractImageFromShape(zip, slideNum, raw.xml) ?? undefined;
+            }
+            elements.push({
+                id: `scaffold-${idx++}`,
+                type: 'image',
+                position: pos,
+                ...(imageData ? { imageData } : {}),
+                frequency: 1,
+            });
+        } else {
+            const shapeName = prstGeomToPptxName(raw.geometry);
+            const fillColor = extractFillColorHex(raw.fill, brandDNA);
+
+            elements.push({
+                id: `scaffold-${idx++}`,
+                type: 'shape',
+                position: pos,
+                shapeName: shapeName ?? 'rect',
+                fillColor,
+                rotation: extractRotation(raw.xml),
+                frequency: 1,
+            });
+        }
+    }
+
+    return elements;
+}
+
+/** Calculate content area bounding box in px (1280x720 canvas). */
+function calculateContentArea(
+    contentRaw: RawShape[],
+    brandDNA: BrandDNA,
+): { x: number; y: number; w: number; h: number } {
+    if (contentRaw.length === 0) {
+        // Fallback: full slide minus margins
+        const slideW = brandDNA.slideSize.cx / EMU_PER_PX;
+        const slideH = brandDNA.slideSize.cy / EMU_PER_PX;
+        return { x: 40, y: 40, w: slideW - 80, h: slideH - 80 };
+    }
+
+    const PADDING = 10; // px padding around content area
+
+    let minX = Infinity, minY = Infinity, maxX = 0, maxY = 0;
+    for (const raw of contentRaw) {
+        const x = raw.position.left / EMU_PER_PX;
+        const y = raw.position.top / EMU_PER_PX;
+        const r = (raw.position.left + raw.position.width) / EMU_PER_PX;
+        const b = (raw.position.top + raw.position.height) / EMU_PER_PX;
+
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (r > maxX) maxX = r;
+        if (b > maxY) maxY = b;
+    }
+
+    return {
+        x: Math.round(Math.max(0, minX - PADDING)),
+        y: Math.round(Math.max(0, minY - PADDING)),
+        w: Math.round(maxX - minX + PADDING * 2),
+        h: Math.round(maxY - minY + PADDING * 2),
+    };
+}
+
+/** Derive style guide from content shapes (fonts, colors). */
+function deriveStyleGuide(
+    contentRaw: RawShape[],
+    contentShapes: ShapeInfo[],
+    brandDNA: BrandDNA,
+): CompositionStyleGuide {
+    const guide: CompositionStyleGuide = {};
+
+    for (let i = 0; i < contentRaw.length; i++) {
+        const raw = contentRaw[i];
+        const info = contentShapes[i];
+        if (!info) continue;
+
+        // Extract font size from shape XML
+        const rprSz = raw.xml.match(/<a:rPr[^>]*\bsz="(\d+)"/);
+        const defRprSz = raw.xml.match(/<a:defRPr[^>]*\bsz="(\d+)"/);
+        const fontSizePt = rprSz ? parseInt(rprSz[1]) / 100
+            : defRprSz ? parseInt(defRprSz[1]) / 100
+            : raw.layoutFontSize ?? 18;
+
+        // Extract font color
+        const colorMatch = raw.xml.match(/<a:solidFill>\s*<a:srgbClr val="([A-Fa-f0-9]{6})"/);
+        const schemeMatch = raw.xml.match(/<a:solidFill>\s*<a:schemeClr val="(\w+)"/);
+        let color = '#333333';
+        if (colorMatch) {
+            color = `#${colorMatch[1]}`;
+        } else if (schemeMatch) {
+            const schemeColor = brandDNA.colors[schemeMatch[1]];
+            if (schemeColor) color = schemeColor.startsWith('#') ? schemeColor : `#${schemeColor}`;
+        }
+
+        // Extract font weight
+        const isBold = /<a:rPr[^>]*\bb="1"/.test(raw.xml) || /<a:defRPr[^>]*\bb="1"/.test(raw.xml);
+
+        // Title shapes
+        if (info.placeholderType === 'title' || info.placeholderType === 'ctrTitle') {
+            guide.title = { font_size_pt: fontSizePt, color, font_weight: isBold ? 'bold' : 'normal' };
+        } else if (!guide.body) {
+            // First non-title shape becomes the body style
+            guide.body = { font_size_pt: fontSizePt, color };
+        }
+    }
+
+    // Accent color from brand DNA
+    guide.accent_color = brandDNA.colors['accent1']
+        ? (brandDNA.colors['accent1'].startsWith('#') ? brandDNA.colors['accent1'] : `#${brandDNA.colors['accent1']}`)
+        : undefined;
+
+    return guide;
+}
+
+/** Derive layout hint from content shape arrangement. */
+function deriveLayoutHint(
+    contentRaw: RawShape[],
+    contentShapes: ShapeInfo[],
+    classification: SlideClassification,
+): string {
+    // Classification-based shortcuts
+    if (classification === 'process') return 'process-horizontal';
+    if (classification === 'pyramid') return 'pyramid';
+    if (classification === 'timeline') return 'timeline';
+    if (classification === 'org-chart') return 'org-chart';
+    if (classification === 'matrix') return 'grid-2x2';
+
+    // Filter to non-title content shapes for layout analysis
+    const nonTitle = contentRaw.filter((_, i) => {
+        const info = contentShapes[i];
+        return info && info.placeholderType !== 'title' && info.placeholderType !== 'ctrTitle';
+    });
+
+    if (nonTitle.length === 0) return 'single-column';
+    if (nonTitle.length === 1) return 'single-column';
+
+    // Analyze spatial arrangement
+    const sorted = [...nonTitle].sort((a, b) => a.position.left - b.position.left);
+    const avgHeight = sorted.reduce((s, r) => s + r.position.height, 0) / sorted.length;
+    const topVariation = Math.max(...sorted.map(r => r.position.top)) - Math.min(...sorted.map(r => r.position.top));
+    const isHorizontalRow = topVariation < avgHeight * 0.4;
+
+    if (isHorizontalRow && nonTitle.length >= 3) {
+        return `grid-1x${nonTitle.length}`;
+    }
+    if (isHorizontalRow && nonTitle.length === 2) {
+        return 'two-column';
+    }
+
+    // Check for vertical stacking
+    const sortedV = [...nonTitle].sort((a, b) => a.position.top - b.position.top);
+    const avgWidth = sortedV.reduce((s, r) => s + r.position.width, 0) / sortedV.length;
+    const leftVariation = Math.max(...sortedV.map(r => r.position.left)) - Math.min(...sortedV.map(r => r.position.left));
+    const isVerticalStack = leftVariation < avgWidth * 0.3;
+
+    if (isVerticalStack) {
+        return nonTitle.length <= 2 ? 'single-column' : `grid-${nonTitle.length}x1`;
+    }
+
+    // Grid detection: check for rows and columns
+    const rowTolerance = avgHeight * 0.3;
+    const rows = new Map<number, RawShape[]>();
+    for (const shape of nonTitle) {
+        const rowKey = Math.round(shape.position.top / rowTolerance);
+        const row = rows.get(rowKey) ?? [];
+        row.push(shape);
+        rows.set(rowKey, row);
+    }
+    if (rows.size >= 2) {
+        const colCounts = [...rows.values()].map(r => r.length);
+        const maxCols = Math.max(...colCounts);
+        return `grid-${rows.size}x${maxCols}`;
+    }
+
+    return 'single-column';
+}
+
+/** Determine recommended pipeline for a composition. */
+function recommendPipeline(
+    group: CompositionGroup,
+    contentShapes: ShapeInfo[],
+): 'clone' | 'html' {
+    // Structural slides: always clone
+    if (group.classification === 'title' || group.classification === 'section') return 'clone';
+
+    // Simple text-only compositions: clone if ≤2 content shapes and no fixed visuals
+    if (contentShapes.length <= 2 && !group.hasFixedVisuals) return 'clone';
+
+    // Everything else: html (creative layouts, complex compositions, fixed icons)
+    return 'html';
+}
+
+/** Generate an HTML skeleton for a composition based on layout and style. */
+function generateHtmlSkeleton(
+    contentArea: { x: number; y: number; w: number; h: number },
+    styleGuide: CompositionStyleGuide,
+    layoutHint: string,
+    contentShapes: ShapeInfo[],
+    brandDNA: BrandDNA,
+): string | undefined {
+    const parts: string[] = [];
+    const titleStyle = styleGuide.title;
+    const bodyStyle = styleGuide.body;
+
+    // Title element (if style guide has title info)
+    if (titleStyle) {
+        parts.push(
+            `<div data-object="true" data-object-type="textbox" ` +
+            `style="position:absolute;left:${contentArea.x}px;top:${contentArea.y}px;` +
+            `width:${contentArea.w}px;height:60px;` +
+            `font-size:${titleStyle.font_size_pt}px;color:${titleStyle.color};` +
+            `font-weight:${titleStyle.font_weight};">` +
+            `{{title}}</div>`,
+        );
+    }
+
+    // Content area below title
+    const bodyY = titleStyle ? contentArea.y + 80 : contentArea.y;
+    const bodyH = titleStyle ? contentArea.h - 80 : contentArea.h;
+    const fontSize = bodyStyle?.font_size_pt ?? 16;
+    const bodyColor = bodyStyle?.color ?? '#333333';
+
+    if (layoutHint === 'single-column') {
+        parts.push(
+            `<div data-object="true" data-object-type="textbox" ` +
+            `style="position:absolute;left:${contentArea.x}px;top:${bodyY}px;` +
+            `width:${contentArea.w}px;height:${bodyH}px;` +
+            `font-size:${fontSize}px;color:${bodyColor};">` +
+            `{{content}}</div>`,
+        );
+    } else if (layoutHint === 'two-column') {
+        const colW = Math.floor((contentArea.w - 20) / 2);
+        parts.push(
+            `<div data-object="true" data-object-type="textbox" ` +
+            `style="position:absolute;left:${contentArea.x}px;top:${bodyY}px;` +
+            `width:${colW}px;height:${bodyH}px;` +
+            `font-size:${fontSize}px;color:${bodyColor};">` +
+            `{{content_1}}</div>`,
+        );
+        parts.push(
+            `<div data-object="true" data-object-type="textbox" ` +
+            `style="position:absolute;left:${contentArea.x + colW + 20}px;top:${bodyY}px;` +
+            `width:${colW}px;height:${bodyH}px;` +
+            `font-size:${fontSize}px;color:${bodyColor};">` +
+            `{{content_2}}</div>`,
+        );
+    } else if (layoutHint.startsWith('grid-1x')) {
+        const cols = parseInt(layoutHint.split('x')[1]) || 3;
+        const gap = 15;
+        const colW = Math.floor((contentArea.w - gap * (cols - 1)) / cols);
+        for (let i = 0; i < cols; i++) {
+            parts.push(
+                `<div data-object="true" data-object-type="textbox" ` +
+                `style="position:absolute;left:${contentArea.x + i * (colW + gap)}px;top:${bodyY}px;` +
+                `width:${colW}px;height:${bodyH}px;` +
+                `font-size:${fontSize}px;color:${bodyColor};">` +
+                `{{content_${i + 1}}}</div>`,
+            );
+        }
+    } else if (layoutHint === 'process-horizontal') {
+        const steps = contentShapes.filter(s =>
+            s.placeholderType !== 'title' && s.placeholderType !== 'ctrTitle',
+        ).length || 4;
+        const gap = 10;
+        const stepW = Math.floor((contentArea.w - gap * (steps - 1)) / steps);
+        const accentColor = styleGuide.accent_color ?? '#4472C4';
+        for (let i = 0; i < steps; i++) {
+            parts.push(
+                `<div data-object="true" data-object-type="shape" data-shape="${i === 0 ? 'homePlate' : 'chevron'}" ` +
+                `style="position:absolute;left:${contentArea.x + i * (stepW + gap)}px;top:${bodyY}px;` +
+                `width:${stepW}px;height:${Math.min(bodyH, 80)}px;` +
+                `background-color:${accentColor};">` +
+                `</div>`,
+            );
+            parts.push(
+                `<div data-object="true" data-object-type="textbox" ` +
+                `style="position:absolute;left:${contentArea.x + i * (stepW + gap)}px;top:${bodyY}px;` +
+                `width:${stepW}px;height:${Math.min(bodyH, 80)}px;` +
+                `font-size:${Math.min(fontSize, 14)}px;color:#FFFFFF;text-align:center;" ` +
+                `data-valign="middle">` +
+                `{{step_${i + 1}}}</div>`,
+            );
+        }
+    }
+
+    if (parts.length === 0) return undefined;
+
+    const skeleton = parts.join('\n');
+    // Enforce max skeleton size (~2000 chars)
+    return skeleton.length > 2000 ? skeleton.substring(0, 2000) : skeleton;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Deterministic alias generation (Phase 2)                           */

@@ -470,8 +470,10 @@ export async function generateFromHtml(
         const slide = pptx.addSlide();
 
         // Inject deko elements FIRST (behind content)
-        if (options?.dekoElements) {
-            injectDekoElements(slide, pptx, options.dekoElements);
+        // Per-slide dekoElements override global ones
+        const effectiveDeko = input.dekoElements ?? options?.dekoElements;
+        if (effectiveDeko) {
+            injectDekoElements(slide, pptx, effectiveDeko);
         }
 
         await renderHtmlSlide(slide, pptx, input.html, input.charts, input.tables, imageLoader);

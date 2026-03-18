@@ -23,12 +23,18 @@ export interface TaskExtractionSettings {
     enabled: boolean;
     /** Vault folder path for task notes (without trailing slash) */
     taskFolder: string;
+    /** Prefer TaskNotes community plugin when it is active (default: true) */
+    preferTaskNotesPlugin: boolean;
+    /** User has permanently dismissed the TaskNotes recommendation hint */
+    taskNotesHintDismissed: boolean;
 }
 
 /** Default settings for task extraction */
 export const DEFAULT_TASK_EXTRACTION_SETTINGS: TaskExtractionSettings = {
     enabled: true,
     taskFolder: 'Tasks',
+    preferTaskNotesPlugin: true,
+    taskNotesHintDismissed: false,
 };
 
 /** Status values for task notes (Eisenhower + Kanban compatible) */
