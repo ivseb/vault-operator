@@ -278,12 +278,24 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         const allCodeModules = [...new Set([...existingCodeModules, ...newCodeModuleNames])];
 
         // Merge updates
+        const mergedDescription = params.description ?? skill.description;
+        const mergedTrigger = params.trigger ?? skill.triggerSource;
+        const mergedRequiredTools = params.required_tools ?? skill.requiredTools;
+        const mergedBody = params.body ?? skill.body;
+
+        if (await this.isProtectedTemplateSkill(skill.filePath, mergedBody, mergedRequiredTools)) {
+            throw new Error(
+                `Template skill "${params.name}" cannot be updated via manage_skill. ` +
+                'Re-run analyze_pptx_template to regenerate both SKILL.md and compositions.json together.',
+            );
+        }
+
         const content = this.buildSkillMd({
             name: params.name,
-            description: params.description ?? skill.description,
-            trigger: params.trigger ?? skill.triggerSource,
-            required_tools: params.required_tools ?? skill.requiredTools,
-            body: params.body ?? skill.body,
+            description: mergedDescription,
+            trigger: mergedTrigger,
+            required_tools: mergedRequiredTools,
+            body: mergedBody,
             source: skill.source,
         }, allCodeModules);
 
@@ -536,5 +548,22 @@ ${params.body ?? ''}
             /brand.dna.*color|color.*brand.dna/i,
         ];
         return templatePatterns.some(p => p.test(body));
+    }
+
+    private async isProtectedTemplateSkill(
+        skillFilePath: string,
+        body: string,
+        requiredTools?: string[],
+    ): Promise<boolean> {
+        const adapter = this.plugin.app.vault.adapter;
+        const slug = skillFilePath.split('/').slice(-2, -1)[0] ?? '';
+        if (slug) {
+            const compositionsPath = `.obsilo/templates/${slug}.compositions.json`;
+            if (await adapter.exists(compositionsPath)) {
+                return true;
+            }
+        }
+
+        return this.looksLikeTemplateSkill(body, requiredTools);
     }
 }

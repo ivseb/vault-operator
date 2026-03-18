@@ -10,7 +10,7 @@ import {
 } from '../../core/document-parsers/types';
 
 /** Extensions handled by the document parser (binary formats via OS file picker). */
-const DOCUMENT_EXTENSIONS = ['.pptx', '.xlsx', '.docx', '.pdf', '.csv'];
+const DOCUMENT_EXTENSIONS = ['.pptx', '.potx', '.xlsx', '.docx', '.pdf', '.csv'];
 
 /** Map file extension to Lucide icon name for chip display. */
 const CHIP_ICON_MAP: Record<string, string> = {

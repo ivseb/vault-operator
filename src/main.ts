@@ -34,6 +34,7 @@ import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
 import { initI18n, t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
+import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
 import { RecipeMatchingService } from './core/mastery/RecipeMatchingService';
@@ -594,6 +595,15 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Decrypt API keys if they were stored encrypted (ADR-019)
         this.decryptSettings(this.settings);
+
+        // Initialize GitHub Copilot auth service with persisted tokens (ADR-037)
+        const copilotAuth = GitHubCopilotAuthService.getInstance();
+        copilotAuth.loadFromSettings(this.settings);
+        copilotAuth.setSaveCallback(async () => {
+            copilotAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
         // Migrate old mode slugs to new built-in mode slugs (Phase 3.1)
         const OLD_MODE_MAP: Record<string, string> = { librarian: 'ask', writer: 'agent', orchestrator: 'agent', researcher: 'ask', curator: 'agent', architect: 'agent' };
         if (OLD_MODE_MAP[this.settings.currentMode]) {
@@ -837,6 +847,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                 settings.webTools.tavilyApiKey = this.safeStorage.decrypt(settings.webTools.tavilyApiKey);
             }
         }
+        // GitHub Copilot tokens (ADR-038)
+        if (settings.githubCopilotAccessToken) {
+            settings.githubCopilotAccessToken = this.safeStorage.decrypt(settings.githubCopilotAccessToken);
+        }
+        if (settings.githubCopilotToken) {
+            settings.githubCopilotToken = this.safeStorage.decrypt(settings.githubCopilotToken);
+        }
     }
 
     /**
@@ -867,6 +884,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (copy.webTools.tavilyApiKey && !this.safeStorage.isEncrypted(copy.webTools.tavilyApiKey)) {
                 copy.webTools.tavilyApiKey = this.safeStorage.encrypt(copy.webTools.tavilyApiKey);
             }
+        }
+        // GitHub Copilot tokens (ADR-038)
+        if (copy.githubCopilotAccessToken && !this.safeStorage.isEncrypted(copy.githubCopilotAccessToken)) {
+            copy.githubCopilotAccessToken = this.safeStorage.encrypt(copy.githubCopilotAccessToken);
+        }
+        if (copy.githubCopilotToken && !this.safeStorage.isEncrypted(copy.githubCopilotToken)) {
+            copy.githubCopilotToken = this.safeStorage.encrypt(copy.githubCopilotToken);
         }
         copy._encrypted = true;
         return copy;

@@ -947,7 +947,7 @@ export class SemanticIndexService {
     // File reading (Markdown + PDF + Office documents)
     // -----------------------------------------------------------------------
 
-    private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
+    private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'potx', 'xlsx', 'docx']);
 
     /**
      * Read a file's text content.

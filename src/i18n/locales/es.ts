@@ -671,6 +671,7 @@ export const es: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Personalizado',
+    'provider.github-copilot': 'GitHub Copilot',
 
     // =========================================================================
     // Constants — Tool Labels

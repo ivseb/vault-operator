@@ -114,6 +114,13 @@ export interface SlideComposition {
     description: string;
     /** Repeatable shape groups detected on this slide (e.g. 5 chevrons in a row). */
     repeatableGroups: RepeatableGroup[];
+    /** Counts of embedded non-shape objects that carry static template content. */
+    embeddedObjects: {
+        charts: number;
+        tables: number;
+        pictures: number;
+        graphics: number;
+    };
 }
 
 /** A group of shapes with identical visual fingerprint arranged linearly. */
@@ -192,6 +199,10 @@ export interface ShapeInfo {
     textCapacity?: TextCapacity;
     /** Fill color from shape properties (e.g. "solid:accent1", "solid:#FF6600", "none"). */
     fillColor?: string;
+    /** Original OOXML geometry / object signature. */
+    geometry: string;
+    /** Parsed object type (shape, picture, chart, table, ...). */
+    objectType: RawShapeObjectType;
 }
 
 /* ------------------------------------------------------------------ */
@@ -347,7 +358,11 @@ export interface RawShape {
     xml: string;
     /** Font size (in pt) inherited from slideLayout, if available. */
     layoutFontSize?: number;
+    /** Parsed OOXML object type. */
+    objectType: RawShapeObjectType;
 }
+
+export type RawShapeObjectType = 'shape' | 'group' | 'picture' | 'chart' | 'table' | 'graphic';
 
 /**
  * Extract font sizes from the slideLayout associated with a slide.
@@ -470,6 +485,7 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
             hasText: false,
             fingerprint: { geometry: `group:${childCount}`, fillType: 'none', lineStyle: 'none', aspectRatio: 1 },
             xml: grpBlock,
+            objectType: 'group',
         });
 
         // Extract child shapes from within the group
@@ -481,6 +497,26 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
             if (childEnd < 0) continue;
             const childBlock = grpBlock.substring(childStart, childEnd);
             const shape = parseShape(childBlock);
+            if (shape) shapes.push(shape);
+        }
+
+        const childPicPattern = /<p:pic\b[^>]*>/g;
+        while ((childMatch = childPicPattern.exec(grpBlock)) !== null) {
+            const childStart = childMatch.index;
+            const childEnd = findClosingTag(grpBlock, childStart, 'p:pic');
+            if (childEnd < 0) continue;
+            const childBlock = grpBlock.substring(childStart, childEnd);
+            const shape = parsePicture(childBlock);
+            if (shape) shapes.push(shape);
+        }
+
+        const childGraphicPattern = /<p:graphicFrame\b[^>]*>/g;
+        while ((childMatch = childGraphicPattern.exec(grpBlock)) !== null) {
+            const childStart = childMatch.index;
+            const childEnd = findClosingTag(grpBlock, childStart, 'p:graphicFrame');
+            if (childEnd < 0) continue;
+            const childBlock = grpBlock.substring(childStart, childEnd);
+            const shape = parseGraphicFrame(childBlock);
             if (shape) shapes.push(shape);
         }
     }
@@ -504,6 +540,34 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
         if (shape) shapes.push(shape);
     }
 
+    const picPattern = /<p:pic\b[^>]*>/g;
+    while ((spMatch = picPattern.exec(xml)) !== null) {
+        const picStart = spMatch.index;
+        const insideGroup = grpRanges.some(r => picStart >= r.start && picStart < r.end);
+        if (insideGroup) continue;
+
+        const picEnd = findClosingTag(xml, picStart, 'p:pic');
+        if (picEnd < 0) continue;
+
+        const picBlock = xml.substring(picStart, picEnd);
+        const shape = parsePicture(picBlock);
+        if (shape) shapes.push(shape);
+    }
+
+    const graphicFramePattern = /<p:graphicFrame\b[^>]*>/g;
+    while ((spMatch = graphicFramePattern.exec(xml)) !== null) {
+        const graphicStart = spMatch.index;
+        const insideGroup = grpRanges.some(r => graphicStart >= r.start && graphicStart < r.end);
+        if (insideGroup) continue;
+
+        const graphicEnd = findClosingTag(xml, graphicStart, 'p:graphicFrame');
+        if (graphicEnd < 0) continue;
+
+        const graphicBlock = xml.substring(graphicStart, graphicEnd);
+        const shape = parseGraphicFrame(graphicBlock);
+        if (shape) shapes.push(shape);
+    }
+
     // Apply layout font sizes to shapes that have placeholders
     for (const shape of shapes) {
         if (shape.layoutFontSize !== undefined) continue; // Already set
@@ -522,11 +586,7 @@ async function extractShapesFromSlide(zip: JSZip, slideNum: number): Promise<Raw
 }
 
 function parseShape(spBlock: string): RawShape | null {
-    // Extract shape name and ID from <p:cNvPr>
-    const nameMatch = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(spBlock);
-    const idMatch = /<p:cNvPr\b[^>]*\bid="([^"]*)"/.exec(spBlock);
-    const shapeName = nameMatch?.[1] ?? '';
-    const shapeId = idMatch?.[1] ?? '0';
+    const { shapeName, shapeId } = extractNonVisualProps(spBlock);
 
     // Extract geometry
     const geometry = extractGeometry(spBlock);
@@ -544,20 +604,7 @@ function parseShape(spBlock: string): RawShape | null {
     const { text, fieldCount } = extractText(spBlock);
 
     // Extract placeholder info
-    const phMatch = /<p:ph\b([^>]*)\/?>/.exec(spBlock);
-    let placeholderType: string | undefined;
-    let placeholderIdx: number | undefined;
-    if (phMatch) {
-        const phAttrs = phMatch[1];
-        const typeMatch = /type="([^"]*)"/.exec(phAttrs);
-        placeholderType = typeMatch?.[1];
-        const idxMatch = /idx="(\d+)"/.exec(phAttrs);
-        if (idxMatch) placeholderIdx = parseInt(idxMatch[1]);
-        // Body placeholder without type attribute
-        if (!placeholderType && placeholderIdx !== undefined) {
-            placeholderType = 'body';
-        }
-    }
+    const { placeholderType, placeholderIdx } = extractPlaceholderInfo(spBlock);
 
     const hasText = text.trim().length > 0 || placeholderType !== undefined;
     const aspectRatio = position.height > 0 ? position.width / position.height : 1;
@@ -583,7 +630,101 @@ function parseShape(spBlock: string): RawShape | null {
         hasText,
         fingerprint,
         xml: spBlock,
+        objectType: 'shape',
     };
+}
+
+function parsePicture(picBlock: string): RawShape | null {
+    const { shapeName, shapeId } = extractNonVisualProps(picBlock);
+    const position = extractPosition(picBlock);
+    const { placeholderType, placeholderIdx } = extractPlaceholderInfo(picBlock);
+    const aspectRatio = position.height > 0 ? position.width / position.height : 1;
+
+    return {
+        shapeName,
+        shapeId,
+        geometry: 'picture',
+        fill: 'image',
+        line: 'none',
+        position,
+        text: '',
+        textFieldCount: 0,
+        placeholderType,
+        placeholderIdx,
+        hasText: false,
+        fingerprint: {
+            geometry: 'picture',
+            fillType: 'image',
+            lineStyle: 'none',
+            aspectRatio: Math.round(aspectRatio * 10) / 10,
+        },
+        xml: picBlock,
+        objectType: 'picture',
+    };
+}
+
+function parseGraphicFrame(graphicBlock: string): RawShape | null {
+    const { shapeName, shapeId } = extractNonVisualProps(graphicBlock);
+    const position = extractPosition(graphicBlock);
+    const { placeholderType, placeholderIdx } = extractPlaceholderInfo(graphicBlock);
+    const { text, fieldCount } = extractText(graphicBlock);
+    const kind = detectGraphicFrameKind(graphicBlock);
+    const aspectRatio = position.height > 0 ? position.width / position.height : 1;
+    const geometry = `graphicFrame:${kind}`;
+
+    return {
+        shapeName,
+        shapeId,
+        geometry,
+        fill: kind === 'chart' ? 'chart' : kind === 'table' ? 'table' : 'graphic',
+        line: 'none',
+        position,
+        text,
+        textFieldCount: fieldCount,
+        placeholderType,
+        placeholderIdx,
+        hasText: kind === 'table' ? text.trim().length > 0 : false,
+        fingerprint: {
+            geometry,
+            fillType: kind,
+            lineStyle: 'none',
+            aspectRatio: Math.round(aspectRatio * 10) / 10,
+        },
+        xml: graphicBlock,
+        objectType: kind,
+    };
+}
+
+function extractNonVisualProps(block: string): { shapeName: string; shapeId: string } {
+    const nameMatch = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(block);
+    const idMatch = /<p:cNvPr\b[^>]*\bid="([^"]*)"/.exec(block);
+    return {
+        shapeName: nameMatch?.[1] ?? '',
+        shapeId: idMatch?.[1] ?? '0',
+    };
+}
+
+function extractPlaceholderInfo(block: string): { placeholderType?: string; placeholderIdx?: number } {
+    const phMatch = /<p:ph\b([^>]*)\/?>/.exec(block);
+    let placeholderType: string | undefined;
+    let placeholderIdx: number | undefined;
+    if (phMatch) {
+        const phAttrs = phMatch[1];
+        const typeMatch = /type="([^"]*)"/.exec(phAttrs);
+        placeholderType = typeMatch?.[1];
+        const idxMatch = /idx="(\d+)"/.exec(phAttrs);
+        if (idxMatch) placeholderIdx = parseInt(idxMatch[1]);
+        if (!placeholderType && placeholderIdx !== undefined) {
+            placeholderType = 'body';
+        }
+    }
+    return { placeholderType, placeholderIdx };
+}
+
+function detectGraphicFrameKind(graphicBlock: string): Exclude<RawShapeObjectType, 'shape' | 'group' | 'picture'> {
+    if (/<c:chart\b/.test(graphicBlock) || /diagramm|chart/i.test(graphicBlock)) return 'chart';
+    if (/<a:tbl\b/.test(graphicBlock) || /tabelle|table/i.test(graphicBlock)) return 'table';
+    return 'graphic';
 }
 
 function extractGeometry(spBlock: string): string {
@@ -743,6 +884,10 @@ function fingerprintKey(fp: ShapeFingerprint): string {
 function categorizeElement(shape: RawShape): ElementCategory {
     const geom = shape.geometry;
 
+    if (shape.objectType === 'chart' || shape.objectType === 'table' || shape.objectType === 'picture' || shape.objectType === 'graphic') {
+        return 'media';
+    }
+
     // Background shapes (full-width, tall rectangles)
     if (geom.includes('rect') && shape.position.width > EMU_BACKGROUND_W && shape.position.height > EMU_BACKGROUND_H) {
         return 'background';
@@ -778,6 +923,11 @@ function categorizeElement(shape: RawShape): ElementCategory {
 
 function generateElementName(shape: RawShape): string {
     const geom = shape.geometry;
+
+    if (shape.objectType === 'picture') return shape.shapeName || 'Bild';
+    if (shape.objectType === 'chart') return shape.shapeName || 'Diagramm';
+    if (shape.objectType === 'table') return shape.shapeName || 'Tabelle';
+    if (shape.objectType === 'graphic') return shape.shapeName || 'Grafik';
 
     // Preset geometry names
     const presetNames: Record<string, string> = {
@@ -890,6 +1040,7 @@ function buildSlideComposition(
 
         // Determine if text should be replaced
         const isReplaceable = rs.hasText && (
+            rs.objectType === 'shape' &&
             rs.placeholderType !== 'ftr' &&
             rs.placeholderType !== 'sldNum' &&
             rs.placeholderType !== 'dt'
@@ -907,6 +1058,8 @@ function buildSlideComposition(
             position: rs.position,
             textCapacity: estimateTextCapacity(rs),
             fillColor: rs.fill !== 'none' ? rs.fill : undefined,
+            geometry: rs.geometry,
+            objectType: rs.objectType,
         };
     });
 
@@ -924,6 +1077,13 @@ function buildSlideComposition(
 
     const repeatableGroups = detectRepeatableGroups(rawShapes, shapes);
 
+    const embeddedObjects = {
+        charts: rawShapes.filter(rs => rs.objectType === 'chart').length,
+        tables: rawShapes.filter(rs => rs.objectType === 'table').length,
+        pictures: rawShapes.filter(rs => rs.objectType === 'picture').length,
+        graphics: rawShapes.filter(rs => rs.objectType === 'graphic').length,
+    };
+
     return {
         slideNumber: slideNum,
         layoutName,
@@ -931,6 +1091,7 @@ function buildSlideComposition(
         shapes,
         description,
         repeatableGroups,
+        embeddedObjects,
     };
 }
 
@@ -1127,6 +1288,13 @@ const CLASSIFICATION_RULES: ClassificationRule[] = [
     { classification: 'section', test: (ctx) =>
         ctx.hasTitle && !ctx.hasBody && ctx.content.length <= 2,
     },
+    // Embedded charts/tables must be recognized before generic text-layout rules.
+    { classification: 'chart', test: (ctx) =>
+        ctx.raw.some(rs => rs.placeholderType === 'chart' || rs.objectType === 'chart'),
+    },
+    { classification: 'table', test: (ctx) =>
+        ctx.raw.some(rs => rs.placeholderType === 'tbl' || rs.objectType === 'table'),
+    },
     // KPI: 3-8 similar small text shapes (grid-like)
     { classification: 'kpi', test: (ctx) =>
         ctx.smallText.length >= 3 && ctx.smallText.length <= 8 &&
@@ -1170,10 +1338,10 @@ const CLASSIFICATION_RULES: ClassificationRule[] = [
     { classification: 'matrix', test: (ctx) =>
         ctx.smallText.length === 4 && calculateSizeVariance(ctx.smallText) < 0.2,
     },
-    // Chart, table, image placeholders
-    { classification: 'chart', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'chart') },
-    { classification: 'table', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'tbl') },
-    { classification: 'image', test: (ctx) => ctx.raw.some(rs => rs.placeholderType === 'pic') },
+    // Image placeholders
+    { classification: 'image', test: (ctx) =>
+        ctx.raw.some(rs => rs.placeholderType === 'pic' || rs.objectType === 'picture'),
+    },
     // Blank: no content
     { classification: 'blank', test: (ctx) => {
         const nonDeco = ctx.raw.filter(rs =>
@@ -1360,6 +1528,14 @@ export interface CompositionGroup {
     decorativeElementCount: number;
     /** True if composition has fixed icons or images that cannot be replaced. */
     hasFixedVisuals: boolean;
+    /** Embedded static chart objects across the grouped slides. */
+    staticChartCount: number;
+    /** Embedded static table objects across the grouped slides. */
+    staticTableCount: number;
+    /** Embedded pictures/icons across the grouped slides. */
+    staticPictureCount: number;
+    /** Other non-text graphic frames across the grouped slides. */
+    staticGraphicCount: number;
 }
 
 /**
@@ -1410,8 +1586,17 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
         );
         const hasFixedVisuals = decorativeShapes.some(s =>
             s.placeholderType === 'pic' ||
+            s.objectType === 'picture' ||
+            s.objectType === 'chart' ||
+            s.objectType === 'table' ||
+            s.objectType === 'graphic' ||
             s.elementId !== undefined
         );
+
+        const staticChartCount = compositions.reduce((sum, comp) => sum + comp.embeddedObjects.charts, 0);
+        const staticTableCount = compositions.reduce((sum, comp) => sum + comp.embeddedObjects.tables, 0);
+        const staticPictureCount = compositions.reduce((sum, comp) => sum + comp.embeddedObjects.pictures, 0);
+        const staticGraphicCount = compositions.reduce((sum, comp) => sum + comp.embeddedObjects.graphics, 0);
 
         result.push({
             name,
@@ -1422,6 +1607,10 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
             representativeShapes: replaceableShapes,
             decorativeElementCount: decorativeShapes.length,
             hasFixedVisuals,
+            staticChartCount,
+            staticTableCount,
+            staticPictureCount,
+            staticGraphicCount,
         });
     }
 
@@ -1443,9 +1632,42 @@ export function groupByComposition(analysis: TemplateAnalysis): CompositionGroup
  * are true variants (same visual structure, different color scheme).
  */
 function buildSubGroupKey(comp: SlideComposition): string {
-    const replaceableCount = comp.shapes.filter(s => s.isReplaceable).length;
     const layoutSlug = comp.layoutName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/-+$/, '');
-    return `${comp.classification}-${layoutSlug}-${replaceableCount}-fields`;
+    const replaceableSignature = comp.shapes
+        .filter(s => s.isReplaceable)
+        .map(s => {
+            const fontBucket = s.textCapacity ? Math.round(s.textCapacity.fontSize) : 0;
+            const charBucket = s.textCapacity ? bucketTextCapacity(s.textCapacity.maxChars) : 'na';
+            return [
+                s.objectType,
+                s.placeholderType ?? 'none',
+                normalizeGeometryKey(s.geometry),
+                s.fillColor ?? 'none',
+                `${fontBucket}pt`,
+                `cap:${charBucket}`,
+            ].join(':');
+        })
+        .sort()
+        .join('|');
+    const embeddedSignature = [
+        `chart:${comp.embeddedObjects.charts}`,
+        `table:${comp.embeddedObjects.tables}`,
+        `pic:${comp.embeddedObjects.pictures}`,
+        `graphic:${comp.embeddedObjects.graphics}`,
+    ].join('|');
+    return `${comp.classification}-${layoutSlug}-${replaceableSignature}-${embeddedSignature}`;
+}
+
+function normalizeGeometryKey(geometry: string): string {
+    return geometry.replace(/[^a-z0-9:]+/gi, '-');
+}
+
+function bucketTextCapacity(maxChars: number): string {
+    if (maxChars <= 3) return 'xs';
+    if (maxChars <= 20) return 'sm';
+    if (maxChars <= 80) return 'md';
+    if (maxChars <= 180) return 'lg';
+    return 'xl';
 }
 
 /** Layout-name keywords that hint at a specific content type. */
@@ -1542,7 +1764,7 @@ export interface CompositionScaffolding {
     style_guide: CompositionStyleGuide;
     /** Layout hint derived from content shape arrangement. */
     layout_hint: string;
-    /** Recommended pipeline: 'clone' for structural slides, 'html' for content. */
+    /** Recommended pipeline: clone by default for corporate templates, html only as fallback. */
     recommended_pipeline: 'clone' | 'html';
     /** Optional HTML skeleton with placeholders for complex layouts. */
     html_skeleton?: string;
@@ -1637,6 +1859,9 @@ function classifyAsScaffold(
     // Footer shapes are always scaffold
     if (info.placeholderType && footerTypes.has(info.placeholderType)) return true;
 
+    // Embedded charts/tables must define the content area for HTML rebuilds.
+    if (raw.objectType === 'chart' || raw.objectType === 'table') return false;
+
     // Non-replaceable shapes are scaffold (decorative, structural, fixed images)
     if (!info.isReplaceable) return true;
 
@@ -1659,6 +1884,8 @@ async function extractScaffoldElements(
         if (raw.position.width < EMU_DECORATIVE && raw.position.height < EMU_DECORATIVE) continue;
         // Skip groups (structural containers -- their children are already extracted individually)
         if (raw.geometry === 'group') continue;
+        // Never inject static charts/tables/graphic frames as scaffold.
+        if (raw.objectType === 'chart' || raw.objectType === 'table' || raw.objectType === 'graphic') continue;
 
         const pos = {
             x: Math.round(raw.position.left * EMU_TO_INCH * 100) / 100,
@@ -1857,10 +2084,19 @@ function recommendPipeline(
     // Structural slides: always clone
     if (group.classification === 'title' || group.classification === 'section') return 'clone';
 
-    // Simple text-only compositions: clone if ≤2 content shapes and no fixed visuals
-    if (contentShapes.length <= 2 && !group.hasFixedVisuals) return 'clone';
+    // Embedded charts/tables carry static example data in the template.
+    // Rebuild them via HTML instead of cloning stale visuals.
+    if (group.staticChartCount > 0 || group.staticTableCount > 0 || group.classification === 'chart' || group.classification === 'table') {
+        return 'html';
+    }
 
-    // Everything else: html (creative layouts, complex compositions, fixed icons)
+    // Corporate templates encode a lot of their visual identity directly in the
+    // content-bearing shapes (colored chevrons, KPI boxes, labeled ribbons, etc.).
+    // As soon as we have at least one replaceable shape, cloning preserves that
+    // geometry and styling with pixel-perfect fidelity.
+    if (contentShapes.length > 0) return 'clone';
+
+    // HTML is the fallback only when there is no content-bearing shape to reuse.
     return 'html';
 }
 
@@ -2080,6 +2316,8 @@ async function extractGlobalDekoElements(
             if (raw.position.width < EMU_DECORATIVE && raw.position.height < EMU_DECORATIVE) continue;
             // Skip groups (structural containers)
             if (raw.geometry === 'group') continue;
+            // Skip static charts/tables and opaque graphic frames from global scaffold extraction
+            if (raw.objectType === 'chart' || raw.objectType === 'table' || raw.objectType === 'graphic') continue;
 
             // Fingerprint: geometry + fill + rough position zone (snap to grid)
             const posZone = `${Math.round(raw.position.left / 500000)}_${Math.round(raw.position.top / 500000)}`;
@@ -2220,4 +2458,3 @@ async function extractImageFromShape(
     const base64 = btoa(binary);
     return `data:${mimeMap[ext] ?? 'image/png'};base64,${base64}`;
 }
-

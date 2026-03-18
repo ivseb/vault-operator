@@ -21,7 +21,8 @@ import { parseCsv } from './parsers/CsvParser';
  */
 export async function parseDocument(data: ArrayBuffer, extension: string): Promise<ParseResult> {
     switch (extension.toLowerCase()) {
-        case 'pptx': return parsePptx(data);
+        case 'pptx':
+        case 'potx': return parsePptx(data);
         case 'xlsx': return parseXlsx(data);
         case 'docx': return parseDocx(data);
         case 'pdf':  return parsePdf(data);

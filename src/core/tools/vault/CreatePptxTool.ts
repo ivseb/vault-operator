@@ -17,6 +17,7 @@
  */
 
 import { TFile } from 'obsidian';
+import JSZip from 'jszip';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -25,6 +26,7 @@ import { generateFreshPptx, generateFromHtml } from '../../office';
 import type { HtmlPipelineOptions, DekoElementInput } from '../../office/PptxFreshGenerator';
 import { cloneFromTemplate } from '../../office/PptxTemplateCloner';
 import type { TemplateSlideInput, CloneResult, SlideDiagnostic } from '../../office/PptxTemplateCloner';
+import { applyHtmlOverlaysToClonedDeck } from '../../office/PptxTemplateOverlay';
 import type { SlideData, HtmlSlideInput, ChartData, ChartSeries, KpiData, ProcessStep, TableData } from '../../office';
 
 /* ------------------------------------------------------------------ */
@@ -91,7 +93,19 @@ interface FullCompositionsData {
         };
         layoutHint: string;
         slides: number[];
+        baseSlideNum: number;
+        contentShapeIds: string[];
+        contentShapeNames: string[];
     }>;
+}
+
+interface TemplateSlideRisk {
+    chartCount: number;
+    tableCount: number;
+    graphicFrameCount: number;
+    pictureCount: number;
+    chartLikeObjectNames: string[];
+    tableLikeObjectNames: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -136,7 +150,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                         type: 'string',
                         description:
                             'Vault path to a .pptx template file for template-cloning mode. ' +
-                            'When provided, slides should use template_slide + content fields instead of html. ' +
+                            'When provided, slides may use template_slide + content, html, or a mix of both depending on the composition. ' +
                             'The output inherits the template\'s theme, slide masters, layouts, fonts, and all visual elements.',
                     },
                     slides: {
@@ -439,37 +453,22 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             let diagnostics: SlideDiagnostic[] = [];
 
             if (isMixed) {
-                // Mixed Mode: ALL slides through single PptxGenJS instance.
-                // Template slides are converted to scaffold+HTML, preserving slide order.
                 const fullData = await this.loadFullCompositionsData(templateFile);
-                const hybridOptions: HtmlPipelineOptions | undefined = fullData ? {
-                    slideSizeInches: fullData.slideSizeInches,
-                    dekoElements: fullData.globalDekoElements,
-                } : undefined;
+                if (!fullData?.compositionData) {
+                    throw new Error(
+                        'Mixed mode requires compositions.json with composition metadata. ' +
+                        'Re-run analyze_pptx_template and retry.',
+                    );
+                }
 
-                const allHtmlSlides: HtmlSlideInput[] = slides.map(s => {
-                    if (s.template_slide && fullData) {
-                        return this.convertTemplateSlideToHtml(s, fullData);
-                    }
-                    // HTML slide -- use composition_id scaffold if available
-                    const dekoElements = s.composition_id && fullData?.compositionScaffolds
-                        ? fullData.compositionScaffolds.get(s.composition_id) : undefined;
-                    return {
-                        html: s.html ?? '',
-                        charts: s.charts ? this.convertChartInputs(s.charts) : undefined,
-                        tables: s.tables ? this.convertTableInputs(s.tables) : undefined,
-                        notes: s.notes,
-                        dekoElements: dekoElements ?? fullData?.globalDekoElements,
-                    };
-                });
-
-                const imageLoader = (p: string) => this.loadImageAsBase64(p);
-                buffer = await generateFromHtml(allHtmlSlides, imageLoader, hybridOptions);
+                const mixedResult = await this.generateViaMixedOverlay(templateFile, slides, fullData);
+                buffer = mixedResult.buffer;
+                diagnostics = mixedResult.slideDiagnostics;
                 pipeline = 'Mixed';
 
                 console.debug(
                     `[CreatePptxTool] Mixed mode: ${slides.filter(s => s.template_slide).length} template + ` +
-                    `${slides.filter(s => s.html).length} HTML slides, all via PptxGenJS.`,
+                    `${slides.filter(s => s.html).length} HTML slides, template overlay pipeline.`,
                 );
             } else if (hasTemplateSlides) {
                 // Template Pipeline -- clone from corporate template
@@ -594,6 +593,8 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
             );
         }
 
+        const slideRisks = await this.inspectTemplateSlideRisks(templateFile);
+
         // Build a set of valid template slide numbers from compositions
         const validSlideNumbers = new Set<number>();
         for (const comp of Object.values(compositionsData.compositions)) {
@@ -613,6 +614,37 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                     `Valid slides: ${[...validSlideNumbers].sort((a, b) => a - b).join(', ')}`,
                 );
                 continue;
+            }
+
+            const slideRisk = slideRisks.get(s.template_slide);
+            if (slideRisk) {
+                if (slideRisk.chartCount > 0 || slideRisk.chartLikeObjectNames.length > 0) {
+                    const chartNames = slideRisk.chartLikeObjectNames
+                        .slice(0, 3)
+                        .map(name => `"${name}"`)
+                        .join(', ');
+                    errors.push(
+                        `Slide ${i + 1} (template_slide=${s.template_slide}): ` +
+                        `Contains embedded chart objects${chartNames ? ` (${chartNames})` : ''} ` +
+                        `with static template data. These cannot be safely reused in text-only clone mode. ` +
+                        `Choose a different template_slide or switch to html + composition_id.`,
+                    );
+                    continue;
+                }
+
+                if (slideRisk.tableCount > 0 || slideRisk.tableLikeObjectNames.length > 0) {
+                    const tableNames = slideRisk.tableLikeObjectNames
+                        .slice(0, 3)
+                        .map(name => `"${name}"`)
+                        .join(', ');
+                    errors.push(
+                        `Slide ${i + 1} (template_slide=${s.template_slide}): ` +
+                        `Contains embedded table objects${tableNames ? ` (${tableNames})` : ''} ` +
+                        `with static template content. These cannot be safely reused in text-only clone mode. ` +
+                        `Choose a different template_slide or rebuild this slide via html + composition_id.`,
+                    );
+                    continue;
+                }
             }
 
             // 2b: Find composition and expected shapes for this slide
@@ -674,6 +706,53 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         return undefined; // All checks passed
     }
 
+    private async inspectTemplateSlideRisks(templateFile: string): Promise<Map<number, TemplateSlideRisk>> {
+        const file = this.app.vault.getAbstractFileByPath(templateFile);
+        if (!(file instanceof TFile)) return new Map();
+
+        try {
+            const templateData = await this.app.vault.readBinary(file);
+            const zip = await JSZip.loadAsync(templateData);
+            const presentationXml = await zip.file('ppt/presentation.xml')?.async('string');
+            const presentationRelsXml = await zip.file('ppt/_rels/presentation.xml.rels')?.async('string');
+            if (!presentationXml || !presentationRelsXml) return new Map();
+
+            const slideRidMatches = [...presentationXml.matchAll(/<p:sldId\b[^>]*\br:id="([^"]+)"/g)];
+            const targetMatches = [...presentationRelsXml.matchAll(
+                /<Relationship\b[^>]*\bId="([^"]+)"[^>]*\bTarget="slides\/slide(\d+)\.xml"/g,
+            )];
+            const targetByRid = new Map(targetMatches.map(match => [match[1], Number(match[2])]));
+
+            const result = new Map<number, TemplateSlideRisk>();
+            for (let idx = 0; idx < slideRidMatches.length; idx++) {
+                const logicalSlideNum = idx + 1;
+                const slideRid = slideRidMatches[idx][1];
+                const slideFileNum = targetByRid.get(slideRid);
+                if (!slideFileNum) continue;
+
+                const slideXml = await zip.file(`ppt/slides/slide${slideFileNum}.xml`)?.async('string');
+                if (!slideXml) continue;
+
+                const objectNames = [...slideXml.matchAll(/<p:cNvPr\b[^>]*\bname="([^"]+)"/g)].map(match => match[1]);
+                result.set(logicalSlideNum, {
+                    chartCount: (slideXml.match(/<c:chart\b/g) ?? []).length,
+                    tableCount: (slideXml.match(/<a:tbl\b/g) ?? []).length,
+                    graphicFrameCount: (slideXml.match(/<p:graphicFrame\b/g) ?? []).length,
+                    pictureCount: (slideXml.match(/<p:pic\b/g) ?? []).length,
+                    chartLikeObjectNames: objectNames.filter(name => /diagramm|chart/i.test(name)),
+                    tableLikeObjectNames: objectNames.filter(name => /tabelle|table/i.test(name)),
+                });
+            }
+
+            return result;
+        } catch (error) {
+            console.debug(
+                `[CreatePptxTool] Unable to inspect template slide risks for ${templateFile}: ${(error as Error).message}`,
+            );
+            return new Map();
+        }
+    }
+
     /* -------------------------------------------------------------- */
     /*  Template Pipeline (corporate)                                  */
     /* -------------------------------------------------------------- */
@@ -733,6 +812,136 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         };
         const hasOptions = cloneOptions.repeatableGroups || cloneOptions.footerText;
         return cloneFromTemplate(templateData, selections, hasOptions ? cloneOptions : undefined);
+    }
+
+    private async generateViaMixedOverlay(
+        templateFile: string,
+        slides: SlideInput[],
+        fullData: FullCompositionsData,
+    ): Promise<CloneResult> {
+        const file = this.app.vault.getAbstractFileByPath(templateFile);
+        if (!(file instanceof TFile)) {
+            throw new Error(`Template file not found: ${templateFile}`);
+        }
+        if (!fullData.compositionData) {
+            throw new Error('Mixed overlay mode requires composition data.');
+        }
+
+        const templateData = await this.app.vault.readBinary(file);
+        const imageLoader = (p: string) => this.loadImageAsBase64(p);
+
+        const selections: TemplateSlideInput[] = [];
+        const overlaySpecs: Array<{
+            selectionIndex: number;
+            htmlSlide: HtmlSlideInput;
+            clearShapeIds: string[];
+            clearShapeNames: string[];
+        }> = [];
+
+        for (let i = 0; i < slides.length; i++) {
+            const slide = slides[i];
+            if (slide.template_slide) {
+                selections.push({
+                    template_slide: slide.template_slide,
+                    content: slide.content ?? {},
+                    notes: slide.notes,
+                });
+                continue;
+            }
+
+            if (!slide.html) {
+                throw new Error(
+                    `Mixed mode: slide ${i + 1} must use either template_slide + content or html.`,
+                );
+            }
+            if (!slide.composition_id) {
+                throw new Error(
+                    `Mixed mode: HTML slide ${i + 1} requires composition_id so a template base slide can be cloned.`,
+                );
+            }
+
+            const comp = fullData.compositionData.get(slide.composition_id);
+            if (!comp) {
+                throw new Error(
+                    `Mixed mode: composition_id "${slide.composition_id}" not found in compositions.json.`,
+                );
+            }
+
+            const selectionIndex = selections.length;
+            selections.push({
+                template_slide: comp.baseSlideNum,
+                content: {},
+                // Clear template notes by default for HTML overlay slides.
+                notes: slide.notes ?? '',
+            });
+
+            overlaySpecs.push({
+                selectionIndex,
+                htmlSlide: {
+                    html: slide.html,
+                    charts: slide.charts ? this.convertChartInputs(slide.charts) : undefined,
+                    tables: slide.tables ? this.convertTableInputs(slide.tables) : undefined,
+                    notes: slide.notes,
+                    dekoElements: undefined,
+                },
+                clearShapeIds: comp.contentShapeIds,
+                clearShapeNames: comp.contentShapeNames,
+            });
+        }
+
+        // Resolve aliases to shape IDs for real template-slide inputs only.
+        if (fullData.aliasMap) {
+            for (const sel of selections) {
+                const resolvedIds: Record<string, string> = {};
+                for (const key of Object.keys(sel.content)) {
+                    const entry = fullData.aliasMap.get(key);
+                    if (entry && entry.slide === sel.template_slide) {
+                        resolvedIds[key] = entry.shapeId;
+                    }
+                }
+                if (Object.keys(resolvedIds).length > 0) {
+                    sel.resolvedIds = resolvedIds;
+                }
+            }
+        }
+
+        const cloneOptions: import('../../office/PptxTemplateCloner').CloneOptions = {
+            ...(fullData.repeatableGroups?.size ? { repeatableGroups: fullData.repeatableGroups } : {}),
+        };
+        const cloneResult = await cloneFromTemplate(
+            templateData,
+            selections,
+            cloneOptions.repeatableGroups ? cloneOptions : undefined,
+        );
+
+        if (overlaySpecs.length === 0) return cloneResult;
+
+        const overlays: Array<import('../../office/PptxTemplateOverlay').HtmlOverlayInput> = [];
+        for (const spec of overlaySpecs) {
+            const clonedSlide = cloneResult.clonedSlides[spec.selectionIndex];
+            if (!clonedSlide) {
+                throw new Error(`Mixed mode: cloned slide mapping missing for selection ${spec.selectionIndex + 1}.`);
+            }
+
+            const sourcePptxBuffer = await generateFromHtml(
+                [spec.htmlSlide],
+                imageLoader,
+                { slideSizeInches: fullData.slideSizeInches },
+            );
+
+            overlays.push({
+                targetSlideFileNum: clonedSlide.outputSlideFileNum,
+                sourcePptxBuffer,
+                clearShapeIds: spec.clearShapeIds,
+                clearShapeNames: spec.clearShapeNames,
+            });
+        }
+
+        const buffer = await applyHtmlOverlaysToClonedDeck(cloneResult.buffer, overlays);
+        return {
+            ...cloneResult,
+            buffer,
+        };
     }
 
     /* -------------------------------------------------------------- */
@@ -807,6 +1016,9 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                             associatedShapes: Array<{ shapeName: string; shapeId?: string; offsetY: number; offsetX: number }>;
                         }>;
                     }>>;
+                    shapes?: Record<string, Record<string, {
+                        shape_id?: string;
+                    }>>;
                 }>;
             };
 
@@ -869,6 +1081,9 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 };
                 layoutHint: string;
                 slides: number[];
+                baseSlideNum: number;
+                contentShapeIds: string[];
+                contentShapeNames: string[];
             }> | undefined;
 
             if (isV4) {
@@ -876,6 +1091,21 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                 compositionData = new Map();
 
                 for (const [compId, comp] of Object.entries(data.compositions)) {
+                    const baseSlideNum = Object.keys(comp.shapes ?? {})
+                        .map(n => parseInt(n, 10))
+                        .find(n => !isNaN(n))
+                        ?? comp.slides?.[0];
+                    const baseShapes = baseSlideNum !== undefined
+                        ? comp.shapes?.[String(baseSlideNum)] ?? {}
+                        : {};
+                    const contentShapeIds = Object.values(baseShapes)
+                        .map(shape => shape.shape_id)
+                        .filter((shapeId): shapeId is string => !!shapeId);
+                    const contentShapeNames = Object.keys(baseShapes).map(key => {
+                        const aliasEntry = aliasMap?.get(key);
+                        return aliasEntry?.originalName ?? key;
+                    });
+
                     // Scaffold elements
                     if (comp.scaffold_elements && comp.scaffold_elements.length > 0) {
                         const elements: DekoElementInput[] = [];
@@ -898,12 +1128,15 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
                     }
 
                     // Composition metadata
-                    if (comp.content_area) {
+                    if (comp.content_area && baseSlideNum !== undefined) {
                         compositionData.set(compId, {
                             contentArea: comp.content_area,
                             styleGuide: comp.style_guide ?? {},
                             layoutHint: comp.layout_hint ?? '',
                             slides: comp.slides ?? [],
+                            baseSlideNum,
+                            contentShapeIds,
+                            contentShapeNames,
                         });
                     }
                 }

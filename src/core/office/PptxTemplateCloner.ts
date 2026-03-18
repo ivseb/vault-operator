@@ -69,6 +69,12 @@ export interface CloneResult {
     buffer: ArrayBuffer;
     /** Per-slide diagnostics: which keys matched and which didn't. */
     slideDiagnostics: SlideDiagnostic[];
+    /** Per-selection mapping to the cloned slide XML file number in the output PPTX. */
+    clonedSlides: Array<{
+        templateSlide: number;
+        outputSlideFileNum: number;
+        notesFileNum?: number;
+    }>;
 }
 
 export interface SlideDiagnostic {
@@ -165,6 +171,7 @@ export async function cloneFromTemplate(
     // ── Step 3: Clone each selection to a new slide ──────────────────
 
     interface ClonedSlide {
+        srcNum: number;
         sldId: number;
         rId: string;
         fileNum: number;
@@ -265,7 +272,7 @@ export async function cloneFromTemplate(
             await replaceNotesContent(zip, notesFileNum, sel.notes);
         }
 
-        cloned.push({ sldId, rId, fileNum: dstNum, notesFileNum });
+        cloned.push({ srcNum, sldId, rId, fileNum: dstNum, notesFileNum });
         slideDiagnostics.push({
             templateSlide: srcNum,
             matchedKeys,
@@ -389,7 +396,15 @@ export async function cloneFromTemplate(
         compressionOptions: { level: 6 },
     });
 
-    return { buffer, slideDiagnostics };
+    return {
+        buffer,
+        slideDiagnostics,
+        clonedSlides: cloned.map(c => ({
+            templateSlide: c.srcNum,
+            outputSlideFileNum: c.fileNum,
+            ...(c.notesFileNum ? { notesFileNum: c.notesFileNum } : {}),
+        })),
+    };
 }
 
 /* ------------------------------------------------------------------ */

@@ -670,6 +670,7 @@ export const ja: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'カスタム',
+    'provider.github-copilot': 'GitHub Copilot',
 
     // =========================================================================
     // Constants — Tool Labels

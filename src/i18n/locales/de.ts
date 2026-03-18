@@ -671,6 +671,7 @@ export const de: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Benutzerdefiniert',
+    'provider.github-copilot': 'GitHub Copilot',
 
     // =========================================================================
     // Constants — Tool Labels
@@ -1044,8 +1045,9 @@ export const de: Translations = {
     'modal.modelConfig.apiVersion': 'API-Version',
     'modal.modelConfig.apiVersionDesc': 'Erforderlich für Azure OpenAI (z.\u00A0B. 2024-10-21)',
     'modal.modelConfig.apiVersionPlaceholder': '2024-10-21',
-    'modal.modelConfig.maxTokens': 'Max. Tokens',
-    'modal.modelConfig.maxTokensDesc': 'Maximale Laenge der Antwort',
+    'modal.modelConfig.maxTokens': 'Max. Output-Tokens',
+    'modal.modelConfig.maxTokensDesc': 'Begrenzt die Anzahl der Tokens, die das Modell pro Antwort generieren kann',
+    'modal.modelConfig.maxTokensNote': 'Höhere Werte erlauben längere, detailliertere Antworten, verbrauchen aber mehr API-Credits. Tipp: Wähle oben ein Modell aus der Quick Pick Liste, um automatisch den empfohlenen Wert zu setzen.',
     'modal.modelConfig.maxTokensPlaceholder': '8192',
     'modal.modelConfig.temperature': 'Temperatur',
     'modal.modelConfig.temperatureDesc': 'Zufaelligkeit der Antworten (0 = deterministisch, höher = kreativer)',
@@ -1054,8 +1056,8 @@ export const de: Translations = {
     'modal.modelConfig.promptCaching': 'Prompt-Caching',
     'modal.modelConfig.promptCachingDesc': 'System-Prompt und letzte Nachrichten cachen, um API-Kosten zu senken (nur Anthropic)',
     'modal.modelConfig.thinking': 'Extended Thinking',
-    'modal.modelConfig.thinkingDesc': 'Das Modell denkt vor der Antwort nach. Verbessert die Qualität bei schwierigen Aufgaben (nur Anthropic)',
-    'modal.modelConfig.thinkingNote': 'Wenn aktiviert, wird die Temperatur von der Anthropic API auf 1 erzwungen.',
+    'modal.modelConfig.thinkingDesc': 'Das Modell denkt vor der Antwort nach. Verbessert die Qualität bei schwierigen Aufgaben (Claude-Modelle)',
+    'modal.modelConfig.thinkingNote': 'Wenn aktiviert, wird die Temperatur von der API auf 1 erzwungen.',
     'modal.modelConfig.thinkingBudget': 'Thinking-Budget',
     'modal.modelConfig.thinkingBudgetDesc': 'Maximale Tokens für internes Reasoning (1.024 - 128.000)',
     'modal.modelConfig.temperatureThinkingNote': 'Temperatur ist auf 1.0 gesperrt, weil Extended Thinking aktiviert ist.',
@@ -1240,4 +1242,22 @@ export const de: Translations = {
     'guide.lmstudio.tip': 'Sicherstellen, dass ein Modell in LM Studio geladen ist, bevor der Server gestartet wird \u2014 sonst werden keine Modelle angezeigt.',
     'guide.custom.heading': 'OpenAI-kompatible API (Mistral, Groq usw.):',
     'guide.custom.tip': 'Jeder OpenAI-kompatible Endpunkt. Die Basis-URL mit /v1-Suffix und den API Key eingeben.',
+
+    // GitHub Copilot
+    'guide.copilot.heading': 'GitHub Copilot (aktives Abonnement erforderlich):',
+    'guide.copilot.step1': 'Ein aktives GitHub Copilot-Abonnement wird benötigt (Individual, Business oder Enterprise).',
+    'guide.copilot.step2': 'Auf "Mit GitHub anmelden" klicken. Ein Code erscheint \u2014 diesen auf github.com/login/device eingeben.',
+    'guide.copilot.step3': 'Nach der Autorisierung ein Modell aus der Schnellauswahl wählen oder den Abruf-Button nutzen.',
+    'guide.copilot.disclaimer': 'Dies nutzt eine inoffizielle API. Modelle und Verfügbarkeit können sich ohne Vorankündigung ändern.',
+    'copilot.auth': 'GitHub-Konto',
+    'copilot.authDesc': 'Mit dem GitHub-Konto anmelden, um Copilot-Modelle zu nutzen.',
+    'copilot.signIn': 'Mit GitHub anmelden',
+    'copilot.signOut': 'Abmelden',
+    'copilot.authenticated': 'Verbunden',
+    'copilot.notConnected': 'Nicht verbunden',
+    'copilot.deviceCodeNotice': 'Diesen Code auf GitHub eingeben:',
+    'copilot.polling': 'Warte auf Autorisierung...',
+    'copilot.authSuccess': 'Erfolgreich mit GitHub Copilot verbunden.',
+    'copilot.authFailed': 'Authentifizierung fehlgeschlagen: {error}',
+    'copilot.signedOut': 'Von GitHub Copilot abgemeldet.',
 };

@@ -107,6 +107,15 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
 
             // Parse additional_files input
             const additionalFilesInput = (input.additional_files as Array<{ path: string; role?: string }>) ?? [];
+            const additionalFileIssues = await this.validateAdditionalFilesInput(additionalFilesInput);
+            if (additionalFileIssues.length > 0) {
+                callbacks.pushToolResult(
+                    `BLOCKED: additional_files are incomplete or invalid.\n\n` +
+                    additionalFileIssues.map((issue, idx) => `${idx + 1}. ${issue}`).join('\n') +
+                    `\n\nFix the file list and retry analyze_pptx_template.`,
+                );
+                return;
+            }
 
             // Render ALL slides for multimodal analysis (no cap)
             const allSlidesResult = await this.renderTemplateSlides(templatePath, { maxSlides: 999 });
@@ -124,6 +133,17 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             const viEnabled = viSettings?.enabled ?? false;
 
             const skipMultimodal = (input.skip_multimodal as boolean) ?? false;
+
+            if (additionalFilesInput.length > 0 && !multimodalApproved) {
+                callbacks.pushToolResult(
+                    `BLOCKED: additional_files were provided but multimodal analysis is not approved.\n\n` +
+                    `Corporate sidecar files (Style Guide, Icon Gallery, How-to-Use) are only incorporated ` +
+                    `during multimodal analysis. Running with \`skip_multimodal: true\` would create an incomplete ` +
+                    `template skill where SKILL.md and compositions.json may drift.\n\n` +
+                    `Approve multimodal analysis and rerun, or remove \`additional_files\` to perform a base template analysis only.`,
+                );
+                return;
+            }
 
             // Early return: when multimodal could run but is not enabled, ask the user FIRST
             // Do NOT generate files or show slides -- force the agent to handle the question before proceeding
@@ -272,6 +292,20 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
             const compositionsContent = generateCompositionsJson(
                 analysis, templateSlug, multimodalResult, scaffoldingMap, multiFileData,
             );
+            const artifactIssues = validateGeneratedTemplateArtifacts(
+                additionalFilesInput,
+                multiFileData,
+                skillContent,
+                compositionsContent,
+            );
+            if (artifactIssues.length > 0) {
+                callbacks.pushToolResult(
+                    `BLOCKED: Template analysis artifacts are incomplete.\n\n` +
+                    artifactIssues.map((issue, idx) => `${idx + 1}. ${issue}`).join('\n') +
+                    `\n\nNo files were written. Resolve the extraction issue and rerun analyze_pptx_template.`,
+                );
+                return;
+            }
 
             // Write SKILL.md to plugin skills directory (where SelfAuthoredSkillLoader reads from)
             const pluginSkillsDir = `${vault.configDir}/plugins/${this.plugin.manifest.id}/skills/${templateSlug}`;
@@ -597,6 +631,113 @@ export class AnalyzePptxTemplateTool extends BaseTool<'analyze_pptx_template'> {
 
         return { sourceFiles, designRules, iconCatalog, usageGuidelines };
     }
+
+    private async validateAdditionalFilesInput(
+        additionalFiles: Array<{ path: string; role?: string }>,
+    ): Promise<string[]> {
+        const issues: string[] = [];
+        const vault = this.plugin.app.vault;
+
+        for (const af of additionalFiles) {
+            const filePath = af.path.trim();
+            if (!filePath) {
+                issues.push('An additional file entry is missing its path.');
+                continue;
+            }
+            if (!filePath.endsWith('.pptx') && !filePath.endsWith('.potx')) {
+                issues.push(`${filePath}: must be a .pptx or .potx file.`);
+                continue;
+            }
+            const afFile = vault.getAbstractFileByPath(filePath);
+            if (!(afFile instanceof TFile)) {
+                issues.push(`${filePath}: file not found in the vault.`);
+            }
+        }
+
+        return issues;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Artifact validation                                                */
+/* ------------------------------------------------------------------ */
+
+function validateGeneratedTemplateArtifacts(
+    additionalFiles: Array<{ path: string; role?: string }>,
+    multiFileData: {
+        sourceFiles?: Array<{ path: string; role: string; slide_count: number }>;
+        designRules?: DesignRules;
+        iconCatalog?: IconEntry[];
+        usageGuidelines?: UsageGuidelines;
+    } | undefined,
+    skillContent: string,
+    compositionsContent: CompositionsFile,
+): string[] {
+    const issues: string[] = [];
+    if (additionalFiles.length === 0) return issues;
+
+    if (!multiFileData?.sourceFiles || multiFileData.sourceFiles.length === 0) {
+        issues.push('Additional files were provided, but no source_files metadata was produced.');
+        return issues;
+    }
+
+    const sourcePathSet = new Set(multiFileData.sourceFiles.map(sf => sf.path));
+    for (const af of additionalFiles) {
+        const filePath = af.path.trim();
+        if (!sourcePathSet.has(filePath)) {
+            issues.push(`${filePath}: missing from generated source_files metadata.`);
+        }
+    }
+
+    const totalDesignRules =
+        (compositionsContent.design_rules?.color_usage.length ?? 0) +
+        (compositionsContent.design_rules?.typography.length ?? 0) +
+        (compositionsContent.design_rules?.layout.length ?? 0) +
+        (compositionsContent.design_rules?.dos.length ?? 0) +
+        (compositionsContent.design_rules?.donts.length ?? 0);
+    const totalUsageGuidelines =
+        (compositionsContent.usage_guidelines?.layout_guidance.length ?? 0) +
+        (compositionsContent.usage_guidelines?.best_practices.length ?? 0) +
+        (compositionsContent.usage_guidelines?.common_mistakes.length ?? 0);
+    const totalIcons = compositionsContent.icon_catalog?.length ?? 0;
+    const producedRoles = new Set(multiFileData.sourceFiles.map(sf => sf.role));
+
+    for (const af of additionalFiles) {
+        const role = af.role;
+        const filePath = af.path.trim();
+
+        if (role === 'styleguide' && totalDesignRules === 0) {
+            issues.push(`${filePath}: explicit role "styleguide" was provided, but no design_rules were extracted.`);
+        }
+        if (role === 'howto' && totalUsageGuidelines === 0) {
+            issues.push(`${filePath}: explicit role "howto" was provided, but no usage_guidelines were extracted.`);
+        }
+        if (role === 'icons' && totalIcons === 0) {
+            issues.push(`${filePath}: explicit role "icons" was provided, but no icon_catalog was extracted.`);
+        }
+    }
+
+    if (producedRoles.has('styleguide') && totalDesignRules === 0) {
+        issues.push('A file was classified as styleguide, but generated design_rules are empty.');
+    }
+    if (producedRoles.has('howto') && totalUsageGuidelines === 0) {
+        issues.push('A file was classified as howto, but generated usage_guidelines are empty.');
+    }
+    if (producedRoles.has('icons') && totalIcons === 0) {
+        issues.push('A file was classified as icons, but generated icon_catalog is empty.');
+    }
+
+    if (totalDesignRules > 0 && !skillContent.includes('## Design Rules (from Style Guide)')) {
+        issues.push('design_rules were extracted into compositions.json, but SKILL.md does not expose them.');
+    }
+    if (totalUsageGuidelines > 0 && !skillContent.includes('## Usage Guidelines (from How-to-Use)')) {
+        issues.push('usage_guidelines were extracted into compositions.json, but SKILL.md does not expose them.');
+    }
+    if (totalIcons > 0 && !skillContent.includes('## Available Icons')) {
+        issues.push('icon_catalog was extracted into compositions.json, but SKILL.md does not expose it.');
+    }
+
+    return issues;
 }
 
 /* ------------------------------------------------------------------ */
@@ -775,10 +916,11 @@ function generateSkillMd(
 
     // Pipeline selection guidance depends on whether scaffolding is available
     if (scaffoldingMap && scaffoldingMap.size > 0) {
-        lines.push('- **HTML is DEFAULT** for all content slides with per-composition scaffolding');
-        lines.push('- **clone** (`template_slide` + `content`): Only for title, section divider, closing (<=2 shapes, no icons). Pixel-perfect.');
-        lines.push('- **html** + `composition_id`: Scaffold (header, footer, logo, deko) auto-injected per composition. Design within content_area.');
-        lines.push('- Call `get_composition_details` to see content_area, style_guide, layout_hint, and scaffold_elements per composition');
+        lines.push('- **clone is DEFAULT** (`template_slide` + `content`): Best for corporate slides whose design lives in replaceable shapes (titles, chevrons, KPI boxes, ribbons).');
+        lines.push('- **html** (`html` + `composition_id`): Preferred for compositions with static embedded charts/tables or when no template composition fits your content. Scaffold (header, footer, logo, deko) is auto-injected per composition.');
+        lines.push('- Use each composition\'s `recommended_pipeline` field to decide. When in doubt, prefer **clone** for corporate templates.');
+        lines.push('- Call `get_composition_details` to see exact shape names, content_area, style_guide, layout_hint, and scaffold_elements per composition');
+        lines.push('- Mixed decks are allowed: use `template_slide` for clone-recommended compositions and `html` + `composition_id` for html-recommended compositions.');
     } else {
         lines.push('- **Template mode** (`template_slide` + `content`): For text replacement in existing shapes. Pixel-perfect corporate design.');
         lines.push('- **HTML mode** (`html` + `template_file`): For creative layouts with Brand-DNA colors/fonts. Deko elements (logo, accent bars) are auto-injected -- do NOT place them manually.');
@@ -866,8 +1008,11 @@ interface CompositionEntry {
     has_image_placeholder: boolean;
     decorative_element_count: number;
     has_fixed_visuals: boolean;
+    has_static_chart?: boolean;
+    has_static_table?: boolean;
+    has_static_picture?: boolean;
     visual_structure: string;
-    /** Recommended pipeline for this composition: 'clone' for structural, 'html' for content */
+    /** Recommended pipeline for this composition: clone by default, html as fallback */
     recommended_pipeline?: 'clone' | 'html';
     /** Per-composition scaffold elements (header, footer, logo, deko) as DekoElement objects */
     scaffold_elements?: Array<{
@@ -891,6 +1036,7 @@ interface CompositionEntry {
     layout_hint?: string;
     /** Optional HTML skeleton with placeholders for complex layouts */
     html_skeleton?: string;
+    slide_warnings?: Record<string, string[]>;
     repeatable_groups: Record<string, RepeatableGroupEntry[]>;
     shapes: Record<string, Record<string, ShapeDetailEntry>>;
 }
@@ -1079,6 +1225,7 @@ function generateCompositionsJson(
         // Enrich with multimodal metadata if available (use first slide as representative)
         const firstSlideStr = String(group.slideNumbers[0]);
         const multiMeta = multimodalResult?.compositionMeta.get(firstSlideStr);
+        const slideWarnings = buildSlideWarnings(group, analysis);
 
         const narrativePhase = COMPOSITION_METADATA[group.classification as SlideClassification]?.narrativePhase ?? 'any';
 
@@ -1096,7 +1243,11 @@ function generateCompositionsJson(
             has_image_placeholder: hasImagePlaceholder(group, analysis),
             decorative_element_count: group.decorativeElementCount,
             has_fixed_visuals: group.hasFixedVisuals,
+            ...(group.staticChartCount > 0 ? { has_static_chart: true } : {}),
+            ...(group.staticTableCount > 0 ? { has_static_table: true } : {}),
+            ...(group.staticPictureCount > 0 ? { has_static_picture: true } : {}),
             visual_structure: multiMeta?.visual_description ?? buildVisualStructureDescription(group, analysis),
+            ...(Object.keys(slideWarnings).length > 0 ? { slide_warnings: slideWarnings } : {}),
             ...(scaffolding ? {
                 recommended_pipeline: scaffolding.recommended_pipeline,
                 scaffold_elements: scaffolding.scaffold_elements.map(d => ({
@@ -1130,8 +1281,12 @@ function generateCompositionWarnings(
 ): string {
     const warnings: string[] = [];
 
-    if (group.classification === 'chart') {
-        warnings.push('Contains static embedded chart -- only use when data matches chart type');
+    if (group.staticChartCount > 0 || group.classification === 'chart') {
+        warnings.push('Contains embedded chart objects with STATIC template data -- avoid text-only clone; rebuild in HTML or only use when the chart type truly matches');
+    }
+
+    if (group.staticTableCount > 0 || group.classification === 'table') {
+        warnings.push('Contains embedded table objects with static template content -- only use when the table structure and data match');
     }
 
     if (group.classification === 'section') {
@@ -1153,6 +1308,38 @@ function generateCompositionWarnings(
     }
 
     return warnings.join('; ');
+}
+
+function buildSlideWarnings(
+    group: ReturnType<typeof groupByComposition>[number],
+    analysis: TemplateAnalysis,
+): Record<string, string[]> {
+    const result: Record<string, string[]> = {};
+
+    for (const slideNum of group.slideNumbers) {
+        const comp = analysis.slideCompositions.find(c => c.slideNumber === slideNum);
+        if (!comp) continue;
+
+        const warnings: string[] = [];
+        if (comp.embeddedObjects.charts > 0) {
+            warnings.push(`Contains ${comp.embeddedObjects.charts} embedded chart object(s) with static template data`);
+        }
+        if (comp.embeddedObjects.tables > 0) {
+            warnings.push(`Contains ${comp.embeddedObjects.tables} embedded table object(s) with static template content`);
+        }
+        if (comp.embeddedObjects.pictures > 0) {
+            warnings.push(`Contains ${comp.embeddedObjects.pictures} fixed picture/icon object(s)`);
+        }
+        if (comp.embeddedObjects.graphics > 0) {
+            warnings.push(`Contains ${comp.embeddedObjects.graphics} additional graphic frame object(s)`);
+        }
+
+        if (warnings.length > 0) {
+            result[String(slideNum)] = warnings;
+        }
+    }
+
+    return result;
 }
 
 /**

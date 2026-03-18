@@ -673,6 +673,7 @@ export const en: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Custom',
+    'provider.github-copilot': 'GitHub Copilot',
 
     // =========================================================================
     // Constants — Tool Labels
@@ -1046,8 +1047,9 @@ export const en: Translations = {
     'modal.modelConfig.apiVersion': 'API version',
     'modal.modelConfig.apiVersionDesc': 'Required by Azure OpenAI (e.g. 2024-10-21)',
     'modal.modelConfig.apiVersionPlaceholder': '2024-10-21',
-    'modal.modelConfig.maxTokens': 'Max tokens',
-    'modal.modelConfig.maxTokensDesc': 'Max length of the response',
+    'modal.modelConfig.maxTokens': 'Max output tokens',
+    'modal.modelConfig.maxTokensDesc': 'Limits how many tokens the model can generate per response',
+    'modal.modelConfig.maxTokensNote': 'Higher values allow longer, more detailed answers but use more API credits. Tip: Select a model from the Quick Pick above to auto-set the recommended value for that model.',
     'modal.modelConfig.maxTokensPlaceholder': '8192',
     'modal.modelConfig.temperature': 'Temperature',
     'modal.modelConfig.temperatureDesc': 'Randomness of responses (0 = deterministic, higher = creative)',
@@ -1056,8 +1058,8 @@ export const en: Translations = {
     'modal.modelConfig.promptCaching': 'Prompt caching',
     'modal.modelConfig.promptCachingDesc': 'Cache system prompt and recent messages to reduce API costs (Anthropic only)',
     'modal.modelConfig.thinking': 'Extended thinking',
-    'modal.modelConfig.thinkingDesc': 'Let the model reason before answering. Improves quality on hard tasks (Anthropic only)',
-    'modal.modelConfig.thinkingNote': 'When enabled, temperature is forced to 1 by the Anthropic API.',
+    'modal.modelConfig.thinkingDesc': 'Let the model reason before answering. Improves quality on hard tasks (Claude models)',
+    'modal.modelConfig.thinkingNote': 'When enabled, temperature is forced to 1 by the API.',
     'modal.modelConfig.thinkingBudget': 'Thinking budget',
     'modal.modelConfig.thinkingBudgetDesc': 'Maximum tokens for internal reasoning (1,024 - 128,000)',
     'modal.modelConfig.temperatureThinkingNote': 'Temperature is locked to 1.0 because extended thinking is enabled.',
@@ -1242,4 +1244,22 @@ export const en: Translations = {
     'guide.lmstudio.tip': 'Make sure to load a model in LM Studio before starting the server, otherwise no models will appear.',
     'guide.custom.heading': 'OpenAI-compatible API (Mistral, Groq, etc.):',
     'guide.custom.tip': 'Any OpenAI-compatible endpoint. Enter the base URL with /v1 suffix and your API key.',
+
+    // GitHub Copilot
+    'guide.copilot.heading': 'GitHub Copilot (requires active subscription):',
+    'guide.copilot.step1': 'You need an active GitHub Copilot subscription (Individual, Business, or Enterprise).',
+    'guide.copilot.step2': 'Click "Sign in with GitHub" below. A code will appear -- enter it at github.com/login/device.',
+    'guide.copilot.step3': 'After authorization, pick a model from the Quick Pick dropdown or use the fetch button.',
+    'guide.copilot.disclaimer': 'This uses an unofficial API. Models and availability may change without notice.',
+    'copilot.auth': 'GitHub Account',
+    'copilot.authDesc': 'Sign in with your GitHub account to use Copilot models.',
+    'copilot.signIn': 'Sign in with GitHub',
+    'copilot.signOut': 'Sign out',
+    'copilot.authenticated': 'Connected',
+    'copilot.notConnected': 'Not connected',
+    'copilot.deviceCodeNotice': 'Enter this code on GitHub:',
+    'copilot.polling': 'Waiting for authorization...',
+    'copilot.authSuccess': 'Successfully connected to GitHub Copilot.',
+    'copilot.authFailed': 'Authentication failed: {error}',
+    'copilot.signedOut': 'Signed out from GitHub Copilot.',
 };

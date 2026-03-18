@@ -17,6 +17,7 @@ function getProviderLabels(): Record<string, string> {
         openrouter: t('provider.openrouter'),
         azure: t('provider.azure'),
         custom: t('provider.custom'),
+        'github-copilot': t('provider.github-copilot'),
     };
 }
 
@@ -28,6 +29,7 @@ const PROVIDER_COLORS: Record<string, string> = {
     openrouter: '#7c3aed',
     azure: '#0078d4',
     custom: '#78909c',
+    'github-copilot': '#6e40c9',
 };
 
 // Model suggestions shown in the Quick Pick dropdown per provider
@@ -71,9 +73,20 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'DeepSeek',   id: 'deepseek/deepseek-r1',                label: 'DeepSeek R1' },
         { group: 'Kimi',       id: 'moonshotai/kimi-k2',                  label: 'Kimi K2' },
     ],
+    'github-copilot': [
+        { group: 'Anthropic',  id: 'claude-sonnet-4',          label: 'Claude Sonnet 4' },
+        { group: 'Anthropic',  id: 'claude-3.5-sonnet',        label: 'Claude 3.5 Sonnet' },
+        { group: 'OpenAI',     id: 'gpt-5.4',                  label: 'GPT-5.4' },
+        { group: 'OpenAI',     id: 'gpt-4o',                   label: 'GPT-4o' },
+        { group: 'OpenAI',     id: 'gpt-4o-mini',              label: 'GPT-4o mini' },
+        { group: 'OpenAI',     id: 'gpt-4.1',                  label: 'GPT-4.1' },
+        { group: 'Reasoning',  id: 'o3-mini',                  label: 'o3-mini' },
+        { group: 'Reasoning',  id: 'o4-mini',                  label: 'o4-mini' },
+    ],
 };
 
 // Providers that support embedding APIs (Anthropic has none)
+// Note: github-copilot excluded — Copilot API does not support /embeddings endpoint (FEATURE-1204 open question)
 const EMBEDDING_PROVIDERS: ProviderType[] = ['openai', 'openrouter', 'azure', 'ollama', 'lmstudio', 'custom'];
 
 // Embedding model suggestions per provider (exact API IDs)
@@ -100,6 +113,7 @@ const EMBEDDING_SUGGESTIONS: Record<string, { group: string; id: string; label: 
         { group: 'OpenAI',  id: 'openai/text-embedding-3-large', label: 'text-embedding-3-large  (3 072 dims)' },
         { group: 'OpenAI',  id: 'openai/text-embedding-ada-002', label: 'text-embedding-ada-002  (1 536 dims, legacy)' },
     ],
+    // github-copilot: excluded — Copilot API does not support /embeddings endpoint
 };
 
 // Human-readable labels and descriptions for individual tools

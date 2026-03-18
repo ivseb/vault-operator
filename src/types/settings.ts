@@ -7,7 +7,7 @@
 // Adapted from Obsidian Copilot's CustomModel pattern
 // ---------------------------------------------------------------------------
 
-export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom';
+export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot';
 
 export interface CustomModel {
     /** Model identifier used in API calls (e.g. "claude-sonnet-4-5-20250929") */
@@ -164,6 +164,23 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         enabled: false,
         isBuiltIn: true,
         maxTokens: 8192,
+    },
+    // GitHub Copilot (unofficial API — requires active Copilot subscription)
+    {
+        name: 'gpt-4o',
+        provider: 'github-copilot',
+        displayName: 'GPT-4o (Copilot)',
+        enabled: false,
+        isBuiltIn: true,
+        maxTokens: 16384,
+    },
+    {
+        name: 'claude-sonnet-4',
+        provider: 'github-copilot',
+        displayName: 'Claude Sonnet 4 (Copilot)',
+        enabled: false,
+        isBuiltIn: true,
+        maxTokens: 64000,
     },
 ];
 
@@ -566,6 +583,16 @@ export interface ObsidianAgentSettings {
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
 
+    // GitHub Copilot (ADR-038)
+    /** GitHub OAuth access token (long-lived, encrypted via SafeStorageService) */
+    githubCopilotAccessToken: string;
+    /** Copilot API token (short-lived, ~1h, encrypted via SafeStorageService) */
+    githubCopilotToken: string;
+    /** Copilot token expiry as epoch seconds (not encrypted) */
+    githubCopilotTokenExpiresAt: number;
+    /** Custom OAuth Client ID — escape hatch if the default stops working */
+    githubCopilotCustomClientId: string;
+
     // Advanced
     debugMode: boolean;
 }
@@ -794,5 +821,9 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         preferTaskNotesPlugin: true,
         taskNotesHintDismissed: false,
     },
+    githubCopilotAccessToken: '',
+    githubCopilotToken: '',
+    githubCopilotTokenExpiresAt: 0,
+    githubCopilotCustomClientId: '',
     debugMode: false,
 };

@@ -37,7 +37,10 @@ interface CompositionEntry {
     visual_structure?: string;
     decorative_element_count?: number;
     has_fixed_visuals?: boolean;
-    /** Recommended pipeline: 'clone' for structural slides, 'html' for content (v4) */
+    has_static_chart?: boolean;
+    has_static_table?: boolean;
+    has_static_picture?: boolean;
+    /** Recommended pipeline: clone by default for corporate templates, html as fallback (v4) */
     recommended_pipeline?: 'clone' | 'html';
     /** Per-composition scaffold elements count (v4) */
     scaffold_elements?: Array<{ id: string; type: string }>;
@@ -53,6 +56,7 @@ interface CompositionEntry {
     layout_hint?: string;
     /** HTML skeleton with placeholders (v4) */
     html_skeleton?: string;
+    slide_warnings?: Record<string, string[]>;
     repeatable_groups?: Record<string, RepeatableGroupInfo[]>;
     shapes: Record<string, Record<string, ShapeDetail>>;
 }
@@ -264,6 +268,13 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         if (comp.nicht_einsetzen_wenn) lines.push(`**Nicht einsetzen wenn:** ${comp.nicht_einsetzen_wenn}`);
         if (comp.visual_structure) lines.push(`**Visual Structure:** ${comp.visual_structure}`);
         if (comp.has_fixed_visuals) lines.push(`**Fixed Visuals:** ${comp.decorative_element_count ?? 0} fixed decorative elements (icons/images that cannot be replaced)`);
+        if (comp.has_static_chart || comp.has_static_table || comp.has_static_picture) {
+            const parts: string[] = [];
+            if (comp.has_static_chart) parts.push('embedded charts');
+            if (comp.has_static_table) parts.push('embedded tables');
+            if (comp.has_static_picture) parts.push('fixed pictures/icons');
+            lines.push(`**Static Objects:** ${parts.join(', ')}`);
+        }
 
         // Scaffolding info (v4)
         if (isV4 && comp.content_area) {
@@ -304,6 +315,10 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             if (firstSlide) {
                 const [slideNum, shapes] = firstSlide;
                 const shapeNames = Object.keys(shapes);
+                const warnings = comp.slide_warnings?.[slideNum];
+                if (warnings && warnings.length > 0) {
+                    lines.push(`\n**Representative slide warning (${slideNum}):** ${warnings.join('; ')}`);
+                }
                 lines.push(`\n**Clone mode reference** (prefer HTML mode above):`);
                 lines.push(`Slide ${slideNum}: ${shapeNames.join(', ')}`);
             }
@@ -312,6 +327,10 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             const keyLabel = isV2 ? 'semantic aliases' : 'shape names';
             for (const [slideNum, shapes] of Object.entries(comp.shapes)) {
                 lines.push(`\n**Slide ${slideNum} -- Use these exact ${keyLabel} as content keys in create_pptx:**`);
+                const warnings = comp.slide_warnings?.[slideNum];
+                if (warnings && warnings.length > 0) {
+                    lines.push(`> Slide warning: ${warnings.join('; ')}`);
+                }
                 lines.push('```yaml');
                 lines.push(`template_slide: ${slideNum}`);
                 lines.push('content:');
