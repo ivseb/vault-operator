@@ -176,6 +176,7 @@ export class AgentTask {
             this.toolRegistry,
             taskId,
             activeMode.slug,
+            this.api,
         );
 
         // Add user message to the shared history
@@ -543,6 +544,7 @@ export class AgentTask {
                         input: toolUse.input,
                     };
                     const result = await pipeline.executeTool(toolCall, toolCallbacks, {
+                        abortSignal,
                         askQuestion,
                         signalCompletion,
                         switchMode,

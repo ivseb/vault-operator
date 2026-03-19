@@ -104,6 +104,8 @@ export interface ApprovalResult {
 
 /** Extra context injected by AgentTask for agent-control tools */
 export interface ContextExtensions {
+    /** Abort signal for the currently running task */
+    abortSignal?: AbortSignal;
     askQuestion?: (question: string, options?: string[], allowMultiple?: boolean) => Promise<string>;
     signalCompletion?: (result: string) => void;
     /**
@@ -130,6 +132,7 @@ export class ToolExecutionPipeline {
     private toolRegistry: ToolRegistry;
     private taskId: string;
     private mode: string;
+    private apiHandler?: import('../../api/types').ApiHandler;
 
     /** Per-task result cache for read-only tools. Key = tool:sortedJSON(input). */
     private resultCache = new Map<string, string>();
@@ -146,12 +149,14 @@ export class ToolExecutionPipeline {
         plugin: ObsidianAgentPlugin,
         toolRegistry: ToolRegistry,
         taskId: string,
-        mode: string
+        mode: string,
+        apiHandler?: import('../../api/types').ApiHandler,
     ) {
         this.plugin = plugin;
         this.toolRegistry = toolRegistry;
         this.taskId = taskId;
         this.mode = mode;
+        this.apiHandler = apiHandler;
     }
 
     /** Stable cache key: tool name + sorted JSON of input parameters. */
@@ -263,6 +268,8 @@ export class ToolExecutionPipeline {
             const context: ToolExecutionContext = {
                 taskId: this.taskId,
                 mode: this.mode,
+                apiHandler: this.apiHandler,
+                abortSignal: extensions?.abortSignal,
                 callbacks: wrappedCallbacks,
                 askQuestion: extensions?.askQuestion,
                 signalCompletion: extensions?.signalCompletion,

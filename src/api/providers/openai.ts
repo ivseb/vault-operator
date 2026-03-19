@@ -159,6 +159,12 @@ export class OpenAiProvider implements ApiHandler {
             ...(openRouterThinking
                 ? { reasoning: { max_tokens: budgetTokens } } as Record<string, unknown>
                 : {}),
+            // OpenRouter: disable automatic model fallback to prevent silent model switches.
+            // Without this, OpenRouter can route to a completely different model (e.g. Gemini)
+            // when the configured model is rate-limited or under high load.
+            ...(this.config.type === 'openrouter'
+                ? { provider: { allow_fallbacks: false } } as Record<string, unknown>
+                : {}),
         };
 
         // Azure uses max_completion_tokens instead of max_tokens

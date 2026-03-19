@@ -268,7 +268,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
 
     // ── Template Analysis ──────────────────────────────────────────────
     analyze_pptx_template: {
-        group: 'read', label: 'Analyze PPTX Template', icon: 'search',
+        group: 'edit', label: 'Analyze PPTX Template', icon: 'search',
         signature: 'analyze_pptx_template(template_path)',
         description: 'Analyze a PPTX template to extract design elements, brand DNA (colors, fonts), and slide compositions. Generates SKILL.md + compositions.json.',
         example: 'analyze_pptx_template("Templates/corporate.pptx")',

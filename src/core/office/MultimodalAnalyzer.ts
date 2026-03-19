@@ -78,6 +78,8 @@ export interface RenderedSlide {
 
 /** Max slides per API call (conservative for vision token limits). */
 const BATCH_SIZE = 5;
+const DEFAULT_STREAM_TIMEOUT_MS = 180_000;
+const SKELETON_STREAM_TIMEOUT_MS = 120_000;
 
 /* ------------------------------------------------------------------ */
 /*  System prompt                                                      */
@@ -152,7 +154,7 @@ export async function analyzeTemplateMultimodal(
     const totalBatches = Math.ceil(renderedSlides.length / BATCH_SIZE);
 
     for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-        if (abortSignal?.aborted) break;
+        throwIfAborted(abortSignal);
 
         const batchSlides = renderedSlides.slice(
             batchIdx * BATCH_SIZE,
@@ -190,6 +192,7 @@ async function analyzeBatch(
     apiHandler: ApiHandler,
     abortSignal?: AbortSignal,
 ): Promise<MultimodalResult> {
+    throwIfAborted(abortSignal);
     // Build user message with images + structural data
     const contentBlocks: ContentBlock[] = [];
 
@@ -268,13 +271,64 @@ async function collectStreamResponse(
     systemPrompt: string,
     messages: MessageParam[],
     abortSignal?: AbortSignal,
+    timeoutMs = DEFAULT_STREAM_TIMEOUT_MS,
 ): Promise<string> {
-    const stream = apiHandler.createMessage(systemPrompt, messages, [], abortSignal);
-    let text = '';
-    for await (const chunk of stream) {
-        if (chunk.type === 'text') text += chunk.text;
+    const { signal, cleanup, didTimeout } = createTimedAbortSignal(abortSignal, timeoutMs);
+
+    try {
+        const stream = apiHandler.createMessage(systemPrompt, messages, [], signal);
+        let text = '';
+        for await (const chunk of stream) {
+            if (chunk.type === 'text') text += chunk.text;
+        }
+        return repairMojibake(text);
+    } catch (error) {
+        if (didTimeout()) {
+            throw new Error(`Multimodal request timed out after ${Math.round(timeoutMs / 1000)} seconds.`);
+        }
+        throwIfAborted(abortSignal);
+        throw error;
+    } finally {
+        cleanup();
     }
-    return repairMojibake(text);
+}
+
+function createTimedAbortSignal(
+    parentSignal?: AbortSignal,
+    timeoutMs = DEFAULT_STREAM_TIMEOUT_MS,
+): { signal: AbortSignal; cleanup: () => void; didTimeout: () => boolean } {
+    const controller = new AbortController();
+    let timedOut = false;
+
+    const abortFromParent = () => {
+        controller.abort(parentSignal?.reason ?? new Error('Aborted'));
+    };
+
+    if (parentSignal?.aborted) {
+        abortFromParent();
+    } else if (parentSignal) {
+        parentSignal.addEventListener('abort', abortFromParent, { once: true });
+    }
+
+    const timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort(new Error(`Timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    return {
+        signal: controller.signal,
+        cleanup: () => {
+            clearTimeout(timer);
+            parentSignal?.removeEventListener('abort', abortFromParent);
+        },
+        didTimeout: () => timedOut,
+    };
+}
+
+function throwIfAborted(abortSignal?: AbortSignal): void {
+    if (abortSignal?.aborted) {
+        throw new Error('Template analysis aborted.');
+    }
 }
 
 /**
@@ -429,6 +483,7 @@ export async function detectDocumentRole(
     apiHandler: ApiHandler,
     abortSignal?: AbortSignal,
 ): Promise<RoleDetectionResult> {
+    throwIfAborted(abortSignal);
     // Use max 3 slides for role detection
     const sample = renderedSlides.slice(0, 3);
 
@@ -502,7 +557,7 @@ export async function extractDesignRules(
     };
 
     for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-        if (abortSignal?.aborted) break;
+        throwIfAborted(abortSignal);
 
         const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
         onProgress?.(`Style Guide analysis batch ${batchIdx + 1}/${totalBatches}...`);
@@ -578,7 +633,7 @@ export async function extractIconCatalog(
     let iconId = 1;
 
     for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-        if (abortSignal?.aborted) break;
+        throwIfAborted(abortSignal);
 
         const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
         onProgress?.(`Icon catalog analysis batch ${batchIdx + 1}/${totalBatches}...`);
@@ -654,7 +709,7 @@ export async function extractUsageGuidelines(
     const totalBatches = Math.ceil(renderedSlides.length / BATCH_SIZE);
 
     for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-        if (abortSignal?.aborted) break;
+        throwIfAborted(abortSignal);
 
         const batch = renderedSlides.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
         onProgress?.(`How-to-Use analysis batch ${batchIdx + 1}/${totalBatches}...`);
@@ -735,7 +790,7 @@ export async function generateVisionSkeletons(
     const skeletons = new Map<string, string>();
 
     for (const comp of compositionGroups) {
-        if (abortSignal?.aborted) break;
+        throwIfAborted(abortSignal);
         if (comp.recommendedPipeline !== 'html') continue;
 
         const slide = renderedSlides.find(s => s.slideNumber === comp.representativeSlide);
@@ -762,7 +817,7 @@ Body font-size: ${comp.styleGuide.body?.font_size_pt ?? 16}px.`;
 
         try {
             const responseText = await collectStreamResponse(
-                apiHandler, 'You are an HTML layout expert.', messages, abortSignal,
+                apiHandler, 'You are an HTML layout expert.', messages, abortSignal, SKELETON_STREAM_TIMEOUT_MS,
             );
 
             // Extract HTML from response (strip markdown fences if present)

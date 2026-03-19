@@ -138,6 +138,13 @@ export interface ToolCallbacks {
  */
 export interface ToolExecutionContext {
     /**
+     * The API handler used by the current AgentTask.
+     * Tools should use this instead of building their own handler from plugin.getActiveModel(),
+     * because the AgentTask may be using a mode-specific model that differs from the global setting.
+     */
+    apiHandler?: import('../../api/types').ApiHandler;
+
+    /**
      * Current task ID
      */
     taskId: string;
@@ -146,6 +153,12 @@ export interface ToolExecutionContext {
      * Current mode
      */
     mode: string;
+
+    /**
+     * Abort signal for the currently running agent task.
+     * Long-running tools should observe this and stop promptly when aborted.
+     */
+    abortSignal?: AbortSignal;
 
     /**
      * Callbacks for results

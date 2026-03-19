@@ -11,109 +11,18 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
-
-/** Shape detail within a composition */
-interface ShapeDetail {
-    zweck: string;
-    shape_id?: string;
-    shape_type?: 'image' | 'text';
-    fill_color?: string;
-    max_chars?: number;
-    min_chars?: number;
-    font_size_pt?: number;
-    width_cm?: number;
-    notes?: string;
-}
-
-/** Composition entry in compositions.json */
-interface CompositionEntry {
-    name: string;
-    classification?: string;
-    narrative_phase?: string;
-    slides: number[];
-    bedeutung?: string;
-    einsetzen_wenn?: string;
-    nicht_einsetzen_wenn?: string;
-    visual_structure?: string;
-    decorative_element_count?: number;
-    has_fixed_visuals?: boolean;
-    has_static_chart?: boolean;
-    has_static_table?: boolean;
-    has_static_picture?: boolean;
-    /** Recommended pipeline: clone for design-carrying shapes, html for flexible content generation (v4) */
-    recommended_pipeline?: 'clone' | 'html';
-    recommended_pipeline_reason?: string;
-    supports_html_overlay?: boolean;
-    /** Per-composition scaffold elements count (v4) */
-    scaffold_elements?: Array<{ id: string; type: string }>;
-    /** Content area bounding box in px (v4) */
-    content_area?: { x: number; y: number; w: number; h: number };
-    /** Style guide for content rendering (v4) */
-    style_guide?: {
-        title?: { font_size_pt: number; color: string; font_weight: string };
-        body?: { font_size_pt: number; color: string };
-        accent_color?: string;
-    };
-    /** Layout hint for content arrangement (v4) */
-    layout_hint?: string;
-    /** HTML skeleton with placeholders (v4) */
-    html_skeleton?: string;
-    slide_warnings?: Record<string, string[]>;
-    repeatable_groups?: Record<string, RepeatableGroupInfo[]>;
-    shapes: Record<string, Record<string, ShapeDetail>>;
-}
-
-/** Repeatable group info from compositions.json */
-interface RepeatableGroupInfo {
-    groupId: string;
-    axis: 'horizontal' | 'vertical';
-    shapeNames: string[];
-    shapeIds?: string[];
-    boundingBox: { left: number; top: number; width: number; height: number };
-    gap: number;
-    shapeSize: { cx: number; cy: number };
-    columns: Array<{
-        index: number;
-        primaryShape: string;
-        primaryShapeId?: string;
-        associatedShapes: Array<{ shapeName: string; shapeId?: string; offsetY: number; offsetX: number }>;
-    }>;
-}
-
-/** Root structure of compositions.json */
-interface CompositionsFile {
-    schema_version?: number;
-    template: string;
-    brand_dna?: {
-        colors: Record<string, string>;
-        fonts: { major: string; minor: string };
-        slide_size_px: { w: number; h: number };
-    };
-    /** Design rules from Style Guide (v4) */
-    design_rules?: {
-        color_usage: string[];
-        typography: string[];
-        layout: string[];
-        dos: string[];
-        donts: string[];
-    };
-    /** Icon catalog from Icon Gallery (v4) */
-    icon_catalog?: Array<{
-        name: string;
-        category: string;
-        description: string;
-        usage_hint?: string;
-    }>;
-    alias_map?: Record<string, { slide: number; shape_id: string; original_name: string }>;
-    compositions: Record<string, CompositionEntry>;
-}
+import { normalizeTemplateSlug } from './compositionsFile';
+import { CompositionsRepository } from './pptx/CompositionsRepository';
+import type { CompositionEntry, CompositionsFile, RepeatableGroupEntry, ShapeDetailEntry } from './pptx/compositionsSchema';
 
 export class GetCompositionDetailsTool extends BaseTool<'get_composition_details'> {
     readonly name = 'get_composition_details' as const;
     readonly isWriteOperation = false;
+    private repository: CompositionsRepository;
 
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+        this.repository = new CompositionsRepository(plugin.app.vault.adapter);
     }
 
     getDefinition(): ToolDefinition {
@@ -162,31 +71,25 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         }
 
         // Normalize template name (same logic as AnalyzePptxTemplateTool slug derivation)
-        const template = rawTemplate.toLowerCase().replace(/[_\s]+/g, '-');
+        const template = normalizeTemplateSlug(rawTemplate);
 
         // Find compositions.json via adapter (filesystem-level, cache-independent).
         // vault.getFileByPath() uses the metadata cache which may not know about
         // files written via vault.adapter.write() by AnalyzePptxTemplateTool.
-        const filePath = `.obsilo/templates/${template}.compositions.json`;
-        const adapter = this.app.vault.adapter;
-        const fileExists = await adapter.exists(filePath);
+        const filePath = this.repository.getPath(template);
+        let loaded: { path: string; data: CompositionsFile } | undefined;
+        try {
+            loaded = await this.repository.read(template);
+        } catch {
+            callbacks.pushToolResult(this.formatError(new Error(
+                `Invalid compositions.json: ${filePath} could not be parsed.`,
+            )));
+            return;
+        }
 
-        if (!fileExists) {
+        if (!loaded) {
             // List available composition files for a helpful error message
-            const templatesDir = '.obsilo/templates';
-            const dirExists = await adapter.exists(templatesDir);
-            let availableTemplates: string[] = [];
-
-            if (dirExists) {
-                try {
-                    const listed = await adapter.list(templatesDir);
-                    availableTemplates = (listed.files ?? [])
-                        .filter((f: string) => f.endsWith('.compositions.json'))
-                        .map((f: string) => f.replace('.obsilo/templates/', '').replace('.compositions.json', ''));
-                } catch {
-                    // Directory listing failed -- non-fatal
-                }
-            }
+            const availableTemplates = await this.repository.listTemplates();
 
             if (availableTemplates.length > 0) {
                 callbacks.pushToolResult(this.formatError(new Error(
@@ -205,8 +108,7 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
         }
 
         try {
-            const content = await adapter.read(filePath);
-            const data = JSON.parse(content) as CompositionsFile;
+            const data = loaded.data;
 
             if (!data.compositions) {
                 callbacks.pushToolResult(this.formatError(new Error(
@@ -304,7 +206,15 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
 
         // HTML mode hint for v4 compositions with html pipeline
         if (isV4 && comp.recommended_pipeline === 'html') {
-            lines.push('\n**Recommended: Use HTML mode with composition_id:**');
+            lines.push('\n**Recommended: Use planner-driven hybrid mode or explicit HTML:**');
+            lines.push('```yaml');
+            lines.push(`composition_id: "${id}"`);
+            lines.push('content:');
+            lines.push('  "title": "YOUR TEXT HERE"');
+            lines.push('  "content_1": "YOUR TEXT HERE"');
+            lines.push('```');
+            lines.push('> Preferred when you want the planner to turn the composition into a branded hybrid slide automatically using html_skeleton and scaffold metadata.');
+            lines.push('');
             lines.push('```yaml');
             lines.push(`html: "<div ...>your content within content_area bounds</div>"`);
             lines.push(`composition_id: "${id}"  # scaffold auto-injected`);
@@ -312,6 +222,14 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
             lines.push('> Scaffold (header, footer, logo, deko) injected automatically. Design HTML within content_area bounds using style_guide colors/fonts. Treat the template slide as a branded reference, not as a rigid layout you must copy.');
         } else if (isV4 && comp.supports_html_overlay) {
             lines.push('\n**Optional hybrid mode:**');
+            lines.push('```yaml');
+            lines.push(`composition_id: "${id}"`);
+            lines.push('content:');
+            lines.push('  "title": "YOUR TEXT HERE"');
+            lines.push('  "content_1": "YOUR TEXT HERE"');
+            lines.push('```');
+            lines.push('> The planner can use this to choose clone or hybrid HTML depending on deck_mode, fixed visuals, image placeholders, and text density.');
+            lines.push('');
             lines.push('```yaml');
             lines.push(`html: "<div ...>your content within content_area bounds</div>"`);
             lines.push(`composition_id: "${id}"  # scaffold auto-injected`);
@@ -379,8 +297,8 @@ export class GetCompositionDetailsTool extends BaseTool<'get_composition_details
                             const assocCount = rg.columns[0].associatedShapes.length;
                             lines.push(`  - Each shape has ${assocCount} associated element(s) that move together (e.g. description boxes below).`);
                         }
-                        lines.push(`  - To use FEWER: only provide content for the shapes you need (extras are removed automatically).`);
-                        lines.push(`  - To use MORE: provide content for additional shapes with incrementing numbers.`);
+                        lines.push(`  - To use FEWER: provide the primary item keys you need; surplus columns and their associated shapes are removed automatically.`);
+                        lines.push(`  - To use MORE: provide additional primary/associated keys with incrementing numbers.`);
                     }
                 }
             }
