@@ -41,6 +41,7 @@ import { CreateExcalidrawTool } from './vault/CreateExcalidrawTool';
 import { CreatePptxTool } from './vault/CreatePptxTool';
 import { CreateDocxTool } from './vault/CreateDocxTool';
 import { CreateXlsxTool } from './vault/CreateXlsxTool';
+import { IngestTemplateTool } from './vault/IngestTemplateTool';
 // Import tools — vault: visual intelligence
 import { RenderPresentationTool } from './vault/RenderPresentationTool';
 // Import tools — vault: bases (Phase C4)
@@ -158,6 +159,7 @@ export class ToolRegistry {
         this.register(new CreatePptxTool(this.plugin));
         this.register(new CreateDocxTool(this.plugin));
         this.register(new CreateXlsxTool(this.plugin));
+        this.register(new IngestTemplateTool(this.plugin));
         // Vault: visual intelligence
         this.register(new RenderPresentationTool(this.plugin));
         // Vault: bases (Phase C4)

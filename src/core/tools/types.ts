@@ -34,12 +34,9 @@ export type ToolName =
     | 'open_note'
     | 'generate_canvas'
     | 'create_excalidraw'
-    // Vault: template analysis
-    | 'analyze_pptx_template'
-    // Vault: visual intelligence
+    // Vault: template ingestion + visual intelligence
+    | 'ingest_template'
     | 'render_presentation'
-    | 'check_presentation_quality'
-    | 'get_composition_details'
     // Vault: office document creation
     | 'create_pptx'
     | 'create_docx'
