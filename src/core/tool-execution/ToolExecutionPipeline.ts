@@ -261,6 +261,10 @@ export class ToolExecutionPipeline {
                     }
                     callbacks.pushToolResult(content);
                 },
+                // Progress messages go to the UI only — NOT accumulated in conversation history.
+                pushProgress: (content: string) => {
+                    callbacks.pushToolResult(content);
+                },
                 handleError: (tool: string, error: unknown) => callbacks.handleError(tool, error),
                 log: (msg: string) => callbacks.log(msg),
             };

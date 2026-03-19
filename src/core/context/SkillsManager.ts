@@ -130,8 +130,44 @@ export class SkillsManager {
                 const raw = await this.fs.read(s.path);
                 // Strip frontmatter, keep only the body
                 fullContent = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
-                // Cap to avoid bloating the system prompt (16k allows detailed corporate template skills)
-                if (fullContent.length > 16000) fullContent = fullContent.slice(0, 16000) + '\n…(truncated)';
+
+                // ── Composition list compression ──────────────────────────────────────
+                // Template skills (Acme etc.) have a composition bullet list that is
+                // essential (agent needs ALL IDs to call get_composition_details) but
+                // verbose (~27k chars for ~89 bullets). We compact each bullet to:
+                //   - **Name** (ID: `id`, Pipeline: mode): Short description [flags]
+                // This reduces average bullet from ~300 to ~100 chars, bringing the full
+                // list from ~27k to ~10k chars — all IDs visible within the 15k cap.
+                fullContent = fullContent.replace(
+                    /^(- \*\*[^*]+\*\*) \(ID: `([^`]+)`,(?:[^)]*?Pipeline: ([^)]+))?\): ([^\n]+)$/gm,
+                    (match: string, prefix: string, id: string, pipeline: string | undefined, rest: string) => {
+                        // Keep only the first sentence of the description (before " -- ")
+                        const shortDesc = rest.split(' -- ')[0].trim();
+                        // Condense warnings into compact flags
+                        const flags: string[] = [];
+                        if (/image placeholder/.test(match)) flags.push('[img]');
+                        if (/embedded chart|static chart/.test(match)) flags.push('[chart]');
+                        if (/embedded table|static table/.test(match)) flags.push('[table]');
+                        if (/fixed decorative|fixed picture/.test(match)) flags.push('[fixed]');
+                        const pipeMode = (pipeline ?? 'clone').trim();
+                        const flagStr = flags.length > 0 ? ' ' + flags.join('') : '';
+                        return `${prefix} (ID: \`${id}\`, Pipeline: ${pipeMode}): ${shortDesc}${flagStr}`;
+                    }
+                );
+                // Strip "Compositions by Narrative Phase" table — uses names not IDs,
+                // not useful for composition ID lookup (~2.5k chars saved).
+                fullContent = fullContent.replace(
+                    /\n## Compositions by Narrative Phase\n[\s\S]*?(?=\n## )/,
+                    '\n'
+                );
+                // ─────────────────────────────────────────────────────────────────────
+
+                // Cap at 20k: after compression the full composition ID list (~11k) +
+                // Brand DNA (~0.5k) + Design Rules (~6.5k) all fit with no IDs truncated.
+                if (fullContent.length > 20000) fullContent = fullContent.slice(0, 20000) +
+                    '\n…(skill truncated — remaining sections omitted.' +
+                    ' DO NOT call manage_skill read — it is already active.' +
+                    ' Use get_composition_details for per-composition shape details.)';
             } catch {
                 // Fall back to name+description only if file can't be read
             }

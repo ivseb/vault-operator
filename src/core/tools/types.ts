@@ -117,10 +117,18 @@ export interface ToolDefinition {
  */
 export interface ToolCallbacks {
     /**
-     * Push a result to be sent back to the LLM.
+     * Push the FINAL result to be sent back to the LLM (goes into conversation history).
      * Pass a ToolResultContentBlock[] for multimodal results (text + images).
+     * Use pushProgress for intermediate status messages.
      */
     pushToolResult(content: string | import('../../api/types').ToolResultContentBlock[]): void;
+
+    /**
+     * Push an intermediate progress/status message to the UI.
+     * Does NOT go into conversation history — keeps the LLM context lean.
+     * Use this for phase banners, heartbeats, batch progress etc.
+     */
+    pushProgress?(content: string): void;
 
     /**
      * Handle an error during tool execution

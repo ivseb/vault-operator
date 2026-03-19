@@ -36,6 +36,20 @@ export interface CustomModel {
     thinkingBudgetTokens?: number;
 }
 
+/** Provider-level default base URLs used for setup UX and built-in models. */
+export function getDefaultBaseUrlForProvider(provider: ProviderType): string | undefined {
+    switch (provider) {
+        case 'anthropic':
+            return 'https://api.anthropic.com';
+        case 'ollama':
+            return 'http://localhost:11434';
+        case 'lmstudio':
+            return 'http://localhost:1234';
+        default:
+            return undefined;
+    }
+}
+
 /** Unique key for a model across all providers */
 export function getModelKey(model: CustomModel): string {
     return `${model.name}|${model.provider}`;
@@ -54,6 +68,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-sonnet-4-5-20250929',
         provider: 'anthropic',
         displayName: 'Claude Sonnet 4.5',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
@@ -64,6 +79,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-opus-4-6',
         provider: 'anthropic',
         displayName: 'Claude Opus 4.6',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
@@ -74,6 +90,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-haiku-4-5-20251001',
         provider: 'anthropic',
         displayName: 'Claude Haiku 4.5',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 8192,

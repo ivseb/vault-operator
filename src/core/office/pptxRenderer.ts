@@ -80,8 +80,11 @@ export async function renderPptxToImages(
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'obsilo-render-'));
 
     try {
-        // 4. Copy PPTX to temp (LibreOffice writes output next to input)
-        const tempPptx = path.join(tempDir, path.basename(absolutePptxPath));
+        // 4. Copy PPTX to temp (LibreOffice writes output next to input).
+        // .potx/.potm files are structurally identical to .pptx (same OpenXML format)
+        // but LibreOffice headless may fail on them; rename to .pptx before conversion.
+        const baseName = path.basename(absolutePptxPath).replace(/\.pot[xm]$/i, '.pptx');
+        const tempPptx = path.join(tempDir, baseName);
         fs.copyFileSync(absolutePptxPath, tempPptx);
 
         // 5. PPTX → PDF (LibreOffice headless)

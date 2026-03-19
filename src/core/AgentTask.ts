@@ -34,6 +34,8 @@ export interface AgentTaskCallbacks {
     onToolStart: (name: string, input: Record<string, unknown>) => void;
     /** Called when a tool has finished executing */
     onToolResult: (name: string, content: string, isError: boolean) => void;
+    /** Called with intermediate progress messages from long-running tools (e.g. analyze_pptx_template phase banners) */
+    onToolProgress?: (name: string, content: string) => void;
     /** Called with cumulative token usage just before onComplete (Feature 6) */
     onUsage?: (inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheCreationTokens?: number) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
@@ -531,7 +533,16 @@ export class AgentTask {
                         return { content: `<error>${repCheck.reason}</error>`, is_error: true as const };
                     }
                     const toolCallbacks: ToolCallbacks = {
-                        pushToolResult: () => {},
+                        pushToolResult: (content) => {
+                            // Final result also updates the live progress display.
+                            if (typeof content === 'string') {
+                                this.taskCallbacks.onToolProgress?.(toolUse.name, content);
+                            }
+                        },
+                        pushProgress: (content) => {
+                            // Intermediate progress: UI-only, not in conversation history.
+                            this.taskCallbacks.onToolProgress?.(toolUse.name, content);
+                        },
                         handleError: async (toolName, error) => {
                             console.error(`[AgentTask] Tool error in ${toolName}:`, error);
                         },

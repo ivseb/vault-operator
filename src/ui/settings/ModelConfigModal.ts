@@ -1,5 +1,6 @@
 import { App, Modal, Notice, setIcon } from 'obsidian';
 import type { CustomModel, ProviderType } from '../../types/settings';
+import { getDefaultBaseUrlForProvider } from '../../types/settings';
 import { PROVIDER_LABELS, MODEL_SUGGESTIONS, EMBEDDING_PROVIDERS, EMBEDDING_SUGGESTIONS } from './constants';
 import { testModelConnection, testEmbeddingConnection, fetchProviderModels, fetchOllamaModels, fetchEmbeddingModels, isTemperatureFixed, maxTemperature } from './testModelConnection';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
@@ -84,6 +85,7 @@ export class ModelConfigModal extends Modal {
 
     private apiKeyRow: HTMLElement | null = null;
     private baseUrlRow: HTMLElement | null = null;
+    private baseUrlInputEl: HTMLInputElement | null = null;
     private apiVersionRow: HTMLElement | null = null;
     private suggestRow: HTMLElement | null = null;
     private suggestSelEl: HTMLSelectElement | null = null;
@@ -132,7 +134,7 @@ export class ModelConfigModal extends Modal {
         this.formDisplayName = this.model.displayName ?? '';
         this.formProvider = this.model.provider;
         this.formApiKey = this.model.apiKey ?? '';
-        this.formBaseUrl = this.model.baseUrl ?? '';
+        this.formBaseUrl = this.model.baseUrl ?? getDefaultBaseUrlForProvider(this.model.provider) ?? '';
         this.formApiVersion = this.model.apiVersion ?? '2024-10-21';
         this.formMaxTokens = this.model.maxTokens ?? 8192;
         this.formTemperatureEnabled = this.model.temperature !== undefined;
@@ -183,7 +185,14 @@ export class ModelConfigModal extends Modal {
         });
         if (!this.isNew && this.model.isBuiltIn) provSel.disabled = true;
         provSel.addEventListener('change', () => {
+            const previousProvider = this.formProvider;
+            const previousDefaultBaseUrl = getDefaultBaseUrlForProvider(previousProvider) ?? '';
             this.formProvider = provSel.value as ProviderType;
+            const nextDefaultBaseUrl = getDefaultBaseUrlForProvider(this.formProvider) ?? '';
+            if (!this.formBaseUrl || this.formBaseUrl === previousDefaultBaseUrl) {
+                this.formBaseUrl = nextDefaultBaseUrl;
+                if (this.baseUrlInputEl) this.baseUrlInputEl.value = this.formBaseUrl;
+            }
             this.updateFieldVisibility();
         });
 
@@ -325,12 +334,12 @@ export class ModelConfigModal extends Modal {
         const buLabel = this.baseUrlRow.createDiv('mcm-label');
         buLabel.createSpan({ text: t('modal.modelConfig.baseUrl') });
         this.baseUrlDescEl = buLabel.createSpan({ cls: 'mcm-desc' });
-        const buInput = this.baseUrlRow.createEl('input', {
+        this.baseUrlInputEl = this.baseUrlRow.createEl('input', {
             cls: 'mcm-input',
             attr: { type: 'text', placeholder: 'http://localhost:11434' },
         });
-        buInput.value = this.formBaseUrl;
-        buInput.addEventListener('input', () => (this.formBaseUrl = buInput.value.trim()));
+        this.baseUrlInputEl.value = this.formBaseUrl;
+        this.baseUrlInputEl.addEventListener('input', () => (this.formBaseUrl = this.baseUrlInputEl!.value.trim()));
 
         // ── API Version (Azure + some enterprise gateways) ───────────────
         this.apiVersionRow = form.createDiv('mcm-row');
@@ -567,6 +576,16 @@ export class ModelConfigModal extends Modal {
                 custom: t('modal.modelConfig.urlHint.custom'),
             };
             this.baseUrlDescEl.setText(hints[p] ?? '');
+        }
+        if (this.baseUrlInputEl) {
+            const placeholders: Partial<Record<ProviderType, string>> = {
+                anthropic: 'https://api.anthropic.com',
+                ollama: 'http://localhost:11434',
+                lmstudio: 'http://localhost:1234',
+                azure: 'https://your-resource.openai.azure.com',
+                custom: 'https://your-openai-compatible-endpoint/v1',
+            };
+            this.baseUrlInputEl.placeholder = placeholders[p] ?? '';
         }
 
         // Update Copilot auth status when visible

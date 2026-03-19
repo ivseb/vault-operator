@@ -1,12 +1,9 @@
-export type DeckMode = 'talk' | 'reading';
-
 export interface SlideInput {
-    template_slide?: number;
-    content?: Record<string, string>;
     html?: string;
     charts?: ChartInput[];
     tables?: TableInput[];
-    composition_id?: string;
+    notes?: string;
+    // Legacy simple-mode fields
     title?: string;
     subtitle?: string;
     body?: string;
@@ -16,7 +13,6 @@ export interface SlideInput {
     chart?: { type: string; title?: string; categories: string[]; series: { name: string; values: number[]; color?: string }[] };
     kpis?: { value: string; label: string; color?: string }[];
     process?: { label: string; description?: string }[];
-    notes?: string;
     layout?: string;
 }
 
@@ -35,8 +31,6 @@ export interface TableInput {
 
 export interface CreatePptxBuildOptions {
     slides: SlideInput[];
-    templateFile?: string;
+    themeName?: string;
     templateRef?: string;
-    footerText?: string;
-    deckMode?: DeckMode;
 }

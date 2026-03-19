@@ -3,7 +3,7 @@ import type ObsidianAgentPlugin from '../main';
 import { AgentTask } from '../core/AgentTask';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, BUILT_IN_MODELS } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, BUILT_IN_MODELS, getDefaultBaseUrlForProvider } from '../types/settings';
 import type { CustomModel, ProviderType } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
@@ -1023,9 +1023,11 @@ export class AgentSidebarView extends ItemView {
             provider,
             displayName: builtIn?.displayName ?? modelName,
             apiKey,
-            baseUrl: builtIn?.baseUrl ?? (provider === 'custom'
-                ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-                : undefined),
+            baseUrl: builtIn?.baseUrl
+                ?? getDefaultBaseUrlForProvider(provider)
+                ?? (provider === 'custom'
+                    ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+                    : undefined),
             enabled: true,
             isBuiltIn: builtIn?.isBuiltIn ?? false,
         };
@@ -1680,6 +1682,16 @@ export class AgentSidebarView extends ItemView {
                         const actDetails = toolsEl.closest<HTMLDetailsElement>('.todo-activity-log');
                         if (actDetails) actDetails.open = true;
                     }
+                },
+                onToolProgress: (name, content) => {
+                    // Update the live output area of the currently-running standalone tool.
+                    const queue = toolElsByName.get(name);
+                    const el = queue?.[0] ?? null; // peek without consuming
+                    if (!el || el.classList.contains('tool-group-item')) return;
+                    const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
+                    if (!outputEl) return;
+                    outputEl.empty();
+                    outputEl.createEl('pre').setText(content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });

@@ -66,7 +66,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
     getDefinition(): ToolDefinition {
         return {
             name: this.name,
-            description: 'Manage self-authored skills (SKILL.md files). Skills are reusable workflow instructions that persist across sessions. Skills can optionally include code_modules — TypeScript code compiled and registered as sandbox tools (names must start with "custom_"). Actions: create, update, delete, list, validate, read.',
+            description: 'Manage self-authored skills (SKILL.md files). Skills are reusable workflow instructions that persist across sessions. Skills can optionally include code_modules — TypeScript code compiled and registered as sandbox tools (names must start with "custom_"). Actions: create, update, delete, list, validate, read. IMPORTANT: Active skills are already included (truncated) in your system prompt — do NOT call read for skills you can already see in <available_skills>. For template skills use get_composition_details instead.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -490,8 +490,18 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             codeSection = `\n\n## Code Modules\n\n${codeParts.join('\n\n')}`;
         }
 
+        // Large skills (template skills etc.) are already injected into the system prompt via
+        // <available_skills>. Return a brief excerpt only — agent should use the system prompt
+        // context rather than re-reading the full skill body.
+        const BODY_LIMIT = 4000;
+        const bodyDisplay = skill.body.length > BODY_LIMIT
+            ? skill.body.slice(0, BODY_LIMIT) +
+              `\n\n...(body truncated — this skill (${skill.body.length} chars total) is ALREADY ACTIVE in your system prompt` +
+              ` under <available_skills>. Do NOT call read again — check your system prompt instead.` +
+              ` For per-composition shape details use get_composition_details.)`
+            : skill.body;
         callbacks.pushToolResult(this.formatSuccess(
-            `# ${skill.name}\n\n**Description**: ${skill.description}\n**Trigger**: ${skill.triggerSource}\n**Source**: ${skill.source}\n**Used**: ${skill.successCount} time(s)\n**Tools**: ${skill.requiredTools.join(', ') || '(none)'}\n**Code Modules**: ${skill.codeModules.length > 0 ? skill.codeModules.join(', ') : '(none)'}\n\n---\n\n${skill.body}${codeSection}`
+            `# ${skill.name}\n\n**Description**: ${skill.description}\n**Trigger**: ${skill.triggerSource}\n**Source**: ${skill.source}\n**Used**: ${skill.successCount} time(s)\n**Tools**: ${skill.requiredTools.join(', ') || '(none)'}\n**Code Modules**: ${skill.codeModules.length > 0 ? skill.codeModules.join(', ') : '(none)'}\n\n---\n\n${bodyDisplay}${codeSection}`
         ));
     }
 
