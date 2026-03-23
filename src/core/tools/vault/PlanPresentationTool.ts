@@ -206,14 +206,30 @@ export class PlanPresentationTool extends BaseTool<'plan_presentation'> {
             cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
         }
 
+        let parsed: unknown;
         try {
-            return JSON.parse(cleaned) as DeckPlan;
+            parsed = JSON.parse(cleaned);
         } catch {
             throw new Error(
                 'Failed to parse DeckPlan JSON from LLM response. ' +
                 `Response starts with: "${cleaned.substring(0, 200)}"`,
             );
         }
+
+        // Runtime type guard -- catch malformed LLM output before downstream code
+        const p = parsed as Record<string, unknown>;
+        if (
+            typeof p !== 'object' || p === null ||
+            typeof p.title !== 'string' ||
+            !Array.isArray(p.slides)
+        ) {
+            throw new Error(
+                'LLM response is valid JSON but not a valid DeckPlan ' +
+                '(missing title or slides array).',
+            );
+        }
+
+        return parsed as DeckPlan;
     }
 
     /* ------------------------------------------------------------------ */

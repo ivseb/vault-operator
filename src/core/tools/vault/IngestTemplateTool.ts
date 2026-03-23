@@ -764,26 +764,28 @@ export class IngestTemplateTool extends BaseTool<'ingest_template'> {
             cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
         }
 
-        const enrichments = JSON.parse(cleaned) as Record<string, {
-            visual_description?: string;
-            use_when?: string;
-            shape_hints?: Record<string, string>;
-        }>;
+        const parsed: unknown = JSON.parse(cleaned);
+        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            throw new Error('Vision enrichment response is not a JSON object');
+        }
+        const enrichments = parsed as Record<string, Record<string, unknown>>;
 
         let enrichedCount = 0;
         for (const st of catalog.slide_types) {
-            const e = enrichments[st.id];
-            if (!e) continue;
-            if (e.visual_description) st.visual_description = e.visual_description;
-            if (e.use_when) st.use_when = e.use_when;
+            const raw = enrichments[st.id];
+            if (!raw || typeof raw !== 'object') continue;
+            const e = raw as { visual_description?: unknown; use_when?: unknown; shape_hints?: unknown };
+            if (typeof e.visual_description === 'string') st.visual_description = e.visual_description;
+            if (typeof e.use_when === 'string') st.use_when = e.use_when;
 
             // Apply per-shape semantic hints
-            if (e.shape_hints) {
+            if (e.shape_hints && typeof e.shape_hints === 'object' && !Array.isArray(e.shape_hints)) {
+                const hints = e.shape_hints as Record<string, unknown>;
                 for (const sh of st.shapes) {
                     const key = sh.duplicate_index != null && sh.duplicate_index > 0
                         ? `${sh.name}#${sh.duplicate_index}` : sh.name;
-                    const hint = e.shape_hints[key] ?? e.shape_hints[sh.name];
-                    if (hint) sh.semantic_hint = hint;
+                    const hint = hints[key] ?? hints[sh.name];
+                    if (typeof hint === 'string') sh.semantic_hint = hint;
                 }
             }
 

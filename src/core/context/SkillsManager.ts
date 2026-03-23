@@ -22,6 +22,7 @@
  */
 
 import type { FileAdapter } from '../storage/types';
+import { safeRegex } from '../utils/safeRegex';
 
 export interface SkillMeta {
     /** Path relative to FileAdapter root (e.g. "skills/my-skill/SKILL.md") */
@@ -108,12 +109,7 @@ export class SkillsManager {
         const relevant = skills.filter((s) => {
             // Priority 1: Trigger regex (fast path)
             if (s.trigger) {
-                try {
-                    const regex = new RegExp(s.trigger, 'i');
-                    if (regex.test(msgLower)) return true;
-                } catch {
-                    // Invalid regex — fall through to keyword matching
-                }
+                if (safeRegex(s.trigger, 'i').test(msgLower)) return true;
             }
             // Priority 2: Keyword overlap on description
             const descWords = s.description.toLowerCase().match(wordPattern) ?? [];

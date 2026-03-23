@@ -24,6 +24,7 @@ import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
+import { safeRegex } from '../core/utils/safeRegex';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
 
@@ -826,7 +827,7 @@ export class AgentSidebarView extends ItemView {
         // User skills: trigger regex + keyword
         for (const s of userSkills) {
             if (s.trigger) {
-                try { if (new RegExp(s.trigger, 'i').test(msgLower)) { matched.add(s.name); continue; } } catch { /* skip */ }
+                if (safeRegex(s.trigger, 'i').test(msgLower)) { matched.add(s.name); continue; }
             }
             const descWords = s.description.toLowerCase().match(wordPattern) ?? [];
             if (descWords.some(w => msgWords.has(w))) matched.add(s.name);
