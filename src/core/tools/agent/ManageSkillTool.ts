@@ -283,7 +283,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         const mergedRequiredTools = params.required_tools ?? skill.requiredTools;
         const mergedBody = params.body ?? skill.body;
 
-        if (await this.isProtectedTemplateSkill(skill.filePath, mergedBody, mergedRequiredTools)) {
+        if (this.isProtectedTemplateSkill(skill.filePath, mergedBody, mergedRequiredTools)) {
             throw new Error(
                 `Template skill "${params.name}" cannot be updated via manage_skill. ` +
                 'Re-run ingest_template to regenerate the layout catalog.',
@@ -560,11 +560,11 @@ ${params.body ?? ''}
         return templatePatterns.some(p => p.test(body));
     }
 
-    private async isProtectedTemplateSkill(
+    private isProtectedTemplateSkill(
         _skillFilePath: string,
         body: string,
         requiredTools?: string[],
-    ): Promise<boolean> {
+    ): boolean {
         return this.looksLikeTemplateSkill(body, requiredTools);
     }
 }

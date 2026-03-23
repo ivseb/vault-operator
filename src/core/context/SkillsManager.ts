@@ -149,7 +149,7 @@ export class SkillsManager {
     /**
      * Read a skill file's content (for UI editing).
      */
-    async readFile(path: string): Promise<string> {
+    readFile(path: string): Promise<string> {
         return this.fs.read(path);
     }
 
@@ -194,7 +194,7 @@ export class SkillsManager {
     /**
      * Check if a path exists in global storage.
      */
-    async fileExists(path: string): Promise<boolean> {
+    fileExists(path: string): Promise<boolean> {
         return this.fs.exists(path);
     }
 

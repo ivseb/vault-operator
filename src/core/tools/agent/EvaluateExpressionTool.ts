@@ -101,6 +101,7 @@ export class EvaluateExpressionTool extends BaseTool<'evaluate_expression'> {
 ${imports.join('\n')}
 
 export const definition = { name: '_eval', description: 'eval' };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- generated sandbox code signature, not plugin code
 export async function execute(input: Record<string, unknown>, ctx: { vault: any; requestUrl: any }): Promise<unknown> {
     const context = input.context || {};
     ${hasReturn ? bodyCode : `return (${bodyCode})`};

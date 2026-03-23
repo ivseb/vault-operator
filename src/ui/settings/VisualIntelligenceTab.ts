@@ -22,7 +22,7 @@ export class VisualIntelligenceTab {
         const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
         setIcon(infoIcon, 'eye');
         const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
-        infoText.createEl('strong', { text: 'Visual Intelligence' });
+        infoText.createEl('strong', { text: 'Visual intelligence' });
         infoText.createDiv({
             text: 'Renders presentations to images so the agent can visually inspect layout quality, ' +
                 'text overflow, and design issues. Requires LibreOffice (free, open source).',
@@ -30,7 +30,7 @@ export class VisualIntelligenceTab {
 
         // Master toggle
         new Setting(containerEl)
-            .setName('Enable Visual Intelligence')
+            .setName('Enable visual intelligence')
             .setDesc('When enabled, the agent can use render_presentation to visually verify created slides.')
             .addToggle((toggle) => {
                 toggle
@@ -46,7 +46,7 @@ export class VisualIntelligenceTab {
 
         // Multimodal Template Analysis toggle
         new Setting(containerEl)
-            .setName('Multimodal Template Analysis')
+            .setName('Multimodal template analysis')
             .setDesc(
                 'When enabled, template analysis uses LibreOffice rendering + Claude Vision to generate ' +
                 'semantic shape aliases, visual descriptions, and usage rules automatically. ' +
@@ -65,7 +65,7 @@ export class VisualIntelligenceTab {
             });
 
         // LibreOffice status section
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'LibreOffice' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'LibreOffice' }); // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
 
         const statusContainer = containerEl.createDiv({ cls: 'agent-settings-status-row' });
         const statusDot = statusContainer.createSpan({ cls: 'agent-settings-status-dot' });
@@ -93,14 +93,14 @@ export class VisualIntelligenceTab {
             statusText.setText(`LibreOffice found: ${result.path}`);
         } else {
             statusDot.addClass('status-disconnected');
-            statusText.setText('LibreOffice not found');
+            statusText.setText('LibreOffice not found'); // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
 
             // Download + Retry buttons
             const btnRow = containerEl.createDiv({ cls: 'agent-settings-btn-row' });
 
             const downloadBtn = btnRow.createEl('button', {
                 cls: 'mod-cta',
-                text: 'Download LibreOffice',
+                text: 'Download LibreOffice', // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
             });
             downloadBtn.addEventListener('click', () => {
                 // eslint-disable-next-line -- require electron for shell.openExternal
@@ -119,7 +119,7 @@ export class VisualIntelligenceTab {
 
         // Custom path input
         new Setting(containerEl)
-            .setName('Custom LibreOffice path')
+            .setName('Custom LibreOffice path') // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
             .setDesc('Override the auto-detected path (leave empty for auto-detection).')
             .addText((text) => {
                 text

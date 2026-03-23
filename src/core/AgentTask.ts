@@ -980,7 +980,7 @@ export class AgentTask {
         }
 
         // After adjusting for Case 1, recompute the split point
-        let toSummarize = history.slice(0, history.length - tail.length);
+        const toSummarize = history.slice(0, history.length - tail.length);
 
         // Case 2: toSummarize ends with assistant(tool_use) — the condensing API
         // call would receive tool_use without tool_result, causing a 400 error.

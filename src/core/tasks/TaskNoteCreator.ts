@@ -40,7 +40,7 @@ function toTitle(text: string): string {
     for (let i = 4; i < Math.min(words.length, 8); i++) {
         const w = words[i].toLowerCase().replace(/[,;:\-()]/g, '');
         if (breakWords.has(w) || words[i].startsWith('(')) {
-            return words.slice(0, i).join(' ').replace(/[,;:\-]+$/, '').trim();
+            return words.slice(0, i).join(' ').replace(/[,;:-]+$/, '').trim();
         }
     }
 
@@ -104,7 +104,7 @@ export class TaskNoteCreator {
             try {
                 const title = toTitle(stripMarkdown(item.cleanText));
                 const slug = toSlug(title);
-                const path = await this.uniquePath(folder, slug);
+                const path = this.uniquePath(folder, slug);
                 const content = this.buildNoteContent(item, title, sourceNote, today);
                 await this.app.vault.create(path, content);
                 created.push(path);
@@ -169,7 +169,7 @@ export class TaskNoteCreator {
     /**
      * Returns a unique file path, appending -2, -3 etc. if the slug already exists.
      */
-    private async uniquePath(folder: string, slug: string): Promise<string> {
+    private uniquePath(folder: string, slug: string): string {
         let candidate = `${folder}/${slug}.md`;
         if (!(this.app.vault.getAbstractFileByPath(candidate) instanceof TFile)) {
             return candidate;

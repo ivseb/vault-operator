@@ -18,7 +18,7 @@ export class CondensationFeedback {
 
         const header = row.createDiv('condensation-feedback-header');
         setIcon(header.createSpan('condensation-icon'), 'fold-vertical');
-        header.createSpan('condensation-title').setText('Context Condensed');
+        header.createSpan('condensation-title').setText('Context condensed');
 
         const tokens = header.createSpan('condensation-tokens');
         tokens.setText(

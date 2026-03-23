@@ -97,8 +97,8 @@ export class EmbeddingsTab {
         }
 
         const getIdx = (): SemanticIndexService | null => this.plugin.semanticIndex;
-        // statusEl is created later inside the "Build index" setting — declared here for scope
-        let statusEl: HTMLElement;
+        // statusEl: declared here for closure scope, assigned below in "Build index" setting
+        let statusEl: HTMLElement = undefined as unknown as HTMLElement;
 
         const semanticEnableSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.enableIndex'))

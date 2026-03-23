@@ -27,12 +27,12 @@ export class NewModeModal extends Modal {
 
         let slug = '';
         let name = '';
-        let icon = 'sparkles';
+        const icon = 'sparkles';
         let description = '';
         let whenToUse = '';
         let roleDefinition = '';
         let customInstructions = '';
-        let selectedGroups: Set<string> = new Set(['read', 'vault', 'agent']);
+        const selectedGroups: Set<string> = new Set(['read', 'vault', 'agent']);
         let modelKey = '';
         let saveLocation: 'vault' | 'global' = 'vault';
 

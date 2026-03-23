@@ -55,7 +55,7 @@ const QUOTE_PATTERNS = [
 
 type Role = ShapeEntry['role'];
 
-interface RoleCounts extends Record<Role, number> {}
+type RoleCounts = Record<Role, number>;
 
 function countRoles(shapes: ShapeEntry[]): RoleCounts {
     return shapes.reduce<RoleCounts>((acc, shape) => {

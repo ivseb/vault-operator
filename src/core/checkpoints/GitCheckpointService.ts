@@ -289,7 +289,7 @@ export class GitCheckpointService {
     /**
      * Restore files from a specific checkpoint (used by checkpoint markers).
      */
-    async restoreToCheckpoint(checkpoint: CheckpointInfo): Promise<RestoreResult> {
+    restoreToCheckpoint(checkpoint: CheckpointInfo): Promise<RestoreResult> {
         return this.restore(checkpoint);
     }
 
@@ -390,7 +390,7 @@ export class GitCheckpointService {
      * Remove old checkpoint commits to keep repo lean.
      * Call after task completes (if autoCleanup is enabled).
      */
-    async cleanup(taskId: string): Promise<void> {
+    cleanup(taskId: string): void {
         if (!this.autoCleanup) return;
         // For simplicity: we keep the last 10 commits and prune older ones via gc
         // isomorphic-git doesn't have a built-in GC, so we just log for now

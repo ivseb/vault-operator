@@ -185,7 +185,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
             } else if (action === 'apply_preset') {
                 await this.handlePreset(input, callbacks);
             } else if (action === 'open_tab') {
-                await this.handleOpenTab(input, callbacks);
+                this.handleOpenTab(input, callbacks);
             } else {
                 callbacks.pushToolResult(this.formatError(new Error(
                     `Unknown action: "${action}". Use "set", "apply_preset", or "open_tab".`
@@ -246,7 +246,7 @@ export class UpdateSettingsTool extends BaseTool<'update_settings'> {
         callbacks.log(`update_settings: ${path} = ${JSON.stringify(value)}`);
     }
 
-    private async handleOpenTab(input: Record<string, unknown>, callbacks: import('../types').ToolCallbacks): Promise<void> {
+    private handleOpenTab(input: Record<string, unknown>, callbacks: import('../types').ToolCallbacks): void {
         const tab = (input.tab as string ?? '').trim();
         const subTab = (input.sub_tab as string ?? '').trim() || undefined;
 

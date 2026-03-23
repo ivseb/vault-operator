@@ -38,6 +38,7 @@ export class TaskSelectionModal extends Modal {
         });
 
         contentEl.createEl('p', {
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
             text: 'Welche Aufgaben sollen als Task-Notes erstellt werden?',
             cls: 'task-selection-subtitle',
         });

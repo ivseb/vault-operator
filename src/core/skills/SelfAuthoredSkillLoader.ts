@@ -653,11 +653,9 @@ export class SelfAuthoredSkillLoader {
         const fm = this.parseFrontmatter(frontmatter);
         if (!fm.name || !fm.description) return null;
 
-        let trigger: RegExp;
-        let triggerSource: string;
-        triggerSource = fm.trigger ?? fm.name.toLowerCase();
+        const triggerSource = fm.trigger ?? fm.name.toLowerCase();
         // M-3: Use safeRegex to prevent ReDoS from malicious trigger patterns
-        trigger = safeRegex(triggerSource, 'i');
+        const trigger = safeRegex(triggerSource, 'i');
 
         return {
             name: fm.name,

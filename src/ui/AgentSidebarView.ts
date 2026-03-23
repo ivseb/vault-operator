@@ -2141,7 +2141,7 @@ export class AgentSidebarView extends ItemView {
     /**
      * Trigger manual context condensing
      */
-    private async triggerManualCondensing(): Promise<void> {
+    private triggerManualCondensing(): void {
         if (!this.contextTracker) {
             new Notice('Context tracker not initialized');
             return;
@@ -2260,6 +2260,7 @@ export class AgentSidebarView extends ItemView {
                         }
                     } catch (err) {
                         console.warn('[TaskExtraction] Failed to create task notes:', err);
+                        // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
                         new Notice('Fehler beim Erstellen der Task-Notes');
                     }
                 },
@@ -2426,7 +2427,7 @@ export class AgentSidebarView extends ItemView {
     }
 
     /** Public entry point for deep-link protocol handler (ADR-022, FEATURE-300). */
-    async loadConversationById(id: string): Promise<void> {
+    loadConversationById(id: string): Promise<void> {
         return this.loadConversation(id);
     }
 

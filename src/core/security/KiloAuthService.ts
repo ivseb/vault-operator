@@ -327,17 +327,15 @@ export class KiloAuthService {
      * Review-Bot: SDK-internes globalThis.fetch ist toleriert (wie github-copilot.ts).
      */
     getKiloFetch(): typeof globalThis.fetch {
-        const self = this;
-
-        return async function kiloFetch(
+        return async (
             input: RequestInfo | URL,
             init?: RequestInit,
-        ): Promise<Response> {
+        ): Promise<Response> => {
             const headers = new Headers(init?.headers);
 
-            headers.set('Authorization', `Bearer ${self.token}`);
+            headers.set('Authorization', `Bearer ${this.token}`);
 
-            const orgId = self.session.organizationId;
+            const orgId = this.session.organizationId;
             if (orgId) {
                 headers.set('X-KiloCode-OrganizationId', orgId);
             }

@@ -396,13 +396,11 @@ export class GitHubCopilotAuthService {
      *  4. Delegates to globalThis.fetch (SDK-internal, Review-Bot tolerated)
      */
     getCopilotFetch(): typeof globalThis.fetch {
-        const self = this;
-
-        return async function copilotFetch(
+        return async (
             input: RequestInfo | URL,
             init?: RequestInit,
-        ): Promise<Response> {
-            const token = await self.getCopilotToken();
+        ): Promise<Response> => {
+            const token = await this.getCopilotToken();
 
             const headers = new Headers(init?.headers);
             headers.set('Authorization', `Bearer ${token}`);

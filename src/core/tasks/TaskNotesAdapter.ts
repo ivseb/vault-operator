@@ -116,7 +116,7 @@ export class TaskNotesAdapter {
             try {
                 const title = stripMarkdown(item.cleanText);
                 const slug = toSlug(title);
-                const path = await this.uniquePath(folder, slug);
+                const path = this.uniquePath(folder, slug);
                 const content = this.buildNoteContent(
                     item, title, sourceNote, fields, taskTag, defaultStatus, defaultPriority,
                 );
@@ -269,7 +269,7 @@ export class TaskNotesAdapter {
         }
     }
 
-    private async uniquePath(folder: string, slug: string): Promise<string> {
+    private uniquePath(folder: string, slug: string): string {
         let candidate = `${folder}/${slug}.md`;
         if (!(this.app.vault.getAbstractFileByPath(candidate) instanceof TFile)) {
             return candidate;
