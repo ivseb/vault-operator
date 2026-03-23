@@ -53,7 +53,11 @@ export function scan(text: string): TaskItem[] {
         cleanText = cleanText.replace(/\s{2,}/g, ' ').trim();
 
         if (cleanText.length > 0) {
-            items.push({ text: rawText, assignee, dueDate, cleanText });
+            // Deduplicate by cleanText (same task from prose and tool content)
+            const isDuplicate = items.some((existing) => existing.cleanText === cleanText);
+            if (!isDuplicate) {
+                items.push({ text: rawText, assignee, dueDate, cleanText });
+            }
         }
     }
 

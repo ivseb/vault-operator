@@ -14,6 +14,7 @@ import { WorkflowsTab }   from './settings/WorkflowsTab';
 import { SkillsTab }      from './settings/SkillsTab';
 import { PromptsTab }     from './settings/PromptsTab';
 import { McpTab }         from './settings/McpTab';
+import { VisualIntelligenceTab } from './settings/VisualIntelligenceTab';
 import { VaultTab }       from './settings/VaultTab';
 import { InterfaceTab }   from './settings/InterfaceTab';
 import { LogTab }         from './settings/LogTab';
@@ -220,20 +221,22 @@ export class AgentSettingsTab extends PluginSettingTab {
         this.buildSubTabNav(
             container,
             [
-                { id: 'interface', label: t('settings.tab.interface') },
-                { id: 'shell',     label: t('settings.tab.shell')     },
-                { id: 'log',       label: t('settings.tab.log')       },
-                { id: 'debug',     label: t('settings.tab.debug')     },
-                { id: 'backup',    label: t('settings.tab.backup')    },
+                { id: 'interface',           label: t('settings.tab.interface') },
+                { id: 'shell',               label: t('settings.tab.shell')     },
+                { id: 'visual-intelligence', label: 'Visual Intelligence'       },
+                { id: 'log',                 label: t('settings.tab.log')       },
+                { id: 'debug',               label: t('settings.tab.debug')     },
+                { id: 'backup',              label: t('settings.tab.backup')    },
             ],
             this.activeAdvancedSubTab,
             (id) => { this.activeAdvancedSubTab = id; this.display(); },
         );
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.display();
-        if (this.activeAdvancedSubTab === 'interface') new InterfaceTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'shell')     new ShellTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'log')       new LogTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'interface')           new InterfaceTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'shell')               new ShellTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'visual-intelligence') new VisualIntelligenceTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'log')                 new LogTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'debug')     new DebugTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'backup')    new BackupTab(this.plugin, this.app, rerender).build(content);
     }

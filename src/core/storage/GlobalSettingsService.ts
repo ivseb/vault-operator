@@ -43,6 +43,7 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     'forcedSkills',
     '_encrypted',
     '_globalStorageMigrated',
+    '_syncDirMigrated',
 ]);
 
 // ---------------------------------------------------------------------------

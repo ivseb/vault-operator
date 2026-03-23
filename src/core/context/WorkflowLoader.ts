@@ -98,7 +98,7 @@ export class WorkflowLoader {
     /**
      * Load a single workflow file's content.
      */
-    async loadWorkflow(wPath: string): Promise<string> {
+    loadWorkflow(wPath: string): Promise<string> {
         return this.fs.read(wPath);
     }
 
@@ -123,7 +123,7 @@ export class WorkflowLoader {
     /**
      * Read a workflow file's content (for UI editing).
      */
-    async readFile(wPath: string): Promise<string> {
+    readFile(wPath: string): Promise<string> {
         return this.fs.read(wPath);
     }
 

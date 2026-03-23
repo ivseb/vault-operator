@@ -95,7 +95,7 @@ export class RulesLoader {
     /**
      * Read a rule file's content (for UI editing).
      */
-    async readFile(rPath: string): Promise<string> {
+    readFile(rPath: string): Promise<string> {
         return this.fs.read(rPath);
     }
 

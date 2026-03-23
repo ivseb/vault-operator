@@ -48,16 +48,18 @@ export class VaultTab {
             );
 
         // ── Task Extraction (FEATURE-100) ────────────────────────────────────
-        containerEl.createEl('h3', { text: 'Task Extraction' });
+        containerEl.createEl('h3', { text: 'Task extraction' });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
-            text: 'Erkennt Aufgaben (- [ ] Items) in Agent-Antworten und erstellt Task-Notes mit strukturiertem Frontmatter.',
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
+            text: 'Erkennt Aufgaben (- [ ] items) in Agent-Antworten und erstellt Task-Notes mit strukturiertem Frontmatter.',
         });
 
         const taskSettings = this.plugin.settings.taskExtraction ?? { enabled: true, taskFolder: 'Tasks' };
 
         new Setting(containerEl)
-            .setName('Task Extraction aktivieren')
+            .setName('Task extraction aktivieren')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
             .setDesc('Nach jeder Agent-Antwort nach Aufgaben scannen und ein Auswahl-Modal anzeigen.')
             .addToggle((toggle) =>
                 toggle.setValue(taskSettings.enabled).onChange(async (v) => {
@@ -67,7 +69,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Task-Ordner')
+            .setName('Task-ordner')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
             .setDesc('Vault-Ordner in dem Task-Notes und die Task-Base erstellt werden.')
             .addText((text) =>
                 text
@@ -78,6 +81,18 @@ export class VaultTab {
                         this.plugin.settings.taskExtraction = { ...taskSettings, taskFolder: folder };
                         await this.plugin.saveSettings();
                     }),
+            );
+
+        new Setting(containerEl)
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- TaskNotes is a proper noun (plugin name)
+            .setName('TaskNotes plugin bevorzugen')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
+            .setDesc('Wenn das Community plugin "TaskNotes" aktiv ist, Tasks in dessen Format erstellen. Ansonsten wird das interne Format verwendet.')
+            .addToggle((toggle) =>
+                toggle.setValue(taskSettings.preferTaskNotesPlugin ?? true).onChange(async (v) => {
+                    this.plugin.settings.taskExtraction = { ...taskSettings, preferTaskNotesPlugin: v };
+                    await this.plugin.saveSettings();
+                }),
             );
     }
 }

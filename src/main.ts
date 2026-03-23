@@ -1,5 +1,5 @@
 import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon, requestUrl } from 'obsidian';
-import { ObsidianAgentSettings, DEFAULT_SETTINGS, getModelKey, modelToLLMProvider } from './types/settings';
+import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel, AutoApprovalConfig } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { OBSILO_ICON_SVG } from './ui/obsiloIcon';
@@ -34,6 +34,8 @@ import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
 import { initI18n, t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
+import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
+import { KiloAuthService } from './core/security/KiloAuthService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
 import { RecipeMatchingService } from './core/mastery/RecipeMatchingService';
@@ -78,6 +80,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     semanticIndex: SemanticIndexService | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
+    /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
+    sessionFlags = new Set<string>();
     private cloudProviderWarningShown = false;
     chatHistoryService: ChatHistoryService | null = null;
     conversationStore: ConversationStore | null = null;
@@ -195,9 +199,30 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-        this.syncBridge = new SyncBridge(this.globalFs, this.app.vault, pluginDir);
+        const syncDir = '.obsilo-sync';
+        this.syncBridge = new SyncBridge(this.globalFs, this.app.vault, syncDir);
 
-        // Pull latest data from vault plugin dir (arriving via Obsidian Sync)
+        // One-time migration: pull sync data from old plugin-dir location to global storage,
+        // then push to new .obsilo-sync/ location BEFORE pullFromVault() runs.
+        // Critical: pushToVault() must populate .obsilo-sync/ first, otherwise
+        // pullFromVault() sees an empty .obsilo-sync/ and deletes all global data as orphans.
+        if (!this.settings._syncDirMigrated) {
+            await this.syncBridge.pullFromLegacyPluginDir(pluginDir).catch((e) =>
+                console.warn('[Plugin] SyncBridge plugin-dir migration failed (non-fatal):', e)
+            );
+            // Push global data to .obsilo-sync/ so pullFromVault() won't treat it as orphans
+            await this.syncBridge.pushToVault().catch((e) =>
+                console.warn('[Plugin] SyncBridge initial push to .obsilo-sync/ failed (non-fatal):', e)
+            );
+            // Clean up old sync data from plugin directory (frees ~600 MB)
+            await this.cleanupLegacyPluginDirData(pluginDir).catch((e) =>
+                console.warn('[Plugin] Legacy plugin-dir cleanup failed (non-fatal):', e)
+            );
+            this.settings._syncDirMigrated = true;
+            await this.saveData({ ...this.settings, _syncDirMigrated: true });
+        }
+
+        // Pull latest data from vault sync dir (arriving via Obsidian Sync)
         await this.syncBridge.pullFromVault().catch((e) =>
             console.warn('[Plugin] SyncBridge pull failed (non-fatal):', e)
         );
@@ -573,6 +598,23 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Decrypt API keys if they were stored encrypted (ADR-019)
         this.decryptSettings(this.settings);
+
+        // Initialize GitHub Copilot auth service with persisted tokens (ADR-037)
+        const copilotAuth = GitHubCopilotAuthService.getInstance();
+        copilotAuth.loadFromSettings(this.settings);
+        copilotAuth.setSaveCallback(async () => {
+            copilotAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
+        // Initialize Kilo Gateway auth service with persisted session (ADR-041)
+        const kiloAuth = KiloAuthService.getInstance();
+        kiloAuth.loadFromSettings(this.settings);
+        kiloAuth.setSaveCallback(async () => {
+            kiloAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
         // Migrate old mode slugs to new built-in mode slugs (Phase 3.1)
         const OLD_MODE_MAP: Record<string, string> = { librarian: 'ask', writer: 'agent', orchestrator: 'agent', researcher: 'ask', curator: 'agent', architect: 'agent' };
         if (OLD_MODE_MAP[this.settings.currentMode]) {
@@ -601,6 +643,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
         ap.skills = ap.skills ?? false;
+        // Migrate: Visual Intelligence default enabled (FEATURE-1115)
+        // One-time: enable for existing installs that never had Visual Intelligence
+        if (!(saved as Record<string, unknown>)._viMigrated) {
+            this.settings.visualIntelligence = { ...this.settings.visualIntelligence, enabled: true };
+            (this.settings as unknown as Record<string, unknown>)._viMigrated = true;
+        }
         // Deep-merge autoApproval: new keys from DEFAULT_SETTINGS are applied
         // so the UI always reflects the actual effective value (WYSIWYG).
         const apDefaults = DEFAULT_SETTINGS.autoApproval;
@@ -664,6 +712,25 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (this.settings.recipes && !this.settings.recipes.enabled) {
             this.settings.recipes.enabled = true;
             void this.saveData(this.encryptSettingsForSave(this.settings));
+        }
+
+        // Seed built-in MCP servers (EPIC-011: design asset integration)
+        this.settings.mcpServers = this.settings.mcpServers ?? {};
+        for (const [name, config] of Object.entries(BUILTIN_MCP_SERVERS)) {
+            const existing = this.settings.mcpServers[name];
+            if (!existing) {
+                this.settings.mcpServers[name] = { ...config };
+            } else if (existing.isBuiltIn && existing.type !== config.type) {
+                // Update transport type if it changed (e.g. SSE -> streamable-http)
+                existing.type = config.type;
+                existing.url = config.url;
+            }
+        }
+        // Remove stale built-in servers no longer shipped with the plugin
+        for (const [name, config] of Object.entries(this.settings.mcpServers)) {
+            if (config.isBuiltIn && !BUILTIN_MCP_SERVERS[name]) {
+                delete this.settings.mcpServers[name];
+            }
         }
 
         // Migrate auto-approval: ensure newer keys have sensible defaults
@@ -791,6 +858,17 @@ export default class ObsidianAgentPlugin extends Plugin {
                 settings.webTools.tavilyApiKey = this.safeStorage.decrypt(settings.webTools.tavilyApiKey);
             }
         }
+        // GitHub Copilot tokens (ADR-038)
+        if (settings.githubCopilotAccessToken) {
+            settings.githubCopilotAccessToken = this.safeStorage.decrypt(settings.githubCopilotAccessToken);
+        }
+        if (settings.githubCopilotToken) {
+            settings.githubCopilotToken = this.safeStorage.decrypt(settings.githubCopilotToken);
+        }
+        // Kilo Gateway token (ADR-041)
+        if (settings.kiloToken) {
+            settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
+        }
     }
 
     /**
@@ -821,6 +899,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (copy.webTools.tavilyApiKey && !this.safeStorage.isEncrypted(copy.webTools.tavilyApiKey)) {
                 copy.webTools.tavilyApiKey = this.safeStorage.encrypt(copy.webTools.tavilyApiKey);
             }
+        }
+        // GitHub Copilot tokens (ADR-038)
+        if (copy.githubCopilotAccessToken && !this.safeStorage.isEncrypted(copy.githubCopilotAccessToken)) {
+            copy.githubCopilotAccessToken = this.safeStorage.encrypt(copy.githubCopilotAccessToken);
+        }
+        if (copy.githubCopilotToken && !this.safeStorage.isEncrypted(copy.githubCopilotToken)) {
+            copy.githubCopilotToken = this.safeStorage.encrypt(copy.githubCopilotToken);
+        }
+        // Kilo Gateway token (ADR-041)
+        if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
+            copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
         }
         copy._encrypted = true;
         return copy;
@@ -1031,6 +1120,67 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Fires on vault modify/create events — debounce prevents thrashing
      * while the user is actively typing in a note.
      */
+    /**
+     * One-time cleanup: remove old sync data from the plugin directory.
+     * Called after migration to .obsilo-sync/ to free ~600 MB from the vault.
+     * Preserves: skills/ (bundled), checkpoints/, dev-env/, main.js, manifest.json, etc.
+     */
+    private async cleanupLegacyPluginDirData(pluginDir: string): Promise<void> {
+        const adapter = this.app.vault.adapter;
+        const dirsToRemove = ['history', 'logs', 'recipes', 'episodes', 'patterns', 'rules', 'workflows', 'memory', 'semantic-index'];
+        const filesToRemove = ['pending-extractions.json'];
+
+        for (const dir of dirsToRemove) {
+            const dirPath = `${pluginDir}/${dir}`;
+            try {
+                if (await adapter.exists(dirPath)) {
+                    const listing = await adapter.list(dirPath);
+                    for (const f of listing.files) {
+                        await adapter.remove(f);
+                    }
+                    // Remove subdirectories recursively
+                    for (const sub of listing.folders) {
+                        const subListing = await adapter.list(sub);
+                        for (const sf of subListing.files) {
+                            await adapter.remove(sf);
+                        }
+                        await adapter.rmdir(sub, false).catch(() => {});
+                    }
+                    await adapter.rmdir(dirPath, false).catch(() => {});
+                    console.debug(`[Plugin] Cleaned up legacy ${dir}/ from plugin dir`);
+                }
+            } catch (e) {
+                console.warn(`[Plugin] Failed to clean up ${dirPath} (non-fatal):`, e);
+            }
+        }
+
+        for (const file of filesToRemove) {
+            const filePath = `${pluginDir}/${file}`;
+            try {
+                if (await adapter.exists(filePath)) {
+                    await adapter.remove(filePath);
+                }
+            } catch (e) {
+                console.warn(`[Plugin] Failed to clean up ${filePath} (non-fatal):`, e);
+            }
+        }
+
+        // Also clean up legacy vault-root semantic index (.obsidian-agent/semantic-index/)
+        const legacyIndexDir = '.obsidian-agent/semantic-index';
+        try {
+            if (await adapter.exists(legacyIndexDir)) {
+                const listing = await adapter.list(legacyIndexDir);
+                for (const f of listing.files) {
+                    await adapter.remove(f);
+                }
+                await adapter.rmdir(legacyIndexDir, false).catch(() => {});
+                console.debug('[Plugin] Cleaned up legacy .obsidian-agent/semantic-index/');
+            }
+        } catch (e) {
+            console.warn('[Plugin] Failed to clean up legacy semantic index (non-fatal):', e);
+        }
+    }
+
     private scheduleFileIndex(filePath: string): void {
         if (!this.semanticIndex?.isIndexed) return;
         if (this.settings.semanticExcludedFolders?.some((f) => filePath.startsWith(f + '/'))) return;
@@ -1105,7 +1255,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             };
 
             const readResult = await pipeline.executeTool(readTool, callbacks);
-            console.debug('Read result (content populated):', readResult.content.substring(0, 100) + '...');
+            const readContentText = typeof readResult.content === 'string' ? readResult.content : '[multimodal]';
+            console.debug('Read result (content populated):', readContentText.substring(0, 100) + '...');
 
             console.debug('\n=== Tool Execution Test Complete ===');
             console.debug('Results collected:', results.length);

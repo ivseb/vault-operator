@@ -135,7 +135,7 @@ export class IgnoreService {
 
     private matchPattern(path: string, pattern: string): boolean {
         // Normalize pattern
-        let p = pattern.replace(/\\/g, '/').replace(/^\//, '');
+        const p = pattern.replace(/\\/g, '/').replace(/^\//, '');
 
         // Directory pattern: "folder/" matches "folder/anything"
         if (p.endsWith('/')) {

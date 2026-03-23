@@ -57,7 +57,7 @@ export class SandboxBridge {
         return result;
     }
 
-    async vaultList(path: string): Promise<string[]> {
+    vaultList(path: string): string[] {
         this.checkCircuitBreaker();
         this.validateVaultPath(path);
         this.logBridgeOp('vault-list', path);

@@ -11,6 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig } from '../../types/settings';
+import { obsidianFetch } from './obsidianFetch';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -64,15 +65,22 @@ export class McpClient {
             let transport;
             if (config.type === 'sse') {
                 if (!config.url) throw new Error(`SSE server "${name}" has no URL configured`);
-                const sseOptions: Record<string, unknown> = {};
+                const sseOptions: Record<string, unknown> = {
+                    // Use CORS-free Node.js fetch -- Electron's browser fetch blocks cross-origin SSE
+                    fetch: obsidianFetch,
+                    eventSourceInit: { fetch: obsidianFetch },
+                };
                 if (config.headers && Object.keys(config.headers).length > 0) {
-                    sseOptions.eventSourceInit = { headers: config.headers };
+                    (sseOptions.eventSourceInit as Record<string, unknown>).headers = config.headers;
                     sseOptions.requestInit = { headers: config.headers };
                 }
                 transport = new SSEClientTransport(new URL(config.url), sseOptions);
             } else {
                 if (!config.url) throw new Error(`streamable-http server "${name}" has no URL configured`);
-                const httpOptions: Record<string, unknown> = {};
+                const httpOptions: Record<string, unknown> = {
+                    // Use CORS-free Node.js fetch -- Electron's browser fetch blocks cross-origin requests
+                    fetch: obsidianFetch,
+                };
                 if (config.headers && Object.keys(config.headers).length > 0) {
                     httpOptions.requestInit = { headers: config.headers };
                 }

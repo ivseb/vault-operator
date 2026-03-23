@@ -2,6 +2,9 @@ import { requestUrl } from 'obsidian';
 import type { CustomModel, ProviderType } from '../../types/settings';
 import { buildApiHandler } from '../../api/index';
 import { modelToLLMProvider } from '../../types/settings';
+import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
+import { KiloAuthService } from '../../core/security/KiloAuthService';
+import { KiloMetadataService } from '../../core/providers/KiloMetadataService';
 
 
 // ---------------------------------------------------------------------------
@@ -44,8 +47,10 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
         const lp = modelToLLMProvider({ ...model, maxTokens: 16 });
         const handler = buildApiHandler(lp);
         const abort = new AbortController();
-        // Ollama needs to swap models into memory — allow up to 30 s
-        const timeoutMs = model.provider === 'ollama' ? 30000 : 8000;
+        // Ollama needs to swap models into memory — allow up to 30 s; Copilot/Kilo may need token refresh
+        const timeoutMs = model.provider === 'ollama' ? 30000
+            : (model.provider === 'github-copilot' || model.provider === 'kilo-gateway') ? 15000
+            : 8000;
         const timer = setTimeout(() => abort.abort(), timeoutMs);
         try {
             const stream = handler.createMessage(
@@ -304,6 +309,23 @@ async function fetchProviderModels(
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 
+    // GitHub Copilot — uses auth service for token
+    if (provider === 'github-copilot') {
+        const authService = GitHubCopilotAuthService.getInstance();
+        if (!authService.isAuthenticated()) throw new Error('Not authenticated. Sign in with GitHub first.');
+        const models = await authService.listModels();
+        return models.map((m) => ({ id: m.id, label: (m.name ?? m.id) }));
+    }
+
+    // Kilo Gateway — dynamic model list via KiloMetadataService
+    if (provider === 'kilo-gateway') {
+        if (!KiloAuthService.getInstance().isAuthenticated()) {
+            throw new Error('Not signed in with Kilo. Open settings to connect.');
+        }
+        const models = await KiloMetadataService.getInstance().getModels(true);
+        return models.map((m) => ({ id: m.id, label: m.id }));
+    }
+
     // custom — OpenAI-compatible /v1/models endpoint
     const root = (baseUrl || 'http://localhost:1234').replace(/\/v1\/?$/, '').replace(/\/+$/, '');
     const headers: Record<string, string> = {};
@@ -405,7 +427,7 @@ async function fetchEmbeddingModels(
 
 /** Returns true for o-series models that enforce temperature=1.0 API-side */
 function isTemperatureFixed(provider: ProviderType, modelName: string): boolean {
-    if (provider === 'openai' || provider === 'azure') {
+    if (provider === 'openai' || provider === 'azure' || provider === 'github-copilot') {
         return /^o[1-9]/.test(modelName);
     }
     return false;

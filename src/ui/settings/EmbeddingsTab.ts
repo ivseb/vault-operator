@@ -97,8 +97,8 @@ export class EmbeddingsTab {
         }
 
         const getIdx = (): SemanticIndexService | null => this.plugin.semanticIndex;
-        // statusEl is created later inside the "Build index" setting — declared here for scope
-        let statusEl: HTMLElement;
+        // statusEl: declared here for closure scope, assigned below in "Build index" setting
+        let statusEl: HTMLElement = undefined as unknown as HTMLElement;
 
         const semanticEnableSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.enableIndex'))
@@ -405,12 +405,13 @@ export class EmbeddingsTab {
         addInfoButton(storageSetting, this.app, t('settings.embeddings.infoStorageTitle'), t('settings.embeddings.infoStorageBody'));
         storageSetting.addDropdown((d) =>
             d.addOptions({
+                global: t('settings.embeddings.storageGlobal'),
                 'obsidian-sync': t('settings.embeddings.storageSync'),
                 local: t('settings.embeddings.storageLocal'),
             })
-                .setValue(this.plugin.settings.semanticStorageLocation ?? 'obsidian-sync')
+                .setValue(this.plugin.settings.semanticStorageLocation ?? 'global')
                 .onChange(async (v) => {
-                    this.plugin.settings.semanticStorageLocation = v as 'obsidian-sync' | 'local';
+                    this.plugin.settings.semanticStorageLocation = v as 'obsidian-sync' | 'local' | 'global';
                     await this.plugin.saveSettings();
                 }),
         );

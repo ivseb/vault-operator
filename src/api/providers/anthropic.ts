@@ -269,4 +269,24 @@ export class AnthropicProvider implements ApiHandler {
             return { role: msg.role, content } as Anthropic.MessageParam;
         });
     }
+
+    /**
+     * Quick non-streaming classification call (~100 input, ~10 output tokens).
+     * Used by skill matching LLM-fallback when regex finds no match.
+     */
+    async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        const response = await this.client.messages.create({
+            model: this.config.model,
+            max_tokens: 50,
+            messages: [{ role: 'user', content: prompt }],
+        }, {
+            signal: abortSignal ?? undefined,
+        });
+
+        // Extract text from the response
+        for (const block of response.content) {
+            if (block.type === 'text') return block.text.trim();
+        }
+        return '';
+    }
 }

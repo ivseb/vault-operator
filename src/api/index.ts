@@ -8,6 +8,8 @@ import type { LLMProvider, CustomModel } from '../types/settings';
 import { modelToLLMProvider } from '../types/settings';
 import { AnthropicProvider } from './providers/anthropic';
 import { OpenAiProvider } from './providers/openai';
+import { GitHubCopilotProvider } from './providers/github-copilot';
+import { KiloGatewayProvider } from './providers/kilo-gateway';
 
 export type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ContentBlock, ModelInfo } from './types';
 
@@ -26,6 +28,10 @@ export function buildApiHandler(config: LLMProvider) {
     switch (providerType) {
         case 'anthropic':
             return new AnthropicProvider(config);
+        case 'github-copilot':
+            return new GitHubCopilotProvider(config);
+        case 'kilo-gateway':
+            return new KiloGatewayProvider(config);
         case 'openai':
         case 'ollama':
         case 'lmstudio':

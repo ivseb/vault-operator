@@ -244,7 +244,7 @@ ${record.sourceTs}
     /**
      * List all persisted dynamic tool names.
      */
-    async listNames(): Promise<string[]> {
+    listNames(): string[] {
         const folder = this.plugin.app.vault.getAbstractFileByPath(this.toolsDir);
         if (!(folder instanceof TFolder)) return [];
         return folder.children

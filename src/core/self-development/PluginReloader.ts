@@ -99,7 +99,7 @@ export class PluginReloader {
     /**
      * Check if a backup exists.
      */
-    async hasBackup(): Promise<boolean> {
+    hasBackup(): Promise<boolean> {
         const adapter = this.plugin.app.vault.adapter;
         return adapter.exists(`${this.pluginDir}/main.js.bak`);
     }

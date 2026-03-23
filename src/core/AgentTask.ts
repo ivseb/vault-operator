@@ -11,7 +11,7 @@
  * 5. Loop until no more tool calls (end_turn)
  */
 
-import type { ApiHandler, MessageParam, ContentBlock } from '../api/types';
+import type { ApiHandler, MessageParam, ContentBlock, ToolResultContentBlock } from '../api/types';
 import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
@@ -21,6 +21,7 @@ import type { ModeService } from './modes/ModeService';
 import type { ModeConfig } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
+import { QUALITY_GATES } from './tools/qualityGates';
 
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
@@ -33,6 +34,8 @@ export interface AgentTaskCallbacks {
     onToolStart: (name: string, input: Record<string, unknown>) => void;
     /** Called when a tool has finished executing */
     onToolResult: (name: string, content: string, isError: boolean) => void;
+    /** Called with intermediate progress messages from long-running tools (e.g. ingest_template phase banners) */
+    onToolProgress?: (name: string, content: string) => void;
     /** Called with cumulative token usage just before onComplete (Feature 6) */
     onUsage?: (inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheCreationTokens?: number) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
@@ -80,6 +83,8 @@ export interface AgentTaskRunConfig {
     recipesSection?: string;
     selfAuthoredSkillsSection?: string;
     configDir?: string;
+    /** Names of active skills for power steering reminders */
+    activeSkillNames?: string[];
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
 }
@@ -161,6 +166,7 @@ export class AgentTask {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir,
+            activeSkillNames,
             conversationId,
         } = config;
         // Resolve mode to ModeConfig
@@ -172,6 +178,7 @@ export class AgentTask {
             this.toolRegistry,
             taskId,
             activeMode.slug,
+            this.api,
         );
 
         // Add user message to the shared history
@@ -326,6 +333,12 @@ export class AgentTask {
         // condense and retry the entire loop once instead of aborting.
         let emergencyRetried = false;
 
+        // Rate limit retry: auto-retry on 429 errors with exponential backoff.
+        // Max 3 retries with 30s, 60s, 120s waits.
+        const RATE_LIMIT_MAX_RETRIES = 3;
+        const RATE_LIMIT_BASE_WAIT_MS = 30_000;
+        let rateLimitRetries = 0;
+
         // eslint-disable-next-line no-constant-condition -- emergency condensing retry loop
         while (true) {
         try {
@@ -364,9 +377,12 @@ export class AgentTask {
                     && iteration > 0
                     && iteration % this.powerSteeringFrequency === 0
                 ) {
+                    const skillReminder = activeSkillNames && activeSkillNames.length > 0
+                        ? `\n\nACTIVE SKILLS: ${activeSkillNames.join(', ')}. Follow their step-by-step workflows. Do not skip steps.`
+                        : '';
                     history.push({
                         role: 'user',
-                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`,
+                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}${skillReminder}\n\nContinue the task.`,
                     });
                 }
 
@@ -492,6 +508,27 @@ export class AgentTask {
                         t.type === 'tool_use' && !toolErrorIds.has(t.id)
                 );
 
+                // Helper: extract display text from a tool result (string or multimodal array).
+                // Used for UI callbacks that only accept strings.
+                const extractTextContent = (content: string | ToolResultContentBlock[]): string => {
+                    if (typeof content === 'string') return content;
+                    return content
+                        .filter((b): b is ToolResultContentBlock & { type: 'text' } => b.type === 'text')
+                        .map((b) => b.text)
+                        .join('\n');
+                };
+
+                // Helper: append a quality gate string to tool result content.
+                const appendQualityGate = (
+                    content: string | ToolResultContentBlock[],
+                    gate: string | undefined,
+                ): string | ToolResultContentBlock[] => {
+                    if (!gate) return content;
+                    if (typeof content === 'string') return content + '\n\n' + gate;
+                    // For multimodal content, append gate as an additional text block
+                    return [...content, { type: 'text' as const, text: '\n\n' + gate }];
+                };
+
                 // Helper: run a single tool through the pipeline and return its result.
                 // Does NOT call onToolResult — caller is responsible for ordering.
                 const runTool = async (toolUse: ContentBlock & { type: 'tool_use' }) => {
@@ -501,7 +538,16 @@ export class AgentTask {
                         return { content: `<error>${repCheck.reason}</error>`, is_error: true as const };
                     }
                     const toolCallbacks: ToolCallbacks = {
-                        pushToolResult: () => {},
+                        pushToolResult: (content) => {
+                            // Final result also updates the live progress display.
+                            if (typeof content === 'string') {
+                                this.taskCallbacks.onToolProgress?.(toolUse.name, content);
+                            }
+                        },
+                        pushProgress: (content) => {
+                            // Intermediate progress: UI-only, not in conversation history.
+                            this.taskCallbacks.onToolProgress?.(toolUse.name, content);
+                        },
                         handleError: async (toolName, error) => {
                             console.error(`[AgentTask] Tool error in ${toolName}:`, error);
                         },
@@ -514,6 +560,7 @@ export class AgentTask {
                         input: toolUse.input,
                     };
                     const result = await pipeline.executeTool(toolCall, toolCallbacks, {
+                        abortSignal,
                         askQuestion,
                         signalCompletion,
                         switchMode,
@@ -530,7 +577,7 @@ export class AgentTask {
                         repetitionDetector.record(
                             toolUse.name,
                             toolUse.input,
-                            result.content.slice(0, 200),
+                            extractTextContent(result.content).slice(0, 200),
                             iteration,
                         );
                     }
@@ -562,7 +609,7 @@ export class AgentTask {
                         const toolUse = validToolUses[i];
                         const result = results[i];
 
-                        this.taskCallbacks.onToolResult(toolUse.name, result.content, result.is_error ?? false);
+                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
                         if (result.is_error) { consecutiveMistakes++; } else { consecutiveMistakes = 0; }
                         if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
@@ -572,10 +619,12 @@ export class AgentTask {
                             );
                         }
 
+                        // Append quality gate checklist to LLM history (not UI)
+                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: result.content,
+                            content: appendQualityGate(result.content, gate),
                             is_error: result.is_error,
                         });
                     }
@@ -584,7 +633,7 @@ export class AgentTask {
                     for (const toolUse of validToolUses) {
                         const result = await runTool(toolUse);
 
-                        this.taskCallbacks.onToolResult(toolUse.name, result.content, result.is_error ?? false);
+                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
                         if (result.is_error) { consecutiveMistakes++; } else { consecutiveMistakes = 0; }
                         if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
@@ -594,10 +643,12 @@ export class AgentTask {
                             );
                         }
 
+                        // Append quality gate checklist to LLM history (not UI)
+                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
-                            content: result.content,
+                            content: appendQualityGate(result.content, gate),
                             is_error: result.is_error,
                         });
 
@@ -771,6 +822,24 @@ export class AgentTask {
                 }
             }
 
+            // Rate limit retry: auto-retry on 429 with exponential backoff
+            const isRateLimit = /rate.?limit|429/i.test(err.message);
+            if (isRateLimit && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+                rateLimitRetries++;
+                const waitMs = RATE_LIMIT_BASE_WAIT_MS * Math.pow(2, rateLimitRetries - 1);
+                const waitSec = Math.round(waitMs / 1000);
+                console.warn(`[AgentTask] Rate limit hit — retry ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
+                this.taskCallbacks.onText(`\n\n*Rate limit reached -- automatically retrying in ${waitSec} seconds (${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
+                await new Promise<void>((r) => setTimeout(r, waitMs));
+                // Check if cancelled during wait
+                if (abortSignal?.aborted) {
+                    console.debug('[AgentTask] Abort signal detected during rate limit wait');
+                    this.taskCallbacks.onComplete();
+                    return;
+                }
+                continue;  // Retry the agent loop
+            }
+
             // Network errors (e.g. "Failed to fetch") get a friendlier message
             const isNetworkError = err instanceof TypeError
                 && /failed to fetch|network|econnrefused/i.test(err.message);
@@ -813,9 +882,16 @@ export class AgentTask {
                     } else if (block.type === 'tool_result') {
                         // tool_result overhead: tool_use_id, type, is_error ~50 tokens
                         count += 50;
-                        // content payload
-                        if ('content' in block && typeof block.content === 'string') {
-                            count += Math.ceil(block.content.length / 4);
+                        // content payload — string or multimodal array
+                        if ('content' in block) {
+                            if (typeof block.content === 'string') {
+                                count += Math.ceil(block.content.length / 4);
+                            } else if (Array.isArray(block.content)) {
+                                for (const sub of block.content) {
+                                    if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                    else if (sub.type === 'image') count += 1000;
+                                }
+                            }
                         }
                     } else if (block.type === 'image') {
                         // Image tokens (flat estimate)
@@ -904,7 +980,7 @@ export class AgentTask {
         }
 
         // After adjusting for Case 1, recompute the split point
-        let toSummarize = history.slice(0, history.length - tail.length);
+        const toSummarize = history.slice(0, history.length - tail.length);
 
         // Case 2: toSummarize ends with assistant(tool_use) — the condensing API
         // call would receive tool_use without tool_result, causing a 400 error.

@@ -34,6 +34,10 @@ export type ToolName =
     | 'open_note'
     | 'generate_canvas'
     | 'create_excalidraw'
+    // Vault: template ingestion + visual intelligence
+    | 'ingest_template'
+    | 'plan_presentation'
+    | 'render_presentation'
     // Vault: office document creation
     | 'create_pptx'
     | 'create_docx'
@@ -82,12 +86,14 @@ export interface ToolUse {
 }
 
 /**
- * Tool result response
+ * Tool result response.
+ * content is normally a string. Tools that return multimodal data (e.g. rendered
+ * slide images) may return an array of ToolResultContentBlock instead.
  */
 export interface ToolResult {
     type: 'tool_result';
     tool_use_id: string;
-    content: string;
+    content: string | import('../../api/types').ToolResultContentBlock[];
     is_error?: boolean;
 }
 
@@ -109,9 +115,18 @@ export interface ToolDefinition {
  */
 export interface ToolCallbacks {
     /**
-     * Push a result to be sent back to the LLM
+     * Push the FINAL result to be sent back to the LLM (goes into conversation history).
+     * Pass a ToolResultContentBlock[] for multimodal results (text + images).
+     * Use pushProgress for intermediate status messages.
      */
-    pushToolResult(content: string): void;
+    pushToolResult(content: string | import('../../api/types').ToolResultContentBlock[]): void;
+
+    /**
+     * Push an intermediate progress/status message to the UI.
+     * Does NOT go into conversation history — keeps the LLM context lean.
+     * Use this for phase banners, heartbeats, batch progress etc.
+     */
+    pushProgress?(content: string): void;
 
     /**
      * Handle an error during tool execution
@@ -129,6 +144,13 @@ export interface ToolCallbacks {
  */
 export interface ToolExecutionContext {
     /**
+     * The API handler used by the current AgentTask.
+     * Tools should use this instead of building their own handler from plugin.getActiveModel(),
+     * because the AgentTask may be using a mode-specific model that differs from the global setting.
+     */
+    apiHandler?: import('../../api/types').ApiHandler;
+
+    /**
      * Current task ID
      */
     taskId: string;
@@ -137,6 +159,12 @@ export interface ToolExecutionContext {
      * Current mode
      */
     mode: string;
+
+    /**
+     * Abort signal for the currently running agent task.
+     * Long-running tools should observe this and stop promptly when aborted.
+     */
+    abortSignal?: AbortSignal;
 
     /**
      * Callbacks for results

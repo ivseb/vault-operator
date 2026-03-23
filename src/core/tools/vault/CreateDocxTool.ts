@@ -176,7 +176,16 @@ export class CreateDocxTool extends BaseTool<'create_docx'> {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
-        const rawSections = Array.isArray(input.sections) ? (input.sections as SectionInput[]) : [];
+        // Handle sections as array or as JSON string (LLMs sometimes stringify the array)
+        let rawSections: SectionInput[] = [];
+        if (Array.isArray(input.sections)) {
+            rawSections = input.sections as SectionInput[];
+        } else if (typeof input.sections === 'string') {
+            try {
+                const parsed = JSON.parse(input.sections as string);
+                if (Array.isArray(parsed)) rawSections = parsed as SectionInput[];
+            } catch { /* Invalid JSON -- fall through to empty */ }
+        }
         const docTitle = ((input.title as string) ?? '').trim();
         const theme = (input.theme as ThemeInput) ?? {};
 

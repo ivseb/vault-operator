@@ -13,7 +13,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { CustomModel, ProviderType } from '../../../types/settings';
-import { getModelKey, BUILT_IN_MODELS } from '../../../types/settings';
+import { getModelKey, BUILT_IN_MODELS, getDefaultBaseUrlForProvider } from '../../../types/settings';
 import { buildApiHandlerForModel } from '../../../api/index';
 
 export class ConfigureModelTool extends BaseTool<'configure_model'> {
@@ -122,7 +122,7 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
             provider: resolvedProvider,
             displayName: (input.display_name as string) ?? builtIn?.displayName ?? modelName,
             apiKey: apiKey || undefined,
-            baseUrl: (input.base_url as string) ?? builtIn?.baseUrl ?? undefined,
+            baseUrl: (input.base_url as string) ?? builtIn?.baseUrl ?? getDefaultBaseUrlForProvider(resolvedProvider),
             enabled: true,
             isBuiltIn: builtIn?.isBuiltIn ?? false,
             maxTokens: builtIn?.maxTokens,

@@ -112,8 +112,9 @@ export const ja: Translations = {
     'settings.embeddings.autoIndexNever': '手動のみ',
     'settings.embeddings.autoIndexStartup': '起動時',
     'settings.embeddings.autoIndexModeSwitch': 'モード切替時',
+    'settings.embeddings.storageGlobal': 'グローバル（~/.obsidian-agent/、推奨）',
     'settings.embeddings.storageSync': 'Obsidian Sync（プラグインフォルダー内）',
-    'settings.embeddings.storageLocal': 'ローカル（保管庫外、同期なし）',
+    'settings.embeddings.storageLocal': 'ローカル（保管庫ルート、同期なし）',
     'settings.embeddings.statusDisabled': 'セマンティックインデックスは無効です。',
     'settings.embeddings.statusNotInit': '初期化されていません。オフ/オンを切り替えて再読み込みしてください。',
     'settings.embeddings.statusNotBuilt': 'まだ構築されていません。「インデックスを構築」をクリックして開始してください。',
@@ -669,6 +670,8 @@ export const ja: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'カスタム',
+    'provider.github-copilot': 'GitHub Copilot',
+    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels

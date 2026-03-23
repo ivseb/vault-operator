@@ -11,8 +11,9 @@
  *  5. Event-loop yielding: setTimeout(0) between disk commits avoids UI freeze
  *  6. Fixed vectra queryItems() signature (was passing string as topK → NaN)
  *
- * Index storage: {pluginDir}/semantic-index/   (obsidian-sync, default)
- *             or .obsidian-agent/semantic-index/ (local)
+ * Index storage: ~/.obsidian-agent/semantic-index/  (global, default — outside vault)
+ *             or {pluginDir}/semantic-index/        (obsidian-sync — inside vault)
+ *             or .obsidian-agent/semantic-index/     (local — vault root)
  * Checkpoint:   {indexDir}/index-meta.json
  */
 
@@ -22,6 +23,7 @@ import type { CustomModel } from '../../types/settings';
 import { LocalIndex, type IndexItem, type QueryResult } from 'vectra';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -49,7 +51,7 @@ export interface SemanticIndexOptions {
     /** How many texts to send per embedding API call. Default: 16 */
     embeddingBatchSize?: number;
     excludedFolders?: string[];
-    storageLocation?: 'obsidian-sync' | 'local';
+    storageLocation?: 'obsidian-sync' | 'local' | 'global';
     /** Whether to also index PDF files. Default: false */
     indexPdfs?: boolean;
     /** Characters per chunk. Default: 2000. Changing this forces a full index rebuild. */
@@ -124,9 +126,13 @@ export class SemanticIndexService {
         this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
 
         const basePath = (vault.adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
-        this.indexDir = options.storageLocation === 'local'
-            ? path.join(basePath, '.obsidian-agent', 'semantic-index')
-            : path.join(basePath, pluginDir, 'semantic-index');
+        if (options.storageLocation === 'global') {
+            this.indexDir = path.join(os.homedir(), '.obsidian-agent', 'semantic-index');
+        } else if (options.storageLocation === 'local') {
+            this.indexDir = path.join(basePath, '.obsidian-agent', 'semantic-index');
+        } else {
+            this.indexDir = path.join(basePath, pluginDir, 'semantic-index');
+        }
 
         this.index = new LocalIndex(this.indexDir);
     }
@@ -519,7 +525,7 @@ export class SemanticIndexService {
     private static tokenize(text: string): string[] {
         return text
             .toLowerCase()
-            .split(/[\s_/,.;:!?()\[\]{}"'`|@#=+*<>~^-]+/)
+            .split(/[\s_/,.;:!?()[\]{}"'`|@#=+*<>~^-]+/)
             .filter((t) => t.length >= 3)
             .map((t) => SemanticIndexService.stemWord(t));
     }
@@ -941,7 +947,7 @@ export class SemanticIndexService {
     // File reading (Markdown + PDF + Office documents)
     // -----------------------------------------------------------------------
 
-    private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
+    private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'potx', 'xlsx', 'docx']);
 
     /**
      * Read a file's text content.

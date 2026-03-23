@@ -1,8 +1,68 @@
 import { App, Modal, Notice, setIcon } from 'obsidian';
 import type { CustomModel, ProviderType } from '../../types/settings';
+import { getDefaultBaseUrlForProvider } from '../../types/settings';
 import { PROVIDER_LABELS, MODEL_SUGGESTIONS, EMBEDDING_PROVIDERS, EMBEDDING_SUGGESTIONS } from './constants';
 import { testModelConnection, testEmbeddingConnection, fetchProviderModels, fetchOllamaModels, fetchEmbeddingModels, isTemperatureFixed, maxTemperature } from './testModelConnection';
+import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
+import { KiloAuthService } from '../../core/security/KiloAuthService';
 import { t } from '../../i18n';
+
+/** Derive vendor group for a Copilot model ID (no slash-prefix like OpenRouter). */
+function copilotModelVendor(modelId: string): string {
+    if (/^claude/i.test(modelId)) return 'Anthropic';
+    if (/^gpt|^o[1-9]|^chatgpt|^codex/i.test(modelId)) return 'OpenAI';
+    if (/^gemini/i.test(modelId)) return 'Google';
+    if (/^mistral/i.test(modelId)) return 'Mistral';
+    return 'Other';
+}
+
+/**
+ * Recommended max output tokens per model. Used when a model is selected from
+ * the Quick Pick to set a sensible default that maximizes the model's capability.
+ * Falls back to pattern matching if the exact ID is not listed.
+ */
+function recommendedMaxTokens(modelId: string): number {
+    // Strip OpenRouter vendor prefix for matching
+    const bare = modelId.includes('/') ? modelId.split('/').pop()! : modelId;
+
+    // Exact matches first
+    const EXACT: Record<string, number> = {
+        'claude-opus-4-6': 32_000,
+        'claude-sonnet-4-5': 16_384,
+        'claude-sonnet-4': 16_384,
+        'claude-haiku-4-5-20251001': 8_192,
+        'claude-3-7-sonnet-20250219': 16_384,
+        'claude-3-5-sonnet-20241022': 8_192,
+        'claude-3.5-sonnet': 8_192,
+        'claude-3-5-haiku-20241022': 8_192,
+        'gpt-5': 32_768,
+        'gpt-5-mini': 16_384,
+        'gpt-5.4': 16_384,
+        'gpt-4.1': 32_768,
+        'gpt-4.1-mini': 16_384,
+        'gpt-4.1-nano': 16_384,
+        'gpt-4o': 16_384,
+        'gpt-4o-mini': 16_384,
+        'o3': 100_000,
+        'o3-mini': 65_536,
+        'o4-mini': 100_000,
+        'o1': 32_768,
+        'codex-mini-latest': 16_384,
+        'gemini-2.0-flash': 8_192,
+        'mistral-large-latest': 8_192,
+    };
+    if (EXACT[bare]) return EXACT[bare];
+
+    // Pattern-based fallbacks
+    if (/^claude-opus/i.test(bare)) return 32_000;
+    if (/^claude-sonnet-4/i.test(bare)) return 16_384;
+    if (/^claude/i.test(bare)) return 8_192;
+    if (/^o[1-9]/i.test(bare)) return 100_000;
+    if (/^gpt-5/i.test(bare)) return 32_768;
+    if (/^gpt-4/i.test(bare)) return 16_384;
+
+    return 8_192; // safe default
+}
 
 export class ModelConfigModal extends Modal {
     private model: CustomModel;
@@ -25,6 +85,7 @@ export class ModelConfigModal extends Modal {
 
     private apiKeyRow: HTMLElement | null = null;
     private baseUrlRow: HTMLElement | null = null;
+    private baseUrlInputEl: HTMLInputElement | null = null;
     private apiVersionRow: HTMLElement | null = null;
     private suggestRow: HTMLElement | null = null;
     private suggestSelEl: HTMLSelectElement | null = null;
@@ -48,6 +109,9 @@ export class ModelConfigModal extends Modal {
     private maxTokensRow: HTMLElement | null = null;
     private maxTokensSliderEl: HTMLInputElement | null = null;
     private maxTokensValueEl: HTMLElement | null = null;
+    private maxTokensNoteEl: HTMLElement | null = null;
+    private copilotAuthRow: HTMLElement | null = null;
+    private kiloAuthRow: HTMLElement | null = null;
     private thinkingBudgetSliderEl: HTMLInputElement | null = null;
     private thinkingBudgetValueEl: HTMLElement | null = null;
 
@@ -70,7 +134,7 @@ export class ModelConfigModal extends Modal {
         this.formDisplayName = this.model.displayName ?? '';
         this.formProvider = this.model.provider;
         this.formApiKey = this.model.apiKey ?? '';
-        this.formBaseUrl = this.model.baseUrl ?? '';
+        this.formBaseUrl = this.model.baseUrl ?? getDefaultBaseUrlForProvider(this.model.provider) ?? '';
         this.formApiVersion = this.model.apiVersion ?? '2024-10-21';
         this.formMaxTokens = this.model.maxTokens ?? 8192;
         this.formTemperatureEnabled = this.model.temperature !== undefined;
@@ -115,13 +179,20 @@ export class ModelConfigModal extends Modal {
         // ── Provider ─────────────────────────────────────────────────────
         const provRow = row(t('modal.modelConfig.provider'));
         const provSel = provRow.createEl('select', { cls: 'mcm-select' });
-        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
+        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'github-copilot', 'kilo-gateway', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
             const opt = provSel.createEl('option', { value: p, text: PROVIDER_LABELS[p] });
             if (p === this.formProvider) opt.selected = true;
         });
         if (!this.isNew && this.model.isBuiltIn) provSel.disabled = true;
         provSel.addEventListener('change', () => {
+            const previousProvider = this.formProvider;
+            const previousDefaultBaseUrl = getDefaultBaseUrlForProvider(previousProvider) ?? '';
             this.formProvider = provSel.value as ProviderType;
+            const nextDefaultBaseUrl = getDefaultBaseUrlForProvider(this.formProvider) ?? '';
+            if (!this.formBaseUrl || this.formBaseUrl === previousDefaultBaseUrl) {
+                this.formBaseUrl = nextDefaultBaseUrl;
+                if (this.baseUrlInputEl) this.baseUrlInputEl.value = this.formBaseUrl;
+            }
             this.updateFieldVisibility();
         });
 
@@ -148,8 +219,14 @@ export class ModelConfigModal extends Modal {
                     this.dnInputEl.value = label;
                 }
             }
+            // Set recommended max tokens for the selected model
+            const rec = recommendedMaxTokens(val);
+            this.formMaxTokens = rec;
+            if (this.maxTokensSliderEl) this.maxTokensSliderEl.value = String(rec);
+            if (this.maxTokensValueEl) this.maxTokensValueEl.setText(rec.toLocaleString());
+
             this.suggestSelEl!.selectedIndex = 0;
-            this.updateTemperatureUI();
+            this.updateFieldVisibility();
         });
         // Fetch button — fetches current model list from the provider's API
         const fetchBtn = suggestControls.createEl('button', { cls: 'mcm-fetch-btn', attr: { title: t('modal.modelConfig.fetchModels') } });
@@ -164,11 +241,13 @@ export class ModelConfigModal extends Modal {
                     : await fetchProviderModels(this.formProvider, this.formApiKey, this.formBaseUrl || undefined);
                 this.suggestSelEl.options.length = 0;
                 this.suggestSelEl.createEl('option', { value: '', text: t('modal.modelConfig.modelsFetched', { count: models.length }), attr: { disabled: '', selected: '' } });
-                // For OpenRouter chat models, group by vendor prefix
-                if (!this.forEmbedding && this.formProvider === 'openrouter') {
+                // For OpenRouter and Copilot chat models, group by vendor
+                if (!this.forEmbedding && (this.formProvider === 'openrouter' || this.formProvider === 'github-copilot')) {
                     const groups = new Map<string, typeof models>();
                     models.forEach((m) => {
-                        const grp = m.id.split('/')[0];
+                        const grp = this.formProvider === 'openrouter'
+                            ? m.id.split('/')[0]
+                            : copilotModelVendor(m.id);
                         if (!groups.has(grp)) groups.set(grp, []);
                         groups.get(grp)!.push(m);
                     });
@@ -206,7 +285,11 @@ export class ModelConfigModal extends Modal {
             attr: { type: 'text', placeholder: t('modal.modelConfig.modelIdPlaceholder') },
         });
         this.nameInputEl.value = this.formName;
-        this.nameInputEl.addEventListener('input', () => (this.formName = this.nameInputEl!.value.trim()));
+        this.nameInputEl.addEventListener('input', () => {
+            this.formName = this.nameInputEl!.value.trim();
+            // Re-evaluate thinking visibility when model name changes (Copilot Claude detection)
+            if (this.formProvider === 'github-copilot') this.updateFieldVisibility();
+        });
         if (!this.isNew && this.model.isBuiltIn) this.nameInputEl.disabled = true;
 
         // ── Ollama model browser (shown only for Ollama) ──────────────────
@@ -238,17 +321,25 @@ export class ModelConfigModal extends Modal {
         akInput.value = this.formApiKey;
         akInput.addEventListener('input', () => (this.formApiKey = akInput.value.trim()));
 
+        // ── GitHub Copilot Auth (shown instead of API Key for github-copilot) ──
+        this.copilotAuthRow = form.createDiv('mcm-row mcm-copilot-auth');
+        this.buildCopilotAuthSection(this.copilotAuthRow);
+
+        // ── Kilo Gateway Auth (shown instead of API Key for kilo-gateway) ──
+        this.kiloAuthRow = form.createDiv('mcm-row mcm-kilo-auth');
+        this.buildKiloAuthSection(this.kiloAuthRow);
+
         // ── Base URL ──────────────────────────────────────────────────────
         this.baseUrlRow = form.createDiv('mcm-row');
         const buLabel = this.baseUrlRow.createDiv('mcm-label');
         buLabel.createSpan({ text: t('modal.modelConfig.baseUrl') });
         this.baseUrlDescEl = buLabel.createSpan({ cls: 'mcm-desc' });
-        const buInput = this.baseUrlRow.createEl('input', {
+        this.baseUrlInputEl = this.baseUrlRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'http://localhost:11434' },
+            attr: { type: 'text', placeholder: 'http://localhost:11434' }, // eslint-disable-line obsidianmd/ui/sentence-case -- URL placeholder, not UI text
         });
-        buInput.value = this.formBaseUrl;
-        buInput.addEventListener('input', () => (this.formBaseUrl = buInput.value.trim()));
+        this.baseUrlInputEl.value = this.formBaseUrl;
+        this.baseUrlInputEl.addEventListener('input', () => (this.formBaseUrl = this.baseUrlInputEl!.value.trim()));
 
         // ── API Version (Azure + some enterprise gateways) ───────────────
         this.apiVersionRow = form.createDiv('mcm-row');
@@ -286,6 +377,7 @@ export class ModelConfigModal extends Modal {
             }
             this.updateThinkingUI();
         });
+        this.maxTokensNoteEl = mtControls.createDiv({ cls: 'mcm-temperature-note', text: t('modal.modelConfig.maxTokensNote') });
 
         // ── Temperature ───────────────────────────────────────────────────
         if (!this.forEmbedding) {
@@ -414,15 +506,21 @@ export class ModelConfigModal extends Modal {
         const p = this.formProvider;
 
         // Show/hide fields per provider
-        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio');
-        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'openrouter');
+        const isCopilot = p === 'github-copilot';
+        const isKilo = p === 'kilo-gateway';
+        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio' || isCopilot || isKilo);
+        if (this.copilotAuthRow) this.copilotAuthRow.classList.toggle('agent-u-hidden', !isCopilot);
+        if (this.kiloAuthRow) this.kiloAuthRow.classList.toggle('agent-u-hidden', !isKilo);
+        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'openrouter' || isCopilot || isKilo);
         if (this.apiVersionRow) this.apiVersionRow.classList.toggle('agent-u-hidden', p !== 'azure');
         if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle('agent-u-hidden', p !== 'ollama');
         if (this.customBrowserRow) this.customBrowserRow.classList.toggle('agent-u-hidden', p !== 'custom' && p !== 'lmstudio');
         // Max Tokens slider always visible (not provider-specific)
-        if (this.promptCachingRow) this.promptCachingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
-        if (this.thinkingRow) this.thinkingRow.classList.toggle('agent-u-hidden', p !== 'anthropic');
-        if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle('agent-u-hidden', p !== 'anthropic' || !this.formThinkingEnabled);
+        const isCopilotClaude = isCopilot && /^claude/i.test(this.formName);
+        if (this.promptCachingRow) this.promptCachingRow.classList.toggle('agent-u-hidden', p !== 'anthropic' && !isCopilotClaude);
+        const supportsThinking = p === 'anthropic' || p === 'openrouter' || isCopilotClaude;
+        if (this.thinkingRow) this.thinkingRow.classList.toggle('agent-u-hidden', !supportsThinking);
+        if (this.thinkingBudgetRow) this.thinkingBudgetRow.classList.toggle('agent-u-hidden', !supportsThinking || !this.formThinkingEnabled);
 
         // Quick Pick: use embedding suggestions or chat suggestions depending on mode
         const suggestions = this.forEmbedding
@@ -431,8 +529,8 @@ export class ModelConfigModal extends Modal {
         const hasStaticSuggestions = suggestions.length > 0;
         // Fetch is available for embedding providers with live APIs (not azure — no list endpoint)
         const hasFetchFetch = this.forEmbedding
-            ? (p === 'openai' || p === 'openrouter' || p === 'ollama' || p === 'lmstudio' || p === 'custom')
-            : (p === 'anthropic' || p === 'openai' || p === 'openrouter' || p === 'lmstudio');
+            ? (p === 'openai' || p === 'openrouter' || p === 'ollama' || p === 'lmstudio' || p === 'custom' || isCopilot)
+            : (p === 'anthropic' || p === 'openai' || p === 'openrouter' || p === 'lmstudio' || isCopilot || isKilo);
         if (this.suggestRow) {
             this.suggestRow.classList.toggle('agent-u-hidden', !hasStaticSuggestions && !hasFetchFetch);
             if (this.suggestSelEl) {
@@ -479,6 +577,26 @@ export class ModelConfigModal extends Modal {
             };
             this.baseUrlDescEl.setText(hints[p] ?? '');
         }
+        if (this.baseUrlInputEl) {
+            const placeholders: Partial<Record<ProviderType, string>> = {
+                anthropic: 'https://api.anthropic.com',
+                ollama: 'http://localhost:11434',
+                lmstudio: 'http://localhost:1234',
+                azure: 'https://your-resource.openai.azure.com',
+                custom: 'https://your-openai-compatible-endpoint/v1',
+            };
+            this.baseUrlInputEl.placeholder = placeholders[p] ?? '';
+        }
+
+        // Update Copilot auth status when visible
+        if (isCopilot && this.copilotAuthRow) {
+            this.updateCopilotAuthStatus();
+        }
+
+        // Update Kilo auth status when visible
+        if (isKilo && this.kiloAuthRow) {
+            this.updateKiloAuthStatus();
+        }
 
         // Render provider setup guide
         this.providerGuideEl.empty();
@@ -513,7 +631,7 @@ export class ModelConfigModal extends Modal {
                 (el as HTMLInputElement).checked = false;
                 (el as HTMLInputElement).disabled = true;
             });
-        } else if (this.formThinkingEnabled && this.formProvider === 'anthropic') {
+        } else if (this.formThinkingEnabled && (this.formProvider === 'anthropic' || (this.formProvider === 'github-copilot' && /^claude/i.test(this.formName)))) {
             // Extended thinking forces temperature to 1
             if (this.temperatureNoteEl) {
                 this.temperatureNoteEl.setText(t('modal.modelConfig.temperatureThinkingNote'));
@@ -607,6 +725,14 @@ export class ModelConfigModal extends Modal {
             steps.createEl('li', { text: t('guide.lmstudio.step3') });
             steps.createEl('li', { text: t('guide.lmstudio.step4') });
             guide.createDiv({ cls: 'mcm-guide-tip', text: t('guide.lmstudio.tip') });
+
+        } else if (provider === 'github-copilot') {
+            guide.createEl('strong', { text: t('guide.copilot.heading') });
+            const steps = guide.createEl('ol', { cls: 'mcm-guide-steps' });
+            steps.createEl('li', { text: t('guide.copilot.step1') });
+            steps.createEl('li', { text: t('guide.copilot.step2') });
+            steps.createEl('li', { text: t('guide.copilot.step3') });
+            guide.createDiv({ cls: 'mcm-guide-tip', text: t('guide.copilot.disclaimer') });
 
         } else if (provider === 'custom') {
             guide.createEl('strong', { text: t('guide.custom.heading') });
@@ -747,6 +873,229 @@ export class ModelConfigModal extends Modal {
         if (detail) {
             this.testResultEl.createDiv({ cls: 'mcm-result-detail', text: detail });
         }
+    }
+
+    // ---------------------------------------------------------------------------
+    // GitHub Copilot Auth Section
+    // ---------------------------------------------------------------------------
+
+    private buildCopilotAuthSection(container: HTMLElement): void {
+        const label = container.createDiv('mcm-label');
+        label.createSpan({ text: t('copilot.auth') });
+        label.createSpan({ text: t('copilot.authDesc'), cls: 'mcm-desc' });
+
+        const controls = container.createDiv('mcm-copilot-controls');
+
+        // Status badge
+        controls.createDiv({ cls: 'mcm-copilot-status' });
+
+        // Sign in button
+        const signInBtn = controls.createEl('button', {
+            cls: 'mcm-copilot-signin',
+            text: t('copilot.signIn'),
+        });
+        signInBtn.addEventListener('click', () => { void this.startCopilotAuth(signInBtn); });
+
+        // Sign out button
+        const signOutBtn = controls.createEl('button', {
+            cls: 'mcm-copilot-signout',
+            text: t('copilot.signOut'),
+        });
+        signOutBtn.addEventListener('click', () => { void (async () => {
+            const authService = GitHubCopilotAuthService.getInstance();
+            await authService.logout();
+            this.updateCopilotAuthStatus();
+            new Notice(t('copilot.signedOut'));
+        })(); });
+    }
+
+    private updateCopilotAuthStatus(): void {
+        if (!this.copilotAuthRow) return;
+        const authService = GitHubCopilotAuthService.getInstance();
+        const isAuth = authService.isAuthenticated();
+
+        const statusEl = this.copilotAuthRow.querySelector<HTMLElement>('.mcm-copilot-status');
+        if (statusEl) {
+            statusEl.empty();
+            statusEl.classList.toggle('mcm-copilot-status--connected', isAuth);
+            statusEl.classList.toggle('mcm-copilot-status--disconnected', !isAuth);
+            statusEl.createSpan({ text: isAuth ? t('copilot.authenticated') : t('copilot.notConnected') });
+        }
+
+        const signInBtn = this.copilotAuthRow.querySelector<HTMLElement>('.mcm-copilot-signin');
+        const signOutBtn = this.copilotAuthRow.querySelector<HTMLElement>('.mcm-copilot-signout');
+        if (signInBtn) signInBtn.classList.toggle('agent-u-hidden', isAuth);
+        if (signOutBtn) signOutBtn.classList.toggle('agent-u-hidden', !isAuth);
+    }
+
+    private async startCopilotAuth(btn: HTMLButtonElement): Promise<void> {
+        const authService = GitHubCopilotAuthService.getInstance();
+        btn.disabled = true;
+        btn.setText(t('copilot.polling'));
+
+        try {
+            const flow = await authService.startDeviceFlow();
+
+            // Show device code in a Notice
+            new Notice(
+                `${t('copilot.deviceCodeNotice')}\n\n${flow.userCode}\n\n${flow.verificationUri}`,
+                0, // persistent until dismissed
+            );
+
+            // Open verification URL in browser
+            window.open(flow.verificationUri);
+
+            // Poll for access token
+            await authService.pollForAccessToken(flow.deviceCode, flow.interval);
+
+            new Notice(t('copilot.authSuccess'));
+            this.updateCopilotAuthStatus();
+
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            new Notice(t('copilot.authFailed', { error: msg }));
+        } finally {
+            btn.disabled = false;
+            btn.setText(t('copilot.signIn'));
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Kilo Gateway Auth Section
+    // ---------------------------------------------------------------------------
+
+    private buildKiloAuthSection(container: HTMLElement): void {
+        const label = container.createDiv('mcm-label');
+        label.createSpan({ text: t('kilo.auth') });
+        label.createSpan({ text: t('kilo.authDesc'), cls: 'mcm-desc' });
+
+        const controls = container.createDiv('mcm-kilo-controls');
+
+        // Status badge
+        controls.createDiv({ cls: 'mcm-kilo-status' });
+
+        // Sign in button (Device Flow)
+        const signInBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-signin',
+            text: t('kilo.signIn'),
+        });
+        signInBtn.addEventListener('click', () => { void this.startKiloDeviceAuth(signInBtn); });
+
+        // Manual token button
+        const manualBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-manual',
+            text: t('kilo.manualToken'),
+        });
+        manualBtn.addEventListener('click', () => { void this.showKiloManualTokenInput(controls); });
+
+        // Disconnect button
+        const disconnectBtn = controls.createEl('button', {
+            cls: 'mcm-kilo-signout',
+            text: t('kilo.disconnect'),
+        });
+        disconnectBtn.addEventListener('click', () => { void (async () => {
+            await KiloAuthService.getInstance().disconnect();
+            this.updateKiloAuthStatus();
+            new Notice(t('kilo.disconnected'));
+        })(); });
+
+        this.updateKiloAuthStatus();
+    }
+
+    private updateKiloAuthStatus(): void {
+        if (!this.kiloAuthRow) return;
+        const authService = KiloAuthService.getInstance();
+        const isAuth = authService.isAuthenticated();
+        const session = authService.getSession();
+
+        const statusEl = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-status');
+        if (statusEl) {
+            statusEl.empty();
+            statusEl.classList.toggle('mcm-copilot-status--connected', isAuth);
+            statusEl.classList.toggle('mcm-copilot-status--disconnected', !isAuth);
+            const label = isAuth && session.accountLabel
+                ? t('kilo.authenticated', { account: session.accountLabel })
+                : isAuth
+                    ? t('kilo.authenticatedNoLabel')
+                    : t('kilo.notConnected');
+            statusEl.createSpan({ text: label });
+        }
+
+        const signInBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-signin');
+        const manualBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-manual');
+        const disconnectBtn = this.kiloAuthRow.querySelector<HTMLElement>('.mcm-kilo-signout');
+        if (signInBtn) signInBtn.classList.toggle('agent-u-hidden', isAuth);
+        if (manualBtn) manualBtn.classList.toggle('agent-u-hidden', isAuth);
+        if (disconnectBtn) disconnectBtn.classList.toggle('agent-u-hidden', !isAuth);
+    }
+
+    private async startKiloDeviceAuth(btn: HTMLButtonElement): Promise<void> {
+        const authService = KiloAuthService.getInstance();
+        btn.disabled = true;
+        btn.setText(t('kilo.deviceFlow.waiting'));
+
+        const abort = new AbortController();
+
+        try {
+            const flow = await authService.startDeviceAuth();
+
+            // Code und URL dem Nutzer anzeigen
+            new Notice(
+                `${t('kilo.deviceFlow.openBrowser')}\n\n${t('kilo.deviceFlow.code', { code: flow.userCode })}\n\n${flow.verificationUri}`,
+                0,
+            );
+
+            window.open(flow.verificationUri);
+
+            await authService.pollForSession(flow.deviceCode, abort.signal);
+
+            new Notice(t('kilo.deviceFlow.success'));
+            this.updateKiloAuthStatus();
+
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (msg !== 'Authorization cancelled') {
+                new Notice(t('kilo.deviceFlow.failed', { error: msg }));
+            }
+        } finally {
+            btn.disabled = false;
+            btn.setText(t('kilo.signIn'));
+        }
+    }
+
+    private async showKiloManualTokenInput(controls: HTMLElement): Promise<void> {
+        // Vorhandenes Inline-Input entfernen
+        controls.querySelector('.mcm-kilo-token-input-row')?.remove();
+
+        const row = controls.createDiv('mcm-kilo-token-input-row');
+        const input = row.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'password', placeholder: t('kilo.manualTokenPlaceholder') },
+        });
+
+        const confirmBtn = row.createEl('button', { text: t('kilo.manualTokenConfirm') });
+        confirmBtn.addEventListener('click', () => { void (async () => {
+            const token = input.value.trim();
+            if (!token) return;
+            confirmBtn.disabled = true;
+            confirmBtn.setText(t('kilo.manualTokenValidating'));
+            try {
+                await KiloAuthService.getInstance().validateAndSetManualToken(token);
+                row.remove();
+                this.updateKiloAuthStatus();
+                new Notice(t('kilo.deviceFlow.success'));
+            } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                new Notice(t('kilo.manualTokenInvalid', { error: msg }));
+                confirmBtn.disabled = false;
+                confirmBtn.setText(t('kilo.manualTokenConfirm'));
+            }
+        })(); });
+
+        const cancelBtn = row.createEl('button', { text: t('modal.modelConfig.cancel') });
+        cancelBtn.addEventListener('click', () => row.remove());
+
+        input.focus();
     }
 
     private save(): void {

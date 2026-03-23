@@ -131,17 +131,40 @@ export class OpenAiProvider implements ApiHandler {
             temperature = 0.2;
         }
 
+        // OpenRouter extended thinking: when enabled for Anthropic models via OpenRouter,
+        // force temperature to 1 and pass reasoning parameter
+        const openRouterThinking = this.config.type === 'openrouter'
+            && (this.config.thinkingEnabled ?? false);
+        const budgetTokens = this.config.thinkingBudgetTokens ?? 10000;
+        if (openRouterThinking) {
+            temperature = 1;
+        }
+
         // Build request body
         const requestBody: OpenAI.ChatCompletionCreateParamsStreaming = {
             model: this.config.type !== 'azure' ? this.config.model : this.config.model,
             messages: openAiMessages as OpenAI.ChatCompletionMessageParam[],
             tools: openAiTools as OpenAI.ChatCompletionTool[] | undefined,
             temperature: temperature !== undefined ? Math.min(temperature, 2.0) : undefined,
-            max_tokens: this.config.type !== 'azure' ? (this.config.maxTokens ?? 8192) : undefined,
+            max_tokens: this.config.type !== 'azure'
+                ? (openRouterThinking
+                    ? Math.max(this.config.maxTokens ?? 16384, budgetTokens)
+                    : (this.config.maxTokens ?? 8192))
+                : undefined,
             stream: true,
             stream_options: (this.config.type === 'openai' || this.config.type === 'openrouter')
                 ? { include_usage: true }
                 : undefined,
+            // OpenRouter reasoning passthrough for Anthropic models
+            ...(openRouterThinking
+                ? { reasoning: { max_tokens: budgetTokens } } as Record<string, unknown>
+                : {}),
+            // OpenRouter: disable automatic model fallback to prevent silent model switches.
+            // Without this, OpenRouter can route to a completely different model (e.g. Gemini)
+            // when the configured model is rate-limited or under high load.
+            ...(this.config.type === 'openrouter'
+                ? { provider: { allow_fallbacks: false } } as Record<string, unknown>
+                : {}),
         };
 
         // Azure uses max_completion_tokens instead of max_tokens
@@ -179,6 +202,13 @@ export class OpenAiProvider implements ApiHandler {
             if (!choice) continue;
 
             const delta = choice.delta;
+
+            // OpenRouter reasoning content (extended thinking passthrough)
+            const reasoning = (delta as Record<string, unknown>)?.reasoning_content
+                ?? (delta as Record<string, unknown>)?.reasoning;
+            if (typeof reasoning === 'string' && reasoning) {
+                yield { type: 'thinking', text: reasoning } satisfies ApiStreamChunk;
+            }
 
             // Text content
             if (delta?.content) {
@@ -277,11 +307,18 @@ export class OpenAiProvider implements ApiHandler {
                     if (block.type === 'text') {
                         result.push({ role: 'user', content: block.text });
                     } else if (block.type === 'tool_result') {
-                        // Tool results become separate 'tool' role messages in OpenAI format
+                        // Tool results become separate 'tool' role messages in OpenAI format.
+                        // OpenAI only supports string content — extract text from multimodal arrays.
+                        const textContent = typeof block.content === 'string'
+                            ? block.content
+                            : block.content
+                                .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                                .map((b) => b.text)
+                                .join('\n');
                         result.push({
                             role: 'tool',
                             tool_call_id: block.tool_use_id,
-                            content: block.content,
+                            content: textContent,
                         });
                     }
                 }
@@ -300,5 +337,21 @@ export class OpenAiProvider implements ApiHandler {
                 parameters: tool.input_schema,
             },
         }));
+    }
+
+    /**
+     * Quick non-streaming classification call (~100 input, ~10 output tokens).
+     * Used by skill matching LLM-fallback when regex finds no match.
+     */
+    async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        const response = await this.client.chat.completions.create({
+            model: this.config.model,
+            max_tokens: 50,
+            messages: [{ role: 'user', content: prompt }],
+        }, {
+            signal: abortSignal ?? undefined,
+        });
+
+        return response.choices?.[0]?.message?.content?.trim() ?? '';
     }
 }

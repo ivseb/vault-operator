@@ -31,12 +31,12 @@ export interface ParseResult {
 
 /** Supported document extensions for parsing. */
 export const SUPPORTED_DOCUMENT_EXTENSIONS = new Set([
-    'pptx', 'xlsx', 'docx', 'pdf', 'csv', 'json', 'xml',
+    'pptx', 'potx', 'xlsx', 'docx', 'pdf', 'csv', 'json', 'xml',
 ]);
 
 /** Extensions that require binary reading (ArrayBuffer). */
 export const BINARY_DOCUMENT_EXTENSIONS = new Set([
-    'pptx', 'xlsx', 'docx', 'pdf',
+    'pptx', 'potx', 'xlsx', 'docx', 'pdf',
 ]);
 
 /** Maximum decompressed size for ZIP-based formats (ZIP-bomb protection). */
