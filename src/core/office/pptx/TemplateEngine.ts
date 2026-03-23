@@ -1318,17 +1318,19 @@ function extractPlainText(value: string | ContentValue): string {
                 return prefix + text;
             }).join('\n');
 
-        case 'html_text':
+        case 'html_text': {
             // Strip HTML tags for plain text fallback
-            return value.html
+            let html = value.html
                 .replace(/<br\s*\/?>/gi, '\n')
                 .replace(/<li>/gi, '- ')
-                .replace(/<\/li>/gi, '\n')
-                .replace(/<[^>]+>/g, '')
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .trim();
+                .replace(/<\/li>/gi, '\n');
+            // Loop tag removal to handle nested/malformed fragments
+            let prev = '';
+            while (prev !== html) { prev = html; html = html.replace(/<[^>]+>/g, ''); }
+            // Single-pass entity decode to avoid double-unescaping
+            const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>' };
+            return html.replace(/&(?:amp|lt|gt);/g, (m) => ENTITIES[m] ?? m).trim();
+        }
 
         case 'replace_text':
             return value.replacements.map(r =>

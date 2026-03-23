@@ -79,14 +79,14 @@ function parseHtmlElements(html: string): ParsedElement[] {
         const style = parseStyle(attrs['style'] || '');
 
         // Strip HTML tags from text content
-        const text = innerContent
-            .replace(/<br\s*\/?>/gi, '\n')
-            .replace(/<[^>]+>/g, '')
-            .replace(/&amp;/g, '&')
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
+        let stripped = innerContent.replace(/<br\s*\/?>/gi, '\n');
+        // Loop tag removal to handle nested/malformed fragments like <<b>b>
+        let prev = '';
+        while (prev !== stripped) { prev = stripped; stripped = stripped.replace(/<[^>]+>/g, ''); }
+        // Single-pass entity decode to avoid double-unescaping (e.g. &amp;lt; -> <)
+        const ENTITIES: Record<string, string> = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
+        const text = stripped
+            .replace(/&(?:amp|lt|gt|quot|#39);/g, (m) => ENTITIES[m] ?? m)
             .trim();
 
         elements.push({ type: objectType, style, text, attributes: attrs });

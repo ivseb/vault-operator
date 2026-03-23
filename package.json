@@ -28,6 +28,7 @@
   "author": "Sebastian Hanke",
   "license": "Apache-2.0",
   "devDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.60.0",
     "@types/diff": "^7.0.2",
     "@types/node": "^20.11.0",
     "@types/uuid": "^9.0.7",
@@ -68,11 +69,12 @@
     "vectra": "^0.12.3"
   },
   "overrides": {
-    "hono": ">=4.12.4",
+    "hono": ">=4.12.7",
     "@hono/node-server": ">=1.19.10",
-    "express-rate-limit": ">=8.2.2"
+    "express-rate-limit": ">=8.2.2",
+    "undici": ">=7.24.0",
+    "flatted": ">=3.4.2"
   },
-  "optionalDependencies": {
-    "@rollup/rollup-darwin-arm64": "^4.60.0"
-  }
+  "optionalDependencies": {}
+
 }
