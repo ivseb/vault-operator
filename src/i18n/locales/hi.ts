@@ -112,8 +112,9 @@ export const hi: Translations = {
     'settings.embeddings.autoIndexNever': 'कभी नहीं (केवल मैन्युअल)',
     'settings.embeddings.autoIndexStartup': 'स्टार्टअप पर',
     'settings.embeddings.autoIndexModeSwitch': 'मोड स्विच पर',
+    'settings.embeddings.storageGlobal': 'ग्लोबल (~/.obsidian-agent/, अनुशंसित)',
     'settings.embeddings.storageSync': 'Obsidian Sync (प्लगइन फ़ोल्डर के अंदर)',
-    'settings.embeddings.storageLocal': 'लोकल (vault के बाहर, बिना सिंक)',
+    'settings.embeddings.storageLocal': 'लोकल (vault रूट, बिना सिंक)',
     'settings.embeddings.statusDisabled': 'सिमेंटिक इंडेक्स अक्षम है।',
     'settings.embeddings.statusNotInit': 'आरंभ नहीं हुआ। पुनः लोड करने के लिए बंद/चालू करें।',
     'settings.embeddings.statusNotBuilt': 'अभी तक नहीं बना। शुरू करने के लिए "इंडेक्स बनाएं" क्लिक करें।',
@@ -669,6 +670,8 @@ export const hi: Translations = {
     'provider.openrouter': 'OpenRouter',
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'कस्टम',
+    'provider.github-copilot': 'GitHub Copilot',
+    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels

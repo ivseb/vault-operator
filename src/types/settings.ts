@@ -7,7 +7,7 @@
 // Adapted from Obsidian Copilot's CustomModel pattern
 // ---------------------------------------------------------------------------
 
-export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom';
+export type ProviderType = 'anthropic' | 'openai' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway';
 
 export interface CustomModel {
     /** Model identifier used in API calls (e.g. "claude-sonnet-4-5-20250929") */
@@ -36,6 +36,20 @@ export interface CustomModel {
     thinkingBudgetTokens?: number;
 }
 
+/** Provider-level default base URLs used for setup UX and built-in models. */
+export function getDefaultBaseUrlForProvider(provider: ProviderType): string | undefined {
+    switch (provider) {
+        case 'anthropic':
+            return 'https://api.anthropic.com';
+        case 'ollama':
+            return 'http://localhost:11434';
+        case 'lmstudio':
+            return 'http://localhost:1234';
+        default:
+            return undefined;
+    }
+}
+
 /** Unique key for a model across all providers */
 export function getModelKey(model: CustomModel): string {
     return `${model.name}|${model.provider}`;
@@ -54,6 +68,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-sonnet-4-5-20250929',
         provider: 'anthropic',
         displayName: 'Claude Sonnet 4.5',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
@@ -64,6 +79,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-opus-4-6',
         provider: 'anthropic',
         displayName: 'Claude Opus 4.6',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 16384,
@@ -74,6 +90,7 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         name: 'claude-haiku-4-5-20251001',
         provider: 'anthropic',
         displayName: 'Claude Haiku 4.5',
+        baseUrl: getDefaultBaseUrlForProvider('anthropic'),
         enabled: false,
         isBuiltIn: true,
         maxTokens: 8192,
@@ -165,6 +182,23 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         isBuiltIn: true,
         maxTokens: 8192,
     },
+    // GitHub Copilot (unofficial API — requires active Copilot subscription)
+    {
+        name: 'gpt-4o',
+        provider: 'github-copilot',
+        displayName: 'GPT-4o (Copilot)',
+        enabled: false,
+        isBuiltIn: true,
+        maxTokens: 16384,
+    },
+    {
+        name: 'claude-sonnet-4',
+        provider: 'github-copilot',
+        displayName: 'Claude Sonnet 4 (Copilot)',
+        enabled: false,
+        isBuiltIn: true,
+        maxTokens: 64000,
+    },
 ];
 
 // ---------------------------------------------------------------------------
@@ -239,7 +273,22 @@ export interface McpServerConfig {
     disabled?: boolean;
     timeout?: number;
     alwaysAllow?: string[];
+    /** True for servers shipped with the plugin (cannot be deleted, only disabled) */
+    isBuiltIn?: boolean;
 }
+
+/** Built-in MCP servers shipped with the plugin.
+ * Icons8: streamable-http, no auth needed (free PNG icons, 368K+ icons)
+ */
+export const BUILTIN_MCP_SERVERS: Record<string, McpServerConfig> = {
+    'icons8': {
+        type: 'streamable-http',
+        url: 'https://mcp.icons8.com/mcp/',
+        disabled: false,
+        timeout: 60,
+        isBuiltIn: true,
+    },
+};
 
 // ---------------------------------------------------------------------------
 // Agent Mode configuration
@@ -468,7 +517,7 @@ export interface ObsidianAgentSettings {
     semanticBatchSize: number;
     semanticAutoIndex: 'startup' | 'mode-switch' | 'never';
     semanticExcludedFolders: string[];
-    semanticStorageLocation: 'obsidian-sync' | 'local';
+    semanticStorageLocation: 'obsidian-sync' | 'local' | 'global';
     semanticIndexPdfs: boolean;
     /** Chunk size in characters. Changing this invalidates and rebuilds the index. */
     semanticChunkSize: number;
@@ -526,6 +575,9 @@ export interface ObsidianAgentSettings {
     // Recipes (PAS-1.5)
     recipes: RecipeSettings;
 
+    // Visual Intelligence (FEATURE-1115)
+    visualIntelligence: VisualIntelligenceSettings;
+
     // Agent Skill Mastery (ADR-016/017/018)
     mastery: MasterySettings;
 
@@ -542,9 +594,33 @@ export interface ObsidianAgentSettings {
     _encrypted?: boolean;
     /** Whether data has been migrated to global storage (~/.obsidian-agent/) — ADR-020 */
     _globalStorageMigrated?: boolean;
+    /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
+    _syncDirMigrated?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
+
+    // GitHub Copilot (ADR-038)
+    /** GitHub OAuth access token (long-lived, encrypted via SafeStorageService) */
+    githubCopilotAccessToken: string;
+    /** Copilot API token (short-lived, ~1h, encrypted via SafeStorageService) */
+    githubCopilotToken: string;
+    /** Copilot token expiry as epoch seconds (not encrypted) */
+    githubCopilotTokenExpiresAt: number;
+    /** Custom OAuth Client ID — escape hatch if the default stops working */
+    githubCopilotCustomClientId: string;
+
+    // Kilo Gateway (ADR-041)
+    /** Kilo session token (encrypted via SafeStorageService) */
+    kiloToken: string;
+    /** Auth mode used to obtain the token */
+    kiloAuthMode: 'device-auth' | 'manual-token' | '';
+    /** Organization ID for X-KiloCode-OrganizationId header (optional) */
+    kiloOrganizationId: string;
+    /** Display label from Kilo profile (not sensitive, not encrypted) */
+    kiloAccountLabel: string;
+    /** Epoch seconds of last successful token validation */
+    kiloLastValidatedAt: number;
 
     // Advanced
     debugMode: boolean;
@@ -563,6 +639,19 @@ export interface PluginApiSettings {
      * Only relevant for methods NOT in the built-in allowlist.
      */
     safeMethodOverrides: Record<string, boolean>;
+}
+
+// ---------------------------------------------------------------------------
+// Visual Intelligence Settings (FEATURE-1115)
+// ---------------------------------------------------------------------------
+
+export interface VisualIntelligenceSettings {
+    /** Master toggle — when true, render_presentation tool is available */
+    enabled: boolean;
+    /** Custom LibreOffice path override (for non-standard installations) */
+    libreOfficePath?: string;
+    /** User has approved multimodal template analysis (LibreOffice rendering + Claude Vision API calls) */
+    multimodalAnalysisApproved: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -684,7 +773,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticBatchSize: 20,
     semanticAutoIndex: 'never',
     semanticExcludedFolders: [],
-    semanticStorageLocation: 'obsidian-sync',
+    semanticStorageLocation: 'global',
     semanticIndexPdfs: false,
     semanticChunkSize: 2000,
     hydeEnabled: false,
@@ -737,6 +826,10 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         recipeToggles: {},
         customRecipes: [],
     },
+    visualIntelligence: {
+        enabled: true,
+        multimodalAnalysisApproved: false,
+    },
     mastery: {
         enabled: true,
         recipeBudget: 2000,
@@ -754,6 +847,17 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     taskExtraction: {
         enabled: true,
         taskFolder: 'Tasks',
+        preferTaskNotesPlugin: true,
+        taskNotesHintDismissed: false,
     },
+    githubCopilotAccessToken: '',
+    githubCopilotToken: '',
+    githubCopilotTokenExpiresAt: 0,
+    githubCopilotCustomClientId: '',
+    kiloToken: '',
+    kiloAuthMode: '',
+    kiloOrganizationId: '',
+    kiloAccountLabel: '',
+    kiloLastValidatedAt: 0,
     debugMode: false,
 };

@@ -30,7 +30,16 @@ export interface ToolMeta {
     whenToUse?: string;
     /** Frequent LLM mistakes to avoid */
     commonMistakes?: string;
+    /**
+     * Whether this tool requires a quality gate (self-check checklist appended
+     * to tool results). True when 2+ of: artifact-producing, multi-element
+     * structure, hard to manually correct. See qualityGates.ts.
+     */
+    qualityGate?: boolean;
 }
+
+/** Alias used by qualityGates.ts for validation. */
+export type ToolMetadataEntry = ToolMeta;
 
 /**
  * Group display metadata — labels and icons for tool group headers.
@@ -229,6 +238,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         example: 'generate_canvas("Maps/project-map.canvas", "folder", "Projects/", undefined, 20, true)',
         whenToUse: 'To visualize note relationships. Use "files" mode with specific paths for custom selections.',
         commonMistakes: 'Omitting max_notes — large folders create unreadable canvases. Set a reasonable limit.',
+        qualityGate: true,
     },
     create_excalidraw: {
         group: 'edit', label: 'Excalidraw', icon: 'pencil',
@@ -237,6 +247,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         example: 'create_excalidraw("Drawings/overview.excalidraw.md", [{"label":"Topic 1","color":"blue"},{"label":"Topic 2","color":"green"}], "Project Overview")',
         whenToUse: 'To create any Excalidraw visualization. Always prefer this over write_file for .excalidraw.md files.',
         commonMistakes: 'Using write_file for .excalidraw.md — always use create_excalidraw instead.',
+        qualityGate: true,
     },
     create_base: {
         group: 'edit', label: 'Create Base', icon: 'table-2',
@@ -255,14 +266,49 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
+    // ── Visual Intelligence ──────────────────────────────────────────────
+    render_presentation: {
+        group: 'skill', label: 'Render Presentation', icon: 'eye',
+        signature: 'render_presentation(file, slides?)',
+        description: 'Render a PPTX to images via LibreOffice for visual quality inspection. Returns slide images.',
+        example: 'render_presentation("Presentations/quarterly.pptx", [1, 3, 5])',
+        whenToUse: 'After creating a presentation with create_pptx -- visually verify text fits, layout is correct.',
+        commonMistakes: 'Forgetting to enable Visual Intelligence in Settings or not having LibreOffice installed.',
+    },
+    check_presentation_quality: {
+        group: 'skill', label: 'Quality Check', icon: 'check-circle',
+        signature: 'check_presentation_quality(file)',
+        description: 'Render a PPTX and perform automated visual quality check using Claude Vision. Returns a structured QA report with pass/warn/fail per slide and fix suggestions.',
+        example: 'check_presentation_quality("Presentations/quarterly.pptx")',
+        whenToUse: 'After creating a presentation with create_pptx -- automated quality gate before delivery.',
+        commonMistakes: 'Not having Visual Intelligence enabled or no active model configured.',
+    },
+
     // ── Office Document Creation ────────────────────────────────────────
+    plan_presentation: {
+        group: 'edit', label: 'Plan Presentation', icon: 'layout-list',
+        signature: 'plan_presentation(source, template, deck_mode, goal?, audience?)',
+        description: 'Plan a presentation from source material and corporate template. Generates a complete deck plan with content for every shape via internal LLM call.',
+        example: 'plan_presentation("Notes/Q1-Review.md", "acme", "reading", "Stakeholder informieren")',
+        whenToUse: 'ALWAYS before create_pptx when using corporate templates. Reads source material, selects slide types, generates content for all shapes.',
+        commonMistakes: 'Skipping this tool and calling create_pptx directly -- results in empty shapes and placeholder text.',
+    },
+    ingest_template: {
+        group: 'edit', label: 'Ingest Template', icon: 'scan',
+        signature: 'ingest_template(template_path, theme_name, render_previews?, force?)',
+        description: 'Analyze a corporate .pptx template and generate a slide-type catalog with shape names and content capacity.',
+        example: 'ingest_template("Templates/Corporate.pptx", "acme", true)',
+        whenToUse: 'Once per corporate template before creating presentations. Derive theme_name from filename.',
+        commonMistakes: 'Not using render_previews: true when LibreOffice is available. Using a file path as template name in create_pptx instead of the short theme name.',
+    },
     create_pptx: {
         group: 'edit', label: 'Create PPTX', icon: 'presentation',
-        signature: 'create_pptx(output_path, slides, title?, theme?)',
-        description: 'Create a PowerPoint presentation (.pptx) with slides, text, bullets, tables, and images.',
-        example: 'create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}])',
+        signature: 'create_pptx(output_path, slides, title?, template?, theme?)',
+        description: 'Create a PowerPoint presentation (.pptx) with template-based generation. Supports user templates (.pptx/.potx from vault) or bundled defaults (executive, modern, minimal).',
+        example: 'create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}], "Q1 Report", "executive")',
         whenToUse: 'For creating PowerPoint files. Never use write_file or evaluate_expression for .pptx.',
         commonMistakes: 'Using write_file or evaluate_expression for .pptx -- always use create_pptx instead.',
+        qualityGate: true,
     },
     create_docx: {
         group: 'edit', label: 'Create DOCX', icon: 'file-text',
@@ -271,6 +317,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         example: 'create_docx("Documents/report.docx", [{"heading":"Introduction","body":"Main text..."}])',
         whenToUse: 'For creating Word documents. Never use write_file or evaluate_expression for .docx.',
         commonMistakes: 'Using write_file or evaluate_expression for .docx -- always use create_docx instead.',
+        qualityGate: true,
     },
     create_xlsx: {
         group: 'edit', label: 'Create XLSX', icon: 'table',
@@ -279,6 +326,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         example: 'create_xlsx("Data/budget.xlsx", [{"name":"Sheet1","headers":["Item","Cost"],"rows":[["Server",500],["Domain",12]]}])',
         whenToUse: 'For creating Excel files. Never use write_file or evaluate_expression for .xlsx.',
         commonMistakes: 'Using write_file or evaluate_expression for .xlsx -- always use create_xlsx instead.',
+        qualityGate: true,
     },
 
     // ── Web ───────────────────────────────────────────────────────────────

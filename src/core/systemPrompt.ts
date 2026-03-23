@@ -10,7 +10,9 @@
  *   3. Capabilities
  *   4. User memory
  *   5. Tools (filtered by mode)
- *   6. Plugin Skills (right after tools — agent sees plugins before deciding)
+ *   6. Plugin Skills (right after tools -- agent sees plugins before deciding)
+ *   6.5. Procedural Recipes
+ *   6.6. Self-Authored Skills
  *   7. Tool rules
  *   8. Tool decision guidelines
  *   9. Objective (task decomposition)
@@ -19,7 +21,7 @@
  *  12. Security boundary
  *  13. Mode role definition
  *  14. Custom instructions
- *  15. Skills (manual)
+ *  15. Skills (manual + bundled, trigger-matched per message)
  *  16. Rules
  *
  * Adapted from Kilo Code's src/core/prompts/system.ts — modularized for Obsidian.
@@ -33,8 +35,7 @@ import {
     getCapabilitiesSection,
     getMemorySection,
     getToolsSection,
-    getToolRulesSection,
-    getToolDecisionGuidelinesSection,
+    getToolRoutingSection,
     getObjectiveSection,
     getResponseFormatSection,
     getExplicitInstructionsSection,
@@ -134,43 +135,41 @@ export function buildSystemPromptForMode(
         mode = configOrMode as ModeConfig;
     }
     const sections: string[] = [
-        // 1. Date/time + 2. Vault context (combined at top)
+        // 1. Date/time + Vault context
         getDateTimeSection(includeTime) + getVaultContextSection(),
 
-        // 3. Capabilities (high-level summary)
+        // 2. Mode role definition — early context setting
+        getModeDefinitionSection(mode),
+
+        // 3. Skills — Primacy Effect: skills at top get strongest attention
+        isSubtask ? '' : getSkillsSection(skillsSection),
+
+        // 4. Capabilities (compact summary)
         getCapabilitiesSection(webEnabled),
 
-        // 4. User memory (conditional — omit for subtasks, parent already applied)
+        // 5. User memory (omit for subtasks)
         isSubtask ? '' : getMemorySection(memoryContext),
 
-        // 5. Tools (filtered by mode — subtasks get compact descriptions without examples)
+        // 6. Tools (filtered by mode)
         getToolsSection(mode.toolGroups, mcpClient, allowedMcpServers, webEnabled, !isSubtask),
 
-        // 6. Plugin Skills — right after tools so agent sees plugins before planning
+        // 7. Plugin Skills
         getPluginSkillsSection(pluginSkillsSection),
 
-        // 6.5. Procedural Recipes — between plugins and rules (ADR-017)
-        // Agent sees tools → plugins → how to combine them → rules
+        // 7.5. Procedural Recipes (ADR-017)
         (isSubtask || !recipesSection) ? '' : recipesSection,
 
-        // 6.6. Self-Authored Skills — agent-created workflow skills
+        // 7.6. Self-Authored Skills
         (isSubtask || !selfAuthoredSkillsSection) ? '' : `SELF-AUTHORED SKILLS\n\nThe following skills are available. When a user message matches a skill trigger, use its instructions.\nTo manage skills: use the manage_skill tool.\n\n${selfAuthoredSkillsSection}`,
 
-        // 7. Tool rules
-        getToolRulesSection(),
-        '',
-
-        // 8. Tool decision guidelines
-        getToolDecisionGuidelinesSection(configDir!),
-        '',
+        // 8. Tool Routing (merged rules + guidelines — compact)
+        getToolRoutingSection(configDir!),
 
         // 9. Objective (task decomposition)
         getObjectiveSection(),
-        '',
 
-        // 10. Response format (omit for subtasks — output goes to parent, not user)
+        // 10. Response format (omit for subtasks)
         isSubtask ? '' : getResponseFormatSection(),
-        '',
 
         // 11. Explicit instructions
         getExplicitInstructionsSection(),
@@ -178,16 +177,10 @@ export function buildSystemPromptForMode(
         // 12. Security boundary
         getSecurityBoundarySection(),
 
-        // 13. Mode role definition
-        getModeDefinitionSection(mode),
-
-        // 14. Custom instructions (omit for subtasks — parent handles orchestration)
+        // 13. Custom instructions (omit for subtasks)
         isSubtask ? '' : getCustomInstructionsSection(globalCustomInstructions, mode.customInstructions),
 
-        // 15. Skills — manual (omit for subtasks)
-        isSubtask ? '' : getSkillsSection(skillsSection),
-
-        // 16. Rules (conditional)
+        // 14. Rules (conditional)
         getRulesSection(rulesContent),
     ];
 

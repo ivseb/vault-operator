@@ -101,7 +101,16 @@ export class CreateXlsxTool extends BaseTool<'create_xlsx'> {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
-        const rawSheets = Array.isArray(input.sheets) ? (input.sheets as SheetInput[]) : [];
+        // Handle sheets as array or as JSON string (LLMs sometimes stringify the array)
+        let rawSheets: SheetInput[] = [];
+        if (Array.isArray(input.sheets)) {
+            rawSheets = input.sheets as SheetInput[];
+        } else if (typeof input.sheets === 'string') {
+            try {
+                const parsed = JSON.parse(input.sheets as string);
+                if (Array.isArray(parsed)) rawSheets = parsed as SheetInput[];
+            } catch { /* Invalid JSON -- fall through to empty */ }
+        }
 
         // Validation
         if (!outputPath) {

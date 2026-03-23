@@ -14,7 +14,6 @@
  * Part of Self-Development Phase 2+3: Skill Self-Authoring + Code Modules.
  */
 
-import { TFile, TFolder } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -67,7 +66,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
     getDefinition(): ToolDefinition {
         return {
             name: this.name,
-            description: 'Manage self-authored skills (SKILL.md files). Skills are reusable workflow instructions that persist across sessions. Skills can optionally include code_modules — TypeScript code compiled and registered as sandbox tools (names must start with "custom_"). Actions: create, update, delete, list, validate, read.',
+            description: 'Manage self-authored skills (SKILL.md files). Skills are reusable workflow instructions that persist across sessions. Skills can optionally include code_modules — TypeScript code compiled and registered as sandbox tools (names must start with "custom_"). Actions: create, update, delete, list, validate, read. IMPORTANT: Active skills are already included (truncated) in your system prompt — do NOT call read for skills you can already see in <available_skills>. For corporate PPTX templates use ingest_template instead.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -130,7 +129,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
                                 },
                                 dependencies: {
                                     type: 'array',
-                                    description: 'npm package names to bundle (e.g. ["pptxgenjs"]).',
+                                    description: 'npm package names to bundle (e.g. ["xlsx", "marked"]).',
                                     items: { type: 'string' },
                                 },
                             },
@@ -182,14 +181,25 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (!params.description) throw new Error('Missing "description" for create action.');
         if (!params.body) throw new Error('Missing "body" for create action.');
 
+        const adapter = this.plugin.app.vault.adapter;
         const slug = this.slugify(params.name);
         const dirPath = `${this.skillLoader.getSkillsDir()}/${slug}`;
         const filePath = `${dirPath}/SKILL.md`;
 
-        // Check if skill already exists
-        const existing = this.plugin.app.vault.getAbstractFileByPath(filePath);
-        if (existing instanceof TFile) {
+        // Check if skill already exists (use adapter — vault API doesn't index .obsidian/)
+        if (await adapter.exists(filePath)) {
             throw new Error(`Skill "${params.name}" already exists at ${filePath}. Use "update" action.`);
+        }
+
+        // Guard: reject manual creation of template/presentation skills.
+        // Template skills MUST be created via ingest_template which generates
+        // a layout catalog with shape names, content types, and dimensions.
+        if (this.looksLikeTemplateSkill(params.body, params.required_tools)) {
+            throw new Error(
+                'Template presentation skills cannot be created manually via manage_skill. ' +
+                'Use the ingest_template tool instead -- it analyzes the template and generates ' +
+                'a layout catalog (catalog.json) with shape names and content types automatically.',
+            );
         }
 
         // Validate code modules if present
@@ -197,18 +207,29 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             this.compiler.validateNames(params.code_modules);
         }
 
-        // Ensure directory exists
-        const dir = this.plugin.app.vault.getAbstractFileByPath(dirPath);
-        if (!(dir instanceof TFolder)) {
-            await this.plugin.app.vault.createFolder(dirPath);
-        }
+        // Ensure directory exists (adapter.mkdir works for .obsidian/ paths)
+        await adapter.mkdir(dirPath);
 
         // Build code module filenames for frontmatter
         const codeModuleNames = params.code_modules?.map(m => CodeModuleCompiler.toolNameToFileName(m.name)) ?? [];
 
         // Build SKILL.md content
         const content = this.buildSkillMd(params, codeModuleNames);
-        await this.plugin.app.vault.create(filePath, content);
+        // Use adapter.write — vault.create doesn't work reliably for .obsidian/ paths
+        await adapter.write(filePath, content);
+
+        // Also write to global storage immediately (don't wait for SyncBridge)
+        if (this.plugin.skillsManager) {
+            try {
+                await this.plugin.skillsManager.createSkill(`skills/${slug}`, content);
+            } catch {
+                // Non-fatal: SyncBridge will catch up on next push
+            }
+        }
+
+        // Reload skills so the new skill is immediately available in-memory
+        // (vault events don't fire for .obsidian/ paths, so hot-reload won't trigger)
+        await this.skillLoader.loadAll();
 
         // Process code modules via compiler
         const codeResults: string[] = [];
@@ -225,7 +246,7 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             : '';
 
         callbacks.pushToolResult(this.formatSuccess(
-            `Skill "${params.name}" created at ${filePath}. It will be available immediately via hot-reload.${codeMsg}`
+            `Skill "${params.name}" created at ${filePath}.${codeMsg}`
         ));
     }
 
@@ -240,8 +261,11 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         if (!skill) throw new Error(`Skill "${params.name}" not found. Use "list" to see available skills.`);
         if (skill.source === 'bundled') throw new Error(`Bundled skills cannot be updated.`);
 
-        const file = this.plugin.app.vault.getAbstractFileByPath(skill.filePath);
-        if (!(file instanceof TFile)) throw new Error(`Skill file not found: ${skill.filePath}`);
+        // Use adapter — vault API doesn't index .obsidian/ paths
+        const adapter = this.plugin.app.vault.adapter;
+        if (!(await adapter.exists(skill.filePath))) {
+            throw new Error(`Skill file not found: ${skill.filePath}`);
+        }
 
         // Validate code modules if present
         if (params.code_modules?.length) {
@@ -254,16 +278,42 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
         const allCodeModules = [...new Set([...existingCodeModules, ...newCodeModuleNames])];
 
         // Merge updates
+        const mergedDescription = params.description ?? skill.description;
+        const mergedTrigger = params.trigger ?? skill.triggerSource;
+        const mergedRequiredTools = params.required_tools ?? skill.requiredTools;
+        const mergedBody = params.body ?? skill.body;
+
+        if (await this.isProtectedTemplateSkill(skill.filePath, mergedBody, mergedRequiredTools)) {
+            throw new Error(
+                `Template skill "${params.name}" cannot be updated via manage_skill. ` +
+                'Re-run ingest_template to regenerate the layout catalog.',
+            );
+        }
+
         const content = this.buildSkillMd({
             name: params.name,
-            description: params.description ?? skill.description,
-            trigger: params.trigger ?? skill.triggerSource,
-            required_tools: params.required_tools ?? skill.requiredTools,
-            body: params.body ?? skill.body,
+            description: mergedDescription,
+            trigger: mergedTrigger,
+            required_tools: mergedRequiredTools,
+            body: mergedBody,
             source: skill.source,
         }, allCodeModules);
 
-        await this.plugin.app.vault.modify(file, content);
+        // Use adapter.write — vault.modify doesn't work reliably for .obsidian/ paths
+        await adapter.write(skill.filePath, content);
+
+        // Also write to global storage immediately (don't wait for SyncBridge)
+        const slug = skill.filePath.split('/').slice(-2, -1)[0]; // extract slug from path
+        if (this.plugin.skillsManager && slug) {
+            try {
+                await this.plugin.skillsManager.writeFile(`skills/${slug}/SKILL.md`, content);
+            } catch {
+                // Non-fatal: SyncBridge will catch up on next push
+            }
+        }
+
+        // Reload skills so the updated skill is immediately available in-memory
+        await this.skillLoader.loadAll();
 
         // Process code modules via compiler
         const codeResults: string[] = [];
@@ -301,15 +351,44 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             await this.skillLoader.deleteCodeModules(skill);
         }
 
-        // Delete the SKILL.md file
-        const file = this.plugin.app.vault.getAbstractFileByPath(skill.filePath);
-        if (file instanceof TFile) {
-            await this.plugin.app.fileManager.trashFile(file);
+        // Delete the entire skill directory (not just SKILL.md)
+        const adapter = this.plugin.app.vault.adapter;
+        const skillDir = skill.filePath.replace(/\/SKILL\.md$/, '');
+        const exists = await adapter.exists(skillDir);
+        if (exists) {
+            const listing = await adapter.list(skillDir);
+            for (const filePath of listing.files) {
+                await adapter.remove(filePath);
+            }
+            for (const subdir of listing.folders) {
+                const subdirListing = await adapter.list(subdir);
+                for (const subfile of subdirListing.files) {
+                    await adapter.remove(subfile);
+                }
+                if (subdirListing.folders.length === 0) {
+                    await adapter.rmdir(subdir, false);
+                }
+            }
+            await adapter.rmdir(skillDir, false);
+        }
+
+        // Also delete from global storage if available
+        const skillFolderName = skillDir.split('/').pop();
+        if (this.plugin.skillsManager && skillFolderName) {
+            const globalPath = `skills/${skillFolderName}/SKILL.md`;
+            try {
+                await this.plugin.skillsManager.deleteSkill(globalPath);
+            } catch {
+                // Non-fatal if already deleted or not in global storage
+            }
         }
 
         if (skill.codeModules.length > 0) {
             context.invalidateToolCache?.();
         }
+
+        // Remove from in-memory map (loadAll would also work but is heavier)
+        this.skillLoader.removeSkill(params.name ?? '');
 
         callbacks.pushToolResult(this.formatSuccess(`Skill "${params.name}" deleted.`));
     }
@@ -411,8 +490,18 @@ export class ManageSkillTool extends BaseTool<'manage_skill'> {
             codeSection = `\n\n## Code Modules\n\n${codeParts.join('\n\n')}`;
         }
 
+        // Large skills (template skills etc.) are already injected into the system prompt via
+        // <available_skills>. Return a brief excerpt only — agent should use the system prompt
+        // context rather than re-reading the full skill body.
+        const BODY_LIMIT = 4000;
+        const bodyDisplay = skill.body.length > BODY_LIMIT
+            ? skill.body.slice(0, BODY_LIMIT) +
+              `\n\n...(body truncated — this skill (${skill.body.length} chars total) is ALREADY ACTIVE in your system prompt` +
+              ` under <available_skills>. Do NOT call read again — check your system prompt instead.` +
+              ` For template layouts call create_pptx with template name and no slides.)`
+            : skill.body;
         callbacks.pushToolResult(this.formatSuccess(
-            `# ${skill.name}\n\n**Description**: ${skill.description}\n**Trigger**: ${skill.triggerSource}\n**Source**: ${skill.source}\n**Used**: ${skill.successCount} time(s)\n**Tools**: ${skill.requiredTools.join(', ') || '(none)'}\n**Code Modules**: ${skill.codeModules.length > 0 ? skill.codeModules.join(', ') : '(none)'}\n\n---\n\n${skill.body}${codeSection}`
+            `# ${skill.name}\n\n**Description**: ${skill.description}\n**Trigger**: ${skill.triggerSource}\n**Source**: ${skill.source}\n**Used**: ${skill.successCount} time(s)\n**Tools**: ${skill.requiredTools.join(', ') || '(none)'}\n**Code Modules**: ${skill.codeModules.length > 0 ? skill.codeModules.join(', ') : '(none)'}\n\n---\n\n${bodyDisplay}${codeSection}`
         ));
     }
 
@@ -450,5 +539,32 @@ ${params.body ?? ''}
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-|-$/g, '');
+    }
+
+    /**
+     * Detect if the user is trying to manually create a template/presentation skill
+     * that should be auto-generated by ingest_template instead.
+     * Heuristic: body mentions template_slide/template_file AND required_tools include create_pptx.
+     */
+    private looksLikeTemplateSkill(body: string, requiredTools?: string[]): boolean {
+        const hasCreatePptx = requiredTools?.includes('create_pptx') ?? false;
+        if (!hasCreatePptx) return false;
+
+        const templatePatterns = [
+            /template_slide/i,
+            /template_file/i,
+            /\.pptx.*vorlage|vorlage.*\.pptx/i,
+            /slide.katalog|folienbibliothek/i,
+            /brand.dna.*color|color.*brand.dna/i,
+        ];
+        return templatePatterns.some(p => p.test(body));
+    }
+
+    private async isProtectedTemplateSkill(
+        _skillFilePath: string,
+        body: string,
+        requiredTools?: string[],
+    ): Promise<boolean> {
+        return this.looksLikeTemplateSkill(body, requiredTools);
     }
 }

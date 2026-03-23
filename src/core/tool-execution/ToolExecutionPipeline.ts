@@ -45,6 +45,8 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     get_daily_note: 'read',
     query_base: 'read',
     semantic_search: 'read',
+    render_presentation: 'read',
+    check_presentation_quality: 'read',
     // Note content edits (write_file, edit_file, append_to_file, update_frontmatter)
     write_file: 'note-edit',
     edit_file: 'note-edit',
@@ -55,6 +57,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     delete_file: 'vault-change',
     move_file: 'vault-change',
     generate_canvas: 'vault-change',
+    ingest_template: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',
     // Web
@@ -100,6 +103,8 @@ export interface ApprovalResult {
 
 /** Extra context injected by AgentTask for agent-control tools */
 export interface ContextExtensions {
+    /** Abort signal for the currently running task */
+    abortSignal?: AbortSignal;
     askQuestion?: (question: string, options?: string[], allowMultiple?: boolean) => Promise<string>;
     signalCompletion?: (result: string) => void;
     /**
@@ -126,6 +131,7 @@ export class ToolExecutionPipeline {
     private toolRegistry: ToolRegistry;
     private taskId: string;
     private mode: string;
+    private apiHandler?: import('../../api/types').ApiHandler;
 
     /** Per-task result cache for read-only tools. Key = tool:sortedJSON(input). */
     private resultCache = new Map<string, string>();
@@ -142,12 +148,14 @@ export class ToolExecutionPipeline {
         plugin: ObsidianAgentPlugin,
         toolRegistry: ToolRegistry,
         taskId: string,
-        mode: string
+        mode: string,
+        apiHandler?: import('../../api/types').ApiHandler,
     ) {
         this.plugin = plugin;
         this.toolRegistry = toolRegistry;
         this.taskId = taskId;
         this.mode = mode;
+        this.apiHandler = apiHandler;
     }
 
     /** Stable cache key: tool name + sorted JSON of input parameters. */
@@ -232,12 +240,28 @@ export class ToolExecutionPipeline {
 
             // 5. Execute the tool
             const collectedContent: string[] = [];
+            let multimodalContent: import('../../api/types').ToolResultContentBlock[] | null = null;
             let executionHadError = false;
 
             const wrappedCallbacks: ToolCallbacks = {
-                pushToolResult: (content: string) => {
-                    collectedContent.push(content);
-                    if (content.startsWith('<error>')) executionHadError = true;
+                pushToolResult: (content: string | import('../../api/types').ToolResultContentBlock[]) => {
+                    if (typeof content === 'string') {
+                        collectedContent.push(content);
+                        if (content.startsWith('<error>')) executionHadError = true;
+                    } else {
+                        // Multimodal content: store the array, extract text for logging
+                        multimodalContent = content;
+                        for (const block of content) {
+                            if (block.type === 'text') {
+                                collectedContent.push(block.text);
+                                if (block.text.startsWith('<error>')) executionHadError = true;
+                            }
+                        }
+                    }
+                    callbacks.pushToolResult(content);
+                },
+                // Progress messages go to the UI only — NOT accumulated in conversation history.
+                pushProgress: (content: string) => {
                     callbacks.pushToolResult(content);
                 },
                 handleError: (tool: string, error: unknown) => callbacks.handleError(tool, error),
@@ -247,6 +271,8 @@ export class ToolExecutionPipeline {
             const context: ToolExecutionContext = {
                 taskId: this.taskId,
                 mode: this.mode,
+                apiHandler: this.apiHandler,
+                abortSignal: extensions?.abortSignal,
                 callbacks: wrappedCallbacks,
                 askQuestion: extensions?.askQuestion,
                 signalCompletion: extensions?.signalCompletion,
@@ -260,12 +286,12 @@ export class ToolExecutionPipeline {
 
             // 6. Persistent operation log + cache write
             const durationMs = Date.now() - startTime;
-            const content = collectedContent.join('\n');
-            await this.logOperation(toolCall, !executionHadError, durationMs, undefined, content);
+            const textContent = collectedContent.join('\n');
+            await this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
 
-            // Cache successful read-only results for deduplication
+            // Cache successful read-only results for deduplication (text-only)
             if (!executionHadError && ToolExecutionPipeline.CACHEABLE.has(toolCall.name)) {
-                this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), content);
+                this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), textContent);
             }
 
             // 7. Chat-Linking: track written .md paths for deferred frontmatter stamping (ADR-022)
@@ -279,7 +305,7 @@ export class ToolExecutionPipeline {
             return {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
-                content,
+                content: multimodalContent ?? textContent,
                 is_error: executionHadError,
             };
         } catch (error) {

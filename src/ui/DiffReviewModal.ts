@@ -416,6 +416,7 @@ export class DiffReviewModal extends Modal {
         }
 
         const renderedGroups = new Set<number>();
+        const renderedHunks = new Set<number>();
         let contextBuffer: DiffLine[] = [];
 
         const flushContext = () => {
@@ -452,6 +453,14 @@ export class DiffReviewModal extends Modal {
                     flushContext();
                     renderedGroups.add(group.id);
                     this.renderSemanticGroup(container, group, file);
+                } else if (!group && !renderedHunks.has(hunkId)) {
+                    // Ungrouped hunk: render raw diff lines as fallback
+                    flushContext();
+                    renderedHunks.add(hunkId);
+                    const hunk = file.hunks.find((h) => h.id === hunkId);
+                    if (hunk) {
+                        this.renderUngroupedHunk(container, hunk);
+                    }
                 }
             } else {
                 // Unchanged line — skip if covered by a group range (O(1) lookup)
@@ -589,6 +598,26 @@ export class DiffReviewModal extends Modal {
         }
 
         container.appendChild(frag);
+    }
+
+    /**
+     * Render a hunk that has no semantic group mapping (fallback for non-Markdown files).
+     * Renders the raw diff lines as side-by-side pairs without section grouping.
+     */
+    private renderUngroupedHunk(container: HTMLElement, hunk: DiffHunk): void {
+        const leftLines: (DiffLine | null)[] = [];
+        const rightLines: (DiffLine | null)[] = [];
+        for (const line of hunk.lines) {
+            if (line.type === 'removed') leftLines.push(line);
+            else if (line.type === 'added') rightLines.push(line);
+        }
+
+        const rows = Math.max(leftLines.length, rightLines.length);
+        for (let r = 0; r < rows; r++) {
+            const row = container.createDiv('diff-row');
+            this.renderSide(row, leftLines[r] ?? null, 'old');
+            this.renderSide(row, rightLines[r] ?? null, 'new');
+        }
     }
 
     /** Render one side (old/new) of a side-by-side diff row */

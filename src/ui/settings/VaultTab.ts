@@ -79,5 +79,15 @@ export class VaultTab {
                         await this.plugin.saveSettings();
                     }),
             );
+
+        new Setting(containerEl)
+            .setName('TaskNotes Plugin bevorzugen')
+            .setDesc('Wenn das Community Plugin "TaskNotes" aktiv ist, Tasks in dessen Format erstellen. Ansonsten wird das interne Format verwendet.')
+            .addToggle((toggle) =>
+                toggle.setValue(taskSettings.preferTaskNotesPlugin ?? true).onChange(async (v) => {
+                    this.plugin.settings.taskExtraction = { ...taskSettings, preferTaskNotesPlugin: v };
+                    await this.plugin.saveSettings();
+                }),
+            );
     }
 }

@@ -59,7 +59,7 @@ export class EvaluateExpressionTool extends BaseTool<'evaluate_expression'> {
                     dependencies: {
                         type: 'array',
                         items: { type: 'string' },
-                        description: 'Optional npm package names to bundle (e.g. ["pptxgenjs", "xlsx"]). When provided, packages are fetched from CDN and bundled with esbuild.',
+                        description: 'Optional npm package names to bundle (e.g. ["xlsx", "marked"]). When provided, packages are fetched from CDN and bundled with esbuild.',
                     },
                 },
                 required: ['expression'],

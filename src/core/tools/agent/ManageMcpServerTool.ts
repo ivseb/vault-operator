@@ -177,6 +177,10 @@ export class ManageMcpServerTool extends BaseTool<'manage_mcp_server'> {
             callbacks.pushToolResult(this.formatError(`Server "${params.name}" not found.`));
             return;
         }
+        if (this.plugin.settings.mcpServers[params.name].isBuiltIn) {
+            callbacks.pushToolResult(this.formatError(`Server "${params.name}" is built-in and cannot be removed. You can disable it instead.`));
+            return;
+        }
 
         await this.mcpClient.disconnect(params.name);
         delete this.plugin.settings.mcpServers[params.name];

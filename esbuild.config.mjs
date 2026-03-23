@@ -165,6 +165,19 @@ const context = await esbuild.context({
                                 }
                                 console.log(`[vault-deploy] Copied ${skillDirs.length} bundled skill(s)`);
                             }
+                            // Copy default PPTX templates
+                            const templatesSrc = join(__dirname, "assets/templates");
+                            if (existsSync(templatesSrc)) {
+                                const templatesDir = `${VAULT_PLUGIN_DIR}/templates`;
+                                if (!existsSync(templatesDir)) mkdirSync(templatesDir, { recursive: true });
+                                const templateFiles = readdirSync(templatesSrc).filter(f => f.endsWith('.pptx'));
+                                for (const f of templateFiles) {
+                                    copyFileSync(join(templatesSrc, f), join(templatesDir, f));
+                                }
+                                if (templateFiles.length > 0) {
+                                    console.log(`[vault-deploy] Copied ${templateFiles.length} PPTX template(s)`);
+                                }
+                            }
                             console.log(`[vault-deploy] → ${VAULT_PLUGIN_DIR}`);
                         } catch (e) {
                             console.warn("[vault-deploy] Copy failed:", e.message);

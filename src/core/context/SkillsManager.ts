@@ -8,13 +8,17 @@
  *   name: string        — short identifier (lowercase, hyphens)
  *   description: string — what the skill is for (used for keyword matching)
  *
+ * Optional frontmatter:
+ *   trigger: string     — regex pattern for fast-path matching (same as bundled skills)
+ *
  * SKILL.md body — instructions the agent should follow when using this skill.
  *
- * Relevant skills (by keyword overlap with user message) are injected into
- * the system prompt as an <available_skills> block. The agent can then
- * read_file the SKILL.md path to get the full instructions.
+ * Matching priority:
+ *   1. Trigger regex (fast path, if `trigger` frontmatter is present)
+ *   2. Keyword overlap between description and user message
  *
- * Inspired by Kilo Code's src/services/skills/SkillsManager.ts (simplified).
+ * Relevant skills are injected into the system prompt as an <available_skills>
+ * block with full content inlined (no read_file round-trip needed).
  */
 
 import type { FileAdapter } from '../storage/types';
@@ -28,6 +32,8 @@ export interface SkillMeta {
     description: string;
     /** Source: 'learned' (agent-created), 'user' (manual), or undefined (legacy) */
     source?: 'learned' | 'user' | 'bundled';
+    /** Optional trigger regex for fast-path matching */
+    trigger?: string;
 }
 
 export class SkillsManager {
@@ -78,10 +84,13 @@ export class SkillsManager {
     }
 
     /**
-     * Get skills relevant to the user's message (by keyword overlap).
+     * Get skills relevant to the user's message.
+     * Matching priority:
+     *   1. Trigger regex (fast path) — matches against frontmatter `trigger` field
+     *   2. Keyword overlap — description words vs message words
+     *
      * Returns a formatted prompt section string with full skill content inlined,
-     * or empty string if no matches. Inlining eliminates the read_file round-trip
-     * that the agent would otherwise need before applying the skill.
+     * or empty string if no matches.
      */
     async getRelevantSkills(userMessage: string, toggles?: Record<string, boolean>): Promise<string> {
         const allSkills = await this.discoverSkills();
@@ -91,9 +100,23 @@ export class SkillsManager {
             : allSkills;
         if (skills.length === 0) return '';
 
-        const msgWords = new Set(userMessage.toLowerCase().match(/\b\w{3,}\b/g) ?? []);
+        const msgLower = userMessage.toLowerCase();
+        // Word extraction: covers ASCII + common European letters (ä, ö, ü, ß, é, etc.)
+        const wordPattern = /[a-z0-9\u00C0-\u024F_]{3,}/gi;
+        const msgWords = new Set(msgLower.match(wordPattern) ?? []);
+
         const relevant = skills.filter((s) => {
-            const descWords = s.description.toLowerCase().match(/\b\w{3,}\b/g) ?? [];
+            // Priority 1: Trigger regex (fast path)
+            if (s.trigger) {
+                try {
+                    const regex = new RegExp(s.trigger, 'i');
+                    if (regex.test(msgLower)) return true;
+                } catch {
+                    // Invalid regex — fall through to keyword matching
+                }
+            }
+            // Priority 2: Keyword overlap on description
+            const descWords = s.description.toLowerCase().match(wordPattern) ?? [];
             return descWords.some((w) => msgWords.has(w));
         });
 
@@ -107,8 +130,11 @@ export class SkillsManager {
                 const raw = await this.fs.read(s.path);
                 // Strip frontmatter, keep only the body
                 fullContent = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
-                // Cap at 4000 chars to avoid bloating the system prompt
-                if (fullContent.length > 4000) fullContent = fullContent.slice(0, 4000) + '\n…(truncated)';
+
+                // Cap skill body at 16k to stay within context budget.
+                if (fullContent.length > 16000) fullContent = fullContent.slice(0, 16000) +
+                    '\n…(skill truncated — remaining sections omitted.' +
+                    ' DO NOT call manage_skill read — it is already active.)';
             } catch {
                 // Fall back to name+description only if file can't be read
             }
@@ -147,10 +173,26 @@ export class SkillsManager {
     }
 
     /**
-     * Delete a skill file.
+     * Delete a skill file and its parent directory if empty afterward.
      */
     async deleteSkill(path: string): Promise<void> {
-        await this.fs.remove(path);
+        try {
+            await this.fs.remove(path);
+        } catch {
+            // Non-fatal: file may already be gone
+        }
+        // Clean up empty parent directory (e.g. skills/my-skill/)
+        const parentDir = path.substring(0, path.lastIndexOf('/'));
+        if (parentDir) {
+            try {
+                const listing = await this.fs.list(parentDir);
+                if (listing.files.length === 0 && listing.folders.length === 0) {
+                    await this.fs.remove(parentDir);
+                }
+            } catch {
+                // Non-fatal: directory may not exist
+            }
+        }
     }
 
     /**
@@ -171,14 +213,16 @@ export class SkillsManager {
         const nameMatch = yaml.match(/^name:\s*(.+)$/m);
         const descMatch = yaml.match(/^description:\s*(.+)$/m);
         const sourceMatch = yaml.match(/^source:\s*(.+)$/m);
+        const triggerMatch = yaml.match(/^trigger:\s*(.+)$/m);
 
         const name = nameMatch?.[1]?.trim() ?? folder.split('/').pop() ?? 'unknown';
         const description = descMatch?.[1]?.trim() ?? '';
         const source = sourceMatch?.[1]?.trim() as SkillMeta['source'];
+        const trigger = triggerMatch?.[1]?.trim();
 
         if (!description) return null;
 
-        return { path: skillPath, name, description, source };
+        return { path: skillPath, name, description, source, trigger };
     }
 
     private xmlEscape(s: string): string {

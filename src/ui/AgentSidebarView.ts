@@ -3,7 +3,7 @@ import type ObsidianAgentPlugin from '../main';
 import { AgentTask } from '../core/AgentTask';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, BUILT_IN_MODELS } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, BUILT_IN_MODELS, getDefaultBaseUrlForProvider } from '../types/settings';
 import type { CustomModel, ProviderType } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
@@ -21,6 +21,7 @@ import { ContextDisplay } from './sidebar/ContextDisplay';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
 import { scan as scanTasks } from '../core/tasks/TaskExtractor';
 import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
+import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
 
@@ -637,27 +638,206 @@ export class AgentSidebarView extends ItemView {
         }
     }
 
-    private async buildSkillsSection(userMessage: string, allowedSkillNames?: string[]): Promise<string | undefined> {
+    /**
+     * Build the skills section for system prompt injection.
+     *
+     * Matching strategy (LLM-primary, keyword/trigger fallback):
+     *   1. Collect ALL skills (user + bundled) into a unified catalog
+     *   2. LLM classification: ask which skills apply (returns multiple)
+     *   3. Fallback: keyword + trigger matching if LLM unavailable/fails
+     *   4. Load full content for matched skills, deduplicate by name
+     */
+    /** Max number of skills injected into system prompt to prevent context overflow. */
+    private static readonly MAX_INJECTED_SKILLS = 5;
+    /** Max total chars of skill content injected into system prompt. */
+    private static readonly MAX_TOTAL_SKILL_CHARS = 40_000;
+
+    private async buildSkillsSection(userMessage: string, allowedSkillNames?: string[]): Promise<{ section: string; activeSkillNames: string[] } | undefined> {
         const skillsManager = this.plugin.skillsManager;
         if (!skillsManager) return undefined;
 
         // Build effective toggles: combine manual toggles with per-mode allow-list
         const toggles = { ...(this.plugin.settings.manualSkillToggles ?? {}) };
         if (allowedSkillNames) {
-            // If mode has an explicit allow-list, disable any skill not in it
-            const allSkills: { path: string; name: string }[] = await skillsManager.discoverSkills();
+            const allUserSkills: { path: string; name: string }[] = await skillsManager.discoverSkills();
             const allowedSet = new Set(allowedSkillNames);
-            for (const skill of allSkills) {
+            for (const skill of allUserSkills) {
                 if (!allowedSet.has(skill.name)) {
                     toggles[skill.path] = false;
                 }
             }
         }
 
-        // For keyword-matched skills, use getRelevantSkills() which inlines full SKILL.md content.
-        // This eliminates the read_file round-trip the agent would otherwise need.
-        const section = await skillsManager.getRelevantSkills(userMessage, toggles);
-        return section || undefined;
+        // 1. Collect ALL available skills into a unified catalog
+        const userSkills = await skillsManager.discoverSkills();
+        const filteredUserSkills = Object.keys(toggles).length > 0
+            ? userSkills.filter(s => toggles[s.path] !== false)
+            : userSkills;
+
+        const selfLoader = this.plugin.selfAuthoredSkillLoader;
+        const bundledSkills = selfLoader?.getAllSkills() ?? [];
+
+        // Build catalog entries: { name, description, source }
+        interface CatalogEntry { name: string; description: string; src: 'user' | 'bundled' }
+        const catalog: CatalogEntry[] = [
+            ...filteredUserSkills.map(s => ({ name: s.name, description: s.description, src: 'user' as const })),
+            ...bundledSkills.map(s => ({ name: s.name, description: s.description, src: 'bundled' as const })),
+        ];
+
+        if (catalog.length === 0) return undefined;
+
+        // 2. LLM classification (primary) -- ask which skills apply
+        let matchedNames = await this.classifySkillsWithLlm(userMessage, catalog);
+        console.debug('[buildSkillsSection] LLM matched skills:', [...matchedNames]);
+
+        // 3. Fallback: keyword + trigger matching if LLM returned nothing
+        if (matchedNames.size === 0) {
+            matchedNames = this.matchSkillsByKeywordAndTrigger(userMessage, filteredUserSkills, bundledSkills);
+            console.debug('[buildSkillsSection] Fallback matched skills:', [...matchedNames]);
+        }
+
+        if (matchedNames.size === 0) return undefined;
+
+        // 4. Rank matched skills: bundled +20, user +10 (higher = injected first)
+        const ranked: { name: string; priority: number }[] = [];
+        for (const name of matchedNames) {
+            const isBundled = bundledSkills.some(s => s.name === name);
+            ranked.push({ name, priority: isBundled ? 20 : 10 });
+        }
+        ranked.sort((a, b) => b.priority - a.priority);
+
+        // 5. Load full content for matched skills with injection cap
+        const parts: string[] = [];
+        const activeSkillNames: string[] = [];
+        let totalChars = 0;
+
+        for (const { name } of ranked) {
+            if (parts.length >= AgentSidebarView.MAX_INJECTED_SKILLS) break;
+
+            // Try user skill first
+            const userSkill = filteredUserSkills.find(s => s.name === name);
+            if (userSkill) {
+                try {
+                    const raw = await skillsManager.readFile(userSkill.path);
+                    let body = raw.replace(/^---\n[\s\S]*?\n---\n?/, '').trim();
+                    if (body.length > 16000) body = body.slice(0, 16000) + '\n...(truncated)';
+                    if (totalChars + body.length > AgentSidebarView.MAX_TOTAL_SKILL_CHARS) break;
+                    totalChars += body.length;
+                    parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(userSkill.description)}</description>\n    <instructions>${xmlEsc(body)}</instructions>\n  </skill>`);
+                    activeSkillNames.push(name);
+                } catch { /* skip unreadable */ }
+                continue;
+            }
+
+            // Try bundled skill
+            if (selfLoader) {
+                const bundled = selfLoader.getSkill(name);
+                if (bundled) {
+                    const body = selfLoader.getSkillBody(name);
+                    if (body) {
+                        const trimmed = body.length > 16000 ? body.slice(0, 16000) + '\n...(truncated)' : body;
+                        if (totalChars + trimmed.length > AgentSidebarView.MAX_TOTAL_SKILL_CHARS) break;
+                        totalChars += trimmed.length;
+                        parts.push(`  <skill>\n    <name>${xmlEsc(name)}</name>\n    <description>${xmlEsc(bundled.description)}</description>\n    <instructions>${xmlEsc(trimmed)}</instructions>\n  </skill>`);
+                        activeSkillNames.push(name);
+                    }
+                }
+            }
+        }
+
+        if (parts.length === 0) return undefined;
+        const skipped = ranked.length - parts.length;
+        if (skipped > 0) {
+            console.debug(`[buildSkillsSection] Capped: injected ${parts.length}, skipped ${skipped} lower-priority skills`);
+        }
+        console.debug(`[buildSkillsSection] Injecting ${parts.length} skill(s): ${activeSkillNames.join(', ')}`);
+        return {
+            section: `<available_skills>\n${parts.join('\n')}\n</available_skills>`,
+            activeSkillNames,
+        };
+    }
+
+    /**
+     * LLM-based skill classification (primary matching strategy).
+     * Sends a compact prompt with all skill names + descriptions, asks which apply.
+     * Returns ALL applicable skill names (not just one).
+     */
+    private async classifySkillsWithLlm(
+        userMessage: string,
+        catalog: Array<{ name: string; description: string }>,
+    ): Promise<Set<string>> {
+        try {
+            const model = this.plugin.getActiveModel();
+            if (!model) return new Set();
+
+            const handler = buildApiHandlerForModel(model);
+            if (!handler.classifyText) return new Set();
+
+            const skillList = catalog.map(s => `- ${s.name}: ${s.description}`).join('\n');
+
+            const prompt =
+                `User message: "${userMessage.slice(0, 400)}"\n\n` +
+                `Available skills:\n${skillList}\n\n` +
+                `Which skills should be activated for this message? A task may need MULTIPLE skills ` +
+                `(e.g. a presentation needs both design and workflow skills, a corporate presentation ` +
+                `also needs the corporate template skill).\n` +
+                `Reply with a comma-separated list of skill names, or "none" if no skill applies.`;
+
+            const result = await handler.classifyText(prompt);
+            const cleaned = result.toLowerCase().trim();
+
+            if (cleaned === 'none' || !cleaned) return new Set();
+
+            // Parse comma-separated response, match against catalog
+            const requested = cleaned.split(/[,\n]+/).map(s => s.trim().replace(/^-\s*/, ''));
+            const matched = new Set<string>();
+
+            for (const req of requested) {
+                if (!req || req === 'none') continue;
+                // Exact match
+                const exact = catalog.find(s => s.name.toLowerCase() === req);
+                if (exact) { matched.add(exact.name); continue; }
+                // Partial match (LLM might abbreviate)
+                const partial = catalog.find(s => req.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(req));
+                if (partial) matched.add(partial.name);
+            }
+
+            return matched;
+        } catch (e) {
+            console.debug('[buildSkillsSection] LLM skill classification failed:', e);
+            return new Set();
+        }
+    }
+
+    /**
+     * Keyword + trigger matching (fallback when LLM is unavailable).
+     * Combines user skill keyword matching with bundled skill trigger regex.
+     */
+    private matchSkillsByKeywordAndTrigger(
+        userMessage: string,
+        userSkills: import('../core/context/SkillsManager').SkillMeta[],
+        bundledSkills: import('../core/skills/SelfAuthoredSkillLoader').SelfAuthoredSkill[],
+    ): Set<string> {
+        const matched = new Set<string>();
+        const msgLower = userMessage.toLowerCase();
+        const wordPattern = /[a-z0-9\u00C0-\u024F_]{3,}/gi;
+        const msgWords = new Set(msgLower.match(wordPattern) ?? []);
+
+        // User skills: trigger regex + keyword
+        for (const s of userSkills) {
+            if (s.trigger) {
+                try { if (new RegExp(s.trigger, 'i').test(msgLower)) { matched.add(s.name); continue; } } catch { /* skip */ }
+            }
+            const descWords = s.description.toLowerCase().match(wordPattern) ?? [];
+            if (descWords.some(w => msgWords.has(w))) matched.add(s.name);
+        }
+
+        // Bundled skills: trigger regex
+        for (const s of bundledSkills) {
+            if (s.trigger.test(userMessage)) matched.add(s.name);
+        }
+
+        return matched;
     }
 
     private autoResizeTextarea(): void {
@@ -843,9 +1023,11 @@ export class AgentSidebarView extends ItemView {
             provider,
             displayName: builtIn?.displayName ?? modelName,
             apiKey,
-            baseUrl: builtIn?.baseUrl ?? (provider === 'custom'
-                ? 'https://generativelanguage.googleapis.com/v1beta/openai'
-                : undefined),
+            baseUrl: builtIn?.baseUrl
+                ?? getDefaultBaseUrlForProvider(provider)
+                ?? (provider === 'custom'
+                    ? 'https://generativelanguage.googleapis.com/v1beta/openai'
+                    : undefined),
             enabled: true,
             isBuiltIn: builtIn?.isBuiltIn ?? false,
         };
@@ -1113,6 +1295,7 @@ export class AgentSidebarView extends ItemView {
         // `let` so onQuestion can create fresh elements for each onboarding turn.
         let { messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl();
         let accumulatedText = '';       // text accumulated during/after tool phase
+        let accumulatedToolContent = '';  // content written by file-writing tools (for task extraction)
         let accumulatedThinking = '';   // full thinking text for collapse/expand
         let hasTools = false;           // have any tools been called in this task?
         let isThinking = false;         // thinking is currently active
@@ -1396,6 +1579,19 @@ export class AgentSidebarView extends ItemView {
 
                     const writeOps = ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file'];
                     if (writeOps.includes(name)) taskWriteCount++;
+
+                    // Collect content from file-writing tools for task extraction (ADR-026)
+                    const taskRelevantOps = ['write_file', 'append_to_file', 'edit_file'];
+                    if (taskRelevantOps.includes(name) && input) {
+                        const inp = input as Record<string, unknown>;
+                        if (typeof inp['content'] === 'string') {
+                            accumulatedToolContent += '\n' + (inp['content'] as string);
+                        }
+                        if (typeof inp['new_str'] === 'string') {
+                            accumulatedToolContent += '\n' + (inp['new_str'] as string);
+                        }
+                    }
+
                     scheduleScroll();
                 },
                 onToolResult: (name, content, isError) => {
@@ -1486,6 +1682,16 @@ export class AgentSidebarView extends ItemView {
                         const actDetails = toolsEl.closest<HTMLDetailsElement>('.todo-activity-log');
                         if (actDetails) actDetails.open = true;
                     }
+                },
+                onToolProgress: (name, content) => {
+                    // Update the live output area of the currently-running standalone tool.
+                    const queue = toolElsByName.get(name);
+                    const el = queue?.[0] ?? null; // peek without consuming
+                    if (!el || el.classList.contains('tool-group-item')) return;
+                    const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
+                    if (!outputEl) return;
+                    outputEl.empty();
+                    outputEl.createEl('pre').setText(content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1580,6 +1786,7 @@ export class AgentSidebarView extends ItemView {
                         ({ messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl());
                         // Reset per-turn state
                         accumulatedText = '';
+                        accumulatedToolContent = '';
                         hasTools = false;
                         streamingPara = null;
                         stepsBlockEl = null;
@@ -1742,8 +1949,9 @@ export class AgentSidebarView extends ItemView {
                     this.saveCurrentConversation();
 
                     // Task Extraction Post-Processing (ADR-026, FEATURE-100)
-                    if (this.plugin.settings.taskExtraction?.enabled && accumulatedText) {
-                        void this.maybeExtractTasks(accumulatedText);
+                    const taskScanText = (accumulatedText + accumulatedToolContent).trim();
+                    if (this.plugin.settings.taskExtraction?.enabled && taskScanText) {
+                        void this.maybeExtractTasks(taskScanText);
                     }
 
                     // Auto-title: set fallback title for immediate history display (ADR-022)
@@ -1808,6 +2016,7 @@ export class AgentSidebarView extends ItemView {
         // Loading skills would trigger keyword matches (e.g. "Setup") causing unnecessary delay.
         const isOnboarding = !this.plugin.settings.onboarding.completed;
         let skillsSection: string | undefined;
+        let activeSkillNames: string[] = [];
         if (!isOnboarding) {
             const userMessageText = typeof messageToSend === 'string'
                 ? messageToSend
@@ -1815,7 +2024,11 @@ export class AgentSidebarView extends ItemView {
             const modeAllowed = this.plugin.settings.modeSkillAllowList?.[activeMode.slug];
             // empty/undefined = all allowed; non-empty = only those skill names
             const allowedSkillNames = modeAllowed && modeAllowed.length > 0 ? modeAllowed : undefined;
-            skillsSection = await this.buildSkillsSection(userMessageText, allowedSkillNames);
+            const skillResult = await this.buildSkillsSection(userMessageText, allowedSkillNames);
+            if (skillResult) {
+                skillsSection = skillResult.section;
+                activeSkillNames = skillResult.activeSkillNames;
+            }
         }
 
         // Apply forced workflow from tool picker (when message doesn't start with slash command)
@@ -1919,6 +2132,7 @@ export class AgentSidebarView extends ItemView {
             recipesSection,
             selfAuthoredSkillsSection,
             configDir: this.app.vault.configDir,
+            activeSkillNames: activeSkillNames.length > 0 ? activeSkillNames : undefined,
             conversationId: this.activeConversationId ?? undefined,
         });
     }
@@ -1987,6 +2201,8 @@ export class AgentSidebarView extends ItemView {
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
+        // ADR-048: Reset session flags when starting a new conversation
+        this.plugin.sessionFlags.clear();
         this.onboardingKeyState = null;
         this.onboardingSelectedProvider = null;
         this.attachments.clear();
@@ -2019,15 +2235,27 @@ export class AgentSidebarView extends ItemView {
             const sourceNote = this.app.workspace.getActiveFile()?.basename ?? '';
             const settings = this.plugin.settings.taskExtraction;
 
+            const taskNotesActive = this.isTaskNotesActive();
+            const useTaskNotes = taskNotesActive && (settings.preferTaskNotesPlugin ?? true);
+
+            // Show recommendation if TaskNotes is not active and hint not dismissed
+            if (!taskNotesActive && !(settings.taskNotesHintDismissed ?? false)) {
+                this.showTaskNotesRecommendation();
+            }
+
             new TaskSelectionModal(
                 this.app,
                 items,
+                useTaskNotes,
                 async (selected) => {
                     try {
-                        const creator = new TaskNoteCreator(this.app);
+                        const creator = useTaskNotes
+                            ? new TaskNotesAdapter(this.app)
+                            : new TaskNoteCreator(this.app);
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
-                            new Notice(`${created.length} Task-Note${created.length === 1 ? '' : 's'} erstellt`);
+                            const format = useTaskNotes ? ' (TaskNotes-Format)' : '';
+                            new Notice(`${created.length} Task-Note${created.length === 1 ? '' : 's'} erstellt${format}`);
                         }
                     } catch (err) {
                         console.warn('[TaskExtraction] Failed to create task notes:', err);
@@ -2036,8 +2264,46 @@ export class AgentSidebarView extends ItemView {
                 },
             ).open();
         } catch (err) {
-            console.warn('[TaskExtraction] Scan failed:', err);
+            console.error('[TaskExtraction] Scan failed:', err);
+            new Notice(`Task-Extraction Fehler: ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+
+    /** Checks whether the TaskNotes community plugin is currently enabled */
+    private isTaskNotesActive(): boolean {
+        const plugins = (this.app as unknown as { plugins?: { enabledPlugins?: Set<string> } }).plugins;
+        return plugins?.enabledPlugins?.has('tasknotes') ?? false;
+    }
+
+    /** Shows a non-blocking recommendation notice for the TaskNotes plugin */
+    private showTaskNotesRecommendation(): void {
+        const plugins = (this.app as unknown as { plugins?: { manifests?: Record<string, unknown> } }).plugins;
+        const isInstalled = !!plugins?.manifests?.['tasknotes'];
+
+        const message = isInstalled
+            ? 'Das Community Plugin "TaskNotes" ist installiert aber nicht aktiv. Aktiviere es fuer erweiterte Task-Verwaltung (Kanban, Kalender, Recurring Tasks).'
+            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung mit Kanban, Kalender und Recurring Tasks. Installierbar ueber Einstellungen > Community Plugins.';
+
+        const fragment = createFragment((frag) => {
+            frag.createSpan({ text: message });
+            const dismissLink = frag.createEl('a', {
+                text: 'Nicht mehr anzeigen',
+                cls: 'agent-u-task-hint-dismiss',
+            });
+            dismissLink.style.setProperty('display', 'block');
+            dismissLink.style.setProperty('margin-top', '6px');
+            dismissLink.style.setProperty('font-size', '0.85em');
+            dismissLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.plugin.settings.taskExtraction = {
+                    ...this.plugin.settings.taskExtraction,
+                    taskNotesHintDismissed: true,
+                };
+                void this.plugin.saveSettings();
+                notice.hide();
+            });
+        });
+        const notice = new Notice(fragment, 12000);
     }
 
     /** Enqueue memory extraction if the conversation meets the threshold. Fire-and-forget. */
@@ -2215,6 +2481,7 @@ export class AgentSidebarView extends ItemView {
             this.activeConversationId = null;
             this.uiMessages = [];
             this.conversationHistory = [];
+            this.plugin.sessionFlags.clear(); // ADR-048
             if (this.chatContainer) {
                 this.chatContainer.empty();
             }
@@ -3537,4 +3804,9 @@ export class AgentSidebarView extends ItemView {
         if (num >= 1_000) return (num / 1_000).toFixed(1) + 'k';
         return num.toString();
     }
+}
+
+/** Minimal XML-escape for skill injection (module-level helper). */
+function xmlEsc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
