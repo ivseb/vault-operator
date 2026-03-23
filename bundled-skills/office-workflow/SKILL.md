@@ -3,134 +3,85 @@ name: office-workflow
 description: Professional workflow for creating Office documents (PPTX, DOCX, XLSX) with structured process, design principles, and quality standards
 trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx|dokument.*erstell|erstell.*dokument|document.*creat|docx|word.*erstell|spreadsheet|tabelle.*erstell|xlsx|excel
 source: bundled
-requiredTools: [create_pptx, create_docx, create_xlsx, analyze_pptx_template, get_composition_details, render_presentation, check_presentation_quality]
+
 ---
 
 # Office Document Workflow
 
-Follow these 6 steps IN ORDER. Do NOT skip any step.
+Follow these 6 steps IN ORDER for presentations. Do NOT skip steps.
 
-## Step 1: CONTEXT (mandatory -- ASK and STOP)
+## Step 1: CONTEXT (ASK and STOP)
 
 Ask the user:
 - **Goal**: What should the audience learn, decide, or do?
 - **Audience**: Who? What do they know?
-- **Deck mode** (presentations): Speaker [S] (max 25 words/slide) or Reading [R] (max 170 words/slide)?
-- **Time** (speaker decks): Minutes? (~1 slide/min)
-- **Material**: Existing data, documents, notes?
-
-STOP. Wait for answer before continuing.
-
-## Step 2: TEMPLATE (mandatory -- ASK and STOP)
-
-Ask: "Welches Design? **Executive** (dunkel), **Modern** (hell, Blau/Orange), **Minimal** (Schwarz/Weiss). Eigene Corporate-Vorlage? Lade die .pptx in den Vault."
+- **Deck mode**: Speaker [S] (max 25 words/slide) or Reading [R] (max 170 words/slide)?
+- **Material**: Which note or document contains the source content?
 
 STOP. Wait for answer.
 
-- "Executive" / "Modern" / "Minimal" -> template=lowercase, go to Step 4
-- Corporate .pptx mentioned -> go to Step 3
-- Multiple files (Style Guide, Icons, How-to-Use) -> collect ALL file paths, go to Step 3
+## Step 2: TEMPLATE
 
-## Step 3: TEMPLATE SKILL (corporate .pptx only)
+Ask: "Welches Design? **Executive** (dunkel), **Modern** (hell), **Minimal** (SW). Oder eigene Corporate-Vorlage?"
+
+- Default theme -> adhoc mode (HTML slides), skip to Step 3
+- Corporate .pptx -> check if theme exists:
+  - Theme exists: continue to Step 3
+  - Theme missing: run ingest_template (derive theme_name from filename, recommend render_previews: true)
+
+## Step 3: PLAN (THE KEY STEP)
+
+**For corporate templates: ALWAYS call plan_presentation.**
 
 ```
-Matching template skill in <available_skills>?
-YES -> use it, go to Step 4
-NO  -> call analyze_pptx_template(template_path, additional_files)
-        Pass ALL corporate design files:
-        - Main template as template_path
-        - Style Guide, Icon Gallery, How-to-Use as additional_files
-          (role auto-detected, or specify explicitly)
-        This generates SKILL.md + compositions.json automatically.
-        NEVER use manage_skill to create template skills manually.
-        STOP. Wait for analysis to complete.
+plan_presentation(
+  source: "path/to/source-note.md",
+  template: "acme",
+  deck_mode: "reading",
+  goal: "from Step 1",
+  audience: "from Step 1"
+)
 ```
 
-If multimodal analysis is deactivated: ask user to enable Visual Intelligence via update_settings, then re-run analyze_pptx_template.
+The tool reads the source material, loads the template catalog, and generates a complete deck plan
+with content for EVERY shape on EVERY slide via an internal LLM call.
 
-If analysis fails: report the error. Do NOT work around it.
+Show the resulting plan table to the user. Wait for feedback.
+On change requests: describe the adjustments and call plan_presentation again.
 
-### Using the Template Skill
+**For default themes (adhoc mode):** Plan the slides yourself using the presentation-design skill.
 
-Before creating slides: call `get_composition_details` for each composition you plan to use.
-Check `recommended_pipeline` per composition to decide clone vs html mode.
+## Step 4: GENERATE
 
-Corporate rules (clone mode):
-- Use `template_file` + `template_slide` + `content`
-- Content keys = shape names/aliases from get_composition_details
-- Respect max_chars and font_size_pt limits
+**Corporate template:** Copy the JSON block from the plan_presentation output directly into create_pptx.
+Do NOT modify the plan's content or choose different shapes -- the plan was generated and validated.
 
-Corporate rules (html mode with scaffolding):
-- Use `template_file` + `html` + `composition_id`
-- Design HTML within `content_area` bounds using `style_guide` colors/fonts
-- Scaffold (header, footer, logo, deko) is auto-injected per composition
-- Optional: Use `html_skeleton` from get_composition_details as starting point
+```
+create_pptx(
+  output_path: "presentations/output.pptx",
+  template: "acme",
+  slides: [... from plan ...]
+)
+```
 
-## Step 4: PLAN (mandatory -- share and STOP)
+**Adhoc mode:** Write HTML slides on 1280x720 canvas with data-object elements.
 
-Share structure table for approval:
-- Corporate: # | Composition | Pipeline (clone/html) | Content Summary | Why
-- Default: # | Visual Pattern | Content Type | Narrative Function
+## Step 5: VERIFY
 
-Planning rules:
-- Storytelling Framework from presentation-design skill FIRST
-- Max 30% text slides [S], 50% [R]. Rest = structured visual layouts
-- Never same slide type consecutively (Two-Slide-Buffer)
-- Decision Tree: numbers->KPI/chart, sequence->process, comparison->matrix
-- Design Reasoning per slide: "3 steps -> chevrons. Emotion: clarity/momentum"
+After creation, call render_presentation on 2-3 representative slides:
+- First content slide, one data/process slide, last content slide
+- Check for: empty shapes, text overflow, placeholder text, layout issues
+- Fix specific slides and regenerate if needed (max 2 rounds)
 
-STOP. Wait for approval.
+## Step 6: DELIVER
 
-## Step 5: CREATE
-
-### Content Rules (corporate templates)
-1. **Fill EVERY shape** -- unfilled shapes appear blank
-2. **Transform content** -- bullets max 8 words [S], full sentences [R]. Never copy verbatim
-3. **Match composition to content** -- classify first, then find layout
-4. **Never invent data** -- all numbers from source material
-5. **Reload get_composition_details** when switching template slides
-6. **Customize footer_text** -- never leave template defaults
-7. **Image placeholders** -- ask user for images OR use text-only composition
-8. **Color accents** -- place most important content at accent position
-
-### Pipeline Selection
-
-**Default: HTML mode** with per-composition scaffolding for content slides.
-
-| Slide Type | Mode | Why |
-|---|---|---|
-| Title, section divider, closing | template_slide + content | Exact branding, <=2 shapes |
-| All content slides (KPI, process, comparison, chart) | html + composition_id | Scaffold auto-injected, creative freedom |
-| Content fitting template shapes exactly | template_slide + content | Pixel-perfect fallback |
-| Default themes (no template) | html | Full control |
-
-Per-composition scaffolding:
-- Call `get_composition_details` -> read `content_area`, `style_guide`, `layout_hint`
-- Design HTML within `content_area` bounds, use `style_guide` colors/fonts
-- Scaffold (header, footer, logo, deko) auto-injected per composition
-- Pick icons from Available Icons catalog (if available) instead of inheriting fixed ones
-- Optional: Use `html_skeleton` as starting point
-
-Deko elements (logo, accent bars) are auto-injected -- do NOT place manually.
-
-### Pre-Flight
-Run Section O self-check from presentation-design skill before calling create_pptx.
-
-## Step 6: QUALITY CHECK
-
-If Visual Intelligence enabled: call check_presentation_quality.
-- "pass" -> inform user
-- "needs_revision" -> fix, recreate, recheck (max 2 rounds)
-- Fallback: call render_presentation for manual inspection
+Present the result. Offer DOCX handout for reading decks. Ask if adjustments needed.
 
 ## Anti-Patterns (NEVER)
 
-- Title-only slides / wall of text (>5 bullets [S], >170 words [R])
-- Same visual pattern consecutively
-- Unfilled shapes / copy-pasted source text / hallucinated data
-- Template placeholder images without asking / default footers unchanged
-- Using manage_skill for template skills (always use analyze_pptx_template)
-
-## After Creation
-
-Offer DOCX handout (for presentations). Ask if adjustments needed.
+- Skipping plan_presentation and calling create_pptx directly with corporate templates
+- Modifying the plan's JSON before passing to create_pptx
+- Using adhoc HTML mode when a corporate template was requested
+- Leaving placeholder text ("Your slide title", "42%") from examples
+- Same slide type twice in a row
+- Skipping the VERIFY step (render_presentation)

@@ -1,102 +1,92 @@
 /**
- * IngestTemplateTool — CSS-SVG Theme Ingestion (Phase 2, ADR-044)
+ * IngestTemplateTool — analyzes a corporate .pptx template and generates
+ * a catalog with slide types, shape names, and content capacity.
  *
- * Converts a corporate PPTX template into a CSS theme + HTML pattern library.
+ * Pipeline (ADR-046: Direct Template Mode):
+ * 1. Structural discovery via pptx-automizer (shapes, positions, types)
+ * 2. Grouping by PowerPoint layout name (no clustering, no fuzzy matching)
+ * 3. Save catalog.json + template.pptx to .obsilo/themes/{theme_name}/
  *
- * Process (~2-5 min):
- *   1. Render slides to PNG via LibreOffice (sample: first 3 + evenly distributed, max 12)
- *   2. Send screenshots to Claude Vision with a structured JSON prompt
- *   3. Vision extracts: colors, fonts, 6-8 layout types → generates CSS + HTML patterns
- *   4. Save theme to: .obsilo/themes/{name}/theme.css + patterns.md + metadata.json
- *   5. Write SKILL.md to plugin skills directory
- *
- * Output structure:
- *   .obsilo/themes/{name}/
- *     theme.css       — CSS custom properties + layout classes
- *     patterns.md     — HTML pattern library (one per layout type)
- *     metadata.json   — colors, fonts, source path, date
- *   .obsidian/plugins/obsilo-agent/skills/{name}/
- *     SKILL.md        — Compact skill: CSS reference + pattern names (~2k chars)
+ * Phase 2 (optional): vision enrichment via LibreOffice + LLM adds
+ * visual_description + use_when per slide type.
  */
 
-import * as path from 'path';
+import * as crypto from 'crypto';
+import * as fs from 'fs'; // eslint-disable-line @typescript-eslint/no-require-imports -- Node built-in, needed for vault-path filesystem checks
+import * as path from 'path'; // eslint-disable-line @typescript-eslint/no-require-imports -- Node built-in, needed for vault-path filesystem checks
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
-import { renderPptxToImages } from '../../office/pptxRenderer';
-import type { ContentBlock } from '../../../api/types';
-
-// ── Vision response schema ─────────────────────────────────────────────────
-
-interface ThemeColor {
-    name: string;      // e.g. "primary", "accent1", "bg-dark"
-    hex: string;       // e.g. "#000099"
-    usage: string;     // e.g. "Dark backgrounds, headers"
-}
-
-interface LayoutPattern {
-    id: string;        // e.g. "title-dark"
-    name: string;      // e.g. "Title Slide (Dark)"
-    description: string;
-    html: string;      // Full HTML template for this layout
-}
-
-interface VisionThemeResult {
-    colors: ThemeColor[];
-    fonts: { heading: string; body: string };
-    layouts: LayoutPattern[];
-    css: string;       // Complete theme.css content
-}
-
-// ── Tool ──────────────────────────────────────────────────────────────────
+import { TemplateEngine } from '../../office/pptx/TemplateEngine';
+import { TemplateCatalogLoader } from '../../office/pptx/TemplateCatalog';
+import type {
+    TemplateCatalog,
+    LayoutEntry,
+    ShapeEntry,
+    SlideSemanticFamily,
+    SlideType,
+    SlideTypeShape,
+} from '../../office/pptx/types';
+import type { DiscoveredShape, TemplateSlideInfo } from '../../office/pptx/TemplateEngine';
+import {
+    buildDefaultUseWhen,
+    buildSlideTypeGroupingKey,
+    inferSlideSemanticFamily,
+    inferSlideWarningFlags,
+    scoreRepresentativeSlide,
+} from '../../office/pptx/slideSemantics';
 
 export class IngestTemplateTool extends BaseTool<'ingest_template'> {
     readonly name = 'ingest_template' as const;
     readonly isWriteOperation = true;
 
+    private templateEngine: TemplateEngine;
+    private catalogLoader: TemplateCatalogLoader;
+
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+        this.templateEngine = new TemplateEngine();
+        this.catalogLoader = new TemplateCatalogLoader(plugin);
     }
 
     getDefinition(): ToolDefinition {
         return {
             name: 'ingest_template',
             description:
-                'Convert a corporate PPTX template into a CSS theme + HTML pattern library. ' +
-                'Screenshots slides via LibreOffice, sends to Claude Vision, and generates: ' +
-                'theme.css (colors, fonts, layout classes), patterns.md (6-8 HTML templates), ' +
-                'metadata.json, and a compact SKILL.md. ' +
-                'After ingestion, reference the theme via theme_name in create_pptx. ' +
-                'Run once per template; re-run only if the corporate design changes.',
+                'Analyze a corporate PowerPoint template (.pptx) and generate a slide-type catalog. ' +
+                'Extracts shape names, types, and positions per slide, then groups slides by their ' +
+                'PowerPoint layout name into slide types. Each slide type shows the representative ' +
+                'slide number, all shapes (with REQUIRED/optional status), and a copy-paste JSON example. ' +
+                'Run this once per corporate template. ' +
+                'Derive theme_name from filename (e.g. "Acme_Vorlage.pptx" -> "acme"). ' +
+                'Use render_previews: true for better results (adds visual descriptions via LibreOffice + LLM). ' +
+                'Use force: true only when re-analyzing an already ingested template.',
             input_schema: {
                 type: 'object',
                 properties: {
                     template_path: {
                         type: 'string',
-                        description: 'Vault path to the .pptx or .potx corporate template file.',
+                        description: 'Vault path to the .pptx or .potx template file.',
                     },
                     theme_name: {
                         type: 'string',
-                        description:
-                            'Short name for the theme (lowercase, hyphens). ' +
-                            'Used as directory name and theme_name in create_pptx. ' +
-                            'If omitted, derived from the filename (e.g. "acme-vorlage").',
+                        description: 'Short name for this theme (e.g. "acme", "acme"). Used as folder name and reference in create_pptx.',
                     },
-                    max_sample_slides: {
-                        type: 'number',
-                        description:
-                            'Maximum number of slides to render and analyze (default: 12). ' +
-                            'Selects first 3 + evenly distributed remaining slides. ' +
-                            'More slides = better pattern coverage but longer processing.',
+                    sample_slides: {
+                        type: 'array',
+                        items: { type: 'number' },
+                        description: 'Optional: specific slide numbers to analyze (1-based). Default: all slides.',
+                    },
+                    render_previews: {
+                        type: 'boolean',
+                        description: 'Render slide screenshots for vision enrichment (requires LibreOffice). Adds visual_description + use_when per slide type. Default: false.',
                     },
                     force: {
                         type: 'boolean',
-                        description:
-                            'Re-ingest even if a theme with this name already exists. ' +
-                            'Default: false (returns existing theme info if already ingested).',
+                        description: 'Force re-ingestion even if theme already exists. Default: false.',
                     },
                 },
-                required: ['template_path'],
+                required: ['template_path', 'theme_name'],
             },
         };
     }
@@ -104,385 +94,731 @@ export class IngestTemplateTool extends BaseTool<'ingest_template'> {
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const templatePath = ((input.template_path as string) ?? '').trim();
-        const maxSampleSlides = (input.max_sample_slides as number | undefined) ?? 12;
-        const force = (input.force as boolean | undefined) ?? false;
+        const themeName = ((input.theme_name as string) ?? '').trim();
+        const sampleSlides = input.sample_slides as number[] | undefined;
+        const renderPreviews = input.render_previews === true;
+        const force = input.force === true;
 
         if (!templatePath) {
             callbacks.pushToolResult(this.formatError(new Error('template_path is required')));
             return;
         }
-
-        // Derive theme name from filename if not provided
-        const themeName = ((input.theme_name as string) ?? '')
-            .trim()
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, '-')
-            .replace(/-+/g, '-')
-            .replace(/^-|-$/g, '')
-            || path.basename(templatePath, path.extname(templatePath))
-                .toLowerCase()
-                .replace(/[^a-z0-9-]/g, '-')
-                .replace(/-+/g, '-')
-                .replace(/^-|-$/g, '');
-
-        const themeDir = `.obsilo/themes/${themeName}`;
-        const adapter = this.app.vault.adapter;
-
-        // Check if already ingested
-        if (!force) {
-            const cssExists = await adapter.exists(`${themeDir}/theme.css`);
-            if (cssExists) {
-                callbacks.pushToolResult(
-                    `Theme **${themeName}** is already ingested.\n` +
-                    `Location: ${themeDir}/\n\n` +
-                    `Use theme_name: "${themeName}" in create_pptx.\n` +
-                    `To re-ingest, set force: true.`,
-                );
-                return;
-            }
+        if (!templatePath.endsWith('.pptx') && !templatePath.endsWith('.potx')) {
+            callbacks.pushToolResult(this.formatError(new Error('template_path must end with .pptx or .potx')));
+            return;
         }
-
-        // Resolve absolute path for renderer
-        const vaultBase = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
-        const absolutePath = path.join(vaultBase, templatePath);
-
-        callbacks.pushProgress?.(`Ingesting template: ${templatePath}\nRendering slides...`);
-
-        // Step 1: Render slides
-        const renderResult = await renderPptxToImages(absolutePath, {
-            maxSlides: maxSampleSlides,
-        });
-
-        if (!renderResult.success || renderResult.slides.length === 0) {
+        if (!themeName) {
+            callbacks.pushToolResult(this.formatError(new Error('theme_name is required')));
+            return;
+        }
+        if (!/^[a-z0-9_-]+$/.test(themeName)) {
             callbacks.pushToolResult(this.formatError(new Error(
-                `Failed to render template slides: ${renderResult.error ?? 'no output from LibreOffice'}`,
+                'theme_name must be lowercase alphanumeric with hyphens/underscores only.',
             )));
             return;
         }
 
-        const slides = this.selectSampleSlides(renderResult.slides, maxSampleSlides);
-        callbacks.pushProgress?.(
-            `Rendered ${slides.length} slides (of ${renderResult.totalSlides} total).\n` +
-            `Sending to Vision for design analysis...`,
-        );
-
-        // Step 2: Vision analysis
-        const apiHandler = this.plugin.apiHandler;
-        if (!apiHandler) {
-            callbacks.pushToolResult(this.formatError(new Error('No API handler available')));
-            return;
-        }
-
-        let rawJson = '';
         try {
-            rawJson = await this.runVisionAnalysis(apiHandler, slides, themeName);
-        } catch (err) {
-            callbacks.pushToolResult(this.formatError(
-                new Error(`Vision analysis failed: ${(err as Error).message}`),
-            ));
-            return;
+            // 0. Check if theme already exists
+            const existingThemes = await this.catalogLoader.listThemes();
+            const existing = existingThemes.find(t => t.name === themeName);
+            if (existing && !force) {
+                callbacks.pushToolResult(
+                    `Theme "${themeName}" already exists (source: ${existing.source}). ` +
+                    `Use it directly with create_pptx: \`template: "${themeName}"\`\n\n` +
+                    `To see the slide-type guide, call create_pptx with template: "${themeName}" and no slides.\n\n` +
+                    `To re-analyze the template, call ingest_template again with \`force: true\`.`,
+                );
+                return;
+            }
+            if (existing && force) {
+                callbacks.log(`Force re-ingesting theme "${themeName}" (overwriting existing)...`);
+            }
+
+            // 1. Read the template from vault
+            callbacks.log(`Reading template: ${templatePath}`);
+            const templateFile = this.app.vault.getAbstractFileByPath(templatePath);
+            if (!templateFile) {
+                callbacks.pushToolResult(this.formatError(new Error(`File not found: ${templatePath}`)));
+                return;
+            }
+
+            const templateBuffer = await this.app.vault.readBinary(
+                templateFile as unknown as import('obsidian').TFile,
+            );
+
+            // 2. Discover shapes via pptx-automizer
+            callbacks.log('Analyzing template shapes...');
+            const discovery = await this.templateEngine.discoverTemplate(
+                Buffer.from(templateBuffer),
+                sampleSlides,
+            );
+            const slideInfos = discovery.slides;
+            const totalSlides = await this.templateEngine.getSlideCount(Buffer.from(templateBuffer));
+
+            // 3. Build catalog (structural analysis)
+            callbacks.log(`Building catalog (${slideInfos.length} slides)...`);
+            const catalog = this.buildCatalog(themeName, slideInfos, totalSlides, templateBuffer, discovery.slideSize);
+
+            // 4. Optional: vision enrichment (Phase 2)
+            let visionStatus = '';
+            if (renderPreviews && catalog.slide_types.length > 0) {
+                visionStatus = await this.enrichWithVision(catalog, templatePath, callbacks);
+            }
+
+            // 5. Save to vault
+            callbacks.log(`Saving theme "${themeName}"...`);
+            const themeDir = await this.catalogLoader.saveTheme(themeName, templateBuffer, catalog);
+
+            // 6. Report results
+            const guideOutput = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
+
+            callbacks.pushToolResult(
+                `Template "${themeName}" ingested successfully.\n\n` +
+                `**Location:** ${themeDir}\n` +
+                `**Slide size:** ${catalog.slide_size.width}x${catalog.slide_size.height}px\n` +
+                `**Total slides:** ${totalSlides}\n` +
+                `**Analyzed:** ${slideInfos.length} slides\n` +
+                `**Slide types:** ${catalog.slide_types.length}\n` +
+                (visionStatus ? `**Vision Enrichment:** ${visionStatus}\n` : '') +
+                '\n' +
+                guideOutput + '\n\n' +
+                `**Usage mit create_pptx:** \`template: "${themeName}"\`\n` +
+                `- Verwende \`source_slide\` mit der Slide-Nummer aus dem Guide\n` +
+                `- Verwende die exakten Shape-Namen als Content-Keys\n` +
+                `- REQUIRED-Shapes müssen immer befüllt werden`,
+            );
+
+            callbacks.log(`Template "${themeName}" ingested: ${slideInfos.length} layouts, ${catalog.slide_types.length} slide types`);
+        } catch (error) {
+            callbacks.pushToolResult(this.formatError(error));
+            await callbacks.handleError('ingest_template', error);
         }
-
-        // Step 3: Parse Vision result
-        let themeResult: VisionThemeResult;
-        try {
-            themeResult = this.parseVisionResult(rawJson);
-        } catch (err) {
-            callbacks.pushToolResult(this.formatError(
-                new Error(`Could not parse Vision response: ${(err as Error).message}\n\nRaw response (first 500 chars):\n${rawJson.slice(0, 500)}`),
-            ));
-            return;
-        }
-
-        callbacks.pushProgress?.(`Vision analysis complete. Writing theme files...`);
-
-        // Step 4: Write theme files
-        await this.writeThemeFiles(themeName, themeDir, templatePath, themeResult);
-
-        // Step 5: Write SKILL.md
-        await this.writeSkillFile(themeName, themeResult);
-
-        const layoutNames = themeResult.layouts.map(l => l.id).join(', ');
-        callbacks.pushToolResult(
-            `Template **${templatePath}** ingested as theme **${themeName}**.\n\n` +
-            `**Files written:**\n` +
-            `- ${themeDir}/theme.css\n` +
-            `- ${themeDir}/patterns.md\n` +
-            `- ${themeDir}/metadata.json\n` +
-            `- skills/${themeName}/SKILL.md\n\n` +
-            `**Colors extracted:** ${themeResult.colors.map(c => `${c.name}(${c.hex})`).join(', ')}\n` +
-            `**Fonts:** ${themeResult.fonts.heading} / ${themeResult.fonts.body}\n` +
-            `**Layout patterns (${themeResult.layouts.length}):** ${layoutNames}\n\n` +
-            `Use \`create_pptx\` with \`theme_name: "${themeName}"\` to create presentations.\n` +
-            `The skill is now active — it provides CSS classes and HTML patterns.`,
-        );
     }
 
-    // ── Vision analysis ───────────────────────────────────────────────────
-
-    private async runVisionAnalysis(
-        apiHandler: NonNullable<ObsidianAgentPlugin['apiHandler']>,
-        slides: { slideNumber: number; base64: string }[],
+    /**
+     * Build a TemplateCatalog from discovered slide info.
+     * layouts: per-slide shape data (used by TemplateEngine for auto-remove/auto-upgrade)
+     * slide_types: grouped by PowerPoint layout name (used by agent for slide selection)
+     */
+    private buildCatalog(
         themeName: string,
+        slideInfos: TemplateSlideInfo[],
+        totalSlides: number,
+        templateBuffer: ArrayBuffer,
+        discoveredSlideSize?: { width: number; height: number },
+    ): TemplateCatalog {
+        const layouts: Record<number, LayoutEntry> = {};
+
+        for (const slideInfo of slideInfos) {
+            // Filter out group shapes (complex nested structures)
+            const elements = slideInfo.elements.filter(el => el.type !== 'grpSp');
+
+            // Count duplicate names for #N indexing
+            const nameCounts = new Map<string, number>();
+            for (const el of elements) {
+                nameCounts.set(el.name, (nameCounts.get(el.name) || 0) + 1);
+            }
+
+            // Track per-name occurrence index for duplicates
+            const nameOccurrence = new Map<string, number>();
+            const shapes: ShapeEntry[] = elements.map(el => {
+                const count = nameCounts.get(el.name) || 1;
+                let dupIndex: number | undefined;
+                if (count > 1) {
+                    const idx = nameOccurrence.get(el.name) || 0;
+                    dupIndex = idx;
+                    nameOccurrence.set(el.name, idx + 1);
+                }
+                return this.classifyShape(el, dupIndex);
+            });
+
+            const layoutName = this.generateLayoutName(slideInfo);
+
+            layouts[slideInfo.number] = {
+                name: layoutName,
+                description: this.generateLayoutDescription(shapes),
+                shapes,
+            };
+        }
+
+        const hash = crypto.createHash('sha256')
+            .update(Buffer.from(templateBuffer))
+            .digest('hex');
+
+        const slideSize = discoveredSlideSize ?? { width: 1280, height: 720 };
+
+        // Group by PowerPoint layout name (ADR-046: no clustering, no fuzzy matching)
+        const slide_types = this.groupByLayoutName(slideInfos, layouts);
+
+        return {
+            name: themeName,
+            version: new Date().toISOString().split('T')[0],
+            slide_size: slideSize,
+            template_hash: hash,
+            analyzed_slides: slideInfos.length,
+            total_slides: totalSlides,
+            layouts,
+            slide_types,
+        };
+    }
+
+    /**
+     * Groups slides by layout name PLUS structural signature.
+     *
+     * PowerPoint layout names alone are too coarse for arbitrary templates:
+     * one "content" layout can back real content slides, process slides,
+     * guide pages, or icon libraries. We therefore keep the original layout
+     * name, but split it into separate slide types by semantic structure.
+     *
+     * Representative = structurally richest reusable slide, penalising
+     * likely style-guide/component-library pages.
+     */
+    private groupByLayoutName(
+        slideInfos: TemplateSlideInfo[],
+        layouts: Record<number, LayoutEntry>,
+    ): SlideType[] {
+        const groups = new Map<string, { layoutName: string; slides: number[] }>();
+        for (const si of slideInfos) {
+            const key = si.layoutName?.trim() || `unbekannt-${si.number}`;
+            const layoutEntry = layouts[si.number];
+            const groupKey = buildSlideTypeGroupingKey(key, layoutEntry?.shapes ?? []);
+            if (!groups.has(groupKey)) {
+                groups.set(groupKey, { layoutName: key, slides: [] });
+            }
+            groups.get(groupKey)!.slides.push(si.number);
+        }
+
+        const slideTypes: SlideType[] = [];
+        const usedIds = new Set<string>();
+
+        for (const [, group] of groups) {
+            const { layoutName, slides: slideNums } = group;
+
+            // Pick representative: richest reusable slide, not simply the busiest one.
+            let repSlide = slideNums[0];
+            let bestScore = Number.NEGATIVE_INFINITY;
+            for (const num of slideNums) {
+                const score = scoreRepresentativeSlide(layouts[num]?.shapes ?? []);
+                if (score > bestScore) {
+                    bestScore = score;
+                    repSlide = num;
+                }
+            }
+            const alternates = slideNums.filter(n => n !== repSlide);
+
+            // Build shape list from representative slide (non-decorative only)
+            const rawShapes = (layouts[repSlide]?.shapes ?? []).filter(s => s.role !== 'decorative');
+            const shapes: SlideTypeShape[] = rawShapes.map(s => {
+                const pos = s.dimensions
+                    ? this.derivePositionHint(s.dimensions.x, s.dimensions.y, s.dimensions.w, s.dimensions.h)
+                    : undefined;
+                const st: SlideTypeShape = {
+                    name: s.name,
+                    role: s.role,
+                    content_type: s.content_type,
+                    required: !s.removable,
+                    max_chars: s.max_chars,
+                    duplicate_index: s.duplicate_index,
+                    position_hint: pos || undefined,
+                    sample_text: s.sample_text || undefined,
+                };
+                return st;
+            });
+
+            // Tag shape groups (sequential same-role clusters)
+            this.tagShapeGroups(shapes);
+            const semanticFamily = inferSlideSemanticFamily(rawShapes);
+            const warningFlags = inferSlideWarningFlags(rawShapes, semanticFamily);
+
+            // Stable ID slug from layout name + semantic family, with collision handling.
+            const baseId = [
+                layoutName.toLowerCase()
+                    .replace(/\s+/g, '-')
+                    .replace(/[^a-z0-9-]/g, '')
+                    .replace(/^-+|-+$/g, ''),
+                semanticFamily !== 'unknown' ? semanticFamily : '',
+            ]
+                .filter(Boolean)
+                .join('--') || `slide-${slideNums[0]}`;
+            let id = baseId;
+            let suffix = 2;
+            while (usedIds.has(id)) {
+                id = `${baseId}-${suffix}`;
+                suffix++;
+            }
+            usedIds.add(id);
+
+            slideTypes.push({
+                id,
+                layout_name: layoutName,
+                representative_slide: repSlide,
+                alternate_slides: alternates,
+                description: this.generateSlideTypeDescription(shapes),
+                semantic_family: semanticFamily,
+                shapes,
+                use_when: buildDefaultUseWhen(semanticFamily, warningFlags),
+                warning_flags: warningFlags.length > 0 ? warningFlags : undefined,
+            });
+        }
+
+        return slideTypes;
+    }
+
+    /**
+     * Derives a human-readable position hint from shape dimensions on a 1280×720 slide.
+     */
+    private derivePositionHint(x: number, y: number, w: number, h: number): string {
+        if (w === 0 && h === 0) return '';
+
+        const slideW = 1280;
+        const slideH = 720;
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+
+        // Full-width check (≥ 80% of slide width)
+        const isFullWidth = w >= slideW * 0.8;
+
+        // Horizontal thirds
+        const horizPart = cx < slideW / 3 ? 'links'
+            : cx > (slideW * 2) / 3 ? 'rechts'
+                : 'Mitte';
+
+        // Vertical zones: top 28% = oben, bottom 28% = unten, rest = Mitte
+        const isTop = cy < slideH * 0.28;
+        const isBottom = cy > slideH * 0.72;
+        const vertPart = isTop ? 'oben' : isBottom ? 'unten' : '';
+
+        if (isFullWidth) {
+            return vertPart ? `${vertPart}, volle Breite` : 'volle Breite';
+        }
+
+        // Two-column detection: wide shape on left or right half
+        const isWide = w > slideW * 0.35;
+        if (isWide && cx < slideW / 2) return vertPart ? `${vertPart}, linke Hälfte` : 'linke Hälfte';
+        if (isWide && cx >= slideW / 2) return vertPart ? `${vertPart}, rechte Hälfte` : 'rechte Hälfte';
+
+        // Compact position
+        if (vertPart && horizPart !== 'Mitte') return `${vertPart} ${horizPart}`;
+        if (vertPart) return vertPart;
+        return horizPart;
+    }
+
+    /**
+     * Tags shapes that form visual clusters with a shared group_hint.
+     * Detects: horizontal sequences of same-role shapes (≥ 3), two-column body pairs.
+     * Mutates the shapes array in place.
+     */
+    private tagShapeGroups(shapes: SlideTypeShape[]): void {
+        // Pass 1: horizontal sequences (≥ 3 shapes, same role, similar Y, increasing X)
+        const byRole = new Map<string, SlideTypeShape[]>();
+        for (const sh of shapes) {
+            if (!byRole.has(sh.role)) byRole.set(sh.role, []);
+            byRole.get(sh.role)!.push(sh);
+        }
+
+        for (const [role, group] of byRole) {
+            if (group.length < 3) continue;
+            if (role === 'title' || role === 'subtitle') continue;
+
+            // All shapes in this role group that have a position hint containing "unten" or "Mitte"
+            // and are spread horizontally → sequence
+            const posHints = group.map(s => s.position_hint ?? '');
+            const hasHorizontalSpread = posHints.some(p => p.includes('links')) &&
+                posHints.some(p => p.includes('rechts'));
+
+            if (hasHorizontalSpread) {
+                const roleLabel = role === 'body' ? 'Content-Felder'
+                    : role === 'kpi_value' ? 'KPI-Gruppe'
+                        : role === 'step_label' ? 'Prozess-Schritte'
+                            : role === 'image' ? 'Bild-Gruppe'
+                                : `${role}-Gruppe`;
+                const hint = `${roleLabel} (${group.length}×, horizontal)`;
+                // ADR-048: Assign machine-readable group_id alongside human-readable group_hint
+                const groupId = `${role}_h${group.length}`;
+                for (let idx = 0; idx < group.length; idx++) {
+                    group[idx].group_hint = hint;
+                    group[idx].group_id = groupId;
+                }
+            }
+        }
+
+        // Pass 2: two-column body pairs
+        const bodies = shapes.filter(s => s.role === 'body' && !s.group_hint);
+        if (bodies.length === 2) {
+            const p0 = bodies[0].position_hint ?? '';
+            const p1 = bodies[1].position_hint ?? '';
+            if ((p0.includes('links') && p1.includes('rechts')) ||
+                (p0.includes('rechts') && p1.includes('links'))) {
+                bodies[0].group_hint = 'Zwei Spalten';
+                bodies[1].group_hint = 'Zwei Spalten';
+            }
+        }
+    }
+
+    private generateSlideTypeDescription(shapes: SlideTypeShape[]): string {
+        const roles = shapes.map(s => s.role);
+        const parts: string[] = [];
+        if (roles.includes('title')) parts.push('Titel');
+        if (roles.includes('subtitle')) parts.push('Untertitel');
+        const kpiCount = roles.filter(r => r === 'kpi_value').length;
+        if (kpiCount) parts.push(`${kpiCount} KPI${kpiCount > 1 ? 's' : ''}`);
+        const stepCount = roles.filter(r => r === 'step_label').length;
+        if (stepCount) parts.push(`${stepCount}-stufiger Prozess`);
+        if (roles.includes('body')) parts.push('Content');
+        if (roles.includes('chart')) parts.push('Diagramm');
+        if (roles.includes('table')) parts.push('Tabelle');
+        if (roles.includes('image')) parts.push('Bild');
+        return parts.join(' + ') || 'Dekorativ';
+    }
+
+    /**
+     * Classify a discovered shape into a ShapeEntry with role and capacity.
+     */
+    private classifyShape(el: DiscoveredShape, duplicateIndex?: number): ShapeEntry {
+        const name = el.name;
+        const role = this.inferRole(el);
+        const contentType = this.inferContentType(el);
+        // EMU to px (1 px = 9525 EMU)
+        const xPx = Math.round(el.position.x / 9525);
+        const yPx = Math.round(el.position.y / 9525);
+        const widthPx = Math.round(el.position.w / 9525);
+        const heightPx = Math.round(el.position.h / 9525);
+
+        // 0x0 shapes (inherited from slide master) cannot be individually removed
+        const removable = role !== 'title' && role !== 'subtitle' && role !== 'decorative'
+            && (widthPx > 0 || heightPx > 0);
+
+        // Estimate max_chars from shape width (rough: 1 char ~ 8px at 14px font).
+        // Only when dimensions are known — shapes inheriting from slide layout have w=h=0.
+        const charWidth = 8;
+        const lineHeight = 20;
+        const charsPerLine = Math.floor(widthPx / charWidth);
+        const lines = Math.floor(heightPx / lineHeight);
+        const maxChars = (widthPx > 0 && heightPx > 0)
+            ? Math.max(20, charsPerLine * Math.max(1, lines))
+            : undefined;
+
+        // Extract sample text for fallback resolution (max 100 chars)
+        const sampleText = el.hasTextBody && el.text.length > 0
+            ? el.text.join(' ').substring(0, 100).trim()
+            : undefined;
+
+        const entry: ShapeEntry = {
+            name,
+            role,
+            content_type: contentType,
+            max_chars: contentType === 'text' && el.hasTextBody ? maxChars : undefined,
+            removable,
+            dimensions: { x: xPx, y: yPx, w: widthPx, h: heightPx },
+            sample_text: sampleText || undefined,
+        };
+
+        if (duplicateIndex !== undefined && duplicateIndex > 0) {
+            entry.duplicate_index = duplicateIndex;
+        }
+
+        // ADR-048: Detect section number shapes (single digit in body shape on divider layouts)
+        if (role === 'body' && sampleText && /^\d$/.test(sampleText.trim())) {
+            entry.special_role = 'section_number';
+        }
+
+        // Extract font info from discovered shape (for hybrid generate() fallback)
+        if (el.fontInfo) {
+            const fi = el.fontInfo;
+            if (fi.fontFace || fi.fontSize || fi.isBold !== undefined || fi.color) {
+                entry.font_info = {
+                    ...(fi.fontFace ? { font_face: fi.fontFace } : {}),
+                    ...(fi.fontSize ? { font_size: fi.fontSize } : {}),
+                    ...(fi.isBold !== undefined ? { is_bold: fi.isBold } : {}),
+                    ...(fi.color ? { color: fi.color } : {}),
+                    ...(fi.alignment ? { alignment: fi.alignment } : {}),
+                };
+            }
+        }
+
+        return entry;
+    }
+
+    /**
+     * Infer content_type from pptx-automizer element type/visualType.
+     */
+    private inferContentType(el: DiscoveredShape): ShapeEntry['content_type'] {
+        if (el.type === 'chart' || el.type === 'chartEx') return 'chart';
+        if (el.type === 'graphicFrame' && el.visualType === 'table') return 'table';
+        if (el.type === 'pic' || el.visualType === 'picture') return 'image';
+        return 'text';
+    }
+
+    /**
+     * Infer the semantic role of a shape based on its name, type, position, and size.
+     *
+     * Priority cascade:
+     * 1. Type-based (chart, image, table) -- overrides everything
+     * 2. Decorative infrastructure (footer, page number, date, SmartArt)
+     * 3. Subtitle (explicit, before generic title match)
+     * 4. Name-based heuristics (title, body, kpi, step, etc.)
+     * 5. Size-aware text fallback (large shapes → body, small → decorative)
+     */
+    private inferRole(el: DiscoveredShape): ShapeEntry['role'] {
+        const nameLower = el.name.toLowerCase();
+
+        // 1. Type-based checks FIRST
+        if (el.type === 'chart' || el.type === 'chartEx') return 'chart';
+        if (el.visualType === 'picture' || el.type === 'pic') return 'image';
+        if (el.type === 'graphicFrame' && el.visualType === 'table') return 'table';
+
+        // 2. Decorative infrastructure elements
+        if (/fu[ßs]zeile|footer|pied.*page|pie.*p[áa]gina/i.test(nameLower)) return 'decorative';
+        if (/foliennummer|slide.*number|num[ée]ro/i.test(nameLower)) return 'decorative';
+        if (/datumsplatzhalter|date.*placeholder/i.test(nameLower)) return 'decorative';
+        if (/smartart/i.test(nameLower)) return 'decorative';
+
+        // Geometric AutoShapes: PowerPoint names drawn rectangles "Rechteck N" and AutoShapes "object N".
+        // These are always structural design elements, never content placeholders — even when they
+        // happen to contain text. Classifying them as decorative prevents auto-removal when the
+        // agent does not address them in the content dict.
+        if (/^(rechteck|object)\b/i.test(nameLower)) return 'decorative';
+
+        // 3. Subtitle explicitly first
+        if (/untertitel|subtitle|sous-?titre|subt[ií]tulo/i.test(nameLower)) return 'subtitle';
+
+        // 4. Name-based heuristics (multi-language: DE, EN, FR, ES)
+        if (/title|titel|titre|t[ií]tulo/i.test(nameLower)) return 'title';
+        if (/body|content|inhalt|contenu|contenido/i.test(nameLower)) return 'body';
+        if (/kpi|value|wert|zahl|valeur|valor|kennzahl/i.test(nameLower)) return 'kpi_value';
+        if (/\blabel\b|beschriftung|[ée]tiquette/i.test(nameLower)) return 'kpi_label';
+        if (/step|schritt|[ée]tape|paso/i.test(nameLower)) return 'step_label';
+        if (/image|bild|foto|photo|imagen/i.test(nameLower)) return 'image';
+        if (/chart|diagramm|graphique|gr[áa]fico/i.test(nameLower)) return 'chart';
+
+        // 5. Size-aware text fallback
+        if (el.hasTextBody && el.text.length > 0) {
+            const wPx = el.position.w / 9525;
+            const hPx = el.position.h / 9525;
+            if (wPx === 0 && hPx === 0) return 'decorative';
+            if (wPx > 192 && hPx > 58) return 'body';
+            return 'decorative';
+        }
+
+        return 'decorative';
+    }
+
+    /**
+     * Generate a human-readable layout name from slide info.
+     */
+    private generateLayoutName(slideInfo: TemplateSlideInfo): string {
+        const layout = slideInfo.layoutName || '';
+        if (layout) {
+            return layout
+                .replace(/[_\s]+/g, '-')
+                .replace(/[^a-zA-Z0-9-]/g, '')
+                .toLowerCase()
+                .replace(/^-+|-+$/g, '') || `slide-${slideInfo.number}`;
+        }
+        return `slide-${slideInfo.number}`;
+    }
+
+    /**
+     * Generate a description for a layout based on its shapes.
+     */
+    private generateLayoutDescription(shapes: ShapeEntry[]): string {
+        const roles = shapes.map(s => s.role).filter(r => r !== 'decorative');
+        const uniqueRoles = [...new Set(roles)];
+        if (uniqueRoles.length === 0) return 'Decorative layout';
+
+        const parts: string[] = [];
+        if (uniqueRoles.includes('title')) parts.push('Title');
+        if (uniqueRoles.includes('subtitle')) parts.push('Subtitle');
+        if (uniqueRoles.includes('kpi_value')) {
+            const count = roles.filter(r => r === 'kpi_value').length;
+            parts.push(`${count} KPI${count > 1 ? 's' : ''}`);
+        }
+        if (uniqueRoles.includes('step_label')) {
+            const count = roles.filter(r => r === 'step_label').length;
+            parts.push(`${count}-step process`);
+        }
+        if (uniqueRoles.includes('body')) parts.push('Content');
+        if (uniqueRoles.includes('image')) parts.push('Image');
+        if (uniqueRoles.includes('chart')) parts.push('Chart');
+        if (uniqueRoles.includes('table')) parts.push('Table');
+
+        return parts.join(' + ');
+    }
+
+    /* ------------------------------------------------------------------ */
+    /*  Phase 2: Vision enrichment (optional, requires LibreOffice)        */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Enrich slide types with visual descriptions via LibreOffice + LLM.
+     * Returns a human-readable status string for the tool output.
+     * Graceful skip if LibreOffice is not available or any step fails.
+     */
+    private async enrichWithVision(
+        catalog: TemplateCatalog,
+        templatePath: string,
+        callbacks: ToolExecutionContext['callbacks'],
     ): Promise<string> {
+        try {
+            const { renderPptxToImages } = await import('../../office/pptxRenderer');
+
+            const adapter = this.app.vault.adapter;
+            // eslint-disable-next-line -- need FileSystemAdapter for basePath
+            const vaultRoot: string = (adapter as import('obsidian').FileSystemAdapter).basePath
+                ?? (adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
+            if (!vaultRoot) {
+                return 'Skipped — vault root nicht ermittelbar';
+            }
+
+            const absolutePath = path.join(vaultRoot, templatePath);
+            if (!fs.existsSync(absolutePath)) {
+                return `Skipped — Datei nicht auf Disk gefunden: ${absolutePath}`;
+            }
+
+            const repSlides = catalog.slide_types.map(st => st.representative_slide);
+            callbacks.log(`Rendering ${repSlides.length} representative slides for vision enrichment...`);
+
+            const result = await renderPptxToImages(absolutePath, {
+                requestedSlides: repSlides,
+                maxSlides: 50,
+            });
+
+            if (!result.success || result.slides.length === 0) {
+                return `Skipped — Rendering fehlgeschlagen: ${result.error ?? 'unbekannt'}`;
+            }
+
+            const imageMap = new Map<number, string>();
+            for (const slide of result.slides) imageMap.set(slide.slideNumber, slide.base64);
+            callbacks.log(`Rendered ${imageMap.size} slides — calling LLM for vision enrichment...`);
+
+            const enrichedCount = await this.callVisionEnrichment(catalog, imageMap, callbacks);
+            return `${enrichedCount}/${catalog.slide_types.length} Slide-Typen angereichert`;
+        } catch (e) {
+            return `Fehlgeschlagen — ${(e as Error).message}`;
+        }
+    }
+
+    private async callVisionEnrichment(
+        catalog: TemplateCatalog,
+        imageMap: Map<number, string>,
+        callbacks: ToolExecutionContext['callbacks'],
+    ): Promise<number> {
+        const { buildApiHandlerForModel } = await import('../../../api');
+        const model = this.plugin.getActiveModel();
+        if (!model) {
+            throw new Error('Kein aktives Modell konfiguriert');
+        }
+
+        const api = buildApiHandlerForModel(model);
+        type ContentBlock = import('../../../api/types').ContentBlock;
         const contentBlocks: ContentBlock[] = [];
 
-        // Add all slide images
-        for (const slide of slides) {
-            contentBlocks.push(
-                { type: 'text', text: `--- Slide ${slide.slideNumber} ---` },
-                {
-                    type: 'image',
-                    source: { type: 'base64', media_type: 'image/png', data: slide.base64 },
-                },
-            );
+        contentBlocks.push({
+            type: 'text',
+            text: `Analyze these ${catalog.slide_types.length} PowerPoint template slides. ` +
+                'Each image is followed by the shape names visible on that slide. ' +
+                'Return a single JSON object mapping slide-type IDs to their enrichment.',
+        });
+
+        for (const st of catalog.slide_types) {
+            const image = imageMap.get(st.representative_slide);
+            if (!image) continue;
+
+            contentBlocks.push({
+                type: 'image',
+                source: { type: 'base64', media_type: 'image/png', data: image },
+            });
+
+            // Only non-decorative shapes — these are what the agent needs to understand
+            const shapeInfo = st.shapes.map(s => {
+                const key = s.duplicate_index != null && s.duplicate_index > 0
+                    ? `${s.name}#${s.duplicate_index}` : s.name;
+                const pos = s.position_hint ? ` @ ${s.position_hint}` : '';
+                return `  - ${key} [${s.role}]${pos}`;
+            }).join('\n');
+
+            contentBlocks.push({
+                type: 'text',
+                text: `--- "${st.id}" (slide ${st.representative_slide}) ---\n${shapeInfo}`,
+            });
         }
 
-        contentBlocks.push({ type: 'text', text: VISION_PROMPT(themeName, slides.length) });
-
-        const systemPrompt =
-            'You are a professional UI engineer analyzing a corporate PowerPoint template. ' +
-            'Your task is to extract its visual design system and convert it into a CSS theme + HTML pattern library. ' +
-            'Be precise about colors (extract exact hex codes from the images), ' +
-            'and write clean, semantic HTML/CSS that faithfully reproduces each layout type.';
-
-        let response = '';
-        for await (const chunk of apiHandler.createMessage(
-            systemPrompt,
+        const stream = api.createMessage(
+            VISION_ENRICHMENT_PROMPT,
             [{ role: 'user', content: contentBlocks }],
             [],
-        )) {
-            if (chunk.type === 'text') response += chunk.text;
-        }
-        return response.trim();
-    }
+        );
 
-    private parseVisionResult(raw: string): VisionThemeResult {
-        // Extract JSON from the response (may be wrapped in markdown code blocks)
-        const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? [null, raw];
-        const jsonStr = (jsonMatch[1] ?? raw).trim();
-        const parsed = JSON.parse(jsonStr) as Partial<VisionThemeResult>;
-
-        if (!parsed.colors || !parsed.fonts || !parsed.layouts || !parsed.css) {
-            throw new Error('Missing required fields: colors, fonts, layouts, css');
-        }
-        if (parsed.layouts.length === 0) {
-            throw new Error('No layout patterns extracted');
-        }
-        return parsed as VisionThemeResult;
-    }
-
-    // ── File writing ──────────────────────────────────────────────────────
-
-    private async writeThemeFiles(
-        themeName: string,
-        themeDir: string,
-        sourcePath: string,
-        result: VisionThemeResult,
-    ): Promise<void> {
-        const adapter = this.app.vault.adapter;
-
-        // Ensure directory exists
-        if (!(await adapter.exists(themeDir))) {
-            await adapter.mkdir(themeDir);
+        let responseText = '';
+        for await (const chunk of stream) {
+            if (chunk.type === 'text') responseText += chunk.text;
         }
 
-        // theme.css
-        await adapter.write(`${themeDir}/theme.css`, result.css);
-
-        // patterns.md
-        const patternsContent = this.buildPatternsDoc(themeName, result);
-        await adapter.write(`${themeDir}/patterns.md`, patternsContent);
-
-        // metadata.json
-        const metadata = {
-            themeName,
-            sourcePptx: sourcePath,
-            createdAt: new Date().toISOString(),
-            colors: result.colors,
-            fonts: result.fonts,
-            layoutIds: result.layouts.map(l => l.id),
-        };
-        await adapter.write(`${themeDir}/metadata.json`, JSON.stringify(metadata, null, 2));
-    }
-
-    private buildPatternsDoc(themeName: string, result: VisionThemeResult): string {
-        const lines: string[] = [
-            `# ${themeName} — HTML Pattern Library`,
-            '',
-            '> Generated by `ingest_template`. Each pattern is a complete HTML slide template.',
-            '> Use CSS classes from `theme.css`. Canvas: 1280×720px.',
-            '',
-        ];
-
-        for (const layout of result.layouts) {
-            lines.push(`## ${layout.name} (\`${layout.id}\`)`);
-            lines.push('');
-            lines.push(`_${layout.description}_`);
-            lines.push('');
-            lines.push('```html');
-            lines.push(layout.html);
-            lines.push('```');
-            lines.push('');
+        if (!responseText.trim()) {
+            throw new Error('Leere LLM-Antwort');
         }
 
-        return lines.join('\n');
-    }
-
-    private async writeSkillFile(themeName: string, result: VisionThemeResult): Promise<void> {
-        const adapter = this.app.vault.adapter;
-        const skillDir = `.obsidian/plugins/obsilo-agent/skills/${themeName}`;
-
-        if (!(await adapter.exists(skillDir))) {
-            await adapter.mkdir(skillDir);
+        let cleaned = responseText.trim();
+        if (cleaned.startsWith('```')) {
+            cleaned = cleaned.replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '');
         }
 
-        const skill = this.buildSkillMd(themeName, result);
-        await adapter.write(`${skillDir}/SKILL.md`, skill);
-    }
+        const enrichments = JSON.parse(cleaned) as Record<string, {
+            visual_description?: string;
+            use_when?: string;
+            shape_hints?: Record<string, string>;
+        }>;
 
-    private buildSkillMd(themeName: string, result: VisionThemeResult): string {
-        const colorRef = result.colors
-            .map(c => `- \`${c.name}\`: ${c.hex} — ${c.usage}`)
-            .join('\n');
+        let enrichedCount = 0;
+        for (const st of catalog.slide_types) {
+            const e = enrichments[st.id];
+            if (!e) continue;
+            if (e.visual_description) st.visual_description = e.visual_description;
+            if (e.use_when) st.use_when = e.use_when;
 
-        const layoutRef = result.layouts
-            .map(l => `- \`${l.id}\`: ${l.name} — ${l.description}`)
-            .join('\n');
+            // Apply per-shape semantic hints
+            if (e.shape_hints) {
+                for (const sh of st.shapes) {
+                    const key = sh.duplicate_index != null && sh.duplicate_index > 0
+                        ? `${sh.name}#${sh.duplicate_index}` : sh.name;
+                    const hint = e.shape_hints[key] ?? e.shape_hints[sh.name];
+                    if (hint) sh.semantic_hint = hint;
+                }
+            }
 
-        const cssClassHint = result.colors
-            .slice(0, 4)
-            .map(c => `--${c.name}: ${c.hex}`)
-            .join('; ');
-
-        return `---
-name: ${themeName}
-description: ${themeName} corporate theme — CSS classes and HTML patterns for create_pptx
-trigger: ${themeName.replace(/-/g, '|')}
-source: ingested
-requiredTools: [create_pptx, ingest_template]
----
-
-# ${themeName} — CSS Theme Reference
-
-**Canvas:** 1280×720px | **Engine:** HTML → PptxGenJS
-
-## Colors
-${colorRef}
-
-## Fonts
-- Heading: ${result.fonts.heading}
-- Body: ${result.fonts.body}
-
-## CSS Usage
-Theme CSS is auto-applied when you set \`theme_name: "${themeName}"\` in create_pptx.
-Custom properties: \`${cssClassHint}\`
-
-## Available Layout Patterns
-${layoutRef}
-
-**Full HTML patterns** are in \`.obsilo/themes/${themeName}/patterns.md\`.
-Read the patterns file when you need the exact HTML template for a layout.
-
-## How to create a presentation
-\`\`\`
-create_pptx({
-  output_path: "path/to/output.pptx",
-  theme_name: "${themeName}",
-  slides: [
-    { html: "<div class='slide slide-dark'>...</div>" },
-    { html: "<div class='slide slide-light'>...</div>" }
-  ]
-})
-\`\`\`
-The theme CSS is injected automatically — just use the CSS classes.
-`;
-    }
-
-    // ── Helpers ───────────────────────────────────────────────────────────
-
-    private selectSampleSlides(
-        slides: { slideNumber: number; base64: string }[],
-        maxSample: number,
-    ): { slideNumber: number; base64: string }[] {
-        if (slides.length <= maxSample) return slides;
-
-        // Always include first 3 slides (cover, agenda, first content)
-        const selected = slides.slice(0, Math.min(3, slides.length));
-        const remaining = slides.slice(3);
-        const toAdd = maxSample - selected.length;
-
-        if (toAdd <= 0 || remaining.length === 0) return selected;
-
-        // Evenly distribute remaining picks
-        const step = remaining.length / toAdd;
-        for (let i = 0; i < toAdd; i++) {
-            const idx = Math.floor(i * step);
-            selected.push(remaining[idx]);
+            enrichedCount++;
         }
 
-        return selected.sort((a, b) => a.slideNumber - b.slideNumber);
+        return enrichedCount;
     }
 }
 
-// ── Vision prompt ─────────────────────────────────────────────────────────
+const VISION_ENRICHMENT_PROMPT = `You are a presentation design expert analyzing corporate PowerPoint template slides.
 
-function VISION_PROMPT(themeName: string, slideCount: number): string {
-    return `
-You are analyzing ${slideCount} slides from a corporate PowerPoint template called "${themeName}".
+For each slide image and its shape list, return a JSON object describing:
+1. The slide's visual design and purpose
+2. The semantic function of each individual shape — what it IS and HOW a content creator should use it
 
-Your task: extract the visual design system and convert it into a CSS theme + HTML pattern library.
+Return a single JSON object (no markdown fences):
 
-**Instructions:**
-
-1. **Extract the design system:**
-   - Identify all key colors (extract EXACT hex codes from the slide images)
-   - Identify font family names for headings and body text
-   - Name each color by its role: primary, accent1, accent2, bg-dark, bg-light, text-dark, text-light, etc.
-
-2. **Identify 6-8 distinct layout types** (look for recurring patterns across slides):
-   Common types: title-dark, title-light, agenda, section-divider, content-1col, content-2col,
-   kpi-cards, process-steps, comparison, closing. Name them descriptively.
-
-3. **For each layout type, write a complete HTML template** (1280×720px canvas):
-   - Use \`data-object="true" data-object-type="textbox|shape"\` on interactive elements
-   - Use CSS custom properties (var(--primary), var(--accent1), etc.) for colors
-   - Use \`{{placeholder}}\` syntax for text content that varies per slide
-   - Make it visually match the template slide as closely as possible with CSS
-   - Keep it clean — no inline JavaScript
-
-4. **Write the complete theme.css** with:
-   - \`:root\` block with all color/font CSS custom properties
-   - Base \`.slide\` class (position:relative; width:1280px; height:720px; overflow:hidden)
-   - Layout variant classes (\`.slide-dark\`, \`.slide-light\`, etc.)
-   - Component classes (\`.kpi-card\`, \`.process-step\`, \`.two-column\`, \`.agenda-list\`, etc.)
-   - Corporate chevrons and shapes via CSS \`clip-path\` where applicable
-
-**Return ONLY valid JSON** (no additional text before or after):
-
-\`\`\`json
 {
-  "colors": [
-    { "name": "primary", "hex": "#000099", "usage": "Dark backgrounds, primary headings" },
-    { "name": "accent1", "hex": "#E4DAD4", "usage": "Card backgrounds, accent elements" }
-  ],
-  "fonts": {
-    "heading": "Acme Sans Headline, Arial, sans-serif",
-    "body": "Acme Sans Text Light, Arial, sans-serif"
-  },
-  "layouts": [
-    {
-      "id": "title-dark",
-      "name": "Title Slide (Dark)",
-      "description": "Opening slide with dark corporate background, centered title and subtitle",
-      "html": "<div class=\\"slide slide-dark\\">\\n  <h1 class=\\"slide-title\\">{{title}}</h1>\\n  <p class=\\"slide-subtitle\\">{{subtitle}}</p>\\n</div>"
+  "slide-type-id": {
+    "visual_description": "1-2 sentences: visual layout, color scheme, arrangement",
+    "use_when": "1 sentence: storytelling context — when to choose this slide type",
+    "shape_hints": {
+      "ShapeName": "max 15 words: what this shape IS and how to fill it",
+      "ShapeName#2": "max 15 words: for duplicate shapes, use the #N key"
     }
-  ],
-  "css": ":root {\\n  --primary: #000099;\\n  --accent1: #E4DAD4;\\n  --font-heading: \\"Acme Sans Headline\\", Arial, sans-serif;\\n  --font-body: \\"Acme Sans Text Light\\", Arial, sans-serif;\\n}\\n.slide { position: relative; width: 1280px; height: 720px; overflow: hidden; box-sizing: border-box; }\\n.slide-dark { background: var(--primary); color: white; }"
+  }
 }
-\`\`\`
 
-Be precise about colors — zoom into the slide images mentally and extract exact hex values.
-Write CSS that a developer would be proud of.
-`.trim();
-}
+Rules for shape_hints:
+- Describe the DESIGN FUNCTION, not the current content (not "shows Nachhaltigkeit", but "category label for one business domain")
+- For grouped identical shapes (e.g. 5 label boxes in a row): annotate each with its position in the group ("label box 1 of 5, leftmost")
+- For image placeholders: describe what kind of image fits ("icon from brand library", "portrait photo", "full-bleed background image")
+- For title/subtitle shapes: describe expected length and purpose ("main title, max 2 lines", "speaker name and date line")
+- Omit shapes where the role is self-evident from the name alone
+- Keep each hint to max 15 words
+
+Include all slide types that have images.`;

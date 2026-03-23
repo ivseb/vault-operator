@@ -47,7 +47,6 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     semantic_search: 'read',
     render_presentation: 'read',
     check_presentation_quality: 'read',
-    get_composition_details: 'read',
     // Note content edits (write_file, edit_file, append_to_file, update_frontmatter)
     write_file: 'note-edit',
     edit_file: 'note-edit',
@@ -58,7 +57,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     delete_file: 'vault-change',
     move_file: 'vault-change',
     generate_canvas: 'vault-change',
-    analyze_pptx_template: 'vault-change',
+    ingest_template: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',
     // Web

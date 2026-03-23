@@ -80,6 +80,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     semanticIndex: SemanticIndexService | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
+    /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
+    sessionFlags = new Set<string>();
     private cloudProviderWarningShown = false;
     chatHistoryService: ChatHistoryService | null = null;
     conversationStore: ConversationStore | null = null;

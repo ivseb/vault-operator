@@ -32,6 +32,9 @@ SELF-CHECK before responding (do NOT mention this to the user):
 10. All elements within 1280x720 canvas bounds?
 11. Text readable (font-size >= 14px for body, >= 28px for titles)?
 12. No title-only slides (every slide has visual content)?
+13. In template mode: chosen slide types semantically fit the content (process != bullets, comparison != monologue)?
+14. In template mode: no slide type flagged as style-guide/component-library used for normal business content?
+15. If a chosen template slide expects images: real images provided, or a text-only alternative selected?
 If ANY check fails, call create_pptx again with corrections.`,
 
     create_docx: `

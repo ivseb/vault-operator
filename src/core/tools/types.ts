@@ -36,6 +36,7 @@ export type ToolName =
     | 'create_excalidraw'
     // Vault: template ingestion + visual intelligence
     | 'ingest_template'
+    | 'plan_presentation'
     | 'render_presentation'
     // Vault: office document creation
     | 'create_pptx'

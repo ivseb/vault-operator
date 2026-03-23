@@ -266,25 +266,7 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
-    // ── Template Analysis ──────────────────────────────────────────────
-    analyze_pptx_template: {
-        group: 'edit', label: 'Analyze PPTX Template', icon: 'search',
-        signature: 'analyze_pptx_template(template_path)',
-        description: 'Analyze a PPTX template to extract design elements, brand DNA (colors, fonts), and slide compositions. Generates SKILL.md + compositions.json.',
-        example: 'analyze_pptx_template("Templates/corporate.pptx")',
-        whenToUse: 'ALWAYS when a user wants to use a corporate .pptx template. This is the ONLY way to create template skills -- never use manage_skill for templates.',
-        commonMistakes: 'Using manage_skill to manually create a template skill instead of analyze_pptx_template. The tool auto-generates SKILL.md, compositions.json, shape aliases, and Brand-DNA.',
-    },
-
     // ── Visual Intelligence ──────────────────────────────────────────────
-    get_composition_details: {
-        group: 'read', label: 'Get Composition Details', icon: 'layers',
-        signature: 'get_composition_details(template, compositions)',
-        description: 'Get detailed shape mappings and constraints for specific template compositions.',
-        example: 'get_composition_details("acme-corporate", ["chevron-kette", "kpi-dashboard"])',
-        whenToUse: 'After reading the template skill -- get exact shape names and text limits for create_pptx.',
-        commonMistakes: 'Requesting all compositions at once -- only request the 1-5 you need for your presentation.',
-    },
     render_presentation: {
         group: 'skill', label: 'Render Presentation', icon: 'eye',
         signature: 'render_presentation(file, slides?)',
@@ -303,6 +285,22 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     },
 
     // ── Office Document Creation ────────────────────────────────────────
+    plan_presentation: {
+        group: 'edit', label: 'Plan Presentation', icon: 'layout-list',
+        signature: 'plan_presentation(source, template, deck_mode, goal?, audience?)',
+        description: 'Plan a presentation from source material and corporate template. Generates a complete deck plan with content for every shape via internal LLM call.',
+        example: 'plan_presentation("Notes/Q1-Review.md", "acme", "reading", "Stakeholder informieren")',
+        whenToUse: 'ALWAYS before create_pptx when using corporate templates. Reads source material, selects slide types, generates content for all shapes.',
+        commonMistakes: 'Skipping this tool and calling create_pptx directly -- results in empty shapes and placeholder text.',
+    },
+    ingest_template: {
+        group: 'edit', label: 'Ingest Template', icon: 'scan',
+        signature: 'ingest_template(template_path, theme_name, render_previews?, force?)',
+        description: 'Analyze a corporate .pptx template and generate a slide-type catalog with shape names and content capacity.',
+        example: 'ingest_template("Templates/Corporate.pptx", "acme", true)',
+        whenToUse: 'Once per corporate template before creating presentations. Derive theme_name from filename.',
+        commonMistakes: 'Not using render_previews: true when LibreOffice is available. Using a file path as template name in create_pptx instead of the short theme name.',
+    },
     create_pptx: {
         group: 'edit', label: 'Create PPTX', icon: 'presentation',
         signature: 'create_pptx(output_path, slides, title?, template?, theme?)',

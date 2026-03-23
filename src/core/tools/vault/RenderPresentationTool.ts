@@ -127,8 +127,7 @@ export class RenderPresentationTool extends BaseTool<'render_presentation'> {
                 text: `Rendered ${result.slides.length} of ${result.totalSlides} slides from ${filePath}. ` +
                     `Inspect each slide image for: text overflow, truncation, bad line breaks, ` +
                     `visual imbalance, or empty shapes. ` +
-                    `If you find issues, fix the content and call create_pptx again, ` +
-                    `then update the compositions.json constraints via edit_file.`,
+                    `If you find issues, fix the content and call create_pptx again.`,
             },
         ];
 

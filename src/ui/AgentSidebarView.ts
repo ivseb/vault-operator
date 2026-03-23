@@ -2201,6 +2201,8 @@ export class AgentSidebarView extends ItemView {
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
+        // ADR-048: Reset session flags when starting a new conversation
+        this.plugin.sessionFlags.clear();
         this.onboardingKeyState = null;
         this.onboardingSelectedProvider = null;
         this.attachments.clear();
@@ -2479,6 +2481,7 @@ export class AgentSidebarView extends ItemView {
             this.activeConversationId = null;
             this.uiMessages = [];
             this.conversationHistory = [];
+            this.plugin.sessionFlags.clear(); // ADR-048
             if (this.chatContainer) {
                 this.chatContainer.empty();
             }

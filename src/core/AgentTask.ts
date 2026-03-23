@@ -34,7 +34,7 @@ export interface AgentTaskCallbacks {
     onToolStart: (name: string, input: Record<string, unknown>) => void;
     /** Called when a tool has finished executing */
     onToolResult: (name: string, content: string, isError: boolean) => void;
-    /** Called with intermediate progress messages from long-running tools (e.g. analyze_pptx_template phase banners) */
+    /** Called with intermediate progress messages from long-running tools (e.g. ingest_template phase banners) */
     onToolProgress?: (name: string, content: string) => void;
     /** Called with cumulative token usage just before onComplete (Feature 6) */
     onUsage?: (inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheCreationTokens?: number) => void;
@@ -194,7 +194,6 @@ export class AgentTask {
             'get_linked_notes', 'search_by_tag', 'get_vault_stats', 'get_daily_note',
             'web_fetch', 'web_search',
             'semantic_search', 'query_base', 'open_note',
-            'get_composition_details',
         ]);
 
         // Feature 6: Accumulate token usage across all iterations
@@ -333,6 +332,12 @@ export class AgentTask {
         // Emergency condensing retry: if the API rejects with context overflow,
         // condense and retry the entire loop once instead of aborting.
         let emergencyRetried = false;
+
+        // Rate limit retry: auto-retry on 429 errors with exponential backoff.
+        // Max 3 retries with 30s, 60s, 120s waits.
+        const RATE_LIMIT_MAX_RETRIES = 3;
+        const RATE_LIMIT_BASE_WAIT_MS = 30_000;
+        let rateLimitRetries = 0;
 
         // eslint-disable-next-line no-constant-condition -- emergency condensing retry loop
         while (true) {
@@ -815,6 +820,24 @@ export class AgentTask {
                     // Condensing itself failed — fall through to normal error handling
                     console.warn('[AgentTask] Emergency condensing failed');
                 }
+            }
+
+            // Rate limit retry: auto-retry on 429 with exponential backoff
+            const isRateLimit = /rate.?limit|429/i.test(err.message);
+            if (isRateLimit && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
+                rateLimitRetries++;
+                const waitMs = RATE_LIMIT_BASE_WAIT_MS * Math.pow(2, rateLimitRetries - 1);
+                const waitSec = Math.round(waitMs / 1000);
+                console.warn(`[AgentTask] Rate limit hit — retry ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
+                this.taskCallbacks.onText(`\n\n*Rate limit reached -- automatically retrying in ${waitSec} seconds (${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
+                await new Promise<void>((r) => setTimeout(r, waitMs));
+                // Check if cancelled during wait
+                if (abortSignal?.aborted) {
+                    console.debug('[AgentTask] Abort signal detected during rate limit wait');
+                    this.taskCallbacks.onComplete();
+                    return;
+                }
+                continue;  // Retry the agent loop
             }
 
             // Network errors (e.g. "Failed to fetch") get a friendlier message
