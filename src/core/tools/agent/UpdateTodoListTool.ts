@@ -54,6 +54,7 @@ export class UpdateTodoListTool extends BaseTool<'update_todo_list'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { todos } = input as unknown as UpdateTodoListInput;
         const { callbacks } = context;

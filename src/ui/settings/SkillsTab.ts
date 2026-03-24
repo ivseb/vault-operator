@@ -61,7 +61,6 @@ export class SkillsTab {
         containerEl.createEl('h3', { text: t('settings.skills.headingManual') });
 
         const skillsManager = this.plugin.skillsManager;
-        const loader = this.plugin.selfAuthoredSkillLoader;
 
         // -- Create new skill --
         const createRow = containerEl.createDiv({ cls: 'agent-rules-create-row' });

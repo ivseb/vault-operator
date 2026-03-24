@@ -168,7 +168,6 @@ export class KiloAuthService {
      * Blockiert bis Erfolg, Fehler oder AbortSignal.
      */
     async pollForSession(deviceCode: string, signal?: AbortSignal): Promise<void> {
-        // eslint-disable-next-line no-constant-condition -- polling loop mit expliziten Exit-Bedingungen
         while (true) {
             if (signal?.aborted) {
                 throw new Error('Authorization cancelled');

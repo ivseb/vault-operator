@@ -81,15 +81,14 @@ export class ContextDisplay {
         const reservedPercent = total > 0 ? (reservedForOutput / total) * 100 : 0;
         const availablePercent = total > 0 ? (availableSize / total) * 100 : 0;
 
-        // L-1: style.setProperty() instead of inline style for dynamic widths
         if (this.barCurrent) {
-            this.barCurrent.style.setProperty('width', `${currentPercent}%`);
+            this.barCurrent.setCssProps({ width: `${currentPercent}%` });
         }
         if (this.barReserved) {
-            this.barReserved.style.setProperty('width', `${reservedPercent}%`);
+            this.barReserved.setCssProps({ width: `${reservedPercent}%` });
         }
         if (this.barAvailable) {
-            this.barAvailable.style.setProperty('width', `${availablePercent}%`);
+            this.barAvailable.setCssProps({ width: `${availablePercent}%` });
         }
 
         // Update color

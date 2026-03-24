@@ -20,7 +20,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import Automizer, { modify } from 'pptx-automizer';
+import Automizer, { modify, LabelPosition } from 'pptx-automizer';
 import type { ISlide } from 'pptx-automizer';
 import PptxGenJS from 'pptxgenjs';
 import type {
@@ -42,8 +42,7 @@ import { isContentValue } from './types';
 type FindElementSelector = string | { name: string; nameIdx?: number };
 
 /** pptx-automizer modification callback (element, relation?, chart?). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- pptx-automizer uses generic callback signatures
-type ModCallback = (...args: any[]) => void;
+type ModCallback = (...args: unknown[]) => void;
 
 /** Options for TemplateEngine. */
 export interface TemplateEngineOptions {
@@ -580,19 +579,18 @@ export class TemplateEngine {
                         const paragraphs = el.getParagraphs();
                         if (paragraphs && paragraphs.length > 0) {
                             const firstPara = paragraphs[0];
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pptx-automizer paragraph structure varies
-                            const paraAny = firstPara as any;
-                            const runs = paraAny?.textRuns ?? paraAny?.runs ?? [];
+                            const paraObj = firstPara as Record<string, unknown>;
+                            const runs = (paraObj?.textRuns ?? paraObj?.runs ?? []) as Record<string, unknown>[];
                             if (runs.length > 0) {
-                                const firstRun = runs[0];
-                                const style = firstRun?.style ?? firstRun ?? {};
+                                const firstRun = runs[0] as Record<string, unknown> | undefined;
+                                const style = (firstRun?.style ?? firstRun ?? {}) as Record<string, unknown>;
                                 fontInfo = {
-                                    fontFace: style.fontFace ?? style.typeface ?? undefined,
+                                    fontFace: (style.fontFace ?? style.typeface ?? undefined) as string | undefined,
                                     // pptx-automizer returns size in hundredths of a point (e.g. 1400 = 14pt)
-                                    fontSize: style.size ? Math.round(style.size / 100) : undefined,
-                                    isBold: style.isBold ?? style.bold ?? undefined,
-                                    color: style.color?.value ?? undefined,
-                                    alignment: paraAny?.alignment ?? undefined,
+                                    fontSize: typeof style.size === 'number' ? Math.round(style.size / 100) : undefined,
+                                    isBold: (style.isBold ?? style.bold ?? undefined) as boolean | undefined,
+                                    color: (style.color as Record<string, unknown> | undefined)?.value as string | undefined,
+                                    alignment: paraObj?.alignment as string | undefined,
                                 };
                             }
                         }
@@ -634,11 +632,11 @@ export class TemplateEngine {
      * Extract slide dimensions from pptx-automizer info.
      * Returns pixels (EMU / 9525). Falls back to undefined if unavailable.
      */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pptx-automizer info type not fully typed
-    private extractSlideSize(info: any): { width: number; height: number } | undefined {
+    private extractSlideSize(info: unknown): { width: number; height: number } | undefined {
         try {
-            const size = info.slideSize;
-            if (size?.cx && size?.cy) {
+            if (typeof info !== 'object' || info === null || !('slideSize' in info)) return undefined;
+            const size = (info as Record<string, unknown>).slideSize as Record<string, unknown> | undefined;
+            if (size && typeof size.cx === 'number' && typeof size.cy === 'number') {
                 return {
                     width: Math.round(size.cx / EMU_PER_PX),
                     height: Math.round(size.cy / EMU_PER_PX),
@@ -929,9 +927,8 @@ function buildChartCallbacks(
             ...(dl.show_bubble_size !== undefined ? { showBubbleSize: dl.show_bubble_size } : {}),
             ...(dl.show_leader_lines !== undefined ? { showLeaderLines: dl.show_leader_lines } : {}),
             ...(dl.show_legend_key !== undefined ? { showLegendKey: dl.show_legend_key } : {}),
-            // Cast position string to LabelPosition enum (values are identical)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- LabelPosition enum not re-exported from index
-            ...(dl.position ? { dLblPos: dl.position as any } : {}),
+            // Cast position string to LabelPosition enum (values are identical string literals)
+            ...(dl.position ? { dLblPos: dl.position as unknown as LabelPosition } : {}),
             ...(dl.fill_color ? { solidFill: { type: 'srgbClr' as const, value: dl.fill_color } } : {}),
         }));
     }
@@ -1036,8 +1033,7 @@ const PX_TO_IN_Y = 5.625 / 720;
 interface GenerateSlide {
     addText(text: string | PptxGenJS.TextProps[], options?: PptxGenJS.TextPropsOptions): void;
     addShape(shapeName: PptxGenJS.SHAPE_NAME, options?: PptxGenJS.ShapeProps): void;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pptx-automizer uses any[] for chart data
-    addChart(type: PptxGenJS.CHART_NAME | PptxGenJS.IChartMulti[], data: any[], options?: PptxGenJS.IChartOpts): void;
+    addChart(type: PptxGenJS.CHART_NAME | PptxGenJS.IChartMulti[], data: unknown[], options?: PptxGenJS.IChartOpts): void;
     addTable(tableRows: PptxGenJS.TableRow[], options?: PptxGenJS.TableProps): void;
     addImage(options: PptxGenJS.ImageProps): void;
 }
@@ -1154,58 +1150,6 @@ function renderGenerateElement(
 /* ------------------------------------------------------------------ */
 /*  ADR-049: Raw XML helpers                                           */
 /* ------------------------------------------------------------------ */
-
-/**
- * Check if an XML shape element is decorative (footer, slide number, date, logo).
- * These shapes should NOT have their text cleared during the raw XML pass.
- *
- * Detection strategy:
- * 1. Placeholder type: footer (ftr), slide number (sldNum), date (dt) are always decorative
- * 2. Shape name patterns: "Fusszeile", "Foliennummer", "Datumsplatzhalter", etc.
- * 3. Shapes flagged as non-visual/hidden
- */
-function isDecorativeXmlShape(shapeElement: Element): boolean {
-    // Check for placeholder type (most reliable)
-    const phElements = shapeElement.getElementsByTagName('p:ph');
-    for (let i = 0; i < phElements.length; i++) {
-        const phType = phElements[i].getAttribute('type') || '';
-        // Footer, slide number, date placeholders are always decorative
-        if (['ftr', 'sldNum', 'dt', 'hdr'].includes(phType)) {
-            return true;
-        }
-    }
-
-    // Check shape name via nvSpPr > nvPr or cNvPr
-    const cNvPr = shapeElement.getElementsByTagName('p:cNvPr');
-    if (cNvPr.length === 0) {
-        // Try alternative path
-        const altCNvPr = shapeElement.getElementsByTagName('cNvPr');
-        if (altCNvPr.length > 0) {
-            const name = (altCNvPr[0].getAttribute('name') || '').toLowerCase();
-            return isDecorativeByName(name);
-        }
-        return false;
-    }
-
-    const name = (cNvPr[0].getAttribute('name') || '').toLowerCase();
-    return isDecorativeByName(name);
-}
-
-/** Check if a shape name indicates a decorative element. */
-function isDecorativeByName(name: string): boolean {
-    // Footer, slide number, date, SmartArt, geometric objects
-    if (/fu[ßs]zeile|footer|pied.*page/i.test(name)) return true;
-    if (/foliennummer|slide.*number|num[ée]ro/i.test(name)) return true;
-    if (/datumsplatzhalter|date.*placeholder/i.test(name)) return true;
-    if (/smartart/i.test(name)) return true;
-    // Geometric AutoShapes (Rechteck N, object N) are structural design elements
-    if (/^(rechteck|object)\b/i.test(name)) return true;
-    // Logo shapes
-    if (/logo/i.test(name)) return true;
-    // Grafik/image shapes (decorative brand graphics)
-    if (/^grafik\b/i.test(name)) return true;
-    return false;
-}
 
 /**
  * Default dimensions for shapes with 0x0 in the catalog (inherited from slide layout).

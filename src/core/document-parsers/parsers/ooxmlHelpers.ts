@@ -16,18 +16,10 @@ import { MAX_DECOMPRESSED_SIZE } from '../types';
 export async function openZipSafe(data: ArrayBuffer): Promise<JSZip> {
     const zip = await JSZip.loadAsync(data);
 
-    let totalSize = 0;
-    for (const [name, entry] of Object.entries(zip.files)) {
+    for (const [name] of Object.entries(zip.files)) {
         // Path traversal check
         if (name.includes('..') || name.startsWith('/')) {
             throw new Error(`Suspicious path in ZIP: "${name}"`);
-        }
-        // Accumulate decompressed size (approximation from compressed info)
-        if (!entry.dir) {
-            // JSZip doesn't expose decompressed size directly before extraction,
-            // but _data._compressedSize or similar internals aren't reliable.
-            // We check after extraction in getXmlContent instead.
-            totalSize += 0;
         }
     }
 

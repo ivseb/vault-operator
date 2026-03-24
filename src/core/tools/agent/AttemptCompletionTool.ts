@@ -45,6 +45,7 @@ export class AttemptCompletionTool extends BaseTool<'attempt_completion'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { result } = input as unknown as AttemptCompletionInput;
         const { callbacks } = context;

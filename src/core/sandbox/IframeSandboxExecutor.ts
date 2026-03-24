@@ -191,7 +191,7 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
             } else if (bridgeMsg.type === 'vault-read-binary') {
                 result = await this.bridge.vaultReadBinary(bridgeMsg.path);
             } else if (bridgeMsg.type === 'vault-list') {
-                result = await this.bridge.vaultList(bridgeMsg.path);
+                result = this.bridge.vaultList(bridgeMsg.path);
             } else if (bridgeMsg.type === 'vault-write') {
                 await this.bridge.vaultWrite(bridgeMsg.path, bridgeMsg.content);
                 result = true;

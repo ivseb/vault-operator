@@ -58,6 +58,7 @@ export class SwitchModeTool extends BaseTool<'switch_mode'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { mode_slug, reason } = input as unknown as SwitchModeInput;
         const { callbacks } = context;

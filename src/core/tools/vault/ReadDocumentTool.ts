@@ -86,7 +86,7 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
             } else {
                 // Text formats (csv, json, xml) — read as text, convert to ArrayBuffer
                 const text = await this.app.vault.read(file);
-                data = new TextEncoder().encode(text).buffer as ArrayBuffer;
+                data = new TextEncoder().encode(text).buffer;
             }
 
             // Parse

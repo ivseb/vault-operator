@@ -166,11 +166,12 @@ export class AgentSidebarView extends ItemView {
         this.showWelcomeMessage();
     }
 
-    async onClose(): Promise<void> {
+    onClose(): Promise<void> {
         this.currentAbortController?.abort();
         this.saveCurrentConversation();
         this.enqueueMemoryExtraction();
         this.attachments.clear();
+        return Promise.resolve();
     }
 
     private buildHeader(container: HTMLElement): void {
@@ -843,8 +844,8 @@ export class AgentSidebarView extends ItemView {
 
     private autoResizeTextarea(): void {
         if (!this.textarea) return;
-        this.textarea.style.setProperty('height', 'auto');
-        this.textarea.style.setProperty('height', Math.min(this.textarea.scrollHeight, 15 * 24) + 'px');
+        this.textarea.setCssProps({ height: 'auto' });
+        this.textarea.setCssProps({ height: Math.min(this.textarea.scrollHeight, 15 * 24) + 'px' });
     }
 
     /**
@@ -1584,12 +1585,11 @@ export class AgentSidebarView extends ItemView {
                     // Collect content from file-writing tools for task extraction (ADR-026)
                     const taskRelevantOps = ['write_file', 'append_to_file', 'edit_file'];
                     if (taskRelevantOps.includes(name) && input) {
-                        const inp = input as Record<string, unknown>;
-                        if (typeof inp['content'] === 'string') {
-                            accumulatedToolContent += '\n' + (inp['content'] as string);
+                        if (typeof input['content'] === 'string') {
+                            accumulatedToolContent += '\n' + input['content'];
                         }
-                        if (typeof inp['new_str'] === 'string') {
-                            accumulatedToolContent += '\n' + (inp['new_str'] as string);
+                        if (typeof input['new_str'] === 'string') {
+                            accumulatedToolContent += '\n' + input['new_str'];
                         }
                     }
 
@@ -2255,19 +2255,18 @@ export class AgentSidebarView extends ItemView {
                             : new TaskNoteCreator(this.app);
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
-                            const format = useTaskNotes ? ' (TaskNotes-Format)' : '';
-                            new Notice(`${created.length} Task-Note${created.length === 1 ? '' : 's'} erstellt${format}`);
+                            const format = useTaskNotes ? t('notice.taskNotesCreatedFormatSuffix') : '';
+                            new Notice(t('notice.taskNotesCreated', { count: created.length, format }));
                         }
                     } catch (err) {
                         console.warn('[TaskExtraction] Failed to create task notes:', err);
-                        // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
-                        new Notice('Fehler beim Erstellen der Task-Notes');
+                        new Notice(t('notice.taskNotesError'));
                     }
                 },
             ).open();
         } catch (err) {
             console.error('[TaskExtraction] Scan failed:', err);
-            new Notice(`Task-Extraction Fehler: ${err instanceof Error ? err.message : String(err)}`);
+            new Notice(t('notice.taskExtractionError', { error: err instanceof Error ? err.message : String(err) }));
         }
     }
 
@@ -2292,9 +2291,7 @@ export class AgentSidebarView extends ItemView {
                 text: 'Nicht mehr anzeigen',
                 cls: 'agent-u-task-hint-dismiss',
             });
-            dismissLink.style.setProperty('display', 'block');
-            dismissLink.style.setProperty('margin-top', '6px');
-            dismissLink.style.setProperty('font-size', '0.85em');
+            dismissLink.setCssProps({ display: 'block', 'margin-top': '6px', 'font-size': '0.85em' });
             dismissLink.addEventListener('click', (e) => {
                 e.preventDefault();
                 this.plugin.settings.taskExtraction = {
@@ -2916,18 +2913,16 @@ export class AgentSidebarView extends ItemView {
             const r = popup.getBoundingClientRect();
             const pad = 8;
             if (r.right > window.innerWidth) {
-                popup.style.setProperty('left', `${window.innerWidth - r.width - pad}px`);
+                popup.setCssProps({ left: `${window.innerWidth - r.width - pad}px` });
             }
             if (r.left < 0) {
-                popup.style.setProperty('left', `${pad}px`);
+                popup.setCssProps({ left: `${pad}px` });
             }
             if (r.bottom > window.innerHeight) {
-                popup.style.setProperty('top', `${window.innerHeight - r.height - pad}px`);
-                popup.style.setProperty('bottom', '');
+                popup.setCssProps({ top: `${window.innerHeight - r.height - pad}px`, bottom: '' });
             }
             if (r.top < 0) {
-                popup.style.setProperty('top', `${pad}px`);
-                popup.style.setProperty('bottom', '');
+                popup.setCssProps({ top: `${pad}px`, bottom: '' });
             }
         });
     }
@@ -2972,8 +2967,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rect = anchor.getBoundingClientRect();
-        popup.style.setProperty('top', `${rect.bottom + 4}px`);
-        popup.style.setProperty('left', `${Math.max(4, rect.left - 40)}px`);
+        popup.setCssProps({ top: `${rect.bottom + 4}px`, left: `${Math.max(4, rect.left - 40)}px` });
 
         document.body.appendChild(popup);
         this.clampPopupToViewport(popup);
@@ -3019,8 +3013,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rect = anchor.getBoundingClientRect();
-        popup.style.setProperty('bottom', `${window.innerHeight - rect.top + 4}px`);
-        popup.style.setProperty('left', `${rect.left}px`);
+        popup.setCssProps({ bottom: `${window.innerHeight - rect.top + 4}px`, left: `${rect.left}px` });
 
         document.body.appendChild(popup);
         this.clampPopupToViewport(popup);
@@ -3370,7 +3363,7 @@ export class AgentSidebarView extends ItemView {
 
             // For sandbox: show code preview (first 3 lines)
             if (toolName === 'evaluate_expression' && typeof input['expression'] === 'string') {
-                const expr = input['expression'] as string;
+                const expr = input['expression'];
                 const previewLines = expr.split('\n').slice(0, 3);
                 const preview = previewLines.join('\n') + (expr.split('\n').length > 3 ? '\n...' : '');
                 const codePreview = row.createDiv('tool-approval-code-preview');

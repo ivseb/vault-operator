@@ -202,7 +202,6 @@ export class GitHubCopilotAuthService {
 
         const pollIntervalMs = Math.max(interval, 5) * 1000;
 
-        // eslint-disable-next-line no-constant-condition -- polling loop with explicit exit conditions
         while (true) {
             if (signal?.aborted) {
                 throw new Error('Authorization cancelled');
@@ -245,7 +244,7 @@ export class GitHubCopilotAuthService {
             } else if (error === 'access_denied') {
                 throw new Error('Authorization was denied by the user.');
             } else if (error) {
-                throw new Error(`OAuth error: ${error} — ${data.error_description ?? ''}`);
+                throw new Error(`OAuth error: ${String(error)} — ${String(data.error_description ?? '')}`);
             }
         }
     }

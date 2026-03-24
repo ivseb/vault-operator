@@ -251,12 +251,22 @@
         <div class="tool-card">
           <span class="tool-group-badge badge-edit">edit</span>
           <div class="tool-name">create_pptx</div>
-          <div class="tool-desc">Creates PowerPoint presentations (.pptx) with slides, titles, body text, speaker notes, and theme colors. Supports custom slide layouts and formatting. Up to 50 slides per presentation.</div>
+          <div class="tool-desc">Creates PowerPoint presentations (.pptx). Template mode or Adhoc mode. Up to 50 slides.</div>
         </div>
         <div class="tool-card">
           <span class="tool-group-badge badge-edit">edit</span>
           <div class="tool-name">create_xlsx</div>
           <div class="tool-desc">Creates Excel spreadsheets (.xlsx) with multiple sheets, headers, data rows, column widths, and basic formatting. Up to 20 sheets per workbook.</div>
+        </div>
+        <div class="tool-card">
+          <span class="tool-group-badge badge-edit">edit</span>
+          <div class="tool-name">ingest_template</div>
+          <div class="tool-desc">Analyzes a corporate PowerPoint template and generates a slide-type catalog.</div>
+        </div>
+        <div class="tool-card">
+          <span class="tool-group-badge badge-edit">edit</span>
+          <div class="tool-name">plan_presentation</div>
+          <div class="tool-desc">Plans a presentation from source material using an ingested corporate template.</div>
         </div>
       </div>
 
@@ -284,12 +294,22 @@
         <div class="tool-card">
           <span class="tool-group-badge badge-edit">edit</span>
           <div class="tool-name">create_pptx</div>
-          <div class="tool-desc">Creates PowerPoint presentations (.pptx) with slides, titles, body text, speaker notes, and theme colors. Supports custom slide layouts and formatting. Up to 50 slides per presentation.</div>
+          <div class="tool-desc">Creates PowerPoint presentations (.pptx). Two modes: Template mode (uses slides from an ingested corporate template with shape-level content from plan_presentation) and Adhoc mode (direct slide content with title, body, notes, and theme). Up to 50 slides per presentation.</div>
         </div>
         <div class="tool-card">
           <span class="tool-group-badge badge-edit">edit</span>
           <div class="tool-name">create_xlsx</div>
           <div class="tool-desc">Creates Excel spreadsheets (.xlsx) with multiple sheets, headers, data rows, column widths, and basic formatting. Up to 20 sheets per workbook.</div>
+        </div>
+        <div class="tool-card">
+          <span class="tool-group-badge badge-edit">edit</span>
+          <div class="tool-name">ingest_template</div>
+          <div class="tool-desc">Analyzes a corporate PowerPoint template (.pptx) and generates a slide-type catalog. Extracts shape names, types, and positions per slide, then groups slides by their PowerPoint layout name into reusable slide types. Run once per corporate template.</div>
+        </div>
+        <div class="tool-card">
+          <span class="tool-group-badge badge-edit">edit</span>
+          <div class="tool-name">plan_presentation</div>
+          <div class="tool-desc">Plans a complete presentation from source material using a corporate template. Uses an internal LLM call to generate slide-by-slide content matched to template shapes. Returns a deck plan ready for create_pptx. Always call this before create_pptx when using corporate templates.</div>
         </div>
       </div>
 
@@ -319,6 +339,31 @@
         <tbody>
           <tr><td><code>path</code></td><td>string</td><td>yes</td><td>Vault-relative output path (e.g., "Data/budget.xlsx")</td></tr>
           <tr><td><code>sheets</code></td><td>array</td><td>yes</td><td>Array of sheet objects with name, headers, rows, and column widths. Up to 20 sheets.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Parameters: ingest_template</h3>
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>template_path</code></td><td>string</td><td>yes</td><td>Vault path to the .pptx or .potx template file</td></tr>
+          <tr><td><code>theme_name</code></td><td>string</td><td>yes</td><td>Short name for this theme (e.g., "acme", "acme"). Used as folder name and reference in create_pptx.</td></tr>
+          <tr><td><code>sample_slides</code></td><td>number[]</td><td>no</td><td>Specific slide numbers to analyze (1-based). Default: all slides.</td></tr>
+          <tr><td><code>render_previews</code></td><td>boolean</td><td>no</td><td>Render slide screenshots for vision enrichment (requires LibreOffice). Default: false.</td></tr>
+          <tr><td><code>force</code></td><td>boolean</td><td>no</td><td>Force re-ingestion even if theme already exists. Default: false.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Parameters: plan_presentation</h3>
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>source</code></td><td>string</td><td>yes</td><td>Vault path to the source note, or direct text content if no note exists.</td></tr>
+          <tr><td><code>template</code></td><td>string</td><td>yes</td><td>Theme name (e.g., "acme"). Must be an ingested corporate template.</td></tr>
+          <tr><td><code>deck_mode</code></td><td>string</td><td>yes</td><td>"speaker" (max 25 words/slide, notes carry detail) or "reading" (max 170 words/slide, self-explanatory).</td></tr>
+          <tr><td><code>goal</code></td><td>string</td><td>no</td><td>What should the audience learn, decide, or do?</td></tr>
+          <tr><td><code>audience</code></td><td>string</td><td>no</td><td>Who is the target audience? What do they already know?</td></tr>
+          <tr><td><code>slide_count</code></td><td>number</td><td>no</td><td>Target number of slides (auto-determined if omitted).</td></tr>
         </tbody>
       </table>
 
@@ -478,6 +523,11 @@
           <span class="tool-group-badge badge-agent">skill</span>
           <div class="tool-name">enable_plugin</div>
           <div class="tool-desc">Enable or disable an installed Obsidian plugin. Used by the agent to activate plugins it needs for a task.</div>
+        </div>
+        <div class="tool-card">
+          <span class="tool-group-badge badge-agent">skill</span>
+          <div class="tool-name">render_presentation</div>
+          <div class="tool-desc">Renders a PPTX presentation to images using LibreOffice. Returns slide images so the agent can visually inspect the result for text overflow, layout problems, or design issues. Requires LibreOffice. Use after creating a presentation with create_pptx.</div>
         </div>
       </div>
 

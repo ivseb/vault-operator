@@ -50,7 +50,6 @@ export class ContextTracker {
     }
 
     getContextUsage(): ContextUsage {
-        const distribution = this.calculateTokenDistribution();
         const percentage = this.contextWindow > 0
             ? Math.round((this.tokensUsed / this.contextWindow) * 100)
             : 0;
