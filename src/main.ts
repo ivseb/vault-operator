@@ -1,6 +1,6 @@
 import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon, requestUrl } from 'obsidian';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
-import type { CustomModel, AutoApprovalConfig } from './types/settings';
+import type { CustomModel } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { OBSILO_ICON_SVG } from './ui/obsiloIcon';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
@@ -660,7 +660,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         const apDefaults = DEFAULT_SETTINGS.autoApproval;
         for (const key of Object.keys(apDefaults) as Array<keyof typeof apDefaults>) {
             if (ap[key] === undefined) {
-                (ap as Record<string, unknown>)[key] = apDefaults[key];
+                ap[key] = apDefaults[key];
             }
         }
         // Migrate: chatHistoryFolder → enableChatHistory

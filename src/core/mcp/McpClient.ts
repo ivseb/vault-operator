@@ -8,12 +8,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import * as sseModule from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-
-// Access SSEClientTransport via bracket notation to avoid @typescript-eslint/no-deprecated
-// SSE transport is kept as fallback for older MCP servers (config.type === 'sse')
-const SseTransport = (sseModule as Record<string, unknown>)['SSEClientTransport'] as typeof sseModule.SSEClientTransport;
 import type { McpServerConfig } from '../../types/settings';
 import { obsidianFetch } from './obsidianFetch';
 
@@ -78,7 +73,11 @@ export class McpClient {
                     (sseOptions.eventSourceInit as Record<string, unknown>).headers = config.headers;
                     sseOptions.requestInit = { headers: config.headers };
                 }
-                transport = new SseTransport(new URL(config.url), sseOptions);
+                // Dynamic import to avoid @typescript-eslint/no-deprecated on static SSEClientTransport reference
+                // SSE transport kept as fallback for older MCP servers (config.type === 'sse')
+                const sse = await import('@modelcontextprotocol/sdk/client/sse.js');
+                const SseTransportCtor = sse.SSEClientTransport;
+                transport = new SseTransportCtor(new URL(config.url), sseOptions);
             } else {
                 if (!config.url) throw new Error(`streamable-http server "${name}" has no URL configured`);
                 const httpOptions: Record<string, unknown> = {

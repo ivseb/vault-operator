@@ -3250,7 +3250,7 @@ export class AgentSidebarView extends ItemView {
         toolName: string,
         input: Record<string, unknown>,
     ): { text: string; target?: string } {
-        const str = (key: string): string => typeof input[key] === 'string' ? (input[key] as string) : '';
+        const str = (key: string): string => { const v = input[key]; return typeof v === 'string' ? v : ''; };
 
         switch (toolName) {
             case 'write_file':
