@@ -663,7 +663,6 @@ export class IngestTemplateTool extends BaseTool<'ingest_template'> {
             const { renderPptxToImages } = await import('../../office/pptxRenderer');
 
             const adapter = this.app.vault.adapter;
-            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- need FileSystemAdapter.basePath which is not in the public Obsidian API
             const vaultRoot: string = (adapter as import('obsidian').FileSystemAdapter).basePath
                 ?? (adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
             if (!vaultRoot) {

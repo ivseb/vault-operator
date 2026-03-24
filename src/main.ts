@@ -420,8 +420,9 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
 
         // Chat history service (legacy — only when folder is configured)
-        if (this.settings.chatHistoryFolder) {
-            this.chatHistoryService = new ChatHistoryService(this.app.vault, this.settings.chatHistoryFolder);
+        const s = this.settings as unknown as Record<string, unknown>;
+        if (s['chatHistoryFolder']) {
+            this.chatHistoryService = new ChatHistoryService(this.app.vault, s['chatHistoryFolder'] as string);
         }
 
         // Conversation store (new persistent history)
@@ -637,11 +638,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         if ('useCustomTemperature' in advApi) delete advApi['useCustomTemperature'];
         if ('temperature' in advApi) delete advApi['temperature'];
         // Migrate: autoApproval.write split into noteEdits + vaultChanges
-        const ap = this.settings.autoApproval as AutoApprovalConfig & { write?: boolean };
-        if (ap.write !== undefined) {
-            if (ap.noteEdits === undefined || ap.noteEdits === false) ap.noteEdits = ap.write;
-            if (ap.vaultChanges === undefined || ap.vaultChanges === false) ap.vaultChanges = ap.write;
-            delete ap.write;
+        const ap = this.settings.autoApproval as unknown as Record<string, unknown>;
+        if (ap['write'] !== undefined) {
+            const writeVal = ap['write'] as boolean;
+            if (ap['noteEdits'] === undefined || ap['noteEdits'] === false) ap['noteEdits'] = writeVal;
+            if (ap['vaultChanges'] === undefined || ap['vaultChanges'] === false) ap['vaultChanges'] = writeVal;
+            delete ap['write'];
         }
         // Ensure new fields exist for users upgrading from older versions
         ap.noteEdits = ap.noteEdits ?? false;
@@ -657,12 +659,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // so the UI always reflects the actual effective value (WYSIWYG).
         const apDefaults = DEFAULT_SETTINGS.autoApproval;
         for (const key of Object.keys(apDefaults) as Array<keyof typeof apDefaults>) {
-            if ((ap as unknown as Record<string, unknown>)[key] === undefined) {
-                (ap as unknown as Record<string, unknown>)[key] = apDefaults[key];
+            if (ap[key] === undefined) {
+                (ap as Record<string, unknown>)[key] = apDefaults[key];
             }
         }
         // Migrate: chatHistoryFolder → enableChatHistory
-        if (this.settings.chatHistoryFolder && this.settings.enableChatHistory === undefined) {
+        const sMigrate = this.settings as unknown as Record<string, unknown>;
+        if (sMigrate['chatHistoryFolder'] && this.settings.enableChatHistory === undefined) {
             this.settings.enableChatHistory = true;
         }
         this.settings.enableChatHistory = this.settings.enableChatHistory ?? true;

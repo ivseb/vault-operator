@@ -277,11 +277,9 @@ export class AttachmentHandler {
      * (e.g. "folder/file.pptx"). Otherwise returns undefined.
      */
     private resolveOsPathToVaultPath(file: File): string | undefined {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- Electron-specific: File.path is not in the standard File API
         const osPath = (file as unknown as { path?: string }).path;
         if (!osPath) return undefined;
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- need FileSystemAdapter.basePath which is not in the public Obsidian API
         const adapter = this.vault.adapter as FileSystemAdapter;
         const vaultRoot: string = adapter.basePath ?? adapter.getBasePath?.() ?? '';
         if (!vaultRoot) return undefined;

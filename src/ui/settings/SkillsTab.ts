@@ -293,9 +293,11 @@ export class SkillsTab {
                     await adapter.write(skill.selfAuthored!.filePath, newContent);
                 }).open();
             } else if (skill.globalPath && this.plugin.skillsManager) {
-                const content = await this.plugin.skillsManager.readFile(skill.globalPath);
+                const mgr = this.plugin.skillsManager;
+                const gPath = skill.globalPath;
+                const content = await mgr.readFile(gPath);
                 new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, (newContent) => {
-                    return this.plugin.skillsManager!.writeFile(skill.globalPath!, newContent);
+                    return mgr.writeFile(gPath, newContent);
                 }).open();
             }
         } catch (e) {

@@ -106,10 +106,10 @@ export class InterfaceTab {
             .setDesc(t('settings.interface.historyFolderDesc'))
             .addText((txt) =>
                 txt.setPlaceholder(t('settings.interface.historyPlaceholder'))
-                    .setValue(this.plugin.settings.chatHistoryFolder ?? '')
+                    .setValue((this.plugin.settings as unknown as Record<string, unknown>)['chatHistoryFolder'] as string ?? '')
                     .onChange(async (v) => {
                         const folder = v.trim();
-                        this.plugin.settings.chatHistoryFolder = folder;
+                        (this.plugin.settings as unknown as Record<string, unknown>)['chatHistoryFolder'] = folder;
                         await this.plugin.saveSettings();
                         if (folder) {
                             const { ChatHistoryService } = await import('../../core/ChatHistoryService');

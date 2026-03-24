@@ -2228,7 +2228,7 @@ export class AgentSidebarView extends ItemView {
      * Post-processing hook: scan agent response for `- [ ]` items and show selection modal.
      * ADR-026: Fire-and-forget (void-prefixed), does not block onComplete.
      */
-    private async maybeExtractTasks(text: string): Promise<void> {
+    private maybeExtractTasks(text: string): void {
         try {
             const items = scanTasks(text);
             if (items.length === 0) return;
@@ -3250,7 +3250,7 @@ export class AgentSidebarView extends ItemView {
         toolName: string,
         input: Record<string, unknown>,
     ): { text: string; target?: string } {
-        const str = (key: string): string => typeof input[key] === 'string' ? input[key] as string : '';
+        const str = (key: string): string => typeof input[key] === 'string' ? (input[key] as string) : '';
 
         switch (toolName) {
             case 'write_file':
