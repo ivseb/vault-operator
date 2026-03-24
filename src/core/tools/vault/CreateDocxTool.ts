@@ -182,7 +182,7 @@ export class CreateDocxTool extends BaseTool<'create_docx'> {
             rawSections = input.sections as SectionInput[];
         } else if (typeof input.sections === 'string') {
             try {
-                const parsed = JSON.parse(input.sections as string);
+                const parsed = JSON.parse(input.sections);
                 if (Array.isArray(parsed)) rawSections = parsed as SectionInput[];
             } catch { /* Invalid JSON -- fall through to empty */ }
         }
@@ -429,7 +429,7 @@ export class CreateDocxTool extends BaseTool<'create_docx'> {
         // Data rows
         if (tableInput.rows) {
             for (const row of tableInput.rows) {
-                const cells = (row as (string | number | null)[]).map(cell =>
+                const cells = row.map(cell =>
                     new TableCell({
                         children: [
                             new Paragraph({

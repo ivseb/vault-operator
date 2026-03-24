@@ -83,7 +83,7 @@ export class RenderPresentationTool extends BaseTool<'render_presentation'> {
 
         // 2. Resolve vault path to absolute path
         const adapter = this.app.vault.adapter;
-        // eslint-disable-next-line -- need FileSystemAdapter for basePath
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- need FileSystemAdapter.basePath which is not in the public Obsidian API
         const vaultRoot: string = (adapter as import('obsidian').FileSystemAdapter).basePath
             ?? (adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
         if (!vaultRoot) {

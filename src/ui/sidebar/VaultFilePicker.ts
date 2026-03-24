@@ -43,31 +43,35 @@ export class VaultFilePicker {
                 : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth, width: window.innerWidth };
             const pad = 8;
 
-            this.containerEl.style.setProperty('position', 'fixed');
+            this.containerEl.setCssProps({ position: 'fixed' });
 
             // Constrain width to container
             const popWidth = Math.min(320, cr.width - pad * 2);
-            this.containerEl.style.setProperty('width', `${popWidth}px`);
+            this.containerEl.setCssProps({ width: `${popWidth}px` });
 
             // Prefer opening upward; fall back to downward
             const spaceAbove = br.top - cr.top - pad;
             const spaceBelow = cr.bottom - br.bottom - pad;
 
             if (spaceAbove >= spaceBelow) {
-                this.containerEl.style.setProperty('bottom', (window.innerHeight - br.top + 4) + 'px');
-                this.containerEl.style.setProperty('top', '');
-                this.containerEl.style.setProperty('max-height', `${Math.max(spaceAbove, 200)}px`);
+                this.containerEl.setCssProps({
+                    bottom: (window.innerHeight - br.top + 4) + 'px',
+                    top: '',
+                    'max-height': `${Math.max(spaceAbove, 200)}px`,
+                });
             } else {
-                this.containerEl.style.setProperty('top', (br.bottom + 4) + 'px');
-                this.containerEl.style.setProperty('bottom', '');
-                this.containerEl.style.setProperty('max-height', `${Math.max(spaceBelow, 200)}px`);
+                this.containerEl.setCssProps({
+                    top: (br.bottom + 4) + 'px',
+                    bottom: '',
+                    'max-height': `${Math.max(spaceBelow, 200)}px`,
+                });
             }
 
             // Horizontal: keep inside container
             let left = Math.max(br.left, cr.left + pad);
             if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
             left = Math.max(left, cr.left + pad);
-            this.containerEl.style.setProperty('left', `${left}px`);
+            this.containerEl.setCssProps({ left: `${left}px` });
         };
         positionPopover();
 

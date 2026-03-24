@@ -107,6 +107,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
 
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process only via dynamic require in Electron renderer (same pattern as SafeStorageService)
         const cp = require('child_process') as typeof import('child_process');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via dynamic require in Electron renderer context
         const fs = require('fs') as typeof import('fs');
         const workerPath = this.getWorkerPath();
         console.debug(`[ProcessSandbox] Spawning worker: ${workerPath}`);
@@ -233,7 +234,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
             } else if (bridgeMsg.type === 'vault-read-binary') {
                 result = await this.bridge.vaultReadBinary(bridgeMsg.path);
             } else if (bridgeMsg.type === 'vault-list') {
-                result = await this.bridge.vaultList(bridgeMsg.path);
+                result = this.bridge.vaultList(bridgeMsg.path);
             } else if (bridgeMsg.type === 'vault-write') {
                 await this.bridge.vaultWrite(bridgeMsg.path, bridgeMsg.content);
                 result = true;
@@ -266,6 +267,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
         } catch { /* which failed */ }
 
         // Fallback: common macOS/Linux paths
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via dynamic require in Electron renderer context
         const fs = require('fs') as typeof import('fs');
         const candidates = [
             '/usr/local/bin/node',

@@ -12,7 +12,7 @@
  * RenderPresentationTool (standalone visual inspection).
  */
 
-import { spawn } from 'child_process'; // eslint-disable-line @typescript-eslint/no-require-imports -- native Node module for LibreOffice subprocess
+import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';

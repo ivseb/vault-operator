@@ -336,8 +336,9 @@ export class ModelConfigModal extends Modal {
         this.baseUrlDescEl = buLabel.createSpan({ cls: 'mcm-desc' });
         this.baseUrlInputEl = this.baseUrlRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'http://localhost:11434' }, // eslint-disable-line obsidianmd/ui/sentence-case -- URL placeholder, not UI text
+            attr: { type: 'text' },
         });
+        this.baseUrlInputEl.placeholder = 'http://localhost:11434';
         this.baseUrlInputEl.value = this.formBaseUrl;
         this.baseUrlInputEl.addEventListener('input', () => (this.formBaseUrl = this.baseUrlInputEl!.value.trim()));
 
@@ -1063,7 +1064,7 @@ export class ModelConfigModal extends Modal {
         }
     }
 
-    private async showKiloManualTokenInput(controls: HTMLElement): Promise<void> {
+    private showKiloManualTokenInput(controls: HTMLElement): void {
         // Vorhandenes Inline-Input entfernen
         controls.querySelector('.mcm-kilo-token-input-row')?.remove();
 

@@ -339,7 +339,6 @@ export class AgentTask {
         const RATE_LIMIT_BASE_WAIT_MS = 30_000;
         let rateLimitRetries = 0;
 
-        // eslint-disable-next-line no-constant-condition -- emergency condensing retry loop
         while (true) {
         try {
             for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -548,7 +547,7 @@ export class AgentTask {
                             // Intermediate progress: UI-only, not in conversation history.
                             this.taskCallbacks.onToolProgress?.(toolUse.name, content);
                         },
-                        handleError: async (toolName, error) => {
+                        handleError: (toolName, error) => {
                             console.error(`[AgentTask] Tool error in ${toolName}:`, error);
                         },
                         log: (message) => { console.debug(`[AgentTask] ${message}`); },

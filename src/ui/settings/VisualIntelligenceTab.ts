@@ -8,6 +8,7 @@ import { Setting, setIcon } from 'obsidian';
 import type { App } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { detectLibreOffice, clearLibreOfficeCache } from '../../core/office/libreOfficeDetector';
+import { t } from '../../i18n';
 
 export class VisualIntelligenceTab {
     constructor(
@@ -65,7 +66,7 @@ export class VisualIntelligenceTab {
             });
 
         // LibreOffice status section
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'LibreOffice' }); // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.visual.libreOffice') });
 
         const statusContainer = containerEl.createDiv({ cls: 'agent-settings-status-row' });
         const statusDot = statusContainer.createSpan({ cls: 'agent-settings-status-dot' });
@@ -90,20 +91,20 @@ export class VisualIntelligenceTab {
 
         if (result.found && result.path) {
             statusDot.addClass('status-connected');
-            statusText.setText(`LibreOffice found: ${result.path}`);
+            statusText.setText(t('settings.visual.libreOfficeFound', { path: result.path }));
         } else {
             statusDot.addClass('status-disconnected');
-            statusText.setText('LibreOffice not found'); // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
+            statusText.setText(t('settings.visual.libreOfficeNotFound'));
 
             // Download + Retry buttons
             const btnRow = containerEl.createDiv({ cls: 'agent-settings-btn-row' });
 
             const downloadBtn = btnRow.createEl('button', {
                 cls: 'mod-cta',
-                text: 'Download LibreOffice', // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
+                text: t('settings.visual.downloadLibreOffice'),
             });
             downloadBtn.addEventListener('click', () => {
-                // eslint-disable-next-line -- require electron for shell.openExternal
+                // eslint-disable-next-line @typescript-eslint/no-require-imports -- require electron for shell.openExternal in Electron renderer context
                 const { shell } = require('electron');
                 void shell.openExternal('https://www.libreoffice.org/download/');
             });
@@ -119,7 +120,7 @@ export class VisualIntelligenceTab {
 
         // Custom path input
         new Setting(containerEl)
-            .setName('Custom LibreOffice path') // eslint-disable-line obsidianmd/ui/sentence-case -- LibreOffice is a proper noun
+            .setName(t('settings.visual.customLibreOfficePath'))
             .setDesc('Override the auto-detected path (leave empty for auto-detection).')
             .addText((text) => {
                 text

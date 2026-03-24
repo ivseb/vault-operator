@@ -123,7 +123,6 @@ export async function parseXlsx(data: ArrayBuffer): Promise<ParseResult> {
         const totalRows = maxRow - minRow + 1;
 
         // Build markdown table
-        const colCount = maxCol + 1;
         const tableRows: string[][] = [];
 
         let rowCount = 0;
