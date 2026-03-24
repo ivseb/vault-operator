@@ -107,7 +107,7 @@ export class CreateXlsxTool extends BaseTool<'create_xlsx'> {
             rawSheets = input.sheets as SheetInput[];
         } else if (typeof input.sheets === 'string') {
             try {
-                const parsed = JSON.parse(input.sheets as string);
+                const parsed = JSON.parse(input.sheets);
                 if (Array.isArray(parsed)) rawSheets = parsed as SheetInput[];
             } catch { /* Invalid JSON -- fall through to empty */ }
         }
@@ -168,7 +168,7 @@ export class CreateXlsxTool extends BaseTool<'create_xlsx'> {
                 // Data rows
                 if (sheetInput.rows) {
                     for (const row of sheetInput.rows) {
-                        const values = (row as (string | number | boolean | null)[]).map(v =>
+                        const values = row.map(v =>
                             v === null || v === undefined ? '' : v,
                         );
                         worksheet.addRow(values);

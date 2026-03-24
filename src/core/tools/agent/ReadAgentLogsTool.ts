@@ -73,6 +73,7 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const params = input as unknown as ReadAgentLogsInput;

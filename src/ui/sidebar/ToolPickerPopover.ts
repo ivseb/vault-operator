@@ -269,33 +269,39 @@ export class ToolPickerPopover {
             const br = anchorBtn.getBoundingClientRect();
             const cr = containerEl.getBoundingClientRect();
             const pad = 8;
-            popover.style.setProperty('position', 'fixed');
+            popover.setCssProps({ position: 'fixed' });
 
             // Constrain width to container
             const popWidth = Math.min(400, cr.width - pad * 2);
-            popover.style.setProperty('width', `${popWidth}px`);
-            popover.style.setProperty('min-width', `${Math.min(320, popWidth)}px`);
-            popover.style.setProperty('max-width', `${popWidth}px`);
+            popover.setCssProps({
+                width: `${popWidth}px`,
+                'min-width': `${Math.min(320, popWidth)}px`,
+                'max-width': `${popWidth}px`,
+            });
 
             // Prefer opening upward; fall back to downward
             const spaceAbove = br.top - cr.top - pad;
             const spaceBelow = cr.bottom - br.bottom - pad;
 
             if (spaceAbove >= spaceBelow) {
-                popover.style.setProperty('bottom', (window.innerHeight - br.top + 4) + 'px');
-                popover.style.setProperty('top', '');
-                popover.style.setProperty('max-height', `${Math.max(spaceAbove, 200)}px`);
+                popover.setCssProps({
+                    bottom: (window.innerHeight - br.top + 4) + 'px',
+                    top: '',
+                    'max-height': `${Math.max(spaceAbove, 200)}px`,
+                });
             } else {
-                popover.style.setProperty('top', (br.bottom + 4) + 'px');
-                popover.style.setProperty('bottom', '');
-                popover.style.setProperty('max-height', `${Math.max(spaceBelow, 200)}px`);
+                popover.setCssProps({
+                    top: (br.bottom + 4) + 'px',
+                    bottom: '',
+                    'max-height': `${Math.max(spaceBelow, 200)}px`,
+                });
             }
 
             // Horizontal: keep inside container
             let left = Math.max(br.left, cr.left + pad);
             if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
             left = Math.max(left, cr.left + pad);
-            popover.style.setProperty('left', `${left}px`);
+            popover.setCssProps({ left: `${left}px` });
         };
         document.body.appendChild(popover);
         positionPopover();

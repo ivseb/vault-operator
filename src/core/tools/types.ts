@@ -131,7 +131,7 @@ export interface ToolCallbacks {
     /**
      * Handle an error during tool execution
      */
-    handleError(toolName: string, error: unknown): Promise<void>;
+    handleError(toolName: string, error: unknown): void | Promise<void>;
 
     /**
      * Log a message (for debugging)

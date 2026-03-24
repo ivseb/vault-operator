@@ -317,7 +317,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
         if (t.rows) {
             for (let i = 0; i < t.rows.length; i++) {
                 const zebra = i % 2 === 1 ? { fill: { color: 'F8FAFC' } } : {};
-                rows.push((t.rows[i] as (string | number | null)[]).map(c => ({
+                rows.push(t.rows[i].map(c => ({
                     text: c != null ? String(c) : '',
                     options: { fontSize: 12, fontFace: font, color: textColor, margin: [3, 5, 3, 5] as [number, number, number, number], ...zebra },
                 })));

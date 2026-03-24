@@ -275,7 +275,7 @@ export class CodeImportModal extends Modal {
                 cls: 'provider-badge',
                 text: PROVIDER_LABELS[p.provider] ?? p.provider,
             });
-            badge.style.setProperty('background', PROVIDER_COLORS[p.provider] ?? '#607d8b');
+            badge.setCssProps({ background: PROVIDER_COLORS[p.provider] ?? '#607d8b' });
         } else {
             // Manual provider selector fallback
             const sel = header.createEl('select', { cls: 'cim-provider-sel' });

@@ -7,6 +7,7 @@
 
 import { App, Modal } from 'obsidian';
 import type { TaskItem } from '../core/tasks/types';
+import { t } from '../i18n';
 
 export class TaskSelectionModal extends Modal {
     private readonly items: TaskItem[];
@@ -33,28 +34,27 @@ export class TaskSelectionModal extends Modal {
 
         // Title
         contentEl.createEl('h3', {
-            text: `${this.items.length} Aufgabe${this.items.length === 1 ? '' : 'n'} erkannt`,
+            text: t('ui.taskSelection.title', { count: this.items.length }),
             cls: 'task-selection-title',
         });
 
         contentEl.createEl('p', {
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- German nouns are capitalized per grammar rules
-            text: 'Welche Aufgaben sollen als Task-Notes erstellt werden?',
+            text: t('ui.taskSelection.subtitle'),
             cls: 'task-selection-subtitle',
         });
 
         // Format hint
-        const hintText = this.useTaskNotes
-            ? 'Tasks werden im TaskNotes-Format erstellt.'
-            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung.';
+        const hintKey = this.useTaskNotes
+            ? 'ui.taskSelection.hintTaskNotes'
+            : 'ui.taskSelection.hintDefault';
         contentEl.createEl('p', {
-            text: hintText,
+            text: t(hintKey),
             cls: 'task-selection-hint',
         });
 
         // Toggle all
         const toggleRow = contentEl.createDiv({ cls: 'task-selection-toggle' });
-        const toggleLink = toggleRow.createEl('a', { text: 'Keine auswählen' });
+        const toggleLink = toggleRow.createEl('a', { text: t('ui.taskSelection.selectNone') });
         toggleLink.addEventListener('click', (e) => {
             e.preventDefault();
             const allSelected = this.selected.size === this.items.length;
@@ -62,11 +62,11 @@ export class TaskSelectionModal extends Modal {
             if (allSelected) {
                 this.selected.clear();
                 checkboxes.forEach((cb) => { cb.checked = false; });
-                toggleLink.textContent = 'Alle auswählen';
+                toggleLink.textContent = t('ui.taskSelection.selectAll');
             } else {
                 this.items.forEach((_, i) => this.selected.add(i));
                 checkboxes.forEach((cb) => { cb.checked = true; });
-                toggleLink.textContent = 'Keine auswählen';
+                toggleLink.textContent = t('ui.taskSelection.selectNone');
             }
             this.updateCreateButton(createBtn);
         });
@@ -80,10 +80,10 @@ export class TaskSelectionModal extends Modal {
         // Action buttons
         const btnRow = contentEl.createDiv({ cls: 'task-selection-actions' });
         const createBtn = btnRow.createEl('button', {
-            text: `${this.selected.size} erstellen`,
+            text: t('ui.taskSelection.create', { count: this.selected.size }),
             cls: 'mod-cta',
         });
-        const cancelBtn = btnRow.createEl('button', { text: 'Abbrechen' });
+        const cancelBtn = btnRow.createEl('button', { text: t('ui.taskSelection.cancel') });
 
         createBtn.addEventListener('click', () => {
             const selectedItems = this.items.filter((_, i) => this.selected.has(i));
@@ -122,9 +122,9 @@ export class TaskSelectionModal extends Modal {
             }
             // Update toggle link text
             if (this.selected.size === this.items.length) {
-                toggleLink.textContent = 'Keine auswählen';
+                toggleLink.textContent = t('ui.taskSelection.selectNone');
             } else {
-                toggleLink.textContent = 'Alle auswählen';
+                toggleLink.textContent = t('ui.taskSelection.selectAll');
             }
             // Update create button
             const createBtn = this.contentEl.querySelector<HTMLButtonElement>('.mod-cta');
@@ -139,14 +139,14 @@ export class TaskSelectionModal extends Modal {
             const metaSpan = row.createSpan({ cls: 'task-selection-meta' });
             const parts: string[] = [];
             if (item.assignee) parts.push(item.assignee);
-            if (item.dueDate) parts.push(`Fällig: ${item.dueDate}`);
+            if (item.dueDate) parts.push(t('ui.taskSelection.due', { date: item.dueDate }));
             metaSpan.appendText(parts.join(' | '));
         }
     }
 
     private updateCreateButton(btn: HTMLButtonElement): void {
         const count = this.selected.size;
-        btn.textContent = `${count} erstellen`;
+        btn.textContent = t('ui.taskSelection.create', { count });
         btn.disabled = count === 0;
     }
 }

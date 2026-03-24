@@ -566,11 +566,11 @@ export interface PlannedSlide {
 /* ------------------------------------------------------------------ */
 
 export function isTemplateSlide(slide: SlideInput): slide is TemplateSlideInput {
-    return 'source_slide' in slide && typeof (slide as TemplateSlideInput).source_slide === 'number';
+    return 'source_slide' in slide && typeof slide.source_slide === 'number';
 }
 
 export function isAdhocSlide(slide: SlideInput): slide is AdhocSlideInput {
-    return 'html' in slide && typeof (slide as AdhocSlideInput).html === 'string';
+    return 'html' in slide && typeof slide.html === 'string';
 }
 
 export function isContentValue(value: string | ContentValue): value is ContentValue {

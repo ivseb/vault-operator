@@ -540,21 +540,25 @@ export default class ObsidianAgentPlugin extends Plugin {
     /**
      * Plugin cleanup
      */
-    async onunload() {
+    onunload(): void {
         console.debug('Unloading Obsilo Agent plugin');
-        // Flush any pending chat-links before shutdown
-        for (const convId of [...this.pendingChatLinks.keys()]) {
-            await this.flushPendingChatLinks(convId).catch(() => {});
-        }
+        // Fire-and-forget async cleanup (Plugin API expects synchronous return)
+        void (async () => {
+            // Flush any pending chat-links before shutdown
+            for (const convId of [...this.pendingChatLinks.keys()]) {
+                await this.flushPendingChatLinks(convId).catch(() => {});
+            }
+            // Push global data back to vault plugin dir for Obsidian Sync (ADR-020)
+            await this.syncBridge?.pushToVault().catch((e) =>
+                console.warn('[Plugin] SyncBridge push failed (non-fatal):', e)
+            );
+            await this.mcpClient?.disconnectAll();
+        })();
+        // Synchronous cleanup stays outside the IIFE
         this.pendingChatLinks.clear();
-        // Push global data back to vault plugin dir for Obsidian Sync (ADR-020)
-        await this.syncBridge?.pushToVault().catch((e) =>
-            console.warn('[Plugin] SyncBridge push failed (non-fatal):', e)
-        );
         this.vaultDNAScanner?.destroy();
         for (const timer of this.autoIndexDebounceTimers.values()) clearTimeout(timer);
         this.autoIndexDebounceTimers.clear();
-        await this.mcpClient?.disconnectAll();
         this.sandboxExecutor?.destroy();
         this.ringBuffer?.uninstall();
         console.debug('Obsilo Agent plugin unloaded');
@@ -1223,7 +1227,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 results.push(content);
                 console.debug('Tool result:', content);
             },
-            handleError: async (toolName: string, error: unknown) => {
+            handleError: (toolName: string, error: unknown) => {
                 console.error(`Error in ${toolName}:`, error);
             },
             log: (message: string) => {

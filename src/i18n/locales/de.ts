@@ -653,6 +653,48 @@ export const de: Translations = {
     'settings.vault.autoCleanupDesc': 'Sicherungskopien löschen, sobald eine Aufgabe abgeschlossen ist. Spart Speicherplatz. Deaktivieren, um Sicherungen nach einer Aufgabe manuell zu prüfen.',
 
     // =========================================================================
+    // Settings — Vault Tab: Task Extraction
+    // =========================================================================
+    'settings.vault.taskExtraction': 'Task-Extraktion',
+    'settings.vault.taskExtractionDesc': 'Erkennt Aufgaben (- [ ] Items) in Agent-Antworten und erstellt Task-Notes mit strukturiertem Frontmatter.',
+    'settings.vault.taskExtractionEnable': 'Task-Extraktion aktivieren',
+    'settings.vault.taskExtractionEnableDesc': 'Nach jeder Agent-Antwort nach Aufgaben scannen und ein Auswahl-Modal anzeigen.',
+    'settings.vault.taskFolder': 'Task-Ordner',
+    'settings.vault.taskFolderDesc': 'Vault-Ordner, in dem Task-Notes und die Task-Base erstellt werden.',
+    'settings.vault.preferTaskNotes': 'TaskNotes-Plugin bevorzugen',
+    'settings.vault.preferTaskNotesDesc': 'Wenn das Community-Plugin "TaskNotes" aktiv ist, Tasks in dessen Format erstellen. Ansonsten wird das interne Format verwendet.',
+
+    // =========================================================================
+    // Settings — Visual Intelligence Tab
+    // =========================================================================
+    'settings.visual.libreOffice': 'LibreOffice',
+    'settings.visual.libreOfficeNotFound': 'LibreOffice nicht gefunden',
+    'settings.visual.libreOfficeFound': 'LibreOffice gefunden: {{path}}',
+    'settings.visual.downloadLibreOffice': 'LibreOffice herunterladen',
+    'settings.visual.customLibreOfficePath': 'Eigener LibreOffice-Pfad',
+
+    // =========================================================================
+    // UI — Task Selection Modal
+    // =========================================================================
+    'ui.taskSelection.title': '{{count}} Aufgabe(n) erkannt',
+    'ui.taskSelection.subtitle': 'Welche Aufgaben sollen als Task-Notes erstellt werden?',
+    'ui.taskSelection.hintTaskNotes': 'Tasks werden im TaskNotes-Format erstellt.',
+    'ui.taskSelection.hintDefault': 'Tipp: Das Community-Plugin "TaskNotes" bietet erweiterte Task-Verwaltung.',
+    'ui.taskSelection.selectNone': 'Keine auswählen',
+    'ui.taskSelection.selectAll': 'Alle auswählen',
+    'ui.taskSelection.create': '{{count}} erstellen',
+    'ui.taskSelection.cancel': 'Abbrechen',
+    'ui.taskSelection.due': 'Fällig: {{date}}',
+
+    // =========================================================================
+    // Notices — Task Extraction
+    // =========================================================================
+    'notice.taskNotesCreated': '{{count}} Task-Note(s) erstellt{{format}}',
+    'notice.taskNotesCreatedFormatSuffix': ' (TaskNotes-Format)',
+    'notice.taskNotesError': 'Fehler beim Erstellen der Task-Notes',
+    'notice.taskExtractionError': 'Task-Extraktion Fehler: {{error}}',
+
+    // =========================================================================
     // Settings — Language Tab
     // =========================================================================
     'settings.language.introTitle': 'Anzeigesprache',

@@ -12,8 +12,8 @@
  */
 
 import * as crypto from 'crypto';
-import * as fs from 'fs'; // eslint-disable-line @typescript-eslint/no-require-imports -- Node built-in, needed for vault-path filesystem checks
-import * as path from 'path'; // eslint-disable-line @typescript-eslint/no-require-imports -- Node built-in, needed for vault-path filesystem checks
+import * as fs from 'fs';
+import * as path from 'path';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -23,7 +23,6 @@ import type {
     TemplateCatalog,
     LayoutEntry,
     ShapeEntry,
-    SlideSemanticFamily,
     SlideType,
     SlideTypeShape,
 } from '../../office/pptx/types';
@@ -664,7 +663,7 @@ export class IngestTemplateTool extends BaseTool<'ingest_template'> {
             const { renderPptxToImages } = await import('../../office/pptxRenderer');
 
             const adapter = this.app.vault.adapter;
-            // eslint-disable-next-line -- need FileSystemAdapter for basePath
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- need FileSystemAdapter.basePath which is not in the public Obsidian API
             const vaultRoot: string = (adapter as import('obsidian').FileSystemAdapter).basePath
                 ?? (adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
             if (!vaultRoot) {

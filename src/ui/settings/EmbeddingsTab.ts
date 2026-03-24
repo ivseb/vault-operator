@@ -428,7 +428,7 @@ export class EmbeddingsTab {
 
         const provEl = row.createDiv('mc-provider');
         const badge = provEl.createSpan({ cls: 'provider-badge', text: PROVIDER_LABELS[model.provider] ?? model.provider });
-        badge.style.setProperty('background', PROVIDER_COLORS[model.provider] ?? '#607d8b');
+        badge.setCssProps({ background: PROVIDER_COLORS[model.provider] ?? '#607d8b' });
 
         const keyEl = row.createDiv('mc-key');
         const keyIcon = keyEl.createSpan('mc-key-icon');

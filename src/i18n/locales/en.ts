@@ -34,7 +34,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Models Tab
     // =========================================================================
-    'settings.models.introTitle': 'LLM Models',
+    'settings.models.introTitle': 'LLM models',
     'settings.models.introDesc': 'Configure the AI models the agent uses. You can add multiple models and switch between them.',
     'settings.models.performanceNote': 'Note:',
     'settings.models.performanceNoteDesc': 'The agent works with all models (including local ones). Best results and experience are achieved with powerful models from Anthropic (Claude Sonnet 4.5, Opus 4.6).',
@@ -55,7 +55,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Embeddings Tab
     // =========================================================================
-    'settings.embeddings.introTitle': 'Semantic Search',
+    'settings.embeddings.introTitle': 'Semantic search',
     'settings.embeddings.introDesc': 'Embeddings enable the agent to find notes by meaning instead of exact keywords. The agent can retrieve relevant context from your vault.',
     'settings.embeddings.headingModels': 'Embedding models',
     'settings.embeddings.headingIndex': 'Semantic index',
@@ -83,7 +83,7 @@ export const en: Translations = {
     'settings.embeddings.autoIndexDisabled': 'Auto-index on change disabled. Reload Obsidian to deactivate.',
     'settings.embeddings.enableIndex': 'Enable semantic index',
     'settings.embeddings.enableIndexDesc': 'Lets the agent find relevant notes by meaning, not just exact keywords. Requires an embedding model. First build may take a few minutes for large vaults.',
-    'settings.embeddings.indexPdfs': 'Index documents (PDF, Office)',
+    'settings.embeddings.indexPdfs': 'Index documents (PDF, office)',
     'settings.embeddings.indexPdfsDesc': 'Also index PDF, PPTX, XLSX, and DOCX files in your vault. Text is extracted and indexed alongside your notes. Image-only (scanned) PDFs are skipped automatically.',
     'settings.embeddings.buildIndexName': 'Build index',
     'settings.embeddings.buildIndexDesc': 'Index new and modified notes. Already-indexed notes are skipped. Use "force rebuild" to reindex everything from scratch.',
@@ -156,8 +156,8 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Web Search Tab
     // =========================================================================
-    'settings.webSearch.introTitle': 'Web Access',
-    'settings.webSearch.introDesc': 'Allows the agent to fetch web pages and perform internet research. Optional: Use Brave or Tavily for keyword searches.',
+    'settings.webSearch.introTitle': 'Web access',
+    'settings.webSearch.introDesc': 'Allows the agent to fetch web pages and perform internet research. Optional: use Brave or Tavily for keyword searches.',
     'settings.webSearch.desc': 'Configure web_fetch (read any URL) and web_search (Brave / Tavily). web_fetch works without an API key; web_search requires one.',
     'settings.webSearch.headingGeneral': 'General',
     'settings.webSearch.headingProvider': 'Search provider',
@@ -178,9 +178,9 @@ export const en: Translations = {
     // =========================================================================
     // Settings — MCP Tab
     // =========================================================================
-    'settings.mcp.introTitle': 'Model Context Protocol',
+    'settings.mcp.introTitle': 'Model context protocol',
     'settings.mcp.introDesc': 'MCP connects external tools and data sources to the agent. Each MCP server provides new tools the agent can use.',
-    'settings.mcp.desc': 'Connect external tools and data sources via the Model Context Protocol (MCP). Each server exposes tools the agent can call using use_mcp_tool.',
+    'settings.mcp.desc': 'Connect external tools and data sources via the model context protocol (MCP). Each server exposes tools the agent can call using use_mcp_tool.',
     'settings.mcp.addServer': 'Add server',
     'settings.mcp.disconnect': 'Disconnect',
     'settings.mcp.retry': 'Retry',
@@ -208,7 +208,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Modes Tab
     // =========================================================================
-    'settings.modes.introTitle': 'Agent Modes',
+    'settings.modes.introTitle': 'Agent modes',
     'settings.modes.introDesc': 'Modes are predefined configurations with different tool sets and system instructions. Switch between modes depending on your task.',
     'settings.modes.groupBuiltIn': 'Built-in',
     'settings.modes.groupGlobal': 'Global (all vaults)',
@@ -321,12 +321,12 @@ export const en: Translations = {
     'settings.permissions.sandboxConfirmAccept': 'I understand the risk \u2014 enable',
 
     // H-1: Permissive mode warning (web + writes both auto-approved)
-    'settings.permissions.permissiveWarning': 'Permissive mode: Web access and write operations are both auto-approved. Content from untrusted web pages or vault notes could trick the agent into modifying your vault without review. This is the highest-risk configuration. Consider disabling auto-approval for either web access or write operations.',
+    'settings.permissions.permissiveWarning': 'Permissive mode: web access and write operations are both auto-approved. Content from untrusted web pages or vault notes could trick the agent into modifying your vault without review. This is the highest-risk configuration. Consider disabling auto-approval for either web access or write operations.',
 
     // =========================================================================
     // Settings — Loop Tab
     // =========================================================================
-    'settings.loop.introTitle': 'Agent Loop',
+    'settings.loop.introTitle': 'Agent loop',
     'settings.loop.introDesc': 'Controls error tolerance, retry behavior, and how long the agent can work on complex tasks. Context condensing and power steering keep the agent focused.',
     'settings.loop.desc': 'Control how the agent loop runs, how long context is kept, and how reliably the agent stays on task.',
     'settings.loop.headingLoop': 'Agent loop',
@@ -354,7 +354,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Memory Tab
     // =========================================================================
-    'settings.memory.introTitle': 'Long-Term Memory',
+    'settings.memory.introTitle': 'Long-term memory',
     'settings.memory.introDesc': 'The agent learns from past conversations and builds long-term memory. This helps it remember your preferences and important facts about your projects.',
     'settings.memory.desc': 'Configure how the agent remembers conversations and learns from past interactions. Memory is extracted in the background using a dedicated model.',
     'settings.memory.headingHistory': 'Chat history',
@@ -406,9 +406,9 @@ export const en: Translations = {
     // =========================================================================
     'settings.rules.heading': 'Rules',
     'settings.rules.desc': 'Rules are injected into the system prompt of every agent session. Store rule files as .md or .txt in your vault at .obsidian-agent/rules/.',
-    'settings.rules.introTitle': 'What are Rules?',
+    'settings.rules.introTitle': 'What are rules?',
     'settings.rules.introDesc': 'Rules are static instructions injected into the system prompt of every agent session. They define constraints, boundaries, and fundamental behavioral guidelines.',
-    'settings.rules.introDiff': 'Difference: Skills are reactive behaviors (only active when relevant). Workflows are concrete sequences with slash commands. Rules are passive principles that always apply.',
+    'settings.rules.introDiff': 'Difference: skills are reactive behaviors (only active when relevant). Workflows are concrete sequences with slash commands. Rules are passive principles that always apply.',
     'settings.rules.placeholder': 'Rule name (e.g. "always-use-iso-dates")',
     'settings.rules.create': 'Create rule',
     'settings.rules.import': 'Import',
@@ -425,9 +425,9 @@ export const en: Translations = {
     // =========================================================================
     'settings.workflows.heading': 'Workflows',
     'settings.workflows.desc': 'Workflows are triggered by typing /workflow-name in the chat. Store workflow files as .md or .txt in your vault at .obsidian-agent/workflows/.',
-    'settings.workflows.introTitle': 'What are Workflows?',
+    'settings.workflows.introTitle': 'What are workflows?',
     'settings.workflows.introDesc': 'Workflows are multi-step sequences triggered by slash commands in the chat. They automate recurring task chains and standardize complex processes.',
-    'settings.workflows.introDiff': 'Difference: Workflows are explicitly user-triggered sequences (via /workflow-name). Skills are automatically activated when relevant. Rules are passive principles. Tools perform individual actions.',
+    'settings.workflows.introDiff': 'Difference: workflows are explicitly user-triggered sequences (via /workflow-name). Skills are automatically activated when relevant. Rules are passive principles. Tools perform individual actions.',
     'settings.workflows.placeholder': 'Workflow name (e.g. "daily-review")',
     'settings.workflows.create': 'Create workflow',
     'settings.workflows.import': 'Import',
@@ -442,9 +442,9 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Skills Tab
     // =========================================================================
-    'settings.skills.introTitle': 'Skills vs Tools',
+    'settings.skills.introTitle': 'Skills vs tools',
     'settings.skills.introDesc': 'Skills are instruction sets (Markdown) that guide the agent for specific task types. They are automatically matched by keywords and injected into the system prompt when relevant.',
-    'settings.skills.introDiff': 'Key difference: Tools execute actions (read files, search, edit). Skills provide instructions (how to approach meeting notes, project planning, etc.). Workflows define fixed step-by-step sequences.',
+    'settings.skills.introDiff': 'Key difference: tools execute actions (read files, search, edit). Skills provide instructions (how to approach meeting notes, project planning, etc.). Workflows define fixed step-by-step sequences.',
     'settings.skills.headingManual': 'User skills',
     'settings.skills.headingPlugin': 'Plugin skills',
     'settings.skills.desc': "Skills are automatically injected into the system prompt when relevant to the user's message. Each skill lives in a subfolder at .obsidian-agent/skills/{name}/SKILL.md with frontmatter: name, description.",
@@ -487,9 +487,9 @@ export const en: Translations = {
     // =========================================================================
     'settings.prompts.heading': 'Prompts',
     'settings.prompts.desc': 'Create your own prompt templates. Type / in the chat to trigger them. Use {{userInput}} to insert your current message text, and {{activeFile}} to insert the name of the active note.',
-    'settings.prompts.introTitle': 'What are Support Prompts?',
-    'settings.prompts.introDesc': 'Support Prompts are reusable text templates with variables, triggered via slash commands. They enable quick formatting, transformation, and analysis of content.',
-    'settings.prompts.introDiff': 'Difference: Prompts are pure text templates without logic. Workflows are structured sequences. Skills are adaptive behaviors with conditions. Rules are static constraints.',
+    'settings.prompts.introTitle': 'What are support prompts?',
+    'settings.prompts.introDesc': 'Support prompts are reusable text templates with variables, triggered via slash commands. They enable quick formatting, transformation, and analysis of content.',
+    'settings.prompts.introDiff': 'Difference: prompts are pure text templates without logic. Workflows are structured sequences. Skills are adaptive behaviors with conditions. Rules are static constraints.',
     'settings.prompts.namePlaceholder': 'Prompt name (e.g. "daily-report")',
     'settings.prompts.formName': 'Name (e.g. "daily report")',
     'settings.prompts.formSlug': 'Slug (e.g. "daily-report")',
@@ -514,7 +514,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Interface Tab
     // =========================================================================
-    'settings.interface.introTitle': 'User Interface',
+    'settings.interface.introTitle': 'User interface',
     'settings.interface.introDesc': 'Customize chat behavior: auto-context, keyboard shortcuts, save chat history in vault, and more.',
     'settings.interface.headingSetup': 'Setup dialog',
     'settings.interface.headingInterface': 'Interface',
@@ -536,7 +536,7 @@ export const en: Translations = {
     'settings.interface.skipSetup': 'Skip setup',
     'settings.interface.historyPlaceholder': 'agent/history',
     'settings.interface.setupSkipped': 'Setup skipped. You can restart it anytime from settings.',
-    'settings.interface.headingChatLinking': 'Chat Linking',
+    'settings.interface.headingChatLinking': 'Chat linking',
     'settings.interface.chatLinkingToggle': 'Auto-link chats in frontmatter',
     'settings.interface.chatLinkingToggleDesc': 'Automatically add a clickable chat reference to the frontmatter of every note the agent creates or edits. Disable to keep frontmatter clean.',
     'settings.interface.chatLinkingModel': 'Titling model',
@@ -547,7 +547,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Shell Tab
     // =========================================================================
-    'settings.shell.introTitle': 'Plugin API & Recipes',
+    'settings.shell.introTitle': 'Plugin API & recipes',
     'settings.shell.introDesc': 'Enables the agent to interact with Obsidian plugins and execute external tools (like Pandoc). Everything runs securely sandboxed.',
     'settings.shell.desc': "Configure how the agent interacts with plugin APIs and external tools. Plugin API calls run in Obsidian's JavaScript sandbox. Recipes execute external programs (like Pandoc) with strict parameter validation and no shell expansion.",
     'settings.shell.headingPluginApi': 'Plugin API',
@@ -569,7 +569,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Log Tab
     // =========================================================================
-    'settings.log.introTitle': 'Execution Logs',
+    'settings.log.introTitle': 'Execution logs',
     'settings.log.introDesc': 'Records all tool calls the agent makes. Helpful for debugging and auditing. Logs are kept for up to 30 days.',
     'settings.log.desc': 'Audit trail of all tool executions. Logs are stored per day (up to 30 days). Click a row to expand details.',
     'settings.log.load': 'Load',
@@ -596,7 +596,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Debug Tab
     // =========================================================================
-    'settings.debug.introTitle': 'Developer Tools',
+    'settings.debug.introTitle': 'Developer tools',
     'settings.debug.introDesc': 'Enables detailed logs in the browser console. Useful for troubleshooting or when reporting a bug.',
     'settings.debug.debugMode': 'Debug mode',
     'settings.debug.debugModeDesc': 'Write detailed logs to the browser developer console. Only useful for troubleshooting. Open the console with cmd+Option+I (mac) or ctrl+Shift+I (Windows).',
@@ -604,7 +604,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Backup Tab
     // =========================================================================
-    'settings.backup.introTitle': 'Backup & Migration',
+    'settings.backup.introTitle': 'Backup & migration',
     'settings.backup.introDesc': 'Export and import all plugin data: settings, memory, chat history, skills, workflows. Perfect for backups or device migration.',
     'settings.backup.desc': 'Export and import plugin data for backup or migration to another device.',
     'settings.backup.headingExport': 'Export',
@@ -655,9 +655,51 @@ export const en: Translations = {
     'settings.vault.autoCleanupDesc': 'Delete the backup copies once a task finishes. Saves disk space. Disable if you want to review the backups manually after a task.',
 
     // =========================================================================
+    // Settings — Vault Tab: Task Extraction
+    // =========================================================================
+    'settings.vault.taskExtraction': 'Task extraction',
+    'settings.vault.taskExtractionDesc': 'Detects tasks (- [ ] items) in agent responses and creates task notes with structured frontmatter.',
+    'settings.vault.taskExtractionEnable': 'Enable task extraction',
+    'settings.vault.taskExtractionEnableDesc': 'Scan for tasks after every agent response and show a selection modal.',
+    'settings.vault.taskFolder': 'Task folder',
+    'settings.vault.taskFolderDesc': 'Vault folder where task notes and the task base are created.',
+    'settings.vault.preferTaskNotes': 'Prefer TaskNotes plugin',
+    'settings.vault.preferTaskNotesDesc': 'When the community plugin "TaskNotes" is active, create tasks in its format. Otherwise the built-in format is used.',
+
+    // =========================================================================
+    // Settings — Visual Intelligence Tab
+    // =========================================================================
+    'settings.visual.libreOffice': 'LibreOffice',
+    'settings.visual.libreOfficeNotFound': 'LibreOffice not found',
+    'settings.visual.libreOfficeFound': 'LibreOffice found: {{path}}',
+    'settings.visual.downloadLibreOffice': 'Download LibreOffice',
+    'settings.visual.customLibreOfficePath': 'Custom LibreOffice path',
+
+    // =========================================================================
+    // UI — Task Selection Modal
+    // =========================================================================
+    'ui.taskSelection.title': '{{count}} task(s) detected',
+    'ui.taskSelection.subtitle': 'Which tasks should be created as task notes?',
+    'ui.taskSelection.hintTaskNotes': 'Tasks will be created in TaskNotes format.',
+    'ui.taskSelection.hintDefault': 'Tip: the community plugin "TaskNotes" offers extended task management.',
+    'ui.taskSelection.selectNone': 'Select none',
+    'ui.taskSelection.selectAll': 'Select all',
+    'ui.taskSelection.create': '{{count}} create',
+    'ui.taskSelection.cancel': 'Cancel',
+    'ui.taskSelection.due': 'Due: {{date}}',
+
+    // =========================================================================
+    // Notices — Task Extraction
+    // =========================================================================
+    'notice.taskNotesCreated': '{{count}} task note(s) created{{format}}',
+    'notice.taskNotesCreatedFormatSuffix': ' (TaskNotes format)',
+    'notice.taskNotesError': 'Error creating task notes',
+    'notice.taskExtractionError': 'Task extraction error: {{error}}',
+
+    // =========================================================================
     // Settings — Language Tab
     // =========================================================================
-    'settings.language.introTitle': 'Display Language',
+    'settings.language.introTitle': 'Display language',
     'settings.language.introDesc': 'Choose the language for the plugin interface. Communication with the agent can happen in any language, regardless of this setting.',
     'settings.language.language': 'Language',
     'settings.language.languageDesc': 'Select the display language for the plugin interface. English is the fallback for untranslated strings.',
@@ -674,7 +716,7 @@ export const en: Translations = {
     'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Custom',
     'provider.github-copilot': 'GitHub Copilot',
-    'provider.kilo-gateway': 'Kilo Gateway',
+    'provider.kilo-gateway': 'Kilo gateway',
 
     // =========================================================================
     // Constants — Tool Labels
@@ -909,7 +951,7 @@ export const en: Translations = {
     'ui.error.overloaded': 'API overloaded \u2014 try again shortly',
     'ui.error.network': 'Network error \u2014 check your connection and that Ollama is running',
     'ui.error.generic': 'Error',
-    'ui.error.ollamaNotRunning': '{{model}} could not start. Make sure Ollama is running (`ollama serve`) and the model name is correct. Open Settings -> Obsilo Agent -> Configure to verify.',
+    'ui.error.ollamaNotRunning': '{{model}} could not start. Make sure Ollama is running (`ollama serve`) and the model name is correct. Open settings -> Obsilo agent -> configure to verify.',
 
     // =========================================================================
     // Notices
@@ -937,7 +979,7 @@ export const en: Translations = {
     // =========================================================================
     // ToolPicker Popover
     // =========================================================================
-    'ui.toolPicker.title': 'Tools & Skills',
+    'ui.toolPicker.title': 'Tools & skills',
     'ui.toolPicker.selected': '{{count}} selected',
     'ui.toolPicker.filter': 'Filter\u2026',
     'ui.toolPicker.builtIn': 'Built-in tools',
@@ -984,7 +1026,7 @@ export const en: Translations = {
     // Attachment Handler
     // =========================================================================
     'ui.attachment.tooLarge': '"{{name}}" exceeds the 50 MB limit.',
-    'ui.attachment.unsupported': '"{{name}}" is not supported. Use images, Office documents (PPTX/XLSX/DOCX/PDF), or text files.',
+    'ui.attachment.unsupported': '"{{name}}" is not supported. Use images, office documents (PPTX/XLSX/DOCX/PDF), or text files.',
     'ui.attachment.readFailed': 'Could not read "{{path}}"',
     'ui.attachment.largeDocument': '"{{name}}" is very large. Content may be condensed during the conversation.',
 
@@ -1050,7 +1092,7 @@ export const en: Translations = {
     'modal.modelConfig.apiVersionPlaceholder': '2024-10-21',
     'modal.modelConfig.maxTokens': 'Max output tokens',
     'modal.modelConfig.maxTokensDesc': 'Limits how many tokens the model can generate per response',
-    'modal.modelConfig.maxTokensNote': 'Higher values allow longer, more detailed answers but use more API credits. Tip: Select a model from the Quick Pick above to auto-set the recommended value for that model.',
+    'modal.modelConfig.maxTokensNote': 'Higher values allow longer, more detailed answers but use more API credits. Tip: select a model from the quick pick above to auto-set the recommended value for that model.',
     'modal.modelConfig.maxTokensPlaceholder': '8192',
     'modal.modelConfig.temperature': 'Temperature',
     'modal.modelConfig.temperatureDesc': 'Randomness of responses (0 = deterministic, higher = creative)',
@@ -1248,12 +1290,12 @@ export const en: Translations = {
 
     // GitHub Copilot
     'guide.copilot.heading': 'GitHub Copilot (requires active subscription):',
-    'guide.copilot.step1': 'You need an active GitHub Copilot subscription (Individual, Business, or Enterprise).',
+    'guide.copilot.step1': 'You need an active GitHub Copilot subscription (individual, business, or enterprise).',
     'guide.copilot.step2': 'Click "Sign in with GitHub" below. A code will appear -- enter it at github.com/login/device.',
-    'guide.copilot.step3': 'After authorization, pick a model from the Quick Pick dropdown or use the fetch button.',
+    'guide.copilot.step3': 'After authorization, pick a model from the quick pick dropdown or use the fetch button.',
     'guide.copilot.disclaimer': 'This uses an unofficial API. Models and availability may change without notice.',
-    'copilot.auth': 'GitHub Account',
-    'copilot.authDesc': 'Sign in with your GitHub account to use Copilot models.',
+    'copilot.auth': 'GitHub account',
+    'copilot.authDesc': 'Sign in with your GitHub account to use GitHub Copilot models.',
     'copilot.signIn': 'Sign in with GitHub',
     'copilot.signOut': 'Sign out',
     'copilot.authenticated': 'Connected',
@@ -1264,9 +1306,9 @@ export const en: Translations = {
     'copilot.authFailed': 'Authentication failed: {error}',
     'copilot.signedOut': 'Signed out from GitHub Copilot.',
 
-    // Kilo Gateway
-    'kilo.auth': 'Kilo Account',
-    'kilo.authDesc': 'Sign in with your Kilo account to use Kilo Gateway models.',
+    // Kilo gateway
+    'kilo.auth': 'Kilo account',
+    'kilo.authDesc': 'Sign in with your Kilo account to use Kilo gateway models.',
     'kilo.signIn': 'Sign in with Kilo',
     'kilo.manualToken': 'Use API token',
     'kilo.manualTokenPlaceholder': 'Paste your Kilo API token',
@@ -1274,13 +1316,13 @@ export const en: Translations = {
     'kilo.manualTokenValidating': 'Validating...',
     'kilo.manualTokenInvalid': 'Invalid token: {error}',
     'kilo.disconnect': 'Disconnect',
-    'kilo.disconnected': 'Disconnected from Kilo Gateway.',
+    'kilo.disconnected': 'Disconnected from Kilo gateway.',
     'kilo.authenticated': 'Connected as {account}',
     'kilo.authenticatedNoLabel': 'Connected',
     'kilo.notConnected': 'Not connected',
     'kilo.deviceFlow.openBrowser': 'Open the link below and enter the code:',
     'kilo.deviceFlow.code': 'Your code: {code}',
     'kilo.deviceFlow.waiting': 'Waiting for authorization...',
-    'kilo.deviceFlow.success': 'Successfully connected to Kilo Gateway.',
+    'kilo.deviceFlow.success': 'Successfully connected to Kilo gateway.',
     'kilo.deviceFlow.failed': 'Authorization failed: {error}',
 };

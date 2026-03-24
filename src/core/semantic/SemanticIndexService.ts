@@ -976,7 +976,7 @@ export class SemanticIndexService {
             const buffer = await fs.promises.readFile(absPath);
 
             const { parseDocument } = await import('../document-parsers/parseDocument');
-            const result = await parseDocument(buffer.buffer as ArrayBuffer, extension);
+            const result = await parseDocument(buffer.buffer, extension);
             return result.text;
         } catch (e: unknown) {
             const msg = e instanceof Error ? e.message : String(e);

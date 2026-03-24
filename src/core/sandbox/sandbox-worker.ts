@@ -131,12 +131,12 @@ process.on('message', (msg: unknown) => {
 
     // Bridge-Response (has callId) -> resolve/reject pending bridgeCall
     if (typeof m['callId'] === 'string' && pendingCalls.has(m['callId'])) {
-        const callId = m['callId'] as string;
+        const callId = m['callId'];
         const p = pendingCalls.get(callId)!;
         clearTimeout(p.timeout);
         pendingCalls.delete(callId);
         if (typeof m['error'] === 'string') {
-            p.reject(new Error(m['error'] as string));
+            p.reject(new Error(m['error']));
         } else {
             p.resolve(m['result']);
         }
@@ -146,8 +146,8 @@ process.on('message', (msg: unknown) => {
     // Execute-Command
     if (m['type'] === 'execute' && typeof m['id'] === 'string' && typeof m['code'] === 'string') {
         void executeInSandbox(
-            m['id'] as string,
-            m['code'] as string,
+            m['id'],
+            m['code'],
             (m['input'] as Record<string, unknown>) ?? {},
         );
     }

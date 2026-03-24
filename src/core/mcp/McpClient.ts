@@ -74,6 +74,7 @@ export class McpClient {
                     (sseOptions.eventSourceInit as Record<string, unknown>).headers = config.headers;
                     sseOptions.requestInit = { headers: config.headers };
                 }
+                // eslint-disable-next-line @typescript-eslint/no-deprecated -- SSE transport kept as fallback for older MCP servers (config.type === 'sse')
                 transport = new SSEClientTransport(new URL(config.url), sseOptions);
             } else {
                 if (!config.url) throw new Error(`streamable-http server "${name}" has no URL configured`);
