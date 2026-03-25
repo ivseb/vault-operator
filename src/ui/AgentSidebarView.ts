@@ -844,8 +844,8 @@ export class AgentSidebarView extends ItemView {
 
     private autoResizeTextarea(): void {
         if (!this.textarea) return;
-        this.textarea.setCssProps({ height: 'auto' });
-        this.textarea.setCssProps({ height: Math.min(this.textarea.scrollHeight, 15 * 24) + 'px' });
+        this.textarea.setCssProps({ '--agent-textarea-h': 'auto' });
+        this.textarea.setCssProps({ '--agent-textarea-h': Math.min(this.textarea.scrollHeight, 15 * 24) + 'px' });
     }
 
     /**
@@ -2291,7 +2291,7 @@ export class AgentSidebarView extends ItemView {
                 text: 'Nicht mehr anzeigen',
                 cls: 'agent-u-task-hint-dismiss',
             });
-            dismissLink.setCssProps({ display: 'block', 'margin-top': '6px', 'font-size': '0.85em' });
+            dismissLink.addClass('agent-u-task-hint-dismiss-link');
             dismissLink.addEventListener('click', (e) => {
                 e.preventDefault();
                 this.plugin.settings.taskExtraction = {
@@ -2913,16 +2913,16 @@ export class AgentSidebarView extends ItemView {
             const r = popup.getBoundingClientRect();
             const pad = 8;
             if (r.right > window.innerWidth) {
-                popup.setCssProps({ left: `${window.innerWidth - r.width - pad}px` });
+                popup.setCssProps({ '--popup-left': `${window.innerWidth - r.width - pad}px` });
             }
             if (r.left < 0) {
-                popup.setCssProps({ left: `${pad}px` });
+                popup.setCssProps({ '--popup-left': `${pad}px` });
             }
             if (r.bottom > window.innerHeight) {
-                popup.setCssProps({ top: `${window.innerHeight - r.height - pad}px`, bottom: '' });
+                popup.setCssProps({ '--popup-top': `${window.innerHeight - r.height - pad}px`, '--popup-bottom': '' });
             }
             if (r.top < 0) {
-                popup.setCssProps({ top: `${pad}px`, bottom: '' });
+                popup.setCssProps({ '--popup-top': `${pad}px`, '--popup-bottom': '' });
             }
         });
     }
@@ -2967,7 +2967,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rect = anchor.getBoundingClientRect();
-        popup.setCssProps({ top: `${rect.bottom + 4}px`, left: `${Math.max(4, rect.left - 40)}px` });
+        popup.setCssProps({ '--popup-top': `${rect.bottom + 4}px`, '--popup-left': `${Math.max(4, rect.left - 40)}px` });
 
         document.body.appendChild(popup);
         this.clampPopupToViewport(popup);
@@ -3013,7 +3013,7 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rect = anchor.getBoundingClientRect();
-        popup.setCssProps({ bottom: `${window.innerHeight - rect.top + 4}px`, left: `${rect.left}px` });
+        popup.setCssProps({ '--popup-bottom': `${window.innerHeight - rect.top + 4}px`, '--popup-left': `${rect.left}px` });
 
         document.body.appendChild(popup);
         this.clampPopupToViewport(popup);

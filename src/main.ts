@@ -175,7 +175,11 @@ export default class ObsidianAgentPlugin extends Plugin {
      * 5. Initialize MCP connections
      * 6. Start semantic indexing
      */
-    async onload() {
+    onload(): void {
+        void this.doLoad();
+    }
+
+    private async doLoad(): Promise<void> {
         // 0. ConsoleRingBuffer — install FIRST so all subsequent logs are captured
         this.ringBuffer = new ConsoleRingBuffer(500);
         this.ringBuffer.install();

@@ -43,11 +43,11 @@ export class VaultFilePicker {
                 : { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth, width: window.innerWidth };
             const pad = 8;
 
-            this.containerEl.setCssProps({ position: 'fixed' });
+            this.containerEl.setCssProps({ '--vfp-pos': 'fixed' });
 
             // Constrain width to container
             const popWidth = Math.min(320, cr.width - pad * 2);
-            this.containerEl.setCssProps({ width: `${popWidth}px` });
+            this.containerEl.setCssProps({ '--vfp-w': `${popWidth}px` });
 
             // Prefer opening upward; fall back to downward
             const spaceAbove = br.top - cr.top - pad;
@@ -55,15 +55,15 @@ export class VaultFilePicker {
 
             if (spaceAbove >= spaceBelow) {
                 this.containerEl.setCssProps({
-                    bottom: (window.innerHeight - br.top + 4) + 'px',
-                    top: '',
-                    'max-height': `${Math.max(spaceAbove, 200)}px`,
+                    '--vfp-bottom': (window.innerHeight - br.top + 4) + 'px',
+                    '--vfp-top': '',
+                    '--vfp-max-h': `${Math.max(spaceAbove, 200)}px`,
                 });
             } else {
                 this.containerEl.setCssProps({
-                    top: (br.bottom + 4) + 'px',
-                    bottom: '',
-                    'max-height': `${Math.max(spaceBelow, 200)}px`,
+                    '--vfp-top': (br.bottom + 4) + 'px',
+                    '--vfp-bottom': '',
+                    '--vfp-max-h': `${Math.max(spaceBelow, 200)}px`,
                 });
             }
 
@@ -71,7 +71,7 @@ export class VaultFilePicker {
             let left = Math.max(br.left, cr.left + pad);
             if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
             left = Math.max(left, cr.left + pad);
-            this.containerEl.setCssProps({ left: `${left}px` });
+            this.containerEl.setCssProps({ '--vfp-left': `${left}px` });
         };
         positionPopover();
 

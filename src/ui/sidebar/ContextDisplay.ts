@@ -82,13 +82,13 @@ export class ContextDisplay {
         const availablePercent = total > 0 ? (availableSize / total) * 100 : 0;
 
         if (this.barCurrent) {
-            this.barCurrent.setCssProps({ width: `${currentPercent}%` });
+            this.barCurrent.setCssProps({ '--ctx-seg-w': `${currentPercent}%` });
         }
         if (this.barReserved) {
-            this.barReserved.setCssProps({ width: `${reservedPercent}%` });
+            this.barReserved.setCssProps({ '--ctx-seg-w': `${reservedPercent}%` });
         }
         if (this.barAvailable) {
-            this.barAvailable.setCssProps({ width: `${availablePercent}%` });
+            this.barAvailable.setCssProps({ '--ctx-seg-w': `${availablePercent}%` });
         }
 
         // Update color

@@ -27,6 +27,13 @@ export default tseslint.config(
             '@typescript-eslint/no-explicit-any': 'warn',
             'no-prototype-builtins': 'off',
             '@typescript-eslint/no-empty-function': 'off',
+            // TypeScript strict rules (matched to ObsidianReviewBot config)
+            '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+            '@typescript-eslint/require-await': 'error',
+            '@typescript-eslint/no-deprecated': 'warn',
+            '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
+            '@typescript-eslint/await-thenable': 'error',
+            '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
             // Security
             'security/detect-child-process': 'error',
             'security/detect-eval-with-expression': 'error',
