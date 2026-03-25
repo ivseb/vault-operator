@@ -73,8 +73,7 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
         };
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
-    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const params = input as unknown as ReadAgentLogsInput;
 
@@ -82,7 +81,7 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
             if (params.action === 'clear') {
                 this.ringBuffer.clear();
                 callbacks.pushToolResult(this.formatSuccess('Log buffer cleared.'));
-                return;
+                return Promise.resolve();
             }
 
             const filter: LogQueryFilter = {
@@ -101,7 +100,7 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
 
             if (entries.length === 0) {
                 callbacks.pushToolResult(this.formatSuccess('No log entries match the filter.'));
-                return;
+                return Promise.resolve();
             }
 
             const lines = entries.map(e => {
@@ -115,6 +114,7 @@ export class ReadAgentLogsTool extends BaseTool<'read_agent_logs'> {
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
         }
+        return Promise.resolve();
     }
 
     /**

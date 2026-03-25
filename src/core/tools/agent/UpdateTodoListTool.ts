@@ -54,14 +54,13 @@ export class UpdateTodoListTool extends BaseTool<'update_todo_list'> {
         };
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
-    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { todos } = input as unknown as UpdateTodoListInput;
         const { callbacks } = context;
 
         if (!todos || typeof todos !== 'string') {
             callbacks.pushToolResult(this.formatError(new Error('todos parameter is required')));
-            return;
+            return Promise.resolve();
         }
 
         // Parse and validate
@@ -70,7 +69,7 @@ export class UpdateTodoListTool extends BaseTool<'update_todo_list'> {
             callbacks.pushToolResult(
                 this.formatError(new Error('No valid todo items found. Use - [ ], - [~], or - [x] format.'))
             );
-            return;
+            return Promise.resolve();
         }
 
         // Notify UI via context callback
@@ -84,6 +83,7 @@ export class UpdateTodoListTool extends BaseTool<'update_todo_list'> {
             `<todo_update items="${total}" done="${done}">Todo list updated (${done}/${total} complete)</todo_update>`
         );
         callbacks.log(`Todo list updated: ${done}/${total} done`);
+        return Promise.resolve();
     }
 
     private parseTodos(markdown: string): TodoItem[] {

@@ -269,14 +269,14 @@ export class ToolPickerPopover {
             const br = anchorBtn.getBoundingClientRect();
             const cr = containerEl.getBoundingClientRect();
             const pad = 8;
-            popover.setCssProps({ position: 'fixed' });
+            popover.setCssProps({ '--tp-pos': 'fixed' });
 
             // Constrain width to container
             const popWidth = Math.min(400, cr.width - pad * 2);
             popover.setCssProps({
-                width: `${popWidth}px`,
-                'min-width': `${Math.min(320, popWidth)}px`,
-                'max-width': `${popWidth}px`,
+                '--tp-w': `${popWidth}px`,
+                '--tp-min-w': `${Math.min(320, popWidth)}px`,
+                '--tp-max-w': `${popWidth}px`,
             });
 
             // Prefer opening upward; fall back to downward
@@ -285,15 +285,15 @@ export class ToolPickerPopover {
 
             if (spaceAbove >= spaceBelow) {
                 popover.setCssProps({
-                    bottom: (window.innerHeight - br.top + 4) + 'px',
-                    top: '',
-                    'max-height': `${Math.max(spaceAbove, 200)}px`,
+                    '--tp-bottom': (window.innerHeight - br.top + 4) + 'px',
+                    '--tp-top': '',
+                    '--tp-max-h': `${Math.max(spaceAbove, 200)}px`,
                 });
             } else {
                 popover.setCssProps({
-                    top: (br.bottom + 4) + 'px',
-                    bottom: '',
-                    'max-height': `${Math.max(spaceBelow, 200)}px`,
+                    '--tp-top': (br.bottom + 4) + 'px',
+                    '--tp-bottom': '',
+                    '--tp-max-h': `${Math.max(spaceBelow, 200)}px`,
                 });
             }
 
@@ -301,7 +301,7 @@ export class ToolPickerPopover {
             let left = Math.max(br.left, cr.left + pad);
             if (left + popWidth > cr.right - pad) left = cr.right - pad - popWidth;
             left = Math.max(left, cr.left + pad);
-            popover.setCssProps({ left: `${left}px` });
+            popover.setCssProps({ '--tp-left': `${left}px` });
         };
         document.body.appendChild(popover);
         positionPopover();

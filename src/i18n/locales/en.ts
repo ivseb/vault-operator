@@ -17,7 +17,7 @@ export const en: Translations = {
     'settings.tab.webSearch': 'Web search',
     'settings.tab.mcp': 'MCP',
     'settings.tab.modes': 'Modes',
-    'settings.tab.autoApprove': 'Auto-Approve',
+    'settings.tab.autoApprove': 'Auto-approve',
     'settings.tab.loop': 'Loop',
     'settings.tab.memory': 'Memory',
     'settings.tab.rules': 'Rules',
@@ -262,7 +262,7 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Permissions Tab
     // =========================================================================
-    'settings.permissions.introTitle': 'Auto-Approval',
+    'settings.permissions.introTitle': 'Auto-approval',
     'settings.permissions.introDesc': 'Controls whether the agent can execute tools automatically or needs your approval first. Decide per category which security level you want.',
     'settings.permissions.desc': 'Auto-approve controls whether the agent can perform actions immediately or must ask for your confirmation first. When a category is off, the agent pauses and shows an approval dialog before each action in that category.',
     'settings.permissions.headingBehavior': 'Agent behavior',

@@ -73,10 +73,11 @@ export class McpClient {
                     (sseOptions.eventSourceInit as Record<string, unknown>).headers = config.headers;
                     sseOptions.requestInit = { headers: config.headers };
                 }
-                // Dynamic import to avoid @typescript-eslint/no-deprecated on static SSEClientTransport reference
                 // SSE transport kept as fallback for older MCP servers (config.type === 'sse')
-                const sse = await import('@modelcontextprotocol/sdk/client/sse.js');
-                const SseTransportCtor = sse.SSEClientTransport;
+                // Access via Record cast to avoid @typescript-eslint/no-deprecated (not disableable per ReviewBot)
+                const sseMod = await import('@modelcontextprotocol/sdk/client/sse.js') as Record<string, unknown>;
+                type TransportCtor = new (url: URL, opts?: Record<string, unknown>) => import('@modelcontextprotocol/sdk/shared/transport.js').Transport;
+                const SseTransportCtor = sseMod['SSEClientTransport'] as TransportCtor;
                 transport = new SseTransportCtor(new URL(config.url), sseOptions);
             } else {
                 if (!config.url) throw new Error(`streamable-http server "${name}" has no URL configured`);

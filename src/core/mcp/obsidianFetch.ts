@@ -106,8 +106,10 @@ export function obsidianFetch(url: string | URL, init?: RequestInit): Promise<Re
         if (init?.body != null) {
             if (typeof init.body === 'string') {
                 req.write(init.body);
-            } else if (init.body instanceof ArrayBuffer || init.body instanceof Uint8Array) {
-                req.write(Buffer.from(init.body as ArrayBuffer));
+            } else if (init.body instanceof ArrayBuffer) {
+                req.write(Buffer.from(init.body));
+            } else if (init.body instanceof Uint8Array) {
+                req.write(Buffer.from(init.body.buffer, init.body.byteOffset, init.body.byteLength));
             } else if (init.body instanceof URLSearchParams) {
                 req.write(init.body.toString());
             }
