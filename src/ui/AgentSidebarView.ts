@@ -45,7 +45,7 @@ export class AgentSidebarView extends ItemView {
     private inputArea: HTMLElement | null = null;
     private textarea: HTMLTextAreaElement | null = null;
     private modeButton: HTMLElement | null = null;
-    private modelButton: HTMLElement | null = null;
+    private modelButton: HTMLButtonElement | null = null;
     private sendButton: HTMLElement | null = null;
     private stopButton: HTMLElement | null = null;
     private contextBadgeContainer: HTMLElement | null = null;
@@ -116,7 +116,8 @@ export class AgentSidebarView extends ItemView {
         // Initialize ModeService — loads global modes from ~/.obsidian-agent/modes.json
         await this.modeService.initialize();
 
-        const container = this.containerEl.children[1] as HTMLElement;
+        const container = this.containerEl.children[1];
+        if (!(container instanceof HTMLElement)) return;
         container.empty();
         container.addClass('obsidian-agent-sidebar');
 
@@ -445,7 +446,7 @@ export class AgentSidebarView extends ItemView {
         const hasModeOverride = !!this.plugin.settings.modeModelKeys?.[this.plugin.settings.currentMode];
         this.modelButton.createSpan('model-label').setText(label);
         setIcon(this.modelButton.createSpan('mode-chevron'), 'chevron-down');
-        (this.modelButton as HTMLButtonElement).title = hasModeOverride
+        this.modelButton.title = hasModeOverride
             ? t('ui.sidebar.modeOverride', { label })
             : label;
 
@@ -1456,11 +1457,11 @@ export class AgentSidebarView extends ItemView {
                         header.createSpan('thinking-label').setText(t('ui.sidebar.reasoning'));
                         thinkingEl.createDiv('thinking-content');
                         header.addEventListener('click', () => {
-                            const body = thinkingEl.querySelector('.thinking-content') as HTMLElement;
+                            const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
                             if (body) body.classList.toggle('agent-u-hidden');
                         });
                     }
-                    const body = thinkingEl.querySelector('.thinking-content') as HTMLElement;
+                    const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
                     if (body) body.setText(accumulatedThinking);
                     scheduleScroll();
                 },
@@ -1472,11 +1473,11 @@ export class AgentSidebarView extends ItemView {
                         const header = thinkingEl.querySelector('.thinking-header');
                         const spinner = thinkingEl.querySelector('.thinking-spinner');
                         const label = thinkingEl.querySelector('.thinking-label');
-                        if (spinner) setIcon(spinner as HTMLElement, 'chevron-right');
-                        if (label) (label as HTMLElement).setText(t('ui.sidebar.reasoningCollapsed'));
-                        const body = thinkingEl.querySelector('.thinking-content') as HTMLElement;
+                        if (spinner instanceof HTMLElement) setIcon(spinner, 'chevron-right');
+                        if (label instanceof HTMLElement) label.setText(t('ui.sidebar.reasoningCollapsed'));
+                        const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
                         if (body) body.classList.add('agent-u-hidden');
-                        if (header) (header as HTMLElement).addEventListener('click', () => {
+                        if (header instanceof HTMLElement) header.addEventListener('click', () => {
                             if (body) body.classList.toggle('agent-u-hidden');
                         }, { once: true });
                     }
@@ -1611,8 +1612,8 @@ export class AgentSidebarView extends ItemView {
 
                         // When all items in the group are settled, update the group header
                         const bodyEl = el.parentElement;
-                        const detailsEl = bodyEl?.parentElement as HTMLDetailsElement | null;
-                        if (bodyEl && detailsEl) {
+                        const detailsEl = bodyEl?.parentElement;
+                        if (bodyEl && detailsEl instanceof HTMLDetailsElement) {
                             const stillRunning = bodyEl.querySelectorAll(
                                 '.tool-group-item:not(.item-done):not(.item-error)'
                             ).length;
@@ -1630,9 +1631,9 @@ export class AgentSidebarView extends ItemView {
                             }
                         }
 
-                    } else {
+                    } else if (el instanceof HTMLDetailsElement) {
                         // ── Standalone tool result ────────────────────────────────────
-                        const details = el as HTMLDetailsElement;
+                        const details = el;
 
                         // Parse and strip <diff_stats added="X" removed="Y"/> tag
                         let displayContent = content;
@@ -1859,7 +1860,7 @@ export class AgentSidebarView extends ItemView {
                             updateStepsSummary(true);
                             // Collapse individual tool <details> that were left open during streaming
                             stepsBodyEl?.querySelectorAll('details.tool-call-details').forEach((d) => {
-                                (d as HTMLDetailsElement).open = false;
+                                if (d instanceof HTMLDetailsElement) d.open = false;
                             });
                         }
                     }
@@ -2181,7 +2182,7 @@ export class AgentSidebarView extends ItemView {
         if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', running);
         if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !running);
         if (this.textarea) this.textarea.disabled = running;
-        if (this.modelButton) (this.modelButton as HTMLButtonElement).disabled = running;
+        if (this.modelButton) this.modelButton.disabled = running;
     }
 
     /**

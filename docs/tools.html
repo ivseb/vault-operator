@@ -445,7 +445,7 @@
         <div class="tool-card">
           <span class="tool-group-badge badge-agent">agent</span>
           <div class="tool-name">new_task</div>
-          <div class="tool-desc">Spawn a sub-agent in a fresh context. Available in Agent mode only. Pass all necessary context in the message — the sub-agent cannot see this conversation.</div>
+          <div class="tool-desc">Spawn a sub-agent with its own context window. The child runs in a completely fresh conversation history — its API calls consume only its own token budget, not the parent's. Available in Agent mode only. Pass all necessary context in the message — the sub-agent cannot see the parent conversation.</div>
         </div>
         <div class="tool-card">
           <span class="tool-group-badge badge-agent">agent</span>
@@ -484,14 +484,59 @@
         </div>
       </div>
 
-      <h3>Parameters: new_task</h3>
+      <h3 id="new-task-detail">Sub-Agent Workflows (new_task)</h3>
+      <p>
+        The <code>new_task</code> tool enables multi-agent workflows by spawning child agents that operate
+        <strong>outside the parent's token context window</strong>. Each sub-agent gets a completely fresh
+        conversation history, runs its task independently, and only returns a compact text result to the parent.
+        This keeps the main agent's context clean for high-level reasoning while offloading detailed work.
+      </p>
+
+      <h4>How it works</h4>
+      <ol>
+        <li>The parent agent calls <code>new_task</code> with a mode and a task description.</li>
+        <li>A new <code>AgentTask</code> is created with an <strong>empty conversation history</strong> — no shared token budget with the parent.</li>
+        <li>The child agent runs its own API loop with full tool access (or read-only, depending on mode).</li>
+        <li>When done, only the child's accumulated text result flows back into the parent's context as a single tool result.</li>
+        <li><strong>Depth-guarded:</strong> Nesting is limited — children at maximum depth cannot spawn further sub-agents, preventing runaway recursion.</li>
+      </ol>
+
+      <h4>Parameters</h4>
       <table>
         <thead><tr><th>Parameter</th><th>Type</th><th>Required</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>mode</code></td><td>string</td><td>yes</td><td>"agent" or "ask" (or any custom mode slug)</td></tr>
-          <tr><td><code>message</code></td><td>string</td><td>yes</td><td>Full task description with all necessary context</td></tr>
+          <tr><td><code>mode</code></td><td>string</td><td>yes</td><td><code>"agent"</code> (full capabilities: read, write, web) or <code>"ask"</code> (read-only vault queries and search)</td></tr>
+          <tr><td><code>message</code></td><td>string</td><td>yes</td><td>Full task description with all necessary context. The sub-agent cannot see the parent conversation — include everything it needs.</td></tr>
         </tbody>
       </table>
+
+      <h4>Supported patterns</h4>
+      <div class="tool-grid">
+        <div class="tool-card">
+          <div class="tool-name">Orchestrator-Worker</div>
+          <div class="tool-desc">Parent delegates specialized subtasks to focused sub-agents. Each worker handles one concern (e.g., research, writing, analysis) and reports back.</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-name">Prompt Chaining</div>
+          <div class="tool-desc">Sequential sub-agents where each builds on the previous result. Useful for multi-stage pipelines (e.g., gather data, then analyze, then summarize).</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-name">Evaluator-Optimizer</div>
+          <div class="tool-desc">One sub-agent generates content, another reviews and critiques it. The parent iterates until quality criteria are met.</div>
+        </div>
+        <div class="tool-card">
+          <div class="tool-name">Routing</div>
+          <div class="tool-desc">Parent dispatches to the right sub-agent based on task type. Different modes or instructions per sub-agent allow specialization.</div>
+        </div>
+      </div>
+
+      <h4>When to use sub-agents</h4>
+      <ul>
+        <li>Task requires 5+ steps across different specialties</li>
+        <li>Context isolation helps — e.g., deep research into many files that would bloat the main context</li>
+        <li>Truly parallel independent subtasks</li>
+      </ul>
+      <p>For simple read/write operations, file conversions, or single-tool calls, the main agent should use its own tools directly — no need for a sub-agent.</p>
 
       <!-- SKILL -->
       <h2 id="skill">Plugin Integration Tools</h2>
