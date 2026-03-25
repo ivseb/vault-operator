@@ -308,6 +308,7 @@
 /* Textarea */
 .chat-textarea {
     width: 100%;
+    height: var(--agent-textarea-h, auto);
     padding: 12px;
     border: none;
     background: transparent;
@@ -891,6 +892,7 @@
     font-weight: 500;
     color: white;
     white-space: nowrap;
+    background: var(--provider-bg, #607d8b);
 }
 
 /* ── Settings tab navigation ───────────────────────────────────────────── */
@@ -2683,6 +2685,9 @@
 .source-popup {
     position: fixed;
     z-index: 1000;
+    top: var(--popup-top);
+    bottom: var(--popup-bottom);
+    left: var(--popup-left);
     background: var(--background-primary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;
@@ -4301,14 +4306,18 @@
 
 /* ── Tool Picker Popover (Copilot style) ───────────────────────────────── */
 .tool-picker-popover {
-    position: fixed;
+    position: var(--tp-pos, fixed);
     z-index: 1000;
+    top: var(--tp-top);
+    bottom: var(--tp-bottom);
+    left: var(--tp-left);
+    width: var(--tp-w);
+    min-width: var(--tp-min-w, 320px);
+    max-width: var(--tp-max-w, 400px);
+    max-height: var(--tp-max-h, 520px);
     background: var(--background-primary);
     border-radius: 8px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.22);
-    min-width: 320px;
-    max-width: 400px;
-    max-height: 520px;
     padding: 0;
     overflow: hidden;
     display: flex;
@@ -4731,11 +4740,15 @@
 
 /* ── Vault File Picker Popover ───────────────────────────────────────────── */
 .vault-file-picker {
-    position: fixed;
+    position: var(--vfp-pos, fixed);
     z-index: 1000;
+    top: var(--vfp-top);
+    bottom: var(--vfp-bottom);
+    left: var(--vfp-left);
+    width: var(--vfp-w);
     min-width: 280px;
     max-width: 320px;
-    max-height: 280px;
+    max-height: var(--vfp-max-h, 280px);
     display: flex;
     flex-direction: column;
     background: var(--background-primary);
@@ -5165,6 +5178,7 @@
 .context-segment-reserved,
 .context-segment-available {
     height: 100%;
+    width: var(--ctx-seg-w, 0%);
     transition: width 0.3s ease-out;
 }
 
@@ -5296,4 +5310,11 @@
 .context-condensed-desc {
     font-size: 12px;
     color: var(--text-muted);
+}
+
+/* ReviewBot: no-static-styles-assignment -- dismiss link for task hint */
+.agent-u-task-hint-dismiss-link {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.85em;
 }

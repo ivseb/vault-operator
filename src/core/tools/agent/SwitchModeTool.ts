@@ -58,14 +58,13 @@ export class SwitchModeTool extends BaseTool<'switch_mode'> {
         };
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
-    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { mode_slug, reason } = input as unknown as SwitchModeInput;
         const { callbacks } = context;
 
         if (!mode_slug) {
             callbacks.pushToolResult(this.formatError(new Error('mode_slug parameter is required')));
-            return;
+            return Promise.resolve();
         }
 
         // Validate the mode exists
@@ -77,7 +76,7 @@ export class SwitchModeTool extends BaseTool<'switch_mode'> {
             callbacks.pushToolResult(
                 this.formatError(new Error(`Unknown mode: "${mode_slug}". Available: ${available}`))
             );
-            return;
+            return Promise.resolve();
         }
 
         // Notify the task loop via context callback
@@ -91,5 +90,6 @@ export class SwitchModeTool extends BaseTool<'switch_mode'> {
             `</mode_switch>`
         );
         callbacks.log(`Mode switched to: ${mode_slug} — ${reason}`);
+        return Promise.resolve();
     }
 }

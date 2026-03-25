@@ -45,14 +45,13 @@ export class AttemptCompletionTool extends BaseTool<'attempt_completion'> {
         };
     }
 
-    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool interface requires async execute returning Promise<void>
-    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { result } = input as unknown as AttemptCompletionInput;
         const { callbacks } = context;
 
         if (!result) {
             callbacks.pushToolResult(this.formatError(new Error('result parameter is required')));
-            return;
+            return Promise.resolve();
         }
 
         // Signal completion to AgentTask to break the loop
@@ -62,5 +61,6 @@ export class AttemptCompletionTool extends BaseTool<'attempt_completion'> {
 
         callbacks.pushToolResult(`<completion_result>${result}</completion_result>`);
         callbacks.log(`Task completed: ${result.substring(0, 100)}...`);
+        return Promise.resolve();
     }
 }

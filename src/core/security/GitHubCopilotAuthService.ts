@@ -244,7 +244,7 @@ export class GitHubCopilotAuthService {
             } else if (error === 'access_denied') {
                 throw new Error('Authorization was denied by the user.');
             } else if (error) {
-                const errDesc = typeof data.error_description === 'string' ? data.error_description : '';
+                const errDesc: string = typeof data.error_description === 'string' ? data.error_description : '';
                 throw new Error(`OAuth error: ${String(error)} — ${errDesc}`);
             }
         }
