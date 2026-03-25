@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon, requestUrl } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, requestUrl } from 'obsidian';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
