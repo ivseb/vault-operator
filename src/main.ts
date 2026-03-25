@@ -2,7 +2,6 @@ import { Plugin, WorkspaceLeaf, Notice, TFile, addIcon, requestUrl } from 'obsid
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
-import { OBSILO_ICON_SVG } from './ui/obsiloIcon';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
@@ -486,11 +485,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             (leaf) => new AgentSidebarView(leaf, this)
         );
 
-        // Register custom Obsilo icon (vector SVG, scales to viewBox 0 0 100 100)
-        addIcon('obsilo-agent', OBSILO_ICON_SVG);
-
-        // Ribbon icon in left activity bar
-        this.addRibbonIcon('obsilo-agent', 'Obsilo agent', () => {
+        // Ribbon icon in left activity bar (using built-in lucide icon)
+        this.addRibbonIcon('bot', 'Obsilo agent', () => {
             void this.activateView();
         });
 
