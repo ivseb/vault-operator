@@ -334,9 +334,10 @@ export class ModelConfigModal extends Modal {
         const buLabel = this.baseUrlRow.createDiv('mcm-label');
         buLabel.createSpan({ text: t('modal.modelConfig.baseUrl') });
         this.baseUrlDescEl = buLabel.createSpan({ cls: 'mcm-desc' });
+        const defaultBaseUrl = 'http://localhost:11434';
         this.baseUrlInputEl = this.baseUrlRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'http://localhost:11434' },
+            attr: { type: 'text', placeholder: defaultBaseUrl },
         });
         this.baseUrlInputEl.value = this.formBaseUrl;
         this.baseUrlInputEl.addEventListener('input', () => (this.formBaseUrl = this.baseUrlInputEl!.value.trim()));

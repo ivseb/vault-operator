@@ -13,11 +13,11 @@ function getProviderLabels(): Record<string, string> {
         anthropic: t('provider.anthropic'),
         openai: t('provider.openai'),
         ollama: t('provider.ollama'),
-        lmstudio: t('provider.lmstudio'),
+        lmstudio: 'LM Studio',  // Brand name -- not translatable
         openrouter: t('provider.openrouter'),
         azure: t('provider.azure'),
         custom: t('provider.custom'),
-        'github-copilot': t('provider.github-copilot'),
+        'github-copilot': 'GitHub Copilot',  // Brand name -- not translatable
         'kilo-gateway':   t('provider.kilo-gateway'),
     };
 }
