@@ -3,7 +3,7 @@
   "name": "Obsilo Agent",
   "version": "2.2.6",
   "minAppVersion": "1.4.0",
-  "description": "Transform your Vault with an AI agent that reads, writes, searches, and connects notes using 49 tools, semantic search, and full safety controls.",
+  "description": "A native AI operating layer for your vault. Discovers and uses installed plugins, spawns autonomous sub-agents, maintains persistent memory, and adapts to your workflows, skills and tools with full safety controls.",
   "author": "Sebastian Hanke",
   "authorUrl": "https://github.com/pssah4",
   "isDesktopOnly": true
