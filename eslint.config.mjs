@@ -45,51 +45,8 @@ export default tseslint.config(
             'no-unsanitized/property': 'error',
             // Obsidian Community Plugin Review-Bot Rules
             ...obsidianmd.configs.recommended,
-            'obsidianmd/ui/sentence-case-locale-module': ['error', {
-                enforceCamelCaseLower: true,
-                brands: [
-                    // Default brands (inherited manually since we override)
-                    'iOS', 'iPadOS', 'macOS', 'Windows', 'Android', 'Linux',
-                    'Obsidian', 'Obsidian Sync', 'Obsidian Publish',
-                    'Google Drive', 'Dropbox', 'OneDrive', 'iCloud Drive',
-                    'YouTube', 'Slack', 'Discord', 'Telegram', 'WhatsApp', 'Twitter', 'X',
-                    'Readwise', 'Zotero', 'Excalidraw', 'Mermaid',
-                    'Markdown', 'LaTeX', 'JavaScript', 'TypeScript', 'Node.js',
-                    'npm', 'pnpm', 'Yarn', 'Git', 'GitHub', 'GitLab',
-                    'Notion', 'Evernote', 'Roam Research', 'Logseq', 'Anki',
-                    'Reddit', 'VS Code', 'Visual Studio Code',
-                    'IntelliJ IDEA', 'WebStorm', 'PyCharm',
-                    // Project-specific brands
-                    'OpenAI', 'OpenRouter', 'LibreOffice', 'TaskNotes', 'VaultDNA',
-                    'MetaEdit', 'HyDE', 'Azure', 'Python', 'cURL', 'Brave', 'Tavily',
-                    'LM Studio', 'GPT-4o',
-                ],
-                acronyms: [
-                    // Default acronyms (inherited manually since we override)
-                    'API', 'HTTP', 'HTTPS', 'URL', 'DNS', 'TCP', 'IP', 'SSH', 'TLS', 'SSL', 'FTP', 'SFTP', 'SMTP',
-                    'JSON', 'XML', 'HTML', 'CSS', 'PDF', 'CSV', 'YAML', 'SQL', 'PNG', 'JPG', 'JPEG', 'GIF', 'SVG',
-                    '2FA', 'MFA', 'OAuth', 'JWT', 'LDAP', 'SAML',
-                    'SDK', 'IDE', 'CLI', 'GUI', 'CRUD', 'REST', 'SOAP',
-                    'CPU', 'GPU', 'RAM', 'SSD', 'USB', 'UI', 'OK',
-                    'RSS', 'S3', 'WebDAV', 'ID', 'UUID', 'GUID', 'SHA', 'MD5',
-                    'ASCII', 'UTF-8', 'UTF-16', 'DOM', 'CDN', 'FAQ', 'AI', 'ML',
-                    // Project-specific acronyms
-                    'PPTX', 'XLSX', 'DOCX', 'JS', 'BSA', 'MCP',
-                ],
-                ignoreRegex: [
-                    'http://localhost:\\d+',
-                    '\\.obsidian-agent/',
-                    '[a-z]+\\.openai\\.com',
-                    'openrouter\\.ai',
-                    '/openai\\b',
-                    'use_mcp_tool',
-                    'the rest of',
-                    'gpt-4o',
-                ],
-                ignoreWords: [
-                    'roleDefinition', 'kB', 'PDFs', 'URLs', 'APIs', 'German',
-                ],
-            }],
+            // Bot-matching config: only enforceCamelCaseLower, no custom overrides
+            'obsidianmd/ui/sentence-case-locale-module': ['error', { enforceCamelCaseLower: true }],
         },
     },
     {
