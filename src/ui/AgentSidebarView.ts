@@ -92,7 +92,7 @@ export class AgentSidebarView extends ItemView {
     constructor(leaf: WorkspaceLeaf, plugin: ObsidianAgentPlugin) {
         super(leaf);
         this.plugin = plugin;
-        this.modeService = new ModeService(plugin, plugin.toolRegistry);
+        this.modeService = new ModeService(plugin);
         this.toolPicker = new ToolPickerPopover(plugin, this.modeService);
         this.vaultFilePicker = new VaultFilePicker(
             this.app,
