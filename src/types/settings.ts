@@ -693,7 +693,7 @@ export interface MasterySettings {
     enabled: boolean;
     /** Maximum chars for recipe section in system prompt (default: 2000) */
     recipeBudget: number;
-    /** Enable learned recipes from episodic memory (Phase 3) */
+    /** Enable learned recipes from episodic memory */
     learnedRecipesEnabled: boolean;
     /** Per-recipe toggle: maps recipe id -> boolean. Missing = enabled by default. */
     recipeToggles: Record<string, boolean>;
@@ -833,7 +833,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     mastery: {
         enabled: true,
         recipeBudget: 2000,
-        learnedRecipesEnabled: false,
+        learnedRecipesEnabled: true,
         recipeToggles: {},
     },
     onboarding: {

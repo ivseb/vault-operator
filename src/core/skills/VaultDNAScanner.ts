@@ -804,7 +804,7 @@ export class VaultDNAScanner {
     startSync(): void {
         const enabledPlugins = this.app.plugins?.enabledPlugins;
         this.lastKnownEnabledSet = new Set(enabledPlugins ?? []);
-        this.pollIntervalId = setInterval(() => { void this.checkForChanges(); }, 5000);
+        this.pollIntervalId = setInterval(() => { void this.checkForChanges(); }, 30_000);
     }
 
     stopSync(): void {

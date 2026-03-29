@@ -175,6 +175,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      * 6. Start semantic indexing
      */
     onload(): void {
+        // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
+        // immediately — before any async initialization runs.
+        // ModeService uses lazy toolRegistry access, so the view is safe
+        // to construct even before doLoad() finishes.
+        this.registerView(
+            VIEW_TYPE_AGENT_SIDEBAR,
+            (leaf) => new AgentSidebarView(leaf, this)
+        );
         void this.doLoad();
     }
 
@@ -479,11 +487,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // LLM provider (null if no API key configured)
         this.initApiHandler();
 
-        // 3. Register UI views
-        this.registerView(
-            VIEW_TYPE_AGENT_SIDEBAR,
-            (leaf) => new AgentSidebarView(leaf, this)
-        );
+        // 3. Register UI views (registerView moved to synchronous onload())
 
         // Ribbon icon in left activity bar (using built-in lucide icon)
         this.addRibbonIcon('bot', 'Obsilo agent', () => {
@@ -1007,6 +1011,13 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         let leaf: WorkspaceLeaf | null = null;
         const leaves = workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+
+        // Cleanup: detach duplicate leaves (keep only the first one in the right sidebar)
+        if (leaves.length > 1) {
+            for (let i = 1; i < leaves.length; i++) {
+                leaves[i].detach();
+            }
+        }
 
         if (leaves.length > 0) {
             const existing = leaves[0];
