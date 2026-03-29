@@ -149,6 +149,11 @@ const context = await esbuild.context({
                             if (existsSync("sandbox-worker.js")) {
                                 copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
                             }
+                            // Copy sql.js WASM binary for Knowledge DB
+                            const sqlWasmSrc = join(__dirname, "node_modules/sql.js/dist/sql-wasm.wasm");
+                            if (existsSync(sqlWasmSrc)) {
+                                copyFileSync(sqlWasmSrc, `${VAULT_PLUGIN_DIR}/sql-wasm.wasm`);
+                            }
                             // Copy bundled skills to plugin skills directory
                             const bundledSkillsDir = join(__dirname, "bundled-skills");
                             if (existsSync(bundledSkillsDir)) {
