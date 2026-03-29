@@ -45,6 +45,7 @@ import {
     getPluginSkillsSection,
     getSkillsSection,
     getRulesSection,
+    getObsidianConventionsSection,
 } from './prompts/sections';
 
 /**
@@ -146,6 +147,9 @@ export function buildSystemPromptForMode(
 
         // 4. Capabilities (compact summary)
         getCapabilitiesSection(webEnabled),
+
+        // 4.5. Obsidian conventions (central, not mode-specific)
+        getObsidianConventionsSection(),
 
         // 5. User memory (omit for subtasks)
         isSubtask ? '' : getMemorySection(memoryContext),

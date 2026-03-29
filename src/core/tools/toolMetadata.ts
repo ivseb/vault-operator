@@ -293,14 +293,6 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'ALWAYS before create_pptx when using corporate templates. Reads source material, selects slide types, generates content for all shapes.',
         commonMistakes: 'Skipping this tool and calling create_pptx directly -- results in empty shapes and placeholder text.',
     },
-    ingest_template: {
-        group: 'edit', label: 'Ingest Template', icon: 'scan',
-        signature: 'ingest_template(template_path, theme_name, render_previews?, force?)',
-        description: 'Analyze a corporate .pptx template and generate a slide-type catalog with shape names and content capacity.',
-        example: 'ingest_template("Templates/Corporate.pptx", "acme", true)',
-        whenToUse: 'Once per corporate template before creating presentations. Derive theme_name from filename.',
-        commonMistakes: 'Not using render_previews: true when LibreOffice is available. Using a file path as template name in create_pptx instead of the short theme name.',
-    },
     create_pptx: {
         group: 'edit', label: 'Create PPTX', icon: 'presentation',
         signature: 'create_pptx(output_path, slides, title?, template?, theme?)',

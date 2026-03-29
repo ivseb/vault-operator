@@ -30,16 +30,19 @@ export class RecipePromotionService {
     private fs: FileAdapter;
     private store: RecipeStore;
     private getApi: () => ApiHandler | null;
+    private getLearnedEnabled: () => boolean;
     private patternsDir: string;
 
     constructor(
         fs: FileAdapter,
         store: RecipeStore,
         getApi: () => ApiHandler | null,
+        getLearnedEnabled?: () => boolean,
     ) {
         this.fs = fs;
         this.store = store;
         this.getApi = getApi;
+        this.getLearnedEnabled = getLearnedEnabled ?? (() => true);
         this.patternsDir = 'patterns';
     }
 
@@ -55,6 +58,7 @@ export class RecipePromotionService {
      * Called after each episode is recorded (fire-and-forget).
      */
     async checkForPromotion(episode: TaskEpisode): Promise<void> {
+        if (!this.getLearnedEnabled()) return;
         if (!episode.success) return;
         if (episode.toolSequence.length < 2) return;
 

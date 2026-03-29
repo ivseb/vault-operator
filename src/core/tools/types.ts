@@ -34,8 +34,7 @@ export type ToolName =
     | 'open_note'
     | 'generate_canvas'
     | 'create_excalidraw'
-    // Vault: template ingestion + visual intelligence
-    | 'ingest_template'
+    // Vault: presentation planning + visual intelligence
     | 'plan_presentation'
     | 'render_presentation'
     // Vault: office document creation

@@ -15,11 +15,13 @@ export class RecipeStore {
     private learnedRecipes: ProceduralRecipe[] = [];
     private fs: FileAdapter;
     private recipesDir: string;
+    private getLearnedEnabled: () => boolean;
 
-    constructor(fs: FileAdapter) {
+    constructor(fs: FileAdapter, getLearnedEnabled?: () => boolean) {
         this.fs = fs;
         this.recipesDir = 'recipes';
         this.staticRecipes = STATIC_RECIPES;
+        this.getLearnedEnabled = getLearnedEnabled ?? (() => true);
     }
 
     /**
@@ -54,9 +56,11 @@ export class RecipeStore {
      * Get all recipes (static + learned), optionally filtered by mode.
      */
     getAll(mode?: string): ProceduralRecipe[] {
-        const all = [...this.staticRecipes, ...this.learnedRecipes];
-        if (!mode) return all;
-        return all.filter((r) => r.modes.length === 0 || r.modes.includes(mode));
+        const base = this.getLearnedEnabled()
+            ? [...this.staticRecipes, ...this.learnedRecipes]
+            : [...this.staticRecipes];
+        if (!mode) return base;
+        return base.filter((r) => r.modes.length === 0 || r.modes.includes(mode));
     }
 
     /**

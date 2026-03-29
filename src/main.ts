@@ -402,7 +402,9 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Agent Skill Mastery — Procedural Recipes (ADR-017)
         if (this.settings.mastery.enabled) {
-            this.recipeStore = new RecipeStore(this.globalFs);
+            const getLearnedEnabled = () => this.settings.mastery.learnedRecipesEnabled;
+
+            this.recipeStore = new RecipeStore(this.globalFs, getLearnedEnabled);
             await this.recipeStore.initialize().catch((e) =>
                 console.warn('[Plugin] RecipeStore init failed (non-fatal):', e)
             );
@@ -424,6 +426,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     if (!model) return null;
                     return buildApiHandler(modelToLLMProvider(model));
                 },
+                getLearnedEnabled,
             );
             await this.recipePromotionService.initialize().catch((e) =>
                 console.warn('[Plugin] RecipePromotionService init failed (non-fatal):', e)

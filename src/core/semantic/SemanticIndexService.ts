@@ -227,8 +227,17 @@ export class SemanticIndexService {
                 && existingCheckpoint.chunkSize !== this.chunkSize;
             const isFullRebuild = force || isModelChange || isChunkSizeChange || existingCheckpoint === null;
 
-            if (isChunkSizeChange) {
-                console.debug(`[SemanticIndex] Chunk size changed (${existingCheckpoint.chunkSize} → ${this.chunkSize}) — full rebuild.`);
+            // Diagnostic: log WHY a full rebuild is triggered
+            if (isFullRebuild) {
+                const reasons: string[] = [];
+                if (force) reasons.push('force=true');
+                if (existingCheckpoint === null) reasons.push(`no checkpoint at ${this.checkpointPath()}`);
+                if (isModelChange) reasons.push(`model changed: "${existingCheckpoint?.embeddingModel}" -> "${modelKey}"`);
+                if (isChunkSizeChange) reasons.push(`chunk size changed: ${existingCheckpoint?.chunkSize} -> ${this.chunkSize}`);
+                console.debug(`[SemanticIndex] Full rebuild triggered: ${reasons.join(', ')}`);
+            } else {
+                const fileCount = Object.keys(existingCheckpoint!.files).length;
+                console.debug(`[SemanticIndex] Incremental update from checkpoint (${fileCount} files indexed, model: ${existingCheckpoint!.embeddingModel})`);
             }
 
             if (isFullRebuild) {

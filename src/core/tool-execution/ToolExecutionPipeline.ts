@@ -57,7 +57,6 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     delete_file: 'vault-change',
     move_file: 'vault-change',
     generate_canvas: 'vault-change',
-    ingest_template: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',
     // Web
