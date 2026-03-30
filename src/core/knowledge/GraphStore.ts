@@ -101,6 +101,8 @@ export class GraphStore {
         const db = this.getDB();
         const visited = new Set<string>([originPath]);
         const result: GraphNeighbor[] = [];
+        // M-1: Hard limit on visited set to prevent memory exhaustion in highly connected graphs
+        const MAX_VISITED = 1000;
 
         // BFS frontier: paths to expand in current hop level
         let frontier = [originPath];
@@ -109,7 +111,7 @@ export class GraphStore {
             const nextFrontier: string[] = [];
 
             for (const current of frontier) {
-                if (result.length >= maxResults) break;
+                if (result.length >= maxResults || visited.size >= MAX_VISITED) break;
 
                 // Bidirectional: outgoing + incoming edges
                 const rows = db.exec(

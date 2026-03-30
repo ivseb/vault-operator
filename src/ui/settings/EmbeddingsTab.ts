@@ -151,7 +151,8 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Contextual Retrieval')
+            .setName('Contextual retrieval')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- LLM is an acronym
             .setDesc('Enrich chunks with LLM-generated context in the background. Improves search quality by 49-67%. Requires a contextual model below.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableContextualRetrieval ?? true).onChange(async (v) => {
@@ -171,10 +172,10 @@ export class EmbeddingsTab {
         const ctxModels = this.plugin.settings.activeModels.filter((m) => m.enabled);
         if (ctxModels.length > 0) {
             new Setting(containerEl)
-                .setName('Contextual Retrieval Model')
+                .setName('Contextual retrieval model')
                 .setDesc('Chat model for context prefix generation. Use a cheap/fast model (e.g. Haiku, gpt-4o-mini).')
                 .addDropdown((d) => {
-                    d.addOption('', '-- Select model --');
+                    d.addOption('', '-- Select model --'); // eslint-disable-line obsidianmd/ui/sentence-case -- dropdown placeholder
                     for (const m of ctxModels) {
                         d.addOption(getModelKey(m), m.displayName ?? m.name);
                     }
@@ -479,10 +480,11 @@ export class EmbeddingsTab {
         // Storage location removed from UI (ADR-050: knowledge.db is always global)
 
         // ── Graph Expansion (FEATURE-1502) ─────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Graph Expansion' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Graph expansion' });
 
         new Setting(containerEl)
-            .setName('Graph Expansion')
+            .setName('Graph expansion')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilinks and MOC-Properties are proper nouns
             .setDesc('Expand search results via Wikilinks and MOC-Properties (Themen, Konzepte, etc.). Extracts your vault graph into the Knowledge DB.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableGraphExpansion ?? true).onChange(async (v) => {
@@ -492,7 +494,7 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Expansion Hops')
+            .setName('Expansion hops')
             .setDesc('How many link-hops to follow (1 = direct links, 2 = links of links, 3 = broad). Higher values include more context.')
             .addDropdown((d) => {
                 d.addOption('1', '1 hop (direct links)');
@@ -506,11 +508,13 @@ export class EmbeddingsTab {
             });
 
         new Setting(containerEl)
-            .setName('MOC Property Names')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- MOC is an acronym
+            .setName('MOC property names')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- E.g. triggers false positive
             .setDesc('Frontmatter properties to extract as graph edges (comma-separated). E.g. Themen, Konzepte, Personen.')
             .addText((text) => {
                 text.setValue((this.plugin.settings.mocPropertyNames ?? []).join(', '));
-                text.setPlaceholder('Themen, Konzepte, Personen');
+                text.setPlaceholder('Themen, Konzepte, Personen'); // eslint-disable-line obsidianmd/ui/sentence-case -- German proper nouns
                 text.inputEl.addEventListener('blur', () => { void (async () => {
                     const names = text.getValue().split(',').map(s => s.trim()).filter(Boolean);
                     this.plugin.settings.mocPropertyNames = names;
@@ -526,14 +530,15 @@ export class EmbeddingsTab {
             const tags = this.plugin.graphStore.getTagCount();
             graphStats.setText(`Graph: ${edges} edges, ${tags} unique tags extracted`);
         } else {
-            graphStats.setText('Graph: not initialized (enable Semantic Index first)');
+            graphStats.setText('Graph: not initialized (enable Semantic Index first)'); // eslint-disable-line obsidianmd/ui/sentence-case -- Semantic Index is a proper noun
         }
 
         // ── Implicit Connections (FEATURE-1503) ──────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Implicit Connections' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Implicit connections' });
 
         new Setting(containerEl)
-            .setName('Implicit Connections')
+            .setName('Implicit connections')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilink is a proper noun
             .setDesc('Discover semantically similar notes that have no direct Wikilink. Computed in the background after indexing.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableImplicitConnections ?? true).onChange(async (v) => {
@@ -543,7 +548,7 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Similarity Threshold')
+            .setName('Similarity threshold')
             .setDesc('Minimum cosine similarity to count as an implicit connection (0.5 = loose, 0.9 = strict).')
             .addSlider((s) =>
                 s.setLimits(0.5, 0.9, 0.05)
@@ -556,7 +561,7 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Suggestion Banner')
+            .setName('Suggestion banner')
             .setDesc('Show implicit connection suggestions in the sidebar. Disable if the suggestions are distracting.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableSuggestionBanner ?? true).onChange(async (v) => {
@@ -576,10 +581,11 @@ export class EmbeddingsTab {
         }
 
         // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Local Reranking' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Local reranking' });
 
         new Setting(containerEl)
-            .setName('Local Reranking')
+            .setName('Local reranking')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- WASM and MiniLM are technical terms
             .setDesc('Re-score search results with a local cross-encoder model (ms-marco-MiniLM). Runs entirely on-device via WASM. Desktop only.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableReranking ?? true).onChange(async (v) => {
@@ -594,7 +600,7 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Rerank Candidates')
+            .setName('Rerank candidates')
             .setDesc('How many candidates to rerank (more = better quality but slower).')
             .addSlider((s) =>
                 s.setLimits(10, 30, 5)

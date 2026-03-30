@@ -198,6 +198,9 @@ export class VectorStore {
         this.vectorCache = null;
     }
 
+    // M-3: Maximum cache size to prevent OOM on very large vaults
+    private static readonly MAX_CACHE_VECTORS = 200_000;
+
     private ensureCache(): CachedVector[] {
         if (this.vectorCache) return this.vectorCache;
 
@@ -209,7 +212,13 @@ export class VectorStore {
             return this.vectorCache;
         }
 
-        this.vectorCache = result[0].values.map(row => {
+        const rows = result[0].values;
+        if (rows.length > VectorStore.MAX_CACHE_VECTORS) {
+            console.warn(`[VectorStore] ${rows.length} vectors exceed cache limit (${VectorStore.MAX_CACHE_VECTORS}). Loading subset.`);
+        }
+        const limited = rows.slice(0, VectorStore.MAX_CACHE_VECTORS);
+
+        this.vectorCache = limited.map(row => {
             const vecBlob = row[4] as Uint8Array;
             return {
                 id: row[0] as number,

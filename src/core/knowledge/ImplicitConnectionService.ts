@@ -90,6 +90,9 @@ export class ImplicitConnectionService {
 
             let computed = 0;
             let stored = 0;
+            // M-2: Timeout to prevent UI freezing on large vaults
+            const MAX_COMPUTATION_MS = 60_000; // 60s max
+            const computeStart = Date.now();
 
             for (let i = 0; i < n && !this.cancelled; i++) {
                 const vecA = noteVecs.get(paths[i])!;
@@ -109,8 +112,13 @@ export class ImplicitConnectionService {
                         }
                     }
 
-                    // Yield every 1000 pairs
+                    // Yield every 1000 pairs + check timeout
                     if (computed % 1000 === 0) {
+                        if (Date.now() - computeStart > MAX_COMPUTATION_MS) {
+                            console.warn(`[ImplicitConnections] Timeout after ${computed} pairs (${MAX_COMPUTATION_MS}ms)`);
+                            this.cancelled = true;
+                            break;
+                        }
                         await new Promise<void>(r => setTimeout(r, 0));
                     }
                 }
@@ -143,7 +151,7 @@ export class ImplicitConnectionService {
      * Recompute implicit connections for a single file.
      * Removes old pairs for this path and computes against all other notes.
      */
-    async recomputeForPath(path: string, threshold = 0.7): Promise<void> {
+    recomputeForPath(path: string, threshold = 0.7): void {
         if (!this.knowledgeDB.isOpen()) return;
 
         try {

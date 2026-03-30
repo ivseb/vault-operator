@@ -450,7 +450,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // Graph + implicit: update edges/tags and recompute implicit connections
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
-                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                 }
             }));
             this.registerEvent(this.app.vault.on('create', (file) => {
@@ -458,7 +458,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.scheduleFileIndex(file.path);
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
-                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                 }
             }));
             this.registerEvent(this.app.vault.on('delete', (file) => {
@@ -472,7 +472,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.graphExtractor?.removeFile(oldPath);
                 if (file instanceof TFile && file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
-                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                 }
                 this.scheduleFileIndex(file.path);
             }));

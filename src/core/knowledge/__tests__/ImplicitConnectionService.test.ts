@@ -192,7 +192,7 @@ describe('ImplicitConnectionService', () => {
             const countBefore = implicitService.getCount();
 
             // Recompute for a.md (should produce same result for a-b pair)
-            await implicitService.recomputeForPath('a.md', 0.5);
+            implicitService.recomputeForPath('a.md', 0.5);
             const countAfter = implicitService.getCount();
 
             // Count should be same or similar (recompute only affects a.md pairs)

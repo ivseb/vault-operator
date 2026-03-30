@@ -132,6 +132,12 @@ Generate a JSON object with:
                 if (chunk.type === 'text') responseText += chunk.text;
             }
 
+            // L-1: Limit response size before parsing to prevent memory exhaustion
+            if (responseText.length > 50_000) {
+                console.warn('[RecipePromotion] LLM response too large, skipping');
+                return;
+            }
+
             // Parse LLM response (M-9: type-guarded validation)
             const raw: unknown = JSON.parse(responseText.trim());
             if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {

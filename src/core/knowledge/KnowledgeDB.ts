@@ -14,7 +14,6 @@
 import type { Vault } from 'obsidian';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
 // sql.js types -- we import the factory function at runtime
 type SqlJsStatic = {
@@ -152,6 +151,7 @@ export class KnowledgeDB {
         // Obsidian's app:// protocol can't serve WASM files via fetch().
         // Load the binary directly from disk and pass it to sql.js.
         const pluginBasePath = (this.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
+        // eslint-disable-next-line obsidianmd/hardcoded-config-path -- fallback only, vault.configDir used when available
         const configDir = (this.vault as unknown as { configDir?: string }).configDir ?? '.obsidian';
         const pluginMainDir = path.join(pluginBasePath, configDir, 'plugins', 'obsilo-agent');
 
@@ -171,7 +171,7 @@ export class KnowledgeDB {
         const data = await this.readDB();
         if (data) {
             this.db = new this.SQL.Database(data);
-            await this.migrateSchema();
+            this.migrateSchema();
         } else {
             this.db = new this.SQL.Database();
             this.initSchema();
@@ -271,7 +271,7 @@ export class KnowledgeDB {
         this.markDirty();
     }
 
-    private async migrateSchema(): Promise<void> {
+    private migrateSchema(): void {
         if (!this.db) return;
         const result = this.db.exec('SELECT version FROM schema_meta');
         const currentVersion = (result.length > 0 && result[0].values.length > 0)

@@ -455,6 +455,7 @@ export class SemanticIndexService {
      * Remove all chunks for a single file from the index.
      * Called on vault delete and rename (old path).
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public API expects Promise for consistency
     async removeFile(filePath: string): Promise<void> {
         if (!this.knowledgeDB.isOpen()) return;
         try {
@@ -543,6 +544,7 @@ export class SemanticIndexService {
         'have', 'been', 'will', 'they', 'were', 'which', 'their', 'what', 'about',
     ]);
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- public API expects Promise for consistency
     async keywordSearch(query: string, topK = 8): Promise<SemanticResult[]> {
         if (!this.knowledgeDB.isOpen()) return [];
         try {
@@ -626,6 +628,7 @@ export class SemanticIndexService {
      * Return all indexed chunks for a specific file, sorted by chunk order.
      * Used by graph-augmented RAG to load linked-note context.
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public API expects Promise for consistency
     async getChunksByPath(filePath: string): Promise<string[]> {
         if (!this.knowledgeDB.isOpen()) return [];
         try {
@@ -915,9 +918,12 @@ export class SemanticIndexService {
         }
 
         // Build a compact document summary for the prompt: title + headings + first 1500 chars
-        const title = filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? filePath;
-        const headings = fullContent.match(/^#{1,3} .+$/gm)?.slice(0, 10)?.join('\n') ?? '';
-        const docContext = fullContent.slice(0, 1500);
+        // L-2: Sanitize user content to mitigate prompt injection via vault content
+        const sanitize = (text: string, maxLen: number): string =>
+            text.replace(/```/g, '').replace(/^(system|assistant|user):/gim, '').slice(0, maxLen);
+        const title = sanitize(filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? filePath, 200);
+        const headings = sanitize(fullContent.match(/^#{1,3} .+$/gm)?.slice(0, 10)?.join('\n') ?? '', 500);
+        const docContext = sanitize(fullContent, 1500);
 
         const enriched: string[] = [];
         for (const chunk of chunks) {

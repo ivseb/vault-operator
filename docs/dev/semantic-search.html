@@ -97,14 +97,17 @@
       </div>
 
       <h1>Semantic Search Pipeline</h1>
-      <p>Obsilo implements hybrid search combining vector similarity (Vectra HNSW) with keyword matching (BM25/TF-IDF) via Reciprocal Rank Fusion, enhanced by HyDE expansion and wikilink graph augmentation.</p>
+      <p>Obsilo implements a 4-stage retrieval pipeline combining vector similarity (SQLite + JS cosine), keyword matching (TF-IDF with stemming), local cross-encoder reranking (transformers.js WASM), graph expansion (Wikilinks + MOC-Properties), and implicit connection discovery.</p>
 
-      <h2 id="vectra-localindex">Vectra LocalIndex</h2>
-      <p>Pure-TypeScript HNSW vector index. Storage: <code>.obsidian/plugins/obsilo-agent/semantic-index/</code>. Requires a configured embedding model (e.g. OpenAI <code>text-embedding-3-small</code> or Ollama <code>nomic-embed-text</code>).</p>
+      <h2 id="knowledge-db">Knowledge DB (SQLite via sql.js WASM)</h2>
+      <p>Replaces the previous Vectra HNSW index. Vectors are stored as Float32Array BLOBs in SQLite, loaded in bulk, and searched via in-JS cosine similarity (10-50x faster than SQL custom functions).</p>
+      <p>Storage: <code>{vault}/.obsidian-agent/knowledge.db</code> (vault-specific). Schema v5 with tables: <code>vectors</code>, <code>edges</code>, <code>tags</code>, <code>implicit_edges</code>, <code>dismissed_pairs</code>, <code>checkpoint</code>.</p>
+      <p>ADR: <a href="../../_devprocess/architecture/ADR-050-sqlite-knowledge-db.md">ADR-050</a></p>
 
       <h3>Embedding via API</h3>
       <p>Any OpenAI-compatible embedding endpoint. Requests are batched with a batch size of 16 embeddings per API call. Failures are handled with exponential backoff: 1s, 2s, 4s, 8s delays with a maximum of 4 retries. Each request has a 30-second timeout.</p>
       <p>Model key format: <code>{provider}:{modelName}</code> (e.g. <code>openai:text-embedding-3-small</code>). Changing the model key triggers a full index rebuild since embedding dimensions and vector spaces differ between models.</p>
+      <p><strong>Title prefix:</strong> Chunk 0 of every note is prepended with the document title so that embeddings capture the filename. This ensures notes like "Mark Zimmermann.md" are findable by name.</p>
 
       <h2 id="heading-aware-chunking">Heading-Aware Chunking</h2>
       <p>5-stage chunking pipeline:</p>
@@ -120,38 +123,41 @@
       <p>YAML frontmatter delimiters (<code>---</code>) are stripped, but the frontmatter content itself is preserved and prepended to the document body before chunking. This ensures metadata like tags, aliases, and descriptions contribute to the semantic representation of the note.</p>
       <p><strong>Single-chunk optimization:</strong> If the entire file content (after frontmatter processing) fits within the configured chunk size, the chunking pipeline is bypassed and the full text is used as a single chunk. This avoids unnecessary overlap and ellipsis artifacts on small files.</p>
 
-      <h2 id="bm25-tfidf">BM25/TF-IDF with Stemming</h2>
-      <p><strong>Tokenization:</strong> Text is lowercased and split on the regex pattern <code>[\s\-_/,.;:!?()\[\]{}"'\`|@#=+*&lt;&gt;~^]+</code>. Tokens shorter than 3 characters are filtered out to remove noise from short fragments and common articles.</p>
-      <p><strong>Suffix stemmer</strong> with rules for:</p>
-      <ul>
-        <li><strong>English:</strong> -ing, -tion, -ness, -ment, -able, -ful, -less, -ous, -ive, -ly, -ed, -er, -est, -es, -s</li>
-        <li><strong>German:</strong> -ung, -heit, -keit, -isch, -lich, -bar, -sam, -en, -er, -es, -te, -ten</li>
-      </ul>
-      <p><strong>Scoring:</strong> TF = matches/total tokens, IDF = <code>log((N+1)/(df+1))</code> where N is total document count and df is documents containing the term. The +1 smoothing prevents division by zero and dampens extreme weights for rare terms. Final score: <code>SUM(TF * IDF)</code> across all query terms.</p>
-      <p><strong>Per-file deduplication:</strong> When multiple chunks from the same file appear in results, only the highest-scoring chunk per file is retained. This prevents a single long document from dominating the result set.</p>
+      <h2 id="tfidf">TF-IDF Keyword Search</h2>
+      <p><strong>Tokenization:</strong> Text is lowercased and split on word boundaries. Tokens shorter than 3 characters are filtered out.</p>
+      <p><strong>Stop-word filter:</strong> Common German and English stop words (wie, ist, was, the, and, for, etc.) are removed from the query to prevent score dilution.</p>
+      <p><strong>Suffix stemmer</strong> with rules for English (-ing, -tion, -ness, -ment, -ed, -es, -s) and German (-ung, -heit, -keit, -isch, -lich, -en).</p>
+      <p><strong>Title boost:</strong> If query terms appear in the filename, the file's score is multiplied by <code>1 + (matchCount * 2)</code>. This ensures "Mark Zimmermann" finds "Mark Zimmermann.md" at rank 1.</p>
+      <p><strong>Scoring:</strong> TF-IDF with per-file deduplication (best chunk per file).</p>
 
-      <h2 id="hybrid-search-rrf">Hybrid Search &amp; RRF Fusion</h2>
+      <h2 id="hybrid-search-rrf">4-Stage Retrieval Pipeline</h2>
       <div class="arch-diagram">User Query
     |
-    +---> Semantic Search (Vectra HNSW, top_k * 3)
-    |         |
-    |         v
-    |     Rank List A (by cosine similarity)
+    +---> [optional] HyDE: LLM generates hypothetical document
     |
-    +---> BM25 Keyword Search (TF-IDF, stemming)
-    |         |
-    |         v
-    |     Rank List B (by BM25 score)
+    +---> Parallel:
+    |     +---> Semantic Search (SQLite cosine, adjacent chunks)
+    |     +---> Keyword Search (TF-IDF, stemming, stop-words, title boost)
     |
     +---> RRF Fusion: score(doc) = SUM(1 / (k + rank_i)), k=60
-    |         |
-    |         v
-    |     Merged &amp; deduplicated results
     |
-    +---> Graph Augmentation: 1-hop wikilink expansion (max 5 per hit)
-              |
-              v
-          Final results (top_k)</div>
+    +---> Metadata Filters (folder, tags, since)
+    |
+    +---> Stage 4: Local Reranking (transformers.js WASM, ms-marco-MiniLM)
+    |              Cross-encoder re-scores top-20 candidates (~160ms)
+    |
+    +---> Top-K slice
+    |
+    +---> Stage 2: Graph Expansion (GraphStore BFS, 1-3 hops)
+    |              Wikilinks + MOC-Properties (Themen, Konzepte, etc.)
+    |              "via [[Note]] (PropertyName)"
+    |
+    +---> Stage 3: Implicit Connections (ImplicitConnectionService)
+    |              Semantically similar notes without direct links
+    |              "similarity: 0.82"
+    |
+    +---> Final results with excerpts + connection context</div>
+      <p>ADR: <a href="../../_devprocess/architecture/ADR-051-retrieval-pipeline.md">ADR-051</a>, <a href="../../_devprocess/architecture/ADR-052-local-reranker.md">ADR-052</a></p>
 
       <h3>searchK Inflation</h3>
       <p>To ensure enough candidates survive deduplication and filtering, the internal search retrieves more results than the requested <code>topK</code>:</p>
@@ -179,15 +185,26 @@
       <p>HyDE is particularly effective for abstract or conceptual queries (e.g. "how do I organize my project notes?") where the user's phrasing may not overlap with the actual note content. For exact keyword lookups, the BM25 branch already covers the match.</p>
       <p><strong>Silent fallback:</strong> If the LLM call fails (timeout, rate limit, API error), HyDE is silently skipped and the search proceeds with only the original query embedding. No error is surfaced to the user.</p>
 
-      <h2 id="incremental-build">Incremental Build</h2>
-      <p>Index built incrementally: only new/modified files re-indexed. File modification tracked via a checkpoint file at <code>{indexDir}/index-meta.json</code> which records the last-indexed mtime for every file.</p>
+      <h2 id="incremental-build">Incremental Build (Two-Pass)</h2>
+      <p>Index built incrementally: only new/modified files re-indexed. File modification tracked via <code>vectors.mtime</code> in the SQLite database (the DB IS the checkpoint).</p>
 
-      <h3>Rebuild Phases</h3>
+      <h3>Pass 1: Fast Build (~5 min)</h3>
       <ol class="steps">
-        <li><strong>Phase A &mdash; Cleanup:</strong> For each modified or deleted file, delete all existing chunks belonging to that file from the Vectra index.</li>
-        <li><strong>Phase B &mdash; Index:</strong> Read the file, run the heading-aware chunker, batch-embed the chunks (up to <code>embeddingBatchSize</code> per API call), insert into the index, and commit progress every 20 files.</li>
+        <li><strong>Cleanup:</strong> For modified/deleted files, delete all existing chunks from the vectors table.</li>
+        <li><strong>Index:</strong> Read file, chunk (heading-aware), prepend title to chunk 0, batch-embed, insert into DB. Commit every 20 files.</li>
       </ol>
-      <p><strong>Cancellation:</strong> The build can be cancelled at any time (e.g. plugin unload or user action). Partial progress is saved &mdash; files that were already committed remain indexed. The next build resumes from where it left off.</p>
+      <p>No LLM calls in Pass 1 &mdash; index is usable immediately after build.</p>
+
+      <h3>Pass 2: Background Enrichment (optional, hours)</h3>
+      <p>When Contextual Retrieval is enabled, a background process enriches each chunk with an LLM-generated context prefix (Anthropic Contextual Retrieval pattern). The enriched text is re-embedded and stored. Resumable: queries <code>WHERE enriched=0</code>, crash loses at most 1 chunk.</p>
+
+      <h3>Graph Extraction (on startup)</h3>
+      <p>GraphExtractor reads Obsidian's metadataCache to extract Wikilinks (body), MOC-Properties (frontmatter), and tags into the <code>edges</code> and <code>tags</code> tables. Fast (&lt;10s for 700 files, no file I/O). Kept current via vault event listeners.</p>
+
+      <h3>Implicit Connection Computation (background)</h3>
+      <p>After index build, pairwise cosine similarity on note-level vectors (averaged chunks). Pairs above threshold (default 0.7) without explicit links stored in <code>implicit_edges</code>. O(n^2) with 60s timeout safety.</p>
+
+      <p><strong>Cancellation:</strong> All background processes (build, enrichment, implicit computation) can be cancelled at any time. Partial progress is saved.</p>
 
       <h3>Auto-Update Queue</h3>
       <p>File modifications detected by Obsidian's vault events are pushed into an auto-update queue backed by a <code>Set&lt;string&gt;</code> for path deduplication. The queue processes files one at a time (concurrency of 1) with a 2-second pause between files to avoid starving the main thread. Rapid successive edits to the same file are naturally deduplicated by the Set.</p>
@@ -228,16 +245,39 @@ Index updated</div>
       <p>Markdown files (<code>.md</code>) are always indexed. When <code>indexPdfs</code> is enabled, document files (<code>.pdf</code>, <code>.pptx</code>, <code>.xlsx</code>, <code>.docx</code>) are also indexed using the Document Parser Pipeline.</p>
 
       <h2 id="configuration">Configuration</h2>
-      <p>The following parameters control index behavior. All are set in the plugin settings under the Semantic Search section.</p>
+      <p>The following parameters control index and search behavior:</p>
       <table>
         <thead><tr><th>Parameter</th><th>Default</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td><code>batchSize</code></td><td><code>20</code></td><td>Number of files processed per index commit. Higher values reduce commit overhead but increase memory usage.</td></tr>
-          <tr><td><code>embeddingBatchSize</code></td><td><code>16</code></td><td>Number of embeddings per API call (API mode only). Balances throughput against rate limits.</td></tr>
-          <tr><td><code>chunkSize</code></td><td><code>2000</code></td><td>Maximum characters per chunk. Changing this value triggers a full index rebuild since chunk boundaries shift.</td></tr>
-          <tr><td><code>storageLocation</code></td><td><code>'obsidian-sync'</code></td><td>Index storage path strategy. <code>'obsidian-sync'</code> stores inside the plugin data folder (syncs with Obsidian Sync).</td></tr>
-          <tr><td><code>indexPdfs</code></td><td><code>false</code></td><td>When enabled, PDF files in the vault are extracted and indexed alongside Markdown notes.</td></tr>
-          <tr><td><code>hydeEnabled</code></td><td><code>false</code></td><td>Enable Hypothetical Document Expansion. Requires an active LLM API connection for the generation step.</td></tr>
+          <tr><td><code>batchSize</code></td><td><code>20</code></td><td>Files processed per DB commit. Higher = faster, more memory.</td></tr>
+          <tr><td><code>embeddingBatchSize</code></td><td><code>16</code></td><td>Embeddings per API call. Balances throughput vs rate limits.</td></tr>
+          <tr><td><code>chunkSize</code></td><td><code>2000</code></td><td>Max characters per chunk. Changing triggers full rebuild.</td></tr>
+          <tr><td><code>indexPdfs</code></td><td><code>false</code></td><td>Index PDF, DOCX, PPTX, XLSX alongside Markdown.</td></tr>
+          <tr><td><code>enableContextualRetrieval</code></td><td><code>true</code></td><td>LLM-generated context prefix per chunk (background Pass 2).</td></tr>
+          <tr><td><code>hydeEnabled</code></td><td><code>false</code></td><td>Hypothetical Document Expansion. +1 LLM call per search.</td></tr>
+          <tr><td><code>enableGraphExpansion</code></td><td><code>true</code></td><td>Follow Wikilinks/MOC in search results (1-3 hops).</td></tr>
+          <tr><td><code>graphExpansionHops</code></td><td><code>1</code></td><td>BFS depth for graph expansion.</td></tr>
+          <tr><td><code>mocPropertyNames</code></td><td><code>['Themen', ...]</code></td><td>Frontmatter properties treated as MOC edges.</td></tr>
+          <tr><td><code>enableImplicitConnections</code></td><td><code>true</code></td><td>Discover semantically similar notes without links.</td></tr>
+          <tr><td><code>implicitThreshold</code></td><td><code>0.7</code></td><td>Min cosine similarity for implicit connections.</td></tr>
+          <tr><td><code>enableReranking</code></td><td><code>true</code></td><td>Local cross-encoder reranking via transformers.js WASM.</td></tr>
+          <tr><td><code>rerankCandidates</code></td><td><code>20</code></td><td>How many candidates to rerank.</td></tr>
+        </tbody>
+      </table>
+
+      <h2 id="key-files">Key Files</h2>
+      <table>
+        <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>src/core/knowledge/KnowledgeDB.ts</code></td><td>SQLite wrapper, schema v5, migrations</td></tr>
+          <tr><td><code>src/core/knowledge/VectorStore.ts</code></td><td>Vector CRUD, cosine search, cache, adjacent chunks</td></tr>
+          <tr><td><code>src/core/knowledge/GraphStore.ts</code></td><td>Edge/tag CRUD, BFS neighbor expansion</td></tr>
+          <tr><td><code>src/core/knowledge/GraphExtractor.ts</code></td><td>metadataCache to edges/tags (full + incremental)</td></tr>
+          <tr><td><code>src/core/knowledge/ImplicitConnectionService.ts</code></td><td>Pairwise similarity, suggestion API</td></tr>
+          <tr><td><code>src/core/knowledge/RerankerService.ts</code></td><td>transformers.js cross-encoder (ms-marco-MiniLM)</td></tr>
+          <tr><td><code>src/core/knowledge/MemoryDB.ts</code></td><td>Sessions, episodes, recipes, patterns (SQLite)</td></tr>
+          <tr><td><code>src/core/semantic/SemanticIndexService.ts</code></td><td>Build orchestration, two-pass enrichment, embedding</td></tr>
+          <tr><td><code>src/core/tools/vault/SemanticSearchTool.ts</code></td><td>Search tool (hybrid + rerank + graph + implicit)</td></tr>
         </tbody>
       </table>
 

@@ -36,7 +36,7 @@ export class RecipeStore {
     async initialize(): Promise<void> {
         try {
             if (this.memoryDB?.isOpen()) {
-                await this.loadFromDB();
+                this.loadFromDB();
                 // One-time migration: if DB is empty but JSON files exist, import them
                 if (this.learnedRecipes.length === 0) {
                     await this.migrateFromFiles();
