@@ -22,6 +22,7 @@ import { GraphStore } from './core/knowledge/GraphStore';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
 import { MemoryDB } from './core/knowledge/MemoryDB';
+import { RerankerService } from './core/knowledge/RerankerService';
 import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
@@ -89,6 +90,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
     memoryDB: MemoryDB | null = null;
+    rerankerService: RerankerService | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -446,6 +448,15 @@ export default class ObsidianAgentPlugin extends Plugin {
                     });
                 }
             }
+
+            // Local Reranking (FEATURE-1504): cross-encoder via transformers.js (WASM)
+            if (this.settings.enableReranking) {
+                this.rerankerService = new RerankerService();
+                // Pre-load model at startup so first search is fast
+                this.app.workspace.onLayoutReady(() => {
+                    void this.rerankerService?.loadModel();
+                });
+            }
         }
 
         // Auto-index: keep semantic index current as vault files change.
@@ -663,6 +674,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
+            this.rerankerService?.unload();
             // Close databases (final save + cleanup)
             await this.memoryDB?.close().catch((e) =>
                 console.warn('[Plugin] MemoryDB close failed (non-fatal):', e)

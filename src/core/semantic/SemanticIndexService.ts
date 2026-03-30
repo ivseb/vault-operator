@@ -310,10 +310,17 @@ export class SemanticIndexService {
                     const chunks = this.splitIntoChunks(content, this.chunkSize);
 
                     if (chunks.length > 0) {
-                        // Pass 1: embed raw chunks without contextual enrichment (fast).
-                        // Enrichment runs as Pass 2 in the background after build completes.
-                        const vectors = await this.embedBatch(chunks);
-                        this.vectorStore.insertChunks(file.path, chunks, vectors, file.stat?.mtime ?? 0, 0);
+                        // Prepend document title to chunk 0 so embeddings capture the filename.
+                        // Critical for retrieval: "Mark Zimmermann.md" must be findable by name.
+                        const title = file.path.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
+                        const enrichedChunks = title
+                            ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
+                            : chunks;
+
+                        // Pass 1: embed chunks with title prefix (fast, no LLM call).
+                        // Contextual Enrichment runs as Pass 2 in the background after build.
+                        const vectors = await this.embedBatch(enrichedChunks);
+                        this.vectorStore.insertChunks(file.path, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
                     }
 
                     indexed++;
@@ -397,9 +404,13 @@ export class SemanticIndexService {
             const content = await this.readFileContent(file);
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length > 0) {
-                // Pass 1 only: embed raw chunks. Background enrichment handles Pass 2.
-                const vectors = await this.embedBatch(chunks);
-                this.vectorStore.insertChunks(filePath, chunks, vectors, file.stat?.mtime ?? 0, 0);
+                // Prepend document title to chunk 0
+                const title = filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? '';
+                const enrichedChunks = title
+                    ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
+                    : chunks;
+                const vectors = await this.embedBatch(enrichedChunks);
+                this.vectorStore.insertChunks(filePath, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
             } else {
                 this.vectorStore.deleteByPath(filePath);
             }
@@ -516,11 +527,28 @@ export class SemanticIndexService {
      *
      * Used by hybrid search (RRF fusion) to catch exact names/tags the embedding misses.
      */
+    // Common stop words that add noise to TF-IDF (German + English).
+    // Kept minimal — IDF handles most stop words, but very common words
+    // like "ist", "wie", "the" appear in nearly every chunk and dilute scores.
+    private static readonly STOP_WORDS = new Set([
+        // German
+        'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines',
+        'ist', 'sind', 'war', 'hat', 'haben', 'wird', 'werden', 'kann', 'koennen',
+        'wie', 'was', 'wer', 'wir', 'ich', 'sie', 'und', 'oder', 'aber', 'auch',
+        'mit', 'von', 'aus', 'fuer', 'bei', 'nach', 'ueber', 'unter', 'auf',
+        'nicht', 'noch', 'nur', 'sehr', 'schon', 'doch', 'dass', 'wenn', 'weil',
+        // English
+        'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her',
+        'was', 'one', 'our', 'out', 'has', 'had', 'this', 'that', 'with', 'from',
+        'have', 'been', 'will', 'they', 'were', 'which', 'their', 'what', 'about',
+    ]);
+
     async keywordSearch(query: string, topK = 8): Promise<SemanticResult[]> {
         if (!this.knowledgeDB.isOpen()) return [];
         try {
-            // 1. Tokenize + stem query terms, deduplicate
-            const queryTerms = [...new Set(SemanticIndexService.tokenize(query))];
+            // 1. Tokenize + stem query terms, deduplicate, remove stop words
+            const queryTerms = [...new Set(SemanticIndexService.tokenize(query))]
+                .filter(t => !SemanticIndexService.STOP_WORDS.has(t));
             if (queryTerms.length === 0) return [];
 
             const allChunks = this.vectorStore.getAllChunks();
@@ -567,7 +595,22 @@ export class SemanticIndexService {
                 }
             }
 
-            // 4. Normalize scores 0-1, sort, return top-K
+            // 4. Title boost: if query terms appear in the filename, boost the score.
+            // This ensures "Mark Zimmermann" query finds "Notes/Mark Zimmermann.md" at rank 1.
+            for (const [filePath, entry] of byPath) {
+                const fileName = filePath.split('/').pop()?.replace(/\.\w+$/, '')?.toLowerCase() ?? '';
+                const fileTokens = new Set(SemanticIndexService.tokenize(fileName));
+                let titleMatches = 0;
+                for (const qt of queryTerms) {
+                    if (fileTokens.has(qt)) titleMatches++;
+                }
+                if (titleMatches > 0) {
+                    // Boost proportional to how many query terms match the title
+                    entry.score *= 1 + titleMatches * 2;
+                }
+            }
+
+            // 5. Normalize scores 0-1, sort, return top-K
             const entries = Array.from(byPath.entries());
             const maxScore = entries.reduce((m, [, v]) => Math.max(m, v.score), 1);
             return entries

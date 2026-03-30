@@ -168,6 +168,27 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 });
             }
 
+            // ── Local Reranking (FEATURE-1504): Cross-encoder re-scores candidates ──
+            const reranker = this.plugin.rerankerService;
+            if (reranker && this.plugin.settings.enableReranking && results.length > 1) {
+                try {
+                    const rerankCount = Math.min(results.length, this.plugin.settings.rerankCandidates ?? 20);
+                    const toRerank = results.slice(0, rerankCount);
+                    const reranked = await reranker.rerank(
+                        query,
+                        toRerank.map(r => ({ path: r.path, text: r.excerpt, score: r.score })),
+                    );
+                    results = reranked.map(r => ({
+                        path: r.path,
+                        excerpt: r.text,
+                        score: r.rerankScore,
+                        method: 'hybrid' as const,
+                    }));
+                } catch (e) {
+                    console.warn('[SemanticSearch] Reranking failed, using original order:', e);
+                }
+            }
+
             results = results.slice(0, topK);
 
             if (results.length === 0) {

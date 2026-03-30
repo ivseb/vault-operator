@@ -574,6 +574,38 @@ export class EmbeddingsTab {
         } else {
             implicitStats.setText('No implicit connections computed yet (build index first)');
         }
+
+        // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Local Reranking' });
+
+        new Setting(containerEl)
+            .setName('Local Reranking')
+            .setDesc('Re-score search results with a local cross-encoder model (ms-marco-MiniLM). Runs entirely on-device via WASM. Desktop only.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableReranking ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableReranking = v;
+                    await this.plugin.saveSettings();
+                    if (v && !this.plugin.rerankerService) {
+                        const { RerankerService } = await import('../../core/knowledge/RerankerService');
+                        this.plugin.rerankerService = new RerankerService();
+                        void this.plugin.rerankerService.loadModel();
+                    }
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Rerank Candidates')
+            .setDesc('How many candidates to rerank (more = better quality but slower).')
+            .addSlider((s) =>
+                s.setLimits(10, 30, 5)
+                    .setValue(this.plugin.settings.rerankCandidates ?? 20)
+                    .setDynamicTooltip()
+                    .onChange(async (v) => {
+                        this.plugin.settings.rerankCandidates = v;
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
     }
 
     /** Start background enrichment if all prerequisites are met. */
