@@ -39,13 +39,13 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
 // ---------------------------------------------------------------------------
 
-const SCHEMA_V1 = `
+const SCHEMA_DDL = `
 CREATE TABLE IF NOT EXISTS schema_meta (version INTEGER NOT NULL);
 
 CREATE TABLE IF NOT EXISTS vectors (
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS vectors (
     text TEXT NOT NULL,
     vector BLOB NOT NULL,
     mtime INTEGER NOT NULL,
+    enriched INTEGER NOT NULL DEFAULT 0,
     UNIQUE(path, chunk_index)
 );
 CREATE INDEX IF NOT EXISTS idx_vectors_path ON vectors(path);
@@ -63,6 +64,34 @@ CREATE TABLE IF NOT EXISTS checkpoint (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS edges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    link_type TEXT NOT NULL,
+    property_name TEXT,
+    UNIQUE(source_path, target_path, link_type, property_name)
+);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_path);
+
+CREATE TABLE IF NOT EXISTS tags (
+    path TEXT NOT NULL,
+    tag TEXT NOT NULL,
+    UNIQUE(path, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+
+CREATE TABLE IF NOT EXISTS implicit_edges (
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    similarity REAL NOT NULL,
+    computed_at TEXT NOT NULL,
+    UNIQUE(source_path, target_path)
+);
+CREATE INDEX IF NOT EXISTS idx_implicit_source ON implicit_edges(source_path);
+CREATE INDEX IF NOT EXISTS idx_implicit_target ON implicit_edges(target_path);
 `;
 
 // ---------------------------------------------------------------------------
@@ -220,7 +249,7 @@ export class KnowledgeDB {
     private initSchema(): void {
         if (!this.db) return;
         // Execute DDL statements one by one (sql.js doesn't support multi-statement exec well)
-        for (const stmt of SCHEMA_V1.split(';').map(s => s.trim()).filter(Boolean)) {
+        for (const stmt of SCHEMA_DDL.split(';').map(s => s.trim()).filter(Boolean)) {
             this.db.run(stmt + ';');
         }
         // Set initial version
@@ -239,8 +268,18 @@ export class KnowledgeDB {
             : 0;
 
         if (currentVersion < SCHEMA_VERSION) {
-            // Future migrations go here:
-            // if (currentVersion < 2) { ... ALTER TABLE ... }
+            // v1 -> v2: Add enriched column for two-pass contextual enrichment
+            if (currentVersion < 2) {
+                try {
+                    this.db.run('ALTER TABLE vectors ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0');
+                } catch {
+                    // Column may already exist if schema was partially migrated
+                }
+            }
+
+            // v2 -> v3: Add edges + tags tables for graph extraction (FEATURE-1502)
+            // v3 -> v4: Add implicit_edges table (FEATURE-1503)
+            // All CREATE TABLE IF NOT EXISTS — idempotent, handled by initSchema() below
 
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)
             this.initSchema();

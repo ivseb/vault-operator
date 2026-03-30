@@ -62,18 +62,19 @@ export class VectorStore {
     /**
      * Insert chunks for a file. Replaces any existing chunks for that path.
      * Vectors are stored as Float32Array BLOBs.
+     * @param enriched - 0 = raw chunks (Pass 1), 1 = enriched with context prefix (Pass 2)
      */
-    insertChunks(filePath: string, chunks: string[], vectors: Float32Array[], mtime: number): void {
+    insertChunks(filePath: string, chunks: string[], vectors: Float32Array[], mtime: number, enriched = 0): void {
         const db = this.getDB();
 
         // Delete existing chunks for this path
         db.run('DELETE FROM vectors WHERE path = ?', [filePath]);
 
         // Insert new chunks
-        const stmt = db.prepare('INSERT INTO vectors (path, chunk_index, text, vector, mtime) VALUES (?, ?, ?, ?, ?)');
+        const stmt = db.prepare('INSERT INTO vectors (path, chunk_index, text, vector, mtime, enriched) VALUES (?, ?, ?, ?, ?, ?)');
         for (let i = 0; i < chunks.length; i++) {
             const vecBytes = new Uint8Array(vectors[i].buffer, vectors[i].byteOffset, vectors[i].byteLength);
-            stmt.run([filePath, i, chunks[i], vecBytes, mtime]);
+            stmt.run([filePath, i, chunks[i], vecBytes, mtime, enriched]);
         }
         stmt.free();
 
@@ -245,6 +246,191 @@ export class VectorStore {
         const result = db.exec('SELECT text FROM vectors WHERE path = ? ORDER BY chunk_index', [filePath]);
         if (result.length === 0) return [];
         return result[0].values.map(row => row[0] as string);
+    }
+
+    // -----------------------------------------------------------------------
+    // Score-gated adjacent chunk retrieval (FEATURE-1501)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Get merged text of a chunk + adjacent chunks, filtered by similarity threshold.
+     * Only adjacent chunks with cosine similarity >= threshold to the query vector are included.
+     * This prevents irrelevant context when topics change within a file.
+     */
+    getAdjacentText(
+        filePath: string,
+        chunkIndex: number,
+        queryVector: Float32Array,
+        window = 1,
+        threshold = 0.3,
+    ): string {
+        const cache = this.ensureCache();
+        const fileChunks = cache.filter(c => c.path === filePath);
+        if (fileChunks.length === 0) return '';
+
+        const minIdx = Math.max(0, chunkIndex - window);
+        const maxIdx = chunkIndex + window;
+
+        const parts: string[] = [];
+        for (const c of fileChunks) {
+            if (c.chunkIndex < minIdx || c.chunkIndex > maxIdx) continue;
+            if (c.chunkIndex === chunkIndex) {
+                // Always include the matched chunk itself
+                parts.push(c.text);
+            } else {
+                // Adjacent: only include if similarity >= threshold
+                const sim = cosineSimilarity(queryVector, c.vector);
+                if (sim >= threshold) {
+                    parts.push(c.text);
+                }
+            }
+        }
+        // Sort by chunkIndex to maintain document order
+        return parts.join('\n\n');
+    }
+
+    /**
+     * Search with score-gated adjacent context and multi-chunk per file.
+     * Returns enriched results where each hit includes adjacent context (if relevant)
+     * and multiple hits per file are allowed.
+     */
+    searchWithContext(
+        queryVector: Float32Array,
+        topK = 5,
+        adjacentWindow = 1,
+        adjacentThreshold = 0.3,
+        maxPerFile = 2,
+        pathPrefix?: string,
+    ): VectorSearchResult[] {
+        const cache = this.ensureCache();
+
+        // Filter by prefix if needed
+        const candidates = pathPrefix
+            ? cache.filter(c => c.path.startsWith(pathPrefix))
+            : cache.filter(c => !c.path.startsWith('session:') && !c.path.startsWith('episode:'));
+
+        if (candidates.length === 0) return [];
+
+        // Score all candidates
+        const scored = candidates.map(c => ({
+            path: c.path,
+            text: c.text,
+            chunkIndex: c.chunkIndex,
+            score: cosineSimilarity(queryVector, c.vector),
+        }));
+        scored.sort((a, b) => b.score - a.score);
+
+        // Group by file, keep top maxPerFile per file
+        const perFileCount = new Map<string, number>();
+        const selected: typeof scored = [];
+        for (const s of scored) {
+            const count = perFileCount.get(s.path) ?? 0;
+            if (count >= maxPerFile) continue;
+            perFileCount.set(s.path, count + 1);
+            selected.push(s);
+            if (selected.length >= topK * 2) break; // enough candidates
+        }
+
+        // Enrich with adjacent context
+        const results: VectorSearchResult[] = selected.slice(0, topK).map(s => ({
+            path: s.path,
+            text: this.getAdjacentText(s.path, s.chunkIndex, queryVector, adjacentWindow, adjacentThreshold),
+            chunkIndex: s.chunkIndex,
+            score: s.score,
+        }));
+
+        return results;
+    }
+
+    // -----------------------------------------------------------------------
+    // Note-level vectors (for implicit connection computation)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Compute note-level vectors by averaging all chunk vectors per file path.
+     * Excludes session:/episode: entries. Returns Map<path, avgVector>.
+     */
+    getNoteVectors(): Map<string, Float32Array> {
+        const cache = this.ensureCache();
+        const byPath = new Map<string, Float32Array[]>();
+
+        for (const c of cache) {
+            if (c.path.startsWith('session:') || c.path.startsWith('episode:')) continue;
+            const list = byPath.get(c.path) ?? [];
+            list.push(c.vector);
+            byPath.set(c.path, list);
+        }
+
+        const result = new Map<string, Float32Array>();
+        for (const [path, vectors] of byPath) {
+            if (vectors.length === 0) continue;
+            const dim = vectors[0].length;
+            const avg = new Float32Array(dim);
+            for (const v of vectors) {
+                for (let i = 0; i < dim; i++) avg[i] += v[i];
+            }
+            for (let i = 0; i < dim; i++) avg[i] /= vectors.length;
+            result.set(path, avg);
+        }
+
+        return result;
+    }
+
+    // -----------------------------------------------------------------------
+    // Background enrichment helpers (Pass 2)
+    // -----------------------------------------------------------------------
+
+    /** Fetch a batch of unenriched vault chunks (excludes session:/episode: entries). */
+    getUnenrichedChunks(limit = 50): Array<{ id: number; path: string; chunkIndex: number; text: string }> {
+        const db = this.getDB();
+        const result = db.exec(
+            "SELECT id, path, chunk_index, text FROM vectors WHERE enriched = 0 AND path NOT LIKE 'session:%' AND path NOT LIKE 'episode:%' LIMIT ?",
+            [limit],
+        );
+        if (result.length === 0) return [];
+        return result[0].values.map(row => ({
+            id: row[0] as number,
+            path: row[1] as string,
+            chunkIndex: row[2] as number,
+            text: row[3] as string,
+        }));
+    }
+
+    /** Update a single chunk with enriched text + re-embedded vector. */
+    updateChunkEnriched(id: number, text: string, vector: Float32Array): void {
+        const db = this.getDB();
+        const vecBytes = new Uint8Array(vector.buffer, vector.byteOffset, vector.byteLength);
+        db.run('UPDATE vectors SET text = ?, vector = ?, enriched = 1 WHERE id = ?', [text, vecBytes, id]);
+        this.invalidateCache();
+        this.knowledgeDB.markDirty();
+    }
+
+    /** Count unenriched vault chunks (for progress tracking). */
+    getUnenrichedCount(): number {
+        const db = this.getDB();
+        const result = db.exec(
+            "SELECT COUNT(*) FROM vectors WHERE enriched = 0 AND path NOT LIKE 'session:%' AND path NOT LIKE 'episode:%'",
+        );
+        if (result.length === 0 || result[0].values.length === 0) return 0;
+        return result[0].values[0][0] as number;
+    }
+
+    /** Count all vault chunks (for progress denominator). */
+    getTotalVaultChunkCount(): number {
+        const db = this.getDB();
+        const result = db.exec(
+            "SELECT COUNT(*) FROM vectors WHERE path NOT LIKE 'session:%' AND path NOT LIKE 'episode:%'",
+        );
+        if (result.length === 0 || result[0].values.length === 0) return 0;
+        return result[0].values[0][0] as number;
+    }
+
+    /** Reset all vault chunks to unenriched (e.g. after contextual model change). */
+    resetEnrichmentStatus(): void {
+        const db = this.getDB();
+        db.run("UPDATE vectors SET enriched = 0 WHERE path NOT LIKE 'session:%' AND path NOT LIKE 'episode:%'");
+        this.invalidateCache();
+        this.knowledgeDB.markDirty();
     }
 
     // -----------------------------------------------------------------------

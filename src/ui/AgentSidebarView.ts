@@ -191,7 +191,8 @@ export class AgentSidebarView extends ItemView {
         setIcon(settingsBtn.createSpan('toolbar-icon'), 'settings');
         settingsBtn.addEventListener('click', () => {
             this.app.setting?.open();
-            this.app.setting?.openTabById('obsilo-agent');
+            // Delay navigation — the modal needs time to render before openTabById works
+            setTimeout(() => this.app.setting?.openTabById('obsilo-agent'), 50);
         });
 
         // History button — opens conversation history panel
@@ -479,7 +480,7 @@ export class AgentSidebarView extends ItemView {
             menu.addItem((item) =>
                 item.setTitle(t('ui.sidebar.noModelsEnabled')).setIcon('settings').onClick(() => {
                     this.app.setting?.open();
-                    this.app.setting?.openTabById('obsilo-agent');
+                    setTimeout(() => this.app.setting?.openTabById('obsilo-agent'), 50);
                 }),
             );
         } else {
@@ -1005,7 +1006,7 @@ export class AgentSidebarView extends ItemView {
         settingsBtn.addEventListener('click', () => {
             this.disableOnboardingButtons(btnRow);
             this.app.setting?.open?.();
-            this.app.setting?.openTabById?.('obsilo-agent');
+            setTimeout(() => this.app.setting?.openTabById?.('obsilo-agent'), 50);
         });
 
         this.chatContainer.scrollTop = this.chatContainer.scrollHeight;

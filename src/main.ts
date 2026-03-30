@@ -18,6 +18,9 @@ import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
 import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
+import { GraphStore } from './core/knowledge/GraphStore';
+import { GraphExtractor } from './core/knowledge/GraphExtractor';
+import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
 import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
@@ -81,6 +84,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     semanticIndex: SemanticIndexService | null = null;
     knowledgeDB: KnowledgeDB | null = null;
     vectorStore: VectorStore | null = null;
+    graphStore: GraphStore | null = null;
+    graphExtractor: GraphExtractor | null = null;
+    implicitConnectionService: ImplicitConnectionService | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -367,23 +373,76 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e)
             );
             this.vectorStore = new VectorStore(this.knowledgeDB);
+            this.graphStore = new GraphStore(this.knowledgeDB);
             this.semanticIndex = new SemanticIndexService(this.app.vault, this.knowledgeDB, this.vectorStore, {
                 batchSize: this.settings.semanticBatchSize,
                 embeddingBatchSize: 16,  // texts per API call — batch for performance
                 excludedFolders: this.settings.semanticExcludedFolders,
                 indexPdfs: this.settings.semanticIndexPdfs,
                 chunkSize: this.settings.semanticChunkSize ?? 2000,
+                enableContextualRetrieval: this.settings.enableContextualRetrieval,
             });
             const embeddingModel = this.getActiveEmbeddingModel();
             if (embeddingModel) this.semanticIndex.setEmbeddingModel(embeddingModel);
+            // Contextual Retrieval: set API handler for prefix generation (FEATURE-1501)
+            if (this.settings.enableContextualRetrieval && this.settings.contextualModelKey) {
+                const ctxModel = this.settings.activeModels.find(
+                    (m) => getModelKey(m) === this.settings.contextualModelKey && m.enabled,
+                );
+                if (ctxModel) {
+                    const { buildApiHandlerForModel } = await import('./api/index');
+                    this.semanticIndex.setContextualApiHandler(buildApiHandlerForModel(ctxModel));
+                }
+            }
             await this.semanticIndex.initialize().catch((e) =>
                 console.warn('[Plugin] Semantic index init failed (non-fatal):', e)
             );
             // Auto-index on startup if configured
             if (this.settings.semanticAutoIndex === 'startup') {
+                // buildIndex() auto-triggers enrichment after completion
                 this.semanticIndex.buildIndex().catch((e) =>
                     console.warn('[Plugin] Auto-index on startup failed:', e)
                 );
+            } else if (
+                this.semanticIndex.isIndexed &&
+                this.settings.enableContextualRetrieval &&
+                this.settings.contextualModelKey &&
+                this.vectorStore
+            ) {
+                // No build needed, but check for unenriched chunks from a previous session
+                const unenriched = this.vectorStore.getUnenrichedCount();
+                if (unenriched > 0) {
+                    console.debug(`[Plugin] ${unenriched} unenriched chunks found — starting background enrichment`);
+                    void this.semanticIndex.runBackgroundEnrichment();
+                }
+            }
+
+            // Graph Extraction (FEATURE-1502): extract Wikilinks, MOC-Properties, Tags
+            if (this.settings.enableGraphExpansion && this.graphStore) {
+                this.graphExtractor = new GraphExtractor(
+                    this.app,
+                    this.graphStore,
+                    this.settings.mocPropertyNames ?? [],
+                );
+                // Full extraction on startup (fast: reads metadataCache only, no file I/O)
+                this.app.workspace.onLayoutReady(() => {
+                    this.graphExtractor?.extractAll(this.app.vault);
+                });
+            }
+
+            // Implicit Connections (FEATURE-1503): discover semantically similar notes
+            if (this.settings.enableImplicitConnections && this.vectorStore && this.graphStore) {
+                this.implicitConnectionService = new ImplicitConnectionService(
+                    this.knowledgeDB,
+                    this.vectorStore,
+                    this.graphStore,
+                );
+                // Auto-compute after startup if index exists
+                if (this.semanticIndex.isIndexed) {
+                    this.app.workspace.onLayoutReady(() => {
+                        void this.implicitConnectionService?.computeAll(this.settings.implicitThreshold);
+                    });
+                }
             }
         }
 
@@ -396,18 +455,33 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.registerEvent(this.app.vault.on('modify', (file) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
+                // Graph + implicit: update edges/tags and recompute implicit connections
+                if (file.extension === 'md') {
+                    this.graphExtractor?.extractFile(file);
+                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                }
             }));
             this.registerEvent(this.app.vault.on('create', (file) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
+                if (file.extension === 'md') {
+                    this.graphExtractor?.extractFile(file);
+                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                }
             }));
             this.registerEvent(this.app.vault.on('delete', (file) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 void this.semanticIndex?.removeFile(file.path);
+                this.graphExtractor?.removeFile(file.path);
             }));
             this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 void this.semanticIndex?.removeFile(oldPath);
+                this.graphExtractor?.removeFile(oldPath);
+                if (file instanceof TFile && file.extension === 'md') {
+                    this.graphExtractor?.extractFile(file);
+                    void this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                }
                 this.scheduleFileIndex(file.path);
             }));
         }
@@ -573,6 +647,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] SyncBridge push failed (non-fatal):', e)
             );
             await this.mcpClient?.disconnectAll();
+            // Stop background processes before closing DB
+            this.semanticIndex?.cancelEnrichment();
+            this.implicitConnectionService?.cancel();
             // Close KnowledgeDB (final save + cleanup)
             await this.knowledgeDB?.close().catch((e) =>
                 console.warn('[Plugin] KnowledgeDB close failed (non-fatal):', e)

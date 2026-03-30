@@ -521,10 +521,28 @@ export interface ObsidianAgentSettings {
     semanticIndexPdfs: boolean;
     /** Chunk size in characters. Changing this invalidates and rebuilds the index. */
     semanticChunkSize: number;
+    /** Contextual Retrieval: prepend LLM-generated context prefix to each chunk before embedding (ADR-051 Stufe 0). */
+    enableContextualRetrieval: boolean;
+    /** Model key for contextual prefix generation (picks from activeModels[]). */
+    contextualModelKey: string;
     /** HyDE: generate a hypothetical document before embedding the query. Off by default (costs 1 extra LLM call per search). */
     hydeEnabled: boolean;
     /** Auto-index vault files as they change (modify/create/delete/rename). Off by default — can slow down Obsidian if using a local embedding model. */
     semanticAutoIndexOnChange: boolean;
+
+    // Graph Expansion (FEATURE-1502)
+    /** Enable graph-based search expansion via Wikilinks and MOC-Properties. */
+    enableGraphExpansion: boolean;
+    /** Number of hops to follow in the graph (1-3). Higher = more context but slower. */
+    graphExpansionHops: number;
+    /** Frontmatter property names to extract as MOC edges (e.g. Themen, Konzepte). */
+    mocPropertyNames: string[];
+
+    // Implicit Connections (FEATURE-1503)
+    /** Enable implicit connection discovery (semantically similar notes without explicit links). */
+    enableImplicitConnections: boolean;
+    /** Minimum cosine similarity threshold for implicit connections (0.5-0.9). */
+    implicitThreshold: number;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -776,8 +794,15 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticStorageLocation: 'global',
     semanticIndexPdfs: false,
     semanticChunkSize: 2000,
+    enableContextualRetrieval: true,
+    contextualModelKey: '',
     hydeEnabled: false,
     semanticAutoIndexOnChange: false,
+    enableGraphExpansion: true,
+    graphExpansionHops: 1,
+    mocPropertyNames: ['Themen', 'Konzepte', 'Personen', 'Notizen', 'Meeting-Notes', 'Quellen'],
+    enableImplicitConnections: true,
+    implicitThreshold: 0.7,
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,

@@ -19,6 +19,7 @@ import type { Vault } from 'obsidian';
 import type { CustomModel } from '../../types/settings';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
 import type { VectorStore } from '../knowledge/VectorStore';
+import type { ApiHandler } from '../../api/types';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -52,6 +53,8 @@ export interface SemanticIndexOptions {
     indexPdfs?: boolean;
     /** Characters per chunk. Default: 2000. Changing this forces a full index rebuild. */
     chunkSize?: number;
+    /** Contextual Retrieval: prepend LLM-generated context to chunks before embedding (ADR-051). Default: true */
+    enableContextualRetrieval?: boolean;
 }
 
 const DEFAULT_CHUNK_SIZE = 2000;   // chars — larger chunks → fewer API calls
@@ -69,6 +72,7 @@ export class SemanticIndexService {
 
     private isBuilding = false;
     private cancelled = false;
+    private abortController: AbortController | null = null;
     private builtAt: Date | null = null;
 
     private embeddingModel: CustomModel | null = null;
@@ -77,6 +81,8 @@ export class SemanticIndexService {
     private excludedFolders: string[];
     private indexPdfs: boolean;
     private chunkSize: number;
+    private enableContextualRetrieval: boolean;
+    private contextualApiHandler: ApiHandler | null = null;
 
     // Auto-update queue: process one file at a time so concurrent vault events
     // don't spawn dozens of simultaneous embedding calls (which freezes Obsidian).
@@ -90,6 +96,16 @@ export class SemanticIndexService {
     /** Last build diagnostics — available after buildIndex() completes. */
     lastBuildResult: BuildResult | null = null;
 
+    // Background enrichment state (Pass 2)
+    private enrichmentRunning = false;
+    private enrichmentCancelled = false;
+    private enrichmentAbortController: AbortController | null = null;
+    /** Live progress for enrichment (Pass 2). */
+    enrichmentProcessed = 0;
+    enrichmentTotal = 0;
+    /** Whether background enrichment is active (for UI polling). */
+    get enriching(): boolean { return this.enrichmentRunning; }
+
     constructor(vault: Vault, knowledgeDB: KnowledgeDB, vectorStore: VectorStore, options: SemanticIndexOptions = {}) {
         this.vault = vault;
         this.knowledgeDB = knowledgeDB;
@@ -99,6 +115,13 @@ export class SemanticIndexService {
         this.excludedFolders = options.excludedFolders ?? [];
         this.indexPdfs = options.indexPdfs ?? false;
         this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
+        this.enableContextualRetrieval = options.enableContextualRetrieval ?? true;
+    }
+
+    /** Set the API handler for contextual prefix generation (FEATURE-1501). */
+    setContextualApiHandler(handler: ApiHandler | null): void {
+        this.contextualApiHandler = handler;
+        if (handler) console.debug('[SemanticIndex] Contextual Retrieval model configured');
     }
 
     // -----------------------------------------------------------------------
@@ -111,6 +134,7 @@ export class SemanticIndexService {
         if (options.excludedFolders !== undefined) this.excludedFolders = options.excludedFolders;
         if (options.indexPdfs !== undefined) this.indexPdfs = options.indexPdfs;
         if (options.chunkSize !== undefined) this.chunkSize = options.chunkSize;
+        if (options.enableContextualRetrieval !== undefined) this.enableContextualRetrieval = options.enableContextualRetrieval;
     }
 
     get isIndexed(): boolean { return this.builtAt !== null; }
@@ -122,9 +146,19 @@ export class SemanticIndexService {
         if (model) console.debug(`[SemanticIndex] Using embedding model: ${model.name} (${model.provider})`);
     }
 
-    /** Stop an in-progress buildIndex(). Partial progress is saved to checkpoint. */
+    /** Stop an in-progress buildIndex(). Aborts pending API calls immediately. */
     cancelBuild(): void {
         this.cancelled = true;
+        // Abort any pending HTTP requests (embedding + contextual prefix)
+        this.abortController?.abort();
+        // Also cancel background enrichment if running
+        this.cancelEnrichment();
+    }
+
+    /** Cancel the background enrichment process (Pass 2). */
+    cancelEnrichment(): void {
+        this.enrichmentCancelled = true;
+        this.enrichmentAbortController?.abort();
     }
 
     /** Restore state from checkpoint stored in the KnowledgeDB. */
@@ -134,10 +168,12 @@ export class SemanticIndexService {
                 await this.knowledgeDB.open();
             }
             const builtAt = this.knowledgeDB.getCheckpointValue('builtAt');
-            const docCount = this.knowledgeDB.getCheckpointValue('docCount');
             if (builtAt) {
                 this.builtAt = new Date(builtAt);
-                this.docCount = docCount ? parseInt(docCount, 10) : this.vectorStore.getFileCount();
+                // Always use the actual DB file count as source of truth (not the
+                // checkpoint value which can be stale after settings changes like
+                // enabling PDF indexing).
+                this.docCount = this.vectorStore.getFileCount();
             }
         } catch { /* non-fatal */ }
     }
@@ -166,6 +202,9 @@ export class SemanticIndexService {
         }
         this.isBuilding = true;
         this.cancelled = false;
+        this.abortController = new AbortController();
+        // Cancel any running background enrichment — will restart after build
+        this.cancelEnrichment();
         const startTime = Date.now();
         const skippedFiles: string[] = [];
 
@@ -173,8 +212,13 @@ export class SemanticIndexService {
             // ----------------------------------------------------------------
             // 1. Determine file list (Markdown + optionally PDFs)
             // ----------------------------------------------------------------
-            const mdFiles = this.vault.getMarkdownFiles();
+            // Filter out non-indexable file types (.excalidraw.md = JSON blobs, not text)
+            const NON_INDEXABLE_SUFFIXES = ['.excalidraw.md'];
+            const mdFiles = this.vault.getMarkdownFiles()
+                .filter((f) => !NON_INDEXABLE_SUFFIXES.some((s) => f.path.endsWith(s)));
             const DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
+            // Image OCR via text-extractor is available but NOT included in bulk indexing
+            // (too slow — 382 images would take hours). Images can be indexed individually later.
             const allFiles = this.indexPdfs
                 ? [
                     ...mdFiles,
@@ -187,6 +231,14 @@ export class SemanticIndexService {
                 ))
                 : allFiles;
             const total = files.length;
+
+            // Diagnostic: log file count breakdown so we can verify PDF inclusion
+            const docCount = allFiles.length - mdFiles.length;
+            const excluded = allFiles.length - files.length;
+            console.debug(
+                `[SemanticIndex] File breakdown: ${mdFiles.length} markdown, ${docCount} documents (indexPdfs=${this.indexPdfs}), ` +
+                `${excluded} excluded → ${total} total`,
+            );
 
             const modelKey = this.modelKey();
 
@@ -258,8 +310,10 @@ export class SemanticIndexService {
                     const chunks = this.splitIntoChunks(content, this.chunkSize);
 
                     if (chunks.length > 0) {
+                        // Pass 1: embed raw chunks without contextual enrichment (fast).
+                        // Enrichment runs as Pass 2 in the background after build completes.
                         const vectors = await this.embedBatch(chunks);
-                        this.vectorStore.insertChunks(file.path, chunks, vectors, file.stat?.mtime ?? 0);
+                        this.vectorStore.insertChunks(file.path, chunks, vectors, file.stat?.mtime ?? 0, 0);
                     }
 
                     indexed++;
@@ -308,12 +362,25 @@ export class SemanticIndexService {
 
             const result: BuildResult = { indexed, total, errors, cancelled: this.cancelled, skippedFiles, durationMs: Date.now() - startTime };
             this.lastBuildResult = result;
+
+            // Auto-start background enrichment (Pass 2) after successful build
+            if (!this.cancelled && this.enableContextualRetrieval && this.contextualApiHandler) {
+                setTimeout(() => {
+                    void this.runBackgroundEnrichment();
+                }, 1000);
+            }
+
             return result;
         } catch (e) {
+            if (this.cancelled) {
+                console.debug('[SemanticIndex] Build cancelled by user.');
+                return { indexed: 0, total: 0, errors: 0, cancelled: true, skippedFiles: [], durationMs: Date.now() - startTime };
+            }
             console.error('[SemanticIndex] Build failed:', e);
             throw e;
         } finally {
             this.isBuilding = false;
+            this.abortController = null;
         }
     }
 
@@ -330,9 +397,9 @@ export class SemanticIndexService {
             const content = await this.readFileContent(file);
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length > 0) {
+                // Pass 1 only: embed raw chunks. Background enrichment handles Pass 2.
                 const vectors = await this.embedBatch(chunks);
-                // insertChunks does DELETE + INSERT internally
-                this.vectorStore.insertChunks(filePath, chunks, vectors, file.stat?.mtime ?? 0);
+                this.vectorStore.insertChunks(filePath, chunks, vectors, file.stat?.mtime ?? 0, 0);
             } else {
                 this.vectorStore.deleteByPath(filePath);
             }
@@ -529,12 +596,39 @@ export class SemanticIndexService {
      * Search the index. Returns top-K most relevant chunks.
      * @param textForEmbedding - Optional override for what gets embedded (used by HyDE).
      *   When provided, this text is embedded instead of `query`.
+     * @param options - Enhanced retrieval options (FEATURE-1501):
+     *   - adjacentChunks: window size for adjacent chunk context (default: 0 = off)
+     *   - adjacentThreshold: min similarity for adjacent chunks to be included (default: 0.3)
+     *   - maxPerFile: max results per file (default: 1)
      */
-    async search(query: string, topK = 5, textForEmbedding?: string): Promise<SemanticResult[]> {
+    async search(
+        query: string,
+        topK = 5,
+        textForEmbedding?: string,
+        options?: { adjacentChunks?: number; adjacentThreshold?: number; maxPerFile?: number },
+    ): Promise<SemanticResult[]> {
         if (!this.knowledgeDB.isOpen()) return [];
         try {
             const embedText = textForEmbedding ?? query;
             const [vector] = await this.embedBatch([embedText]);
+
+            // Enhanced search with adjacent context + multi-chunk per file
+            if (options?.adjacentChunks || (options?.maxPerFile && options.maxPerFile > 1)) {
+                const results = this.vectorStore.searchWithContext(
+                    vector,
+                    topK,
+                    options.adjacentChunks ?? 1,
+                    options.adjacentThreshold ?? 0.3,
+                    options.maxPerFile ?? 1,
+                );
+                return results.map((r) => ({
+                    path: r.path,
+                    excerpt: r.text,
+                    score: r.score,
+                }));
+            }
+
+            // Default: single best chunk per file (backward compatible)
             const results = this.vectorStore.searchUniqueFiles(vector, topK);
             return results.map((r) => ({
                 path: r.path,
@@ -625,13 +719,224 @@ export class SemanticIndexService {
         }
     }
 
-    /** Delete the DB and reset state. */
+    /** Delete the DB and reset state. Reopens the DB so subsequent builds work. */
     async deleteIndex(): Promise<void> {
+        this.cancelEnrichment();
         try {
             await this.knowledgeDB.deleteDB();
+            // deleteDB() closes the DB — reopen so buildIndex() can use it immediately
+            await this.knowledgeDB.open();
         } catch { /* non-fatal */ }
         this.builtAt = null;
         this.docCount = 0;
+        this.progressIndexed = 0;
+        this.progressTotal = 0;
+        this.lastBuildResult = null;
+        this.enrichmentProcessed = 0;
+        this.enrichmentTotal = 0;
+    }
+
+    // -----------------------------------------------------------------------
+    // Background Enrichment (Pass 2) — ADR-051 Stufe 0
+    // -----------------------------------------------------------------------
+
+    /** Get enrichment progress for UI polling. */
+    getEnrichmentProgress(): { processed: number; total: number; running: boolean } {
+        return {
+            processed: this.enrichmentProcessed,
+            total: this.enrichmentTotal,
+            running: this.enrichmentRunning,
+        };
+    }
+
+    /**
+     * Pass 2: Background enrichment loop.
+     * Fetches unenriched chunks in batches, generates Haiku prefixes,
+     * re-embeds, and updates in place. Resumable: picks up where it left off
+     * because it queries enriched=0 each iteration.
+     *
+     * Search works throughout — quality improves as chunks are enriched.
+     */
+    async runBackgroundEnrichment(): Promise<void> {
+        if (this.enrichmentRunning || this.isBuilding) return;
+        if (!this.enableContextualRetrieval || !this.contextualApiHandler) {
+            console.debug('[SemanticIndex] Background enrichment skipped: contextual retrieval disabled or no handler');
+            return;
+        }
+        if (!this.embeddingModel) return;
+
+        this.enrichmentRunning = true;
+        this.enrichmentCancelled = false;
+        this.enrichmentAbortController = new AbortController();
+
+        // Compute totals for progress
+        this.enrichmentTotal = this.vectorStore.getTotalVaultChunkCount();
+        this.enrichmentProcessed = this.enrichmentTotal - this.vectorStore.getUnenrichedCount();
+
+        console.debug(
+            `[SemanticIndex] Background enrichment started: ${this.enrichmentProcessed}/${this.enrichmentTotal} already enriched`,
+        );
+
+        try {
+            const BATCH_SIZE = 50;
+            let batch = this.vectorStore.getUnenrichedChunks(BATCH_SIZE);
+
+            while (batch.length > 0 && !this.enrichmentCancelled) {
+                // Group chunks by path so we read each file only once
+                const byPath = new Map<string, typeof batch>();
+                for (const chunk of batch) {
+                    const list = byPath.get(chunk.path) ?? [];
+                    list.push(chunk);
+                    byPath.set(chunk.path, list);
+                }
+
+                for (const [filePath, chunks] of byPath) {
+                    if (this.enrichmentCancelled) break;
+
+                    // Read full document for context
+                    let fullContent: string;
+                    try {
+                        const file = this.vault.getFileByPath(filePath);
+                        if (!file) {
+                            // File deleted since indexing — skip
+                            this.enrichmentProcessed += chunks.length;
+                            continue;
+                        }
+                        fullContent = await this.readFileContent(file);
+                    } catch {
+                        this.enrichmentProcessed += chunks.length;
+                        continue;
+                    }
+
+                    for (const chunk of chunks) {
+                        if (this.enrichmentCancelled) break;
+                        try {
+                            const enrichedTexts = await this.enrichChunkWithContext(
+                                [chunk.text], filePath, fullContent,
+                            );
+                            const enrichedText = enrichedTexts[0];
+                            const [vector] = await this.embedBatch([enrichedText]);
+                            this.vectorStore.updateChunkEnriched(chunk.id, enrichedText, vector);
+                        } catch (e) {
+                            // Non-fatal: leave as unenriched, will retry next run
+                            console.warn(`[SemanticIndex] Enrichment failed for chunk ${chunk.id}:`, e);
+                        }
+                        this.enrichmentProcessed++;
+                        // Yield to UI thread
+                        await new Promise<void>(r => setTimeout(r, 0));
+                    }
+
+                    // Pause between files to avoid rate limiting
+                    await this.sleep(100);
+                }
+
+                // Persist progress periodically
+                await this.knowledgeDB.save();
+
+                // Fetch next batch
+                batch = this.vectorStore.getUnenrichedChunks(BATCH_SIZE);
+            }
+
+            if (!this.enrichmentCancelled) {
+                console.debug('[SemanticIndex] Background enrichment complete');
+            } else {
+                console.debug('[SemanticIndex] Background enrichment cancelled');
+            }
+        } catch (e) {
+            console.warn('[SemanticIndex] Background enrichment error:', e);
+        } finally {
+            this.enrichmentRunning = false;
+            this.enrichmentAbortController = null;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Contextual Retrieval (ADR-051 Stufe 0)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Enrich chunks with LLM-generated context prefixes (Anthropic Contextual Retrieval).
+     * Each chunk gets a 2-3 sentence prefix describing its position within the document.
+     * The enriched text is used for both embedding and storage — improving search quality
+     * by 49-67% (Anthropic benchmark) because embeddings capture document-level context.
+     *
+     * Falls back to original chunks on any error or when disabled.
+     */
+    private async enrichChunkWithContext(
+        chunks: string[],
+        filePath: string,
+        fullContent: string,
+    ): Promise<string[]> {
+        if (!this.enableContextualRetrieval || !this.contextualApiHandler || chunks.length === 0) {
+            return chunks;
+        }
+
+        // Build a compact document summary for the prompt: title + headings + first 1500 chars
+        const title = filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? filePath;
+        const headings = fullContent.match(/^#{1,3} .+$/gm)?.slice(0, 10)?.join('\n') ?? '';
+        const docContext = fullContent.slice(0, 1500);
+
+        const enriched: string[] = [];
+        for (const chunk of chunks) {
+            // Respect cancel flag during enrichment (can take many seconds per chunk)
+            if (this.cancelled) return chunks;
+            try {
+                const prompt =
+                    `<document title="${title}">\n${headings ? `Headings:\n${headings}\n\n` : ''}${docContext}\n</document>\n\n` +
+                    `<chunk>\n${chunk.slice(0, 800)}\n</chunk>\n\n` +
+                    `Give a short (2-3 sentence) context that situates this chunk within the document. ` +
+                    `Mention the document topic and what specific aspect this chunk covers. ` +
+                    `Answer only with the context, no preamble.`;
+
+                const contextPrefix = await this.generateContextPrefix(prompt);
+                if (contextPrefix) {
+                    enriched.push(`${contextPrefix}\n\n${chunk}`);
+                } else {
+                    enriched.push(chunk);
+                }
+            } catch {
+                // Non-fatal: use original chunk without prefix
+                enriched.push(chunk);
+            }
+        }
+        return enriched;
+    }
+
+    /**
+     * Generate a context prefix using the configured contextual API handler.
+     * Uses the same streaming pattern as chat titling (buildApiHandlerForModel).
+     */
+    private async generateContextPrefix(prompt: string): Promise<string | null> {
+        if (!this.contextualApiHandler) return null;
+
+        const TIMEOUT_MS = 15_000;
+        try {
+            const resultPromise = (async () => {
+                let result = '';
+                for await (const chunk of this.contextualApiHandler!.createMessage(
+                    'You generate short context descriptions for document chunks. Answer only with the context, no preamble.',
+                    [{ role: 'user', content: prompt }],
+                    [],
+                )) {
+                    if (this.cancelled) break;
+                    if (chunk.type === 'text') result += chunk.text;
+                }
+                return result.trim();
+            })();
+            const abortPromise = this.abortController
+                ? new Promise<never>((_, reject) => {
+                    this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
+                })
+                : new Promise<never>(() => {}); // never resolves
+            const timeoutPromise = new Promise<string>((_, reject) =>
+                setTimeout(() => reject(new Error('Context prefix timed out')), TIMEOUT_MS),
+            );
+            const trimmed = await Promise.race([resultPromise, abortPromise, timeoutPromise]);
+            return trimmed.length > 10 ? trimmed : null;
+        } catch (e) {
+            console.warn('[SemanticIndex] Context prefix generation failed:', e);
+            return null;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -650,6 +955,7 @@ export class SemanticIndexService {
 
         const results: Float32Array[] = [];
         for (let i = 0; i < texts.length; i += this.embeddingBatchSize) {
+            if (this.cancelled) throw new Error('Build cancelled');
             const batch = texts.slice(i, i + this.embeddingBatchSize);
             const vectors = await this.embedBatchViaApiWithRetry(batch, this.embeddingModel);
             results.push(...vectors);
@@ -669,6 +975,8 @@ export class SemanticIndexService {
             try {
                 return await this.embedBatchViaApi(texts, model);
             } catch (e: unknown) {
+                // If build was cancelled, don't retry — bubble up immediately
+                if (this.cancelled) throw e;
                 const err = e as Record<string, unknown> | null;
                 const status = err?.status ?? err?.statusCode;
                 const msg = String((err?.message as string) ?? e ?? '');
@@ -689,57 +997,91 @@ export class SemanticIndexService {
     }
 
     private async embedBatchViaApi(texts: string[], model: CustomModel): Promise<Float32Array[]> {
-        let url: string;
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        // OpenAI-compatible batch: input is an array of strings
-        const body: Record<string, unknown> = { input: texts };
-
+        // Azure uses requestUrl (deployment-based URL with api-key header)
         if (model.provider === 'azure') {
-            const base = (model.baseUrl ?? '').replace(/\/+$/, '');
-            const apiVersion = model.apiVersion ?? '2024-10-21';
-            url = `${base}/deployments/${model.name}/embeddings?api-version=${apiVersion}`;
-            if (model.apiKey) headers['api-key'] = model.apiKey;
-        } else if (model.provider === 'openai') {
-            url = 'https://api.openai.com/v1/embeddings';
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+            return this.embedBatchViaRequestUrl(texts, model);
+        }
+        // All OpenAI-compatible providers use the OpenAI SDK
+        // (requestUrl has issues with some providers like OpenRouter)
+        return this.embedBatchViaSdk(texts, model);
+    }
+
+    /**
+     * Embed via OpenAI SDK — works for OpenAI, OpenRouter, Ollama, LMStudio, custom.
+     * The SDK handles HTTP correctly where requestUrl may fail.
+     */
+    private async embedBatchViaSdk(texts: string[], model: CustomModel): Promise<Float32Array[]> {
+        const OpenAI = (await import('openai')).default;
+
+        let baseURL: string;
+        if (model.provider === 'openai') {
+            baseURL = 'https://api.openai.com/v1';
         } else if (model.provider === 'openrouter') {
-            url = 'https://openrouter.ai/api/v1/embeddings';
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+            baseURL = 'https://openrouter.ai/api/v1';
         } else if (model.provider === 'ollama' || model.provider === 'lmstudio') {
             const base = (
                 model.baseUrl ||
                 (model.provider === 'lmstudio' ? 'http://localhost:1234' : 'http://localhost:11434')
             ).replace(/\/v1\/?$/, '').replace(/\/+$/, '');
-            url = `${base}/v1/embeddings`;
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+            baseURL = `${base}/v1`;
         } else {
-            // custom provider
             const base = (model.baseUrl ?? '').replace(/\/+$/, '');
-            url = `${base}/embeddings`;
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+            baseURL = base.endsWith('/v1') ? base : `${base}/v1`;
         }
 
+        const client = new OpenAI({
+            apiKey: model.apiKey || 'unused',
+            baseURL,
+            dangerouslyAllowBrowser: true,
+            timeout: 30_000,
+        });
+
+        console.debug(`[SemanticIndex] Embedding via SDK: ${model.provider} ${baseURL} model=${model.name} texts=${texts.length}`);
+
+        const response = await client.embeddings.create({
+            model: model.name,
+            input: texts,
+        });
+
+        const sorted = response.data.sort((a, b) => a.index - b.index);
+        return sorted.map((d) => new Float32Array(d.embedding));
+    }
+
+    /**
+     * Embed via requestUrl — used for Azure (non-standard auth headers).
+     */
+    private async embedBatchViaRequestUrl(texts: string[], model: CustomModel): Promise<Float32Array[]> {
+        const base = (model.baseUrl ?? '').replace(/\/+$/, '');
+        const apiVersion = model.apiVersion ?? '2024-10-21';
+        const url = `${base}/deployments/${model.name}/embeddings?api-version=${apiVersion}`;
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (model.apiKey) headers['api-key'] = model.apiKey;
+        const body = { input: texts };
+
+        console.debug(`[SemanticIndex] Embedding via requestUrl: azure ${url} texts=${texts.length}`);
         const TIMEOUT_MS = 30_000;
         const timeoutPromise = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`[SemanticIndex] API request timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
         );
+        const abortPromise = this.abortController
+            ? new Promise<never>((_, reject) => {
+                this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
+            })
+            : new Promise<never>(() => {});
         const res = await Promise.race([
-            requestUrl({ url, method: 'POST', headers, body: JSON.stringify(body), throw: true }),
+            requestUrl({ url, method: 'POST', headers, body: JSON.stringify(body), throw: false }),
             timeoutPromise,
+            abortPromise,
         ]);
+        if (res.status !== 200) {
+            const errText = (() => { try { return JSON.stringify(res.json).slice(0, 200); } catch { return ''; } })();
+            throw new Error(`[SemanticIndex] Embedding API returned HTTP ${res.status}: ${errText}`);
+        }
 
         const data: Array<{ embedding: number[]; index: number }> = res.json?.data;
         if (!data || !Array.isArray(data)) {
-            throw new Error(
-                `[SemanticIndex] Invalid batch embedding response from ${model.provider}: ` +
-                `missing data array`,
-            );
+            throw new Error(`[SemanticIndex] Invalid embedding response: missing data array`);
         }
-        // API returns items sorted by index — sort to be safe
         data.sort((a, b) => a.index - b.index);
         return data.map((d) => new Float32Array(d.embedding));
     }
@@ -765,24 +1107,59 @@ export class SemanticIndexService {
     }
 
     // -----------------------------------------------------------------------
-    // File reading (Markdown + PDF + Office documents)
+    // File reading (Markdown + PDF + Office documents + OCR images)
     // -----------------------------------------------------------------------
 
     private static readonly BINARY_DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'potx', 'xlsx', 'docx']);
+    private static readonly IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp']);
+
+    /**
+     * Get the text-extractor plugin API (if installed).
+     * Used for OCR on images — text-extractor handles Tesseract and caching.
+     */
+    private getTextExtractorApi(): { extractText: (file: unknown) => Promise<string>; canFileBeExtracted: (path: string) => boolean } | null {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- text-extractor plugin API access via undocumented vault.app backref
+        const app = (this.vault as any).app ?? (globalThis as any).app;
+        return app?.plugins?.plugins?.['text-extractor']?.api ?? null;
+    }
 
     /**
      * Read a file's text content.
      * - Markdown/plaintext: uses vault.cachedRead (fast, cached)
      * - PDF/PPTX/XLSX/DOCX: extracts text via parseDocument (document-parsers module)
+     * - Images: OCR via text-extractor plugin (if installed)
      */
     private async readFileContent(file: { path: string; extension: string }): Promise<string> {
         if (SemanticIndexService.BINARY_DOCUMENT_EXTENSIONS.has(file.extension)) {
             return this.extractDocumentText(file.path, file.extension);
         }
+        // OCR for images via text-extractor companion plugin
+        if (SemanticIndexService.IMAGE_EXTENSIONS.has(file.extension)) {
+            return this.extractImageText(file.path);
+        }
         // For all other types (md, txt, canvas, …) use the vault cache
         const vaultFile = this.vault.getFileByPath(file.path);
         if (!vaultFile) return '';
         return this.vault.cachedRead(vaultFile);
+    }
+
+    /**
+     * Extract text from an image via the text-extractor plugin (OCR).
+     * Returns empty string if the plugin is not installed or extraction fails.
+     */
+    private async extractImageText(filePath: string): Promise<string> {
+        try {
+            const api = this.getTextExtractorApi();
+            if (!api) return '';
+            const vaultFile = this.vault.getFileByPath(filePath);
+            if (!vaultFile) return '';
+            if (!api.canFileBeExtracted(filePath)) return '';
+            const text = await api.extractText(vaultFile);
+            return text?.trim() ?? '';
+        } catch (e) {
+            console.warn(`[SemanticIndex] Image OCR failed for ${filePath}:`, e);
+            return '';
+        }
     }
 
     /**
