@@ -20,7 +20,6 @@ export function getMemorySection(memoryContext?: string): string {
         '',
         'Memory files (use read_file and edit_file to manage):',
         '  - `.obsilo-sync/memory/patterns.md` — Workflow rules, behavioral patterns, learned procedures',
-        '  - `.obsilo-sync/memory/learnings.md` — Task strategies, what worked/failed, tool effectiveness',
         '  - `.obsilo-sync/memory/user-profile.md` — User identity, preferences, communication style',
         '  - `.obsilo-sync/memory/projects.md` — Active projects and goals',
         '  - `.obsilo-sync/memory/errors.md` — Known errors and their fixes',

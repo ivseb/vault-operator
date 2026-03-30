@@ -21,6 +21,7 @@ import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
+import { MemoryDB } from './core/knowledge/MemoryDB';
 import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
@@ -87,6 +88,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     graphStore: GraphStore | null = null;
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
+    memoryDB: MemoryDB | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -486,11 +488,20 @@ export default class ObsidianAgentPlugin extends Plugin {
             }));
         }
 
+        // Memory DB (FEATURE-1505): SQLite storage for sessions, episodes, recipes, patterns
+        {
+            const pluginDirForMemory = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+            this.memoryDB = new MemoryDB(this.app.vault, pluginDirForMemory);
+            await this.memoryDB.open().catch((e) =>
+                console.warn('[Plugin] MemoryDB open failed (non-fatal):', e)
+            );
+        }
+
         // Agent Skill Mastery — Procedural Recipes (ADR-017)
         if (this.settings.mastery.enabled) {
             const getLearnedEnabled = () => this.settings.mastery.learnedRecipesEnabled;
 
-            this.recipeStore = new RecipeStore(this.globalFs, getLearnedEnabled);
+            this.recipeStore = new RecipeStore(this.globalFs, getLearnedEnabled, this.memoryDB);
             await this.recipeStore.initialize().catch((e) =>
                 console.warn('[Plugin] RecipeStore init failed (non-fatal):', e)
             );
@@ -500,6 +511,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.episodicExtractor = new EpisodicExtractor(
                 this.globalFs,
                 () => this.semanticIndex,
+                this.memoryDB,
             );
             await this.episodicExtractor.initialize().catch((e) =>
                 console.warn('[Plugin] EpisodicExtractor init failed (non-fatal):', e)
@@ -513,6 +525,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     return buildApiHandler(modelToLLMProvider(model));
                 },
                 getLearnedEnabled,
+                this.memoryDB,
             );
             await this.recipePromotionService.initialize().catch((e) =>
                 console.warn('[Plugin] RecipePromotionService init failed (non-fatal):', e)
@@ -535,7 +548,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Memory service + extraction queue
         if (this.settings.memory.enabled) {
-            this.memoryService = new MemoryService(this.globalFs);
+            this.memoryService = new MemoryService(this.globalFs, this.memoryDB);
             await this.memoryService.initialize().catch((e) =>
                 console.warn('[Plugin] MemoryService init failed (non-fatal):', e)
             );
@@ -650,7 +663,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
-            // Close KnowledgeDB (final save + cleanup)
+            // Close databases (final save + cleanup)
+            await this.memoryDB?.close().catch((e) =>
+                console.warn('[Plugin] MemoryDB close failed (non-fatal):', e)
+            );
             await this.knowledgeDB?.close().catch((e) =>
                 console.warn('[Plugin] KnowledgeDB close failed (non-fatal):', e)
             );

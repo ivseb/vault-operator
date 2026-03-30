@@ -113,6 +113,7 @@ export class KnowledgeDB {
         vault: Vault,
         pluginDir: string,
         storageLocation: 'global' | 'local' | 'obsidian-sync' = 'global',
+        dbName = 'knowledge.db',
     ) {
         this.vault = vault;
         this.storageLocation = storageLocation;
@@ -120,13 +121,13 @@ export class KnowledgeDB {
         const basePath = (vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
 
         if (storageLocation === 'global') {
-            this.absolutePath = path.join(os.homedir(), '.obsidian-agent', 'knowledge.db');
+            this.absolutePath = path.join(os.homedir(), '.obsidian-agent', dbName);
             this.vaultRelativePath = ''; // not used for global
         } else if (storageLocation === 'local') {
-            this.vaultRelativePath = '.obsidian-agent/knowledge.db';
+            this.vaultRelativePath = `.obsidian-agent/${dbName}`;
             this.absolutePath = path.join(basePath, this.vaultRelativePath);
         } else {
-            this.vaultRelativePath = `${pluginDir}/knowledge.db`;
+            this.vaultRelativePath = `${pluginDir}/${dbName}`;
             this.absolutePath = path.join(basePath, this.vaultRelativePath);
         }
     }

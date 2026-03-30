@@ -4,7 +4,7 @@
  * Promotes durable facts from session summaries into long-term memory files.
  * Takes a session summary (passed as transcript in a 'long-term' PendingExtraction)
  * and merges new information into user-profile.md, projects.md, patterns.md,
- * soul.md (agent personality), and learnings.md (task outcomes & strategies).
+ * soul.md (agent personality), errors.md and custom-tools.md.
  *
  * Called by ExtractionQueue when processing a 'long-term' type item.
  */
@@ -40,10 +40,6 @@ Current memory files:
 {SOUL}
 </soul>
 
-<learnings>
-{LEARNINGS}
-</learnings>
-
 <errors>
 {ERRORS}
 </errors>
@@ -63,14 +59,6 @@ Target files:
   - The user renames the agent
   - New expertise areas or areas to avoid
   Keep soul.md concise and actionable (behaviors, not abstract traits).
-- learnings.md: Task learnings — successful strategies, common mistakes, tool effectiveness.
-  Update learnings.md when the session reveals:
-  - A strategy that worked well (or poorly) for a specific type of task
-  - Tools that helped or hindered — with context on when/why
-  - User corrections that indicate a recurring mistake pattern
-  - Workflow optimizations discovered during the session
-  Keep entries actionable: "When doing X, use Y because Z."
-  Remove outdated learnings that are contradicted by newer experience.
 - errors.md: Known errors and their resolutions.
   Update errors.md when the session reveals:
   - An error that was encountered and resolved
@@ -92,7 +80,7 @@ Output format:
 {
   "updates": [
     {
-      "file": "user-profile.md" | "projects.md" | "patterns.md" | "soul.md" | "learnings.md" | "errors.md" | "custom-tools.md",
+      "file": "user-profile.md" | "projects.md" | "patterns.md" | "soul.md" | "errors.md" | "custom-tools.md",
       "action": "append" | "replace",
       "section": "section heading (e.g. '## Identity', '## Communication')",
       "content": "the new content to add or replace under that section"
@@ -150,7 +138,6 @@ export class LongTermExtractor {
             .replace('{PROJECTS}', files.projects.trim() || '(empty)')
             .replace('{PATTERNS}', files.patterns.trim() || '(empty)')
             .replace('{SOUL}', files.soul.trim() || '(empty)')
-            .replace('{LEARNINGS}', files.learnings.trim() || '(empty)')
             .replace('{ERRORS}', errorsContent.trim() || '(empty)')
             .replace('{CUSTOM_TOOLS}', customToolsContent.trim() || '(empty)');
 
@@ -211,7 +198,7 @@ export class LongTermExtractor {
                 return null;
             }
             // Validate each update entry individually
-            const ALLOWED_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'soul.md', 'learnings.md', 'errors.md', 'custom-tools.md'];
+            const ALLOWED_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'soul.md', 'errors.md', 'custom-tools.md'];
             const ALLOWED_ACTIONS = ['append', 'replace'];
             const valid = (parsed.updates as unknown[]).filter((u): u is MemoryUpdate =>
                 typeof u === 'object' && u !== null &&
