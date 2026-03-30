@@ -106,19 +106,26 @@ export class KnowledgeDB {
     async open(): Promise<void> {
         if (this.db) return; // already open
 
-        // Dynamic import of sql.js -- locateFile points to the WASM binary
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- sql.js WASM init needs require for Electron compatibility
-        const initSqlJs = require('sql.js') as (config?: { locateFile?: (file: string) => string }) => Promise<SqlJsStatic>;
+        const initSqlJs = require('sql.js') as (config?: { wasmBinary?: ArrayBuffer }) => Promise<SqlJsStatic>;
 
-        // In Obsidian/Electron, the WASM file is deployed next to main.js
-        // We need to tell sql.js where to find it
+        // Obsidian's app:// protocol can't serve WASM files via fetch().
+        // Load the binary directly from disk and pass it to sql.js.
         const pluginBasePath = (this.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
         const configDir = (this.vault as unknown as { configDir?: string }).configDir ?? '.obsidian';
         const pluginMainDir = path.join(pluginBasePath, configDir, 'plugins', 'obsilo-agent');
 
-        this.SQL = await initSqlJs({
-            locateFile: (file: string) => path.join(pluginMainDir, file),
-        });
+        // Try browser variant first (what esbuild bundles), then fallback
+        let wasmBinary: Buffer;
+        const browserWasm = path.join(pluginMainDir, 'sql-wasm-browser.wasm');
+        const nodeWasm = path.join(pluginMainDir, 'sql-wasm.wasm');
+        try {
+            wasmBinary = fs.readFileSync(browserWasm);
+        } catch {
+            wasmBinary = fs.readFileSync(nodeWasm);
+        }
+
+        this.SQL = await initSqlJs({ wasmBinary: wasmBinary.buffer });
 
         // Try to load existing DB
         const data = await this.readDB();

@@ -224,6 +224,30 @@ export class VectorStore {
     }
 
     // -----------------------------------------------------------------------
+    // Text-only queries (no vectors loaded)
+    // -----------------------------------------------------------------------
+
+    /** All chunks (text only, no vectors) for TF-IDF keyword search. */
+    getAllChunks(): Array<{ path: string; chunkIndex: number; text: string }> {
+        const db = this.getDB();
+        const result = db.exec('SELECT path, chunk_index, text FROM vectors');
+        if (result.length === 0) return [];
+        return result[0].values.map(row => ({
+            path: row[0] as string,
+            chunkIndex: row[1] as number,
+            text: row[2] as string,
+        }));
+    }
+
+    /** Chunk texts for a specific file, sorted by chunk_index. */
+    getChunkTextsByPath(filePath: string): string[] {
+        const db = this.getDB();
+        const result = db.exec('SELECT text FROM vectors WHERE path = ? ORDER BY chunk_index', [filePath]);
+        if (result.length === 0) return [];
+        return result[0].values.map(row => row[0] as string);
+    }
+
+    // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 

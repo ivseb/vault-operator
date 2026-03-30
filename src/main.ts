@@ -16,6 +16,8 @@ import { WorkflowLoader } from './core/context/WorkflowLoader';
 import { SkillsManager } from './core/context/SkillsManager';
 import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
+import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
+import { VectorStore } from './core/knowledge/VectorStore';
 import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
@@ -77,6 +79,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     workflowLoader: WorkflowLoader;
     skillsManager: SkillsManager;
     semanticIndex: SemanticIndexService | null = null;
+    knowledgeDB: KnowledgeDB | null = null;
+    vectorStore: VectorStore | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -352,13 +356,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
-        // Semantic index (Phase C2) — lazy build, only when enabled
+        // Semantic index (Phase C2) — SQLite-backed via KnowledgeDB (ADR-050)
         if (this.settings.enableSemanticIndex) {
-            this.semanticIndex = new SemanticIndexService(this.app.vault, pluginDir, {
+            this.knowledgeDB = new KnowledgeDB(
+                this.app.vault,
+                pluginDir,
+                'global', // ADR-050: knowledge.db is always global (per-device cache)
+            );
+            await this.knowledgeDB.open().catch((e) =>
+                console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e)
+            );
+            this.vectorStore = new VectorStore(this.knowledgeDB);
+            this.semanticIndex = new SemanticIndexService(this.app.vault, this.knowledgeDB, this.vectorStore, {
                 batchSize: this.settings.semanticBatchSize,
                 embeddingBatchSize: 16,  // texts per API call — batch for performance
                 excludedFolders: this.settings.semanticExcludedFolders,
-                storageLocation: this.settings.semanticStorageLocation,
                 indexPdfs: this.settings.semanticIndexPdfs,
                 chunkSize: this.settings.semanticChunkSize ?? 2000,
             });
@@ -561,6 +573,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] SyncBridge push failed (non-fatal):', e)
             );
             await this.mcpClient?.disconnectAll();
+            // Close KnowledgeDB (final save + cleanup)
+            await this.knowledgeDB?.close().catch((e) =>
+                console.warn('[Plugin] KnowledgeDB close failed (non-fatal):', e)
+            );
         })();
         // Synchronous cleanup stays outside the IIFE
         this.pendingChatLinks.clear();

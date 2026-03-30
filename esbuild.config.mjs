@@ -149,10 +149,14 @@ const context = await esbuild.context({
                             if (existsSync("sandbox-worker.js")) {
                                 copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
                             }
-                            // Copy sql.js WASM binary for Knowledge DB
-                            const sqlWasmSrc = join(__dirname, "node_modules/sql.js/dist/sql-wasm.wasm");
-                            if (existsSync(sqlWasmSrc)) {
-                                copyFileSync(sqlWasmSrc, `${VAULT_PLUGIN_DIR}/sql-wasm.wasm`);
+                            // Copy sql.js WASM binaries for Knowledge DB
+                            // sql.js may request either sql-wasm.wasm or sql-wasm-browser.wasm
+                            // depending on which variant esbuild resolves
+                            for (const wasmName of ["sql-wasm.wasm", "sql-wasm-browser.wasm"]) {
+                                const wasmSrc = join(__dirname, "node_modules/sql.js/dist", wasmName);
+                                if (existsSync(wasmSrc)) {
+                                    copyFileSync(wasmSrc, `${VAULT_PLUGIN_DIR}/${wasmName}`);
+                                }
                             }
                             // Copy bundled skills to plugin skills directory
                             const bundledSkillsDir = join(__dirname, "bundled-skills");

@@ -110,8 +110,19 @@ export class EmbeddingsTab {
                 await this.plugin.saveSettings();
                 if (v) {
                     const { SemanticIndexService } = await import('../../core/semantic/SemanticIndexService');
+                    const { KnowledgeDB } = await import('../../core/knowledge/KnowledgeDB');
+                    const { VectorStore } = await import('../../core/knowledge/VectorStore');
                     const pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
-                    const svc = new SemanticIndexService(this.plugin.app.vault, pluginDir);
+                    const knowledgeDB = new KnowledgeDB(
+                        this.plugin.app.vault,
+                        pluginDir,
+                        'global', // ADR-050: knowledge.db is always global
+                    );
+                    await knowledgeDB.open().catch(console.warn);
+                    const vectorStore = new VectorStore(knowledgeDB);
+                    this.plugin.knowledgeDB = knowledgeDB;
+                    this.plugin.vectorStore = vectorStore;
+                    const svc = new SemanticIndexService(this.plugin.app.vault, knowledgeDB, vectorStore);
                     const embModel = this.plugin.getActiveEmbeddingModel();
                     if (embModel) svc.setEmbeddingModel(embModel);
                     this.plugin.semanticIndex = svc;
@@ -120,6 +131,9 @@ export class EmbeddingsTab {
                     // Cancel any ongoing build before clearing the reference
                     this.plugin.semanticIndex?.cancelBuild();
                     this.plugin.semanticIndex = null;
+                    void this.plugin.knowledgeDB?.close().catch(console.warn);
+                    this.plugin.knowledgeDB = null;
+                    this.plugin.vectorStore = null;
                 }
                 refreshStatus();
             }),
@@ -399,22 +413,7 @@ export class EmbeddingsTab {
             }
         });
 
-        const storageSetting = new Setting(containerEl)
-            .setName(t('settings.embeddings.storageLocation'))
-            .setDesc(t('settings.embeddings.storageLocationDesc'));
-        addInfoButton(storageSetting, this.app, t('settings.embeddings.infoStorageTitle'), t('settings.embeddings.infoStorageBody'));
-        storageSetting.addDropdown((d) =>
-            d.addOptions({
-                global: t('settings.embeddings.storageGlobal'),
-                'obsidian-sync': t('settings.embeddings.storageSync'),
-                local: t('settings.embeddings.storageLocal'),
-            })
-                .setValue(this.plugin.settings.semanticStorageLocation ?? 'global')
-                .onChange(async (v) => {
-                    this.plugin.settings.semanticStorageLocation = v as 'obsidian-sync' | 'local' | 'global';
-                    await this.plugin.saveSettings();
-                }),
-        );
+        // Storage location removed from UI (ADR-050: knowledge.db is always global)
     }
 
     renderEmbeddingRow(table: HTMLElement, model: CustomModel): void {

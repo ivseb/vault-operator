@@ -1,29 +1,26 @@
 /**
- * SemanticIndexService v2
+ * SemanticIndexService v3 -- SQLite-backed (ADR-050, FEATURE-1500)
  *
- * Key improvements over v1:
- *  1. Batch embedding: N texts per API call (10-50x fewer requests)
- *  2. Resumable indexing: checkpoint file (index-meta.json) tracks mtime per
- *     file — interrupted builds continue from where they left off
- *  3. Heading-aware chunking: larger chunks (2000 chars default), split at
- *     Markdown headings before falling back to paragraph splitting
- *  4. Cancel support: cancelBuild() sets a flag checked between file batches
- *  5. Event-loop yielding: setTimeout(0) between disk commits avoids UI freeze
- *  6. Fixed vectra queryItems() signature (was passing string as topK → NaN)
+ * Replaces vectra (single JSON file) with KnowledgeDB (sql.js WASM) +
+ * VectorStore (Float32Array BLOBs + JS cosine similarity).
  *
- * Index storage: ~/.obsidian-agent/semantic-index/  (global, default — outside vault)
- *             or {pluginDir}/semantic-index/        (obsidian-sync — inside vault)
- *             or .obsidian-agent/semantic-index/     (local — vault root)
- * Checkpoint:   {indexDir}/index-meta.json
+ * Key features retained from v2:
+ *  1. Batch embedding: N texts per API call
+ *  2. Resumable indexing: checkpoint in DB (vectors.mtime + checkpoint table)
+ *  3. Heading-aware chunking (2000 chars default)
+ *  4. Cancel support: cancelBuild() flag
+ *  5. Event-loop yielding between disk commits
+ *
+ * Storage: Managed by KnowledgeDB (global / local / obsidian-sync).
  */
 
 import { requestUrl } from 'obsidian';
 import type { Vault } from 'obsidian';
 import type { CustomModel } from '../../types/settings';
-import { LocalIndex, type IndexItem, type QueryResult } from 'vectra';
+import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
+import type { VectorStore } from '../knowledge/VectorStore';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -51,36 +48,15 @@ export interface SemanticIndexOptions {
     /** How many texts to send per embedding API call. Default: 16 */
     embeddingBatchSize?: number;
     excludedFolders?: string[];
-    storageLocation?: 'obsidian-sync' | 'local' | 'global';
     /** Whether to also index PDF files. Default: false */
     indexPdfs?: boolean;
     /** Characters per chunk. Default: 2000. Changing this forces a full index rebuild. */
     chunkSize?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-interface IndexCheckpoint {
-    version: number;
-    embeddingModel: string;
-    chunkSize: number;
-    /** path → { mtime, chunks } */
-    files: Record<string, { mtime: number; chunks: number }>;
-    builtAt: string;
-    docCount: number;
-}
-
-const CHECKPOINT_VERSION = 1;
 const DEFAULT_CHUNK_SIZE = 2000;   // chars — larger chunks → fewer API calls
 const DEFAULT_COMMIT_EVERY = 20;   // files between disk commits
 const DEFAULT_EMBED_BATCH = 16;    // texts per API request
-
-/** Metadata shape stored in the vectra index. */
-type VectraMetadata = Record<string, string | number | boolean>;
-type VectraItem = IndexItem<VectraMetadata>;
-type VectraQueryResult = QueryResult<VectraMetadata>;
 
 // ---------------------------------------------------------------------------
 // SemanticIndexService
@@ -88,14 +64,12 @@ type VectraQueryResult = QueryResult<VectraMetadata>;
 
 export class SemanticIndexService {
     private vault: Vault;
-    private pluginDir: string;
-    private indexDir: string;          // absolute FS path for vectra
-    private index: LocalIndex<Record<string, string | number | boolean>>;
+    private knowledgeDB: KnowledgeDB;
+    private vectorStore: VectorStore;
 
     private isBuilding = false;
     private cancelled = false;
     private builtAt: Date | null = null;
-    private checkpoint: IndexCheckpoint | null = null;
 
     private embeddingModel: CustomModel | null = null;
     private batchSize: number;
@@ -116,25 +90,15 @@ export class SemanticIndexService {
     /** Last build diagnostics — available after buildIndex() completes. */
     lastBuildResult: BuildResult | null = null;
 
-    constructor(vault: Vault, pluginDir: string, options: SemanticIndexOptions = {}) {
+    constructor(vault: Vault, knowledgeDB: KnowledgeDB, vectorStore: VectorStore, options: SemanticIndexOptions = {}) {
         this.vault = vault;
-        this.pluginDir = pluginDir;
+        this.knowledgeDB = knowledgeDB;
+        this.vectorStore = vectorStore;
         this.batchSize = options.batchSize ?? DEFAULT_COMMIT_EVERY;
         this.embeddingBatchSize = options.embeddingBatchSize ?? DEFAULT_EMBED_BATCH;
         this.excludedFolders = options.excludedFolders ?? [];
         this.indexPdfs = options.indexPdfs ?? false;
         this.chunkSize = options.chunkSize ?? DEFAULT_CHUNK_SIZE;
-
-        const basePath = (vault.adapter as import('obsidian').FileSystemAdapter).getBasePath?.() ?? '';
-        if (options.storageLocation === 'global') {
-            this.indexDir = path.join(os.homedir(), '.obsidian-agent', 'semantic-index');
-        } else if (options.storageLocation === 'local') {
-            this.indexDir = path.join(basePath, '.obsidian-agent', 'semantic-index');
-        } else {
-            this.indexDir = path.join(basePath, pluginDir, 'semantic-index');
-        }
-
-        this.index = new LocalIndex(this.indexDir);
     }
 
     // -----------------------------------------------------------------------
@@ -163,15 +127,24 @@ export class SemanticIndexService {
         this.cancelled = true;
     }
 
-    /** Restore state from checkpoint if available. */
+    /** Restore state from checkpoint stored in the KnowledgeDB. */
     async initialize(): Promise<void> {
         try {
-            this.checkpoint = await this.loadCheckpoint();
-            if (this.checkpoint) {
-                this.docCount = this.checkpoint.docCount;
-                this.builtAt = new Date(this.checkpoint.builtAt);
+            if (!this.knowledgeDB.isOpen()) {
+                await this.knowledgeDB.open();
+            }
+            const builtAt = this.knowledgeDB.getCheckpointValue('builtAt');
+            const docCount = this.knowledgeDB.getCheckpointValue('docCount');
+            if (builtAt) {
+                this.builtAt = new Date(builtAt);
+                this.docCount = docCount ? parseInt(docCount, 10) : this.vectorStore.getFileCount();
             }
         } catch { /* non-fatal */ }
+    }
+
+    /** Close the underlying KnowledgeDB. Call on plugin unload. */
+    async close(): Promise<void> {
+        await this.knowledgeDB.close();
     }
 
     /**
@@ -218,52 +191,42 @@ export class SemanticIndexService {
             const modelKey = this.modelKey();
 
             // ----------------------------------------------------------------
-            // 2. Load checkpoint — detect model/chunkSize change
+            // 2. Load checkpoint from DB — detect model/chunkSize change
             // ----------------------------------------------------------------
-            const existingCheckpoint = force ? null : await this.loadCheckpoint();
-            const isModelChange = existingCheckpoint !== null
-                && existingCheckpoint.embeddingModel !== modelKey;
-            const isChunkSizeChange = existingCheckpoint !== null
-                && existingCheckpoint.chunkSize !== this.chunkSize;
-            const isFullRebuild = force || isModelChange || isChunkSizeChange || existingCheckpoint === null;
+            const cpModel = force ? null : this.knowledgeDB.getCheckpointValue('embeddingModel');
+            const cpChunkSize = force ? null : this.knowledgeDB.getCheckpointValue('chunkSize');
+            const hasCheckpoint = cpModel !== null;
+            const isModelChange = hasCheckpoint && cpModel !== modelKey;
+            const isChunkSizeChange = hasCheckpoint && cpChunkSize !== null && parseInt(cpChunkSize, 10) !== this.chunkSize;
+            const isFullRebuild = force || isModelChange || isChunkSizeChange || !hasCheckpoint;
 
             // Diagnostic: log WHY a full rebuild is triggered
             if (isFullRebuild) {
                 const reasons: string[] = [];
                 if (force) reasons.push('force=true');
-                if (existingCheckpoint === null) reasons.push(`no checkpoint at ${this.checkpointPath()}`);
-                if (isModelChange) reasons.push(`model changed: "${existingCheckpoint?.embeddingModel}" -> "${modelKey}"`);
-                if (isChunkSizeChange) reasons.push(`chunk size changed: ${existingCheckpoint?.chunkSize} -> ${this.chunkSize}`);
+                if (!hasCheckpoint) reasons.push('no checkpoint in DB');
+                if (isModelChange) reasons.push(`model changed: "${cpModel}" -> "${modelKey}"`);
+                if (isChunkSizeChange) reasons.push(`chunk size changed: ${cpChunkSize} -> ${this.chunkSize}`);
                 console.debug(`[SemanticIndex] Full rebuild triggered: ${reasons.join(', ')}`);
             } else {
-                const fileCount = Object.keys(existingCheckpoint!.files).length;
-                console.debug(`[SemanticIndex] Incremental update from checkpoint (${fileCount} files indexed, model: ${existingCheckpoint!.embeddingModel})`);
+                const fileCount = this.vectorStore.getFileCount();
+                console.debug(`[SemanticIndex] Incremental update from checkpoint (${fileCount} files indexed, model: ${cpModel})`);
             }
 
             if (isFullRebuild) {
-                if (await this.index.isIndexCreated().catch(() => false)) {
-                    await this.index.deleteIndex();
-                }
-                await this.index.createIndex({ version: 1, deleteIfExists: true });
-                this.checkpoint = this.newCheckpoint(modelKey);
-            } else {
-                if (!await this.index.isIndexCreated().catch(() => false)) {
-                    await this.index.createIndex({ version: 1, deleteIfExists: true });
-                }
-                this.checkpoint = existingCheckpoint!;
+                this.vectorStore.deleteAll();
             }
 
             // ----------------------------------------------------------------
             // 3. Determine which files need (re)indexing
             // ----------------------------------------------------------------
+            const pathMtimes = isFullRebuild ? new Map<string, number>() : this.vectorStore.getPathMtimes();
             const toIndex = files.filter((f) => {
                 if (isFullRebuild) return true;
-                const stored = this.checkpoint!.files[f.path];
-                return !stored || stored.mtime < (f.stat?.mtime ?? 0);
+                const storedMtime = pathMtimes.get(f.path);
+                return storedMtime === undefined || storedMtime < (f.stat?.mtime ?? 0);
             });
 
-            // Files already indexed (skipped this run) — use actual vault count minus pending,
-            // not checkpoint keys (which may contain entries for deleted files).
             let indexed = isFullRebuild ? 0 : (files.length - toIndex.length);
             let errors = 0;
 
@@ -280,29 +243,8 @@ export class SemanticIndexService {
             }
 
             // ----------------------------------------------------------------
-            // 4. Phase A: delete old chunks for modified files (outside tx)
+            // 4. Embed + insert new chunks
             // ----------------------------------------------------------------
-            if (!isFullRebuild) {
-                const modifiedPaths = toIndex
-                    .filter((f) => Boolean(this.checkpoint!.files[f.path]))
-                    .map((f) => f.path);
-
-                if (modifiedPaths.length > 0) {
-                    await this.index.beginUpdate();
-                    for (const p of modifiedPaths) {
-                        const existing = await this.index.listItemsByMetadata({ path: p });
-                        for (const item of existing) {
-                            await this.index.deleteItem(item.id);
-                        }
-                    }
-                    await this.index.endUpdate();
-                }
-            }
-
-            // ----------------------------------------------------------------
-            // 5. Phase B: embed + insert new chunks
-            // ----------------------------------------------------------------
-            await this.index.beginUpdate();
             let uncommitted = 0;
 
             for (const file of toIndex) {
@@ -316,38 +258,22 @@ export class SemanticIndexService {
                     const chunks = this.splitIntoChunks(content, this.chunkSize);
 
                     if (chunks.length > 0) {
-                        // --- KEY IMPROVEMENT: batch all chunks of this file ---
                         const vectors = await this.embedBatch(chunks);
-                        for (let ci = 0; ci < chunks.length; ci++) {
-                            await this.index.insertItem({
-                                vector: vectors[ci],
-                                metadata: {
-                                    path: file.path,
-                                    chunk: chunks[ci],
-                                    chunkIndex: ci,
-                                },
-                            });
-                        }
+                        this.vectorStore.insertChunks(file.path, chunks, vectors, file.stat?.mtime ?? 0);
                     }
 
-                    this.checkpoint.files[file.path] = {
-                        mtime: file.stat?.mtime ?? 0,
-                        chunks: chunks.length,
-                    };
                     indexed++;
                     uncommitted++;
                     this.docCount = indexed;
                     this.progressIndexed = indexed;
                     onProgress?.(indexed, total);
 
-                    // Checkpoint every N files: commit to disk + yield UI
+                    // Persist every N files: save DB to disk + yield UI
                     if (uncommitted >= this.batchSize) {
-                        await this.index.endUpdate();
-                        this.checkpoint.docCount = indexed;
-                        await this.saveCheckpoint(this.checkpoint);
+                        this.saveCheckpointToDB(modelKey, indexed);
+                        await this.knowledgeDB.save();
                         uncommitted = 0;
                         await new Promise<void>((r) => setTimeout(r, 0)); // yield
-                        await this.index.beginUpdate();
                     }
                 } catch (e) {
                     errors++;
@@ -356,22 +282,24 @@ export class SemanticIndexService {
                 }
             }
 
-            // Final commit
-            await this.index.endUpdate();
-
-            // Prune stale checkpoint entries for files no longer in the vault
+            // Prune stale vectors for files no longer in the vault
             if (!isFullRebuild && !this.cancelled) {
                 const vaultPaths = new Set(files.map((f) => f.path));
-                for (const cp of Object.keys(this.checkpoint.files)) {
-                    if (!vaultPaths.has(cp)) delete this.checkpoint.files[cp];
+                const indexedPaths = this.vectorStore.getPathMtimes();
+                for (const [p] of indexedPaths) {
+                    // Only prune vault files, not session:/episode: prefixed entries
+                    if (!p.includes(':') && !vaultPaths.has(p)) {
+                        this.vectorStore.deleteByPath(p);
+                    }
                 }
             }
 
-            this.checkpoint.docCount = indexed;
-            this.checkpoint.builtAt = new Date().toISOString();
-            await this.saveCheckpoint(this.checkpoint);
+            // Final checkpoint + save
+            this.saveCheckpointToDB(modelKey, indexed);
+            await this.knowledgeDB.save();
 
-            this.builtAt = new Date(this.checkpoint.builtAt);
+            const builtAtStr = this.knowledgeDB.getCheckpointValue('builtAt')!;
+            this.builtAt = new Date(builtAtStr);
             this.docCount = indexed;
 
             if (!this.cancelled) {
@@ -383,9 +311,6 @@ export class SemanticIndexService {
             return result;
         } catch (e) {
             console.error('[SemanticIndex] Build failed:', e);
-            // Best-effort: close any open vectra transaction so the index isn't
-            // left in a corrupted state on next startup.
-            try { await this.index.endUpdate(); } catch { /* already closed */ }
             throw e;
         } finally {
             this.isBuilding = false;
@@ -397,40 +322,21 @@ export class SemanticIndexService {
      * Removes its old chunks then re-embeds the current content.
      */
     async updateFile(filePath: string): Promise<void> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return;
+        if (!this.knowledgeDB.isOpen()) return;
         try {
             const file = this.vault.getFileByPath(filePath);
             if (!file) return;
 
-            // Delete old chunks
-            const existing = await this.index.listItemsByMetadata({ path: filePath });
-            await this.index.beginUpdate();
-            for (const item of existing) {
-                await this.index.deleteItem(item.id);
-            }
-
-            // Embed + insert new chunks
             const content = await this.readFileContent(file);
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length > 0) {
                 const vectors = await this.embedBatch(chunks);
-                for (let ci = 0; ci < chunks.length; ci++) {
-                    await this.index.insertItem({
-                        vector: vectors[ci],
-                        metadata: { path: filePath, chunk: chunks[ci], chunkIndex: ci },
-                    });
-                }
+                // insertChunks does DELETE + INSERT internally
+                this.vectorStore.insertChunks(filePath, chunks, vectors, file.stat?.mtime ?? 0);
+            } else {
+                this.vectorStore.deleteByPath(filePath);
             }
-            await this.index.endUpdate();
-
-            // Update checkpoint
-            if (this.checkpoint) {
-                this.checkpoint.files[filePath] = {
-                    mtime: file.stat?.mtime ?? 0,
-                    chunks: chunks.length,
-                };
-                await this.saveCheckpoint(this.checkpoint);
-            }
+            this.knowledgeDB.markDirty();
         } catch (e) {
             console.warn(`[SemanticIndex] updateFile failed for ${filePath}:`, e);
         }
@@ -472,20 +378,12 @@ export class SemanticIndexService {
      * Called on vault delete and rename (old path).
      */
     async removeFile(filePath: string): Promise<void> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return;
+        if (!this.knowledgeDB.isOpen()) return;
         try {
-            const existing = await this.index.listItemsByMetadata({ path: filePath });
-            if (existing.length === 0) return;
-            await this.index.beginUpdate();
-            for (const item of existing) {
-                await this.index.deleteItem(item.id);
-            }
-            await this.index.endUpdate();
-            if (this.checkpoint?.files[filePath]) {
-                delete this.checkpoint.files[filePath];
-                this.docCount = Math.max(0, this.docCount - 1);
-                await this.saveCheckpoint(this.checkpoint);
-            }
+            if (!this.vectorStore.hasFile(filePath)) return;
+            this.vectorStore.deleteByPath(filePath);
+            this.docCount = Math.max(0, this.docCount - 1);
+            this.knowledgeDB.markDirty();
         } catch (e) {
             console.warn(`[SemanticIndex] removeFile failed for "${filePath}":`, e);
         }
@@ -552,25 +450,25 @@ export class SemanticIndexService {
      * Used by hybrid search (RRF fusion) to catch exact names/tags the embedding misses.
      */
     async keywordSearch(query: string, topK = 8): Promise<SemanticResult[]> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return [];
+        if (!this.knowledgeDB.isOpen()) return [];
         try {
             // 1. Tokenize + stem query terms, deduplicate
             const queryTerms = [...new Set(SemanticIndexService.tokenize(query))];
             if (queryTerms.length === 0) return [];
 
-            const allItems: VectraItem[] = await this.index.listItemsByMetadata({});
-            const N = allItems.length;
+            const allChunks = this.vectorStore.getAllChunks();
+            const N = allChunks.length;
             if (N === 0) return [];
 
             // 2. Pre-compute IDF: log((N+1) / (df+1)) per query term
             //    IDF naturally downweights frequent words regardless of language.
             const docFreq = new Map<string, number>();
-            const chunkTokensCache: Map<VectraItem, Set<string>> = new Map();
-            for (const item of allItems) {
-                const chunk: string = (item.metadata?.chunk as string) ?? '';
+            const chunkTokensCache: Map<number, Set<string>> = new Map();
+            for (let idx = 0; idx < allChunks.length; idx++) {
+                const chunk = allChunks[idx].text;
                 if (!chunk) continue;
                 const tokenSet = new Set(SemanticIndexService.tokenize(chunk));
-                chunkTokensCache.set(item, tokenSet);
+                chunkTokensCache.set(idx, tokenSet);
                 for (const qt of queryTerms) {
                     if (tokenSet.has(qt)) docFreq.set(qt, (docFreq.get(qt) ?? 0) + 1);
                 }
@@ -578,18 +476,16 @@ export class SemanticIndexService {
 
             // 3. Score each chunk: sum(TF * IDF) per matching term, keep best chunk per file
             const byPath = new Map<string, { excerpt: string; score: number }>();
-            for (const item of allItems) {
-                const chunk: string = (item.metadata?.chunk as string) ?? '';
-                const filePath: string = (item.metadata?.path as string) ?? '';
+            for (let idx = 0; idx < allChunks.length; idx++) {
+                const { path: filePath, text: chunk } = allChunks[idx];
                 if (!chunk || !filePath) continue;
 
-                const tokenSet = chunkTokensCache.get(item);
+                const tokenSet = chunkTokensCache.get(idx);
                 if (!tokenSet) continue;
 
                 let score = 0;
                 for (const qt of queryTerms) {
                     if (!tokenSet.has(qt)) continue;
-                    // Count occurrences of this stemmed term in the full token list
                     const tokens = SemanticIndexService.tokenize(chunk);
                     const tf = tokens.filter((t) => t === qt).length;
                     const df = docFreq.get(qt) ?? 1;
@@ -621,11 +517,9 @@ export class SemanticIndexService {
      * Used by graph-augmented RAG to load linked-note context.
      */
     async getChunksByPath(filePath: string): Promise<string[]> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return [];
+        if (!this.knowledgeDB.isOpen()) return [];
         try {
-            const items: VectraItem[] = await this.index.listItemsByMetadata({ path: filePath });
-            items.sort((a, b) => ((a.metadata?.chunkIndex as number) ?? 0) - ((b.metadata?.chunkIndex as number) ?? 0));
-            return items.map((item) => (item.metadata?.chunk as string) ?? '').filter(Boolean);
+            return this.vectorStore.getChunkTextsByPath(filePath);
         } catch {
             return [];
         }
@@ -634,33 +528,19 @@ export class SemanticIndexService {
     /**
      * Search the index. Returns top-K most relevant chunks.
      * @param textForEmbedding - Optional override for what gets embedded (used by HyDE).
-     *   When provided, this text is embedded instead of `query`, but `query` is still
-     *   used for vectra's internal text-ranking and for logging.
+     *   When provided, this text is embedded instead of `query`.
      */
     async search(query: string, topK = 5, textForEmbedding?: string): Promise<SemanticResult[]> {
-        if (!await this.index.isIndexCreated().catch(() => false)) {
-            return [];
-        }
+        if (!this.knowledgeDB.isOpen()) return [];
         try {
             const embedText = textForEmbedding ?? query;
             const [vector] = await this.embedBatch([embedText]);
-            // vectra signature: queryItems(vector, textQuery, topK)
-            // Request extra chunks so we still have topK unique files after per-file dedup
-            const rawK = Math.min(topK * 3, 60);
-            const results = await this.index.queryItems(vector, query, rawK);
-            // Best chunk per file (results are sorted by score desc, so first-seen = best)
-            const byPath = new Map<string, SemanticResult>();
-            for (const r of results) {
-                const filePath = (r.item.metadata?.path as string) ?? '';
-                if (!filePath || byPath.has(filePath)) continue;
-                byPath.set(filePath, {
-                    path: filePath,
-                    excerpt: (r.item.metadata?.chunk as string) ?? '',
-                    score: r.score,
-                });
-                if (byPath.size >= topK) break;
-            }
-            return Array.from(byPath.values());
+            const results = this.vectorStore.searchUniqueFiles(vector, topK);
+            return results.map((r) => ({
+                path: r.path,
+                excerpt: r.text,
+                score: r.score,
+            }));
         } catch (e) {
             console.error('[SemanticIndex] Search failed:', e);
             return [];
@@ -673,25 +553,14 @@ export class SemanticIndexService {
      * Items are tagged with source='session' so they can be filtered separately.
      */
     async indexSessionSummary(sessionId: string, content: string): Promise<void> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return;
+        if (!this.knowledgeDB.isOpen()) return;
         try {
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length === 0) return;
 
             const vectors = await this.embedBatch(chunks);
-            await this.index.beginUpdate();
-            for (let ci = 0; ci < chunks.length; ci++) {
-                await this.index.insertItem({
-                    vector: vectors[ci],
-                    metadata: {
-                        path: `session:${sessionId}`,
-                        chunk: chunks[ci],
-                        chunkIndex: ci,
-                        source: 'session',
-                    },
-                });
-            }
-            await this.index.endUpdate();
+            this.vectorStore.insertChunks(`session:${sessionId}`, chunks, vectors, Date.now());
+            this.knowledgeDB.markDirty();
             console.debug(`[SemanticIndex] Indexed session summary: ${sessionId} (${chunks.length} chunks)`);
         } catch (e) {
             console.warn(`[SemanticIndex] Failed to index session ${sessionId}:`, e);
@@ -700,22 +569,18 @@ export class SemanticIndexService {
 
     /**
      * Search only session summaries in the index.
-     * Returns top-K results filtered to source='session' items.
+     * Returns top-K results filtered to path prefix 'session:'.
      */
     async searchSessions(query: string, topK = 3): Promise<SemanticResult[]> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return [];
+        if (!this.knowledgeDB.isOpen()) return [];
         try {
-            // Request more candidates to ensure enough session results after filtering
             const [vector] = await this.embedBatch([query]);
-            const results = await this.index.queryItems(vector, query, topK * 5);
-            return results
-                .filter((r: VectraQueryResult) => r.item.metadata?.source === 'session')
-                .slice(0, topK)
-                .map((r: VectraQueryResult) => ({
-                    path: (r.item.metadata?.path as string) ?? '',
-                    excerpt: (r.item.metadata?.chunk as string) ?? '',
-                    score: r.score,
-                }));
+            const results = this.vectorStore.searchUniqueFiles(vector, topK, 'session:');
+            return results.map((r) => ({
+                path: r.path,
+                excerpt: r.text,
+                score: r.score,
+            }));
         } catch (e) {
             console.warn('[SemanticIndex] Session search failed:', e);
             return [];
@@ -727,25 +592,14 @@ export class SemanticIndexService {
      * Follows the same pattern as indexSessionSummary with source='episode'.
      */
     async indexEpisode(episodeId: string, content: string): Promise<void> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return;
+        if (!this.knowledgeDB.isOpen()) return;
         try {
             const chunks = this.splitIntoChunks(content, this.chunkSize);
             if (chunks.length === 0) return;
 
             const vectors = await this.embedBatch(chunks);
-            await this.index.beginUpdate();
-            for (let ci = 0; ci < chunks.length; ci++) {
-                await this.index.insertItem({
-                    vector: vectors[ci],
-                    metadata: {
-                        path: `episode:${episodeId}`,
-                        chunk: chunks[ci],
-                        chunkIndex: ci,
-                        source: 'episode',
-                    },
-                });
-            }
-            await this.index.endUpdate();
+            this.vectorStore.insertChunks(`episode:${episodeId}`, chunks, vectors, Date.now());
+            this.knowledgeDB.markDirty();
         } catch (e) {
             console.warn(`[SemanticIndex] Failed to index episode ${episodeId}:`, e);
         }
@@ -753,39 +607,31 @@ export class SemanticIndexService {
 
     /**
      * Search only task episodes in the index (ADR-018).
-     * Returns top-K results filtered to source='episode' items.
+     * Returns top-K results filtered to path prefix 'episode:'.
      */
     async searchEpisodes(query: string, topK = 3): Promise<SemanticResult[]> {
-        if (!await this.index.isIndexCreated().catch(() => false)) return [];
+        if (!this.knowledgeDB.isOpen()) return [];
         try {
             const [vector] = await this.embedBatch([query]);
-            const results = await this.index.queryItems(vector, query, topK * 5);
-            return results
-                .filter((r: VectraQueryResult) => r.item.metadata?.source === 'episode')
-                .slice(0, topK)
-                .map((r: VectraQueryResult) => ({
-                    path: (r.item.metadata?.path as string) ?? '',
-                    excerpt: (r.item.metadata?.chunk as string) ?? '',
-                    score: r.score,
-                }));
+            const results = this.vectorStore.searchUniqueFiles(vector, topK, 'episode:');
+            return results.map((r) => ({
+                path: r.path,
+                excerpt: r.text,
+                score: r.score,
+            }));
         } catch (e) {
             console.warn('[SemanticIndex] Episode search failed:', e);
             return [];
         }
     }
 
-    /** Delete the on-disk index and reset state. */
+    /** Delete the DB and reset state. */
     async deleteIndex(): Promise<void> {
         try {
-            await this.index.deleteIndex();
-        } catch { /* non-fatal */ }
-        // Remove checkpoint file
-        try {
-            await fs.promises.unlink(this.checkpointPath());
+            await this.knowledgeDB.deleteDB();
         } catch { /* non-fatal */ }
         this.builtAt = null;
         this.docCount = 0;
-        this.checkpoint = null;
     }
 
     // -----------------------------------------------------------------------
@@ -796,13 +642,13 @@ export class SemanticIndexService {
      * Embed an array of texts via the configured API embedding model.
      * Sends batches of `embeddingBatchSize` texts per request (10-50x fewer API calls).
      */
-    private async embedBatch(texts: string[]): Promise<number[][]> {
+    private async embedBatch(texts: string[]): Promise<Float32Array[]> {
         if (texts.length === 0) return [];
         if (!this.embeddingModel) {
             throw new Error('No embedding model configured.');
         }
 
-        const results: number[][] = [];
+        const results: Float32Array[] = [];
         for (let i = 0; i < texts.length; i += this.embeddingBatchSize) {
             const batch = texts.slice(i, i + this.embeddingBatchSize);
             const vectors = await this.embedBatchViaApiWithRetry(batch, this.embeddingModel);
@@ -818,7 +664,7 @@ export class SemanticIndexService {
         texts: string[],
         model: CustomModel,
         maxRetries = 4,
-    ): Promise<number[][]> {
+    ): Promise<Float32Array[]> {
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 return await this.embedBatchViaApi(texts, model);
@@ -842,7 +688,7 @@ export class SemanticIndexService {
         throw new Error('[SemanticIndex] Max retries exceeded');
     }
 
-    private async embedBatchViaApi(texts: string[], model: CustomModel): Promise<number[][]> {
+    private async embedBatchViaApi(texts: string[], model: CustomModel): Promise<Float32Array[]> {
         let url: string;
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         // OpenAI-compatible batch: input is an array of strings
@@ -895,7 +741,7 @@ export class SemanticIndexService {
         }
         // API returns items sorted by index — sort to be safe
         data.sort((a, b) => a.index - b.index);
-        return data.map((d) => d.embedding);
+        return data.map((d) => new Float32Array(d.embedding));
     }
 
     private sleep(ms: number): Promise<void> {
@@ -903,48 +749,14 @@ export class SemanticIndexService {
     }
 
     // -----------------------------------------------------------------------
-    // Checkpoint management
+    // Checkpoint management (stored in KnowledgeDB checkpoint table)
     // -----------------------------------------------------------------------
 
-    private checkpointPath(): string {
-        return path.join(this.indexDir, 'index-meta.json');
-    }
-
-    private newCheckpoint(modelKey: string): IndexCheckpoint {
-        return {
-            version: CHECKPOINT_VERSION,
-            embeddingModel: modelKey,
-            chunkSize: this.chunkSize,
-            files: {},
-            builtAt: new Date().toISOString(),
-            docCount: 0,
-        };
-    }
-
-    private async loadCheckpoint(): Promise<IndexCheckpoint | null> {
-        try {
-            const raw = await fs.promises.readFile(this.checkpointPath(), 'utf8');
-            // M-1: Guard against corrupted or maliciously crafted checkpoint files.
-            if (raw.length > 50_000_000) return null; // 50 MB sanity limit
-            const cp = JSON.parse(raw) as Record<string, unknown>;
-            if (cp?.version !== CHECKPOINT_VERSION) return null;
-            if (typeof cp.embeddingModel !== 'string') return null;
-            if (typeof cp.chunkSize !== 'number') return null;
-            if (!cp.files || typeof cp.files !== 'object' || Array.isArray(cp.files)) return null;
-            if (typeof cp.docCount !== 'number') return null;
-            return cp as unknown as IndexCheckpoint;
-        } catch {
-            return null;
-        }
-    }
-
-    private async saveCheckpoint(cp: IndexCheckpoint): Promise<void> {
-        try {
-            await fs.promises.mkdir(this.indexDir, { recursive: true });
-            await fs.promises.writeFile(this.checkpointPath(), JSON.stringify(cp), 'utf8');
-        } catch (e) {
-            console.warn('[SemanticIndex] Failed to save checkpoint:', e);
-        }
+    private saveCheckpointToDB(modelKey: string, docCount: number): void {
+        this.knowledgeDB.setCheckpointValue('embeddingModel', modelKey);
+        this.knowledgeDB.setCheckpointValue('chunkSize', String(this.chunkSize));
+        this.knowledgeDB.setCheckpointValue('docCount', String(docCount));
+        this.knowledgeDB.setCheckpointValue('builtAt', new Date().toISOString());
     }
 
     private modelKey(): string {
