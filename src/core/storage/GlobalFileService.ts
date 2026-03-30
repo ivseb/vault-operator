@@ -1,9 +1,12 @@
 /**
  * GlobalFileService
  *
- * FileAdapter implementation backed by Node.js `fs` at ~/.obsidian-agent/.
+ * FileAdapter implementation backed by Node.js `fs` at {vault-parent}/.obsidian-agent/.
  * Used by all services whose data is shared across vaults (memory, history,
  * rules, workflows, skills, recipes, episodes, logs, etc.).
+ *
+ * FEATURE-1508: Root changed from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/
+ * so that all global data lives next to the vault and syncs via iCloud/OneDrive/etc.
  *
  * Pattern follows GlobalModeStore (same require-based Node.js access
  * available in Obsidian's Electron runtime).
@@ -19,8 +22,20 @@ const GLOBAL_DIR_NAME = '.obsidian-agent';
 export class GlobalFileService implements FileAdapter {
     private readonly root: string;
 
-    constructor() {
-        this.root = pathModule.join(osModule.homedir(), GLOBAL_DIR_NAME);
+    /**
+     * @param vaultBasePath - Absolute path to the vault root (from vault.adapter.getBasePath()).
+     *   Global data is stored at {vault-parent}/.obsidian-agent/.
+     *   Falls back to ~/.obsidian-agent/ if no vaultBasePath is provided.
+     */
+    constructor(vaultBasePath?: string) {
+        this.root = vaultBasePath
+            ? pathModule.join(pathModule.dirname(vaultBasePath), GLOBAL_DIR_NAME)
+            : pathModule.join(osModule.homedir(), GLOBAL_DIR_NAME);
+    }
+
+    /** Return the legacy root path (~/.obsidian-agent/) for migration purposes. */
+    static getLegacyRoot(): string {
+        return pathModule.join(osModule.homedir(), GLOBAL_DIR_NAME);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

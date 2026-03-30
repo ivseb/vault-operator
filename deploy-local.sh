@@ -20,7 +20,7 @@ fi
 
 echo "Deploying Obsidian Agent to: $PLUGIN_DIR"
 
-# Create plugin directory if it doesn't exist
+# Create plugin directory if it doesn't exist (quotes handle spaces in iCloud paths)
 mkdir -p "$PLUGIN_DIR"
 
 # Copy only essential files

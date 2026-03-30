@@ -2,11 +2,10 @@
  * MemoryDB -- SQLite storage for agent memory data (sessions, episodes, recipes, patterns).
  *
  * Separate from KnowledgeDB (which stores vectors/graph/implicit edges).
- * ADR-050 Zwei-DB-Strategie:
- *   - knowledge.db: global (~/.obsidian-agent/), per-device cache, not synced
- *   - memory.db: local ({vault}/.obsidian-agent/), synced via vault sync
+ * Storage: {vault-parent}/.obsidian-agent/memory.db (user-global, shared across vaults)
  *
  * FEATURE-1505: Knowledge Data Consolidation
+ * FEATURE-1508: Storage Consolidation (moved to vault-parent)
  */
 
 import type { Vault } from 'obsidian';
@@ -66,9 +65,9 @@ export class MemoryDB {
     private knowledgeDB: KnowledgeDB;
     private initialized = false;
 
-    constructor(vault: Vault, pluginDir: string) {
-        // Use 'local' storage: {vault}/.obsidian-agent/memory.db — synced via vault sync
-        this.knowledgeDB = new KnowledgeDB(vault, pluginDir, 'local', 'memory.db');
+    constructor(vault: Vault, pluginDir: string, globalRoot?: string) {
+        // Use 'global' storage: {vault-parent}/.obsidian-agent/memory.db — user-global, shared across vaults
+        this.knowledgeDB = new KnowledgeDB(vault, pluginDir, 'global', 'memory.db', globalRoot);
     }
 
     /** Open the DB and initialize the memory schema. */

@@ -121,6 +121,8 @@ export class KnowledgeDB {
         pluginDir: string,
         storageLocation: 'global' | 'local' | 'obsidian-sync' = 'global',
         dbName = 'knowledge.db',
+        /** Override the global root directory (default: {vault-parent}/.obsidian-agent/). */
+        globalRoot?: string,
     ) {
         this.vault = vault;
         this.storageLocation = storageLocation;
@@ -128,7 +130,8 @@ export class KnowledgeDB {
         const basePath = (vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
 
         if (storageLocation === 'global') {
-            this.absolutePath = path.join(os.homedir(), '.obsidian-agent', dbName);
+            const root = globalRoot ?? path.join(path.dirname(basePath), '.obsidian-agent');
+            this.absolutePath = path.join(root, dbName);
             this.vaultRelativePath = ''; // not used for global
         } else if (storageLocation === 'local') {
             this.vaultRelativePath = `.obsidian-agent/${dbName}`;

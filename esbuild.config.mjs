@@ -17,6 +17,17 @@ const prod = (process.argv[2] === "production");
 
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
 // Set PLUGIN_DIR in your .env or shell environment
+// Load .env file if it exists (for PLUGIN_DIR with iCloud paths containing spaces)
+try {
+    const envContent = readFileSync(join(__dirname, '.env'), 'utf-8');
+    for (const line of envContent.split('\n')) {
+        const match = line.match(/^([A-Z_]+)=(.*)$/);
+        if (match && !process.env[match[1]]) {
+            // Strip surrounding quotes (single or double) from .env values
+            process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
+        }
+    }
+} catch { /* .env not found — use shell environment */ }
 const VAULT_PLUGIN_DIR = process.env.PLUGIN_DIR || "";
 
 const context = await esbuild.context({

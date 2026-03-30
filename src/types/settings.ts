@@ -622,6 +622,8 @@ export interface ObsidianAgentSettings {
     _globalStorageMigrated?: boolean;
     /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
     _syncDirMigrated?: boolean;
+    /** Whether data has been migrated from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/ (FEATURE-1508) */
+    _parentDirMigrated?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
