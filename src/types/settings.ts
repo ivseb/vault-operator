@@ -543,6 +543,8 @@ export interface ObsidianAgentSettings {
     enableImplicitConnections: boolean;
     /** Minimum cosine similarity threshold for implicit connections (0.5-0.9). */
     implicitThreshold: number;
+    /** Show implicit connection suggestions in the sidebar. */
+    enableSuggestionBanner: boolean;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -803,6 +805,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     mocPropertyNames: ['Themen', 'Konzepte', 'Personen', 'Notizen', 'Meeting-Notes', 'Quellen'],
     enableImplicitConnections: true,
     implicitThreshold: 0.7,
+    enableSuggestionBanner: true,
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,

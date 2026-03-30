@@ -555,6 +555,16 @@ export class EmbeddingsTab {
                     }),
             );
 
+        new Setting(containerEl)
+            .setName('Suggestion Banner')
+            .setDesc('Show implicit connection suggestions in the sidebar. Disable if the suggestions are distracting.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableSuggestionBanner ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableSuggestionBanner = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
         const implicitStats = containerEl.createDiv('agent-settings-desc');
         const implicitCount = this.plugin.implicitConnectionService?.getCount() ?? 0;
         if (implicitCount > 0) {

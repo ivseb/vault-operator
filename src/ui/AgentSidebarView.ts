@@ -144,6 +144,7 @@ export class AgentSidebarView extends ItemView {
 
         this.buildHeader(container);
         this.buildChatContainer(container);
+        this.buildSuggestionBanner(container);
         this.buildChatInput(container);
 
         // Feature 4: Update context badge when user switches files; reset dismiss on new file
@@ -191,8 +192,8 @@ export class AgentSidebarView extends ItemView {
         setIcon(settingsBtn.createSpan('toolbar-icon'), 'settings');
         settingsBtn.addEventListener('click', () => {
             this.app.setting?.open();
-            // Delay navigation — the modal needs time to render before openTabById works
-            setTimeout(() => this.app.setting?.openTabById('obsilo-agent'), 50);
+            // Navigate to plugin tab after modal is rendered (200ms is robust for most machines)
+            setTimeout(() => this.app.setting?.openTabById('obsilo-agent'), 200);
         });
 
         // History button — opens conversation history panel
@@ -230,6 +231,133 @@ export class AgentSidebarView extends ItemView {
             );
             this.historyPanel.mount(chatWrapper);
         }
+    }
+
+    private suggestionBannerEl: HTMLElement | null = null;
+    private suggestionBannerContainer: HTMLElement | null = null;
+    private suggestionPollTimer: number | null = null;
+
+    /**
+     * Build the implicit connection suggestion banner (FEATURE-1506).
+     * Idempotent: can be called repeatedly to refresh suggestions.
+     * Shows max 3 suggestions between chat and input. Collapsible, dismissable.
+     */
+    private buildSuggestionBanner(container: HTMLElement): void {
+        // Remember the container for later refresh calls
+        this.suggestionBannerContainer = container;
+
+        this.refreshSuggestionBanner();
+
+        // Poll every 30s to pick up new suggestions after computeAll() completes
+        if (!this.suggestionPollTimer) {
+            this.suggestionPollTimer = window.setInterval(() => {
+                this.refreshSuggestionBanner();
+            }, 30_000);
+            this.register(() => {
+                if (this.suggestionPollTimer) {
+                    window.clearInterval(this.suggestionPollTimer);
+                    this.suggestionPollTimer = null;
+                }
+            });
+        }
+    }
+
+    /** Refresh the suggestion banner content. Removes old banner, rebuilds if suggestions exist. */
+    private refreshSuggestionBanner(): void {
+        // Remove existing banner
+        if (this.suggestionBannerEl) {
+            this.suggestionBannerEl.remove();
+            this.suggestionBannerEl = null;
+        }
+
+        const container = this.suggestionBannerContainer;
+        if (!container) return;
+
+        const implicitService = this.plugin.implicitConnectionService;
+        if (!implicitService) return;
+        if (!this.plugin.settings.enableImplicitConnections) return;
+        if (!this.plugin.settings.enableSuggestionBanner) return;
+
+        const suggestions = implicitService.getSuggestions(3);
+        if (suggestions.length === 0) return;
+
+        // Insert before the input area (last child of container)
+        const banner = createDiv('agent-suggestions-banner');
+        const inputArea = container.querySelector('.chat-input-container');
+        if (inputArea) {
+            container.insertBefore(banner, inputArea);
+        } else {
+            container.appendChild(banner);
+        }
+        this.suggestionBannerEl = banner;
+
+        // Header (collapsible)
+        let collapsed = false;
+        const header = banner.createDiv('agent-suggestions-header');
+        header.createSpan({ text: `Connections (${suggestions.length})`, cls: 'agent-suggestions-title' });
+        const toggleIcon = header.createSpan('agent-suggestions-toggle');
+        setIcon(toggleIcon, 'chevron-down');
+
+        const listEl = banner.createDiv('agent-suggestions-list');
+
+        header.addEventListener('click', () => {
+            collapsed = !collapsed;
+            listEl.toggleClass('is-collapsed', collapsed);
+            setIcon(toggleIcon, collapsed ? 'chevron-right' : 'chevron-down');
+        });
+
+        // Render suggestions
+        for (const s of suggestions) {
+            const item = listEl.createDiv('agent-suggestion-item');
+
+            const nameA = s.pathA.split('/').pop()?.replace(/\.\w+$/, '') ?? s.pathA;
+            const nameB = s.pathB.split('/').pop()?.replace(/\.\w+$/, '') ?? s.pathB;
+
+            const textEl = item.createDiv('agent-suggestion-text');
+            textEl.createSpan({ text: `[[${nameA}]]`, cls: 'agent-suggestion-link' });
+            textEl.createSpan({ text: ' <-> ', cls: 'agent-suggestion-arrow' });
+            textEl.createSpan({ text: `[[${nameB}]]`, cls: 'agent-suggestion-link' });
+            textEl.createSpan({ text: ` (${s.similarity.toFixed(2)})`, cls: 'agent-suggestion-score' });
+
+            const actions = item.createDiv('agent-suggestion-actions');
+
+            const openBtn = actions.createEl('button', { cls: 'agent-suggestion-btn', attr: { 'aria-label': 'Open both notes' } });
+            setIcon(openBtn, 'split');
+            openBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                void this.openNotesSplit(s.pathA, s.pathB);
+            });
+
+            const dismissBtn = actions.createEl('button', { cls: 'agent-suggestion-btn agent-suggestion-dismiss', attr: { 'aria-label': 'Dismiss' } });
+            setIcon(dismissBtn, 'x');
+            dismissBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                implicitService.dismissPair(s.pathA, s.pathB);
+                item.remove();
+                const remaining = listEl.querySelectorAll('.agent-suggestion-item').length;
+                if (remaining === 0) {
+                    banner.remove();
+                    this.suggestionBannerEl = null;
+                } else {
+                    header.querySelector('.agent-suggestions-title')?.setText(`Connections (${remaining})`);
+                }
+            });
+        }
+    }
+
+    /** Open two notes side by side in a split view. */
+    private async openNotesSplit(pathA: string, pathB: string): Promise<void> {
+        const fileA = this.app.vault.getAbstractFileByPath(pathA);
+        const fileB = this.app.vault.getAbstractFileByPath(pathB);
+        if (!(fileA instanceof TFile) || !(fileB instanceof TFile)) return;
+
+        // Open first note in current leaf
+        const leafA = this.app.workspace.getLeaf(false);
+        await leafA.openFile(fileA);
+
+        // Open second note in a split
+        const leafB = this.app.workspace.getLeaf('split', 'vertical');
+        await leafB.openFile(fileB);
     }
 
     private buildChatInput(container: HTMLElement): void {

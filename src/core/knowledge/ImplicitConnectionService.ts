@@ -212,6 +212,54 @@ export class ImplicitConnectionService {
     }
 
     // -----------------------------------------------------------------------
+    // Suggestion UI (FEATURE-1506)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Get top implicit connection suggestions that haven't been dismissed.
+     * Returns pairs sorted by similarity, excluding dismissed ones.
+     */
+    getSuggestions(limit = 3): Array<{ pathA: string; pathB: string; similarity: number }> {
+        const db = this.getDB();
+        const result = db.exec(
+            `SELECT ie.source_path, ie.target_path, ie.similarity
+             FROM implicit_edges ie
+             LEFT JOIN dismissed_pairs dp
+               ON ((ie.source_path = dp.path_a AND ie.target_path = dp.path_b)
+                OR (ie.source_path = dp.path_b AND ie.target_path = dp.path_a))
+             WHERE dp.path_a IS NULL
+             ORDER BY ie.similarity DESC
+             LIMIT ?`,
+            [limit],
+        );
+        if (result.length === 0) return [];
+        return result[0].values.map(row => ({
+            pathA: row[0] as string,
+            pathB: row[1] as string,
+            similarity: row[2] as number,
+        }));
+    }
+
+    /** Dismiss a pair permanently (won't be suggested again). */
+    dismissPair(pathA: string, pathB: string): void {
+        const db = this.getDB();
+        const [a, b] = pathA < pathB ? [pathA, pathB] : [pathB, pathA];
+        db.run(
+            'INSERT OR IGNORE INTO dismissed_pairs (path_a, path_b, dismissed_at) VALUES (?, ?, ?)',
+            [a, b, new Date().toISOString()],
+        );
+        this.knowledgeDB.markDirty();
+    }
+
+    /** Number of dismissed pairs. */
+    getDismissedCount(): number {
+        const db = this.getDB();
+        const result = db.exec('SELECT COUNT(*) FROM dismissed_pairs');
+        if (result.length === 0 || result[0].values.length === 0) return 0;
+        return result[0].values[0][0] as number;
+    }
+
+    // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------
 

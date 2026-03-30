@@ -5318,3 +5318,114 @@
     margin-top: 6px;
     font-size: 0.85em;
 }
+
+/* ── Implicit Connection Suggestions (FEATURE-1506) ──────────────── */
+
+.agent-suggestions-banner {
+    border-top: 1px solid var(--background-modifier-border);
+    background-color: var(--background-secondary);
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.agent-suggestions-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 0.8em;
+    font-weight: 500;
+    color: var(--text-muted);
+}
+
+.agent-suggestions-header:hover {
+    color: var(--text-normal);
+}
+
+.agent-suggestions-toggle {
+    display: flex;
+    align-items: center;
+}
+
+.agent-suggestions-toggle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-suggestions-list {
+    overflow: hidden;
+    transition: max-height 0.2s ease;
+    max-height: 300px;
+}
+
+.agent-suggestions-list.is-collapsed {
+    max-height: 0;
+}
+
+.agent-suggestion-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    font-size: 0.78em;
+    border-top: 1px solid var(--background-modifier-border-hover);
+}
+
+.agent-suggestion-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.agent-suggestion-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.agent-suggestion-link {
+    color: var(--text-accent);
+}
+
+.agent-suggestion-arrow {
+    color: var(--text-faint);
+    margin: 0 2px;
+}
+
+.agent-suggestion-score {
+    color: var(--text-faint);
+    font-size: 0.9em;
+}
+
+.agent-suggestion-actions {
+    display: flex;
+    gap: 4px;
+    margin-left: 8px;
+    flex-shrink: 0;
+}
+
+.agent-suggestion-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.agent-suggestion-btn:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.agent-suggestion-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-suggestion-dismiss:hover {
+    color: var(--text-error);
+}

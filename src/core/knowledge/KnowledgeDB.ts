@@ -39,7 +39,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -92,6 +92,13 @@ CREATE TABLE IF NOT EXISTS implicit_edges (
 );
 CREATE INDEX IF NOT EXISTS idx_implicit_source ON implicit_edges(source_path);
 CREATE INDEX IF NOT EXISTS idx_implicit_target ON implicit_edges(target_path);
+
+CREATE TABLE IF NOT EXISTS dismissed_pairs (
+    path_a TEXT NOT NULL,
+    path_b TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    UNIQUE(path_a, path_b)
+);
 `;
 
 // ---------------------------------------------------------------------------
@@ -280,6 +287,7 @@ export class KnowledgeDB {
 
             // v2 -> v3: Add edges + tags tables for graph extraction (FEATURE-1502)
             // v3 -> v4: Add implicit_edges table (FEATURE-1503)
+            // v4 -> v5: Add dismissed_pairs table (FEATURE-1506)
             // All CREATE TABLE IF NOT EXISTS — idempotent, handled by initSchema() below
 
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)
