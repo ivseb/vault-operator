@@ -20,7 +20,7 @@ fi
 
 echo "Deploying Obsidian Agent to: $PLUGIN_DIR"
 
-# Create plugin directory if it doesn't exist
+# Create plugin directory if it doesn't exist (quotes handle spaces in iCloud paths)
 mkdir -p "$PLUGIN_DIR"
 
 # Copy only essential files
@@ -29,6 +29,8 @@ cp main.js "$PLUGIN_DIR/"
 cp styles.css "$PLUGIN_DIR/"
 [ -f sandbox-worker.js ] && cp sandbox-worker.js "$PLUGIN_DIR/"
 [ -f src/assets/logo.png ] && cp src/assets/logo.png "$PLUGIN_DIR/"
+[ -f node_modules/sql.js/dist/sql-wasm.wasm ] && cp node_modules/sql.js/dist/sql-wasm.wasm "$PLUGIN_DIR/"
+[ -f node_modules/sql.js/dist/sql-wasm-browser.wasm ] && cp node_modules/sql.js/dist/sql-wasm-browser.wasm "$PLUGIN_DIR/"
 
 # Copy bundled skills (and remove stale ones)
 if [ -d "bundled-skills" ]; then

@@ -110,8 +110,19 @@ export class EmbeddingsTab {
                 await this.plugin.saveSettings();
                 if (v) {
                     const { SemanticIndexService } = await import('../../core/semantic/SemanticIndexService');
+                    const { KnowledgeDB } = await import('../../core/knowledge/KnowledgeDB');
+                    const { VectorStore } = await import('../../core/knowledge/VectorStore');
                     const pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
-                    const svc = new SemanticIndexService(this.plugin.app.vault, pluginDir);
+                    const knowledgeDB = new KnowledgeDB(
+                        this.plugin.app.vault,
+                        pluginDir,
+                        'global', // ADR-050: knowledge.db is always global
+                    );
+                    await knowledgeDB.open().catch(console.warn);
+                    const vectorStore = new VectorStore(knowledgeDB);
+                    this.plugin.knowledgeDB = knowledgeDB;
+                    this.plugin.vectorStore = vectorStore;
+                    const svc = new SemanticIndexService(this.plugin.app.vault, knowledgeDB, vectorStore);
                     const embModel = this.plugin.getActiveEmbeddingModel();
                     if (embModel) svc.setEmbeddingModel(embModel);
                     this.plugin.semanticIndex = svc;
@@ -120,6 +131,9 @@ export class EmbeddingsTab {
                     // Cancel any ongoing build before clearing the reference
                     this.plugin.semanticIndex?.cancelBuild();
                     this.plugin.semanticIndex = null;
+                    void this.plugin.knowledgeDB?.close().catch(console.warn);
+                    this.plugin.knowledgeDB = null;
+                    this.plugin.vectorStore = null;
                 }
                 refreshStatus();
             }),
@@ -136,10 +150,54 @@ export class EmbeddingsTab {
                 }),
             );
 
+        new Setting(containerEl)
+            .setName('Contextual retrieval')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- LLM is an acronym
+            .setDesc('Enrich chunks with LLM-generated context in the background. Improves search quality by 49-67%. Requires a contextual model below.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableContextualRetrieval ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableContextualRetrieval = v;
+                    getIdx()?.configure({ enableContextualRetrieval: v });
+                    await this.plugin.saveSettings();
+                    if (v) {
+                        // Auto-start enrichment when toggled on (if index exists + model configured)
+                        void this.triggerEnrichmentIfReady();
+                    } else {
+                        // Cancel enrichment when toggled off
+                        getIdx()?.cancelEnrichment();
+                    }
+                }),
+            );
+
+        const ctxModels = this.plugin.settings.activeModels.filter((m) => m.enabled);
+        if (ctxModels.length > 0) {
+            new Setting(containerEl)
+                .setName('Contextual retrieval model')
+                .setDesc('Chat model for context prefix generation. Use a cheap/fast model (e.g. Haiku, gpt-4o-mini).')
+                .addDropdown((d) => {
+                    d.addOption('', '-- Select model --'); // eslint-disable-line obsidianmd/ui/sentence-case -- dropdown placeholder
+                    for (const m of ctxModels) {
+                        d.addOption(getModelKey(m), m.displayName ?? m.name);
+                    }
+                    d.setValue(this.plugin.settings.contextualModelKey ?? '');
+                    d.onChange(async (v) => {
+                        this.plugin.settings.contextualModelKey = v;
+                        await this.plugin.saveSettings();
+                        // Model changed: reset enrichment status and restart
+                        if (v && this.plugin.vectorStore) {
+                            getIdx()?.cancelEnrichment();
+                            this.plugin.vectorStore.resetEnrichmentStatus();
+                            void this.triggerEnrichmentIfReady();
+                        }
+                    });
+                });
+        }
+
         const buildSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.buildIndexName'))
             .setDesc(t('settings.embeddings.buildIndexDesc'));
         statusEl = buildSetting.descEl.createDiv('agent-semantic-status');
+        let cancelBtn: ButtonComponent | undefined;
 
         const refreshStatus = () => {
             statusEl.empty();
@@ -156,8 +214,12 @@ export class EmbeddingsTab {
                 const p = idx.progressIndexed ?? idx.docCount;
                 const total = idx.progressTotal ?? '?';
                 statusEl.setText(t('settings.embeddings.statusBuilding') + ` (${p} / ${total} files)`);
+                // Keep cancel button enabled while building (covers auto-index on startup)
+                cancelBtn?.setDisabled(false);
                 return;
             }
+            // Build not running — disable cancel button (unless enrichment is running)
+            cancelBtn?.setDisabled(!idx.enriching);
             if (idx.isIndexed) {
                 const br = idx.lastBuildResult;
                 const base = t('settings.embeddings.statusReady', { docCount: idx.docCount, builtAt: (idx.lastBuiltAt as Date).toLocaleString() });
@@ -165,6 +227,20 @@ export class EmbeddingsTab {
                     statusEl.setText(`${base} · ${t('settings.embeddings.statusSkipped', { count: br.errors })}`);
                 } else {
                     statusEl.setText(base);
+                }
+                // Enrichment progress (Pass 2)
+                if (idx.enriching) {
+                    const ep = idx.getEnrichmentProgress();
+                    statusEl.createDiv('agent-enrichment-status').setText(
+                        `Enriching: ${ep.processed}/${ep.total} chunks (search works -- quality improving)`,
+                    );
+                } else {
+                    const unenriched = this.plugin.vectorStore?.getUnenrichedCount() ?? 0;
+                    if (unenriched > 0) {
+                        statusEl.createDiv('agent-enrichment-hint').setText(
+                            `${unenriched} chunks pending enrichment`,
+                        );
+                    }
                 }
             } else {
                 statusEl.setText(t('settings.embeddings.statusNotBuilt'));
@@ -193,7 +269,7 @@ export class EmbeddingsTab {
                     if (idx.building) { new Notice(t('settings.embeddings.alreadyBuilding')); return; }
                     idx.setEmbeddingModel(this.plugin.getActiveEmbeddingModel() ?? null);
                     btn.setButtonText(t('settings.embeddings.building')).setDisabled(true);
-                    cancelBtn.setDisabled(false);
+                    cancelBtn?.setDisabled(false);
                     statusEl.setText(t('settings.embeddings.statusBuilding'));
                     try {
                         const result = await idx.buildIndex((indexed: number, total: number) => {
@@ -207,7 +283,7 @@ export class EmbeddingsTab {
                         statusEl.setText(t('settings.embeddings.statusBuildFailed', { error: (e as Error).message }));
                     } finally {
                         btn.setButtonText(t('settings.embeddings.buildIndex')).setDisabled(false);
-                        cancelBtn.setDisabled(true);
+                        cancelBtn?.setDisabled(true);
                     }
                 });
             })
@@ -218,7 +294,7 @@ export class EmbeddingsTab {
                     if (idx.building) { new Notice(t('settings.embeddings.alreadyBuilding')); return; }
                     idx.setEmbeddingModel(this.plugin.getActiveEmbeddingModel() ?? null);
                     btn.setButtonText(t('settings.embeddings.rebuilding')).setDisabled(true);
-                    cancelBtn.setDisabled(false);
+                    cancelBtn?.setDisabled(false);
                     statusEl.setText(t('settings.embeddings.statusForceRebuild'));
                     try {
                         const result = await idx.buildIndex((indexed: number, total: number) => {
@@ -232,22 +308,24 @@ export class EmbeddingsTab {
                         statusEl.setText(t('settings.embeddings.statusRebuildFailed', { error: (e as Error).message }));
                     } finally {
                         btn.setButtonText(t('settings.embeddings.forceRebuild')).setDisabled(false);
-                        cancelBtn.setDisabled(true);
+                        cancelBtn?.setDisabled(true);
                     }
                 });
             });
 
-        let cancelBtn: ButtonComponent;
         new Setting(containerEl)
             .setName(t('settings.embeddings.cancelIndexing'))
             .setDesc(t('settings.embeddings.cancelIndexingDesc'))
             .addButton((btn) => {
                 cancelBtn = btn;
-                btn.setButtonText(t('settings.embeddings.cancel')).setDisabled(true).onClick(() => {
-                    getIdx()?.cancelBuild();
-                    btn.setDisabled(true);
-                    statusEl.setText(t('settings.embeddings.statusCancelling'));
-                });
+                // Enable immediately if a build is already running (e.g. auto-index on startup)
+                btn.setButtonText(t('settings.embeddings.cancel'))
+                    .setDisabled(!getIdx()?.building)
+                    .onClick(() => {
+                        getIdx()?.cancelBuild();
+                        btn.setDisabled(true);
+                        statusEl.setText(t('settings.embeddings.statusCancelling'));
+                    });
             });
 
         new Setting(containerEl)
@@ -399,22 +477,158 @@ export class EmbeddingsTab {
             }
         });
 
-        const storageSetting = new Setting(containerEl)
-            .setName(t('settings.embeddings.storageLocation'))
-            .setDesc(t('settings.embeddings.storageLocationDesc'));
-        addInfoButton(storageSetting, this.app, t('settings.embeddings.infoStorageTitle'), t('settings.embeddings.infoStorageBody'));
-        storageSetting.addDropdown((d) =>
-            d.addOptions({
-                global: t('settings.embeddings.storageGlobal'),
-                'obsidian-sync': t('settings.embeddings.storageSync'),
-                local: t('settings.embeddings.storageLocal'),
-            })
-                .setValue(this.plugin.settings.semanticStorageLocation ?? 'global')
-                .onChange(async (v) => {
-                    this.plugin.settings.semanticStorageLocation = v as 'obsidian-sync' | 'local' | 'global';
+        // Storage location removed from UI (ADR-050: knowledge.db is always global)
+
+        // ── Graph Expansion (FEATURE-1502) ─────────────────────────────────
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Graph expansion' });
+
+        new Setting(containerEl)
+            .setName('Graph expansion')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilinks and MOC-Properties are proper nouns
+            .setDesc('Expand search results via Wikilinks and MOC-Properties (Themen, Konzepte, etc.). Extracts your vault graph into the Knowledge DB.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableGraphExpansion ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableGraphExpansion = v;
                     await this.plugin.saveSettings();
                 }),
+            );
+
+        new Setting(containerEl)
+            .setName('Expansion hops')
+            .setDesc('How many link-hops to follow (1 = direct links, 2 = links of links, 3 = broad). Higher values include more context.')
+            .addDropdown((d) => {
+                d.addOption('1', '1 hop (direct links)');
+                d.addOption('2', '2 hops');
+                d.addOption('3', '3 hops (broad)');
+                d.setValue(String(this.plugin.settings.graphExpansionHops ?? 1));
+                d.onChange(async (v) => {
+                    this.plugin.settings.graphExpansionHops = parseInt(v, 10);
+                    await this.plugin.saveSettings();
+                });
+            });
+
+        new Setting(containerEl)
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- MOC is an acronym
+            .setName('MOC property names')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- E.g. triggers false positive
+            .setDesc('Frontmatter properties to extract as graph edges (comma-separated). E.g. Themen, Konzepte, Personen.')
+            .addText((text) => {
+                text.setValue((this.plugin.settings.mocPropertyNames ?? []).join(', '));
+                text.setPlaceholder('Themen, Konzepte, Personen'); // eslint-disable-line obsidianmd/ui/sentence-case -- German proper nouns
+                text.inputEl.addEventListener('blur', () => { void (async () => {
+                    const names = text.getValue().split(',').map(s => s.trim()).filter(Boolean);
+                    this.plugin.settings.mocPropertyNames = names;
+                    this.plugin.graphExtractor?.setMocProperties(names);
+                    await this.plugin.saveSettings();
+                })(); });
+            });
+
+        // Graph statistics
+        const graphStats = containerEl.createDiv('agent-settings-desc');
+        if (this.plugin.graphStore) {
+            const edges = this.plugin.graphStore.getEdgeCount();
+            const tags = this.plugin.graphStore.getTagCount();
+            graphStats.setText(`Graph: ${edges} edges, ${tags} unique tags extracted`);
+        } else {
+            graphStats.setText('Graph: not initialized (enable Semantic Index first)'); // eslint-disable-line obsidianmd/ui/sentence-case -- Semantic Index is a proper noun
+        }
+
+        // ── Implicit Connections (FEATURE-1503) ──────────────────────────────
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Implicit connections' });
+
+        new Setting(containerEl)
+            .setName('Implicit connections')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilink is a proper noun
+            .setDesc('Discover semantically similar notes that have no direct Wikilink. Computed in the background after indexing.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableImplicitConnections ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableImplicitConnections = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Similarity threshold')
+            .setDesc('Minimum cosine similarity to count as an implicit connection (0.5 = loose, 0.9 = strict).')
+            .addSlider((s) =>
+                s.setLimits(0.5, 0.9, 0.05)
+                    .setValue(this.plugin.settings.implicitThreshold ?? 0.7)
+                    .setDynamicTooltip()
+                    .onChange(async (v) => {
+                        this.plugin.settings.implicitThreshold = v;
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
+        new Setting(containerEl)
+            .setName('Suggestion banner')
+            .setDesc('Show implicit connection suggestions in the sidebar. Disable if the suggestions are distracting.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableSuggestionBanner ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableSuggestionBanner = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        const implicitStats = containerEl.createDiv('agent-settings-desc');
+        const implicitCount = this.plugin.implicitConnectionService?.getCount() ?? 0;
+        if (implicitCount > 0) {
+            implicitStats.setText(`${implicitCount} implicit connections discovered`);
+        } else if (this.plugin.implicitConnectionService?.computing) {
+            implicitStats.setText('Computing implicit connections...');
+        } else {
+            implicitStats.setText('No implicit connections computed yet (build index first)');
+        }
+
+        // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Local reranking' });
+
+        new Setting(containerEl)
+            .setName('Local reranking')
+            // eslint-disable-next-line obsidianmd/ui/sentence-case -- WASM and MiniLM are technical terms
+            .setDesc('Re-score search results with a local cross-encoder model (ms-marco-MiniLM). Runs entirely on-device via WASM. Desktop only.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableReranking ?? true).onChange(async (v) => {
+                    this.plugin.settings.enableReranking = v;
+                    await this.plugin.saveSettings();
+                    if (v && !this.plugin.rerankerService) {
+                        const { RerankerService } = await import('../../core/knowledge/RerankerService');
+                        this.plugin.rerankerService = new RerankerService();
+                        void this.plugin.rerankerService.loadModel();
+                    }
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Rerank candidates')
+            .setDesc('How many candidates to rerank (more = better quality but slower).')
+            .addSlider((s) =>
+                s.setLimits(10, 30, 5)
+                    .setValue(this.plugin.settings.rerankCandidates ?? 20)
+                    .setDynamicTooltip()
+                    .onChange(async (v) => {
+                        this.plugin.settings.rerankCandidates = v;
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
+    }
+
+    /** Start background enrichment if all prerequisites are met. */
+    private async triggerEnrichmentIfReady(): Promise<void> {
+        const idx = this.plugin.semanticIndex;
+        if (!idx || !idx.isIndexed || idx.enriching || idx.building) return;
+        if (!this.plugin.settings.enableContextualRetrieval) return;
+        if (!this.plugin.settings.contextualModelKey) return;
+
+        const ctxModel = this.plugin.settings.activeModels.find(
+            (m) => getModelKey(m) === this.plugin.settings.contextualModelKey && m.enabled,
         );
+        if (!ctxModel) return;
+
+        const { buildApiHandlerForModel } = await import('../../api/index');
+        idx.setContextualApiHandler(buildApiHandlerForModel(ctxModel));
+        void idx.runBackgroundEnrichment();
     }
 
     renderEmbeddingRow(table: HTMLElement, model: CustomModel): void {

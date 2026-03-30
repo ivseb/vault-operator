@@ -49,8 +49,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
+    "@huggingface/transformers": "^4.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@orama/orama": "^2.0.0",
     "delay": "^5.0.0",
     "diff": "^5.1.0",
     "docx": "^9.6.0",
@@ -62,11 +62,10 @@
     "openai": "^4.0.0",
     "p-wait-for": "^5.0.0",
     "pdfjs-dist": "^4.4.168",
-    "pptx-automizer": "^0.8.1",
     "pptxgenjs": "^4.0.1",
     "serialize-error": "^11.0.0",
-    "uuid": "^9.0.1",
-    "vectra": "^0.12.3"
+    "sql.js": "^1.14.1",
+    "uuid": "^9.0.1"
   },
   "overrides": {
     "hono": ">=4.12.7",
@@ -74,7 +73,5 @@
     "express-rate-limit": ">=8.2.2",
     "undici": ">=7.24.0",
     "flatted": ">=3.4.2"
-  },
-  "optionalDependencies": {}
-
+  }
 }

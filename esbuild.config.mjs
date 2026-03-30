@@ -17,6 +17,17 @@ const prod = (process.argv[2] === "production");
 
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
 // Set PLUGIN_DIR in your .env or shell environment
+// Load .env file if it exists (for PLUGIN_DIR with iCloud paths containing spaces)
+try {
+    const envContent = readFileSync(join(__dirname, '.env'), 'utf-8');
+    for (const line of envContent.split('\n')) {
+        const match = line.match(/^([A-Z_]+)=(.*)$/);
+        if (match && !process.env[match[1]]) {
+            // Strip surrounding quotes (single or double) from .env values
+            process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
+        }
+    }
+} catch { /* .env not found — use shell environment */ }
 const VAULT_PLUGIN_DIR = process.env.PLUGIN_DIR || "";
 
 const context = await esbuild.context({
@@ -148,6 +159,15 @@ const context = await esbuild.context({
                             }
                             if (existsSync("sandbox-worker.js")) {
                                 copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
+                            }
+                            // Copy sql.js WASM binaries for Knowledge DB
+                            // sql.js may request either sql-wasm.wasm or sql-wasm-browser.wasm
+                            // depending on which variant esbuild resolves
+                            for (const wasmName of ["sql-wasm.wasm", "sql-wasm-browser.wasm"]) {
+                                const wasmSrc = join(__dirname, "node_modules/sql.js/dist", wasmName);
+                                if (existsSync(wasmSrc)) {
+                                    copyFileSync(wasmSrc, `${VAULT_PLUGIN_DIR}/${wasmName}`);
+                                }
                             }
                             // Copy bundled skills to plugin skills directory
                             const bundledSkillsDir = join(__dirname, "bundled-skills");

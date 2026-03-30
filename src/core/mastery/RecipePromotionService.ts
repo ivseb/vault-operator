@@ -6,10 +6,12 @@
  * (memory model) to generate a recipe description and trigger keywords,
  * then saves the result via RecipeStore.
  *
+ * FEATURE-1505: Migrated from JSON files to MemoryDB (SQLite).
  * ADR-018: Episodic Task Memory — Promotion zu Rezepten
  */
 
 import type { FileAdapter } from '../storage/types';
+import type { MemoryDB } from '../knowledge/MemoryDB';
 import type { RecipeStore } from './RecipeStore';
 import type { TaskEpisode } from './EpisodicExtractor';
 import type { ProceduralRecipe } from './types';
@@ -28,25 +30,35 @@ interface PatternEntry {
 
 export class RecipePromotionService {
     private fs: FileAdapter;
+    private memoryDB: MemoryDB | null;
     private store: RecipeStore;
     private getApi: () => ApiHandler | null;
+    private getLearnedEnabled: () => boolean;
     private patternsDir: string;
 
     constructor(
         fs: FileAdapter,
         store: RecipeStore,
         getApi: () => ApiHandler | null,
+        getLearnedEnabled?: () => boolean,
+        memoryDB?: MemoryDB | null,
     ) {
         this.fs = fs;
+        this.memoryDB = memoryDB ?? null;
         this.store = store;
         this.getApi = getApi;
+        this.getLearnedEnabled = getLearnedEnabled ?? (() => true);
         this.patternsDir = 'patterns';
     }
 
     async initialize(): Promise<void> {
-        const exists = await this.fs.exists(this.patternsDir);
-        if (!exists) {
-            await this.fs.mkdir(this.patternsDir);
+        if (!this.memoryDB?.isOpen()) {
+            const exists = await this.fs.exists(this.patternsDir);
+            if (!exists) await this.fs.mkdir(this.patternsDir);
+        }
+        // One-time migration from files to DB
+        if (this.memoryDB?.isOpen()) {
+            await this.migrateFromFiles();
         }
     }
 
@@ -55,6 +67,7 @@ export class RecipePromotionService {
      * Called after each episode is recorded (fire-and-forget).
      */
     async checkForPromotion(episode: TaskEpisode): Promise<void> {
+        if (!this.getLearnedEnabled()) return;
         if (!episode.success) return;
         if (episode.toolSequence.length < 2) return;
 
@@ -95,9 +108,8 @@ export class RecipePromotionService {
         }
 
         try {
-            // Build a concise prompt for the LLM
             const exampleMessages = pattern.episodes
-                .slice(-3) // Last 3 examples
+                .slice(-3)
                 .map((e) => `- "${e.userMessage}" => ${e.resultSummary}`)
                 .join('\n');
 
@@ -118,6 +130,12 @@ Generate a JSON object with:
                 { role: 'user', content: userPrompt },
             ], [], undefined)) {
                 if (chunk.type === 'text') responseText += chunk.text;
+            }
+
+            // L-1: Limit response size before parsing to prevent memory exhaustion
+            if (responseText.length > 50_000) {
+                console.warn('[RecipePromotion] LLM response too large, skipping');
+                return;
             }
 
             // Parse LLM response (M-9: type-guarded validation)
@@ -161,21 +179,83 @@ Generate a JSON object with:
             await this.store.save(recipe);
             console.debug(`[RecipePromotion] Promoted pattern to recipe: ${recipe.name}`);
 
-            // Clean up pattern tracker (no longer needed)
+            // Clean up pattern tracker
             await this.deletePattern(pattern.patternKey);
         } catch (e) {
             console.warn('[RecipePromotion] Promotion failed:', e);
         }
     }
 
-    /**
-     * Create a stable key from a tool sequence (order-preserving).
-     */
     private makePatternKey(toolSequence: string[]): string {
         return toolSequence.join('-').replace(/[^a-z0-9_-]/gi, '').slice(0, 80);
     }
 
+    // -----------------------------------------------------------------------
+    // Pattern persistence (DB or files)
+    // -----------------------------------------------------------------------
+
     private async loadPattern(key: string, toolSequence: string[]): Promise<PatternEntry> {
+        if (this.memoryDB?.isOpen()) {
+            return this.loadPatternFromDB(key, toolSequence);
+        }
+        return this.loadPatternFromFile(key, toolSequence);
+    }
+
+    private async savePattern(pattern: PatternEntry): Promise<void> {
+        if (this.memoryDB?.isOpen()) {
+            this.savePatternToDB(pattern);
+            return;
+        }
+        await this.savePatternToFile(pattern);
+    }
+
+    private async deletePattern(key: string): Promise<void> {
+        if (this.memoryDB?.isOpen()) {
+            this.deletePatternFromDB(key);
+            return;
+        }
+        await this.deletePatternFromFile(key);
+    }
+
+    // -----------------------------------------------------------------------
+    // DB operations
+    // -----------------------------------------------------------------------
+
+    private loadPatternFromDB(key: string, toolSequence: string[]): PatternEntry {
+        const db = this.memoryDB!.getDB();
+        const result = db.exec('SELECT tool_sequence, episodes, success_count FROM patterns WHERE pattern_key = ?', [key]);
+        if (result.length === 0 || result[0].values.length === 0) {
+            return { patternKey: key, toolSequence, episodes: [], successCount: 0 };
+        }
+        const row = result[0].values[0];
+        return {
+            patternKey: key,
+            toolSequence: JSON.parse((row[0] as string) ?? '[]'),
+            episodes: JSON.parse((row[1] as string) ?? '[]'),
+            successCount: (row[2] as number) ?? 0,
+        };
+    }
+
+    private savePatternToDB(pattern: PatternEntry): void {
+        const db = this.memoryDB!.getDB();
+        db.run(
+            `INSERT OR REPLACE INTO patterns (pattern_key, tool_sequence, episodes, success_count) VALUES (?, ?, ?, ?)`,
+            [pattern.patternKey, JSON.stringify(pattern.toolSequence), JSON.stringify(pattern.episodes), pattern.successCount],
+        );
+        this.memoryDB!.markDirty();
+    }
+
+    private deletePatternFromDB(key: string): void {
+        const db = this.memoryDB!.getDB();
+        db.run('DELETE FROM patterns WHERE pattern_key = ?', [key]);
+        this.memoryDB!.markDirty();
+    }
+
+    // -----------------------------------------------------------------------
+    // Legacy file operations
+    // -----------------------------------------------------------------------
+
+    private async loadPatternFromFile(key: string, toolSequence: string[]): Promise<PatternEntry> {
         const filePath = `${this.patternsDir}/${key}.json`;
         try {
             const exists = await this.fs.exists(filePath);
@@ -183,26 +263,54 @@ Generate a JSON object with:
                 const raw = await this.fs.read(filePath);
                 return JSON.parse(raw) as PatternEntry;
             }
-        } catch { /* fall through to create new */ }
-
-        return {
-            patternKey: key,
-            toolSequence,
-            episodes: [],
-            successCount: 0,
-        };
+        } catch { /* fall through */ }
+        return { patternKey: key, toolSequence, episodes: [], successCount: 0 };
     }
 
-    private async savePattern(pattern: PatternEntry): Promise<void> {
+    private async savePatternToFile(pattern: PatternEntry): Promise<void> {
         const filePath = `${this.patternsDir}/${pattern.patternKey}.json`;
         await this.fs.write(filePath, JSON.stringify(pattern, null, 2));
     }
 
-    private async deletePattern(key: string): Promise<void> {
+    private async deletePatternFromFile(key: string): Promise<void> {
         const filePath = `${this.patternsDir}/${key}.json`;
         try {
             const exists = await this.fs.exists(filePath);
             if (exists) await this.fs.remove(filePath);
         } catch { /* non-fatal */ }
+    }
+
+    /** One-time migration: import pattern files into DB. */
+    private async migrateFromFiles(): Promise<void> {
+        try {
+            const exists = await this.fs.exists(this.patternsDir);
+            if (!exists) return;
+            const listing = await this.fs.list(this.patternsDir);
+            const jsonFiles = listing.files.filter((f: string) => f.endsWith('.json'));
+            if (jsonFiles.length === 0) return;
+
+            // Check if DB already has patterns (avoid double migration)
+            const dbCount = this.memoryDB!.getDB().exec('SELECT COUNT(*) FROM patterns');
+            if (dbCount.length > 0 && (dbCount[0].values[0][0] as number) > 0) return;
+
+            let migrated = 0;
+            for (const file of jsonFiles) {
+                try {
+                    const raw = await this.fs.read(file);
+                    const pattern = JSON.parse(raw) as PatternEntry;
+                    if (pattern.patternKey) {
+                        this.savePatternToDB(pattern);
+                        migrated++;
+                    }
+                } catch { /* skip corrupt */ }
+            }
+
+            if (migrated > 0) {
+                await this.memoryDB!.save();
+                console.debug(`[RecipePromotion] Migrated ${migrated} patterns from JSON files to DB`);
+            }
+        } catch (e) {
+            console.warn('[RecipePromotion] Migration failed (non-fatal):', e);
+        }
     }
 }

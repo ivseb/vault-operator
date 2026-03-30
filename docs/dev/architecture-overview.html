@@ -141,12 +141,12 @@
         <li><strong>Fail-closed approval</strong> &mdash; If no approval callback is registered, write operations are denied by default. <em>Why: Better to deny a safe operation than allow an unsafe one.</em></li>
         <li><strong>Shadow git repository</strong> &mdash; <code>isomorphic-git</code> maintains a hidden repo for checkpoint/restore without requiring system git. <em>Why: No external git dependency, works on any OS.</em></li>
         <li><strong>Mode-based tool filtering</strong> &mdash; Each mode defines which tool groups are accessible, preventing unintended operations. <em>Why: Reduces attack surface by limiting tool access per context.</em></li>
-        <li><strong>Semantic index</strong> &mdash; Vectra HNSW vector store with configurable embedding model (API or local via Ollama). <em>Why: Semantic search across the entire vault.</em></li>
+        <li><strong>4-stage retrieval pipeline</strong> &mdash; SQLite Knowledge DB (sql.js WASM) with vector search, local cross-encoder reranking (transformers.js), graph expansion (Wikilinks + MOC), and implicit connection discovery. <em>Why: Finds notes by meaning, structure, and hidden connections.</em></li>
         <li><strong>Sliding-window repetition detection</strong> &mdash; Prevents infinite tool loops by tracking recent calls in a 10-call window. <em>Why: Bounded memory prevents infinite loops without false positives.</em></li>
         <li><strong>Multi-provider API adapter</strong> &mdash; Unified <code>ApiHandler</code> interface normalizes Anthropic, OpenAI, Ollama, Azure, and custom providers. <em>Why: Users choose their preferred LLM without code changes.</em></li>
         <li><strong>3-tier memory architecture</strong> &mdash; Chat history &rarr; session extraction &rarr; long-term memory promotion via LLM pipeline. <em>Why: Balances detail (chat) with efficiency (promoted facts) across time.</em></li>
         <li><strong>VaultDNA plugin discovery</strong> &mdash; Runtime reflection scans installed plugins, generates skill files automatically. <em>Why: Plugin ecosystem is Obsidian's strength; VaultDNA bridges it to the agent.</em></li>
-        <li><strong>Hybrid search with RRF</strong> &mdash; Semantic + BM25/TF-IDF combined via Reciprocal Rank Fusion (k=60). <em>Why: Semantic handles conceptual queries; BM25 handles exact matches; RRF combines both.</em></li>
+        <li><strong>Hybrid search with RRF</strong> &mdash; Semantic (cosine) + TF-IDF (stemming + stop-words + title boost) combined via Reciprocal Rank Fusion (k=60), then reranked by local cross-encoder. <em>Why: Semantic handles conceptual queries; TF-IDF handles exact matches; reranker sharpens precision.</em></li>
         <li><strong>Agent Skill Mastery (3 layers)</strong> &mdash; Rich tool descriptions with examples, procedural recipes with keyword-first matching, and episodic task memory with auto-promotion. <em>Why: The agent improves over time by learning from successful task executions.</em></li>
       </ol>
 
@@ -168,7 +168,7 @@
       <table>
         <thead><tr><th>Component</th><th>File</th><th>Responsibility</th></tr></thead>
         <tbody>
-          <tr><td><code>SemanticIndexService</code></td><td>src/core/semantic/SemanticIndexService.ts</td><td>Vectra index, BM25, RRF fusion, HyDE</td></tr>
+          <tr><td><code>SemanticIndexService</code></td><td>src/core/semantic/SemanticIndexService.ts</td><td>SQLite index, TF-IDF, RRF fusion, HyDE, two-pass enrichment</td></tr>
           <tr><td><code>MemoryService</code></td><td>src/core/memory/MemoryService.ts</td><td>6 memory files, context injection</td></tr>
           <tr><td><code>ExtractionQueue</code></td><td>src/core/memory/ExtractionQueue.ts</td><td>Persistent FIFO for background extraction</td></tr>
         </tbody>
@@ -189,7 +189,7 @@
       <table>
         <thead><tr><th>Component</th><th>File</th><th>Responsibility</th></tr></thead>
         <tbody>
-          <tr><td><code>GlobalFileService</code></td><td>src/core/storage/GlobalFileService.ts</td><td>Cross-vault file I/O at ~/.obsidian-agent/</td></tr>
+          <tr><td><code>GlobalFileService</code></td><td>src/core/storage/GlobalFileService.ts</td><td>Cross-vault file I/O at {vault-parent}/.obsidian-agent/</td></tr>
           <tr><td><code>SyncBridge</code></td><td>src/core/storage/SyncBridge.ts</td><td>Bidirectional sync between global and vault-local files</td></tr>
           <tr><td><code>OnboardingService</code></td><td>src/core/memory/OnboardingService.ts</td><td>9-step guided first-run onboarding conversation</td></tr>
           <tr><td><code>VaultDNAScanner</code></td><td>src/core/skills/VaultDNAScanner.ts</td><td>Auto-generates .skill.md files from installed plugins</td></tr>
@@ -206,7 +206,8 @@
           <tr><td><code>@anthropic-ai/sdk</code></td><td>Anthropic API client</td></tr>
           <tr><td><code>openai</code></td><td>OpenAI-compatible API client</td></tr>
           <tr><td><code>@modelcontextprotocol/sdk</code></td><td>MCP client library</td></tr>
-          <tr><td><code>vectra</code></td><td>Pure-TypeScript HNSW vector index</td></tr>
+          <tr><td><code>sql.js</code></td><td>SQLite via WASM (Knowledge DB + Memory DB)</td></tr>
+          <tr><td><code>@huggingface/transformers</code></td><td>Local cross-encoder reranking via WASM</td></tr>
           <tr><td><code>isomorphic-git</code></td><td>Pure-JS git for checkpoints</td></tr>
         </tbody>
       </table>
