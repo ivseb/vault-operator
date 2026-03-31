@@ -552,6 +552,10 @@ export interface ObsidianAgentSettings {
     /** Number of candidates to rerank (more = better quality but slower). */
     rerankCandidates: number;
 
+    // MCP Server (EPIC-014)
+    /** Enable the MCP Server for Claude Desktop/Code integration. */
+    enableMcpServer: boolean;
+
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
     checkpointTimeoutSeconds: number;
@@ -816,6 +820,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableSuggestionBanner: true,
     enableReranking: true,
     rerankCandidates: 20,
+    enableMcpServer: false,
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,
