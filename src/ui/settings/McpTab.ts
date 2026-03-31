@@ -85,8 +85,130 @@ export class McpTab {
                 });
         }
 
-        // ── Future connectors placeholder ─────────────────────────────────
-        // (ChatGPT, Mistral, etc. -- cards will be added here later)
+        // ── Remote access (all MCP clients) ───────────────────────────────
+        const remoteSection = containerEl.createDiv('agent-mcp-connector-card');
+
+        const remoteHeader = remoteSection.createDiv('agent-mcp-connector-header');
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai and ChatGPT are product names
+        remoteHeader.createSpan({ text: 'Remote access (claude.ai, ChatGPT, Cursor, ...)', cls: 'agent-mcp-connector-name' });
+
+        const remoteEnabled = this.plugin.settings.enableRemoteRelay ?? false;
+        const remoteConnected = (this.plugin.mcpBridge as { remoteConnected?: boolean })?.remoteConnected ?? false;
+        const remoteConnecting = (this.plugin.mcpBridge as { remoteConnecting?: boolean })?.remoteConnecting ?? false;
+
+        remoteHeader.createSpan({
+            cls: `agent-mcp-status-badge ${remoteConnected ? 'running' : remoteConnecting ? 'enabled' : remoteEnabled ? 'enabled' : 'off'}`,
+            text: remoteConnected ? 'Connected' : remoteConnecting ? 'Connecting...' : remoteEnabled ? 'Waiting...' : 'Off',
+        });
+
+        new Setting(remoteSection)
+            .setName('Enable remote access')
+            .setDesc('Connect to a relay server so AI assistants on any device can reach your vault.')
+            .addToggle((toggle) =>
+                toggle.setValue(remoteEnabled).onChange(async (v) => {
+                    this.plugin.settings.enableRemoteRelay = v;
+                    await this.plugin.saveSettings();
+                    if (v && this.plugin.mcpBridge && this.plugin.settings.relayUrl) {
+                        void this.plugin.mcpBridge.connectRelay();
+                    } else if (!v) {
+                        this.plugin.mcpBridge?.disconnectRelay();
+                    }
+                    this.rerender();
+                }),
+            );
+
+        if (remoteEnabled) {
+            // Setup wizard
+            if (!this.plugin.settings.relayUrl) {
+                // Step-by-step guide
+                const guide = remoteSection.createDiv('agent-settings-desc');
+                guide.createEl('strong', { text: 'Setup guide' });
+
+                const steps = guide.createEl('ol');
+                const s1 = steps.createEl('li');
+                s1.appendText('Create a free ');
+                s1.createEl('a', { text: 'Cloudflare account', href: 'https://dash.cloudflare.com/sign-up' });
+                s1.appendText(' and enable Workers Paid ($5/month)');
+
+                const s2 = steps.createEl('li');
+                s2.appendText('Deploy the relay: ');
+                s2.createEl('a', { text: 'setup instructions', href: 'https://github.com/pssah4/obsilo/tree/main/relay#setup-5-minutes' });
+
+                const s3 = steps.createEl('li');
+                s3.appendText('Generate a token below and set it as RELAY_TOKEN in your Cloudflare Worker');
+
+                steps.createEl('li', { text: 'Enter the relay URL and token below' });
+            }
+
+            // Token generator
+            new Setting(remoteSection)
+                .setName('Relay token')
+                .setDesc('Shared secret between Obsilo and your relay. Click "Generate" for a new one.')
+                .addText((text) => {
+                    text.setValue(this.plugin.settings.relayToken ?? '');
+                    text.setPlaceholder('sk-...');
+                    text.inputEl.type = 'password';
+                    text.onChange(async (v) => {
+                        this.plugin.settings.relayToken = v;
+                        await this.plugin.saveSettings();
+                    });
+                })
+                .addButton((btn) => {
+                    btn.setButtonText('Generate').onClick(async () => {
+                        const token = 'sk-' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                            .map(b => b.toString(16).padStart(2, '0')).join('');
+                        this.plugin.settings.relayToken = token;
+                        await this.plugin.saveSettings();
+                        this.rerender();
+                        new Notice('Token generated. Set this as RELAY_TOKEN in your Cloudflare Worker.');
+                    });
+                });
+
+            // Relay URL
+            new Setting(remoteSection)
+                .setName('Relay URL')
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare is a product name
+                .setDesc('Your Cloudflare Worker URL (e.g. https://obsilo-relay.xxx.workers.dev)')
+                .addText((text) => {
+                    text.setValue(this.plugin.settings.relayUrl ?? '');
+                    text.setPlaceholder('https://obsilo-relay.xxx.workers.dev');
+                    text.onChange(async (v) => {
+                        this.plugin.settings.relayUrl = v.trim();
+                        await this.plugin.saveSettings();
+                    });
+                });
+
+            // Connect button
+            if (this.plugin.settings.relayUrl && this.plugin.settings.relayToken) {
+                new Setting(remoteSection)
+                    .setName(remoteConnected ? 'Connected' : 'Connection')
+                    .setDesc(remoteConnected
+                        ? 'Relay connected. Use the URL below in your AI assistant.'
+                        : 'Click to connect to your relay.')
+                    .addButton((btn) => {
+                        btn.setButtonText(remoteConnected ? 'Disconnect' : 'Connect').onClick(async () => {
+                            if (remoteConnected) {
+                                this.plugin.mcpBridge?.disconnectRelay();
+                            } else if (this.plugin.mcpBridge) {
+                                void this.plugin.mcpBridge.connectRelay();
+                            }
+                            // Delay rerender to let connection state update
+                            setTimeout(() => this.rerender(), 1000);
+                        });
+                    });
+
+                // Usage instructions (only when connected or URL is set)
+                const usage = remoteSection.createDiv('agent-settings-desc');
+                const url = this.plugin.settings.relayUrl.replace(/\/$/, '');
+                usage.createEl('strong', { text: 'Add as connector in your AI assistant:' });
+                const usageList = usage.createEl('ul');
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai is a URL
+                usageList.createEl('li', { text: `claude.ai: Settings > Connectors > Add custom connector > URL: ${url}` });
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- ChatGPT is a product name
+                usageList.createEl('li', { text: `ChatGPT: Apps > Developer Mode > Add connector > URL: ${url}` });
+                usageList.createEl('li', { text: `Cursor/Windsurf: MCP server settings > add remote > URL: ${url}` });
+            }
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────

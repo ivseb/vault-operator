@@ -14,6 +14,7 @@
 import type ObsidianAgentPlugin from '../main';
 import type { McpToolDefinition } from './types';
 import { handleToolCall } from './tools/index';
+import { RelayClient } from './RelayClient';
 import { buildPrompts } from './prompts/systemContext';
 
 const DEFAULT_PORT = 27182;
@@ -134,6 +135,7 @@ export class McpBridge {
     private server: any = null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Node.js ChildProcess type
     private tunnelProcess: any = null;
+    private relayClient: RelayClient | null = null;
     private _running = false;
     private _tunnelUrl: string | null = null;
     private port = DEFAULT_PORT;
@@ -142,6 +144,8 @@ export class McpBridge {
     constructor(private plugin: ObsidianAgentPlugin) {}
 
     get tunnelUrl(): string | null { return this._tunnelUrl; }
+    get remoteConnected(): boolean { return this.relayClient?.connected ?? false; }
+    get remoteConnecting(): boolean { return this.relayClient?.connecting ?? false; }
 
     get running(): boolean { return this._running; }
 
@@ -168,7 +172,24 @@ export class McpBridge {
         });
     }
 
+    /** Connect to remote relay (if configured). */
+    async connectRelay(): Promise<void> {
+        const url = this.plugin.settings.relayUrl;
+        const token = this.plugin.settings.relayToken;
+        if (!url || !token) return;
+
+        this.relayClient = new RelayClient(this.plugin);
+        await this.relayClient.connect(url, token);
+    }
+
+    /** Disconnect from remote relay. */
+    disconnectRelay(): void {
+        this.relayClient?.disconnect();
+        this.relayClient = null;
+    }
+
     stop(): void {
+        this.disconnectRelay();
         this.stopTunnel();
         if (this.server) {
             this.server.close();
@@ -369,7 +390,7 @@ export class McpBridge {
     // Dynamic Tool Definitions (with vault context)
     // -----------------------------------------------------------------------
 
-    private getToolsWithContext() {
+    getToolsWithContext() {
         const vault = this.plugin.app.vault;
 
         // Get top-level folders for write_vault description
@@ -415,7 +436,7 @@ export class McpBridge {
     // Resources -- Vault notes as attachable context
     // -----------------------------------------------------------------------
 
-    private buildResourceList() {
+    buildResourceList() {
         const vault = this.plugin.app.vault;
         const files = vault.getMarkdownFiles();
         // Return all markdown files as resources (Claude shows these in "Add from Obsilo")

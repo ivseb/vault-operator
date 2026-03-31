@@ -91,7 +91,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     implicitConnectionService: ImplicitConnectionService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
-    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; startTunnel(onUrl?: (url: string | null) => void): Promise<void>; stopTunnel(): void } | null = null;
+    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): Promise<void>; stopTunnel(): void; connectRelay(): Promise<void>; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -633,6 +633,12 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.mcpBridge.start().catch((e: unknown) =>
                 console.warn('[Plugin] MCP Server start failed (non-fatal):', e)
             );
+            // Remote relay (if configured)
+            if (this.settings.enableRemoteRelay && this.settings.relayUrl) {
+                void this.mcpBridge.connectRelay().catch((e: unknown) =>
+                    console.warn('[Plugin] Relay connection failed (non-fatal):', e)
+                );
+            }
         }
 
         console.debug('Obsilo Agent plugin loaded successfully');

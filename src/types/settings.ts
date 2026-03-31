@@ -555,6 +555,12 @@ export interface ObsidianAgentSettings {
     // MCP Server (EPIC-014)
     /** Enable the MCP Server for Claude Desktop/Code integration. */
     enableMcpServer: boolean;
+    /** Enable remote relay connection for claude.ai, ChatGPT, etc. */
+    enableRemoteRelay: boolean;
+    /** Cloudflare relay URL (e.g. https://obsilo-relay.xxx.workers.dev). */
+    relayUrl: string;
+    /** Shared secret token for relay authentication. */
+    relayToken: string;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -821,6 +827,9 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableReranking: true,
     rerankCandidates: 20,
     enableMcpServer: false,
+    enableRemoteRelay: false,
+    relayUrl: '',
+    relayToken: '',
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,
