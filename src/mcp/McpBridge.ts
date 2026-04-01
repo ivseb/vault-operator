@@ -174,6 +174,9 @@ export class McpBridge {
 
     /** Connect to remote relay (if configured). */
     async connectRelay(): Promise<void> {
+        // Stop any existing polling loop first
+        this.disconnectRelay();
+
         const url = this.plugin.settings.relayUrl;
         const token = this.plugin.settings.relayToken;
         if (!url || !token) return;

@@ -9,7 +9,7 @@ export class McpTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     build(containerEl: HTMLElement): void {
-        // One info banner at the top explaining the entire page
+        // One intro banner for the page
         const intro = containerEl.createDiv('agent-settings-info-banner');
         const introIcon = intro.createSpan({ cls: 'agent-settings-info-icon' });
         setIcon(introIcon, 'link');
@@ -23,7 +23,7 @@ export class McpTab {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Section 1: Connectors (Obsilo as server for AI assistants)
+    // Connectors
     // ─────────────────────────────────────────────────────────────────────────
 
     private buildConnectorSection(containerEl: HTMLElement): void {
@@ -35,24 +35,14 @@ export class McpTab {
         });
 
         // ── Claude Desktop / Claude Code ──────────────────────────────────
-        const claudeSection = containerEl.createDiv('agent-mcp-connector-card');
-
-        const claudeHeader = claudeSection.createDiv('agent-mcp-connector-header');
-        claudeHeader.createSpan({ text: 'Claude Desktop / Claude Code', cls: 'agent-mcp-connector-name' });
+        containerEl.createEl('h4', { text: 'Claude Desktop / Claude Code' });
 
         const mcpBridge = this.plugin.mcpBridge;
         const isRunning = mcpBridge?.running ?? false;
         const isEnabled = this.plugin.settings.enableMcpServer ?? false;
 
-        // Status badge
-        const statusBadge = claudeHeader.createSpan({
-            cls: `agent-mcp-status-badge ${isRunning ? 'running' : isEnabled ? 'enabled' : 'off'}`,
-            text: isRunning ? 'Running' : isEnabled ? 'Starting...' : 'Off',
-        });
-
-        // Enable toggle
-        new Setting(claudeSection)
-            .setName('Enable')
+        new Setting(containerEl)
+            .setName('Enable local connector')
             .setDesc('Obsidian must be running for the connection to work.')
             .addToggle((toggle) =>
                 toggle.setValue(isEnabled).onChange(async (v) => {
@@ -72,36 +62,26 @@ export class McpTab {
                 }),
             );
 
-        // Setup button (only shown when enabled)
         if (isEnabled) {
-            new Setting(claudeSection)
-                .setName('Setup')
+            new Setting(containerEl)
+                .setName('Configure Claude Desktop')
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- Claude Desktop is a product name
                 .setDesc('Writes the connection to Claude Desktop\'s config. Restart Claude Desktop after.')
                 .addButton((btn) => {
-                    btn.setButtonText('Configure Claude Desktop').onClick(() => {
+                    btn.setButtonText('Configure').onClick(() => {
                         void this.writeClaudeDesktopConfig();
                     });
                 });
         }
 
-        // ── Remote access (all MCP clients) ───────────────────────────────
-        const remoteSection = containerEl.createDiv('agent-mcp-connector-card');
-
-        const remoteHeader = remoteSection.createDiv('agent-mcp-connector-header');
+        // ── Remote access ─────────────────────────────────────────────────
         // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai and ChatGPT are product names
-        remoteHeader.createSpan({ text: 'Remote access (claude.ai, ChatGPT, Cursor, ...)', cls: 'agent-mcp-connector-name' });
+        containerEl.createEl('h4', { text: 'Remote access (claude.ai, ChatGPT, Cursor)' });
 
         const remoteEnabled = this.plugin.settings.enableRemoteRelay ?? false;
-        const remoteConnected = (this.plugin.mcpBridge as { remoteConnected?: boolean })?.remoteConnected ?? false;
-        const remoteConnecting = (this.plugin.mcpBridge as { remoteConnecting?: boolean })?.remoteConnecting ?? false;
+        const remoteConnected = (mcpBridge as { remoteConnected?: boolean })?.remoteConnected ?? false;
 
-        remoteHeader.createSpan({
-            cls: `agent-mcp-status-badge ${remoteConnected ? 'running' : remoteConnecting ? 'enabled' : remoteEnabled ? 'enabled' : 'off'}`,
-            text: remoteConnected ? 'Connected' : remoteConnecting ? 'Connecting...' : remoteEnabled ? 'Waiting...' : 'Off',
-        });
-
-        new Setting(remoteSection)
+        new Setting(containerEl)
             .setName('Enable remote access')
             .setDesc('Connect to a relay server so AI assistants on any device can reach your vault.')
             .addToggle((toggle) =>
@@ -118,72 +98,120 @@ export class McpTab {
             );
 
         if (remoteEnabled) {
-            // Setup wizard
-            if (!this.plugin.settings.relayUrl) {
-                // Step-by-step guide
-                const guide = remoteSection.createDiv('agent-settings-desc');
-                guide.createEl('strong', { text: 'Setup guide' });
+            const hasRelay = !!this.plugin.settings.relayUrl;
 
-                const steps = guide.createEl('ol');
-                const s1 = steps.createEl('li');
-                s1.appendText('Create a free ');
-                s1.createEl('a', { text: 'Cloudflare account', href: 'https://dash.cloudflare.com/sign-up' });
-                s1.appendText(' and enable Workers Paid ($5/month)');
+            if (!hasRelay) {
+                // ── Info banner: setup flow ───────────────────────────────
+                const remoteInfo = containerEl.createDiv('agent-settings-info-banner');
+                const remoteInfoIcon = remoteInfo.createSpan({ cls: 'agent-settings-info-icon' });
+                setIcon(remoteInfoIcon, 'globe');
+                const remoteInfoText = remoteInfo.createDiv({ cls: 'agent-settings-info-text' });
+                remoteInfoText.createDiv({ text: 'A relay server on your own Cloudflare account connects your vault to AI assistants from any device. Your data stays on your infrastructure.' });
+                const steps = remoteInfoText.createEl('ol');
+                steps.createEl('li').createEl('a', {
+                    text: 'Create a free Cloudflare account',
+                    href: 'https://dash.cloudflare.com/sign-up',
+                });
+                const step2 = steps.createEl('li');
+                step2.appendText('Go to ');
+                step2.createEl('a', {
+                    text: 'API Tokens',
+                    href: 'https://dash.cloudflare.com/profile/api-tokens',
+                });
+                step2.appendText(' and click "Create Token".');
+                const step3 = steps.createEl('li');
+                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare UI label
+                step3.appendText('Scroll to the bottom and click "Create Custom Token". Add two permissions: Account / Workers Scripts / Edit and Account / Account Settings / Read. Under "Account Resources", select "All accounts". Remove "Zone Resources".');
+                steps.createEl('li', { text: 'Click "Continue to summary", then "Create Token". Copy the token and paste it below.' });
 
-                const s2 = steps.createEl('li');
-                s2.appendText('Deploy the relay: ');
-                s2.createEl('a', { text: 'setup instructions', href: 'https://github.com/pssah4/obsilo/tree/main/relay#setup-5-minutes' });
-
-                const s3 = steps.createEl('li');
-                s3.appendText('Generate a token below and set it as RELAY_TOKEN in your Cloudflare Worker');
-
-                steps.createEl('li', { text: 'Enter the relay URL and token below' });
-            }
-
-            // Token generator
-            new Setting(remoteSection)
-                .setName('Relay token')
-                .setDesc('Shared secret between Obsilo and your relay. Click "Generate" for a new one.')
-                .addText((text) => {
-                    text.setValue(this.plugin.settings.relayToken ?? '');
-                    text.setPlaceholder('sk-...');
-                    text.inputEl.type = 'password';
-                    text.onChange(async (v) => {
-                        this.plugin.settings.relayToken = v;
-                        await this.plugin.saveSettings();
+                // ── API Token + Deploy ────────────────────────────────────
+                new Setting(containerEl)
+                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare is a product name
+                    .setName('Cloudflare API token')
+                    .setDesc('Paste the token you created in step 2 above.')
+                    .addText((text) => {
+                        text.setValue(this.plugin.settings.cloudflareApiToken ?? '');
+                        text.setPlaceholder('Paste your API token');
+                        text.inputEl.type = 'password';
+                        text.onChange(async (v) => {
+                            this.plugin.settings.cloudflareApiToken = v.trim();
+                            await this.plugin.saveSettings();
+                        });
                     });
-                })
-                .addButton((btn) => {
-                    btn.setButtonText('Generate').onClick(async () => {
-                        const token = 'sk-' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
-                            .map(b => b.toString(16).padStart(2, '0')).join('');
-                        this.plugin.settings.relayToken = token;
-                        await this.plugin.saveSettings();
-                        this.rerender();
-                        new Notice('Token generated. Set this as RELAY_TOKEN in your Cloudflare Worker.');
+
+                // Deploy button
+                const deploySetting = new Setting(containerEl)
+                    .setName('Deploy relay server')
+                    .setDesc('Deploys the relay to your Cloudflare account. Takes about 10 seconds.');
+
+                const deployStatusEl = containerEl.createDiv('setting-item-description');
+
+                deploySetting.addButton((btn) => {
+                    btn.setButtonText('Deploy').setCta().onClick(async () => {
+                        const apiToken = this.plugin.settings.cloudflareApiToken;
+                        if (!apiToken) {
+                            new Notice('Please enter your Cloudflare API token first.');
+                            return;
+                        }
+
+                        btn.setDisabled(true);
+                        btn.setButtonText('Deploying...');
+
+                        try {
+                            const { CloudflareDeployer } = await import('../../mcp/CloudflareDeployer');
+                            const deployer = new CloudflareDeployer(apiToken);
+
+                            // Reuse existing token if available, otherwise generate new one
+                            const relayToken = this.plugin.settings.relayToken
+                                || ('sk-' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                                    .map(b => b.toString(16).padStart(2, '0')).join(''));
+
+                            const result = await deployer.deploy(relayToken, (step) => {
+                                deployStatusEl.setText(step);
+                            });
+
+                            // Save results
+                            this.plugin.settings.relayUrl = result.url;
+                            this.plugin.settings.relayToken = relayToken;
+                            this.plugin.settings.cloudflareAccountId = result.accountId;
+                            await this.plugin.saveSettings();
+
+                            // Connect immediately
+                            if (this.plugin.mcpBridge) {
+                                void this.plugin.mcpBridge.connectRelay();
+                            }
+
+                            new Notice('Relay deployed! Add the URL as a connector in your AI assistant.');
+                            this.rerender();
+                        } catch (e) {
+                            const msg = e instanceof Error ? e.message : String(e);
+                            deployStatusEl.setText(`Deploy failed: ${msg}`);
+                            new Notice(`Deploy failed: ${msg}`);
+                            btn.setDisabled(false);
+                            btn.setButtonText('Deploy');
+                        }
                     });
                 });
+            } else {
+                // ── Already deployed ────────────────────────────────────────
+                const baseUrl = this.plugin.settings.relayUrl.replace(/\/$/, '');
+                const token = this.plugin.settings.relayToken;
+                const mcpUrl = `${baseUrl}/${token}/mcp`;
 
-            // Relay URL
-            new Setting(remoteSection)
-                .setName('Relay URL')
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare is a product name
-                .setDesc('Your Cloudflare Worker URL (e.g. https://obsilo-relay.xxx.workers.dev)')
-                .addText((text) => {
-                    text.setValue(this.plugin.settings.relayUrl ?? '');
-                    text.setPlaceholder('https://obsilo-relay.xxx.workers.dev');
-                    text.onChange(async (v) => {
-                        this.plugin.settings.relayUrl = v.trim();
-                        await this.plugin.saveSettings();
+                new Setting(containerEl)
+                    .setName('Connector URL')
+                    .setDesc('Use this URL in your AI assistant. It includes the auth token -- do not share it.')
+                    .addButton((btn) => {
+                        btn.setButtonText('Copy URL').onClick(() => {
+                            void navigator.clipboard.writeText(mcpUrl);
+                            new Notice('URL copied');
+                        });
                     });
-                });
 
-            // Connect button
-            if (this.plugin.settings.relayUrl && this.plugin.settings.relayToken) {
-                new Setting(remoteSection)
+                new Setting(containerEl)
                     .setName(remoteConnected ? 'Connected' : 'Connection')
                     .setDesc(remoteConnected
-                        ? 'Relay connected. Use the URL below in your AI assistant.'
+                        ? 'Relay connected. Your vault is accessible remotely.'
                         : 'Click to connect to your relay.')
                     .addButton((btn) => {
                         btn.setButtonText(remoteConnected ? 'Disconnect' : 'Connect').onClick(async () => {
@@ -192,27 +220,83 @@ export class McpTab {
                             } else if (this.plugin.mcpBridge) {
                                 void this.plugin.mcpBridge.connectRelay();
                             }
-                            // Delay rerender to let connection state update
                             setTimeout(() => this.rerender(), 1000);
                         });
                     });
 
-                // Usage instructions (only when connected or URL is set)
-                const usage = remoteSection.createDiv('agent-settings-desc');
-                const url = this.plugin.settings.relayUrl.replace(/\/$/, '');
-                usage.createEl('strong', { text: 'Add as connector in your AI assistant:' });
+                // Usage instructions
+                const usage = containerEl.createDiv('agent-settings-desc');
+                usage.createEl('strong', { text: 'Add the URL above as connector in your AI assistant:' });
                 const usageList = usage.createEl('ul');
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai is a URL
-                usageList.createEl('li', { text: `claude.ai: Settings > Connectors > Add custom connector > URL: ${url}` });
+                usageList.createEl('li', { text: 'claude.ai: Settings > Connectors > Add custom connector' });
                 // eslint-disable-next-line obsidianmd/ui/sentence-case -- ChatGPT is a product name
-                usageList.createEl('li', { text: `ChatGPT: Apps > Developer Mode > Add connector > URL: ${url}` });
-                usageList.createEl('li', { text: `Cursor/Windsurf: MCP server settings > add remote > URL: ${url}` });
+                usageList.createEl('li', { text: 'ChatGPT: Apps > Developer Mode > Add connector' });
+                usageList.createEl('li', { text: 'Cursor/Windsurf: MCP server settings > add remote' });
+
+                // Troubleshooting hint
+                const troubleshoot = containerEl.createDiv('setting-item-description');
+                troubleshoot.appendText('Not working? Make sure Obsidian is running and the toggle above is enabled. The connector URL does not change between restarts. ');
+                troubleshoot.createEl('a', {
+                    text: 'Troubleshooting guide',
+                    href: 'https://obsilo.dev/docs/remote-access',
+                });
+
+                // Redeploy + Reset
+                const redeployStatusEl = containerEl.createDiv('setting-item-description');
+
+                new Setting(containerEl)
+                    .setName('Update relay server')
+                    .setDesc('Push the latest relay code to Cloudflare. The connector URL stays the same.')
+                    .addButton((btn) => {
+                        btn.setButtonText('Redeploy').onClick(async () => {
+                            const apiToken = this.plugin.settings.cloudflareApiToken;
+                            const accountId = this.plugin.settings.cloudflareAccountId;
+                            const relayToken = this.plugin.settings.relayToken;
+                            if (!apiToken || !accountId) {
+                                new Notice('Missing API token or account ID. Try Reset and redeploy.');
+                                return;
+                            }
+                            btn.setDisabled(true);
+                            btn.setButtonText('Updating...');
+                            try {
+                                const { CloudflareDeployer } = await import('../../mcp/CloudflareDeployer');
+                                const deployer = new CloudflareDeployer(apiToken);
+                                await deployer.redeploy(accountId, relayToken, (step) => {
+                                    redeployStatusEl.setText(step);
+                                });
+                                new Notice('Relay updated.');
+                                btn.setDisabled(false);
+                                btn.setButtonText('Redeploy');
+                            } catch (e) {
+                                const msg = e instanceof Error ? e.message : String(e);
+                                redeployStatusEl.setText(`Update failed: ${msg}`);
+                                new Notice(`Update failed: ${msg}`);
+                                btn.setDisabled(false);
+                                btn.setButtonText('Redeploy');
+                            }
+                        });
+                    });
+
+                new Setting(containerEl)
+                    .setName('Reset relay')
+                    .setDesc('Remove the relay configuration. You will need to update the connector URL in your AI assistant after redeploying.')
+                    .addButton((btn) => {
+                        btn.setButtonText('Reset').setWarning().onClick(async () => {
+                            this.plugin.mcpBridge?.disconnectRelay();
+                            this.plugin.settings.relayUrl = '';
+                            this.plugin.settings.relayToken = '';
+                            this.plugin.settings.cloudflareAccountId = '';
+                            await this.plugin.saveSettings();
+                            this.rerender();
+                        });
+                    });
             }
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Section 2: External tool servers (Obsilo as client)
+    // External tool servers
     // ─────────────────────────────────────────────────────────────────────────
 
     private buildExternalServersSection(containerEl: HTMLElement): void {
@@ -223,7 +307,6 @@ export class McpTab {
         });
 
         const mcpClient = this.plugin.mcpClient;
-
         const addBtn = containerEl.createEl('button', { text: t('settings.mcp.addServer'), cls: 'mod-cta agent-mcp-add-btn' });
         const listEl = containerEl.createDiv({ cls: 'agent-mcp-list' });
 

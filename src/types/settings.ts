@@ -561,6 +561,10 @@ export interface ObsidianAgentSettings {
     relayUrl: string;
     /** Shared secret token for relay authentication. */
     relayToken: string;
+    /** Cloudflare API token for relay deployment. Encrypted via SafeStorage. */
+    cloudflareApiToken: string;
+    /** Cloudflare account ID (auto-detected during deploy). */
+    cloudflareAccountId: string;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -830,6 +834,8 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableRemoteRelay: false,
     relayUrl: '',
     relayToken: '',
+    cloudflareApiToken: '',
+    cloudflareAccountId: '',
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,

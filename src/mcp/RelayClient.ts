@@ -1,27 +1,31 @@
 /**
- * RelayClient -- WebSocket client connecting to the remote Obsilo Relay.
+ * RelayClient -- HTTP long-polling client connecting to the remote Obsilo Relay.
  *
- * Establishes an outbound WebSocket connection to the Cloudflare relay.
- * Receives MCP JSON-RPC requests forwarded by the relay, dispatches them
- * to handleToolCall(), and sends responses back.
+ * Uses Obsidian's requestUrl (not WebSocket) to communicate with the relay.
+ * This works within Obsidian's renderer CSP which blocks WebSocket to external servers.
  *
- * Features: auto-reconnect (exponential backoff), keepalive pings.
+ * Flow:
+ * 1. Poll GET /poll?token=xxx (long-poll, 25s timeout)
+ * 2. Receive pending MCP requests from AI assistants
+ * 3. Process each request via handleToolCall()
+ * 4. Send results back via POST /respond?token=xxx
+ * 5. Repeat
  *
  * ADR-055: Remote MCP Relay
  * FEATURE-1403: Remote Transport
  */
 
+import { requestUrl } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { handleToolCall } from './tools/index';
 
 export class RelayClient {
-    private ws: WebSocket | null = null;
-    private reconnectDelay = 1000;
-    private maxReconnectDelay = 30000;
-    private keepaliveTimer: number | null = null;
+    private polling = false;
     private _connected = false;
     private _connecting = false;
     private shouldReconnect = true;
+    private reconnectDelay = 1000;
+    private maxReconnectDelay = 30000;
     private relayUrl = '';
     private token = '';
 
@@ -31,97 +35,88 @@ export class RelayClient {
     get connecting(): boolean { return this._connecting; }
 
     async connect(relayUrl: string, token: string): Promise<void> {
-        this.relayUrl = relayUrl;
+        this.relayUrl = relayUrl.replace(/\/$/, '');
         this.token = token;
         this.shouldReconnect = true;
-        await this.doConnect();
+        this.reconnectDelay = 1000;
+        this.startPolling();
     }
 
     disconnect(): void {
         this.shouldReconnect = false;
-        this.stopKeepalive();
-        if (this.ws) {
-            this.ws.close();
-            this.ws = null;
-        }
+        this.polling = false;
         this._connected = false;
         this._connecting = false;
     }
 
-    private async doConnect(): Promise<void> {
-        if (this._connected || this._connecting) return;
+    private startPolling(): void {
+        if (this.polling) return;
+        this.polling = true;
         this._connecting = true;
+        void this.pollLoop();
+    }
 
-        try {
-            // Build WebSocket URL
-            const wsUrl = this.relayUrl
-                .replace(/^https:\/\//, 'wss://')
-                .replace(/^http:\/\//, 'ws://')
-                .replace(/\/$/, '') + '/ws';
-
-            console.debug(`[RelayClient] Connecting to ${wsUrl}`);
-
-            this.ws = new WebSocket(wsUrl);
-
-            this.ws.onopen = () => {
-                console.debug('[RelayClient] Connected to relay');
-                this._connected = true;
-                this._connecting = false;
-                this.reconnectDelay = 1000; // reset backoff
-
-                // Send auth token as first message
-                this.ws?.send(JSON.stringify({ type: 'auth', token: this.token }));
-
-                this.startKeepalive();
-            };
-
-            this.ws.onmessage = (event) => {
-                void this.handleMessage(String(event.data));
-            };
-
-            this.ws.onclose = () => {
-                console.debug('[RelayClient] Disconnected from relay');
-                this._connected = false;
-                this._connecting = false;
-                this.stopKeepalive();
-                if (this.shouldReconnect) {
-                    this.scheduleReconnect();
+    private async pollLoop(): Promise<void> {
+        while (this.polling && this.shouldReconnect) {
+            try {
+                if (!this._connected) {
+                    console.warn('[RelayClient] Poll URL:', this.relayUrl, '| token length:', this.token.length, '| token prefix:', this.token.slice(0, 6));
+                    // One-time diagnostic: check if token arrives correctly at worker
+                    try {
+                        const diagResp = await requestUrl({ url: `${this.relayUrl}/diag?token=${this.token}` });
+                        console.warn('[RelayClient] Diag:', diagResp.text);
+                    } catch (e) {
+                        console.warn('[RelayClient] Diag failed:', e instanceof Error ? e.message : String(e));
+                    }
                 }
-            };
+                const response = await requestUrl({
+                    url: `${this.relayUrl}/poll?token=${this.token}`,
+                });
 
-            this.ws.onerror = (event) => {
-                console.warn('[RelayClient] WebSocket error:', event);
-            };
-        } catch (e) {
-            console.warn('[RelayClient] Connection failed:', e);
-            this._connecting = false;
-            if (this.shouldReconnect) {
-                this.scheduleReconnect();
+                // First successful poll means we're connected
+                if (!this._connected) {
+                    this._connected = true;
+                    this._connecting = false;
+                    this.reconnectDelay = 1000;
+                    console.debug('[RelayClient] Connected to relay (polling)');
+                }
+
+                const data = response.json as { requests?: string[] };
+                if (data.requests && data.requests.length > 0) {
+                    for (const reqBody of data.requests) {
+                        void this.handleRequest(reqBody);
+                    }
+                }
+
+                // Short-poll interval: wait 2s before next poll
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (e) {
+                if (!this.shouldReconnect) break;
+
+                this._connected = false;
+                this._connecting = true;
+                console.warn('[RelayClient] Poll failed, retrying in', this.reconnectDelay, 'ms:', e instanceof Error ? e.message : String(e));
+
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, this.reconnectDelay));
+                this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
             }
         }
+
+        this.polling = false;
+        this._connected = false;
+        this._connecting = false;
     }
 
-    private scheduleReconnect(): void {
-        console.debug(`[RelayClient] Reconnecting in ${this.reconnectDelay}ms`);
-        setTimeout(() => {
-            void this.doConnect();
-        }, this.reconnectDelay);
-
-        // Exponential backoff
-        this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
-    }
-
-    private async handleMessage(data: string): Promise<void> {
+    private async handleRequest(reqBody: string): Promise<void> {
         try {
-            const request = JSON.parse(data) as { jsonrpc: string; method: string; id?: number | string; params?: Record<string, unknown> };
+            const request = JSON.parse(reqBody) as { jsonrpc: string; method: string; id?: number | string; params?: Record<string, unknown> };
 
             // Notification (no id) -- process but don't respond
             if (request.id === undefined || request.id === null) {
                 return;
             }
 
-            // Dispatch to the same handler as the local HTTP server
-            const mcpBridge = this.plugin.mcpBridge as { handleJsonRpc?: (req: unknown) => Promise<unknown> };
             let result: unknown;
 
             if (request.method === 'initialize') {
@@ -131,7 +126,6 @@ export class RelayClient {
                     serverInfo: { name: 'Obsilo', version: '1.0.0' },
                 };
             } else if (request.method === 'tools/list') {
-                // Get tools from McpBridge
                 const bridge = this.plugin.mcpBridge as unknown as { getToolsWithContext?: () => unknown[] };
                 result = { tools: bridge?.getToolsWithContext?.() ?? [] };
             } else if (request.method === 'tools/call') {
@@ -150,40 +144,31 @@ export class RelayClient {
             }
 
             // Send response back to relay
-            this.ws?.send(JSON.stringify({
-                jsonrpc: '2.0',
-                id: request.id,
-                result,
-            }));
+            const responseBody = { jsonrpc: '2.0', id: request.id, result };
+            await requestUrl({
+                url: `${this.relayUrl}/respond?token=${this.token}`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(responseBody),
+            });
         } catch (e) {
-            console.warn('[RelayClient] Error handling message:', e);
+            console.warn('[RelayClient] Error handling request:', e);
             // Try to send error response
             try {
-                const parsed = JSON.parse(data) as { id?: unknown };
-                if (parsed.id !== undefined) {
-                    this.ws?.send(JSON.stringify({
-                        jsonrpc: '2.0',
-                        id: parsed.id,
-                        error: { code: -32603, message: e instanceof Error ? e.message : 'Internal error' },
-                    }));
+                const parsed = JSON.parse(reqBody) as { id?: unknown };
+                if (parsed.id !== undefined && parsed.id !== null) {
+                    await requestUrl({
+                        url: `${this.relayUrl}/respond?token=${this.token}`,
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: parsed.id,
+                            error: { code: -32603, message: e instanceof Error ? e.message : 'Internal error' },
+                        }),
+                    });
                 }
             } catch { /* give up */ }
-        }
-    }
-
-    private startKeepalive(): void {
-        this.stopKeepalive();
-        this.keepaliveTimer = window.setInterval(() => {
-            if (this.ws?.readyState === WebSocket.OPEN) {
-                this.ws.send(JSON.stringify({ type: 'ping' }));
-            }
-        }, 30000);
-    }
-
-    private stopKeepalive(): void {
-        if (this.keepaliveTimer) {
-            window.clearInterval(this.keepaliveTimer);
-            this.keepaliveTimer = null;
         }
     }
 }

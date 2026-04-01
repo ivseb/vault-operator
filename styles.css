@@ -5473,3 +5473,36 @@
     background: var(--background-modifier-border);
     color: var(--text-muted);
 }
+
+/* ── Relay Setup Wizard ──────────────────────────────── */
+
+.agent-relay-step {
+    margin: 12px 0;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--background-modifier-border-hover);
+}
+
+.agent-relay-step:last-child {
+    border-bottom: none;
+}
+
+.agent-relay-step p {
+    margin: 4px 0;
+    font-size: 0.9em;
+    color: var(--text-muted);
+}
+
+.agent-relay-step pre {
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 6px 0;
+    font-size: 0.85em;
+    overflow-x: auto;
+}
+
+.agent-relay-step code {
+    font-family: var(--font-monospace);
+    white-space: pre;
+}

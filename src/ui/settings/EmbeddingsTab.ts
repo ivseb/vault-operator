@@ -1,4 +1,4 @@
-import { App, Notice, Setting, setIcon, TFolder, AbstractInputSuggest, ButtonComponent } from 'obsidian';
+import { App, Modal, Notice, Setting, setIcon, TFolder, AbstractInputSuggest, ButtonComponent } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { ModelConfigModal } from './ModelConfigModal';
 import { addInfoButton } from './utils';
@@ -151,9 +151,8 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Contextual retrieval')
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- LLM is an acronym
-            .setDesc('Enrich chunks with LLM-generated context in the background. Improves search quality by 49-67%. Requires a contextual model below.')
+            .setName(t('settings.embeddings.contextualRetrieval'))
+            .setDesc(t('settings.embeddings.contextualRetrievalDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableContextualRetrieval ?? true).onChange(async (v) => {
                     this.plugin.settings.enableContextualRetrieval = v;
@@ -172,10 +171,10 @@ export class EmbeddingsTab {
         const ctxModels = this.plugin.settings.activeModels.filter((m) => m.enabled);
         if (ctxModels.length > 0) {
             new Setting(containerEl)
-                .setName('Contextual retrieval model')
-                .setDesc('Chat model for context prefix generation. Use a cheap/fast model (e.g. Haiku, gpt-4o-mini).')
+                .setName(t('settings.embeddings.contextualModel'))
+                .setDesc(t('settings.embeddings.contextualModelDesc'))
                 .addDropdown((d) => {
-                    d.addOption('', '-- Select model --'); // eslint-disable-line obsidianmd/ui/sentence-case -- dropdown placeholder
+                    d.addOption('', t('settings.embeddings.contextualModelPlaceholder'));
                     for (const m of ctxModels) {
                         d.addOption(getModelKey(m), m.displayName ?? m.name);
                     }
@@ -232,13 +231,13 @@ export class EmbeddingsTab {
                 if (idx.enriching) {
                     const ep = idx.getEnrichmentProgress();
                     statusEl.createDiv('agent-enrichment-status').setText(
-                        `Enriching: ${ep.processed}/${ep.total} chunks (search works -- quality improving)`,
+                        t('settings.embeddings.statusEnriching', { processed: ep.processed, total: ep.total }),
                     );
                 } else {
                     const unenriched = this.plugin.vectorStore?.getUnenrichedCount() ?? 0;
                     if (unenriched > 0) {
                         statusEl.createDiv('agent-enrichment-hint').setText(
-                            `${unenriched} chunks pending enrichment`,
+                            t('settings.embeddings.statusPendingEnrichment', { count: unenriched }),
                         );
                     }
                 }
@@ -333,6 +332,11 @@ export class EmbeddingsTab {
             .setDesc(t('settings.embeddings.deleteIndexDesc'))
             .addButton((btn) => {
                 btn.setButtonText(t('settings.embeddings.deleteIndex')).setWarning().onClick(async () => {
+                    const confirmed = await this.confirmDestructive(
+                        t('settings.embeddings.deleteConfirmTitle'),
+                        t('settings.embeddings.deleteConfirmMessage'),
+                    );
+                    if (!confirmed) return;
                     const idx = getIdx();
                     if (idx) await idx.deleteIndex();
                     refreshStatus();
@@ -480,12 +484,11 @@ export class EmbeddingsTab {
         // Storage location removed from UI (ADR-050: knowledge.db is always global)
 
         // ── Graph Expansion (FEATURE-1502) ─────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Graph expansion' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingGraph') });
 
         new Setting(containerEl)
-            .setName('Graph expansion')
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilinks and MOC-Properties are proper nouns
-            .setDesc('Expand search results via Wikilinks and MOC-Properties (Themen, Konzepte, etc.). Extracts your vault graph into the Knowledge DB.')
+            .setName(t('settings.embeddings.graphExpansion'))
+            .setDesc(t('settings.embeddings.graphExpansionDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableGraphExpansion ?? true).onChange(async (v) => {
                     this.plugin.settings.enableGraphExpansion = v;
@@ -494,12 +497,12 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Expansion hops')
-            .setDesc('How many link-hops to follow (1 = direct links, 2 = links of links, 3 = broad). Higher values include more context.')
+            .setName(t('settings.embeddings.expansionHops'))
+            .setDesc(t('settings.embeddings.expansionHopsDesc'))
             .addDropdown((d) => {
-                d.addOption('1', '1 hop (direct links)');
-                d.addOption('2', '2 hops');
-                d.addOption('3', '3 hops (broad)');
+                d.addOption('1', t('settings.embeddings.hops1'));
+                d.addOption('2', t('settings.embeddings.hops2'));
+                d.addOption('3', t('settings.embeddings.hops3'));
                 d.setValue(String(this.plugin.settings.graphExpansionHops ?? 1));
                 d.onChange(async (v) => {
                     this.plugin.settings.graphExpansionHops = parseInt(v, 10);
@@ -508,13 +511,11 @@ export class EmbeddingsTab {
             });
 
         new Setting(containerEl)
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- MOC is an acronym
-            .setName('MOC property names')
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- E.g. triggers false positive
-            .setDesc('Frontmatter properties to extract as graph edges (comma-separated). E.g. Themen, Konzepte, Personen.')
+            .setName(t('settings.embeddings.mocProperties'))
+            .setDesc(t('settings.embeddings.mocPropertiesDesc'))
             .addText((text) => {
                 text.setValue((this.plugin.settings.mocPropertyNames ?? []).join(', '));
-                text.setPlaceholder('Themen, Konzepte, Personen'); // eslint-disable-line obsidianmd/ui/sentence-case -- German proper nouns
+                text.setPlaceholder(t('settings.embeddings.mocPropertiesPlaceholder'));
                 text.inputEl.addEventListener('blur', () => { void (async () => {
                     const names = text.getValue().split(',').map(s => s.trim()).filter(Boolean);
                     this.plugin.settings.mocPropertyNames = names;
@@ -528,18 +529,17 @@ export class EmbeddingsTab {
         if (this.plugin.graphStore) {
             const edges = this.plugin.graphStore.getEdgeCount();
             const tags = this.plugin.graphStore.getTagCount();
-            graphStats.setText(`Graph: ${edges} edges, ${tags} unique tags extracted`);
+            graphStats.setText(t('settings.embeddings.graphStats', { edges, tags }));
         } else {
-            graphStats.setText('Graph: not initialized (enable Semantic Index first)'); // eslint-disable-line obsidianmd/ui/sentence-case -- Semantic Index is a proper noun
+            graphStats.setText(t('settings.embeddings.graphNotInit'));
         }
 
         // ── Implicit Connections (FEATURE-1503) ──────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Implicit connections' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingImplicit') });
 
         new Setting(containerEl)
-            .setName('Implicit connections')
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Wikilink is a proper noun
-            .setDesc('Discover semantically similar notes that have no direct Wikilink. Computed in the background after indexing.')
+            .setName(t('settings.embeddings.implicitConnections'))
+            .setDesc(t('settings.embeddings.implicitConnectionsDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableImplicitConnections ?? true).onChange(async (v) => {
                     this.plugin.settings.enableImplicitConnections = v;
@@ -548,8 +548,8 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Similarity threshold')
-            .setDesc('Minimum cosine similarity to count as an implicit connection (0.5 = loose, 0.9 = strict).')
+            .setName(t('settings.embeddings.similarityThreshold'))
+            .setDesc(t('settings.embeddings.similarityThresholdDesc'))
             .addSlider((s) =>
                 s.setLimits(0.5, 0.9, 0.05)
                     .setValue(this.plugin.settings.implicitThreshold ?? 0.7)
@@ -561,8 +561,8 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Suggestion banner')
-            .setDesc('Show implicit connection suggestions in the sidebar. Disable if the suggestions are distracting.')
+            .setName(t('settings.embeddings.suggestionBanner'))
+            .setDesc(t('settings.embeddings.suggestionBannerDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableSuggestionBanner ?? true).onChange(async (v) => {
                     this.plugin.settings.enableSuggestionBanner = v;
@@ -573,20 +573,19 @@ export class EmbeddingsTab {
         const implicitStats = containerEl.createDiv('agent-settings-desc');
         const implicitCount = this.plugin.implicitConnectionService?.getCount() ?? 0;
         if (implicitCount > 0) {
-            implicitStats.setText(`${implicitCount} implicit connections discovered`);
+            implicitStats.setText(t('settings.embeddings.implicitStats', { count: implicitCount }));
         } else if (this.plugin.implicitConnectionService?.computing) {
-            implicitStats.setText('Computing implicit connections...');
+            implicitStats.setText(t('settings.embeddings.implicitComputing'));
         } else {
-            implicitStats.setText('No implicit connections computed yet (build index first)');
+            implicitStats.setText(t('settings.embeddings.implicitNone'));
         }
 
         // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Local reranking' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingReranking') });
 
         new Setting(containerEl)
-            .setName('Local reranking')
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- WASM and MiniLM are technical terms
-            .setDesc('Re-score search results with a local cross-encoder model (ms-marco-MiniLM). Runs entirely on-device via WASM. Desktop only.')
+            .setName(t('settings.embeddings.localReranking'))
+            .setDesc(t('settings.embeddings.localRerankingDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableReranking ?? true).onChange(async (v) => {
                     this.plugin.settings.enableReranking = v;
@@ -600,8 +599,8 @@ export class EmbeddingsTab {
             );
 
         new Setting(containerEl)
-            .setName('Rerank candidates')
-            .setDesc('How many candidates to rerank (more = better quality but slower).')
+            .setName(t('settings.embeddings.rerankCandidates'))
+            .setDesc(t('settings.embeddings.rerankCandidatesDesc'))
             .addSlider((s) =>
                 s.setLimits(10, 30, 5)
                     .setValue(this.plugin.settings.rerankCandidates ?? 20)
@@ -697,6 +696,34 @@ export class EmbeddingsTab {
     // Web Search tab (under Providers)
     // ---------------------------------------------------------------------------
 
+    // ---------------------------------------------------------------------------
+    // Confirmation dialog for destructive actions
+    // ---------------------------------------------------------------------------
+
+    private confirmDestructive(title: string, message: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const modal = new (class extends Modal {
+                onOpen(): void {
+                    const { contentEl } = this;
+                    contentEl.createEl('h3', { text: title });
+                    contentEl.createEl('p', { text: message, cls: 'agent-setting-confirm-message' });
+
+                    const btnRow = contentEl.createDiv('agent-setting-confirm-buttons');
+                    const cancelBtn = btnRow.createEl('button', { text: t('settings.embeddings.cancel') });
+                    const confirmBtn = btnRow.createEl('button', {
+                        text: t('settings.embeddings.deleteConfirmAccept'),
+                        cls: 'mod-warning',
+                    });
+                    cancelBtn.addEventListener('click', () => { this.close(); resolve(false); });
+                    confirmBtn.addEventListener('click', () => { this.close(); resolve(true); });
+                }
+                onClose(): void {
+                    resolve(false);
+                }
+            })(this.app);
+            modal.open();
+        });
+    }
 }
 
 /** Suggest dropdown that lists vault folders, filtered by input text. */
