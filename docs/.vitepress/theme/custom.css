@@ -1,4 +1,9 @@
-/* Obsilo Brand Colors -- Override VitePress defaults */
+/* =================================================================
+   Obsilo Documentation -- Custom Theme
+   Extends VitePress default theme with brand identity and polish.
+   ================================================================= */
+
+/* ── Brand Colors ──────────────────────────────────────────────── */
 
 :root {
   --vp-c-brand-1: #7c3aed;
@@ -6,32 +11,250 @@
   --vp-c-brand-3: #5b21b6;
   --vp-c-brand-soft: rgba(124, 58, 237, 0.14);
 
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #5b21b6 100%);
-
-  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(124, 58, 237, 0.2) 0%, rgba(91, 33, 182, 0.1) 100%);
-  --vp-home-hero-image-filter: blur(44px);
-
   --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --vp-font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Sidebar active indicator */
+  --vp-c-brand-lighter: #a78bfa;
 }
 
-/* Button hover refinement */
+/* ── Hero Section ──────────────────────────────────────────────── */
+
+:root {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(135deg, #c4b5fd 0%, #7c3aed 50%, #5b21b6 100%);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(91, 33, 182, 0.12) 100%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+/* Radial glow behind hero like original */
+.VPHero {
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.25), transparent);
+}
+
+/* Force single-column hero (no image), centered */
+.VPHero .container {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.VPHero .main {
+  max-width: 720px;
+  text-align: center;
+  margin: 0 auto;
+}
+
+.VPHero .text {
+  font-size: clamp(2.2rem, 5vw, 3.2rem) !important;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+  white-space: pre-line;
+}
+
+.VPHero .tagline {
+  font-size: 1rem !important;
+  line-height: 1.7;
+  max-width: 640px;
+  color: var(--vp-c-text-2);
+  margin: 0 auto;
+  white-space: pre-line;
+}
+
+.VPHero .actions {
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .VPHero .text {
+    font-size: 1.8rem !important;
+  }
+}
+
+/* ── Buttons ───────────────────────────────────────────────────── */
+
 .VPButton.brand {
   background-color: var(--vp-c-brand-1);
   border-color: var(--vp-c-brand-1);
+  transition: all 0.2s ease;
 }
 
 .VPButton.brand:hover {
   background-color: var(--vp-c-brand-2);
   border-color: var(--vp-c-brand-2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
 }
 
-/* Accent color for links in content */
+.VPButton.alt {
+  transition: all 0.2s ease;
+}
+
+.VPButton.alt:hover {
+  transform: translateY(-1px);
+}
+
+/* ── Feature Cards (Homepage) ──────────────────────────────────── */
+
+.VPFeatures .VPFeature {
+  transition: all 0.2s ease;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+}
+
+.VPFeatures .VPFeature:hover {
+  border-color: var(--vp-c-brand-soft);
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08);
+  transform: translateY(-2px);
+}
+
+.VPFeatures .VPFeature .title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* ── Content Typography ────────────────────────────────────────── */
+
+.vp-doc h1 {
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.vp-doc h2 {
+  letter-spacing: -0.01em;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--vp-c-divider);
+  margin-top: 2.5rem;
+}
+
+.vp-doc h2:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
 .vp-doc a {
   color: var(--vp-c-brand-1);
+  text-decoration: none;
+  transition: color 0.15s ease;
 }
 
 .vp-doc a:hover {
   color: var(--vp-c-brand-2);
+  text-decoration: underline;
+}
+
+/* Better table styling */
+.vp-doc table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.vp-doc th {
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.vp-doc td,
+.vp-doc th {
+  padding: 0.6rem 0.8rem;
+}
+
+.vp-doc tr:hover {
+  background-color: var(--vp-c-bg-soft);
+}
+
+/* Code block refinement */
+.vp-doc div[class*='language-'] {
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+}
+
+/* Inline code */
+.vp-doc :not(pre) > code {
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-size: 0.88em;
+}
+
+/* ── Sidebar Refinement ────────────────────────────────────────── */
+
+.VPSidebar .VPSidebarItem.is-active > .item > .link > .text {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+
+.VPSidebar .group-title {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--vp-c-text-3);
+}
+
+/* ── Custom Containers (tip, warning, info) ────────────────────── */
+
+.vp-doc .custom-block {
+  border-radius: 8px;
+  margin: 1.2rem 0;
+}
+
+.vp-doc .custom-block.tip {
+  border-color: var(--vp-c-brand-1);
+}
+
+.vp-doc .custom-block.tip .custom-block-title {
+  color: var(--vp-c-brand-1);
+}
+
+/* ── Footer ────────────────────────────────────────────────────── */
+
+.VPFooter {
+  border-top: 1px solid var(--vp-c-divider);
+}
+
+/* ── Smooth transitions everywhere ─────────────────────────────── */
+
+.VPNavBar,
+.VPSidebar,
+.VPContent {
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ── Homepage sections below hero ──────────────────────────────── */
+
+.vp-doc .roadmap {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+/* Developer section CTA on homepage */
+.vp-doc .VPButton.medium.brand {
+  font-size: 0.9rem;
+  padding: 0.5rem 1.5rem;
+  border-radius: 8px;
+  background: var(--vp-c-brand-1);
+  color: white;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.vp-doc .VPButton.medium.brand:hover {
+  background: var(--vp-c-brand-2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  text-decoration: none;
+}
+
+/* ── Print styles ──────────────────────────────────────────────── */
+
+@media print {
+  .VPNav, .VPSidebar, .VPFooter, .edit-link, .prev-next {
+    display: none !important;
+  }
+  .VPContent {
+    padding: 0 !important;
+  }
 }

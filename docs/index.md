@@ -4,8 +4,8 @@ title: Obsilo -- Agentic AI for Obsidian
 titleTemplate: false
 hero:
   name: Obsilo
-  text: Your Obsidian vault, with a real AI agent.
-  tagline: An autonomous AI operating layer for Obsidian. Reads, writes, searches, and connects your notes with 49+ tools, semantic intelligence, persistent memory, and full safety controls. Local-first. Open source.
+  text: "Your Obsidian vault,\nwith a real AI Agent."
+  tagline: "Learns your vault, your rules, your workflows.\n55+ tools, hybrid semantic search, knowledge graph, 3-tier memory, multi-agent workflows, plugin discovery, office document creation, and full safety controls.\nLocal-first. Open source. Always free."
   actions:
     - theme: brand
       text: Get Started
@@ -13,15 +13,12 @@ hero:
     - theme: alt
       text: Architecture
       link: /dev/
-  image:
-    src: /assets/OBSILO_ICON50x50_lila.png
-    alt: Obsilo
 
 features:
   - title: Knowledge Discovery
     details: Hybrid semantic + keyword search, knowledge graph with link expansion, implicit connection discovery, and local cross-encoder reranking. Finds what you mean, not just what you type.
     link: /guide/working-with-obsilo/knowledge-discovery
-  - title: 49+ Vault Tools
+  - title: 55+ Vault Tools
     details: Read, write, search, edit, move, tag, link, and query. Works with notes, canvases, bases, frontmatter, daily notes, and backlinks -- all from a single chat.
     link: /guide/working-with-obsilo/vault-operations
   - title: Memory & Learning
@@ -37,14 +34,6 @@ features:
     details: Approval-by-default for all writes. Local checkpoints with one-click undo. Per-category permissions. Full operation audit log. You stay in control.
     link: /guide/working-with-obsilo/safety-control
 ---
-
-<script setup>
-import Roadmap from './.vitepress/theme/components/Roadmap.vue'
-</script>
-
-## Roadmap
-
-<Roadmap />
 
 ## For Developers
 
