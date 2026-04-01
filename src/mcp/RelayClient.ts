@@ -1,0 +1,199 @@
+/**
+ * RelayClient -- HTTP long-polling client connecting to the remote Obsilo Relay.
+ *
+ * Uses Obsidian's requestUrl (not WebSocket) to communicate with the relay.
+ * This works within Obsidian's renderer CSP which blocks WebSocket to external servers.
+ *
+ * Flow:
+ * 1. Poll POST /poll with Authorization: Bearer header
+ * 2. Receive pending MCP requests from AI assistants
+ * 3. Process each request via handleToolCall()
+ * 4. Send results back via POST /respond with Authorization: Bearer header
+ * 5. Repeat
+ *
+ * Security (AUDIT-005):
+ * - Token sent via Authorization header, never in URL (H-4)
+ * - No token material in logs (H-2, H-3)
+ * - Runtime validation of relay responses (M-1)
+ * - URL validation: HTTPS enforced (M-3)
+ * - Error messages sanitized before sending to relay (L-1)
+ *
+ * ADR-055: Remote MCP Relay
+ * FEATURE-1403: Remote Transport
+ */
+
+import { requestUrl } from 'obsidian';
+import type ObsidianAgentPlugin from '../main';
+import { handleToolCall } from './tools/index';
+
+export class RelayClient {
+    private polling = false;
+    private _connected = false;
+    private _connecting = false;
+    private shouldReconnect = true;
+    private reconnectDelay = 1000;
+    private maxReconnectDelay = 30000;
+    private relayUrl = '';
+    private token = '';
+
+    constructor(private plugin: ObsidianAgentPlugin) {}
+
+    get connected(): boolean { return this._connected; }
+    get connecting(): boolean { return this._connecting; }
+
+    connect(relayUrl: string, token: string): void {
+        const cleanUrl = relayUrl.replace(/\/$/, '');
+
+        // M-3: Validate relay URL
+        if (!cleanUrl.startsWith('https://')) {
+            console.error('[RelayClient] Relay URL must use HTTPS');
+            return;
+        }
+
+        this.relayUrl = cleanUrl;
+        this.token = token;
+        this.shouldReconnect = true;
+        this.reconnectDelay = 1000;
+        this.startPolling();
+    }
+
+    disconnect(): void {
+        this.shouldReconnect = false;
+        this.polling = false;
+        this._connected = false;
+        this._connecting = false;
+    }
+
+    private startPolling(): void {
+        if (this.polling) return;
+        this.polling = true;
+        this._connecting = true;
+        void this.pollLoop();
+    }
+
+    private async pollLoop(): Promise<void> {
+        while (this.polling && this.shouldReconnect) {
+            try {
+                // H-4: Token in Authorization header, not URL
+                const response = await requestUrl({
+                    url: `${this.relayUrl}/poll`,
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${this.token}` },
+                });
+
+                // First successful poll means we're connected
+                if (!this._connected) {
+                    this._connected = true;
+                    this._connecting = false;
+                    this.reconnectDelay = 1000;
+                    console.debug('[RelayClient] Connected to relay');
+                }
+
+                // M-1: Runtime validation of relay response
+                const data = response.json as { requests?: unknown[] };
+                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
+                    for (const reqBody of data.requests) {
+                        if (typeof reqBody === 'string') {
+                            void this.handleRequest(reqBody);
+                        }
+                    }
+                }
+
+                // Short-poll interval: wait 2s before next poll
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch {
+                if (!this.shouldReconnect) break;
+
+                this._connected = false;
+                this._connecting = true;
+                // H-2: No token material in logs
+                console.warn('[RelayClient] Poll failed, retrying in', this.reconnectDelay, 'ms');
+
+                await new Promise(resolve => setTimeout(resolve, this.reconnectDelay));
+                this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
+            }
+        }
+
+        this.polling = false;
+        this._connected = false;
+        this._connecting = false;
+    }
+
+    private async handleRequest(reqBody: string): Promise<void> {
+        try {
+            const request = JSON.parse(reqBody) as {
+                jsonrpc?: string;
+                method?: string;
+                id?: number | string;
+                params?: Record<string, unknown>;
+                __correlationId?: string;
+            };
+
+            // M-1: Validate required fields
+            if (typeof request.method !== 'string') return;
+
+            // Notification (no id) -- process but don't respond
+            if (request.id === undefined || request.id === null) {
+                return;
+            }
+
+            // M-7: Use correlation ID for internal routing, keep original ID for response
+            const correlationId = request.__correlationId ?? String(request.id);
+
+            let result: unknown;
+
+            if (request.method === 'initialize') {
+                result = {
+                    protocolVersion: '2025-03-26',
+                    capabilities: { tools: {}, prompts: {}, resources: {} },
+                    serverInfo: { name: 'Obsilo', version: '1.0.0' },
+                };
+            } else if (request.method === 'tools/list') {
+                const bridge = this.plugin.mcpBridge as unknown as { getToolsWithContext?: () => unknown[] };
+                result = { tools: bridge?.getToolsWithContext?.() ?? [] };
+            } else if (request.method === 'tools/call') {
+                const params = request.params as { name?: unknown; arguments?: Record<string, unknown> } | undefined;
+                // M-1: Validate tool name is a string
+                if (params && typeof params.name === 'string') {
+                    const toolResult = await handleToolCall(this.plugin, params.name, params.arguments ?? {});
+                    result = { content: toolResult.content, isError: toolResult.isError };
+                } else {
+                    result = { content: [{ type: 'text', text: 'Missing tool name' }], isError: true };
+                }
+            } else if (request.method === 'resources/list') {
+                const bridge = this.plugin.mcpBridge as unknown as { buildResourceList?: () => unknown[] };
+                result = { resources: bridge?.buildResourceList?.() ?? [] };
+            } else {
+                result = {};
+            }
+
+            // Send response back to relay using correlation ID
+            const responseBody = { jsonrpc: '2.0', id: correlationId, result };
+            await requestUrl({
+                url: `${this.relayUrl}/respond`,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
+                body: JSON.stringify(responseBody),
+            });
+        } catch {
+            // L-1: Sanitize error messages -- don't leak internal details
+            console.warn('[RelayClient] Error handling request');
+            try {
+                const parsed = JSON.parse(reqBody) as { id?: unknown; __correlationId?: string };
+                if (parsed.id !== undefined && parsed.id !== null) {
+                    const correlationId = parsed.__correlationId ?? String(parsed.id);
+                    await requestUrl({
+                        url: `${this.relayUrl}/respond`,
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
+                        body: JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: correlationId,
+                            error: { code: -32603, message: 'Tool execution failed' },
+                        }),
+                    });
+                }
+            } catch { /* give up */ }
+        }
+    }
+}

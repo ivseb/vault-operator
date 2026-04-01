@@ -1,0 +1,12 @@
+name = "obsilo-relay"
+main = "src/index.ts"
+compatibility_date = "2026-03-31"
+
+[durable_objects]
+bindings = [{ name = "RELAY_DO", class_name = "RelayDO" }]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RelayDO"]
+
+# Set your relay token via: npx wrangler secret put RELAY_TOKEN

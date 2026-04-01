@@ -552,6 +552,20 @@ export interface ObsidianAgentSettings {
     /** Number of candidates to rerank (more = better quality but slower). */
     rerankCandidates: number;
 
+    // MCP Server (EPIC-014)
+    /** Enable the MCP Server for Claude Desktop/Code integration. */
+    enableMcpServer: boolean;
+    /** Enable remote relay connection for claude.ai, ChatGPT, etc. */
+    enableRemoteRelay: boolean;
+    /** Cloudflare relay URL (e.g. https://obsilo-relay.xxx.workers.dev). */
+    relayUrl: string;
+    /** Shared secret token for relay authentication. */
+    relayToken: string;
+    /** Cloudflare API token for relay deployment. Encrypted via SafeStorage. */
+    cloudflareApiToken: string;
+    /** Cloudflare account ID (auto-detected during deploy). */
+    cloudflareAccountId: string;
+
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
     checkpointTimeoutSeconds: number;
@@ -816,6 +830,12 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableSuggestionBanner: true,
     enableReranking: true,
     rerankCandidates: 20,
+    enableMcpServer: false,
+    enableRemoteRelay: false,
+    relayUrl: '',
+    relayToken: '',
+    cloudflareApiToken: '',
+    cloudflareAccountId: '',
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,

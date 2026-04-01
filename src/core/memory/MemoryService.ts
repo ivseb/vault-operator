@@ -155,12 +155,12 @@ export class MemoryService {
         await this.writeFile(name, existing + '\n' + content);
     }
 
-    async writeSessionSummary(conversationId: string, content: string, title?: string): Promise<void> {
+    async writeSessionSummary(conversationId: string, content: string, title?: string, source: 'human' | 'mcp' = 'human'): Promise<void> {
         if (this.memoryDB?.isOpen()) {
             const db = this.memoryDB.getDB();
             db.run(
                 'INSERT OR REPLACE INTO sessions (id, title, summary, source, created_at) VALUES (?, ?, ?, ?, ?)',
-                [conversationId, title ?? null, content, 'human', new Date().toISOString()],
+                [conversationId, title ?? null, content, source, new Date().toISOString()],
             );
             this.memoryDB.markDirty();
             return;

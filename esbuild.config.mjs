@@ -160,6 +160,9 @@ const context = await esbuild.context({
                             if (existsSync("sandbox-worker.js")) {
                                 copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
                             }
+                            if (existsSync("mcp-server-worker.js")) {
+                                copyFileSync("mcp-server-worker.js", `${VAULT_PLUGIN_DIR}/mcp-server-worker.js`);
+                            }
                             // Copy sql.js WASM binaries for Knowledge DB
                             // sql.js may request either sql-wasm.wasm or sql-wasm-browser.wasm
                             // depending on which variant esbuild resolves
@@ -223,12 +226,28 @@ const workerContext = await esbuild.context({
     treeShaking: true,
 });
 
+// MCP Server worker — separate OS process (ADR-053)
+const mcpWorkerContext = await esbuild.context({
+    entryPoints: ["src/mcp/mcp-server-worker.ts"],
+    bundle: true,
+    external: [],        // Standalone Node.js, bundled with MCP SDK
+    platform: "node",
+    format: "cjs",
+    target: "es2022",
+    outfile: "mcp-server-worker.js",
+    logLevel: "info",
+    sourcemap: prod ? false : "inline",
+    treeShaking: true,
+});
+
 if (prod) {
-    // Worker first — vault-deploy (main's onEnd) copies sandbox-worker.js
+    // Workers first — vault-deploy (main's onEnd) copies worker files
     await workerContext.rebuild();
+    await mcpWorkerContext.rebuild();
     await context.rebuild();
     process.exit(0);
 } else {
     await context.watch();
     await workerContext.watch();
+    await mcpWorkerContext.watch();
 }

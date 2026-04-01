@@ -1,0 +1,250 @@
+/**
+ * Embedded Cloudflare Worker code for the Obsilo Relay.
+ * This is uploaded to Cloudflare via REST API when the user clicks "Deploy".
+ *
+ * Architecture: HTTP long-polling (NOT WebSocket) for Obsidian compatibility.
+ * Obsidian's renderer CSP blocks WebSocket to external servers,
+ * so we use requestUrl-based polling instead.
+ *
+ * Flow:
+ *   1. AI assistant (claude.ai) sends POST /{token}/mcp with JSON-RPC
+ *   2. Relay stores the request in the DO
+ *   3. Plugin polls POST /poll with Authorization: Bearer header
+ *   4. Plugin processes request, sends result via POST /respond with Bearer header
+ *   5. DO resolves the original HTTP response to the AI assistant
+ *
+ * URL structure:
+ *   /health                  -- health check (no auth)
+ *   /poll                    -- plugin polls for pending requests (Bearer auth)
+ *   /respond                 -- plugin sends tool results back (Bearer auth)
+ *   /{token}/mcp             -- MCP endpoint for AI assistants (token in URL)
+ *   POST with Bearer header  -- MCP endpoint (Bearer auth)
+ *
+ * Security (AUDIT-005):
+ *   - Constant-time token comparison (SHA-256 digest)
+ *   - No debug/diagnostic endpoints
+ *   - Queue size limits (DoS protection)
+ *   - Request body size limit (1 MB)
+ *   - CORS restricted per endpoint
+ *   - Random correlation IDs
+ *
+ * FEATURE-1403: Remote Transport
+ */
+
+export const RELAY_WORKER_CODE = `
+// Obsilo Relay Worker -- deployed via Obsilo Plugin
+
+// Constant-time token comparison via SHA-256 digest (H-1)
+async function safeTokenCompare(a, b) {
+    if (!a || !b) return false;
+    const enc = new TextEncoder();
+    const [da, db] = await Promise.all([
+        crypto.subtle.digest('SHA-256', enc.encode(a)),
+        crypto.subtle.digest('SHA-256', enc.encode(b)),
+    ]);
+    const ba = new Uint8Array(da);
+    const bb = new Uint8Array(db);
+    if (ba.length !== bb.length) return false;
+    let result = 0;
+    for (let i = 0; i < ba.length; i++) result |= ba[i] ^ bb[i];
+    return result === 0;
+}
+
+export default {
+    async fetch(request, env) {
+        // CORS only for MCP endpoint (AI assistants need it) -- not for plugin endpoints (H-6)
+        const mcpCorsHeaders = {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        };
+
+        const url = new URL(request.url);
+
+        if (request.method === 'OPTIONS') {
+            return new Response(null, { status: 204, headers: mcpCorsHeaders });
+        }
+
+        if (url.pathname === '/health') {
+            return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo' }), {
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        // Plugin endpoints: auth via Authorization Bearer header (H-4)
+        if (url.pathname === '/poll' || url.pathname === '/respond') {
+            const bearer = (request.headers.get('Authorization') || '').replace('Bearer ', '');
+            const valid = await safeTokenCompare(bearer, env.RELAY_TOKEN);
+            if (!valid) {
+                return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+                    status: 401, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            const id = env.RELAY_DO.idFromName('default');
+            const relay = env.RELAY_DO.get(id);
+            const resp = await relay.fetch(request);
+            return new Response(resp.body, resp);
+        }
+
+        // MCP endpoint: auth via URL path (/{token}/mcp) or Bearer header
+        let authenticated = false;
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length === 2 && parts[1] === 'mcp') {
+            authenticated = await safeTokenCompare(parts[0], env.RELAY_TOKEN);
+        }
+        if (!authenticated) {
+            const bearer = (request.headers.get('Authorization') || '').replace('Bearer ', '');
+            if (bearer) {
+                authenticated = await safeTokenCompare(bearer, env.RELAY_TOKEN);
+            }
+        }
+        if (!authenticated) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+                status: 401, headers: { 'Content-Type': 'application/json', ...mcpCorsHeaders },
+            });
+        }
+
+        // Forward authenticated MCP request to DO
+        const id = env.RELAY_DO.idFromName('default');
+        const relay = env.RELAY_DO.get(id);
+        const resp = await relay.fetch(request);
+        const newResp = new Response(resp.body, resp);
+        for (const [k, v] of Object.entries(mcpCorsHeaders)) newResp.headers.set(k, v);
+        return newResp;
+    },
+};
+
+const MAX_QUEUE = 100;     // H-5: max pending requests in queue
+const MAX_PENDING = 50;    // H-5: max concurrent pending responses
+const MAX_BODY = 1048576;  // M-5: 1 MB max request body
+
+export class RelayDO {
+    constructor(state, env) {
+        this.state = state;
+        this.env = env;
+        this.pending = new Map();
+        this.requestQueue = [];
+        this.pluginConnected = false;
+    }
+
+    async fetch(request) {
+        const url = new URL(request.url);
+
+        // Plugin polls for pending MCP requests
+        if (url.pathname === '/poll') {
+            this.pluginConnected = true;
+            const requests = this.requestQueue.splice(0);
+            return new Response(JSON.stringify({ requests }), {
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        // Plugin sends response to an MCP request
+        if (url.pathname === '/respond' && request.method === 'POST') {
+            const body = await request.json();
+            const id = String(body.id ?? '');
+            const pending = this.pending.get(id);
+            if (pending) {
+                clearTimeout(pending.timeout);
+                this.pending.delete(id);
+                pending.resolve(JSON.stringify(body));
+            }
+            return new Response(JSON.stringify({ ok: true }), {
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        // MCP request from AI assistant (POST)
+        if (request.method === 'POST') {
+            if (!this.pluginConnected) {
+                return new Response(JSON.stringify({
+                    jsonrpc: '2.0', id: null,
+                    error: { code: -32603, message: 'Obsilo not connected. Make sure Obsidian is running with remote access enabled.' },
+                }), { status: 502, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            // M-5: Request size limit
+            const contentLength = parseInt(request.headers.get('Content-Length') || '0');
+            if (contentLength > MAX_BODY) {
+                return new Response(JSON.stringify({ error: 'Request too large' }), {
+                    status: 413, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+
+            // H-5: Queue overflow protection
+            if (this.requestQueue.length >= MAX_QUEUE || this.pending.size >= MAX_PENDING) {
+                return new Response(JSON.stringify({
+                    jsonrpc: '2.0', id: null,
+                    error: { code: -32603, message: 'Too many pending requests. Try again later.' },
+                }), { status: 429, headers: { 'Content-Type': 'application/json' } });
+            }
+
+            const body = await request.text();
+            if (body.length > MAX_BODY) {
+                return new Response(JSON.stringify({ error: 'Request too large' }), {
+                    status: 413, headers: { 'Content-Type': 'application/json' },
+                });
+            }
+
+            let parsed;
+            try { parsed = JSON.parse(body); } catch { return new Response('Invalid JSON', { status: 400 }); }
+
+            // Notification (no id) -- fire and forget
+            if (parsed.id === undefined || parsed.id === null) {
+                this.enqueueForPlugin(body);
+                return new Response(null, { status: 204 });
+            }
+
+            // M-7: Use random correlation ID instead of client-provided sequential ID
+            const correlationId = crypto.randomUUID();
+            const originalId = parsed.id;
+
+            const responsePromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    this.pending.delete(correlationId);
+                    reject(new Error('Plugin response timeout (30s)'));
+                }, 30000);
+                this.pending.set(correlationId, { resolve, reject, timeout });
+            });
+
+            // Rewrite request with correlation ID for internal routing
+            parsed.__correlationId = correlationId;
+            this.enqueueForPlugin(JSON.stringify(parsed));
+
+            try {
+                const response = await responsePromise;
+                // Restore original JSON-RPC ID in the response
+                const respParsed = JSON.parse(response);
+                respParsed.id = originalId;
+                return new Response(JSON.stringify(respParsed), {
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            } catch (e) {
+                return new Response(JSON.stringify({
+                    jsonrpc: '2.0', id: originalId,
+                    error: { code: -32603, message: 'Request timeout' },
+                }), { status: 504, headers: { 'Content-Type': 'application/json' } });
+            }
+        }
+
+        return new Response('Method not allowed', { status: 405 });
+    }
+
+    enqueueForPlugin(body) {
+        this.requestQueue.push(body);
+    }
+}
+`;
+
+/** Metadata for the Cloudflare Worker upload (Durable Object bindings + migrations). */
+export const RELAY_WORKER_METADATA = {
+    main_module: 'worker.js',
+    bindings: [
+        { type: 'durable_object_namespace', name: 'RELAY_DO', class_name: 'RelayDO' },
+    ],
+    compatibility_date: '2024-09-01',
+    migrations: {
+        tag: 'v1',
+        new_sqlite_classes: ['RelayDO'],
+    },
+};

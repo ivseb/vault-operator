@@ -91,6 +91,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     implicitConnectionService: ImplicitConnectionService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
+    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -625,6 +626,19 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (tab) this.openSettingsAt(tab, sub);
         });
 
+        // MCP Server (EPIC-014): Expose Obsilo as MCP Server for Claude Desktop/Code
+        if (this.settings.enableMcpServer) {
+            const { McpBridge } = await import('./mcp/McpBridge');
+            this.mcpBridge = new McpBridge(this);
+            await this.mcpBridge.start().catch((e: unknown) =>
+                console.warn('[Plugin] MCP Server start failed (non-fatal):', e)
+            );
+            // Remote relay (if configured)
+            if (this.settings.enableRemoteRelay && this.settings.relayUrl) {
+                this.mcpBridge.connectRelay();
+            }
+        }
+
         console.debug('Obsilo Agent plugin loaded successfully');
     }
 
@@ -644,6 +658,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
             this.rerankerService?.unload();
+            this.mcpBridge?.stop();
             // Close databases (final save + cleanup)
             await this.memoryDB?.close().catch((e) =>
                 console.warn('[Plugin] MemoryDB close failed (non-fatal):', e)
@@ -973,6 +988,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.kiloToken) {
             settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
         }
+        // Remote relay tokens (AUDIT-005 M-2)
+        if (settings.cloudflareApiToken) {
+            settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
+        }
+        if (settings.relayToken) {
+            settings.relayToken = this.safeStorage.decrypt(settings.relayToken);
+        }
     }
 
     /**
@@ -1014,6 +1036,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Kilo Gateway token (ADR-041)
         if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
             copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
+        }
+        // Remote relay tokens (AUDIT-005 M-2)
+        if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {
+            copy.cloudflareApiToken = this.safeStorage.encrypt(copy.cloudflareApiToken);
+        }
+        if (copy.relayToken && !this.safeStorage.isEncrypted(copy.relayToken)) {
+            copy.relayToken = this.safeStorage.encrypt(copy.relayToken);
         }
         copy._encrypted = true;
         return copy;
@@ -1340,7 +1369,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         try {
             if (await adapter.exists(dotObsilo)) {
                 await adapter.rmdir(dotObsilo, true);
-                console.debug('[Plugin] Removed legacy .obsidian/.obsilo/');
+                console.debug('[Plugin] Removed legacy config-dir/.obsilo/');
             }
         } catch { /* non-fatal */ }
     }
