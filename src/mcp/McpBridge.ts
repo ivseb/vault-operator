@@ -173,7 +173,7 @@ export class McpBridge {
     }
 
     /** Connect to remote relay (if configured). */
-    async connectRelay(): Promise<void> {
+    connectRelay(): void {
         // Stop any existing polling loop first
         this.disconnectRelay();
 
@@ -206,7 +206,7 @@ export class McpBridge {
      * Start a Cloudflare Tunnel to make the MCP server publicly accessible.
      * The tunnel URL (e.g. https://xxx.trycloudflare.com) is available via tunnelUrl getter.
      */
-    async startTunnel(onUrl?: TunnelUrlCallback): Promise<void> {
+    startTunnel(onUrl?: TunnelUrlCallback): void {
         if (this.tunnelProcess) return;
         this.onTunnelUrl = onUrl ?? null;
 

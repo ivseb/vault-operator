@@ -68,7 +68,7 @@ export async function handleWriteVault(
                     break;
                 }
                 default:
-                    results.push(`${op.path}: Error -- unknown operation type: ${op.type}`);
+                    results.push(`${op.path}: Error -- unknown operation type: ${String(op.type)}`);
             }
         } catch (e) {
             results.push(`${op.path}: Error -- ${e instanceof Error ? e.message : String(e)}`);

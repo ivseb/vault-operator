@@ -91,7 +91,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     implicitConnectionService: ImplicitConnectionService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
-    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): Promise<void>; stopTunnel(): void; connectRelay(): Promise<void>; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
+    mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
     private warmupFired = false;
     /** Session flags for cross-tool coordination (e.g. plan_presentation → create_pptx gate). */
@@ -635,9 +635,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
             // Remote relay (if configured)
             if (this.settings.enableRemoteRelay && this.settings.relayUrl) {
-                void this.mcpBridge.connectRelay().catch((e: unknown) =>
-                    console.warn('[Plugin] Relay connection failed (non-fatal):', e)
-                );
+                this.mcpBridge.connectRelay();
             }
         }
 
@@ -1371,7 +1369,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         try {
             if (await adapter.exists(dotObsilo)) {
                 await adapter.rmdir(dotObsilo, true);
-                console.debug('[Plugin] Removed legacy .obsidian/.obsilo/');
+                console.debug('[Plugin] Removed legacy config-dir/.obsilo/');
             }
         } catch { /* non-fatal */ }
     }

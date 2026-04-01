@@ -565,8 +565,6 @@ export interface ObsidianAgentSettings {
     cloudflareApiToken: string;
     /** Cloudflare account ID (auto-detected during deploy). */
     cloudflareAccountId: string;
-    /** Require approval for write operations from remote AI assistants (FEATURE-1408). */
-    remoteWriteApproval: boolean;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -838,7 +836,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     relayToken: '',
     cloudflareApiToken: '',
     cloudflareAccountId: '',
-    remoteWriteApproval: true,
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,

@@ -45,7 +45,7 @@ export async function handleSyncSession(
             const newUiMessages: Array<{ role: 'user' | 'assistant'; text: string; ts: string }> = [];
 
             for (const m of transcript) {
-                const role = (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant';
+                const role: 'user' | 'assistant' = m.role === 'user' ? 'user' : 'assistant';
                 const text = m.role === 'tool' ? `[Tool] ${m.text}` : m.text;
                 newMessages.push({ role, content: [{ type: 'text', text }] });
                 newUiMessages.push({ role, text, ts: now });
@@ -53,8 +53,8 @@ export async function handleSyncSession(
 
             // Deduplicate: skip messages that already exist (compare by text + role)
             const existingTexts = new Set(existingUiMessages.map(m => `${m.role}:${m.text}`));
-            const filteredMessages: typeof newMessages = [];
-            const filteredUiMessages: typeof newUiMessages = [];
+            const filteredMessages: Array<{ role: 'user' | 'assistant'; content: Array<{ type: 'text'; text: string }> }> = [];
+            const filteredUiMessages: Array<{ role: 'user' | 'assistant'; text: string; ts: string }> = [];
             for (let i = 0; i < newMessages.length; i++) {
                 const key = `${newUiMessages[i].role}:${newUiMessages[i].text}`;
                 if (!existingTexts.has(key)) {
@@ -69,6 +69,7 @@ export async function handleSyncSession(
 
             await plugin.conversationStore.save(sessionId, allMessages, allUiMessages);
             await plugin.conversationStore.updateMeta(sessionId, { title });
+             
             results.push(`Conversation updated: "${title}" (${allUiMessages.length} messages total, ${filteredUiMessages.length} new)`);
         } catch (e) {
             results.push(`History save failed: ${e instanceof Error ? e.message : String(e)}`);
