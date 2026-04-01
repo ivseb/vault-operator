@@ -5146,6 +5146,16 @@
     pointer-events: none;
 }
 
+/* ── Remote Write Approval Notice Buttons ────────────────────────────── */
+.agent-approval-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.agent-approval-buttons button {
+    flex: 1;
+}
+
 /* ── Context Display Progress Bar ─────────────────────────────────────── */
 .context-display-container {
     padding: 8px 12px;

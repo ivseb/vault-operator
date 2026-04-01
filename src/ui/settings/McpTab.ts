@@ -94,6 +94,16 @@ export class McpTab {
             );
 
         if (remoteEnabled) {
+            new Setting(containerEl)
+                .setName('Approve remote writes')
+                .setDesc('Show a confirmation prompt before AI assistants can write to your vault. Recommended.')
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.remoteWriteApproval ?? true).onChange(async (v) => {
+                        this.plugin.settings.remoteWriteApproval = v;
+                        await this.plugin.saveSettings();
+                    }),
+                );
+
             const hasRelay = !!this.plugin.settings.relayUrl;
 
             if (!hasRelay) {

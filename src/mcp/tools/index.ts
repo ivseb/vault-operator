@@ -6,6 +6,7 @@
  * never explicitly calls sync_session.
  */
 
+import { Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { handleGetContext } from './getContext';
@@ -111,7 +112,7 @@ function buildHumanReadable(tool: string, args: Record<string, unknown>, result:
     switch (tool) {
         case 'search_vault':
             return {
-                request: `Search: "${args.query ?? ''}"`,
+                request: `Search: "${String(args.query ?? '')}"`,
                 response: resultText.slice(0, 500),
             };
         case 'read_notes': {
@@ -143,17 +144,17 @@ function buildHumanReadable(tool: string, args: Record<string, unknown>, result:
             };
         case 'sync_session':
             return {
-                request: `Session saved: "${args.title ?? ''}"`,
+                request: `Session saved: "${String(args.title ?? '')}"`,
                 response: resultText,
             };
         case 'update_memory':
             return {
-                request: `Memory updated (${args.category ?? 'unknown'}): ${String(args.content ?? '').slice(0, 100)}`,
+                request: `Memory updated (${String(args.category ?? 'unknown')}): ${String(args.content ?? '').slice(0, 100)}`,
                 response: resultText,
             };
         case 'execute_vault_op':
             return {
-                request: `${args.operation ?? 'vault operation'}: ${JSON.stringify(args.params ?? {}).slice(0, 100)}`,
+                request: `${String(args.operation ?? 'vault operation')}: ${JSON.stringify(args.params ?? {}).slice(0, 100)}`,
                 response: resultText.slice(0, 300),
             };
         default:
@@ -174,6 +175,49 @@ export function getAutoSessionId(): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Remote Write Approval (FEATURE-1408)
+// ---------------------------------------------------------------------------
+
+const WRITE_TOOLS = new Set(['write_vault', 'update_memory', 'execute_vault_op']);
+const APPROVAL_TIMEOUT_MS = 60_000;
+
+/**
+ * Show an Obsidian notice asking the user to approve a remote write operation.
+ * Returns true if approved, false if rejected or timed out.
+ */
+function requestWriteApproval(tool: string, args: Record<string, unknown>): Promise<boolean> {
+    return new Promise((resolve) => {
+        let resolved = false;
+        const done = (result: boolean) => { if (!resolved) { resolved = true; resolve(result); } };
+
+        // Build description
+        let desc = tool;
+        if (tool === 'write_vault') {
+            const ops = (args.operations as Array<{ type: string; path: string }>) ?? [];
+            desc = ops.map(o => `${o.type}: ${o.path}`).join(', ');
+        } else if (tool === 'update_memory') {
+            desc = `memory update (${String(args.category ?? 'unknown')})`;
+        }
+
+        // Create notice with approve/reject buttons
+        const frag = document.createDocumentFragment();
+        const container = frag.createDiv();
+        container.createEl('strong', { text: 'Remote write request' });
+        container.createEl('p', { text: desc });
+        const btnRow = container.createDiv({ cls: 'agent-approval-buttons' });
+        const approveBtn = btnRow.createEl('button', { text: 'Approve', cls: 'mod-cta' });
+        const rejectBtn = btnRow.createEl('button', { text: 'Reject' });
+        approveBtn.addEventListener('click', () => { notice.hide(); done(true); });
+        rejectBtn.addEventListener('click', () => { notice.hide(); done(false); });
+
+        const notice = new Notice(frag, APPROVAL_TIMEOUT_MS);
+
+        // Auto-reject on timeout
+        setTimeout(() => done(false), APPROVAL_TIMEOUT_MS);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Dispatcher
 // ---------------------------------------------------------------------------
 
@@ -188,6 +232,17 @@ export async function handleToolCall(
             content: [{ type: 'text', text: `Unknown tool: ${tool}` }],
             isError: true,
         };
+    }
+
+    // FEATURE-1408: Remote write approval gate
+    if (WRITE_TOOLS.has(tool) && plugin.settings.remoteWriteApproval) {
+        const approved = await requestWriteApproval(tool, args);
+        if (!approved) {
+            return {
+                content: [{ type: 'text', text: 'Operation rejected by user. The vault owner declined this write request.' }],
+                isError: true,
+            };
+        }
     }
 
     // Auto-track session
