@@ -239,7 +239,7 @@ export class McpTab {
                 troubleshoot.appendText('Not working? Make sure Obsidian is running and the toggle above is enabled. The connector URL does not change between restarts. ');
                 troubleshoot.createEl('a', {
                     text: 'Troubleshooting guide',
-                    href: 'https://obsilo.dev/docs/remote-access',
+                    href: 'https://obsilo.dev/remote-access.html#troubleshooting',
                 });
 
                 // Redeploy + Reset
