@@ -1,114 +1,84 @@
 ---
-title: System Prompt Architecture
-description: Modular system prompt assembly with 16 section modules, skills injection, and per-mode customization.
+title: System Prompt
+description: How the agent's system prompt is assembled from modular sections, skills, memory, and mode context.
 ---
 
-# System Prompt Architecture
+# System prompt
 
-Obsilo's system prompt is not a static string. It is assembled from 16 independent section modules, filtered by the active mode, and enriched with runtime context (skills, memory, rules). The orchestrator lives in `src/core/systemPrompt.ts`; the sections live in `src/core/prompts/sections/`.
+The system prompt is the first thing the model sees. It tells the agent who it is, what tools it has, what rules to follow, and what the user's vault looks like. In Obsilo, the prompt is not a static string -- it is assembled from ~16 independent section modules, filtered by the active mode, and enriched with runtime context like skills and memory.
 
-## Why Modular?
+The orchestrator is `buildSystemPromptForMode()` in `src/core/systemPrompt.ts`. The sections live in `src/core/prompts/sections/`.
 
-A monolithic prompt becomes unmaintainable past 1000 tokens. Obsilo's prompt routinely exceeds 5000 tokens because the agent needs to understand 43+ tools, safety rules, vault conventions, and user-specific context. The modular approach solves three problems:
+## Why modular?
 
-1. **Testability** -- each section is a pure function that can be unit-tested in isolation.
-2. **Conditional assembly** -- subtasks skip skills, memory, and response format sections to keep child prompts lean.
-3. **Per-mode customization** -- the mode definition section injects role-specific instructions without touching other sections.
+A monolithic prompt becomes unworkable past a few hundred lines. Obsilo's prompt routinely exceeds 5000 tokens because the agent needs to understand 43+ tools, safety rules, vault conventions, and user-specific context. Splitting it into modules solves two real problems:
 
-## Assembly Order
+- Different modes need different prompts. A read-only mode should not include write-tool descriptions. Subtasks should skip skills and memory to stay lean. With modules, you toggle sections on or off.
+- Adding a skill or a new tool group should not require editing a monolithic template. Each concern lives in its own file.
 
-The orchestrator `buildSystemPromptForMode()` assembles sections in a deliberate order. Position matters -- LLMs pay more attention to content near the top (primacy effect) and the bottom (recency effect):
+## Assembly order
 
-| # | Section | Builder Function | Notes |
-|---|---------|-----------------|-------|
-| 1 | Date/Time + Vault Context | `getDateTimeSection` + `getVaultContextSection` | Grounding: the agent knows when and where it is |
-| 2 | Mode Definition | `getModeDefinitionSection` | Early role setting -- shapes all subsequent interpretation |
-| 3 | Skills | `getSkillsSection` | Primacy position for strongest attention (skipped in subtasks) |
-| 4 | Capabilities | `getCapabilitiesSection` | Compact summary of what the agent can do |
-| 4.5 | Obsidian Conventions | `getObsidianConventionsSection` | Vault-specific rules (frontmatter, wikilinks, etc.) |
-| 5 | Memory | `getMemorySection` | User memory context (skipped in subtasks) |
-| 6 | Tools | `getToolsSection` | Filtered by mode's `toolGroups` setting |
-| 7 | Plugin Skills | `getPluginSkillsSection` | Right after tools -- agent sees plugin capabilities before deciding |
-| 7.5 | Procedural Recipes | *(injected directly)* | ADR-017 structured multi-step workflows |
-| 7.6 | Self-Authored Skills | *(injected directly)* | Agent-created skills from `manage_skill` |
-| 8 | Tool Routing | `getToolRoutingSection` | Merged tool rules + decision guidelines (compact) |
-| 9 | Objective | `getObjectiveSection` | Task decomposition strategy |
-| 10 | Response Format | `getResponseFormatSection` | Output structure rules (skipped in subtasks) |
-| 11 | Explicit Instructions | `getExplicitInstructionsSection` | Hard behavioral constraints |
-| 12 | Security Boundary | `getSecurityBoundarySection` | Prompt injection defense, permission boundaries |
-| 13 | Custom Instructions | `getCustomInstructionsSection` | User's global + mode-specific custom instructions |
-| 14 | Rules | `getRulesSection` | Conditional rules from `.obsilo/rules/` |
+Position matters. LLMs pay more attention to content near the top (primacy effect) and the bottom (recency effect). The sections are ordered deliberately:
 
-::: info Section Filtering
-Empty sections are filtered out before joining. A section builder returns an empty string when its input is absent (e.g., `getMemorySection('')` returns `''`). This means the prompt never contains hollow headers -- it is always as compact as possible.
-:::
+| # | Section | What it does |
+|---|---------|-------------|
+| 1 | Date/Time + Vault Context | Grounds the agent: when and where it is |
+| 2 | Mode Definition | Sets the role early, shaping everything that follows |
+| 3 | Skills | High-priority workflow instructions (skipped in subtasks) |
+| 4 | Capabilities | Compact summary of what the agent can do |
+| 4.5 | Obsidian Conventions | Vault-specific rules: frontmatter, wikilinks, etc. |
+| 5 | Memory | User memory context (skipped in subtasks) |
+| 6 | Tools | Tool list, filtered by the mode's `toolGroups` |
+| 7 | Plugin Skills | Skills from installed Obsidian plugins |
+| 8 | Tool Routing | Tool selection rules and decision guidelines |
+| 9 | Objective | Task decomposition strategy |
+| 10 | Response Format | Output structure rules (skipped in subtasks) |
+| 11 | Explicit Instructions | Hard behavioral constraints |
+| 12 | Security Boundary | Prompt injection defense, permission boundaries |
+| 13 | Custom Instructions | User's global + per-mode instructions |
+| 14 | Rules | Conditional rules from `.obsilo/rules/` |
 
-## Section Modules
+Empty sections are filtered out before joining. If there is no memory context, the memory section is absent -- no hollow headers, no wasted tokens.
 
-All 16 section builders live in `src/core/prompts/sections/` and are re-exported through `src/core/prompts/sections/index.ts`:
+## How skills get injected
 
-| Module | File | Purpose |
-|--------|------|---------|
-| `dateTime` | `dateTime.ts` | Current date, optionally time |
-| `vaultContext` | `vaultContext.ts` | Vault name, file count, folder structure hint |
-| `capabilities` | `capabilities.ts` | What the agent can do (read, write, search, generate) |
-| `memory` | `memory.ts` | User memory entries from MemoryDB |
-| `tools` | `tools.ts` | Tool list filtered by mode + MCP tools |
-| `toolRouting` | `toolRouting.ts` | Combined tool rules and decision guidelines |
-| `objective` | `objective.ts` | Task decomposition and planning strategy |
-| `responseFormat` | `responseFormat.ts` | Output formatting rules |
-| `explicitInstructions` | `explicitInstructions.ts` | Hard behavioral constraints |
-| `securityBoundary` | `securityBoundary.ts` | Prompt injection defense |
-| `modeDefinition` | `modeDefinition.ts` | Active mode's role, description, constraints |
-| `customInstructions` | `customInstructions.ts` | User-provided instructions (global + per-mode) |
-| `pluginSkills` | `pluginSkills.ts` | Skills from installed Obsidian plugins |
-| `skills` | `skills.ts` | Manual + bundled skills, trigger-matched per message |
-| `rules` | `rules.ts` | Project rules from `.obsilo/rules/` directory |
-| `obsidianConventions` | `obsidianConventions.ts` | Vault-specific conventions (links, frontmatter, etc.) |
+Skills are markdown files that contain workflow instructions. They activate when a user message matches their trigger keywords. The flow:
 
-## Skills Injection
+1. `SkillLoader` reads skills from `.obsilo/skills/` and the bundled skill directory.
+2. The user's message is compared against each skill's trigger patterns.
+3. Matching skills are concatenated into the skills section.
+4. That section is placed at position 3 -- right after the mode definition -- for maximum attention.
 
-Skills are markdown-based instructions that activate when a user message matches their trigger keywords. The injection flow:
+Skills go before the tool list on purpose. They contain high-level strategy ("do X, then Y, then Z") that should guide which tools the agent picks. The agent reads the plan before it sees the toolkit.
 
-1. **Skill loading** -- `SkillLoader` reads `.obsilo/skills/` and bundled skill files.
-2. **Trigger matching** -- user message keywords are matched against skill trigger patterns.
-3. **Section building** -- matched skills are concatenated into the skills section.
-4. **Primacy placement** -- the skills section is placed at position 3 (right after mode definition) for maximum model attention.
+Self-authored skills -- ones the agent created via `manage_skill` -- follow the same path but land at position 7, after tools and plugin skills. They supplement the primary skills, not replace them.
 
-Self-authored skills (created by the agent via `manage_skill`) follow the same path but are injected at position 7.6, after tools and plugin skills.
+## How memory gets injected
 
-::: tip Why Skills Before Tools?
-The primacy effect in LLMs means early content gets disproportionate attention. Skills contain high-level workflow instructions ("do X, then Y, then Z") that should guide tool selection. Placing skills before the tool list ensures the agent reads the strategy before the tactics.
-:::
+The memory section pulls relevant entries from the user's memory database and injects them as context. In subtasks, memory is skipped entirely to keep child prompts focused.
 
-## Power Steering
+## Token budget
 
-During long loops, `AgentTask` injects a synthetic user message every `powerSteeringFrequency` iterations. This message contains:
+The system prompt cannot exceed the model's context window. When you add a long custom instruction or load several skills, the prompt grows. Sections have implicit priorities: core sections (tools, security boundary) are always present. Optional sections (memory, skills, custom instructions) can be trimmed or skipped based on the context.
 
-- The active mode's role definition.
-- Active skill names (if any).
-- A reminder to stay on task.
+Subtasks are the most aggressive about trimming. A child task skips skills, memory, response format, recipes, self-authored skills, and custom instructions. It gets the tools, the rules, and the job. Nothing more.
 
-This is not a system prompt modification -- it is a user-role message appended to the history. The model sees it as a gentle redirect, not a system-level override. The system prompt itself is cached and only rebuilt when the mode changes or tool availability shifts.
+## Per-mode customization
 
-## Per-Mode Customization
+Each mode provides a `roleDefinition` that goes into the mode definition section, and optional `customInstructions` appended to the custom instructions section. The `toolGroups` field controls which tools appear in the tools section.
 
-Each `ModeConfig` provides:
+Two modes can produce very different system prompts from the same set of section modules. Ask mode gets a read-only role definition and no write tools. Agent mode gets the full set.
 
-- **`toolGroups`** -- which tool groups are available (read, vault, edit, web, agent, mcp).
-- **`roleDefinition`** -- injected into the mode definition section.
-- **`customInstructions`** -- appended to the custom instructions section.
+## Prompt caching
 
-::: details Subtask Prompt Stripping
-When `isSubtask` is true, the prompt assembly skips: skills (position 3), memory (position 5), recipes (7.5), self-authored skills (7.6), response format (10), and custom instructions (13). This keeps child task prompts focused and compact -- a subtask should execute its specific job, not inherit the full parent context.
-:::
+The system prompt and tool definitions are cached per mode in `AgentTask`. The cache is rebuilt only when:
 
-## Prompt Caching
+- The active mode changes (via `switch_mode`).
+- A settings change affects tool availability (like toggling web tools).
+- An explicit invalidation is triggered.
 
-The system prompt and tool definitions are cached per mode in `AgentTask.run()`. The cache is invalidated when:
+This avoids rebuilding a 5000+ token prompt on every loop iteration.
 
-- The active mode changes (via `switch_mode` tool).
-- A settings change affects tool availability (e.g., `webTools.enabled` toggle).
-- An explicit cache invalidation is triggered via `invalidateToolCache()`.
+## Power steering
 
-This avoids rebuilding the prompt on every iteration -- significant when the prompt exceeds 5000 tokens and the loop runs 10+ iterations.
+During long-running tasks, `AgentTask` injects a synthetic user message every N iterations. It contains the active mode's role definition, active skill names, and a reminder to stay on task. This is not a system prompt change -- it is a user-role message appended to the conversation history. The model treats it as a gentle redirect.

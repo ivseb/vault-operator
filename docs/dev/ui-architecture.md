@@ -1,122 +1,79 @@
 ---
 title: UI Architecture
-description: Sidebar view, settings tabs, modals, and component structure.
+description: How Obsilo's interface works within Obsidian's constraints, without React or innerHTML.
 ---
-# UI Architecture
 
-Obsilo's UI runs inside Obsidian's Electron shell. All rendering uses the Obsidian DOM API (`createEl`, `createDiv`, `appendText`) -- `innerHTML` is prohibited by the Community Plugin review bot. Styling uses CSS classes rather than inline `element.style` assignments.
+# UI architecture
 
-## Component Map
+Obsidian plugins can't use React, Vue, or any framework that relies on `innerHTML`. The Community Plugin review bot rejects plugins that set `innerHTML` directly. Everything in Obsilo's UI is built with Obsidian's DOM API: `createEl`, `createDiv`, `createSpan`, `appendText`. More verbose than JSX, but it's what the platform requires.
+
+## Two main components
 
 ```mermaid
-graph TD
-    ASV[AgentSidebarView<br>~3600 LOC] --> SB[SuggestionBanner]
-    ASV --> OF[OnboardingFlow]
-    ASV --> CF[CondensationFeedback]
-    ASV --> CD[ContextDisplay]
-    ASV --> ACH[AutocompleteHandler]
-    ASV --> ATH[AttachmentHandler]
-    ASV --> HP[HistoryPanel]
-    ASV --> TPP[ToolPickerPopover]
-    ASV --> VFP[VaultFilePicker]
-    AST[AgentSettingsTab] --> MT[ModelsTab]
-    AST --> ET[EmbeddingsTab]
-    AST --> WST[WebSearchTab]
-    AST --> MOT[ModesTab]
-    AST --> PT[PermissionsTab]
-    AST --> LT[LoopTab]
-    AST --> RT[RulesTab]
-    AST --> WT[WorkflowsTab]
-    AST --> SKT[SkillsTab]
-    AST --> PRT[PromptsTab]
-    AST --> MCT[McpTab]
-    AST --> VIT[VisualIntelligenceTab]
-    AST --> VT[VaultTab]
-    AST --> IT[InterfaceTab]
-    AST --> LOT[LogTab]
-    AST --> DT[DebugTab]
-    AST --> BT[BackupTab]
-    AST --> MET[MemoryTab]
-    AST --> SHT[ShellTab]
-    AST --> LGT[LanguageTab]
+flowchart TD
+    O[Obsilo UI] --> S[AgentSidebarView]
+    O --> T[AgentSettingsTab]
+    S --> Chat[Chat interface]
+    S --> Ext[Extracted components]
+    T --> Tabs[5 main tabs, 19 sub-tabs]
 ```
 
-## AgentSidebarView
+`AgentSidebarView` (`src/ui/AgentSidebarView.ts`) is the chat interface. It extends Obsidian's `ItemView` and renders in a sidebar leaf. This is where you type messages, see responses, attach files, and watch the agent work. The view manages the `AgentTask` lifecycle -- creating tasks, sending messages, handling streaming responses, and displaying tool execution results. It also handles the mode selector button, model selector, context badge display, and stop/send controls.
 
-**File:** `src/ui/AgentSidebarView.ts` (~3600 LOC)
+`AgentSettingsTab` (`src/ui/AgentSettingsTab.ts`) is the settings interface. It extends `PluginSettingTab` and organizes configuration across 5 main tabs, each with sub-tabs:
 
-The main chat panel, registered as a custom `ItemView` with type `obsidian-agent-sidebar`. This is a monolith that has been partially refactored -- key concerns have been extracted into dedicated components under `src/ui/sidebar/`.
+| Main tab | Sub-tabs |
+|----------|----------|
+| Providers | Models, Embeddings, Web Search, MCP Servers |
+| Agent Behaviour | Modes, Permissions, Loop, Memory, Rules, Workflows, Skills, Prompts |
+| Vault | (single tab) |
+| Advanced | Interface, Shell, Visual Intelligence, Log, Debug, Backup |
+| Language | (single tab) |
 
-**Core responsibilities:**
-- Chat message rendering with Markdown support (via `MarkdownRenderer`)
-- Input area with textarea, mode selector, model selector, send/stop controls
-- Tool call visualization (approval cards, progress indicators, result display)
-- Task lifecycle management (start, cancel, conversation persistence)
-- Context tracking and token budget display
+Each sub-tab is its own class in `src/ui/settings/`. The settings tab builds a navigation bar and delegates rendering to the active sub-tab class. This keeps the 1,500+ lines of settings UI manageable.
 
-### Extracted Sidebar Components
+## Sidebar extracted components
 
-**Directory:** `src/ui/sidebar/`
+The sidebar started as a single large file. As features accumulated, components were extracted into `src/ui/sidebar/`:
 
 | Component | Purpose |
 |-----------|---------|
-| `SuggestionBanner` | Displays contextual suggestions above the input area |
-| `OnboardingFlow` | First-run guided setup experience |
-| `CondensationFeedback` | Shows context condensation status and token savings |
-| `ContextDisplay` | Token budget bar and context window utilization |
-| `AutocompleteHandler` | Slash-command and mention autocomplete in the input area |
-| `AttachmentHandler` | File attachment management for multimodal input |
-| `HistoryPanel` | Conversation history browser with search and filtering |
-| `ToolPickerPopover` | Tool selection popover for manual tool invocation |
-| `VaultFilePicker` | File picker for `@`-mention file references |
+| `AttachmentHandler` | Drag-and-drop file attachments, document parsing |
+| `AutocompleteHandler` | Slash commands and @-mentions in the input |
+| `ToolPickerPopover` | Tool selection popup when the agent needs to choose |
+| `VaultFilePicker` | File selection from the vault |
+| `HistoryPanel` | Conversation history browser |
+| `ContextDisplay` | Token usage and context window visualization |
+| `CondensationFeedback` | Notification when context condensing occurs |
+| `SuggestionBanner` | Proactive suggestions from the agent |
+| `OnboardingFlow` | First-run setup wizard |
 
-## AgentSettingsTab
+These components follow a common pattern: they receive a parent element and the plugin instance, create their DOM subtree, and expose methods for updates. There is no component lifecycle manager. It's a convention for organizing code: each component owns a DOM subtree and exposes a small public API.
 
-**File:** `src/ui/AgentSettingsTab.ts`
+## CSS constraints
 
-A tab-based settings interface extending Obsidian's `PluginSettingTab`. The display is organized into 19 sub-tabs, each extracted into its own module under `src/ui/settings/`:
+Inline styles (`element.style.color = 'red'`) are banned by the review bot. All styling goes through CSS classes prefixed with `agent-` (for the sidebar) or `agent-settings-` (for settings). Utility classes use the `agent-u-` prefix. When a style needs to be set dynamically (like a progress bar width), the code uses `style.setProperty()` instead of direct property assignment.
 
-ModelsTab, EmbeddingsTab, WebSearchTab, ModesTab, PermissionsTab, LoopTab, RulesTab, WorkflowsTab, SkillsTab, PromptsTab, McpTab, VisualIntelligenceTab, VaultTab, InterfaceTab, LogTab, DebugTab, BackupTab, MemoryTab, ShellTab, LanguageTab.
+The CSS is authored as a single stylesheet bundled with the plugin. Obsidian's built-in theme variables (`--text-normal`, `--background-primary`, etc.) are used wherever possible so the plugin adapts to light/dark themes and custom themes.
 
-Each tab module exports a render function that receives the settings container element and plugin reference, keeping the main `AgentSettingsTab` class as a thin router.
+## Modal system
 
-## Modals
+Beyond the two main components, Obsilo uses Obsidian's `Modal` class for dialogs: model configuration, code import, content editing, system prompt preview, task selection, and mode creation. Each modal is a separate class in `src/ui/settings/` or `src/ui/`. Modals follow Obsidian's pattern -- extend `Modal`, override `onOpen` and `onClose`, build the DOM in `onOpen`.
 
-**Directory:** `src/ui/` and `src/ui/settings/`
+## Rendering approach
 
-| Modal | Location | Purpose |
-|-------|----------|---------|
-| `DiffReviewModal` | `src/ui/DiffReviewModal.ts` | Multi-file semantic diff review with per-section approve/reject/edit. Groups changes by Markdown structure (headings, frontmatter, code blocks) |
-| `ChatHistoryModal` | `src/ui/ChatHistoryModal.ts` | Browse and restore past conversations |
-| `TaskSelectionModal` | `src/ui/TaskSelectionModal.ts` | Select extracted tasks for creation as vault notes |
-| `ModelConfigModal` | `src/ui/settings/ModelConfigModal.ts` | Configure AI model parameters (temperature, max tokens, provider settings) |
-| `ContentEditorModal` | `src/ui/settings/ContentEditorModal.ts` | Full-screen text editor for rules, prompts, and skill content |
-| `SystemPromptPreviewModal` | `src/ui/settings/SystemPromptPreviewModal.ts` | Read-only preview of the assembled system prompt |
-| `CodeImportModal` | `src/ui/settings/CodeImportModal.ts` | Import code modules into skills |
-| `NewModeModal` | `src/ui/settings/NewModeModal.ts` | Create or edit custom mode configurations |
+There's no virtual DOM, no diffing, no reactive state. When something changes, the relevant section is cleared and rebuilt. The settings tab calls `this.display()` which empties the container and reconstructs everything. The sidebar is more surgical -- individual message elements are appended to the chat container during streaming, and only specific elements are updated when tool results arrive.
 
-## CSS Architecture
+Markdown rendering in chat responses uses Obsidian's built-in `MarkdownRenderer.render()`, which handles syntax highlighting, Wikilinks, and embedded content. This is one area where Obsilo gets framework-level rendering for free.
 
-**File:** `styles.css`
+## i18n
 
-All styles use the `agent-` prefix to avoid conflicts with Obsidian core and other plugins. The stylesheet follows two patterns:
+All user-facing text goes through the `t()` function (`src/i18n`), which returns the localized string for the current language. The settings UI, sidebar labels, error messages, and tool descriptions are all translatable. Adding a new language means adding a locale file in `src/i18n/locales/`.
 
-1. **Component classes** (`agent-sidebar-*`, `agent-settings-*`, `agent-modal-*`) -- scoped to specific UI components
-2. **Utility classes** (`agent-u-*`) -- small, reusable helpers for common layout needs:
-   - `agent-u-hidden` / `agent-u-visible` -- display toggling
-   - `agent-u-visibility-hidden` -- hidden but retains layout space
-   - `agent-u-height-auto` -- override fixed heights
-   - `agent-u-mb-12` -- spacing utility
+## Task extraction and context
 
-## Obsidian DOM API Constraints
+Two features sit between the chat UI and the rest of the system. The `TaskExtractor` (`src/core/tasks/TaskExtractor.ts`) scans conversation messages for action items and presents them in a selection modal. Selected tasks can be turned into vault notes via `TaskNoteCreator`. The `ContextTracker` (`src/core/context/ContextTracker.ts`) monitors token usage throughout the conversation and feeds the `ContextDisplay` component, which shows how full the context window is and when condensation is approaching.
 
-The following rules are enforced by the Obsidian Community Plugin review bot and shape every UI decision:
+## The framework trade-off
 
-| Prohibited | Required Alternative |
-|------------|---------------------|
-| `innerHTML` | `createEl()`, `createDiv()`, `appendText()` |
-| `element.style.X = Y` | CSS classes or `style.setProperty()` |
-| `document.createElement()` | Obsidian's `createEl()` on parent elements |
-| Direct DOM event listeners (for cleanup) | Obsidian's `registerDomEvent()` |
-
-Markdown content is rendered exclusively through Obsidian's `MarkdownRenderer.render()`, which handles links, embeds, and plugin-specific syntax (Dataview, Tasks, Mermaid).
+Building UI without a framework is slower and more repetitive than React or Svelte. Every button needs `createEl('button')`, every list needs manual DOM construction. But it has one real advantage: there's no build step for the UI, no framework version to maintain, and no compatibility issues with Obsidian updates. The DOM API is stable and unlikely to break between Obsidian versions. More verbose code in exchange for more durable compatibility -- worth it for a plugin that needs to run reliably across many Obsidian versions.

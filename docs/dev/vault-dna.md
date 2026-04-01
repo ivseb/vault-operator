@@ -1,126 +1,77 @@
 ---
-title: VaultDNA
-description: Automatic plugin discovery, skill generation, and the plugin API bridge.
+title: Plugin Discovery
+description: How Obsilo automatically discovers installed Obsidian plugins and makes them available to the agent.
 ---
-# VaultDNA -- Plugin Discovery & Skill Generation
 
-VaultDNA is Obsilo's automatic plugin discovery system. It scans all installed Obsidian plugins, classifies their capabilities, generates skill files, and makes them available to the agent. This allows the agent to leverage the user's plugin ecosystem without manual configuration.
+# Plugin discovery
 
-## Architecture Overview
+Obsidian's plugin ecosystem is one of its strengths. Obsilo can work with your installed plugins, but first it needs to know what's available. The VaultDNA system handles this automatically.
+
+## How scanning works
 
 ```mermaid
 flowchart LR
-    SCAN[VaultDNAScanner] --> DNA[vault-dna.json]
-    SCAN --> SKILLS[.skill.md files]
-    DNA --> REG[SkillRegistry]
-    REG --> SP[System Prompt<br>compact skill list]
-    SKILLS --> RF[read_file on demand]
-    REG --> GAP[CapabilityGapResolver]
-    CORE[CorePluginLibrary] --> SCAN
-    SAL[SelfAuthoredSkillLoader] --> REG
-    CMC[CodeModuleCompiler] --> SAL
-    PAPI[CallPluginApiTool] --> AL[pluginApiAllowlist]
+    S[Scan installed plugins] --> C[Classify by capabilities]
+    C --> G[Generate skill files]
+    G --> A[Available in agent prompt]
 ```
 
-## VaultDNAScanner
+The `VaultDNAScanner` (`src/core/skills/VaultDNAScanner.ts`) reads `app.plugins.manifests` on startup, which lists all installed plugins (both enabled and disabled). For each plugin, it extracts:
 
-**File:** `src/core/skills/VaultDNAScanner.ts`
+- The plugin's name, version, and description
+- All registered commands
+- Whether the plugin is currently enabled
 
-Scans both core and community plugins by reading `app.plugins.manifests` (all installed, enabled and disabled). For each plugin:
+Commands are the important part. They're the primary way Obsidian plugins expose functionality, and they're how the agent interacts with them -- via the `execute_command` tool.
 
-1. **Command extraction:** Collects all registered commands, filtering out UI-only patterns (`toggle`, `show-`, `focus`, `settings`, `-panel`, `-sidebar`)
-2. **Classification:** Categorizes plugins by command count and type (FULL = 3+ meaningful commands, PARTIAL = fewer)
-3. **Skill generation:** Creates `.skill.md` files at `.obsidian-agent/plugin-skills/` with YAML frontmatter describing the plugin's capabilities
-4. **Persistence:** Writes `vault-dna.json` with the full scan results
-5. **Change polling:** Detects plugin enable/disable changes and regenerates skill files
+The scanner distinguishes between core plugins (shipped with Obsidian) and community plugins (installed from the community registry or manually). Core plugins have stable, well-documented command IDs. Community plugins vary widely in quality and naming conventions.
 
-All scanning is local and offline -- no LLM calls, no network requests (ADR-102, ADR-103).
+## Classification
 
-## SkillRegistry
+Not every command is useful to an agent. The scanner filters out UI-only commands that don't make sense in a headless context: toggles for sidebars, "show settings" dialogs, "focus panel" actions. The filtering uses pattern matching against prefixes like `toggle`, `show-`, `focus`, and suffixes like `-panel`, `-sidebar`, `-settings`.
 
-**File:** `src/core/skills/SkillRegistry.ts`
+After filtering, each plugin gets classified based on how many agent-usable commands it has. A plugin like Dataview with many queryable commands gets a high classification. A plugin that only registers a "toggle sidebar" command gets classified as UI-only. Plugins with zero usable commands are still recorded (they exist in the vault DNA) but don't get skill files generated.
 
-Combines auto-discovered VaultDNA skills with user toggle settings. Only a compact list of active skills goes into the system prompt (ADR-104). Full `.skill.md` content is read on-demand via `read_file` when the agent needs details.
+## Skill file generation
 
-Key method: `getActivePluginSkills()` returns enabled plugins that have not been toggled off by the user via settings.
+For each plugin with usable commands, the scanner generates a `.skill.md` file at `.obsidian-agent/plugin-skills/`. These skill files are Markdown documents that describe the plugin's capabilities in a format the agent can understand. They list available commands, describe what each one does, and provide usage hints.
 
-## CorePluginLibrary
+The generated skills are "skeleton" quality -- they contain the structural information extracted from the plugin manifest and commands, but no LLM-generated descriptions or usage examples. This is intentional. The generation runs entirely offline, with no network calls and no LLM involvement. Accuracy is limited to what the manifest provides.
 
-**File:** `src/core/skills/CorePluginLibrary.ts`
+Core Obsidian plugins (daily notes, templates, canvas, etc.) get better treatment. The scanner includes a `CorePluginLibrary` with hand-written definitions for built-in plugins, so their skill files have more detail than what manifest parsing alone produces.
 
-Hand-maintained static definitions for Obsidian's 12 agentifiable core plugins. Core plugins have no public GitHub repo and no community registry entry, so static definitions are the most reliable approach (ADR-101).
+## Vault DNA persistence
 
-Each definition includes: `id`, `name`, `classification`, `commands[]`, `description`, and `instructions` -- providing the agent with enough context to use the plugin's commands correctly.
+The scan results are persisted as `vault-dna.json` in the `.obsidian-agent/` directory. This avoids rescanning on every startup. The scanner polls for changes at a regular interval, comparing the current set of enabled plugins against its last known state. When you enable or disable a plugin, it detects the change and updates both the DNA file and the generated skill files.
 
-## SelfAuthoredSkillLoader
+The polling interval is short enough that changes are picked up within seconds. If you install a new community plugin and enable it, the next conversation will already know about it.
 
-**File:** `src/core/skills/SelfAuthoredSkillLoader.ts`
+## Capability gap resolution
 
-Manages agent-created skill files (`.skill.md`) with YAML frontmatter. Skills are stored in the plugin data directory under `skills/` and hot-reload via vault file events.
+Sometimes the agent hits a task it can't handle with its built-in tools. The `CapabilityGapResolver` (`src/core/skills/CapabilityGapResolver.ts`) handles this by searching the vault DNA for plugins that might help.
 
-Skills can optionally contain **code modules** -- TypeScript files in a `code/` subdirectory that are compiled and registered as dynamic tools. This unifies the "Skills" and "Dynamic Tools" concepts into a single abstraction.
+When the agent calls the `resolve_capability_gap` tool with a description like "I need to create a Kanban board", the resolver extracts keywords, scans the DNA for matching plugins, and returns either a match (with the relevant commands) or a suggestion to install a community plugin.
 
-Each skill defines: `name`, `description`, `trigger` (regex), `source` (`learned` | `user` | `bundled`), `requiredTools`, and optional `codeModules`.
+This is best-effort. It works well for plugins whose names and command descriptions clearly indicate their purpose. It won't find a match if the plugin's metadata is vague or if the capability requires a plugin that isn't installed.
 
-## CodeModuleCompiler
+## Runtime skill metadata
 
-**File:** `src/core/skills/CodeModuleCompiler.ts`
+Beyond the persisted skill files, the scanner maintains an in-memory list of `PluginSkillMeta` objects. These contain the plugin ID, classification, and command list in a structured format that can be injected into the agent's system prompt. This lets the agent know at conversation start which plugins are available and what they can do, without reading every skill file.
 
-Compiles TypeScript code modules within skills into executable dynamic tools. The pipeline:
+## What works and what doesn't
 
-1. **AST validation** via `AstValidator` -- ensures code does not use prohibited patterns
-2. **Source wrapping** -- transforms the module into a sandbox-compatible format
-3. **Compilation** via `EsbuildWasmManager` -- compiles TypeScript to JavaScript using esbuild WASM
-4. **Dry-run testing** -- executes in the sandbox to verify no runtime errors
-5. **Registration** -- registers the compiled module as a dynamic tool in the `ToolRegistry`
+Plugin discovery works best for plugins that expose their functionality through commands with descriptive names. The Obsidian Tasks plugin, for example, registers commands like `tasks:toggle-done` and `tasks:create-or-edit` that clearly communicate what they do.
 
-Each code module defines: `name`, `source_code`, `description`, `input_schema`, `is_write_operation`, and optional `dependencies`.
+It works less well for plugins that do their work through UI interactions rather than commands. A plugin that adds a custom view type but doesn't register any commands is invisible to the agent. The scanner records its existence, but there's nothing the agent can do with it.
 
-## CapabilityGapResolver
+Plugins that require configuration (API keys, file paths, specific settings) before they work are another challenge. The scanner can detect the plugin and its commands, but it can't know whether the plugin is properly configured. The agent might try to use a command and get an error because the plugin hasn't been set up yet.
 
-**File:** `src/core/skills/CapabilityGapResolver.ts`
-**Tool:** `ResolveCapabilityGapTool` (`src/core/tools/agent/ResolveCapabilityGapTool.ts`)
+## Relationship to the skill system
 
-A 3-stage resolution system for when the agent encounters an unknown task (ADR-106):
+Plugin skills are one category in a broader skill system. Obsilo has three sources of skills:
 
-| Stage | Source | Action |
-|-------|--------|--------|
-| 1 | Active skills | Keyword match against enabled plugins -- returns the matching skill |
-| 2 | Disabled plugins | Keyword match against installed but disabled plugins -- suggests enabling |
-| 3 | Archived/not found | Checks previously installed plugins, then reports an honest gap |
+1. Plugin skills (generated by VaultDNAScanner, stored in `.obsidian-agent/plugin-skills/`)
+2. User skills (written by you or the agent, stored in `.obsidian-agent/skills/`)
+3. Built-in skills (bundled with the plugin)
 
-Implemented as a deterministic TypeScript component (not a prompt instruction) for testable, predictable behavior.
-
-## Plugin API Bridge
-
-**Tool:** `CallPluginApiTool` (`src/core/tools/agent/CallPluginApiTool.ts`)
-**Allowlist:** `src/core/tools/agent/pluginApiAllowlist.ts`
-
-Calls JavaScript methods on Plugin instances directly within Obsidian's runtime -- no shell, no process spawn.
-
-### Two-Tier Allowlist
-
-| Tier | Source | Default |
-|------|--------|---------|
-| Tier 1 | Built-in allowlist (compile-time, curated) | Read/write classified per method |
-| Tier 2 | Dynamic discovery (VaultDNA Scanner) | Always classified as write until user override |
-
-### Security Controls
-
-- **Blocked methods:** `execute`, `executeJs`, `render`, `register`, `unregister`, and similar sensitive APIs
-- **10-second timeout** per API call
-- **Return value sanitization:** Circular references and DOM nodes filtered, output truncated to 50KB
-- **Approval:** Read calls and write calls have separate auto-approval toggles in the [governance layer](/dev/governance)
-
-## Related ADRs
-
-| ADR | Topic |
-|-----|-------|
-| ADR-009 | Local skills architecture |
-| ADR-014 | VaultDNA plugin discovery design |
-| ADR-101 | Core plugin static definitions |
-| ADR-102 | Scan scope (all installed, enabled + disabled) |
-| ADR-103 | Skeleton generation without LLM |
-| ADR-104 | Compact system prompt skill listing |
-| ADR-106 | Deterministic capability gap resolution |
-| ADR-108 | Plugin API bridge and allowlist tiers |
+All three types are Markdown files with the same structure. The agent doesn't distinguish between them at runtime -- they're all loaded into the system prompt based on relevance to the current conversation. The distinction matters for management: plugin skills are regenerated automatically when plugins change, user skills persist until you delete them, and built-in skills update with plugin releases.

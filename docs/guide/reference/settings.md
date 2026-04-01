@@ -3,7 +3,7 @@ title: Settings Reference
 description: Every Obsilo setting explained -- organized by tab with defaults and recommendations.
 ---
 
-# Settings Reference
+# Settings reference
 
 All Obsilo settings are in **Obsidian Settings > Obsilo Agent**. This page documents every section.
 
@@ -19,7 +19,7 @@ Configure AI models and providers. You can add multiple models and switch betwee
 | Import from code | Import model configurations shared as code snippets | -- | Useful for team setups |
 | Test connection | Verify that a model's API key and endpoint work | -- | Always test after adding a new model |
 
-:::tip Multiple Models
+:::tip Multiple models
 Add several models and assign them to different modes. Use a fast/cheap model for Ask mode and a powerful one for Agent mode.
 :::
 
@@ -37,11 +37,11 @@ Configure the semantic index for meaning-based vault search.
 | Implicit connections | Discover hidden relationships between notes | Off | Enable for knowledge discovery use cases |
 | Graph enrichment | Add semantic similarity data to the Obsidian graph | Off | Enable if you use the graph view heavily |
 
-:::info Index Size
+:::info Index size
 The semantic index stores embeddings locally. For a vault with 1,000 notes, expect roughly 10-20 MB of storage.
 :::
 
-## Web Search
+## Web search
 
 Enable tools for accessing the internet.
 
@@ -62,13 +62,13 @@ Connect external tool servers and expose Obsilo as a server.
 | Test server | Verify connectivity to a configured server | -- | Test after adding |
 | Obsilo as MCP server | Expose Obsilo's tools to external clients like Claude Desktop | Off | Enable to use Obsilo from Claude Desktop |
 
-:::info Transport Limitation
+:::info Transport limitation
 Obsilo runs inside Electron (Obsidian's runtime), so only **SSE** and **streamable-http** transports are supported. Stdio-based MCP servers do not work.
 :::
 
 ## Modes
 
-Configure agent modes -- each mode defines which tools, skills, and model the agent uses.
+Configure agent modes. Each mode defines which tools, skills, and model the agent uses.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
@@ -79,38 +79,38 @@ Configure agent modes -- each mode defines which tools, skills, and model the ag
 | Per-mode tools | Select which tool groups are available in each mode | Varies by mode | Restrict tools to what the mode actually needs |
 | Per-mode skills | Attach specific skills to a mode | None | Attach relevant skills for the mode's purpose |
 
-## Permissions (Auto-Approve)
+## Permissions (auto-approve)
 
 Control what the agent can do without asking. See [Safety & Control](/guide/working-with-obsilo/safety-control) for details.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
-| Read operations | Auto-approve file reads, searches, listings | Off | Safe to enable -- nothing changes |
+| Read operations | Auto-approve file reads, searches, listings | Off | Safe to enable. Nothing changes. |
 | Note edits | Auto-approve editing existing notes | Off | Enable after you trust the agent's edits |
 | Vault changes | Auto-approve creating, moving, deleting files | Off | Keep off until comfortable |
 | Web operations | Auto-approve web fetches and searches | Off | Enable if you use web tools frequently |
 | MCP calls | Auto-approve calls to external MCP servers | Off | Enable per-server based on trust |
-| Subtasks | Auto-approve spawning sub-agents | Off | Safe to enable -- inherits parent permissions |
+| Subtasks | Auto-approve spawning sub-agents | Off | Safe to enable. Inherits parent permissions. |
 | Plugin skills | Auto-approve plugin command execution | Off | Enable for trusted plugin workflows |
-| Plugin API reads | Auto-approve reading plugin data | Off | Safe to enable -- read-only |
-| Plugin API writes | Auto-approve modifying plugin settings | Off | Keep off -- high risk |
-| Recipes | Auto-approve multi-step CLI recipes | Off | Keep off -- runs external commands |
+| Plugin API reads | Auto-approve reading plugin data | Off | Safe to enable. Read-only. |
+| Plugin API writes | Auto-approve modifying plugin settings | Off | Keep off. High risk. |
+| Recipes | Auto-approve multi-step CLI recipes | Off | Keep off. Runs external commands. |
 | Sandbox | Auto-approve code execution in the sandbox | Off | Keep off unless you trust generated code |
 
-:::warning Permissive Combination
+:::warning Permissive combination
 Enabling both **web operations** and **note edits** (or vault changes) triggers a security warning. This combination lets the agent fetch internet content and write it to your vault without asking.
 :::
 
-## Loop (Agent Behavior)
+## Loop (agent behavior)
 
 Control how the agent loop runs.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
-| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | Keep at 3 -- prevents infinite error loops |
+| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | Keep at 3. Prevents infinite error loops. |
 | Rate limit | Minimum milliseconds between API calls | 0 | Set to 500-1000 if you hit rate limits |
 | Max iterations | Maximum tool calls per conversation turn | 25 | Increase for complex tasks, decrease to limit cost |
-| Context condensing | Summarize older messages when context gets long | On | Keep on -- prevents context overflow errors |
+| Context condensing | Summarize older messages when context gets long | On | Keep on. Prevents context overflow errors. |
 | Condensing threshold | Percentage of context window before condensing triggers | 70% | Lower if you see 400-error context overflow |
 | Power steering | Re-inject key instructions every N messages | 4 | Keep at 4 for consistent behavior |
 | Subtask depth | Maximum nesting depth for sub-agents | 2 | Keep at 2 unless you need deep delegation |
@@ -121,7 +121,7 @@ Configure how the agent remembers across conversations.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
-| Chat history | Save conversation history for future reference | On | Keep on -- essential for memory extraction |
+| Chat history | Save conversation history for future reference | On | Keep on. Required for memory extraction. |
 | Chat history folder | Where to store conversation files in the vault | `Obsilo/Chats` | Change if you prefer a different location |
 | Memory extraction | Automatically extract key facts from conversations | On | Keep on for personalization |
 | Memory model | Which model to use for memory extraction (background task) | Global model | Use a cheap model (Haiku, GPT-4o-mini) to save cost |
@@ -137,7 +137,7 @@ Persistent instructions that guide the agent in every conversation.
 | + add rule | Create a new rule (plain text or Markdown) | -- | Keep rules concise and specific |
 | Import | Import rules from a file | -- | Share rules across vaults |
 
-## Workflows & Prompts
+## Workflows & prompts
 
 Pre-defined multi-step instructions and prompt templates.
 
@@ -148,7 +148,7 @@ Pre-defined multi-step instructions and prompt templates.
 
 ## Skills
 
-Persistent instruction sets matched by keywords -- like mini-manuals the agent follows.
+Persistent instruction sets matched by keywords. Like mini-manuals the agent follows.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
@@ -161,14 +161,14 @@ Appearance and input behavior settings.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
-| Auto-add active file | Automatically include the currently open note as context | On | Keep on -- helps the agent understand what you are looking at |
+| Auto-add active file | Automatically include the currently open note as context | On | Keep on. Helps the agent understand what you're looking at. |
 | Send key | Which key sends a message (Enter or Ctrl/Cmd+Enter) | Enter | Change to Ctrl+Enter if you write multi-line messages often |
 | Show date/time | Display timestamps in the chat | Off | Personal preference |
 | Chat history folder | Vault folder for saved conversations | `Obsilo/Chats` | Also configurable in Memory tab |
 | Chat linking | Link chat sessions to notes for traceability | Off | Enable for project-based workflows |
 | Task extraction | Detect and extract tasks from agent responses | Off | Enable to auto-create tasks from conversations |
 
-## Shell (Plugin API & Recipes)
+## Shell (plugin API & recipes)
 
 Configure external tool integrations.
 
@@ -178,22 +178,22 @@ Configure external tool integrations.
 | Command allowlist | Which Obsidian commands the agent can execute | None | Add specific command IDs you trust |
 | Recipes | Pre-validated CLI tool recipes (e.g., Pandoc export) | Built-in | Add recipes only for tools you have installed |
 
-## Vault (Checkpoints)
+## Vault (checkpoints)
 
 Checkpoint and snapshot settings for the undo system.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
-| Enable checkpoints | Create snapshots before file modifications | On | Keep on -- this powers the undo system |
+| Enable checkpoints | Create snapshots before file modifications | On | Keep on. This powers the undo system. |
 | Snapshot timeout | Maximum time to wait for a snapshot to complete (ms) | 5000 | Increase for very large files |
 | Auto-cleanup | Automatically remove old checkpoints | On | Keep on to save storage |
 
-## Other Tabs
+## Other tabs
 
 | Tab | What it does |
 |-----|-------------|
-| **Log** | Browse the daily audit trail of all tool calls with timestamps and parameters |
-| **Debug** | Internal diagnostics -- ring buffer viewer, system prompt preview |
-| **Backup** | Export and import your complete Obsilo configuration |
-| **Language** | Set the agent's response language (follows Obsidian's language by default) |
-| **Visual Intelligence** | Enable LibreOffice-based rendering for presentation quality checks |
+| Log | Browse the daily audit trail of all tool calls with timestamps and parameters |
+| Debug | Internal diagnostics: ring buffer viewer, system prompt preview |
+| Backup | Export and import your complete Obsilo configuration |
+| Language | Set the agent's response language (follows Obsidian's language by default) |
+| Visual Intelligence | Enable LibreOffice-based rendering for presentation quality checks |

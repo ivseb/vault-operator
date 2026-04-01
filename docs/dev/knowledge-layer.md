@@ -1,130 +1,94 @@
 ---
 title: Knowledge Layer
-description: SQLite-backed semantic search, graph extraction, implicit connections, and local reranking.
+description: How Obsilo finds relevant information in your vault through a 4-stage retrieval pipeline.
 ---
 
-# Knowledge Layer
+# Knowledge layer
 
-Obsilo's Knowledge Layer provides vault-wide semantic understanding through a 4-stage retrieval pipeline backed by a local SQLite database. All processing runs on-device -- no external API calls for search or reranking.
+A vault can hold thousands of notes. The agent's context window fits maybe a dozen. The knowledge layer bridges that gap: given a query, it finds the notes most likely to be useful -- without calling any external API.
 
-## Architecture Overview
+Everything runs locally. The vector math, the graph traversal, the reranking model. Your data never leaves the device.
 
-```mermaid
-graph TB
-    Query[User Query] --> VectorSearch[1. Vector Search]
-    VectorSearch --> GraphExpansion[2. Graph Expansion]
-    GraphExpansion --> ImplicitConn[3. Implicit Connections]
-    ImplicitConn --> Reranker[4. Cross-Encoder Reranking]
-    Reranker --> Results[Ranked Results]
+## The problem
 
-    subgraph Storage
-        KDB[(KnowledgeDB<br/>sql.js WASM)]
-        KDB --> VecTable[vectors table]
-        KDB --> EdgeTable[edges table]
-        KDB --> TagTable[tags table]
-        KDB --> ImplicitTable[implicit_edges table]
-    end
+Keyword search misses semantic matches. A note titled "Project retrospective" won't match a query about "what went wrong last quarter" even though it's exactly what you need. And even if you find good candidates, you still miss the notes that are *related to* those candidates through links and tags.
 
-    VectorSearch -.-> VecTable
-    GraphExpansion -.-> EdgeTable
-    GraphExpansion -.-> TagTable
-    ImplicitConn -.-> ImplicitTable
-```
+Full-text search has a breadth problem too. It can tell you which notes contain a word, but not which notes are conceptually relevant. A note about "quarterly review process" might be what you're looking for when asking about retrospectives, but it shares zero keywords with the query. The knowledge layer handles both: semantic similarity for meaning, graph traversal for context.
 
-## KnowledgeDB
+## The 4-stage pipeline
 
-The persistence layer uses **sql.js** (SQLite compiled to WASM) with a three-location fallback chain:
-
-| Priority | Location | Adapter | Platform |
-|----------|----------|---------|----------|
-| 1 | `~/.obsidian-agent/knowledge.db` | `fs.promises` | Desktop only |
-| 2 | `{vault}/.obsidian-agent/knowledge.db` | `vault.adapter` | All |
-| 3 | `{vault}/{pluginDir}/knowledge.db` | `vault.adapter` | All |
-
-Schema (v5) includes five tables: `vectors`, `edges`, `tags`, `implicit_edges`, `dismissed_pairs`, plus `schema_meta` for migrations and `checkpoint` for incremental indexing state.
-
-**Key file:** `src/core/knowledge/KnowledgeDB.ts`
-
-## VectorStore
-
-Stores embedding vectors as `Float32Array` BLOBs in the `vectors` table. Search uses a bulk-loaded in-memory cache with JavaScript cosine similarity -- 10-50x faster than SQL custom functions due to JS-to-WASM overhead per row.
-
-**Two-Pass Enrichment Strategy:**
-
-1. **Pass 1 (fast):** Raw text chunks are embedded and stored with `enriched=0`. This provides immediate searchability after vault indexing.
-2. **Pass 2 (background):** Chunks are re-embedded with contextual prefixes (file title, heading hierarchy) and updated to `enriched=1`. This improves retrieval quality without blocking the user.
-
-Each vector entry tracks `path`, `chunk_index`, `text`, `vector` (BLOB), `mtime`, and `enriched` flag. The `UNIQUE(path, chunk_index)` constraint ensures clean replacement on re-indexing.
-
-**Key file:** `src/core/knowledge/VectorStore.ts`
-
-## GraphExtractor
-
-Extracts the vault's link topology into the `edges` and `tags` tables by parsing:
-
-- **Body Wikilinks:** `[[target]]`, `[[target|alias]]`, `[[target#heading]]` via regex
-- **Frontmatter MOC properties:** Configurable property names (e.g., `parent`, `related`, `MOC`) read from Obsidian's `metadataCache`
-- **Tags:** Both YAML frontmatter tags and inline `#tag` references
-
-Supports two extraction modes: full extraction on startup (processes all vault files) and incremental updates triggered by vault events (create, modify, rename, delete).
-
-**Key files:** `src/core/knowledge/GraphExtractor.ts`, `src/core/knowledge/GraphStore.ts`
-
-## GraphStore
-
-Provides BFS-based neighbor expansion for graph-augmented retrieval (ADR-051, Stage 2). Given a set of seed paths from vector search, it walks the edge graph up to a configurable hop distance and returns `GraphNeighbor` objects with `path`, `hopDistance`, `viaPath`, and `linkType`.
-
-Edge types distinguish between `body` (inline Wikilinks) and `frontmatter` (MOC property) links, with an optional `propertyName` for frontmatter edges.
-
-**Key file:** `src/core/knowledge/GraphStore.ts`
-
-## ImplicitConnectionService
-
-Discovers semantically similar notes that lack explicit links (ADR-051, Stage 3). Computes pairwise cosine similarity between note-level vectors (averaged across chunks) and stores pairs above a configurable threshold in the `implicit_edges` table. Pairs with existing explicit edges are excluded -- only genuinely hidden connections surface.
-
-The `dismissed_pairs` table allows users to permanently suppress false positives from future results.
-
-**Key file:** `src/core/knowledge/ImplicitConnectionService.ts`
-
-## RerankerService
-
-Local cross-encoder reranking using `@huggingface/transformers` with the `Xenova/ms-marco-MiniLM-L-6-v2` model. Pure JavaScript + WASM -- no native addons, no electron-rebuild, no external API calls.
-
-The model is downloaded from HuggingFace Hub on first use and cached locally. It re-scores query-document pairs and produces a `rerankScore` that replaces the initial cosine similarity ranking. This significantly improves precision for ambiguous or multi-topic queries.
-
-**Key file:** `src/core/knowledge/RerankerService.ts`
-
-## 4-Stage Retrieval Pipeline
+Each stage adds candidates that the previous stages would miss.
 
 ```mermaid
-sequenceDiagram
-    participant Q as Query
-    participant VS as VectorStore
-    participant GS as GraphStore
-    participant IC as ImplicitConnections
-    participant RR as RerankerService
-
-    Q->>VS: Embed query, cosine similarity search
-    VS-->>Q: Top-K candidates (score > threshold)
-    Q->>GS: BFS expansion from candidate paths
-    GS-->>Q: Graph neighbors (1-2 hops)
-    Q->>IC: Lookup implicit edges for candidates
-    IC-->>Q: Semantically similar but unlinked notes
-    Q->>RR: Re-score all candidates with cross-encoder
-    RR-->>Q: Final ranked results (rerankScore)
+flowchart LR
+    Q[Query] --> V[Vector search]
+    V --> G[Graph expansion]
+    G --> I[Implicit connections]
+    I --> R[Reranking]
+    R --> Out[Top K results]
 ```
 
-| Stage | Component | Purpose | Latency |
-|-------|-----------|---------|---------|
-| 1 | VectorStore | Cosine similarity over embeddings | ~50ms |
-| 2 | GraphStore | BFS neighbor expansion via Wikilinks/MOC | ~10ms |
-| 3 | ImplicitConnectionService | Pre-computed semantic neighbors | ~5ms |
-| 4 | RerankerService | Cross-encoder precision reranking | ~200ms |
+Stage 1 -- vector search. The query is embedded into a vector (using your configured embedding model), then compared against pre-computed chunk vectors via cosine similarity. This finds semantically similar content regardless of wording. A query about "team morale" will match notes about "employee satisfaction" because the vectors are close in embedding space.
 
-Stages 2 and 3 expand the candidate set beyond pure embedding similarity. Stage 4 applies a more expensive but more accurate scoring model to produce the final ranking.
+Notes are split into chunks before embedding. Each chunk gets its own row in the `vectors` table. The chunking happens during indexing, not at query time, so search is fast even on large vaults.
 
-## ADR References
+Stage 2 -- graph expansion. The initial vector results are seed nodes. The system follows Wikilinks and frontmatter properties outward using breadth-first search. If your "Q3 retrospective" note links to "Action items" and "Team feedback", those get pulled in too. The `GraphStore` (`src/core/knowledge/GraphStore.ts`) handles the BFS traversal over the `edges` table, tracking hop distance so closer neighbors rank higher.
 
-- **ADR-050:** SQLite Knowledge DB -- migration from vectra JSON to sql.js WASM
-- **ADR-051:** 4-Stage Retrieval Pipeline -- vector, graph, implicit, reranker
-- **ADR-052:** Local Reranker Integration -- transformers.js WASM backend selection
+The graph distinguishes between body links (Wikilinks in note content) and frontmatter links (properties like `related`, `parent`, or custom MOC fields). Both types contribute to expansion, but they're stored with different `link_type` values so the system can weight them differently.
+
+Stage 3 -- implicit connections. Some notes are similar but have no explicit link between them. The `ImplicitConnectionService` (`src/core/knowledge/ImplicitConnectionService.ts`) pre-computes these pairs in a background job by comparing vectors across the vault and storing high-similarity pairs. During retrieval, if any current candidate has an implicit connection to another note, that note gets added to the pool.
+
+This stage is what separates the knowledge layer from a standard search engine. It surfaces relationships that exist semantically but not structurally. You might have two meeting notes from different projects that discuss the same technical problem -- no link between them, no shared tags, but the implicit connection picks them up. The `dismissed_pairs` table lets you prune false positives: if the system keeps surfacing a pair that isn't actually related, you can dismiss it.
+
+Stage 4 -- reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (Xenova/ms-marco-MiniLM-L-6-v2 via transformers.js WASM). Unlike the embedding model which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) downloads the model from HuggingFace on first use and caches it locally.
+
+The cross-encoder is small (about 80 MB) and runs entirely on CPU via WASM. First-time download takes a few seconds; after that it loads from the local cache in under a second.
+
+## Indexing
+
+The knowledge layer is only as good as its index. Vault events (file create, modify, delete, rename) trigger re-indexing through a debounced listener registered in `main.ts`. Small edits don't cause an immediate full re-index -- the debounce groups rapid changes into a single indexing pass. When a file changes, only its chunks are re-embedded; the rest of the index stays untouched.
+
+The graph (edges and tags) is re-extracted on each index run. This is fast because it reads Obsidian's metadata cache rather than parsing Markdown directly. The implicit connections are recomputed less frequently -- they run as a background job after the main indexing pass, since comparing every vector pair is more expensive.
+
+## Storage
+
+Everything lives in a single SQLite database managed by `KnowledgeDB` (`src/core/knowledge/KnowledgeDB.ts`), running via sql.js (WASM SQLite compiled to JavaScript). No native addons, no Electron rebuild.
+
+| Table | Purpose | Key columns |
+|-------|---------|-------------|
+| `vectors` | Chunk embeddings | `path`, `chunk_index`, `text`, `vector` (Float32Array BLOB), `enriched` |
+| `edges` | Wikilinks and frontmatter properties | `source_path`, `target_path`, `link_type` |
+| `tags` | Note tags | `path`, `tag` |
+| `implicit_edges` | Pre-computed similar pairs | `source_path`, `target_path`, `similarity` |
+| `dismissed_pairs` | User-dismissed implicit connections | `path_a`, `path_b` |
+
+The database supports three storage locations with a fallback chain:
+- Global: `~/.obsidian-agent/knowledge.db` (shared across vaults, desktop only)
+- Local: `{vault}/.obsidian-agent/knowledge.db`
+- Obsidian Sync: `{vault}/{pluginDir}/knowledge.db`
+
+The schema is versioned (currently v5). When a schema change ships, `KnowledgeDB` runs migration logic on open. If the migration fails, the database is recreated from scratch -- re-indexing is fast enough that losing the cache is acceptable.
+
+## Background enrichment
+
+Chunk embeddings get a second pass. The `enriched` flag on each vector row tracks whether contextual prefixes have been added. A background job reads un-enriched chunks and prepends document-level context (file path, heading hierarchy, surrounding content) before re-embedding. This improves retrieval quality because a chunk reading "The deadline was moved to Friday" becomes more useful when prefixed with "From: Project Alpha / Status Updates /".
+
+Enrichment runs at low priority during idle time. It doesn't block search -- un-enriched chunks are still searchable, just slightly less accurate. On a vault with 5,000 notes, initial indexing might take a few minutes. The enrichment pass runs afterward and can take 10-20 minutes depending on the embedding model's speed.
+
+## Search performance
+
+Vector search uses bulk-loaded vectors with in-JavaScript cosine similarity rather than SQL custom functions. This is 10-50x faster than routing each comparison through the JS-to-WASM bridge per row. The VectorStore (`src/core/knowledge/VectorStore.ts`) loads all vectors into memory once, then searches in pure JS.
+
+| Vault size | Vector search | Full pipeline (all 4 stages) |
+|------------|--------------|------|
+| 500 notes | ~50ms | ~200ms |
+| 5,000 notes | ~150ms | ~500ms |
+| 20,000 notes | ~400ms | ~1.2s |
+
+Reranking is the slowest stage. The cross-encoder runs on CPU via WASM, adding 100-300ms depending on candidate count. You can disable reranking in settings if speed matters more than precision.
+
+## How results reach the agent
+
+The knowledge layer is consumed through two tools. `semantic_search` is the direct interface -- the agent provides a query and gets ranked results. `search_files` combines keyword matching with semantic search when the knowledge layer is available, falling back to pure keyword search when it isn't.
+
+Results include the matching text excerpt, the file path, the relevance score, and (when graph expansion contributed) the connection path that led to the result. This connection context helps the agent explain *why* a note is relevant, not just *that* it is.

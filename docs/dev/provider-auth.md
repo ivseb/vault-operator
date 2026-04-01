@@ -1,117 +1,80 @@
 ---
-title: Provider Authentication
-description: GitHub Copilot OAuth, Kilo Device Auth, and SafeStorage for API keys.
+title: Provider Auth
+description: How Obsilo connects to 10+ AI providers through a single interface, with encrypted credential storage.
 ---
 
-# Provider Authentication
+# Provider auth
 
-Obsilo supports multiple LLM providers through a unified `ApiHandler` interface. Each provider manages its own authentication flow, streaming format, and token lifecycle. All HTTP calls use Obsidian's `requestUrl` for Review-Bot compliance.
+Obsilo supports Anthropic, OpenAI, GitHub Copilot, Kilo Gateway, Azure, OpenRouter, Ollama, LM Studio, and custom OpenAI-compatible endpoints. Each provider has different authentication requirements, but the agent doesn't care -- it talks to a single `ApiHandler` interface.
 
-## Provider Architecture
-
-```mermaid
-graph TB
-    AF[buildApiHandler] --> |type: anthropic| AP[AnthropicProvider]
-    AF --> |type: github-copilot| GCP[GitHubCopilotProvider]
-    AF --> |type: kilo-gateway| KGP[KiloGatewayProvider]
-    AF --> |type: openai/ollama/...| OP[OpenAiProvider]
-
-    GCP --> GCAS[GitHubCopilotAuthService]
-    KGP --> KAS[KiloAuthService]
-    AP --> SS[SafeStorageService]
-    OP --> SS
-
-    GCAS --> SS
-    KAS --> SS
-```
-
-The `ApiHandler` interface defines a single method: `createMessage()` returning an `ApiStream` (async iterable of typed chunks: `text`, `thinking`, `tool_use`, `tool_error`, `usage`). The internal message format follows Anthropic's structure; each provider converts to/from its native format.
-
-**Key files:** `src/api/types.ts` (interface), `src/api/index.ts` (factory)
-
-## Supported Providers
-
-| Provider | Auth Method | Streaming | Key Files |
-|----------|------------|-----------|-----------|
-| Anthropic | API key | SSE (native SDK) | `src/api/providers/anthropic.ts` |
-| GitHub Copilot | OAuth Device Code Flow | OpenAI SDK + custom fetch | `src/api/providers/github-copilot.ts` |
-| Kilo Gateway | Device Auth / Manual Token | OpenAI SDK + custom fetch | `src/api/providers/kilo-gateway.ts` |
-| OpenAI | API key | OpenAI SDK (native) | `src/api/providers/openai.ts` |
-| Ollama / LM Studio | No auth (local) | OpenAI-compatible | `src/api/providers/openai.ts` |
-| OpenRouter | API key | OpenAI-compatible | `src/api/providers/openai.ts` |
-| Azure OpenAI | API key | OpenAI SDK | `src/api/providers/openai.ts` |
-
-## GitHub Copilot: 3-Stage Token Chain
-
-The most complex auth flow. Implements the same OAuth sequence used by GitHub Copilot extensions:
+## The factory
 
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant O as Obsilo
-    participant GH as GitHub
-    participant CP as Copilot API
-
-    O->>GH: POST /login/device/code (client_id)
-    GH-->>O: device_code + user_code + verification_uri
-    O->>U: "Enter code XXXX-YYYY at github.com/login/device"
-    U->>GH: Enters code in browser
-    O->>GH: Poll POST /login/oauth/access_token
-    GH-->>O: Access Token (~30 days)
-    O->>CP: GET /copilot_internal/v2/token (Bearer: access_token)
-    CP-->>O: Copilot Token (~1h, auto-refreshed)
+flowchart LR
+    M[Model config] --> F[buildApiHandler]
+    F --> P{Provider type}
+    P --> AN[AnthropicProvider]
+    P --> OP[OpenAiProvider]
+    P --> GH[GitHubCopilotProvider]
+    P --> KG[KiloGatewayProvider]
 ```
 
-**Stage 1:** Device Code Flow -- user authorizes in browser using a short code. Client ID: `Iv1.b507a08c87ecfe98` (VS Code's public client ID).
+The `buildApiHandler` factory (`src/api/index.ts`) takes a provider configuration and returns the right implementation. Anthropic gets its own provider class. GitHub Copilot and Kilo Gateway each have dedicated classes because their auth flows are non-standard. Everything else (OpenAI, Azure, OpenRouter, Ollama, LM Studio, custom endpoints) goes through `OpenAiProvider`, since they all speak the OpenAI API format.
 
-**Stage 2:** Access Token -- long-lived (~30 days), stored encrypted via SafeStorageService.
+The factory uses an exhaustive switch. Add a new provider type to the union and TypeScript forces you to handle it.
 
-**Stage 3:** Copilot Token -- short-lived (~1h), automatically refreshed before expiry. Used in a custom `fetch` wrapper injected into the OpenAI SDK.
+## Standard auth
 
-**Key file:** `src/core/security/GitHubCopilotAuthService.ts`
+Most providers use API key authentication. You paste your key in settings, it gets stored, and every request includes it as a Bearer token. The OpenAI-compatible providers (Ollama, LM Studio, OpenRouter, Azure, custom) all work this way, with minor variations in base URL and header format.
 
-## Kilo Gateway: Device Authorization
+Ollama and LM Studio are local providers -- they run on your machine and don't need an API key at all. The `OpenAiProvider` handles this by making the key optional when the base URL points to localhost. All HTTP requests go through Obsidian's `requestUrl` API rather than native `fetch`, which keeps the plugin compliant with Obsidian's review requirements.
 
-Two authentication modes landing in the same session state (`KiloSession`):
+## GitHub Copilot: three-stage token chain
 
-**Mode 1 -- Device Authorization Flow:** Browser-based, similar to GitHub's flow. Uses Kilo's `/device-auth/codes` endpoint. The user authorizes in browser, and the service polls for completion.
+GitHub Copilot authentication is more involved. The `GitHubCopilotAuthService` (`src/core/security/GitHubCopilotAuthService.ts`) implements a three-stage flow:
 
-**Mode 2 -- Manual Token:** Direct API token entry for environments where browser auth is impractical.
+1. Device code flow. The service requests a device code from GitHub, then shows you a URL and a short code. You open the URL in a browser, enter the code, and authorize the application. The service polls GitHub until authorization completes.
 
-After authentication, `KiloMetadataService` fetches organization context, available models, and usage defaults from Kilo's profile and defaults endpoints.
+2. Access token. Once authorized, GitHub returns a long-lived access token (valid ~30 days). This token is stored securely and used to obtain short-lived Copilot tokens.
 
-**Key file:** `src/core/security/KiloAuthService.ts`
+3. Copilot token. The access token is exchanged for a Copilot-specific token (valid ~1 hour) that's sent with each API request. When it expires, the service automatically refreshes it using the access token. You don't notice the refresh.
 
-## SafeStorageService
+The custom fetch wrapper (`getCopilotFetch()`) is injected into the OpenAI SDK for streaming chat completions. This is necessary because the SDK's built-in fetch doesn't handle Copilot's token format. The wrapper also transparently handles token expiry: if a request fails with a 401, it triggers a refresh and retries.
 
-Encrypts API keys and tokens using Electron's `safeStorage` API, which delegates to the OS keychain:
+You can provide a custom GitHub OAuth client ID in settings for enterprise GitHub instances. The default client ID targets github.com.
 
-| Platform | Backend |
-|----------|---------|
-| macOS | Keychain Services |
-| Windows | DPAPI (Data Protection API) |
-| Linux | libsecret (GNOME Keyring / KWallet) |
+## Kilo Gateway: device auth + manual token
 
-Encrypted values are stored as `enc:v1:<base64>` in `data.json`. The prefix allows detection of encrypted vs. plaintext values. Fallback: when `safeStorage` is unavailable (e.g., certain Linux configurations), values pass through as plaintext.
+The `KiloAuthService` (`src/core/security/KiloAuthService.ts`) supports two auth modes. The device authorization flow works similarly to GitHub Copilot -- you get a code, authorize in a browser, and the service polls until complete. Alternatively, you can paste an API token directly for simpler setups.
 
-**Key file:** `src/core/security/SafeStorageService.ts`
+Both modes produce the same session state. The service stores user profile information and provider defaults (available models, rate limits) retrieved from the gateway API at `https://api.kilo.ai/api`.
 
-## Provider-Specific Streaming
+## Encrypted storage
 
-All providers emit the same `ApiStreamChunk` union type, but the underlying transport differs:
+API keys and tokens are sensitive credentials. On desktop, the `SafeStorageService` (`src/core/security/SafeStorageService.ts`) uses Electron's `safeStorage` API to encrypt credentials before storing them. This uses the operating system's keychain (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
 
-- **Anthropic:** Native SDK streaming with server-sent events
-- **GitHub Copilot / Kilo:** OpenAI SDK with injected custom `fetch` wrapper that adds auth headers and handles token refresh transparently
-- **OpenAI / Compatible:** Standard OpenAI SDK streaming
-- **Local (Ollama, LM Studio):** OpenAI-compatible HTTP with no auth
+The service loads Electron via dynamic `require('electron')` -- one of the few places where `require()` is allowed instead of ES imports, because Electron can only be loaded dynamically in the renderer process.
 
-The custom fetch wrappers (`getCopilotFetch()`, `getKiloFetch()`) are the bridge between Obsidian's `requestUrl` requirement and the OpenAI SDK's expectation of a standard `fetch` function.
+On mobile, Electron isn't available. Credentials fall back to Obsidian's standard plugin data storage. This is less secure than OS-level encryption, but mobile Obsidian doesn't expose a keychain API.
 
-## ADR References
+## Concurrency
 
-- **ADR-036:** Streaming Strategy -- unified stream format across providers
-- **ADR-037:** Provider Architecture -- ApiHandler interface, factory pattern
-- **ADR-038:** Token Storage -- SafeStorageService, encrypted persistence
-- **ADR-040:** Kilo Provider Architecture
-- **ADR-041:** Kilo Auth and Session Architecture
-- **ADR-043:** Provider-specific streaming differences
+Both the Copilot and Kilo auth services include concurrency guards. If multiple requests trigger a token refresh simultaneously, only one refresh runs. The others wait for the same promise. This prevents duplicate auth requests and race conditions during high-frequency API usage.
+
+## Adding a new provider
+
+To add a provider that speaks the OpenAI API format: add the type to the `LLMProvider` union in `src/types/settings.ts`, handle it in the factory switch (it'll route to `OpenAiProvider`), and add a settings UI entry. If the provider needs a custom auth flow, create a dedicated provider class and auth service.
+
+The relevant source files:
+
+| File | What it does |
+|------|-------------|
+| `src/api/index.ts` | Factory function, provider routing |
+| `src/api/types.ts` | `ApiHandler` interface, stream types |
+| `src/api/providers/anthropic.ts` | Anthropic SDK integration |
+| `src/api/providers/openai.ts` | OpenAI-compatible provider (handles 6+ providers) |
+| `src/api/providers/github-copilot.ts` | Copilot provider with custom fetch |
+| `src/api/providers/kilo-gateway.ts` | Kilo Gateway with device auth |
+| `src/core/security/SafeStorageService.ts` | Electron keychain encryption |
+| `src/core/security/GitHubCopilotAuthService.ts` | Three-stage Copilot auth |
+| `src/core/security/KiloAuthService.ts` | Kilo device auth + manual token |

@@ -1,134 +1,72 @@
 ---
-title: MCP Architecture
-description: McpBridge, tool-tier mapping, MCP server worker, and remote relay.
+title: MCP
+description: How Obsilo acts as both an MCP client and an MCP server, connecting external tools and exposing vault access.
 ---
 
-# MCP Architecture
+# MCP
 
-Obsilo implements MCP (Model Context Protocol) on both sides: as a **client** consuming external MCP servers, and as a **server** exposing vault intelligence to AI assistants like Claude Desktop. The server side includes an optional remote relay for access outside the local network.
+The Model Context Protocol (MCP) is a standard for connecting AI agents to external tools and data sources. Obsilo implements both sides: it connects to external MCP servers as a client, and it exposes your vault to external agents (like Claude Desktop) as a server.
 
-## Dual-Role Overview
-
-```mermaid
-graph LR
-    subgraph "Client Side (Obsilo consumes)"
-        MC[McpClient] --> ES[External MCP Servers]
-        UMT[UseMcpToolTool] --> MC
-        MMS[ManageMcpServerTool] --> MC
-    end
-
-    subgraph "Server Side (Obsilo exposes)"
-        CD[Claude Desktop] --> MB[McpBridge]
-        MB --> TH[Tool Handlers]
-        TH --> Services[Obsilo Services]
-    end
-
-    subgraph "Remote Access"
-        RAI[Remote AI Client] --> RC[RelayClient]
-        RC --> CW[Cloudflare Worker]
-        CW --> MB
-    end
-```
-
-## Client Side
-
-### McpClient
-
-Manages connections to external MCP servers. Supports three transport protocols:
-
-| Transport | Use Case | Implementation |
-|-----------|----------|----------------|
-| `streamable-http` | Modern HTTP-based servers | `StreamableHTTPClientTransport` |
-| `sse` | Legacy SSE-based servers | `SSEClientTransport` (fallback) |
-| `stdio` | Local process servers | `StdioClientTransport` |
-
-Intentionally lean: no OAuth, no file-watching, no auto-reconnect. Uses the `@modelcontextprotocol/sdk` client library.
-
-**Key file:** `src/core/mcp/McpClient.ts`
-
-### Agent-Facing Tools
-
-- **`UseMcpToolTool`** -- forwards tool calls from the agent to the appropriate MCP server via McpClient
-- **`ManageMcpServerTool`** -- allows the agent to list, connect, and disconnect MCP servers at runtime
-
-**Key files:** `src/core/tools/mcp/UseMcpToolTool.ts`, `src/core/tools/agent/ManageMcpServerTool.ts`
-
-## Server Side: McpBridge
-
-The `McpBridge` hosts a local HTTP server on `localhost:27182` speaking the MCP Streamable HTTP protocol. Claude Desktop (or any MCP client) connects via URL.
-
-All tool calls are dispatched directly to Obsilo's services in the renderer process -- no IPC or child process needed. Requires Obsidian to be running.
-
-**Key file:** `src/mcp/McpBridge.ts`
-
-### 3-Tier Tool Mapping
-
-Tools exposed via MCP are organized into three tiers by risk level:
-
-| Tier | Tools | Risk | Description |
-|------|-------|------|-------------|
-| **Tier 1: Read** | `get_context`, `search_vault`, `read_notes` | Low | Read-only vault access, context loading |
-| **Tier 2: Session** | `sync_session`, `update_memory` | Medium | Session replication, memory updates |
-| **Tier 3: Write** | `write_vault`, `execute_vault_op` | High | Create, edit, delete vault files |
-
-`get_context` is designed to be called first in every conversation. It returns user profile, memory, behavioral patterns, vault statistics, available skills, and rules -- the full operating context.
-
-`search_vault` wraps the complete 4-stage retrieval pipeline (vector search, graph expansion, implicit connections, reranking) into a single MCP tool call.
-
-**Key file:** `src/mcp/tools/index.ts`
-
-### System Context Prompt
-
-The `buildPrompts()` function generates an `obsilo-system-context` prompt that replaces the system prompt for MCP-connected AI clients. It defines the operating rules, tool usage guidelines, and the critical requirement to call `sync_session` at conversation end.
-
-**Key file:** `src/mcp/prompts/systemContext.ts`
-
-### Auto Session Tracking
-
-All MCP tool calls are automatically tracked as sessions in Obsilo's chat history. A 5-minute inactivity timeout determines session boundaries. This ensures MCP conversations appear in the history sidebar even if the AI client never explicitly calls `sync_session`.
-
-## Remote Relay
-
-For access outside the local network (e.g., Claude Desktop on a different machine, or mobile scenarios).
+## Two directions
 
 ```mermaid
-sequenceDiagram
-    participant AI as Remote AI Client
-    participant CW as Cloudflare Worker<br/>(Durable Object)
-    participant RC as RelayClient<br/>(in Obsidian)
-
-    RC->>CW: POST /poll (Bearer token)
-    AI->>CW: MCP tool call
-    CW-->>RC: Pending request
-    RC->>RC: handleToolCall()
-    RC->>CW: POST /respond (Bearer token)
-    CW-->>AI: Tool result
+flowchart LR
+    E[External MCP servers] -->|tools & resources| O[Obsilo]
+    O -->|vault tools| C[Claude Desktop / other agents]
 ```
 
-### RelayClient
+On the left: Obsilo reaches out to MCP servers you've configured. A GitHub server that can search issues. A database server that can run queries. Whatever tools those servers expose become available to the agent alongside its built-in tools.
 
-HTTP long-polling client running inside Obsidian. Uses `requestUrl` (not WebSocket) to communicate with the relay, which works within Obsidian's renderer CSP that blocks WebSocket to external servers.
+On the right: Obsilo itself is the server. Claude Desktop connects to it and gets access to your vault -- searching notes, reading files, writing content. Your Obsidian vault becomes a tool that any MCP-compatible agent can use.
 
-Security (AUDIT-005): token sent via Authorization header (never in URL), no token material in logs, runtime validation of relay responses, HTTPS enforced.
+## Client side
 
-**Key file:** `src/mcp/RelayClient.ts`
+You configure MCP servers in Settings under Providers > MCP Servers. Each server needs a transport type (stdio for local processes, SSE for legacy remote servers, or Streamable HTTP for modern remote servers) and connection details.
 
-### CloudflareDeployer
+When Obsilo connects to a server, it discovers the available tools and resources through MCP's standard discovery protocol. Those tools appear in the agent's tool list alongside built-in tools. The agent calls them like any other tool -- it doesn't need to know they're running in a separate process.
 
-Deploys the Obsilo Relay Worker to Cloudflare via REST API -- no CLI, no wrangler, no terminal. Uses `requestUrl` to:
+The MCP client handles reconnection automatically. If a server crashes or becomes unreachable, the client retries with exponential backoff. SSE transport is still supported as a fallback for older MCP servers that haven't migrated to Streamable HTTP.
 
-1. Discover the Cloudflare account ID
-2. Upload the worker script with Durable Object bindings
-3. Configure the shared auth secret
+Resources (a second MCP concept, alongside tools) are also supported. If an MCP server exposes resources like documentation files or database schemas, Obsilo can list and read them. The agent can pull in resource content as additional context when needed.
 
-**Key file:** `src/mcp/CloudflareDeployer.ts`
+## Server side
 
-## Memory Transparency
+The `McpBridge` (`src/mcp/McpBridge.ts`) runs an HTTP server on localhost (default port 27182) that speaks the MCP Streamable HTTP protocol. It exposes six tools organized in three tiers:
 
-Sessions created via MCP carry a `source: 'mcp'` field in MemoryDB, distinguishing them from direct conversations (`source: 'human'`). This allows the memory system and UI to surface the origin of learned facts.
+| Tier | Tools | What they do |
+|------|-------|-------------|
+| Read | `get_context`, `search_vault`, `read_notes` | Retrieve information without modifying anything |
+| Session | `sync_session`, `update_memory` | Manage conversation history and persistent memory |
+| Write | `write_vault`, `execute_vault_op` | Create, edit, delete files; run vault operations |
 
-## ADR References
+The `get_context` tool is mandatory. External agents should call it first in every conversation. It returns the user profile, memory, behavioral patterns, vault statistics, available skills, and rules -- the same context that Obsilo's internal agent gets from its system prompt.
 
-- **ADR-053:** MCP Server Process Architecture -- HTTP instead of stdio+IPC
-- **ADR-054:** MCP Client Integration -- transport selection, tool forwarding
-- **ADR-055:** Remote MCP Relay -- Cloudflare Workers, Durable Objects, security model
+All tool calls dispatch directly to Obsilo's services within Obsidian's renderer process. There's no IPC overhead -- the HTTP handler calls the same functions the internal agent uses.
+
+The `search_vault` tool on the MCP server uses the same knowledge layer pipeline described on the [knowledge layer](./knowledge-layer.md) page. External agents get the same 4-stage retrieval (vector search, graph expansion, implicit connections, reranking) as the internal agent. The `write_vault` tool supports batch operations -- create, edit, append, and delete in a single call.
+
+## Remote access
+
+The local HTTP server is only reachable on your machine. For remote access (using Obsilo from Claude Desktop on a different device, or from the Claude web app), the `RelayClient` (`src/mcp/RelayClient.ts`) connects to a Cloudflare Workers relay.
+
+The relay uses HTTP long-polling. The client polls the relay for incoming requests, processes them locally, and sends responses back. Authentication uses a token embedded in the URL. No data is stored on the relay -- it's a passthrough.
+
+Remote access requires Obsidian to be running on your machine. The relay can't access your vault on its own; it just forwards requests to the plugin.
+
+The `RelayClient` handles connection lifecycle: initial connection, reconnection with exponential backoff when the relay becomes unreachable, and clean shutdown when the plugin unloads. A callback notifies the Settings UI of the current tunnel URL so you can copy it into Claude Desktop's MCP configuration.
+
+## System context
+
+When an external agent connects via MCP, it doesn't automatically know how to behave. The `buildPrompts` function (`src/mcp/prompts/systemContext.ts`) generates context about your vault: size, structure, installed plugins, active rules. External agents receive this as part of the `get_context` response, giving them enough background to be useful without requiring manual setup.
+
+## Practical implications
+
+You can use Claude Desktop as your primary interface while Obsilo handles the vault integration. Or you can extend Obsilo's capabilities by connecting it to specialized MCP servers -- a code analysis server, a web scraping server, a calendar integration. The protocol is the same in both directions.
+
+The MCP server only runs while Obsidian is open. If you close Obsidian, Claude Desktop loses access to the vault tools until you reopen it.
+
+## Session sync
+
+The `sync_session` tool handles a specific problem: when you use Obsilo through Claude Desktop, the conversation history lives in Claude Desktop, not in Obsidian. Calling `sync_session` at the end of a conversation replicates the messages into Obsidian's conversation store. You can then browse the conversation in Obsidian's history panel, and the memory system can extract patterns from it.
+
+Session sync is marked as mandatory in the tool description. Claude Desktop is instructed to call it at the end of every conversation. In practice, it's best-effort -- if Claude Desktop terminates the conversation without calling it, the session is simply missing from Obsidian's history.

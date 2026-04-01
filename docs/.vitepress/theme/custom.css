@@ -6,16 +6,24 @@
 /* ── Brand Colors ──────────────────────────────────────────────── */
 
 :root {
+  --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --vp-font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Light mode: darker purple for sufficient contrast on white */
+:root {
   --vp-c-brand-1: #7c3aed;
   --vp-c-brand-2: #6d28d9;
   --vp-c-brand-3: #5b21b6;
   --vp-c-brand-soft: rgba(124, 58, 237, 0.14);
+}
 
-  --vp-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --vp-font-family-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', ui-monospace, monospace;
-
-  /* Sidebar active indicator */
-  --vp-c-brand-lighter: #a78bfa;
+/* Dark mode: lighter purple for readability on dark backgrounds */
+.dark {
+  --vp-c-brand-1: #a78bfa;
+  --vp-c-brand-2: #c4b5fd;
+  --vp-c-brand-3: #7c3aed;
+  --vp-c-brand-soft: rgba(167, 139, 250, 0.16);
 }
 
 /* ── Hero Section ──────────────────────────────────────────────── */
@@ -73,15 +81,17 @@
 
 /* ── Buttons ───────────────────────────────────────────────────── */
 
+/* Buttons always use the darker brand purple -- even in dark mode */
 .VPButton.brand {
-  background-color: var(--vp-c-brand-1);
-  border-color: var(--vp-c-brand-1);
+  background-color: #7c3aed;
+  border-color: #7c3aed;
+  color: white;
   transition: all 0.2s ease;
 }
 
 .VPButton.brand:hover {
-  background-color: var(--vp-c-brand-2);
-  border-color: var(--vp-c-brand-2);
+  background-color: #6d28d9;
+  border-color: #6d28d9;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
 }
@@ -246,6 +256,17 @@
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
   text-decoration: none;
+}
+
+/* ── Hide VitePress built-in extra menu (replaced by custom buttons) ── */
+
+.VPNavBarExtra {
+  display: none !important;
+}
+
+/* Also hide VitePress built-in appearance toggle (we have our own) */
+.VPNavBarAppearance {
+  display: none !important;
 }
 
 /* ── Print styles ──────────────────────────────────────────────── */

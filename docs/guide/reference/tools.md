@@ -3,15 +3,15 @@ title: Tools Reference
 description: Complete list of all 49+ tools available to the Obsilo agent, organized by group.
 ---
 
-# Tools Reference
+# Tools reference
 
-Obsilo has 49+ built-in tools organized into six groups. The agent picks the right tool automatically based on your request -- you never need to call tools yourself. This page is a lookup reference.
+Obsilo has 49+ built-in tools organized into six groups. The agent picks the right tool automatically based on your request. You never need to call tools yourself. This page is a lookup reference.
 
-:::tip How Tools Work
+:::tip How tools work
 When you ask Obsilo to do something, it selects one or more tools, shows you what it plans to do (in the activity block), and asks for approval before any write operation. See [Safety & Control](/guide/working-with-obsilo/safety-control) for details.
 :::
 
-## Tool Groups at a Glance
+## Tool groups at a glance
 
 | Group | Tools | Modifies vault | Needs approval |
 |-------|-------|----------------|----------------|
@@ -23,24 +23,24 @@ When you ask Obsilo to do something, it selects one or more tools, shows you wha
 | Plugin Integration | 6 | Varies | Yes |
 | MCP | 1+ | Depends on server | Yes |
 
-## Read Tools
+## Read tools
 
 Tools for reading, searching, and exploring your vault. These never modify anything.
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
 | `read_file` | Read the complete content of a Markdown or plain-text file. | Before editing a file, or when you ask to see content. |
-| `read_document` | Parse and extract text from Office and data files (PPTX, XLSX, DOCX, PDF, JSON, XML, CSV). | For binary document formats -- not for plain-text files. |
+| `read_document` | Parse and extract text from Office and data files (PPTX, XLSX, DOCX, PDF, JSON, XML, CSV). | For binary document formats, not for plain-text files. |
 | `list_files` | List files and folders in a directory, optionally recursive. | To discover folder structure or find files by location. |
 | `search_files` | Search for text or regex patterns across files, returning matching lines with line numbers. | For exact text or pattern matching across your vault. |
 
-## Vault Intelligence Tools
+## Vault intelligence tools
 
 Tools that understand your vault's structure, metadata, and connections.
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
-| `get_vault_stats` | Overview of your vault -- note count, folder structure, top tags, recently modified files. | When you need a broad picture of your vault. |
+| `get_vault_stats` | Overview of your vault: note count, folder structure, top tags, recently modified files. | When you need a broad picture of your vault. |
 | `get_frontmatter` | Read all YAML frontmatter fields of a note (tags, aliases, dates, status, custom properties). | To check or inspect metadata before updating it. |
 | `search_by_tag` | Find all notes with given tags, supporting AND/OR matching and nested tags. | To filter notes by tags or categories. |
 | `get_linked_notes` | Get forward links and backlinks for a note. | To understand how notes connect in the graph. |
@@ -49,18 +49,18 @@ Tools that understand your vault's structure, metadata, and connections.
 | `semantic_search` | Find notes by meaning using AI-powered similarity search. | For natural-language questions about vault content ("What do I know about X?"). |
 | `query_base` | Query an Obsidian Bases database file and return matching records. | To retrieve structured data from a .base file. |
 
-:::info Semantic Search Setup
+:::info Semantic search setup
 `semantic_search` requires an embedding model and a built index. Configure both in **Settings > Embeddings**. See [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery) for setup instructions.
 :::
 
-## Edit Tools
+## Edit tools
 
 Tools that create, modify, or delete files in your vault. Each one triggers an approval prompt (unless auto-approved).
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
 | `write_file` | Create a new file or completely replace an existing file's content. | For new files or full rewrites. |
-| `edit_file` | Replace a specific string in an existing file, preserving surrounding content. | For targeted edits -- the preferred way to modify files. |
+| `edit_file` | Replace a specific string in an existing file, preserving surrounding content. | For targeted edits. The preferred way to modify files. |
 | `append_to_file` | Append content to the end of a file. | For daily notes, logs, and additive entries. |
 | `update_frontmatter` | Set, update, or remove frontmatter fields without touching note content. | To change metadata (tags, status, dates) cleanly. |
 | `create_folder` | Create a new folder, including parent folders if needed. | Before writing files to a new location. |
@@ -75,7 +75,7 @@ Tools that create, modify, or delete files in your vault. Each one triggers an a
 | `create_docx` | Create a Word document (.docx) with headings, sections, bullets, and tables. | For creating Word documents. |
 | `create_xlsx` | Create an Excel spreadsheet (.xlsx) with sheets, headers, data rows, and formulas. | For creating Excel files. |
 
-## Web Tools
+## Web tools
 
 Tools for accessing the internet. Require Web Tools to be enabled in settings.
 
@@ -84,7 +84,7 @@ Tools for accessing the internet. Require Web Tools to be enabled in settings.
 | `web_fetch` | Fetch a URL and return its content as Markdown. Supports pagination for long pages. | To read a specific web page, documentation, or article. |
 | `web_search` | Search the web and return titles, URLs, and snippets. | For current or external information not in your vault. |
 
-## Agent Control Tools
+## Agent control tools
 
 Internal tools the agent uses to manage its own workflow.
 
@@ -92,18 +92,18 @@ Internal tools the agent uses to manage its own workflow.
 |------|-------------|-------------|
 | `ask_followup_question` | Ask you a clarifying question with optional answer choices. | When your request is genuinely ambiguous. |
 | `attempt_completion` | Signal that a multi-step task is done and log a summary. | After completing a tool-based workflow. |
-| `update_todo_list` | Publish a visible task checklist for complex multi-step work. | For tasks with 3 or more distinct steps. |
-| `new_task` | Spawn a sub-agent with a fresh context for isolated or parallel work. | For complex tasks (5+ steps) that benefit from delegation. |
+| `update_todo_list` | Publish a visible task checklist for multi-step work. | For tasks with 3 or more distinct steps. |
+| `new_task` | Spawn a sub-agent with a fresh context for isolated or parallel work. | For tasks (5+ steps) that benefit from delegation. |
 | `switch_mode` | Switch to a different agent mode (e.g., from Ask to Agent). | When the current task needs a different set of tools or behavior. |
 | `evaluate_expression` | Execute TypeScript code in an isolated sandbox with vault access. | For batch operations, computations, data transforms, or API calls beyond built-in tools. |
 | `manage_skill` | Create, update, delete, or list skills (persistent instruction sets). | To save a reusable approach for a specific task type. |
-| `manage_source` | Manage context sources -- persistent text blocks injected into every conversation. | To always include certain context like project rules. |
+| `manage_source` | Manage context sources: persistent text blocks injected into every conversation. | To always include certain context like project rules. |
 | `manage_mcp_server` | Add, remove, or test MCP server connections. | To connect external tool servers. |
 | `configure_model` | Add, select, or test an LLM model configuration. | To set up a new AI model or switch the active one. |
 | `update_settings` | Change Obsilo plugin settings or apply permission presets. | When you ask the agent to adjust its own configuration. |
 | `read_agent_logs` | Read the agent's internal console logs for self-debugging. | To diagnose errors or understand what happened. |
 
-## Plugin Integration Tools
+## Plugin integration tools
 
 Tools that interact with other Obsidian plugins installed in your vault.
 
@@ -116,17 +116,17 @@ Tools that interact with other Obsidian plugins installed in your vault.
 | `execute_recipe` | Run a pre-defined recipe for external CLI tools (e.g., Pandoc export). | For validated command-line integrations. |
 | `render_presentation` | Render a PPTX file to images for visual quality inspection. | After creating a presentation, to verify layout and content. |
 
-## MCP Tools
+## MCP tools
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
 | `use_mcp_tool` | Call any tool provided by a connected MCP server. | When an external MCP server offers the functionality you need. |
 
-:::tip Custom Modes Control Tool Access
-Each mode (Ask, Agent, or your custom modes) can enable or disable specific tool groups. Configure per-mode tools in **Settings > Modes**. For example, Ask mode only has read tools enabled by default.
+:::tip Custom modes control tool access
+Each mode (Ask, Agent, or your custom modes) can enable or disable specific tool groups. Configure per-mode tools in **Settings > Modes**. Ask mode only has read tools enabled by default.
 :::
 
-## Quick-Pick Guide
+## Quick-pick guide
 
 Not sure which tool the agent should use? This table maps common tasks to the right tool.
 
@@ -134,7 +134,7 @@ Not sure which tool the agent should use? This table maps common tasks to the ri
 |----------------|-----------|------------------------|
 | Find notes about a topic | `semantic_search` | `search_files` only matches exact text, not meaning |
 | Find an exact phrase | `search_files` | `semantic_search` finds similar meanings, not exact matches |
-| Check a note's tags | `get_frontmatter` | `read_file` reads the whole file -- unnecessary for metadata |
+| Check a note's tags | `get_frontmatter` | `read_file` reads the whole file, unnecessary for metadata |
 | Add a paragraph to a note | `edit_file` | `write_file` replaces the entire file |
 | Add an entry to a log | `append_to_file` | `edit_file` requires matching existing text |
 | Create a Word document | `create_docx` | `write_file` cannot produce binary .docx format |
@@ -145,11 +145,11 @@ Not sure which tool the agent should use? This table maps common tasks to the ri
 | Look something up online | `web_search` then `web_fetch` | Vault tools only search local files |
 | Create a visual map of notes | `generate_canvas` | Manual note arrangement is tedious |
 
-## Notes on Tool Behavior
+## Notes on tool behavior
 
-- **Read tools run in parallel.** When the agent needs to read multiple files, it reads them all at once for speed.
-- **Edit tools run sequentially.** Write operations are processed one at a time to avoid conflicts.
-- **Checkpoints are automatic.** Before any edit tool modifies a file, a snapshot is created. You can undo any change.
-- **The sandbox is isolated.** Code in `evaluate_expression` runs in a sandboxed environment with limited vault access -- it cannot access the file system directly or run shell commands.
-- **Office tools create binary files.** `create_pptx`, `create_docx`, and `create_xlsx` produce real Office files that open in Microsoft Office, Google Docs, or LibreOffice.
-- **Quality gates apply.** Some tools (`create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`, `create_excalidraw`) include a self-check step where the agent verifies the output meets quality standards.
+- Read tools run in parallel. When the agent needs to read multiple files, it reads them all at once.
+- Edit tools run sequentially. Write operations are processed one at a time to avoid conflicts.
+- Checkpoints are automatic. Before any edit tool modifies a file, a snapshot is created. You can undo any change.
+- The sandbox is isolated. Code in `evaluate_expression` runs in a sandboxed environment with limited vault access. It cannot access the file system directly or run shell commands.
+- Office tools create binary files. `create_pptx`, `create_docx`, and `create_xlsx` produce real Office files that open in Microsoft Office, Google Docs, or LibreOffice.
+- Quality gates apply. Some tools (`create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`, `create_excalidraw`) include a self-check step where the agent verifies the output meets quality standards.

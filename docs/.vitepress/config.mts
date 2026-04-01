@@ -81,32 +81,47 @@ const guideSidebarDE = [
 
 const devSidebar = [
   {
-    text: 'Architecture',
+    text: 'Fundamentals',
     items: [
-      { text: 'Overview', link: '/dev/' },
-      { text: 'Agent Loop', link: '/dev/agent-loop' },
-      { text: 'Tool System', link: '/dev/tool-system' },
-      { text: 'System Prompt', link: '/dev/system-prompt' },
+      { text: 'How Obsilo works', link: '/dev/' },
+      { text: 'The agent loop', link: '/dev/agent-loop' },
     ],
   },
   {
-    text: 'Subsystems',
+    text: 'Tools and decisions',
     items: [
-      { text: 'Knowledge Layer', link: '/dev/knowledge-layer' },
-      { text: 'Memory System', link: '/dev/memory-system' },
-      { text: 'Office Pipeline', link: '/dev/office-pipeline' },
-      { text: 'Provider Auth', link: '/dev/provider-auth' },
-      { text: 'MCP Architecture', link: '/dev/mcp-architecture' },
-      { text: 'Self-Development', link: '/dev/self-development' },
+      { text: 'Tool system', link: '/dev/tool-system' },
+      { text: 'System prompt', link: '/dev/system-prompt' },
+      { text: 'Modes', link: '/dev/mode-system' },
     ],
   },
   {
-    text: 'Infrastructure',
+    text: 'Safety',
     items: [
-      { text: 'Governance & Safety', link: '/dev/governance' },
-      { text: 'Mode System', link: '/dev/mode-system' },
-      { text: 'UI Architecture', link: '/dev/ui-architecture' },
-      { text: 'VaultDNA', link: '/dev/vault-dna' },
+      { text: 'Governance', link: '/dev/governance' },
+    ],
+  },
+  {
+    text: 'Intelligence',
+    items: [
+      { text: 'Knowledge layer', link: '/dev/knowledge-layer' },
+      { text: 'Memory', link: '/dev/memory-system' },
+    ],
+  },
+  {
+    text: 'Extensibility',
+    items: [
+      { text: 'Plugin discovery', link: '/dev/vault-dna' },
+      { text: 'Self-development', link: '/dev/self-development' },
+      { text: 'MCP', link: '/dev/mcp-architecture' },
+    ],
+  },
+  {
+    text: 'Specialized systems',
+    items: [
+      { text: 'Office pipeline', link: '/dev/office-pipeline' },
+      { text: 'Provider auth', link: '/dev/provider-auth' },
+      { text: 'UI architecture', link: '/dev/ui-architecture' },
     ],
   },
 ]
@@ -116,9 +131,8 @@ export default withMermaid(
     title: 'Obsilo',
     description: 'Agentic AI for Obsidian',
     head: [
-      ['link', { rel: 'icon', href: '/assets/OBSILO_ICON50x50_lila.png' }],
       ['meta', { property: 'og:title', content: 'Obsilo -- Agentic AI for Obsidian' }],
-      ['meta', { property: 'og:description', content: 'An autonomous AI operating layer for Obsidian with 49+ tools, semantic search, multi-agent workflows, and full safety controls.' }],
+      ['meta', { property: 'og:description', content: 'An autonomous AI operating layer for Obsidian with 55+ tools, semantic search, multi-agent workflows, and full safety controls.' }],
     ],
 
     appearance: 'dark',
@@ -132,7 +146,7 @@ export default withMermaid(
         themeConfig: {
           nav: [
             { text: 'Guide', link: '/guide/getting-started', activeMatch: '/guide/' },
-            { text: 'Architecture', link: '/dev/', activeMatch: '/dev/' },
+            { text: 'How It Works', link: '/dev/', activeMatch: '/dev/' },
             { text: 'About', link: '/about' },
           ],
           sidebar: {
@@ -156,8 +170,8 @@ export default withMermaid(
         themeConfig: {
           nav: [
             { text: 'Anleitung', link: '/de/guide/getting-started', activeMatch: '/de/guide/' },
-            { text: 'Architektur', link: '/dev/', activeMatch: '/dev/' },
-            { text: 'Ueber', link: '/about' },
+            { text: 'How It Works', link: '/dev/', activeMatch: '/dev/' },
+            { text: 'About', link: '/about' },
           ],
           sidebar: {
             '/de/guide/': guideSidebarDE,
@@ -185,11 +199,7 @@ export default withMermaid(
     },
 
     themeConfig: {
-      logo: '/assets/OBSILO_ICON50x50_lila.png',
       siteTitle: 'Obsilo',
-      socialLinks: [
-        { icon: 'github', link: 'https://github.com/pssah4/obsilo' },
-      ],
       search: {
         provider: 'local',
       },

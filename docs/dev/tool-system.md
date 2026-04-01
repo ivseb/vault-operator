@@ -1,15 +1,17 @@
 ---
 title: Tool System
-description: Tool execution pipeline, registry, metadata, quality gates, and extensibility.
+description: How tools work, how they're registered and grouped, and what happens when the LLM calls one.
 ---
 
-# Tool System
+# Tool system
 
-Obsilo's tool system is the interface between the AI model and the Obsidian vault. 43+ tools are organized into groups, registered in a central registry, and executed through a governance pipeline that enforces approval, path validation, and checkpointing. Every tool call -- internal or MCP -- flows through the same pipeline.
+A tool is a function the LLM can call. Each tool has a name, a description, a JSON schema for its inputs, and an `execute` method. That is the entire abstraction.
+
+The model never touches the vault directly. It describes _what_ it wants to do by emitting a tool call, and the tool system decides whether and how to carry it out. This page covers the tool contract, how tools are organized, and what happens between "the model says call this tool" and "the tool actually runs."
 
 ## BaseTool
 
-All tools extend `BaseTool` (`src/core/tools/BaseTool.ts`):
+Every tool extends `BaseTool` (`src/core/tools/BaseTool.ts`):
 
 ```typescript
 abstract class BaseTool<TName extends ToolName = ToolName> {
@@ -19,120 +21,76 @@ abstract class BaseTool<TName extends ToolName = ToolName> {
     abstract getDefinition(): ToolDefinition;
     abstract execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void>;
 
-    protected validate(input: Record<string, unknown>): void { /* optional override */ }
-    protected formatError(error: unknown): string { /* <error>...</error> wrapper */ }
+    protected validate(input: Record<string, unknown>): void { /* optional */ }
+    protected formatError(error: unknown): string { /* wraps in <error> tags */ }
 }
 ```
 
-Key design decisions:
-- **`isWriteOperation`** is declared per tool, not inferred. The pipeline uses it to decide whether approval and checkpoints are needed.
-- **`getDefinition()`** returns the JSON Schema that the LLM sees (name, description, input_schema). This is separate from `toolMetadata.ts` which provides UI labels and prompt-level descriptions.
-- **`execute()`** receives a `ToolExecutionContext` with callbacks for spawning subtasks, switching modes, signaling completion, asking questions, and requesting approval.
+`isWriteOperation` is declared per tool, not inferred. The pipeline uses it to decide whether approval and checkpoints are needed. `getDefinition()` returns the JSON schema the LLM sees. `execute()` receives a `ToolExecutionContext` with callbacks for spawning subtasks, switching modes, signaling completion, and requesting approval.
 
 ## ToolRegistry
 
-`ToolRegistry` (`src/core/tools/ToolRegistry.ts`) is the central registry. Its constructor accepts the plugin instance plus optional service references (MCP client, sandbox executor, skill loader, etc.) and registers all internal tools via `registerInternalTools()`.
+`ToolRegistry` (`src/core/tools/ToolRegistry.ts`) is a `Map<ToolName, BaseTool>`. The constructor takes the plugin instance and optional service references (MCP client, sandbox executor, skill loader) and registers all internal tools at startup.
 
-```typescript
-class ToolRegistry {
-    private tools: Map<ToolName, BaseTool>;
-    readonly plugin: ObsidianAgentPlugin;
+The registry has one job beyond storage: `getToolDefinitions(mode)` filters tools by the active mode's `toolGroups` setting. A mode that only enables the `read` group won't expose write tools to the LLM. The model cannot call what it cannot see.
 
-    getTool(name: ToolName): BaseTool | undefined;
-    getToolDefinitions(mode: ModeConfig): ToolDefinition[];
-    getAllToolNames(): ToolName[];
-}
+## Tool groups
+
+Tools are organized into six groups. Each group maps to a permission category -- that's why they matter, not just as labels.
+
+| Group | What it contains | Effect on vault |
+|-------|-----------------|-----------------|
+| `read` | read_file, read_document, list_files, search_files | Never changes anything |
+| `vault` | get_frontmatter, search_by_tag, get_vault_stats, semantic_search, query_base, ... | Read-only metadata and search |
+| `edit` | write_file, edit_file, delete_file, move_file, create_pptx, generate_canvas, ... | Modifies or creates files |
+| `web` | web_fetch, web_search | External network access |
+| `agent` | attempt_completion, switch_mode, new_task, evaluate_expression, manage_skill, ... | Controls the agent's own behavior |
+| `mcp` | use_mcp_tool | Calls external MCP servers |
+| `skill` | execute_command, call_plugin_api, execute_recipe, ... | Runs Obsidian commands and plugin APIs |
+
+When you create a [custom mode](/dev/mode-system), you pick which groups it gets. An "Ask" mode with only `read` and `vault` is physically unable to write files.
+
+## Execution pipeline
+
+Every tool call flows through `ToolExecutionPipeline` (`src/core/tool-execution/ToolExecutionPipeline.ts`). Here is the path from invocation to result:
+
+```mermaid
+flowchart LR
+    A[LLM emits tool call] --> B{Path blocked?}
+    B -- yes --> X1[Denied]
+    B -- no --> C{Approval needed?}
+    C -- yes, rejected --> X2[Denied]
+    C -- yes, approved --> D[Checkpoint + Execute]
+    C -- no --> D
+    D --> E[Log result]
 ```
 
-`getToolDefinitions()` filters tools by the active mode's `toolGroups` setting. A mode that only enables the `read` group will not expose write tools to the LLM.
+In detail:
 
-## ToolExecutionPipeline
+1. The tool must exist in the registry. Unknown tool names return an error.
+2. The `IgnoreService` checks whether any file path in the input is blocked or write-protected. If paths are blocked, the call is denied.
+3. Write operations, MCP calls, sandbox evaluations, and subtask spawning go through `checkApproval()`. If no approval callback exists, the operation is denied. Fail-closed by design.
+4. Before each write, a git snapshot captures the file's current content for undo.
+5. The tool runs. The result is logged to a JSONL audit file via `OperationLogger`.
 
-`ToolExecutionPipeline` (`src/core/tool-execution/ToolExecutionPipeline.ts`) is the governance layer. Its central method, `executeTool()`, enforces a strict sequence:
+Read-only calls skip steps 3 and 4 entirely.
 
-1. **Tool lookup** -- verify the tool exists in the registry.
-2. **Path validation** -- check `IgnoreService` for protected/ignored paths.
-3. **Result cache** -- return cached content for identical read-only calls (cache key: `toolName:sortedJSON(input)`).
-4. **Approval check** -- write operations, MCP calls, sandbox evaluations, and subtask spawning go through `checkApproval()`. If the approval callback is missing, the operation is rejected (fail-closed).
-5. **Cache invalidation** -- write tools invalidate cached reads for affected file paths.
-6. **Checkpoint** -- before each write, a git-style checkpoint snapshots the file for granular undo.
-7. **Execution** -- the tool's `execute()` method runs.
-8. **Quality gate** -- if the tool has a quality gate, the self-check checklist is appended to the result.
-9. **Operation logging** -- every execution is logged via `OperationLogger` for audit trails.
+## Parallel execution
 
-::: info Fail-Closed by Design
-The pipeline's approval path is deliberately fail-closed: if `onApprovalRequired` is not provided (e.g., in a headless context), write operations are rejected with "Operation denied." This is the single most important safety invariant in the system -- it means no code path can accidentally bypass user consent.
-:::
+When the model emits multiple tool calls in a single response, read-safe tools run concurrently via `Promise.all()`. Write tools and control-flow tools always run sequentially. A single iteration can resolve four `read_file` calls in parallel instead of waiting for each one.
 
-## Approval Groups
+The distinction is simple: if `isWriteOperation` is false and the tool is in the `PARALLEL_SAFE` set, it runs concurrently. Everything else queues.
 
-The pipeline classifies every tool into an `ApprovalGroup` that determines its governance path:
+## Dynamic tools
 
-| Group | Tools | Approval Behavior |
-|-------|-------|-------------------|
-| `read` | `read_file`, `list_files`, `search_files`, `semantic_search`, ... | Always auto-approved |
-| `note-edit` | `write_file`, `edit_file`, `append_to_file`, `update_frontmatter` | Requires approval (DiffReviewModal) |
-| `vault-change` | `create_folder`, `delete_file`, `move_file`, `generate_canvas`, ... | Requires approval |
-| `web` | `web_fetch`, `web_search` | Auto-approved when web tools enabled |
-| `agent` | `ask_followup_question`, `attempt_completion`, `switch_mode`, ... | Always auto-approved |
-| `subtask` | `new_task` | Respects `autoApproval.subtasks` setting |
-| `mcp` | `use_mcp_tool` | Requires approval |
-| `sandbox` | `evaluate_expression` | Always requires approval |
-| `self-modify` | `manage_skill`, `manage_source` | Always requires human approval |
+Users and the agent itself can create tools at runtime. `DynamicToolFactory` (`src/core/tools/dynamic/`) builds a tool instance from a name, schema, and execute function. `DynamicToolLoader` persists these definitions so they survive across sessions.
 
-## Tool Metadata
+Dynamic tools go through the same `ToolExecutionPipeline` as built-in tools. No governance bypass -- a dynamic tool that writes files still needs approval and still gets checkpointed.
 
-`toolMetadata.ts` (`src/core/tools/toolMetadata.ts`) is the single source of truth for UI display and system prompt generation:
+## Tool repetition detection
 
-```typescript
-interface ToolMeta {
-    group: ToolGroup;        // Mode-level group (read, vault, edit, web, agent, mcp)
-    label: string;           // UI display name
-    description: string;     // Used in system prompt AND UI
-    icon: string;            // Lucide icon name
-    signature: string;       // e.g. "read_file(path)"
-    example?: string;        // Concrete call example for the prompt
-    whenToUse?: string;      // Guidance for tool selection
-    commonMistakes?: string; // Known LLM failure patterns
-    qualityGate?: boolean;   // Triggers self-check checklist
-}
-```
+`ToolRepetitionDetector` (`src/core/tool-execution/ToolRepetitionDetector.ts`) catches the agent when it gets stuck calling the same tool with the same arguments in a loop.
 
-This separation keeps API-level tool schemas (in each tool's `getDefinition()`) focused on function calling, while metadata handles the human-readable and prompt-engineering concerns.
+It maintains a sliding window of the last 15 calls. If an identical `tool:input` combination appears 3 or more times, the call is blocked with a recoverable error. For search tools, it also checks semantic similarity -- queries with a Jaccard overlap above 0.5 that appear 3+ times are blocked too.
 
-## Quality Gates
-
-`qualityGates.ts` (`src/core/tools/qualityGates.ts`) defines self-check checklists for complex tools. After execution, the checklist is appended to the tool result. The agent sees it on its next iteration and self-corrects if any check fails.
-
-A tool qualifies for a quality gate when at least 2 of 3 criteria apply:
-1. **Artifact-producing** -- creates a user-facing file.
-2. **Multi-element structure** -- slides, sections, sheets, nodes.
-3. **Hard to manually correct** -- binary format or complex structure.
-
-Currently gated: `create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`.
-
-::: tip Zero-Cost Self-Correction
-Quality gates add no extra API calls. The checklist is embedded in the tool result that the model already reads. When the output is correct, the agent simply proceeds. When a check fails, the agent calls the tool again with corrections -- typically costing one additional iteration instead of a user-initiated retry.
-:::
-
-## Tool Repetition Detection
-
-`ToolRepetitionDetector` (`src/core/tool-execution/ToolRepetitionDetector.ts`) prevents the agent from looping on failed approaches:
-
-- **Sliding window** of 15 recent calls.
-- **Exact match**: blocks identical `tool:input` appearing 3+ times.
-- **Fuzzy search dedup**: for search tools (`search_files`, `semantic_search`, `search_by_tag`, `web_search`), blocks queries with Jaccard similarity > 0.5 appearing 3+ times.
-- **Tool ledger**: records all calls for episodic memory (ADR-018) -- a structured log that survives context condensing.
-
-## Parallel Execution
-
-Read-only tools from the `PARALLEL_SAFE` set execute concurrently via `Promise.all()` in `AgentTask.run()`. Write tools and control-flow tools always run sequentially. This means a single iteration can resolve multiple `read_file` or `search_files` calls in parallel, significantly reducing latency for research-heavy tasks.
-
-## Dynamic Tools
-
-The dynamic tool system (`src/core/tools/dynamic/`) allows runtime tool creation:
-
-- **`DynamicToolFactory`** -- creates tool instances from a runtime definition (name, schema, execute function).
-- **`DynamicToolLoader`** -- loads tool definitions from persistent storage, enabling user-created or agent-authored tools to survive across sessions.
-
-Dynamic tools go through the same `ToolExecutionPipeline` as built-in tools -- no governance bypass.
+The error is recoverable on purpose. The agent sees the message and can try a different approach. The `consecutiveMistakeLimit` in `AgentTask` is the ultimate safety net if the agent keeps failing anyway.

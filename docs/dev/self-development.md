@@ -1,154 +1,76 @@
 ---
-title: Self-Development
-description: 5-tier self-development framework -- from skills to core self-modification.
+title: Self-development
+description: How Obsilo extends its own capabilities at runtime through five tiers of increasing autonomy.
 ---
 
-# Self-Development
+# Self-development
 
-Obsilo implements a 5-tier self-development framework that enables the agent to extend its own capabilities at runtime -- from writing Markdown skill guides to modifying its own source code and rebuilding the plugin.
+Most agents are static. They ship with a fixed set of tools and that's what you get. Obsilo can extend itself at runtime -- writing new instructions, creating new tools, and in the most advanced tier, modifying its own source code.
 
-## Tier Overview
+This is powerful and risky. The system has clear boundaries between tiers, each requiring more trust than the last. Lower tiers are safe by default. Higher tiers require explicit approval. No tier lets the agent do something you haven't agreed to.
 
-```mermaid
-graph TB
-    T1[Tier 1: Skills as Markdown] --> T2[Tier 2: Dynamic Modules]
-    T2 --> T3[Tier 3: Core Self-Modification]
-    T3 --> T4[Tier 4: Reserved]
-    T4 --> T5[Tier 5: Proactive Self-Improvement]
+## Five tiers
 
-    T1 --- |ManageSkillTool| SK[Skill Markdown Files]
-    T2 --- |DynamicToolFactory| DT[Sandbox-Executed Tools]
-    T3 --- |ManageSourceTool| EM[EmbeddedSourceManager]
-    T5 --- |SuggestionService| SG[Pattern-Based Suggestions]
-```
+Tier 1 -- skill files. The agent writes Markdown files that contain instructions for itself. These are cheat sheets: "when the user asks for X, here's how to approach it." Skill files live in the vault and are loaded into the system prompt when relevant. Zero risk -- the agent is just writing notes. A skill file might say "when creating meeting notes, always include an action items section and tag attendees." The agent reads this on next conversation start and follows the instructions.
 
-| Tier | Capability | Isolation | Risk |
-|------|-----------|-----------|------|
-| 1 | Skills as Markdown | None (prompt only) | Minimal |
-| 2 | Dynamic Modules | Sandbox (process/iframe) | Contained |
-| 3 | Core Self-Modification | AST validation + backup | Significant |
-| 4 | (Reserved) | -- | -- |
-| 5 | Proactive Self-Improvement | Advisory only | Minimal |
+Tier 2 -- dynamic tools. The agent writes JavaScript code that runs in a sandboxed environment. Unlike skill files (which are instructions), dynamic tools are executable. The agent defines input parameters, writes the implementation, and registers the tool. Other conversations can then use it. This is where things get interesting: the agent can create tools for tasks that come up repeatedly but aren't covered by built-in tools. If you frequently need to convert CSV data into a specific Markdown table format, the agent can write a dynamic tool for that transformation and use it from then on.
 
-## Tier 1: Skills as Markdown
+Tier 3 -- source modification. The agent can read and modify its own TypeScript source code through the `EmbeddedSourceManager` (`src/core/self-development/EmbeddedSourceManager.ts`). At build time, an esbuild plugin encodes the entire source tree as base64 and embeds it into `main.js` as a constant. At runtime, the agent can decode it, search through files, make changes, and rebuild the plugin via `PluginBuilder` (`src/core/self-development/PluginBuilder.ts`) and `PluginReloader` (`src/core/self-development/PluginReloader.ts`). Every modification is validated with AST parsing (no syntax errors allowed) and the original source is backed up before changes are applied. This tier exists for advanced self-improvement scenarios and requires explicit user approval.
 
-Skills are Markdown files containing structured instructions for specific task types. The agent writes and manages them via `ManageSkillTool` -- no code execution involved.
+Tier 4 -- reserved. Intentionally left empty for future capabilities.
 
-**SelfAuthoredSkillLoader** discovers self-authored skills from the skills directory and makes them available to the agent. Skills are loaded into the system prompt when their trigger conditions match the current task.
+Tier 5 -- proactive improvement. The agent observes usage patterns across conversations and suggests new skills or tools without being asked. If it notices you regularly perform a sequence of steps that could be automated, it proposes a skill file or dynamic tool to handle it. You approve or reject the suggestion. The agent never acts on its own at this tier -- it only proposes.
 
-**Key files:** `src/core/tools/agent/ManageSkillTool.ts`, `src/core/skills/SelfAuthoredSkillLoader.ts`
+## Sandbox isolation
 
-## Tier 2: Dynamic Modules
+Dynamic tools (tier 2) run in a sandbox, not in the plugin's main process. The isolation strategy depends on the platform.
 
-The agent creates new tools at runtime that execute in a sandboxed environment. Three components collaborate:
+Desktop (Electron): `ProcessSandboxExecutor` (`src/core/sandbox/ProcessSandboxExecutor.ts`) spawns a separate Node.js child process with a 128 MB heap limit. The sandbox communicates with the main plugin through a message bridge. If the sandboxed code crashes or exceeds memory, the child process is killed and respawned (up to 3 times). After three failed respawns, the executor gives up and returns an error to the calling tool. The heap limit prevents a runaway script from consuming all system memory.
 
-### DynamicToolFactory
+Mobile: `IframeSandboxExecutor` (`src/core/sandbox/IframeSandboxExecutor.ts`) creates a hidden iframe with restricted permissions. Communication happens via `postMessage`. Mobile sandboxes have tighter constraints -- no filesystem access, no native modules. The iframe approach works on both iOS and Android versions of Obsidian.
 
-Creates `BaseTool` subclass instances from dynamic tool definitions. Each dynamic tool specifies its name, description, input schema, and TypeScript source code. The source is compiled via `EsbuildWasmManager` and executed in the sandbox.
+The platform selection happens automatically in `createSandboxExecutor.ts`, which checks whether the Electron environment is available and picks the right executor.
 
-**Key file:** `src/core/tools/dynamic/DynamicToolFactory.ts`
+Both executors implement the same `ISandboxExecutor` interface, so dynamic tools don't need to care which platform they're running on.
 
-### EsbuildWasmManager
+The sandbox can do text processing, JSON manipulation, vault batch operations via the bridge, and HTTP requests via the bridge. It cannot do binary file generation (DOCX, PPTX, XLSX) because those require Buffer/stream/JSZip which aren't available in the sandboxed environment. Binary formats are handled by built-in tools in the plugin's main process.
 
-On-demand TypeScript compilation via esbuild-wasm. Both the JavaScript module and the WASM binary are downloaded from CDN on first use and cached in the plugin data directory.
+## What the sandbox bridge exposes
 
-Two compilation modes:
-- **`transform()`** -- single file, no imports (~100ms)
-- **`build()`** -- bundle with npm dependencies via virtual filesystem (~500ms-2s)
+Sandboxed code can't access the Obsidian API directly. Instead, it gets a `SandboxBridge` object with controlled methods:
 
-CDN module loading uses `esm.sh` with `?bundle` parameter (preferred) and `jsdelivr` as fallback. The `resolveInternalImports()` function recursively downloads transitive CDN imports.
+- Read and write vault files
+- Search the vault
+- Make HTTP requests (routed through Obsidian's `requestUrl`)
+- Import ESM modules from CDN (via esm.sh with jsdelivr fallback)
 
-**Key file:** `src/core/sandbox/EsbuildWasmManager.ts`
+The bridge is the security boundary. Everything the sandbox does goes through it, and the bridge enforces path validation and rate limits.
 
-### EvaluateExpressionTool
+CDN imports use esm.sh with the `?bundle` flag as the preferred source, falling back to jsdelivr. Transitive imports are resolved recursively -- if you import a library that imports another library, both get downloaded and bundled. This makes it possible to use substantial npm packages from sandbox code without pre-installing them.
 
-Allows the agent to execute arbitrary TypeScript expressions in the sandbox for one-off computations, data transformations, or vault batch operations.
+## How tiers interact
 
-**Key file:** `src/core/tools/agent/EvaluateExpressionTool.ts`
+Tier 1 and tier 2 feed into each other naturally. The agent might start by writing a skill file (tier 1) that describes a workflow. After using it several times, it might notice that part of the workflow could be automated with code, and propose a dynamic tool (tier 2) to handle that part. The skill file then references the dynamic tool instead of describing the manual steps.
 
-## Sandbox Isolation
+Tier 5 (proactive improvement) draws on the memory system's pattern detection. When the `patterns` table in MemoryDB shows a recurring tool sequence with high success rates, tier 5 can propose turning it into a skill or dynamic tool. This closes the loop: usage patterns become automation proposals.
 
-Two sandbox executors provide platform-appropriate isolation:
+## Embedded source: how tier 3 works in detail
 
-### ProcessSandboxExecutor (Desktop)
+The `EmbeddedSourceManager` maintains an in-memory Map of file paths to source content. When the plugin loads, it checks for the `EMBEDDED_SOURCE` constant (injected at build time). If present, it decodes each file from base64 and populates the map. The agent can then:
 
-OS-level isolation via `child_process.fork()` with `ELECTRON_RUN_AS_NODE=1`. Spawns a separate Node.js process with:
+- List all source files
+- Read any file's content
+- Search across files by regex
+- Modify a file's content in memory
 
-- `vm.createContext()` scope isolation (no `process`, `require`, `fs` access)
-- 128 MB heap limit (`--max-old-space-size=128`)
-- IPC bridge for vault and HTTP operations
+Modifications stay in memory until the agent triggers a rebuild. The `PluginBuilder` compiles the modified source into a new `main.js`, and the `PluginReloader` swaps the running plugin with the new build. The entire cycle -- modify, build, reload -- takes a few seconds on a typical machine.
 
-**Key file:** `src/core/sandbox/ProcessSandboxExecutor.ts`
+If the rebuild fails (compilation error, validation failure), the original source is restored from backup and the plugin continues running with its previous code. The agent is told what went wrong so it can attempt a fix.
 
-### IframeSandboxExecutor (Mobile)
+## Honest limitations
 
-Fallback for mobile platforms where `child_process` is unavailable. Creates a sandboxed iframe with `sandbox="allow-scripts"` providing V8 origin isolation. Communication via `postMessage`.
+Self-modification sounds impressive, and it is useful in practice. But the limits are real. Tier 3 (source modification) is experimental. AST validation catches syntax errors but not logic errors. A self-modification that introduces a subtle bug may not be caught until something breaks. The backup-and-restore mechanism helps, but it's not a substitute for reviewing changes.
 
-CSP: `script-src 'unsafe-inline' 'unsafe-eval'` (required for `new Function()` in sandbox).
+Tier 5 (proactive suggestions) is conservative by design. The system observes patterns but has a high threshold before suggesting anything. Most users will see tier 1 and tier 2 in regular use. Tiers 3 and 5 are for power users who want to push the boundaries.
 
-**Key file:** `src/core/sandbox/IframeSandboxExecutor.ts`
-
-### SandboxBridge
-
-Plugin-side bridge handling all cross-boundary requests from the sandbox. Controls:
-
-- **Vault access** -- read/write operations with path validation
-- **URL allowlisting** -- only permitted CDN domains (unpkg.com, esm.sh, cdn.jsdelivr.net)
-- **Rate limiting** -- max 10 writes/min, 5 HTTP requests/min
-- **Circuit breaker** -- disables bridge after 20 consecutive errors
-
-**Key file:** `src/core/sandbox/SandboxBridge.ts`
-
-## Tier 3: Core Self-Modification
-
-The most powerful tier: the agent can read, modify, and rebuild its own source code.
-
-### EmbeddedSourceManager
-
-Manages TypeScript source code embedded in `main.js` at build time. The esbuild embed-source plugin injects all source files as a base64-encoded constant (`EMBEDDED_SOURCE`). Provides methods to read, search, and modify source files in memory.
-
-**Key file:** `src/core/self-development/EmbeddedSourceManager.ts`
-
-### ManageSourceTool
-
-Agent-facing tool for core self-modification. Exposes operations: `list_files`, `read_file`, `search`, `modify_file`. All modifications go through AST validation before being accepted.
-
-**Key file:** `src/core/tools/agent/ManageSourceTool.ts`
-
-### PluginBuilder
-
-Compiles the full plugin from modified source using esbuild-wasm. Creates a new `main.js` from the in-memory source files managed by EmbeddedSourceManager, using a virtual filesystem that resolves imports from memory.
-
-**Key file:** `src/core/self-development/PluginBuilder.ts`
-
-### PluginReloader
-
-Hot-reloads the plugin after a rebuild. Creates a backup of the current `main.js`, writes the new bundle, and triggers Obsidian's plugin disable/enable cycle.
-
-**Key file:** `src/core/self-development/PluginReloader.ts`
-
-## Tier 5: Proactive Self-Improvement
-
-### SuggestionService
-
-Analyzes agent episodes and patterns from MemoryDB to proactively suggest self-improvement actions:
-
-| Pattern Detected | Suggestion Type |
-|-----------------|----------------|
-| Repeated workflows | Create a skill |
-| Repeated errors | Apply fix from errors.md |
-| Frequent tool sequences | Create a dynamic tool |
-
-Suggestions are advisory -- they surface as `SuggestionBanner` in the UI for the user to approve or dismiss.
-
-**Key file:** `src/core/mastery/SuggestionService.ts`
-
-### LongTermExtractor
-
-Also part of Tier 5: automatically promotes durable learnings from session summaries into long-term memory files, ensuring the agent continuously improves its context without manual intervention.
-
-**Key file:** `src/core/memory/LongTermExtractor.ts`
-
-## ADR Reference
-
-- **ADR-021:** Sandbox OS-Level Process Isolation -- ProcessSandboxExecutor design, security model, fallback strategy
+Dynamic tools (tier 2) are the sweet spot for most use cases. They offer real programmability without the risks of source modification, and the sandbox isolation means a buggy tool can't crash the plugin. If you're exploring self-development capabilities, start with tier 1 skill files and graduate to tier 2 when you need actual code execution.
