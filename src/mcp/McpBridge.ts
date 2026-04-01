@@ -182,7 +182,7 @@ export class McpBridge {
         if (!url || !token) return;
 
         this.relayClient = new RelayClient(this.plugin);
-        await this.relayClient.connect(url, token);
+        this.relayClient.connect(url, token);
     }
 
     /** Disconnect from remote relay. */

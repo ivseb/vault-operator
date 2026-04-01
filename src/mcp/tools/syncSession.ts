@@ -97,7 +97,7 @@ export async function handleSyncSession(
                 learnings ? `\n## Learnings\n${learnings}` : '',
             ].filter(Boolean).join('\n');
 
-            await plugin.memoryService.writeSessionSummary(sessionId, sessionContent, title);
+            await plugin.memoryService.writeSessionSummary(sessionId, sessionContent, title, 'mcp');
             results.push('Session summary saved to memory');
 
             // Index for semantic search

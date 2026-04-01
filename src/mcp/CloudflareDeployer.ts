@@ -121,7 +121,7 @@ export class CloudflareDeployer {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
             },
             body,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian undocumented option
+             
             throw: false,
         } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -219,7 +219,7 @@ export class CloudflareDeployer {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
             },
             body,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Obsidian undocumented option to prevent throwing on non-2xx
+             
             throw: false,
         } as any); // eslint-disable-line @typescript-eslint/no-explicit-any -- throw option not in type defs
 

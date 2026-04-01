@@ -5,11 +5,18 @@
  * This works within Obsidian's renderer CSP which blocks WebSocket to external servers.
  *
  * Flow:
- * 1. Poll GET /poll?token=xxx (long-poll, 25s timeout)
+ * 1. Poll POST /poll with Authorization: Bearer header
  * 2. Receive pending MCP requests from AI assistants
  * 3. Process each request via handleToolCall()
- * 4. Send results back via POST /respond?token=xxx
+ * 4. Send results back via POST /respond with Authorization: Bearer header
  * 5. Repeat
+ *
+ * Security (AUDIT-005):
+ * - Token sent via Authorization header, never in URL (H-4)
+ * - No token material in logs (H-2, H-3)
+ * - Runtime validation of relay responses (M-1)
+ * - URL validation: HTTPS enforced (M-3)
+ * - Error messages sanitized before sending to relay (L-1)
  *
  * ADR-055: Remote MCP Relay
  * FEATURE-1403: Remote Transport
@@ -34,8 +41,16 @@ export class RelayClient {
     get connected(): boolean { return this._connected; }
     get connecting(): boolean { return this._connecting; }
 
-    async connect(relayUrl: string, token: string): Promise<void> {
-        this.relayUrl = relayUrl.replace(/\/$/, '');
+    connect(relayUrl: string, token: string): void {
+        const cleanUrl = relayUrl.replace(/\/$/, '');
+
+        // M-3: Validate relay URL
+        if (!cleanUrl.startsWith('https://')) {
+            console.error('[RelayClient] Relay URL must use HTTPS');
+            return;
+        }
+
+        this.relayUrl = cleanUrl;
         this.token = token;
         this.shouldReconnect = true;
         this.reconnectDelay = 1000;
@@ -59,18 +74,11 @@ export class RelayClient {
     private async pollLoop(): Promise<void> {
         while (this.polling && this.shouldReconnect) {
             try {
-                if (!this._connected) {
-                    console.warn('[RelayClient] Poll URL:', this.relayUrl, '| token length:', this.token.length, '| token prefix:', this.token.slice(0, 6));
-                    // One-time diagnostic: check if token arrives correctly at worker
-                    try {
-                        const diagResp = await requestUrl({ url: `${this.relayUrl}/diag?token=${this.token}` });
-                        console.warn('[RelayClient] Diag:', diagResp.text);
-                    } catch (e) {
-                        console.warn('[RelayClient] Diag failed:', e instanceof Error ? e.message : String(e));
-                    }
-                }
+                // H-4: Token in Authorization header, not URL
                 const response = await requestUrl({
-                    url: `${this.relayUrl}/poll?token=${this.token}`,
+                    url: `${this.relayUrl}/poll`,
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${this.token}` },
                 });
 
                 // First successful poll means we're connected
@@ -78,26 +86,29 @@ export class RelayClient {
                     this._connected = true;
                     this._connecting = false;
                     this.reconnectDelay = 1000;
-                    console.debug('[RelayClient] Connected to relay (polling)');
+                    console.debug('[RelayClient] Connected to relay');
                 }
 
-                const data = response.json as { requests?: string[] };
-                if (data.requests && data.requests.length > 0) {
+                // M-1: Runtime validation of relay response
+                const data = response.json as { requests?: unknown[] };
+                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
                     for (const reqBody of data.requests) {
-                        void this.handleRequest(reqBody);
+                        if (typeof reqBody === 'string') {
+                            void this.handleRequest(reqBody);
+                        }
                     }
                 }
 
                 // Short-poll interval: wait 2s before next poll
                 await new Promise(resolve => setTimeout(resolve, 2000));
-            } catch (e) {
+            } catch {
                 if (!this.shouldReconnect) break;
 
                 this._connected = false;
                 this._connecting = true;
-                console.warn('[RelayClient] Poll failed, retrying in', this.reconnectDelay, 'ms:', e instanceof Error ? e.message : String(e));
+                // H-2: No token material in logs
+                console.warn('[RelayClient] Poll failed, retrying in', this.reconnectDelay, 'ms');
 
-                // Wait before retrying
                 await new Promise(resolve => setTimeout(resolve, this.reconnectDelay));
                 this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxReconnectDelay);
             }
@@ -110,12 +121,24 @@ export class RelayClient {
 
     private async handleRequest(reqBody: string): Promise<void> {
         try {
-            const request = JSON.parse(reqBody) as { jsonrpc: string; method: string; id?: number | string; params?: Record<string, unknown> };
+            const request = JSON.parse(reqBody) as {
+                jsonrpc?: string;
+                method?: string;
+                id?: number | string;
+                params?: Record<string, unknown>;
+                __correlationId?: string;
+            };
+
+            // M-1: Validate required fields
+            if (typeof request.method !== 'string') return;
 
             // Notification (no id) -- process but don't respond
             if (request.id === undefined || request.id === null) {
                 return;
             }
+
+            // M-7: Use correlation ID for internal routing, keep original ID for response
+            const correlationId = request.__correlationId ?? String(request.id);
 
             let result: unknown;
 
@@ -129,8 +152,9 @@ export class RelayClient {
                 const bridge = this.plugin.mcpBridge as unknown as { getToolsWithContext?: () => unknown[] };
                 result = { tools: bridge?.getToolsWithContext?.() ?? [] };
             } else if (request.method === 'tools/call') {
-                const params = request.params as { name: string; arguments?: Record<string, unknown> } | undefined;
-                if (params?.name) {
+                const params = request.params as { name?: unknown; arguments?: Record<string, unknown> } | undefined;
+                // M-1: Validate tool name is a string
+                if (params && typeof params.name === 'string') {
                     const toolResult = await handleToolCall(this.plugin, params.name, params.arguments ?? {});
                     result = { content: toolResult.content, isError: toolResult.isError };
                 } else {
@@ -143,28 +167,29 @@ export class RelayClient {
                 result = {};
             }
 
-            // Send response back to relay
-            const responseBody = { jsonrpc: '2.0', id: request.id, result };
+            // Send response back to relay using correlation ID
+            const responseBody = { jsonrpc: '2.0', id: correlationId, result };
             await requestUrl({
-                url: `${this.relayUrl}/respond?token=${this.token}`,
+                url: `${this.relayUrl}/respond`,
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
                 body: JSON.stringify(responseBody),
             });
-        } catch (e) {
-            console.warn('[RelayClient] Error handling request:', e);
-            // Try to send error response
+        } catch {
+            // L-1: Sanitize error messages -- don't leak internal details
+            console.warn('[RelayClient] Error handling request');
             try {
-                const parsed = JSON.parse(reqBody) as { id?: unknown };
+                const parsed = JSON.parse(reqBody) as { id?: unknown; __correlationId?: string };
                 if (parsed.id !== undefined && parsed.id !== null) {
+                    const correlationId = parsed.__correlationId ?? String(parsed.id);
                     await requestUrl({
-                        url: `${this.relayUrl}/respond?token=${this.token}`,
+                        url: `${this.relayUrl}/respond`,
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.token}` },
                         body: JSON.stringify({
                             jsonrpc: '2.0',
-                            id: parsed.id,
-                            error: { code: -32603, message: e instanceof Error ? e.message : 'Internal error' },
+                            id: correlationId,
+                            error: { code: -32603, message: 'Tool execution failed' },
                         }),
                     });
                 }

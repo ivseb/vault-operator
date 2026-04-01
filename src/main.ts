@@ -990,6 +990,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.kiloToken) {
             settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
         }
+        // Remote relay tokens (AUDIT-005 M-2)
+        if (settings.cloudflareApiToken) {
+            settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
+        }
+        if (settings.relayToken) {
+            settings.relayToken = this.safeStorage.decrypt(settings.relayToken);
+        }
     }
 
     /**
@@ -1031,6 +1038,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Kilo Gateway token (ADR-041)
         if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
             copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
+        }
+        // Remote relay tokens (AUDIT-005 M-2)
+        if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {
+            copy.cloudflareApiToken = this.safeStorage.encrypt(copy.cloudflareApiToken);
+        }
+        if (copy.relayToken && !this.safeStorage.isEncrypted(copy.relayToken)) {
+            copy.relayToken = this.safeStorage.encrypt(copy.relayToken);
         }
         copy._encrypted = true;
         return copy;

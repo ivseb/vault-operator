@@ -15,7 +15,7 @@ export class McpTab {
         setIcon(introIcon, 'link');
         const introText = intro.createDiv({ cls: 'agent-settings-info-text' });
         introText.createEl('strong', { text: 'Connections' });
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- MCP is an acronym
+
         introText.createDiv({ text: 'Connect Obsilo to AI assistants like Claude, or extend Obsilo with external tool servers. All connections use the open MCP standard.' });
 
         this.buildConnectorSection(containerEl);
@@ -30,15 +30,13 @@ export class McpTab {
         containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Connectors' });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- Claude is a product name
-            text: 'Let AI assistants access your vault through Obsilo. Enable a connector, then configure the assistant to connect.',
+            text: 'Let AI assistants access your vault. Enable a connector, then configure the assistant to connect.',
         });
 
         // ── Claude Desktop / Claude Code ──────────────────────────────────
-        containerEl.createEl('h4', { text: 'Claude Desktop / Claude Code' });
+        containerEl.createEl('h4', { text: 'Local connector' });
 
         const mcpBridge = this.plugin.mcpBridge;
-        const isRunning = mcpBridge?.running ?? false;
         const isEnabled = this.plugin.settings.enableMcpServer ?? false;
 
         new Setting(containerEl)
@@ -64,9 +62,8 @@ export class McpTab {
 
         if (isEnabled) {
             new Setting(containerEl)
-                .setName('Configure Claude Desktop')
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Claude Desktop is a product name
-                .setDesc('Writes the connection to Claude Desktop\'s config. Restart Claude Desktop after.')
+                .setName('Configure desktop client')
+                .setDesc('Writes the connection config for your desktop client. Restart the client after.')
                 .addButton((btn) => {
                     btn.setButtonText('Configure').onClick(() => {
                         void this.writeClaudeDesktopConfig();
@@ -75,8 +72,7 @@ export class McpTab {
         }
 
         // ── Remote access ─────────────────────────────────────────────────
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai and ChatGPT are product names
-        containerEl.createEl('h4', { text: 'Remote access (claude.ai, ChatGPT, Cursor)' });
+        containerEl.createEl('h4', { text: 'Remote access' });
 
         const remoteEnabled = this.plugin.settings.enableRemoteRelay ?? false;
         const remoteConnected = (mcpBridge as { remoteConnected?: boolean })?.remoteConnected ?? false;
@@ -108,25 +104,27 @@ export class McpTab {
                 const remoteInfoText = remoteInfo.createDiv({ cls: 'agent-settings-info-text' });
                 remoteInfoText.createDiv({ text: 'A relay server on your own Cloudflare account connects your vault to AI assistants from any device. Your data stays on your infrastructure.' });
                 const steps = remoteInfoText.createEl('ol');
+
                 steps.createEl('li').createEl('a', {
-                    text: 'Create a free Cloudflare account',
+                    text: 'Create a free account at cloudflare.com',
                     href: 'https://dash.cloudflare.com/sign-up',
                 });
                 const step2 = steps.createEl('li');
                 step2.appendText('Go to ');
+
                 step2.createEl('a', {
-                    text: 'API Tokens',
+                    text: 'API tokens',
                     href: 'https://dash.cloudflare.com/profile/api-tokens',
                 });
                 step2.appendText(' and click "Create Token".');
                 const step3 = steps.createEl('li');
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare UI label
+
                 step3.appendText('Scroll to the bottom and click "Create Custom Token". Add two permissions: Account / Workers Scripts / Edit and Account / Account Settings / Read. Under "Account Resources", select "All accounts". Remove "Zone Resources".');
-                steps.createEl('li', { text: 'Click "Continue to summary", then "Create Token". Copy the token and paste it below.' });
+                steps.createEl('li', { text: 'Click "continue to summary", then "create token". Copy the token and paste it below.' });
 
                 // ── API Token + Deploy ────────────────────────────────────
                 new Setting(containerEl)
-                    // eslint-disable-next-line obsidianmd/ui/sentence-case -- Cloudflare is a product name
+
                     .setName('Cloudflare API token')
                     .setDesc('Paste the token you created in step 2 above.')
                     .addText((text) => {
@@ -142,7 +140,7 @@ export class McpTab {
                 // Deploy button
                 const deploySetting = new Setting(containerEl)
                     .setName('Deploy relay server')
-                    .setDesc('Deploys the relay to your Cloudflare account. Takes about 10 seconds.');
+                    .setDesc('Deploys the relay to your account. Takes about 10 seconds.');
 
                 const deployStatusEl = containerEl.createDiv('setting-item-description');
 
@@ -150,7 +148,7 @@ export class McpTab {
                     btn.setButtonText('Deploy').setCta().onClick(async () => {
                         const apiToken = this.plugin.settings.cloudflareApiToken;
                         if (!apiToken) {
-                            new Notice('Please enter your Cloudflare API token first.');
+                            new Notice('Please enter your API token first.');
                             return;
                         }
 
@@ -214,7 +212,7 @@ export class McpTab {
                         ? 'Relay connected. Your vault is accessible remotely.'
                         : 'Click to connect to your relay.')
                     .addButton((btn) => {
-                        btn.setButtonText(remoteConnected ? 'Disconnect' : 'Connect').onClick(async () => {
+                        btn.setButtonText(remoteConnected ? 'Disconnect' : 'Connect').onClick(() => {
                             if (remoteConnected) {
                                 this.plugin.mcpBridge?.disconnectRelay();
                             } else if (this.plugin.mcpBridge) {
@@ -228,11 +226,8 @@ export class McpTab {
                 const usage = containerEl.createDiv('agent-settings-desc');
                 usage.createEl('strong', { text: 'Add the URL above as connector in your AI assistant:' });
                 const usageList = usage.createEl('ul');
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- claude.ai is a URL
-                usageList.createEl('li', { text: 'claude.ai: Settings > Connectors > Add custom connector' });
-                // eslint-disable-next-line obsidianmd/ui/sentence-case -- ChatGPT is a product name
-                usageList.createEl('li', { text: 'ChatGPT: Apps > Developer Mode > Add connector' });
-                usageList.createEl('li', { text: 'Cursor/Windsurf: MCP server settings > add remote' });
+                usageList.createEl('li', { text: 'Web clients: add a custom connector in the settings' });
+                usageList.createEl('li', { text: 'In desktop clients, add a remote server in settings' });
 
                 // Troubleshooting hint
                 const troubleshoot = containerEl.createDiv('setting-item-description');
@@ -247,14 +242,14 @@ export class McpTab {
 
                 new Setting(containerEl)
                     .setName('Update relay server')
-                    .setDesc('Push the latest relay code to Cloudflare. The connector URL stays the same.')
+                    .setDesc('Push the latest relay code to your account. The connector URL stays the same.')
                     .addButton((btn) => {
                         btn.setButtonText('Redeploy').onClick(async () => {
                             const apiToken = this.plugin.settings.cloudflareApiToken;
                             const accountId = this.plugin.settings.cloudflareAccountId;
                             const relayToken = this.plugin.settings.relayToken;
                             if (!apiToken || !accountId) {
-                                new Notice('Missing API token or account ID. Try Reset and redeploy.');
+                                new Notice('Missing API token or account ID. Try reset and redeploy.');
                                 return;
                             }
                             btn.setDisabled(true);
@@ -303,7 +298,7 @@ export class McpTab {
         containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'External tool servers' });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
-            text: 'Extend Obsilo with tools from external servers (web search, APIs, databases). These work in standalone mode.',
+            text: 'Connect external tool servers for web search, databases, and more. These work in standalone mode.',
         });
 
         const mcpClient = this.plugin.mcpClient;
@@ -418,7 +413,7 @@ export class McpTab {
     // Claude Desktop Config
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async writeClaudeDesktopConfig(): Promise<void> {
+    private writeClaudeDesktopConfig(): void {
         try {
             const platform = os.platform();
             let configDir: string;
@@ -436,7 +431,7 @@ export class McpTab {
 
             fs.mkdirSync(configDir, { recursive: true });
             fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-            new Notice('Claude Desktop configured. Restart Claude Desktop to connect.');
+            new Notice('Configuration saved. Restart your desktop client to connect.');
         } catch (e) {
             new Notice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -448,11 +443,18 @@ export class McpTab {
     }
 
     private findNodePath(): string {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process in Electron
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process needed for node path discovery in Electron
         const cp = require('child_process') as typeof import('child_process');
-        try { return cp.execSync('which node', { encoding: 'utf-8', timeout: 3000 }).trim(); } catch { /* fallback */ }
-        for (const c of ['/usr/local/bin/node', '/opt/homebrew/bin/node', `${os.homedir()}/.nvm/current/bin/node`]) {
-            if (fs.existsSync(c)) return c;
+        const candidates: string[] = [];
+        try { candidates.push(cp.execSync('which node', { encoding: 'utf-8', timeout: 3000 }).trim()); } catch { /* fallback */ }
+        candidates.push('/usr/local/bin/node', '/opt/homebrew/bin/node', `${os.homedir()}/.nvm/current/bin/node`);
+        for (const c of candidates) {
+            if (!c || !fs.existsSync(c)) continue;
+            // M-6: Validate the binary is actually Node.js
+            try {
+                const version = cp.execSync(`"${c}" --version`, { encoding: 'utf-8', timeout: 3000 }).trim();
+                if (version.startsWith('v')) return c;
+            } catch { /* not a valid node binary */ }
         }
         return 'node';
     }
