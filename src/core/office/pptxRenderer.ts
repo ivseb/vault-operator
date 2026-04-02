@@ -157,8 +157,10 @@ function convertToPdf(
             timeout: CONVERSION_TIMEOUT,
             env: {
                 PATH: process.env.PATH,
-                HOME: process.env.HOME,
+                HOME: process.env.HOME ?? process.env.USERPROFILE,
+                USERPROFILE: process.env.USERPROFILE,
                 LANG: 'en_US.UTF-8',
+                ...(process.platform === 'win32' ? { SYSTEMROOT: process.env.SYSTEMROOT } : {}),
             },
             stdio: ['ignore', 'pipe', 'pipe'],
             windowsHide: true,

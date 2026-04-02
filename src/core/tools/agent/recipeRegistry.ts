@@ -121,7 +121,7 @@ export const BUILT_IN_RECIPES: Recipe[] = [
         id: 'check-dependency',
         name: 'Check Dependency',
         description: 'Check if an external program is installed on the system',
-        binary: 'which',
+        binary: process.platform === 'win32' ? 'where' : 'which',
         argsTemplate: ['{{program}}'],
         parameters: [
             {

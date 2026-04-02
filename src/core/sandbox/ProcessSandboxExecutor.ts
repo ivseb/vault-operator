@@ -130,9 +130,15 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
             // M-1: Minimal env -- avoid leaking secrets via process.env to sandbox worker
             env: {
                 PATH: process.env['PATH'],
-                HOME: process.env['HOME'],
+                HOME: process.env['HOME'] ?? process.env['USERPROFILE'],
+                USERPROFILE: process.env['USERPROFILE'],
                 LANG: process.env['LANG'] ?? 'en_US.UTF-8',
                 NODE_PATH: process.env['NODE_PATH'],
+                ...(process.platform === 'win32' ? {
+                    APPDATA: process.env['APPDATA'],
+                    LOCALAPPDATA: process.env['LOCALAPPDATA'],
+                    SYSTEMROOT: process.env['SYSTEMROOT'],
+                } : {}),
             },
             stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
         });
@@ -260,22 +266,30 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
     private findNodeBinary(cp: typeof import('child_process')): string {
         // Try common locations — Obsidian's process.execPath is a custom wrapper
         // that ignores ELECTRON_RUN_AS_NODE, so we need the real node binary.
+        const which = process.platform === 'win32' ? 'where' : 'which';
         try {
-            const result = cp.execSync('which node', { encoding: 'utf-8', timeout: 3000 });
-            const path = result.trim();
-            if (path) return path;
-        } catch { /* which failed */ }
+            const result = cp.execSync(`${which} node`, { encoding: 'utf-8', timeout: 3000 });
+            const nodePath = result.trim().split('\n')[0].trim(); // 'where' on Windows may return multiple lines
+            if (nodePath) return nodePath;
+        } catch { /* which/where failed */ }
 
-        // Fallback: common macOS/Linux paths
+        // Fallback: platform-specific common paths
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via dynamic require in Electron renderer context
         const fs = require('fs') as typeof import('fs');
-        const candidates = [
-            '/usr/local/bin/node',
-            '/opt/homebrew/bin/node',
-            `${process.env['HOME']}/.nvm/current/bin/node`,
-        ];
+        const homedir = process.env['HOME'] ?? process.env['USERPROFILE'] ?? '';
+        const candidates = process.platform === 'win32'
+            ? [
+                'C:\\Program Files\\nodejs\\node.exe',
+                `${process.env['APPDATA'] ?? ''}\\nvm\\current\\node.exe`,
+                `${homedir}\\.nvm\\current\\node.exe`,
+            ]
+            : [
+                '/usr/local/bin/node',
+                '/opt/homebrew/bin/node',
+                `${homedir}/.nvm/current/bin/node`,
+            ];
         for (const c of candidates) {
-            if (fs.existsSync(c)) return c;
+            if (c && fs.existsSync(c)) return c;
         }
 
         throw new Error('Node.js binary not found. ProcessSandbox requires node in PATH.');
