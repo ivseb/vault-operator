@@ -995,6 +995,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.relayToken) {
             settings.relayToken = this.safeStorage.decrypt(settings.relayToken);
         }
+        // Local MCP server token (AUDIT-006 H-1)
+        if (settings.mcpServerToken) {
+            settings.mcpServerToken = this.safeStorage.decrypt(settings.mcpServerToken);
+        }
     }
 
     /**
@@ -1043,6 +1047,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
         if (copy.relayToken && !this.safeStorage.isEncrypted(copy.relayToken)) {
             copy.relayToken = this.safeStorage.encrypt(copy.relayToken);
+        }
+        // Local MCP server token (AUDIT-006 H-1)
+        if (copy.mcpServerToken && !this.safeStorage.isEncrypted(copy.mcpServerToken)) {
+            copy.mcpServerToken = this.safeStorage.encrypt(copy.mcpServerToken);
         }
         copy._encrypted = true;
         return copy;

@@ -561,6 +561,8 @@ export interface ObsidianAgentSettings {
     relayUrl: string;
     /** Shared secret token for relay authentication. */
     relayToken: string;
+    /** Auth token for local MCP server (auto-generated, encrypted via SafeStorage). */
+    mcpServerToken: string;
     /** Cloudflare API token for relay deployment. Encrypted via SafeStorage. */
     cloudflareApiToken: string;
     /** Cloudflare account ID (auto-detected during deploy). */
@@ -834,6 +836,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableRemoteRelay: false,
     relayUrl: '',
     relayToken: '',
+    mcpServerToken: '',
     cloudflareApiToken: '',
     cloudflareAccountId: '',
 

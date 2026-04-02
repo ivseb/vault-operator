@@ -152,6 +152,13 @@ export class McpBridge {
     async start(): Promise<void> {
         if (this.server) return;
 
+        // AUDIT-006 H-1: Ensure MCP server token exists (auto-generate on first run)
+        if (!this.plugin.settings.mcpServerToken) {
+            this.plugin.settings.mcpServerToken = crypto.randomUUID();
+            await this.plugin.saveSettings();
+        }
+        this.writeMcpTokenFile();
+
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- http only via dynamic require in Electron
         const http = require('http') as typeof import('http');
 
@@ -170,6 +177,30 @@ export class McpBridge {
                 reject(e);
             });
         });
+    }
+
+    /**
+     * Write MCP server token to well-known file for mcp-server-worker (AUDIT-006 H-1).
+     * The worker reads this file to authenticate HTTP requests to the local server.
+     */
+    private writeMcpTokenFile(): void {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via require in Electron
+            const fs = require('fs') as typeof import('fs');
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const nodePath = require('path') as typeof import('path');
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const os = require('os') as typeof import('os');
+            const tokenDir = nodePath.join(os.homedir(), '.obsidian-agent');
+            if (!fs.existsSync(tokenDir)) fs.mkdirSync(tokenDir, { recursive: true });
+            fs.writeFileSync(
+                nodePath.join(tokenDir, 'mcp-token'),
+                this.plugin.settings.mcpServerToken,
+                { mode: 0o600 },
+            );
+        } catch (e) {
+            console.warn('[McpBridge] Failed to write MCP token file:', e);
+        }
     }
 
     /** Connect to remote relay (if configured). */
@@ -210,7 +241,7 @@ export class McpBridge {
         if (this.tunnelProcess) return;
         this.onTunnelUrl = onUrl ?? null;
 
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process in Electron
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-child-process -- child_process in Electron
         const cp = require('child_process') as typeof import('child_process');
 
         // Check if cloudflared is available
@@ -259,15 +290,26 @@ export class McpBridge {
     // -----------------------------------------------------------------------
 
     private async handleRequest(req: import('http').IncomingMessage, res: import('http').ServerResponse): Promise<void> {
-        // CORS headers for local connections
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        // AUDIT-006 H-1: Restrict CORS (block browser cross-origin requests)
+        res.setHeader('Access-Control-Allow-Origin', 'app://obsidian.md');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
         if (req.method === 'OPTIONS') {
             res.writeHead(204);
             res.end();
             return;
+        }
+
+        // AUDIT-006 H-1: Bearer token authentication
+        const expectedToken = this.plugin.settings.mcpServerToken;
+        if (expectedToken) {
+            const authHeader = req.headers['authorization'] ?? '';
+            if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== expectedToken) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Unauthorized' } }));
+                return;
+            }
         }
 
         if (req.method !== 'POST') {
@@ -276,10 +318,19 @@ export class McpBridge {
             return;
         }
 
-        // Read body
-        const body = await new Promise<string>((resolve) => {
+        // AUDIT-006 M-4: Read body with size limit (matches relay worker 1 MB limit)
+        const MAX_BODY = 1_048_576;
+        const body = await new Promise<string>((resolve, reject) => {
             let data = '';
-            req.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+            req.on('data', (chunk: Buffer) => {
+                data += chunk.toString();
+                if (data.length > MAX_BODY) {
+                    res.writeHead(413, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Payload too large' } }));
+                    req.destroy();
+                    reject(new Error('Payload too large'));
+                }
+            });
             req.on('end', () => resolve(data));
         });
 
@@ -324,6 +375,12 @@ export class McpBridge {
                     protocolVersion: '2025-03-26',
                     capabilities: { tools: {}, prompts: {}, resources: {} },
                     serverInfo: { name: 'Obsilo', version: '1.0.0' },
+                    instructions: 'You are connected to Obsilo, an intelligence backend for an Obsidian vault. '
+                        + 'Your role: You think, plan, and decide. Obsilo searches, reads, writes, and remembers.\n\n'
+                        + 'WORKFLOW (mandatory order):\n'
+                        + '1. ALWAYS call get_context FIRST to load user profile, memory, preferences, and vault context.\n'
+                        + '2. Use search_vault, read_notes, write_vault, execute_vault_op as needed.\n'
+                        + '3. ALWAYS call sync_session as your LAST action to save the conversation to Obsidian.',
                 };
 
             case 'tools/list':
