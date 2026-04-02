@@ -17,10 +17,10 @@ export async function handleSyncSession(
     plugin: ObsidianAgentPlugin,
     args: Record<string, unknown>,
 ): Promise<McpToolResult> {
-    const rawTitle = String(args.title ?? 'MCP Session');
+    const rawTitle = typeof args.title === 'string' ? args.title : 'MCP Session';
     const title = rawTitle.startsWith('Claude:') ? rawTitle : `Claude: ${rawTitle}`;
     const transcript = (args.transcript as TranscriptMessage[]) ?? [];
-    const learnings = String(args.learnings ?? '');
+    const learnings = typeof args.learnings === 'string' ? args.learnings : '';
     const toolsUsed = (args.tools_used as string[]) ?? [];
 
     if (transcript.length === 0) {

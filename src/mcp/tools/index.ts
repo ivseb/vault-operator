@@ -8,6 +8,7 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
+import { str } from '../types';
 import { handleGetContext } from './getContext';
 import { handleSearchVault } from './searchVault';
 import { handleReadNotes } from './readNotes';
@@ -112,7 +113,7 @@ function buildHumanReadable(tool: string, args: Record<string, unknown>, result:
     switch (tool) {
         case 'search_vault':
             return {
-                request: `Search: "${String(args.query ?? '')}"`,
+                request: `Search: "${str(args.query)}"`,
                 response: resultText.slice(0, 500),
             };
         case 'read_notes': {
@@ -144,17 +145,17 @@ function buildHumanReadable(tool: string, args: Record<string, unknown>, result:
             };
         case 'sync_session':
             return {
-                request: `Session saved: "${String(args.title ?? '')}"`,
+                request: `Session saved: "${str(args.title)}"`,
                 response: resultText,
             };
         case 'update_memory':
             return {
-                request: `Memory updated (${String(args.category ?? 'unknown')}): ${String(args.content ?? '').slice(0, 100)}`,
+                request: `Memory updated (${str(args.category, 'unknown')}): ${str(args.content).slice(0, 100)}`,
                 response: resultText,
             };
         case 'execute_vault_op':
             return {
-                request: `${String(args.operation ?? 'vault operation')}: ${JSON.stringify(args.params ?? {}).slice(0, 100)}`,
+                request: `${str(args.operation, 'vault operation')}: ${JSON.stringify(args.params ?? {}).slice(0, 100)}`,
                 response: resultText.slice(0, 300),
             };
         default:

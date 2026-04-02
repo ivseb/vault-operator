@@ -69,3 +69,15 @@ export interface McpToolResult {
     content: McpContent[];
     isError?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Type-safe string coercion for unknown args (Review-Bot: restrict-template-expressions)
+// ---------------------------------------------------------------------------
+
+/** Safely convert an unknown value to string. Avoids [object Object] for non-primitives. */
+export function str(value: unknown, fallback = ''): string {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+    if (value === null || value === undefined) return fallback;
+    return JSON.stringify(value);
+}

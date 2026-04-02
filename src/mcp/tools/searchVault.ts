@@ -12,7 +12,7 @@ export async function handleSearchVault(
     plugin: ObsidianAgentPlugin,
     args: Record<string, unknown>,
 ): Promise<McpToolResult> {
-    const query = String(args.query ?? '');
+    const query = typeof args.query === 'string' ? args.query : '';
     if (!query.trim()) {
         return { content: [{ type: 'text', text: 'Error: query parameter is required' }], isError: true };
     }

@@ -17,8 +17,8 @@ export async function handleUpdateMemory(
     plugin: ObsidianAgentPlugin,
     args: Record<string, unknown>,
 ): Promise<McpToolResult> {
-    const category = String(args.category ?? '');
-    const content = String(args.content ?? '');
+    const category = typeof args.category === 'string' ? args.category : '';
+    const content = typeof args.content === 'string' ? args.content : '';
 
     if (!category || !CATEGORY_MAP[category]) {
         return {
