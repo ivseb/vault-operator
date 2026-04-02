@@ -35,6 +35,7 @@ jobs:
           rm -f package-lock.json
           rm -rf node_modules
           npm install --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu --no-audit --no-fund --no-save
 
       - name: Build VitePress
         run: npx vitepress build docs
