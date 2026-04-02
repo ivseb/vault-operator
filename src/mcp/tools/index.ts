@@ -16,14 +16,16 @@ import { handleSyncSession } from './syncSession';
 import { handleUpdateMemory } from './updateMemory';
 import { buildPrompts } from '../prompts/systemContext';
 
-const handlers: Record<string, (plugin: ObsidianAgentPlugin, args: Record<string, unknown>) => Promise<McpToolResult>> = {
-    get_context: handleGetContext,
-    search_vault: handleSearchVault,
-    read_notes: handleReadNotes,
-    write_vault: handleWriteVault,
-    sync_session: handleSyncSession,
-    update_memory: handleUpdateMemory,
-};
+type McpHandler = (plugin: ObsidianAgentPlugin, args: Record<string, unknown>) => Promise<McpToolResult>;
+
+const handlers = new Map<string, McpHandler>([
+    ['get_context', handleGetContext],
+    ['search_vault', handleSearchVault],
+    ['read_notes', handleReadNotes],
+    ['write_vault', handleWriteVault],
+    ['sync_session', handleSyncSession],
+    ['update_memory', handleUpdateMemory],
+]);
 
 // ---------------------------------------------------------------------------
 // Auto Session Tracking
@@ -181,14 +183,14 @@ export async function handleToolCall(
     tool: string,
     args: Record<string, unknown>,
 ): Promise<McpToolResult> {
-    // Validate tool name against known handlers (CodeQL #62: prevent unvalidated dispatch)
-    if (!Object.prototype.hasOwnProperty.call(handlers, tool)) {
+    // CodeQL #62: Use Map.get() to avoid unvalidated dynamic property access
+    const handler = handlers.get(tool);
+    if (!handler) {
         return {
             content: [{ type: 'text', text: `Unknown tool: ${tool}` }],
             isError: true,
         };
     }
-    const handler = handlers[tool];
 
     // Auto-track session
     await ensureSession(plugin);
