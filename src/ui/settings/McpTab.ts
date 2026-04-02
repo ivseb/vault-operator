@@ -445,9 +445,18 @@ export class McpTab {
     private findNodePath(): string {
         // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-child-process -- child_process needed for node path discovery in Electron
         const cp = require('child_process') as typeof import('child_process');
+        const which = process.platform === 'win32' ? 'where' : 'which';
         const candidates: string[] = [];
-        try { candidates.push(cp.execSync('which node', { encoding: 'utf-8', timeout: 3000 }).trim()); } catch { /* fallback */ }
-        candidates.push('/usr/local/bin/node', '/opt/homebrew/bin/node', `${os.homedir()}/.nvm/current/bin/node`);
+        try {
+            const result = cp.execSync(`${which} node`, { encoding: 'utf-8', timeout: 3000 }).trim();
+            candidates.push(result.split('\n')[0].trim()); // 'where' on Windows may return multiple lines
+        } catch { /* fallback */ }
+        if (process.platform === 'win32') {
+            candidates.push('C:\\Program Files\\nodejs\\node.exe');
+            candidates.push(`${process.env['APPDATA'] ?? ''}\\nvm\\current\\node.exe`);
+        } else {
+            candidates.push('/usr/local/bin/node', '/opt/homebrew/bin/node', `${os.homedir()}/.nvm/current/bin/node`);
+        }
         for (const c of candidates) {
             if (!c || !fs.existsSync(c)) continue;
             // M-6: Validate the binary is actually Node.js

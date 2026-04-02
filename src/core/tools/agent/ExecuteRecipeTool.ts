@@ -219,8 +219,10 @@ export class ExecuteRecipeTool extends BaseTool<'execute_recipe'> {
                 timeout: recipe.timeout,
                 env: {
                     PATH: process.env.PATH,
-                    HOME: process.env.HOME,
+                    HOME: process.env.HOME ?? process.env.USERPROFILE,
+                    USERPROFILE: process.env.USERPROFILE,
                     LANG: 'en_US.UTF-8',
+                    ...(process.platform === 'win32' ? { SYSTEMROOT: process.env.SYSTEMROOT } : {}),
                 },
                 stdio: ['ignore', 'pipe', 'pipe'],
                 windowsHide: true,

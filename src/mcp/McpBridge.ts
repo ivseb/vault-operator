@@ -193,6 +193,8 @@ export class McpBridge {
             const os = require('os') as typeof import('os');
             const tokenDir = nodePath.join(os.homedir(), '.obsidian-agent');
             if (!fs.existsSync(tokenDir)) fs.mkdirSync(tokenDir, { recursive: true });
+            // mode 0o600: owner-only read/write on Unix; silently ignored on Windows
+            // (Windows relies on user-profile directory ACLs for protection)
             fs.writeFileSync(
                 nodePath.join(tokenDir, 'mcp-token'),
                 this.plugin.settings.mcpServerToken,
@@ -246,7 +248,8 @@ export class McpBridge {
 
         // Check if cloudflared is available
         try {
-            cp.execSync('which cloudflared', { encoding: 'utf-8', timeout: 3000 });
+            const which = process.platform === 'win32' ? 'where' : 'which';
+            cp.execSync(`${which} cloudflared`, { encoding: 'utf-8', timeout: 3000 });
         } catch {
             console.warn('[McpBridge] cloudflared not found. Install via: brew install cloudflared');
             return;
