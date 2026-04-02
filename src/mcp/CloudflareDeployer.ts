@@ -121,9 +121,8 @@ export class CloudflareDeployer {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
             },
             body,
-             
             throw: false,
-        } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+        } as unknown as Parameters<typeof requestUrl>[0]);
 
         if (response.status >= 400) {
             let detail = `HTTP ${response.status}`;
@@ -219,9 +218,8 @@ export class CloudflareDeployer {
                 'Content-Type': `multipart/form-data; boundary=${boundary}`,
             },
             body,
-             
             throw: false,
-        } as any); // eslint-disable-line @typescript-eslint/no-explicit-any -- throw option not in type defs
+        } as unknown as Parameters<typeof requestUrl>[0]);
 
         if (response.status >= 400) {
             let detail = `HTTP ${response.status}`;

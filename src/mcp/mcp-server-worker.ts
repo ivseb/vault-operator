@@ -16,11 +16,11 @@ const OBSILO_URL = 'http://127.0.0.1:27182';
 // AUDIT-006 H-1: Read auth token from well-known file
 let mcpToken = '';
 try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- standalone Node.js worker
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- standalone Node.js worker process, not bundled by esbuild
     const fs = require('fs');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- standalone Node.js worker process, not bundled by esbuild
     const path = require('path');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- standalone Node.js worker process, not bundled by esbuild
     const os = require('os');
     mcpToken = fs.readFileSync(path.join(os.homedir(), '.obsidian-agent', 'mcp-token'), 'utf-8').trim();
 } catch { /* token file not found -- requests will be rejected by server */ }

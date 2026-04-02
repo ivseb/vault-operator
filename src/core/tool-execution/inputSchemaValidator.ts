@@ -72,7 +72,7 @@ export function validateToolInput(
         if (propSchema.enum && !propSchema.enum.includes(value)) {
             errors.push({
                 field,
-                message: `Field "${field}" value "${String(value)}" is not in allowed values: ${propSchema.enum.map(String).join(', ')}`,
+                message: `Field "${field}" value "${typeof value === 'object' ? JSON.stringify(value) : String(value)}" is not in allowed values: ${propSchema.enum.map(String).join(', ')}`,
             });
         }
     }

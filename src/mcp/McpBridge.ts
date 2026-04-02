@@ -131,10 +131,8 @@ const TOOLS: McpToolDefinition[] = [
 // ---------------------------------------------------------------------------
 
 export class McpBridge {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Node.js http.Server type
-    private server: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Node.js ChildProcess type
-    private tunnelProcess: any = null;
+    private server: import('http').Server | null = null;
+    private tunnelProcess: import('child_process').ChildProcess | null = null;
     private relayClient: RelayClient | null = null;
     private _running = false;
     private _tunnelUrl: string | null = null;
@@ -166,13 +164,14 @@ export class McpBridge {
             void this.handleRequest(req, res);
         });
 
+        const server = this.server;
         await new Promise<void>((resolve, reject) => {
-            this.server.listen(this.port, '127.0.0.1', () => {
+            server.listen(this.port, '127.0.0.1', () => {
                 this._running = true;
                 console.debug(`[McpBridge] MCP Server listening on http://127.0.0.1:${this.port}`);
                 resolve();
             });
-            this.server.on('error', (e: Error) => {
+            server.on('error', (e: Error) => {
                 console.warn(`[McpBridge] Failed to start HTTP server:`, e);
                 reject(e);
             });
@@ -185,11 +184,11 @@ export class McpBridge {
      */
     private writeMcpTokenFile(): void {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via require in Electron
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via dynamic require in Electron renderer
             const fs = require('fs') as typeof import('fs');
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- path only via dynamic require in Electron renderer
             const nodePath = require('path') as typeof import('path');
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- os only via dynamic require in Electron renderer
             const os = require('os') as typeof import('os');
             const tokenDir = nodePath.join(os.homedir(), '.obsidian-agent');
             if (!fs.existsSync(tokenDir)) fs.mkdirSync(tokenDir, { recursive: true });

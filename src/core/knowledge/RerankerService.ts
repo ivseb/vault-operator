@@ -24,16 +24,23 @@ export interface RerankResult extends RerankCandidate {
 }
 
 // ---------------------------------------------------------------------------
+// Transformers.js dynamic types (loaded at runtime via CDN)
+// ---------------------------------------------------------------------------
+
+/** Tokenizer callable returned by AutoTokenizer.from_pretrained() */
+type TokenizerFn = (query: string, options: { text_pair: string; padding: boolean; truncation: boolean }) => Promise<Record<string, unknown>>;
+/** Model callable returned by AutoModelForSequenceClassification.from_pretrained() */
+type ModelFn = (inputs: Record<string, unknown>) => Promise<{ logits: { data: Float32Array } }>;
+
+// ---------------------------------------------------------------------------
 // RerankerService
 // ---------------------------------------------------------------------------
 
 const MODEL_ID = 'Xenova/ms-marco-MiniLM-L-6-v2';
 
 export class RerankerService {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- transformers.js types are dynamic
-    private model: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- transformers.js types are dynamic
-    private tokenizer: any = null;
+    private model: ModelFn | null = null;
+    private tokenizer: TokenizerFn | null = null;
     private _loading = false;
     private _loaded = false;
 
@@ -63,10 +70,10 @@ export class RerankerService {
             console.debug(`[Reranker] Loading model ${MODEL_ID}...`);
             const startTime = Date.now();
 
-            this.tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID);
+            this.tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID) as unknown as TokenizerFn;
             this.model = await AutoModelForSequenceClassification.from_pretrained(MODEL_ID, {
                 dtype: 'q8', // INT8 quantized model (~23MB)
-            });
+            }) as unknown as ModelFn;
 
             this._loaded = true;
             console.debug(`[Reranker] Model loaded in ${Date.now() - startTime}ms`);
@@ -108,6 +115,8 @@ export class RerankerService {
         try {
             const results: RerankResult[] = [];
 
+            if (!this.tokenizer || !this.model) throw new Error('Reranker model not loaded');
+
             for (const candidate of candidates) {
                 // Truncate long texts to fit model's max sequence length (512 tokens)
                 const text = candidate.text.slice(0, 1500);
@@ -115,7 +124,7 @@ export class RerankerService {
                 const output = await this.model(inputs);
 
                 // Extract logit and convert to score via sigmoid
-                const logit = output.logits.data[0] as number;
+                const logit = output.logits.data[0];
                 const rerankScore = 1 / (1 + Math.exp(-logit)); // sigmoid
 
                 results.push({ ...candidate, rerankScore });

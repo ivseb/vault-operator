@@ -1167,9 +1167,11 @@ export class SemanticIndexService {
      * Used for OCR on images — text-extractor handles Tesseract and caching.
      */
     private getTextExtractorApi(): { extractText: (file: unknown) => Promise<string>; canFileBeExtracted: (path: string) => boolean } | null {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- text-extractor plugin API access via undocumented vault.app backref
-        const app = (this.vault as any).app ?? (globalThis as any).app;
-        return app?.plugins?.plugins?.['text-extractor']?.api ?? null;
+        const app = (this.vault as unknown as { app?: { plugins?: { plugins?: Record<string, { api?: unknown }> } } }).app
+            ?? (globalThis as unknown as { app?: { plugins?: { plugins?: Record<string, { api?: unknown }> } } }).app;
+        const api = app?.plugins?.plugins?.['text-extractor']?.api as
+            { extractText: (file: unknown) => Promise<string>; canFileBeExtracted: (path: string) => boolean } | undefined;
+        return api ?? null;
     }
 
     /**

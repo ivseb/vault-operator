@@ -181,7 +181,7 @@ export class RelayClient {
             try {
                 const parsed = JSON.parse(reqBody) as { id?: unknown; __correlationId?: string };
                 if (parsed.id !== undefined && parsed.id !== null) {
-                    const correlationId = parsed.__correlationId ?? String(parsed.id);
+                    const correlationId = String(parsed.__correlationId ?? parsed.id ?? '');
                     await requestUrl({
                         url: `${this.relayUrl}/respond`,
                         method: 'POST',
