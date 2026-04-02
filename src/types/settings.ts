@@ -521,10 +521,52 @@ export interface ObsidianAgentSettings {
     semanticIndexPdfs: boolean;
     /** Chunk size in characters. Changing this invalidates and rebuilds the index. */
     semanticChunkSize: number;
+    /** Contextual Retrieval: prepend LLM-generated context prefix to each chunk before embedding (ADR-051 Stufe 0). */
+    enableContextualRetrieval: boolean;
+    /** Model key for contextual prefix generation (picks from activeModels[]). */
+    contextualModelKey: string;
     /** HyDE: generate a hypothetical document before embedding the query. Off by default (costs 1 extra LLM call per search). */
     hydeEnabled: boolean;
     /** Auto-index vault files as they change (modify/create/delete/rename). Off by default — can slow down Obsidian if using a local embedding model. */
     semanticAutoIndexOnChange: boolean;
+
+    // Graph Expansion (FEATURE-1502)
+    /** Enable graph-based search expansion via Wikilinks and MOC-Properties. */
+    enableGraphExpansion: boolean;
+    /** Number of hops to follow in the graph (1-3). Higher = more context but slower. */
+    graphExpansionHops: number;
+    /** Frontmatter property names to extract as MOC edges (e.g. Themen, Konzepte). */
+    mocPropertyNames: string[];
+
+    // Implicit Connections (FEATURE-1503)
+    /** Enable implicit connection discovery (semantically similar notes without explicit links). */
+    enableImplicitConnections: boolean;
+    /** Minimum cosine similarity threshold for implicit connections (0.5-0.9). */
+    implicitThreshold: number;
+    /** Show implicit connection suggestions in the sidebar. */
+    enableSuggestionBanner: boolean;
+
+    // Local Reranking (FEATURE-1504)
+    /** Enable local cross-encoder reranking of search results (requires ~23MB model download). */
+    enableReranking: boolean;
+    /** Number of candidates to rerank (more = better quality but slower). */
+    rerankCandidates: number;
+
+    // MCP Server (EPIC-014)
+    /** Enable the MCP Server for Claude Desktop/Code integration. */
+    enableMcpServer: boolean;
+    /** Enable remote relay connection for claude.ai, ChatGPT, etc. */
+    enableRemoteRelay: boolean;
+    /** Cloudflare relay URL (e.g. https://obsilo-relay.xxx.workers.dev). */
+    relayUrl: string;
+    /** Shared secret token for relay authentication. */
+    relayToken: string;
+    /** Auth token for local MCP server (auto-generated, encrypted via SafeStorage). */
+    mcpServerToken: string;
+    /** Cloudflare API token for relay deployment. Encrypted via SafeStorage. */
+    cloudflareApiToken: string;
+    /** Cloudflare account ID (auto-detected during deploy). */
+    cloudflareAccountId: string;
 
     // Checkpoints (Sprint 1.4)
     enableCheckpoints: boolean;
@@ -596,6 +638,8 @@ export interface ObsidianAgentSettings {
     _globalStorageMigrated?: boolean;
     /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
     _syncDirMigrated?: boolean;
+    /** Whether data has been migrated from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/ (FEATURE-1508) */
+    _parentDirMigrated?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
@@ -693,7 +737,7 @@ export interface MasterySettings {
     enabled: boolean;
     /** Maximum chars for recipe section in system prompt (default: 2000) */
     recipeBudget: number;
-    /** Enable learned recipes from episodic memory (Phase 3) */
+    /** Enable learned recipes from episodic memory */
     learnedRecipesEnabled: boolean;
     /** Per-recipe toggle: maps recipe id -> boolean. Missing = enabled by default. */
     recipeToggles: Record<string, boolean>;
@@ -776,8 +820,25 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticStorageLocation: 'global',
     semanticIndexPdfs: false,
     semanticChunkSize: 2000,
+    enableContextualRetrieval: true,
+    contextualModelKey: '',
     hydeEnabled: false,
     semanticAutoIndexOnChange: false,
+    enableGraphExpansion: true,
+    graphExpansionHops: 1,
+    mocPropertyNames: ['Themen', 'Konzepte', 'Personen', 'Notizen', 'Meeting-Notes', 'Quellen'],
+    enableImplicitConnections: true,
+    implicitThreshold: 0.7,
+    enableSuggestionBanner: true,
+    enableReranking: true,
+    rerankCandidates: 20,
+    enableMcpServer: false,
+    enableRemoteRelay: false,
+    relayUrl: '',
+    relayToken: '',
+    mcpServerToken: '',
+    cloudflareApiToken: '',
+    cloudflareAccountId: '',
 
     enableCheckpoints: true,
     checkpointTimeoutSeconds: 30,
@@ -833,7 +894,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     mastery: {
         enabled: true,
         recipeBudget: 2000,
-        learnedRecipesEnabled: false,
+        learnedRecipesEnabled: true,
         recipeToggles: {},
     },
     onboarding: {

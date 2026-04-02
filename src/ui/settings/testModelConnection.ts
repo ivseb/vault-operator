@@ -139,64 +139,74 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
  */
 async function testEmbeddingConnection(model: CustomModel): Promise<TestResult> {
     try {
-        let url: string;
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        const body: Record<string, unknown> = { input: 'test' };
-
+        // Azure uses requestUrl (non-standard auth), all others use OpenAI SDK
         if (model.provider === 'azure') {
-            const base = (model.baseUrl ?? '').replace(/\/+$/, '');
-            const apiVersion = model.apiVersion ?? '2024-10-21';
-            url = `${base}/deployments/${model.name}/embeddings?api-version=${apiVersion}`;
-            if (model.apiKey) headers['api-key'] = model.apiKey;
-        } else if (model.provider === 'openai') {
-            url = 'https://api.openai.com/v1/embeddings';
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
-        } else if (model.provider === 'openrouter') {
-            url = 'https://openrouter.ai/api/v1/embeddings';
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
-        } else if (model.provider === 'ollama' || model.provider === 'lmstudio') {
-            const base = (model.baseUrl || (model.provider === 'lmstudio' ? 'http://localhost:1234' : 'http://localhost:11434'))
-                .replace(/\/v1\/?$/, '').replace(/\/+$/, '');
-            url = `${base}/v1/embeddings`;
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
-        } else {
-            // custom
-            const base = (model.baseUrl ?? '').replace(/\/+$/, '');
-            url = `${base}/embeddings`;
-            body.model = model.name;
-            if (model.apiKey) headers['Authorization'] = `Bearer ${model.apiKey}`;
+            return testEmbeddingViaRequestUrl(model);
         }
-
-        const res = await requestUrl({
-            url,
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            throw: false,
-        });
-
-        if (res.status === 200) {
-            const data = res.json;
-            const dims = data?.data?.[0]?.embedding?.length;
-            return {
-                ok: true,
-                message: 'Embedding successful ✓' + (dims ? ` (${dims} dimensions)` : ''),
-            };
-        }
-        if (res.status === 401) return { ok: false, message: 'Invalid API key (401)' };
-        if (res.status === 404) return { ok: false, message: 'Deployment / model not found (404)', detail: 'Check that the Model ID matches the exact deployment name.' };
-        if (res.status === 400) {
-            const errText = (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })();
-            return { ok: false, message: `Bad request (400)`, detail: errText };
-        }
-        return { ok: false, message: `HTTP ${res.status}`, detail: (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })() };
+        return testEmbeddingViaSdk(model);
     } catch (err: unknown) {
         const msg: string = (err as { message?: string })?.message ?? String(err);
         return { ok: false, message: 'Connection failed', detail: msg };
     }
+}
+
+async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
+    const OpenAI = (await import('openai')).default;
+
+    let baseURL: string;
+    if (model.provider === 'openai') {
+        baseURL = 'https://api.openai.com/v1';
+    } else if (model.provider === 'openrouter') {
+        baseURL = 'https://openrouter.ai/api/v1';
+    } else if (model.provider === 'ollama' || model.provider === 'lmstudio') {
+        const base = (model.baseUrl || (model.provider === 'lmstudio' ? 'http://localhost:1234' : 'http://localhost:11434'))
+            .replace(/\/v1\/?$/, '').replace(/\/+$/, '');
+        baseURL = `${base}/v1`;
+    } else {
+        const base = (model.baseUrl ?? '').replace(/\/+$/, '');
+        baseURL = base.endsWith('/v1') ? base : `${base}/v1`;
+    }
+
+    const client = new OpenAI({
+        apiKey: model.apiKey || 'unused',
+        baseURL,
+        dangerouslyAllowBrowser: true,
+        timeout: 15_000,
+    });
+
+    const response = await client.embeddings.create({
+        model: model.name,
+        input: 'test',
+    });
+
+    const dims = response.data?.[0]?.embedding?.length;
+    return { ok: true, message: 'Embedding successful' + (dims ? ` (${dims} dimensions)` : '') };
+}
+
+async function testEmbeddingViaRequestUrl(model: CustomModel): Promise<TestResult> {
+    const base = (model.baseUrl ?? '').replace(/\/+$/, '');
+    const apiVersion = model.apiVersion ?? '2024-10-21';
+    const url = `${base}/deployments/${model.name}/embeddings?api-version=${apiVersion}`;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (model.apiKey) headers['api-key'] = model.apiKey;
+
+    const TIMEOUT_MS = 15_000;
+    const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Embedding test timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
+    );
+    const res = await Promise.race([
+        requestUrl({ url, method: 'POST', headers, body: JSON.stringify({ input: 'test' }), throw: false }),
+        timeout,
+    ]);
+
+    if (res.status === 200) {
+        const dims = res.json?.data?.[0]?.embedding?.length;
+        return { ok: true, message: 'Embedding successful' + (dims ? ` (${dims} dimensions)` : '') };
+    }
+    if (res.status === 401) return { ok: false, message: 'Invalid API key (401)' };
+    if (res.status === 404) return { ok: false, message: 'Deployment / model not found (404)', detail: 'Check that the Model ID matches the exact deployment name.' };
+    const errText = (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })();
+    return { ok: false, message: `HTTP ${res.status}`, detail: errText };
 }
 
 /**
@@ -210,8 +220,15 @@ async function fetchProviderModels(
     apiVersion?: string,
 ): Promise<{ id: string; label: string }[]> {
     // Helper: Obsidian's requestUrl throws on 4xx/5xx — use throw:false to always get response
-    const req = (url: string, headers: Record<string, string> = {}) =>
-        requestUrl({ url, method: 'GET', headers, throw: false });
+    const req = async (url: string, headers: Record<string, string> = {}) => {
+        const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Model fetch timed out after 10s')), 10_000),
+        );
+        return Promise.race([
+            requestUrl({ url, method: 'GET', headers, throw: false }),
+            timeout,
+        ]);
+    };
 
     if (provider === 'azure') {
         if (!baseUrl) throw new Error('Base URL required for Azure');
@@ -359,8 +376,15 @@ async function fetchEmbeddingModels(
     baseUrl?: string,
     apiVersion?: string,
 ): Promise<{ id: string; label: string }[]> {
-    const req = (url: string, headers: Record<string, string> = {}) =>
-        requestUrl({ url, method: 'GET', headers, throw: false });
+    const req = async (url: string, headers: Record<string, string> = {}) => {
+        const timeout = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Model fetch timed out after 10s')), 10_000),
+        );
+        return Promise.race([
+            requestUrl({ url, method: 'GET', headers, throw: false }),
+            timeout,
+        ]);
+    };
 
     if (provider === 'openai') {
         // OpenAI's /v1/models requires auth — return the known stable embedding model list instead
@@ -400,12 +424,21 @@ async function fetchEmbeddingModels(
     }
 
     if (provider === 'openrouter') {
-        // OpenRouter proxies OpenAI embeddings — their /v1/models only lists chat models.
-        // Return the known embedding models available via OpenRouter.
+        // OpenRouter has a dedicated embedding models endpoint (separate from /v1/models)
+        const headers: Record<string, string> = {};
+        if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+        try {
+            const res = await req('https://openrouter.ai/api/v1/embeddings/models', headers);
+            if (res.status === 200 && Array.isArray(res.json?.data)) {
+                return (res.json.data as ApiModelEntry[])
+                    .map((m) => ({ id: m.id as string, label: (m.name as string) ?? (m.id as string) }))
+                    .sort((a, b) => a.label.localeCompare(b.label));
+            }
+        } catch { /* fallback below */ }
+        // Fallback if endpoint fails
         return [
-            { id: 'openai/text-embedding-3-small', label: 'text-embedding-3-small  (1 536 dims, recommended)' },
-            { id: 'openai/text-embedding-3-large', label: 'text-embedding-3-large  (3 072 dims, highest quality)' },
-            { id: 'openai/text-embedding-ada-002', label: 'text-embedding-ada-002  (1 536 dims, legacy)' },
+            { id: 'openai/text-embedding-3-small', label: 'OpenAI: Text Embedding 3 Small' },
+            { id: 'openai/text-embedding-3-large', label: 'OpenAI: Text Embedding 3 Large' },
         ];
     }
 

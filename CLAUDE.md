@@ -26,7 +26,7 @@ npm run dev                # Watch-Mode mit Auto-Deploy
 npm run deploy             # Nur Deploy (ohne Build)
 ```
 
-**Deploy-Pfad:** `/Users/sebastianhanke/Obsidian/Obsilo/.obsidian/plugins/obsilo-agent/`
+**Deploy-Pfad:** Aus `.env` (PLUGIN_DIR) -- aktuell iCloud: `~/Library/Mobile Documents/iCloud~md~obsidian/Documents/NexusOS/.obsidian/plugins/obsilo-agent/`
 
 Build + Deploy nach JEDEM Implementierungsschritt.
 

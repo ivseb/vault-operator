@@ -220,7 +220,7 @@ export class EsbuildWasmManager {
      */
     private loadCommonJsModule(jsCode: string): EsbuildModule {
         const mod: { exports: Record<string, unknown> } = { exports: {} };
-        // eslint-disable-next-line @typescript-eslint/no-implied-eval -- required to load esbuild-wasm JS at runtime without npm install
+        // new Function() required to load esbuild-wasm JS at runtime without npm install
         const factory = new Function('module', 'exports', jsCode);
         factory(mod, mod.exports);
         return mod.exports as unknown as EsbuildModule;

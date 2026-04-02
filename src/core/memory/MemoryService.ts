@@ -14,6 +14,7 @@
  */
 
 import type { FileAdapter } from '../storage/types';
+import type { MemoryDB } from '../knowledge/MemoryDB';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,7 +26,6 @@ export interface MemoryFiles {
     patterns: string;
     knowledge: string;
     soul: string;
-    learnings: string;
 }
 
 export interface MemoryStats {
@@ -38,7 +38,7 @@ export interface MemoryStats {
 // Constants
 // ---------------------------------------------------------------------------
 
-const MEMORY_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'knowledge.md', 'soul.md', 'learnings.md', 'errors.md', 'custom-tools.md'] as const;
+const MEMORY_FILES = ['user-profile.md', 'projects.md', 'patterns.md', 'knowledge.md', 'soul.md', 'errors.md', 'custom-tools.md'] as const;
 
 const TEMPLATES: Record<string, string> = {
     'user-profile.md': `# User Profile
@@ -79,8 +79,6 @@ Obsilo
 - Keine unnoetigen Entschuldigungen
 - Keine Emojis
 `,
-    'learnings.md': `# Task Learnings
-`,
     'errors.md': `# Known Errors
 `,
     'custom-tools.md': `# Custom Tools & Skills
@@ -99,10 +97,12 @@ const MAX_TOTAL_CHARS = 4000;
 export class MemoryService {
     private memoryDir: string;
     private sessionsDir: string;
+    private memoryDB: MemoryDB | null;
 
-    constructor(private fs: FileAdapter) {
+    constructor(private fs: FileAdapter, memoryDB?: MemoryDB | null) {
         this.memoryDir = 'memory';
         this.sessionsDir = 'memory/sessions';
+        this.memoryDB = memoryDB ?? null;
     }
 
     // -----------------------------------------------------------------------
@@ -133,7 +133,6 @@ export class MemoryService {
             patterns: await this.readFile('patterns.md'),
             knowledge: await this.readFile('knowledge.md'),
             soul: await this.readFile('soul.md'),
-            learnings: await this.readFile('learnings.md'),
         };
     }
 
@@ -156,12 +155,31 @@ export class MemoryService {
         await this.writeFile(name, existing + '\n' + content);
     }
 
-    async writeSessionSummary(conversationId: string, content: string): Promise<void> {
+    async writeSessionSummary(conversationId: string, content: string, title?: string, source: 'human' | 'mcp' = 'human'): Promise<void> {
+        if (this.memoryDB?.isOpen()) {
+            const db = this.memoryDB.getDB();
+            db.run(
+                'INSERT OR REPLACE INTO sessions (id, title, summary, source, created_at) VALUES (?, ?, ?, ?, ?)',
+                [conversationId, title ?? null, content, source, new Date().toISOString()],
+            );
+            this.memoryDB.markDirty();
+            return;
+        }
+        // Fallback: file-based
         const path = `${this.sessionsDir}/${conversationId}.md`;
         await this.fs.write(path, content);
     }
 
     async readSessionSummary(conversationId: string): Promise<string> {
+        if (this.memoryDB?.isOpen()) {
+            const db = this.memoryDB.getDB();
+            const result = db.exec('SELECT summary FROM sessions WHERE id = ?', [conversationId]);
+            if (result.length > 0 && result[0].values.length > 0) {
+                return (result[0].values[0][0] as string) ?? '';
+            }
+            return '';
+        }
+        // Fallback: file-based
         const path = `${this.sessionsDir}/${conversationId}.md`;
         try {
             return await this.fs.read(path);
@@ -197,7 +215,7 @@ export class MemoryService {
         addSection('user_profile', files.userProfile);
         addSection('active_projects', files.projects);
         addSection('behavioral_patterns', files.patterns);
-        addSection('task_learnings', files.learnings);
+        // learnings.md removed (FEATURE-1505) — task learnings are captured as Episodes + Recipes
         // knowledge.md is NOT included — it's on-demand via semantic search
 
         if (sections.length === 0) return '';

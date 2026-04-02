@@ -17,6 +17,17 @@ const prod = (process.argv[2] === "production");
 
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
 // Set PLUGIN_DIR in your .env or shell environment
+// Load .env file if it exists (for PLUGIN_DIR with iCloud paths containing spaces)
+try {
+    const envContent = readFileSync(join(__dirname, '.env'), 'utf-8');
+    for (const line of envContent.split('\n')) {
+        const match = line.match(/^([A-Z_]+)=(.*)$/);
+        if (match && !process.env[match[1]]) {
+            // Strip surrounding quotes (single or double) from .env values
+            process.env[match[1]] = match[2].trim().replace(/^["']|["']$/g, '');
+        }
+    }
+} catch { /* .env not found — use shell environment */ }
 const VAULT_PLUGIN_DIR = process.env.PLUGIN_DIR || "";
 
 const context = await esbuild.context({
@@ -149,6 +160,18 @@ const context = await esbuild.context({
                             if (existsSync("sandbox-worker.js")) {
                                 copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
                             }
+                            if (existsSync("mcp-server-worker.js")) {
+                                copyFileSync("mcp-server-worker.js", `${VAULT_PLUGIN_DIR}/mcp-server-worker.js`);
+                            }
+                            // Copy sql.js WASM binaries for Knowledge DB
+                            // sql.js may request either sql-wasm.wasm or sql-wasm-browser.wasm
+                            // depending on which variant esbuild resolves
+                            for (const wasmName of ["sql-wasm.wasm", "sql-wasm-browser.wasm"]) {
+                                const wasmSrc = join(__dirname, "node_modules/sql.js/dist", wasmName);
+                                if (existsSync(wasmSrc)) {
+                                    copyFileSync(wasmSrc, `${VAULT_PLUGIN_DIR}/${wasmName}`);
+                                }
+                            }
                             // Copy bundled skills to plugin skills directory
                             const bundledSkillsDir = join(__dirname, "bundled-skills");
                             if (existsSync(bundledSkillsDir)) {
@@ -203,12 +226,28 @@ const workerContext = await esbuild.context({
     treeShaking: true,
 });
 
+// MCP Server worker — separate OS process (ADR-053)
+const mcpWorkerContext = await esbuild.context({
+    entryPoints: ["src/mcp/mcp-server-worker.ts"],
+    bundle: true,
+    external: [],        // Standalone Node.js, bundled with MCP SDK
+    platform: "node",
+    format: "cjs",
+    target: "es2022",
+    outfile: "mcp-server-worker.js",
+    logLevel: "info",
+    sourcemap: prod ? false : "inline",
+    treeShaking: true,
+});
+
 if (prod) {
-    // Worker first — vault-deploy (main's onEnd) copies sandbox-worker.js
+    // Workers first — vault-deploy (main's onEnd) copies worker files
     await workerContext.rebuild();
+    await mcpWorkerContext.rebuild();
     await context.rebuild();
     process.exit(0);
 } else {
     await context.watch();
     await workerContext.watch();
+    await mcpWorkerContext.watch();
 }

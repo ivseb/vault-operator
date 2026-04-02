@@ -9,20 +9,22 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeConfig, ToolGroup } from '../../types/settings';
-import type { ToolRegistry } from '../tools/ToolRegistry';
 import type { ToolDefinition } from '../tools/types';
 import { BUILT_IN_MODES, expandToolGroups } from './builtinModes';
 import { GlobalModeStore } from './GlobalModeStore';
 
 export class ModeService {
     private plugin: ObsidianAgentPlugin;
-    private toolRegistry: ToolRegistry;
     /** Global modes loaded from ~/.obsidian-agent/modes.json */
     private globalModes: ModeConfig[] = [];
 
-    constructor(plugin: ObsidianAgentPlugin, toolRegistry: ToolRegistry) {
+    constructor(plugin: ObsidianAgentPlugin) {
         this.plugin = plugin;
-        this.toolRegistry = toolRegistry;
+    }
+
+    /** Lazy access — toolRegistry may not exist during early plugin init. */
+    private get toolRegistry() {
+        return this.plugin.toolRegistry;
     }
 
     /** Load global modes from disk. Call once during plugin onload. */

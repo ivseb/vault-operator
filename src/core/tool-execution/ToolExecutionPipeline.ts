@@ -57,7 +57,6 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     delete_file: 'vault-change',
     move_file: 'vault-change',
     generate_canvas: 'vault-change',
-    ingest_template: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',
     // Web
@@ -188,7 +187,18 @@ export class ToolExecutionPipeline {
                 return this.errorResult(toolCall.id, validation.reason ?? 'Operation denied');
             }
 
-            // 2b. Result cache: return cached content for identical read-only calls
+            // 2b. Input schema validation (AUDIT-006 H-5)
+            const definition = tool.getDefinition();
+            if (definition.input_schema?.properties && toolCall.input) {
+                const { validateToolInput } = await import('./inputSchemaValidator');
+                const schemaErrors = validateToolInput(toolCall.input, definition.input_schema);
+                if (schemaErrors.length > 0) {
+                    const msg = schemaErrors.map(e => e.message).join('; ');
+                    return this.errorResult(toolCall.id, `Input validation failed: ${msg}`);
+                }
+            }
+
+            // 2c. Result cache: return cached content for identical read-only calls
             if (ToolExecutionPipeline.CACHEABLE.has(toolCall.name)) {
                 const cKey = this.cacheKey(toolCall.name, toolCall.input);
                 const cached = this.resultCache.get(cKey);
@@ -353,8 +363,25 @@ export class ToolExecutionPipeline {
         const cfg = this.plugin.settings.autoApproval;
         const group = TOOL_GROUPS[toolCall.name] ?? 'note-edit';
 
-        // Agent tools (question, todo, completion, open_note) are always auto-approved
-        if (group === 'agent') return { decision: 'auto' };
+        // Agent tools are normally auto-approved, EXCEPT update_settings when
+        // touching autoApproval paths (AUDIT-006 H-3: prevent LLM self-escalation)
+        if (group === 'agent') {
+            if (toolCall.name === 'update_settings') {
+                const action = (toolCall.input?.action as string ?? '').trim();
+                const settingsPath = (toolCall.input?.path as string ?? '').trim();
+                const needsApproval =
+                    action === 'apply_preset' ||
+                    (action === 'set' && settingsPath.startsWith('autoApproval.'));
+                if (needsApproval) {
+                    if (!extensions?.onApprovalRequired) {
+                        console.warn('[Pipeline] update_settings touching autoApproval -- denying (fail-closed)');
+                        return { decision: 'rejected' };
+                    }
+                    return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
+                }
+            }
+            return { decision: 'auto' };
+        }
 
         // Sandbox code execution (evaluate_expression) — requires explicit opt-in.
         // Default off because sandboxed code runs arbitrary JS/TS which could be

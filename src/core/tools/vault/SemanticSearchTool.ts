@@ -18,7 +18,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 'Combines semantic similarity with exact keyword matching so both conceptual questions ' +
                 'and exact names/tags/codes are found reliably. ' +
                 'Searches across notes AND indexed documents (PDF, PPTX, XLSX, DOCX). ' +
-                'Also automatically includes 1-hop wikilink neighbors as linked context. ' +
+                'Also automatically includes graph-linked neighbors (Wikilinks + MOC-Properties) as context. ' +
                 'For questions about vault content, synthesize your answer from the returned excerpts — ' +
                 'do NOT call read_file on the results just to gather more context. ' +
                 'Requires the Semantic Index to be built first (Settings → Semantic Index).',
@@ -115,7 +115,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
 
             // ── Hybrid search: semantic + keyword in parallel, fused via RRF ──
             const [semanticResults, keywordResults] = await Promise.all([
-                semanticIndex.search(query, searchK, hydeText),
+                semanticIndex.search(query, searchK, hydeText, { adjacentChunks: 1, adjacentThreshold: 0.3, maxPerFile: 2 }),
                 semanticIndex.keywordSearch(query, searchK),
             ]);
 
@@ -168,6 +168,27 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 });
             }
 
+            // ── Local Reranking (FEATURE-1504): Cross-encoder re-scores candidates ──
+            const reranker = this.plugin.rerankerService;
+            if (reranker && this.plugin.settings.enableReranking && results.length > 1) {
+                try {
+                    const rerankCount = Math.min(results.length, this.plugin.settings.rerankCandidates ?? 20);
+                    const toRerank = results.slice(0, rerankCount);
+                    const reranked = await reranker.rerank(
+                        query,
+                        toRerank.map(r => ({ path: r.path, text: r.excerpt, score: r.score })),
+                    );
+                    results = reranked.map(r => ({
+                        path: r.path,
+                        excerpt: r.text,
+                        score: r.rerankScore,
+                        method: 'hybrid' as const,
+                    }));
+                } catch (e) {
+                    console.warn('[SemanticSearch] Reranking failed, using original order:', e);
+                }
+            }
+
             results = results.slice(0, topK);
 
             if (results.length === 0) {
@@ -200,7 +221,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
             ];
             // Truncate each excerpt to 500 chars to keep total context manageable.
             // The agent can call read_file for the full content if needed.
-            const MAX_EXCERPT = 500;
+            const MAX_EXCERPT = 2000; // FEATURE-1501: adjacent chunks provide wider context
             const truncate = (s: string) => s.length > MAX_EXCERPT ? s.slice(0, MAX_EXCERPT) + '…' : s;
             for (let i = 0; i < results.length; i++) {
                 const r = results[i];
@@ -211,43 +232,79 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 lines.push('');
             }
 
-            // ── Graph augmentation: follow [[wikilinks]] 1-hop ───────────────
-            // Parse [[wikilinks]] from each result's excerpt. For every linked
-            // note not already in the top-K results, load its first indexed
-            // chunk and append it as "Linked context". This surfaces notes that
-            // are intentionally connected but may not have matched semantically.
-            const WIKILINK_RE = /\[\[([^\]|#\n]+?)(?:[|#][^\]]*?)?\]\]/g;
-            const topKPaths = new Set<string>(results.map((r) => r.path));
-            const shownLinked = new Set<string>();
-            const linkedLines: string[] = [];
+            // ── Graph expansion (FEATURE-1502): systematic DB-based neighbor lookup ──
+            const graphStore = this.plugin.graphStore;
+            let graphLinkedCount = 0;
+            if (graphStore && this.plugin.settings.enableGraphExpansion) {
+                const hops = Math.min(this.plugin.settings.graphExpansionHops ?? 1, 3);
+                const topKPaths = new Set(results.map((r) => r.path));
+                const graphLines: string[] = [];
+                const seenGraph = new Set<string>();
 
-            outer: for (const r of results) {
-                WIKILINK_RE.lastIndex = 0;
-                let match: RegExpExecArray | null;
-                while ((match = WIKILINK_RE.exec(r.excerpt)) !== null) {
-                    if (shownLinked.size >= 5) break outer;
-                    const linktext = match[1].trim();
-                    const linkedFile = this.plugin.app.metadataCache.getFirstLinkpathDest(linktext, r.path);
-                    if (!linkedFile) continue;
-                    if (topKPaths.has(linkedFile.path) || shownLinked.has(linkedFile.path)) continue;
-                    shownLinked.add(linkedFile.path);
-                    const chunks: string[] = await semanticIndex.getChunksByPath(linkedFile.path);
-                    if (chunks.length === 0) continue;
-                    linkedLines.push(`${shownLinked.size}. ${toWikilink(linkedFile.path)} — \`${linkedFile.path}\` (linked from ${toWikilink(r.path)})`);
-                    linkedLines.push(truncate(chunks[0]));
-                    linkedLines.push('');
+                for (const r of results) {
+                    if (graphLines.length >= 5) break;
+                    const neighbors = graphStore.getNeighbors(r.path, hops, 5);
+                    for (const n of neighbors) {
+                        if (graphLines.length >= 5) break;
+                        if (topKPaths.has(n.path) || seenGraph.has(n.path)) continue;
+                        seenGraph.add(n.path);
+                        const chunks: string[] = await semanticIndex.getChunksByPath(n.path);
+                        if (chunks.length === 0) continue;
+                        const ctx = n.propertyName
+                            ? `via ${toWikilink(n.viaPath)} (${n.propertyName})`
+                            : `via ${toWikilink(n.viaPath)}`;
+                        graphLines.push(`${graphLines.length + 1}. ${toWikilink(n.path)} — \`${n.path}\` (${ctx})`);
+                        graphLines.push(truncate(chunks[0]));
+                        graphLines.push('');
+                    }
+                }
+
+                if (graphLines.length > 0) {
+                    graphLinkedCount = seenGraph.size;
+                    lines.push('─────────────────────────────────────────');
+                    lines.push(`Graph context (${hops}-hop expansion):`);
+                    lines.push('(Connected via Wikilinks/MOC — relevant by structure, not semantic match)\n');
+                    lines.push(...graphLines);
                 }
             }
 
-            if (linkedLines.length > 0) {
-                lines.push('─────────────────────────────────────────');
-                lines.push('Linked context (1-hop wikilink neighbors):');
-                lines.push('(Connected via [[wikilinks]] — relevant by association, not semantic match)\n');
-                lines.push(...linkedLines);
+            // ── Implicit connections (FEATURE-1503): semantically similar, no direct link ──
+            const implicitService = this.plugin.implicitConnectionService;
+            let implicitCount = 0;
+            if (implicitService && this.plugin.settings.enableImplicitConnections) {
+                const allShown = new Set([
+                    ...results.map((r) => r.path),
+                    ...(graphStore && this.plugin.settings.enableGraphExpansion ? Array.from(new Set<string>()) : []),
+                ]);
+                // Add graph-linked paths to exclusion set
+                // (seenGraph is scoped above — we reconstruct from results + graph section)
+                const implicitLines: string[] = [];
+
+                for (const r of results) {
+                    if (implicitLines.length >= 3) break;
+                    const neighbors = implicitService.getImplicitNeighbors(r.path, 3);
+                    for (const n of neighbors) {
+                        if (implicitLines.length >= 3) break;
+                        if (allShown.has(n.path)) continue;
+                        allShown.add(n.path);
+                        const chunks: string[] = await semanticIndex.getChunksByPath(n.path);
+                        if (chunks.length === 0) continue;
+                        implicitLines.push(`${implicitLines.length + 1}. ${toWikilink(n.path)} — \`${n.path}\` (similarity: ${n.similarity.toFixed(2)})`);
+                        implicitLines.push(truncate(chunks[0]));
+                        implicitLines.push('');
+                    }
+                }
+
+                if (implicitLines.length > 0) {
+                    implicitCount = implicitLines.length;
+                    lines.push('─────────────────────────────────────────');
+                    lines.push('Implicit connections (semantically similar, no direct link):\n');
+                    lines.push(...implicitLines);
+                }
             }
 
             callbacks.pushToolResult(lines.join('\n'));
-            callbacks.log(`Hybrid search: "${query}" → ${results.length} results (${kwCount} keyword), ${shownLinked.size} linked`);
+            callbacks.log(`Hybrid search: "${query}" → ${results.length} results (${kwCount} keyword), ${graphLinkedCount} graph, ${implicitCount} implicit`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('semantic_search', error);
