@@ -173,7 +173,7 @@ onMounted(() => {
 
 <template>
   <section class="landing-hero">
-    <a href="/guide/getting-started" class="landing-badge">
+    <a href="/releases/v2.2.8" class="landing-badge">
       <span class="landing-badge-version">v2.2.8</span>
       <span>Knowledge Layer and MCP Connector</span>
     </a>
