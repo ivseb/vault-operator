@@ -45,17 +45,17 @@ const guideSidebarDE = [
     text: 'Erste Schritte',
     items: [
       { text: 'Installation & Schnellstart', link: '/de/guide/getting-started' },
-      { text: 'Dein erstes Gespraech', link: '/de/guide/first-conversation' },
-      { text: 'Modell waehlen', link: '/de/guide/choosing-a-model' },
+      { text: 'Dein erstes Gespräch', link: '/de/guide/first-conversation' },
+      { text: 'Modell wählen', link: '/de/guide/choosing-a-model' },
     ],
   },
   {
     text: 'Arbeiten mit Obsilo',
     items: [
-      { text: 'Chat-Oberflaeche', link: '/de/guide/working-with-obsilo/chat-interface' },
+      { text: 'Chat-Oberfläche', link: '/de/guide/working-with-obsilo/chat-interface' },
       { text: 'Vault-Operationen', link: '/de/guide/working-with-obsilo/vault-operations' },
       { text: 'Wissen entdecken', link: '/de/guide/working-with-obsilo/knowledge-discovery' },
-      { text: 'Gedaechtnis & Personalisierung', link: '/de/guide/working-with-obsilo/memory-personalization' },
+      { text: 'Gedächtnis & Personalisierung', link: '/de/guide/working-with-obsilo/memory-personalization' },
       { text: 'Sicherheit & Kontrolle', link: '/de/guide/working-with-obsilo/safety-control' },
     ],
   },
@@ -170,8 +170,8 @@ export default withMermaid(
         themeConfig: {
           nav: [
             { text: 'Anleitung', link: '/de/guide/getting-started', activeMatch: '/de/guide/' },
-            { text: 'How It Works', link: '/dev/', activeMatch: '/dev/' },
-            { text: 'About', link: '/about' },
+            { text: 'Architektur', link: '/dev/', activeMatch: '/dev/' },
+            { text: 'Über uns', link: '/de/about' },
           ],
           sidebar: {
             '/de/guide/': guideSidebarDE,
@@ -183,16 +183,16 @@ export default withMermaid(
           },
           footer: {
             message: '<a href="https://github.com/pssah4/obsilo/blob/main/LICENSE">Apache 2.0</a> | <a href="/imprint">Impressum</a>',
-            copyright: 'Bereitgestellt ohne Gewaehrleistung oder Haftung.',
+            copyright: 'Bereitgestellt ohne Gewährleistung oder Haftung.',
           },
           docFooter: {
             prev: 'Vorherige Seite',
-            next: 'Naechste Seite',
+            next: 'Nächste Seite',
           },
           outline: { label: 'Auf dieser Seite' },
           lastUpdated: { text: 'Zuletzt aktualisiert' },
-          returnToTopLabel: 'Zurueck nach oben',
-          sidebarMenuLabel: 'Menue',
+          returnToTopLabel: 'Zurück nach oben',
+          sidebarMenuLabel: 'Menü',
           darkModeSwitchLabel: 'Design',
         },
       },

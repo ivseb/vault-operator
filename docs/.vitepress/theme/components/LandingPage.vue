@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import { useData } from 'vitepress'
+
+const { lang } = useData()
+const isDE = computed(() => lang.value === 'de')
 
 const typewriterText = ref<HTMLSpanElement>()
 const mentionDropdown = ref<HTMLDivElement>()
@@ -42,6 +46,36 @@ const prompts: Prompt[] = [
   'Search the internet for the latest Python release and create a summary note.',
 ]
 
+const promptsDE: Prompt[] = [
+  {
+    segments: [
+      { type: 'text', value: 'Finde alle Notizen zu ' },
+      { type: 'mention', typed: 'Agenti', full: 'AgenticAI', file: 'AgenticAI.md' },
+      { type: 'text', value: ' und erstelle eine Base.' },
+    ],
+  },
+  'Erstelle ein Canvas auf Basis dieser Base, das die Verbindungen zwischen den Notizen zeigt.',
+  'Beschreibe die Verbindungen zwischen diesen Notizen im Canvas und beschrifte die Pfeile.',
+  'Zeige mir alle Meeting-Notizen aus dem Januar mit John Doe.',
+  {
+    segments: [
+      { type: 'text', value: 'Erstelle eine Zusammenfassung dieses Meetings ' },
+      { type: 'mention', typed: 'proce', full: 'process-analysis-sales-dpt', file: 'process-analysis-sales-dpt.md' },
+      { type: 'text', value: ' als neue Meeting-Notiz.' },
+    ],
+  },
+  'Erstelle ein draw.io-Diagramm, das den Prozess aus diesem Meeting als Flowchart visualisiert.',
+  {
+    segments: [
+      { type: 'text', value: 'Fasse das Brainstorming in ' },
+      { type: 'mention', typed: 'produ', full: 'product-launch-ideas', file: 'product-launch-ideas.md' },
+      { type: 'text', value: ' zusammen und visualisiere die Ideen als Excalidraw-Grafik.' },
+    ],
+  },
+  '\u00c4ndere die Tags in den Metadaten aller Notizen von "agenticai" zu "Agentic-AI".',
+  'Suche im Internet nach dem neuesten Python-Release und erstelle eine Zusammenfassungs-Notiz.',
+]
+
 function escHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -64,6 +98,7 @@ onMounted(() => {
   if (!el || !dropdown || !dropdownItemEl) return
 
   let promptIdx = 0
+  const activePrompts = isDE.value ? promptsDE : prompts
 
   function animateSimple(text: string, onDone: () => void) {
     let ci = 0
@@ -160,8 +195,8 @@ onMounted(() => {
   }
 
   function next() {
-    const p = prompts[promptIdx]
-    promptIdx = (promptIdx + 1) % prompts.length
+    const p = activePrompts[promptIdx]
+    promptIdx = (promptIdx + 1) % activePrompts.length
     if (isSimple(p)) animateSimple(p, next)
     else animateComplex(p as ComplexPrompt, next)
   }
@@ -171,12 +206,15 @@ onMounted(() => {
 
 <template>
   <section class="landing-hero">
-    <a href="/guide/getting-started" class="landing-badge">
-      <span class="landing-badge-version">v2.2</span>
-      <span>Open Source</span>
+    <a :href="isDE ? '/de/guide/getting-started' : '/guide/getting-started'" class="landing-badge">
+      <span class="landing-badge-version">v2.2.8</span>
+      <span>Knowledge Layer and MCP Connector </span>
     </a>
 
-    <h1 class="landing-title">Your Obsidian vault,<br>with a real AI Agent.</h1>
+    <h1 class="landing-title">
+      <template v-if="isDE">Dein Obsidian Vault,<br>mit einem echten AI Agent.</template>
+      <template v-else>Your Obsidian vault,<br>with a real AI Agent.</template>
+    </h1>
 
     <div class="landing-chat">
       <div class="landing-chat-header">
@@ -192,16 +230,30 @@ onMounted(() => {
       </div>
     </div>
 
-    <p class="landing-sub">Learns your vault, your rules, your workflows.</p>
+    <p class="landing-sub">
+      <template v-if="isDE">Lernt deinen Vault, deine Regeln, deine Workflows.</template>
+      <template v-else>Learns your vault, your rules, your workflows.</template>
+    </p>
     <p class="landing-detail">
-      55+ tools, hybrid semantic search, knowledge graph, 3-tier memory,<br>
-      multi-agent workflows, plugin discovery, office document creation, and full safety controls.<br>
-      Local-first. Open source. Always free.
+      <template v-if="isDE">
+        55+ Tools, hybride semantische Suche, Wissensgraph, 3-Stufen-Ged&#228;chtnis,<br>
+        Multi-Agent-Workflows, Plugin-Erkennung, Office-Dokumente und volle Sicherheitskontrolle.<br>
+        Lokal. Open Source. Immer kostenlos.
+      </template>
+      <template v-else>
+        55+ tools, hybrid semantic search, knowledge graph, 3-tier memory,<br>
+        multi-agent workflows, plugin discovery, office document creation, and full safety controls.<br>
+        Local-first. Open source. Always free.
+      </template>
     </p>
 
     <div class="landing-cta">
-      <a href="/guide/getting-started" class="landing-btn-primary">Get Started</a>
-      <a href="/dev/" class="landing-btn-secondary">How It Works</a>
+      <a :href="isDE ? '/de/guide/getting-started' : '/guide/getting-started'" class="landing-btn-primary">
+        {{ isDE ? 'Loslegen' : 'Get Started' }}
+      </a>
+      <a href="/dev/" class="landing-btn-secondary">
+        {{ isDE ? 'Architektur' : 'How It Works' }}
+      </a>
     </div>
   </section>
 </template>

@@ -1,52 +1,52 @@
 ---
-title: Chat-Oberflaeche
-description: Anhaenge, @-Erwaehnung, Tool-Auswahl, Chat-Verlauf und Tastenkuerzel.
+title: Chat-Oberfläche
+description: Anhänge, @-Erwähnung, Tool-Auswahl, Chat-Verlauf und Tastenkürzel.
 ---
 
-# Chat-Oberflaeche
+# Chat-Oberfläche
 
-Die Obsilo-Seitenleiste ist der Ort, an dem du mit dem Agent sprichst, Dateien anhaengst, vergangene Gespraeche durchsuchst und in Echtzeit beobachten kannst, was der Agent tut. Diese Seite erklaert jeden Teil der Oberflaeche.
+Die Obsilo-Seitenleiste ist der Ort, an dem du mit dem Agent sprichst, Dateien anhängst, vergangene Gespräche durchsuchst und in Echtzeit beobachten kannst, was der Agent tut. Diese Seite erklärt jeden Teil der Oberfläche.
 
 ## Das Chat-Panel
 
-Oeffne Obsilo ueber das Icon in der linken Seitenleiste. Das Panel besteht aus drei Bereichen:
+Öffne Obsilo über das Icon in der linken Seitenleiste. Das Panel besteht aus drei Bereichen:
 
 - **Toolbar** oben -- Mode-Auswahl, Modell-Auswahl und der Verlauf-Button
-- **Nachrichtenbereich** in der Mitte -- dein Gespraech, Activity Blocks und Approval Cards
+- **Nachrichtenbereich** in der Mitte -- dein Gespräch, Activity Blocks und Approval Cards
 - **Eingabeleiste** unten -- Textfeld, Anhangs-Button und Sende-Button
 
 ## Nachrichten senden
 
-Tippe deine Nachricht ein und druecke **Enter** zum Senden. Fuer mehrzeilige Nachrichten druecke **Shift+Enter**, um eine neue Zeile einzufuegen.
+Tippe deine Nachricht ein und drücke **Enter** zum Senden. Für mehrzeilige Nachrichten drücke **Shift+Enter**, um eine neue Zeile einzufügen.
 
 :::tip Konfigurierbarer Sende-Shortcut
-Unter **Settings > Obsilo Agent > Interface** kannst du den Sende-Shortcut auf **Ctrl+Enter** (bzw. **Cmd+Enter** auf dem Mac) aendern, falls du Enter lieber fuer Zeilenumbrueche nutzen moechtest.
+Unter **Settings > Obsilo Agent > Interface** kannst du den Sende-Shortcut auf **Ctrl+Enter** (bzw. **Cmd+Enter** auf dem Mac) ändern, falls du Enter lieber für Zeilenumbrüche nutzen möchtest.
 :::
 
-## Anhaenge
+## Anhänge
 
-Du kannst Dateien anhaengen, um dem Agent zusaetzlichen Kontext zu geben. Drei Wege zum Anhaengen:
+Du kannst Dateien anhängen, um dem Agent zusätzlichen Kontext zu geben. Drei Wege zum Anhängen:
 
 - **Drag and Drop** -- ziehe eine Datei vom Desktop oder Dateimanager auf die Chat-Eingabe
-- **Aus der Zwischenablage einfuegen** -- Screenshots und kopierte Bilder werden automatisch hinzugefuegt
-- **Klick auf das Bueroklammer-Icon** neben dem Eingabefeld, um Dateien auszuwaehlen
+- **Aus der Zwischenablage einfügen** -- Screenshots und kopierte Bilder werden automatisch hinzugefügt
+- **Klick auf das Büroklammer-Icon** neben dem Eingabefeld, um Dateien auszuwählen
 
-### Unterstuetzte Dateitypen
+### Unterstützte Dateitypen
 
 | Typ | Beispiele | Hinweise |
 |-----|-----------|----------|
 | Bilder | PNG, JPG, GIF, WebP | Der Agent kann Bildinhalte sehen und beschreiben |
-| Office-Dokumente | PPTX, DOCX, XLSX | Inhalte werden extrahiert und als Kontext hinzugefuegt |
+| Office-Dokumente | PPTX, DOCX, XLSX | Inhalte werden extrahiert und als Kontext hinzugefügt |
 | PDF | Beliebige PDF-Dateien | Text wird extrahiert, damit der Agent ihn lesen kann |
-| Textdateien | Markdown, TXT, CSV, JSON | Werden als Klartext-Kontext hinzugefuegt |
+| Textdateien | Markdown, TXT, CSV, JSON | Werden als Klartext-Kontext hinzugefügt |
 
 :::warning 50 MB Limit
-Jeder Anhang kann bis zu 50 MB gross sein. Sehr grosse Dateien koennen einen erheblichen Teil des Kontextfensters des Modells belegen, sodass weniger Platz fuer das Gespraech bleibt.
+Jeder Anhang kann bis zu 50 MB groß sein. Sehr große Dateien können einen erheblichen Teil des Kontextfensters des Modells belegen, sodass weniger Platz für das Gespräch bleibt.
 :::
 
-## @-Erwaehnung
+## @-Erwähnung
 
-Tippe **@** im Eingabefeld, um deinen Vault nach Dateinamen zu durchsuchen. Ein Dropdown erscheint waehrend der Eingabe und zeigt passende Notizen an. Waehle eine Datei aus, um sie als Kontext anzuhaengen.
+Tippe **@** im Eingabefeld, um deinen Vault nach Dateinamen zu durchsuchen. Ein Dropdown erscheint während der Eingabe und zeigt passende Notizen an. Wähle eine Datei aus, um sie als Kontext anzuhängen.
 
 Das ist der schnellste Weg, den Agent auf eine bestimmte Notiz zu verweisen, ohne den Chat zu verlassen.
 
@@ -54,30 +54,30 @@ Das ist der schnellste Weg, den Agent auf eine bestimmte Notiz zu verweisen, ohn
 
 ## Workflow- und Prompt-Auswahl
 
-Tippe **/** im Eingabefeld, um die Auswahl zu oeffnen. Dort siehst du:
+Tippe **/** im Eingabefeld, um die Auswahl zu öffnen. Dort siehst du:
 
 - **Workflows** -- mehrstufige Aufgabenvorlagen (z.B. ein Thema recherchieren, einen Ordner reorganisieren)
-- **Support Prompts** -- vorgefertigte Prompts fuer gaengige Aufgaben
+- **Support Prompts** -- vorgefertigte Prompts für gängige Aufgaben
 
-Waehle einen Eintrag aus, um ihn in deine Nachricht einzufuegen. Du kannst den Text vor dem Senden noch bearbeiten.
+Wähle einen Eintrag aus, um ihn in deine Nachricht einzufügen. Du kannst den Text vor dem Senden noch bearbeiten.
 
 ## Activity Blocks
 
 Wenn der Agent arbeitet, erscheint ein **Activity Block** unterhalb seiner Antwort. Er zeigt jeden Tool Call in Echtzeit:
 
 - Der **Tool-Name** und wichtige Parameter (z.B. welche Datei gelesen oder welche Suchanfrage verwendet wurde)
-- Eine **Ergebnis-Vorschau** -- klicke zum Aufklappen fuer die vollstaendigen Details
-- **Diff-Badges** bei Schreiboperationen, die hinzugefuegte und entfernte Zeilen anzeigen (z.B. `+12 / -3`)
+- Eine **Ergebnis-Vorschau** -- klicke zum Aufklappen für die vollständigen Details
+- **Diff-Badges** bei Schreiboperationen, die hinzugefügte und entfernte Zeilen anzeigen (z.B. `+12 / -3`)
 
-Activity Blocks werden standardmaessig eingeklappt, sobald der Agent fertig ist. Du kannst sie jederzeit aufklappen.
+Activity Blocks werden standardmäßig eingeklappt, sobald der Agent fertig ist. Du kannst sie jederzeit aufklappen.
 
 :::info Warum das wichtig ist
-Activity Blocks geben dir volle Transparenz. Du kannst jederzeit genau sehen, was der Agent getan hat, welche Dateien er gelesen und was er geaendert hat.
+Activity Blocks geben dir volle Transparenz. Du kannst jederzeit genau sehen, was der Agent getan hat, welche Dateien er gelesen und was er geändert hat.
 :::
 
 ## Approval Cards
 
-Wenn der Agent eine Schreiboperation ausfuehren moechte (und Auto-Approve fuer diese Kategorie deaktiviert ist), erscheint eine **Approval Card**. Sie zeigt genau, was der Agent vorhat, und bietet dir drei Optionen:
+Wenn der Agent eine Schreiboperation ausführen möchte (und Auto-Approve für diese Kategorie deaktiviert ist), erscheint eine **Approval Card**. Sie zeigt genau, was der Agent vorhat, und bietet dir drei Optionen:
 
 - **Allow once** -- diese einzelne Aktion genehmigen
 - **Always allow** -- diese Kategorie ab sofort automatisch genehmigen
@@ -87,49 +87,49 @@ Details zu den Berechtigungskategorien findest du unter [Sicherheit & Kontrolle]
 
 ## Die Undo-Leiste
 
-Nachdem der Agent eine Aufgabe abgeschlossen hat, bei der Dateien geaendert wurden, erscheint eine **Undo-Leiste** am unteren Rand des Gespraechs. Klicke auf **Undo**, um alle Aenderungen dieser Aufgabe rueckgaengig zu machen -- jede geaenderte Datei wird aus ihrem Checkpoint wiederhergestellt.
+Nachdem der Agent eine Aufgabe abgeschlossen hat, bei der Dateien geändert wurden, erscheint eine **Undo-Leiste** am unteren Rand des Gesprächs. Klicke auf **Undo**, um alle Änderungen dieser Aufgabe rückgängig zu machen -- jede geänderte Datei wird aus ihrem Checkpoint wiederhergestellt.
 
-Die Undo-Leiste bleibt sichtbar, bis du eine neue Nachricht sendest oder sie schliesst.
+Die Undo-Leiste bleibt sichtbar, bis du eine neue Nachricht sendest oder sie schließt.
 
 ## Chat-Verlauf
 
-Obsilo speichert jedes Gespraech automatisch. So greifst du auf deinen Verlauf zu:
+Obsilo speichert jedes Gespräch automatisch. So greifst du auf deinen Verlauf zu:
 
 1. Klicke auf das **Verlauf-Icon** in der Toolbar (Uhr-Symbol)
-2. Durchsuche vergangene Gespraeche -- jedes zeigt einen Titel, ein Datum und eine Vorschau
-3. Klicke auf ein Gespraech, um es **wiederherzustellen** und dort weiterzumachen, wo du aufgehoert hast
+2. Durchsuche vergangene Gespräche -- jedes zeigt einen Titel, ein Datum und eine Vorschau
+3. Klicke auf ein Gespräch, um es **wiederherzustellen** und dort weiterzumachen, wo du aufgehört hast
 
-Gespraeche erhalten automatisch einen Titel basierend auf ihrem Inhalt. Du kannst verknuepfte Gespraeche auch direkt aus deinen Notizen heraus finden -- siehe [Gedaechtnis & Personalisierung](/de/guide/working-with-obsilo/memory-personalization) fuer Chat-Linking.
+Gespräche erhalten automatisch einen Titel basierend auf ihrem Inhalt. Du kannst verknüpfte Gespräche auch direkt aus deinen Notizen heraus finden -- siehe [Gedächtnis & Personalisierung](/de/guide/working-with-obsilo/memory-personalization) für Chat-Linking.
 
 ## Kontextanzeige und Condensation
 
-Am oberen Rand des Nachrichtenbereichs zeigt ein kleiner Indikator an, wie viel des Kontextfensters des Modells aktuell belegt ist. Wenn Gespraeche laenger werden, kann Obsilo fruehere Nachrichten **kondensieren**, um innerhalb der Grenzen zu bleiben. Dabei passiert Folgendes:
+Am oberen Rand des Nachrichtenbereichs zeigt ein kleiner Indikator an, wie viel des Kontextfensters des Modells aktuell belegt ist. Wenn Gespräche länger werden, kann Obsilo frühere Nachrichten **kondensieren**, um innerhalb der Grenzen zu bleiben. Dabei passiert Folgendes:
 
-- Ein kurzer Hinweis erscheint im Gespraech
+- Ein kurzer Hinweis erscheint im Gespräch
 - Wichtige Fakten und Entscheidungen bleiben erhalten
-- Aeltere Tool Call Details werden ggf. zusammengefasst
+- Ältere Tool Call Details werden ggf. zusammengefasst
 
-Das geschieht automatisch und sorgt dafuer, dass auch lange Gespraeche reibungslos weiterlaufen.
+Das geschieht automatisch und sorgt dafür, dass auch lange Gespräche reibungslos weiterlaufen.
 
-## Tastenkuerzel
+## Tastenkürzel
 
-| Tastenkuerzel | Aktion |
+| Tastenkürzel | Aktion |
 |---------------|--------|
 | `Enter` | Nachricht senden (konfigurierbar) |
 | `Shift+Enter` | Neue Zeile in der Eingabe |
-| `@` | Datei-Erwaehnung oeffnen |
-| `/` | Workflow/Prompt-Auswahl oeffnen |
-| `Escape` | Auswahl schliessen oder aktuelle Eingabe abbrechen |
+| `@` | Datei-Erwähnung öffnen |
+| `/` | Workflow/Prompt-Auswahl öffnen |
+| `Escape` | Auswahl schließen oder aktuelle Eingabe abbrechen |
 
-## Tipps fuer ein besseres Chat-Erlebnis
+## Tipps für ein besseres Chat-Erlebnis
 
-1. **Haenge relevante Dateien an**, anstatt langen Text in die Nachricht zu kopieren. Anhaenge werden effizienter verarbeitet.
-2. **Nutze @-Erwaehnung**, wenn du weisst, welche Notiz du brauchst. Das ist schneller und praeziser, als den Agent suchen zu lassen.
-3. **Pruefe die Activity Blocks**, nachdem der Agent gearbeitet hat. Sie helfen dir zu lernen, welche Tools verfuegbar sind und wie der Agent Aufgaben angeht.
-4. **Starte ein neues Gespraech** fuer unzusammenhaengende Themen. Das haelt den Kontext fokussiert und vermeidet Condensation.
+1. **Hänge relevante Dateien an**, anstatt langen Text in die Nachricht zu kopieren. Anhänge werden effizienter verarbeitet.
+2. **Nutze @-Erwähnung**, wenn du weißt, welche Notiz du brauchst. Das ist schneller und präziser, als den Agent suchen zu lassen.
+3. **Prüfe die Activity Blocks**, nachdem der Agent gearbeitet hat. Sie helfen dir zu lernen, welche Tools verfügbar sind und wie der Agent Aufgaben angeht.
+4. **Starte ein neues Gespräch** für zusammenhanglose Themen. Das hält den Kontext fokussiert und vermeidet Condensation.
 
-## Naechste Schritte
+## Nächste Schritte
 
 - [Vault-Operationen](/de/guide/working-with-obsilo/vault-operations) -- Was der Agent mit deinen Dateien tun kann
-- [Wissen entdecken](/de/guide/working-with-obsilo/knowledge-discovery) -- Semantische Suche fuer bessere Ergebnisse einrichten
+- [Wissen entdecken](/de/guide/working-with-obsilo/knowledge-discovery) -- Semantische Suche für bessere Ergebnisse einrichten
 - [Sicherheit & Kontrolle](/de/guide/working-with-obsilo/safety-control) -- Berechtigungen, Checkpoints und das Audit-Log
