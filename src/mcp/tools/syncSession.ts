@@ -27,7 +27,7 @@ export async function handleSyncSession(
         return { content: [{ type: 'text', text: 'Error: transcript is required (array of {role, text})' }], isError: true };
     }
 
-    const sessionId = getAutoSessionId() ?? `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const sessionId = getAutoSessionId() ?? `mcp-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
     const results: string[] = [];
 

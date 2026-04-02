@@ -181,13 +181,14 @@ export async function handleToolCall(
     tool: string,
     args: Record<string, unknown>,
 ): Promise<McpToolResult> {
-    const handler = handlers[tool];
-    if (!handler) {
+    // Validate tool name against known handlers (CodeQL #62: prevent unvalidated dispatch)
+    if (!Object.prototype.hasOwnProperty.call(handlers, tool)) {
         return {
             content: [{ type: 'text', text: `Unknown tool: ${tool}` }],
             isError: true,
         };
     }
+    const handler = handlers[tool];
 
     // Auto-track session
     await ensureSession(plugin);

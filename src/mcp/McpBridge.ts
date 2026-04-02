@@ -358,11 +358,13 @@ export class McpBridge {
                 result,
             }));
         } catch (e) {
+            // CodeQL #63: Sanitize error -- do not expose stack traces or internal paths
+            const safeMessage = e instanceof Error ? e.message.split('\n')[0] : 'Internal server error';
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
                 jsonrpc: '2.0',
                 id: 0,
-                error: { code: -32603, message: e instanceof Error ? e.message : String(e) },
+                error: { code: -32603, message: safeMessage },
             }));
         }
     }
