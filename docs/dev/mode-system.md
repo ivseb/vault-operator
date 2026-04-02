@@ -37,7 +37,7 @@ flowchart LR
     C --> D[LLM sees only these tools]
 ```
 
-The model cannot call a tool it does not see. If your custom mode enables only `read` and `vault`, the model has no write tools in its schema. This is not a runtime check -- the tools are simply absent from the request.
+The model cannot call a tool it does not see. If your custom mode enables only `read` and `vault`, the model has no write tools in its schema. This is not a runtime check. The tools are simply absent from the request.
 
 Users can further restrict tools within a mode through `setModeToolOverride()`. Overrides can only remove tools, never add ones outside the mode's groups. You can narrow access but not escalate it.
 

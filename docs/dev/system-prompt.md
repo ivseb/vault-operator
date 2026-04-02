@@ -5,7 +5,7 @@ description: How the agent's system prompt is assembled from modular sections, s
 
 # System prompt
 
-The system prompt is the first thing the model sees. It tells the agent who it is, what tools it has, what rules to follow, and what the user's vault looks like. In Obsilo, the prompt is not a static string -- it is assembled from ~16 independent section modules, filtered by the active mode, and enriched with runtime context like skills and memory.
+The system prompt is the first thing the model sees. It tells the agent who it is, what tools it has, what rules to follow, and what the user's vault looks like. In Obsilo, the prompt is not a static string. It is assembled from 16 independent section modules, filtered by the active mode, and enriched with runtime context like skills and memory.
 
 The orchestrator is `buildSystemPromptForMode()` in `src/core/systemPrompt.ts`. The sections live in `src/core/prompts/sections/`.
 
@@ -38,7 +38,7 @@ Position matters. LLMs pay more attention to content near the top (primacy effec
 | 13 | Custom Instructions | User's global + per-mode instructions |
 | 14 | Rules | Conditional rules from `.obsilo/rules/` |
 
-Empty sections are filtered out before joining. If there is no memory context, the memory section is absent -- no hollow headers, no wasted tokens.
+Empty sections are filtered out before joining. If there is no memory context, the memory section is absent. No hollow headers, no wasted tokens.
 
 ## How skills get injected
 
@@ -47,11 +47,11 @@ Skills are markdown files that contain workflow instructions. They activate when
 1. `SkillLoader` reads skills from `.obsilo/skills/` and the bundled skill directory.
 2. The user's message is compared against each skill's trigger patterns.
 3. Matching skills are concatenated into the skills section.
-4. That section is placed at position 3 -- right after the mode definition -- for maximum attention.
+4. That section is placed at position 3, right after the mode definition, for maximum attention.
 
 Skills go before the tool list on purpose. They contain high-level strategy ("do X, then Y, then Z") that should guide which tools the agent picks. The agent reads the plan before it sees the toolkit.
 
-Self-authored skills -- ones the agent created via `manage_skill` -- follow the same path but land at position 7, after tools and plugin skills. They supplement the primary skills, not replace them.
+Self-authored skills (ones the agent created via `manage_skill`) follow the same path but land at position 7, after tools and plugin skills. They supplement the primary skills, not replace them.
 
 ## How memory gets injected
 
@@ -81,4 +81,4 @@ This avoids rebuilding a 5000+ token prompt on every loop iteration.
 
 ## Power steering
 
-During long-running tasks, `AgentTask` injects a synthetic user message every N iterations. It contains the active mode's role definition, active skill names, and a reminder to stay on task. This is not a system prompt change -- it is a user-role message appended to the conversation history. The model treats it as a gentle redirect.
+During long-running tasks, `AgentTask` injects a synthetic user message every N iterations. It contains the active mode's role definition, active skill names, and a reminder to stay on task. This is not a system prompt change. It is a user-role message appended to the conversation history. The model treats it as a gentle redirect.

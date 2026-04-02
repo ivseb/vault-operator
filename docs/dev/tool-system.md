@@ -36,7 +36,7 @@ The registry has one job beyond storage: `getToolDefinitions(mode)` filters tool
 
 ## Tool groups
 
-Tools are organized into six groups. Each group maps to a permission category -- that's why they matter, not just as labels.
+Tools are organized into six groups. Each group maps to a permission category. That's why they matter, not just as labels.
 
 | Group | What it contains | Effect on vault |
 |-------|-----------------|-----------------|
@@ -85,12 +85,12 @@ The distinction is simple: if `isWriteOperation` is false and the tool is in the
 
 Users and the agent itself can create tools at runtime. `DynamicToolFactory` (`src/core/tools/dynamic/`) builds a tool instance from a name, schema, and execute function. `DynamicToolLoader` persists these definitions so they survive across sessions.
 
-Dynamic tools go through the same `ToolExecutionPipeline` as built-in tools. No governance bypass -- a dynamic tool that writes files still needs approval and still gets checkpointed.
+Dynamic tools go through the same `ToolExecutionPipeline` as built-in tools. No governance bypass. A dynamic tool that writes files still needs approval and still gets checkpointed.
 
 ## Tool repetition detection
 
 `ToolRepetitionDetector` (`src/core/tool-execution/ToolRepetitionDetector.ts`) catches the agent when it gets stuck calling the same tool with the same arguments in a loop.
 
-It maintains a sliding window of the last 15 calls. If an identical `tool:input` combination appears 3 or more times, the call is blocked with a recoverable error. For search tools, it also checks semantic similarity -- queries with a Jaccard overlap above 0.5 that appear 3+ times are blocked too.
+It maintains a sliding window of the last 15 calls. If an identical `tool:input` combination appears 3 or more times, the call is blocked with a recoverable error. For search tools, it also checks semantic similarity. Queries with a Jaccard overlap above 0.5 that appear 3+ times are blocked too.
 
 The error is recoverable on purpose. The agent sees the message and can try a different approach. The `consecutiveMistakeLimit` in `AgentTask` is the ultimate safety net if the agent keeps failing anyway.

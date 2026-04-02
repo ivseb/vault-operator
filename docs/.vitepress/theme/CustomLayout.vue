@@ -1,42 +1,13 @@
 <script setup>
 import DefaultTheme from 'vitepress/theme'
 import LandingPage from './components/LandingPage.vue'
-import { useData, useRouter } from 'vitepress'
-import { ref } from 'vue'
+import { useData } from 'vitepress'
 
 const { Layout } = DefaultTheme
-const { frontmatter, isDark, lang, site } = useData()
-const router = useRouter()
+const { frontmatter, isDark } = useData()
 
 function toggleTheme() {
   isDark.value = !isDark.value
-}
-
-const locales = site.value.locales || {}
-const localeEntries = Object.entries(locales).map(([path, config]) => ({
-  path: path === 'root' ? '/' : `/${path}/`,
-  label: config.label || path,
-  lang: config.lang || 'en',
-}))
-
-function switchLocale(targetPath) {
-  const currentPath = router.route.path
-  const currentLocale = localeEntries.find(l => l.path !== '/' && currentPath.startsWith(l.path))
-  const relPath = currentLocale ? currentPath.slice(currentLocale.path.length - 1) : currentPath
-  if (targetPath === '/') {
-    router.go(relPath)
-  } else {
-    router.go(targetPath.slice(0, -1) + relPath)
-  }
-  showLangMenu.value = false
-}
-
-const showLangMenu = ref(false)
-function toggleLangMenu() {
-  showLangMenu.value = !showLangMenu.value
-  if (showLangMenu.value) {
-    setTimeout(() => document.addEventListener('click', () => { showLangMenu.value = false }, { once: true }), 0)
-  }
 }
 </script>
 
@@ -53,7 +24,7 @@ function toggleLangMenu() {
         <span>GitHub</span>
       </a>
 
-      <!-- Appearance toggle with sun/moon indicators -->
+      <!-- Appearance toggle -->
       <label class="theme-toggle" title="Toggle appearance">
         <input type="checkbox" :checked="!isDark" @change="toggleTheme" />
         <span class="toggle-track">
@@ -62,23 +33,6 @@ function toggleLangMenu() {
           <span class="toggle-thumb" />
         </span>
       </label>
-
-      <!-- Language dropdown -->
-      <div class="lang-select" v-if="localeEntries.length > 1">
-        <button class="lang-current" @click.stop="toggleLangMenu">
-          {{ lang === 'de' ? 'DE' : 'EN' }}
-          <svg width="10" height="6" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 1l4 4 4-4"/></svg>
-        </button>
-        <div class="lang-menu" v-show="showLangMenu">
-          <button
-            v-for="loc in localeEntries"
-            :key="loc.lang"
-            class="lang-item"
-            :class="{ active: lang === loc.lang }"
-            @click="switchLocale(loc.path)"
-          >{{ loc.label }}</button>
-        </div>
-      </div>
 
       <!-- Buy Me A Coffee -->
       <a href="https://buymeacoffee.com/sebastianhanke" target="_blank" rel="noopener noreferrer" class="bmc-header" title="Support">
@@ -101,7 +55,7 @@ function toggleLangMenu() {
 </template>
 
 <style scoped>
-/* GitHub link with logo + text */
+/* GitHub link */
 .github-link {
   display: inline-flex;
   align-items: center;
@@ -117,7 +71,7 @@ function toggleLangMenu() {
   color: var(--vp-c-text-1);
 }
 
-/* Appearance toggle with sun/moon */
+/* Appearance toggle */
 .theme-toggle {
   display: inline-flex;
   align-items: center;
@@ -170,65 +124,6 @@ function toggleLangMenu() {
   background: var(--vp-c-brand-1);
 }
 
-/* Language dropdown */
-.lang-select {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-.lang-current {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--vp-c-divider);
-  background: none;
-  color: var(--vp-c-text-2);
-  font-size: 12px;
-  font-weight: 600;
-  font-family: var(--vp-font-family-base);
-  padding: 3px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-.lang-current:hover {
-  border-color: var(--vp-c-text-3);
-  color: var(--vp-c-text-1);
-}
-.lang-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  background: var(--vp-c-bg-elv);
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 8px;
-  padding: 4px;
-  min-width: 100px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  z-index: 100;
-}
-.lang-item {
-  display: block;
-  width: 100%;
-  padding: 5px 10px;
-  border: none;
-  background: none;
-  color: var(--vp-c-text-2);
-  cursor: pointer;
-  border-radius: 4px;
-  text-align: left;
-  font-size: 13px;
-  font-family: var(--vp-font-family-base);
-}
-.lang-item:hover {
-  background: var(--vp-c-bg-soft);
-  color: var(--vp-c-text-1);
-}
-.lang-item.active {
-  color: var(--vp-c-brand-1);
-  font-weight: 600;
-}
-
 /* Buy Me A Coffee */
 .bmc-header {
   display: inline-flex;
@@ -247,7 +142,6 @@ function toggleLangMenu() {
 @media (max-width: 768px) {
   .github-link,
   .theme-toggle,
-  .lang-select,
   .bmc-header {
     display: none;
   }

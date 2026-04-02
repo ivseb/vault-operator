@@ -32,9 +32,9 @@ Any configured provider that supports embeddings will work. If you are using Ope
 
 The first build processes every note in your vault. This can take a few minutes for large vaults (1000+ notes). After that, the index updates automatically:
 
-- On startup -- new or changed files are re-indexed
-- On file changes -- edits trigger re-indexing after a short delay
-- Manually -- use the Rebuild Index button in settings at any time
+- On startup: new or changed files are re-indexed
+- On file changes: edits trigger re-indexing after a short delay
+- Manually: use the Rebuild Index button in settings at any time
 
 :::info Your notes stay local
 Embeddings are stored in a local database inside your vault. If you use a cloud embedding model, note content is sent to the provider for processing, but the resulting embeddings live only on your machine. With a local model, nothing leaves your device.
@@ -60,17 +60,17 @@ Combines the results from BM25 and semantic search into a single ranked list. No
 
 Beyond search, Obsilo builds a knowledge graph from the structure already in your vault:
 
-- Wikilinks -- `[[note]]` connections between your notes
-- Tags -- shared tags create implicit groupings
-- MOC properties -- Maps of Content link related topics
+- Wikilinks: `[[note]]` connections between your notes
+- Tags: shared tags create implicit groupings
+- MOC properties: Maps of Content link related topics
 
 When the agent searches, it can expand results through the graph. If a search finds Note A, and Note A links to Note B, the agent can follow that link to pull in related content. You configure how many hops the graph expansion follows in settings.
 
-**Example:** Searching for "machine learning" finds your note on Neural Networks. Graph expansion then follows its wikilinks to your notes on Training Data and Model Evaluation -- things you might not have found with search alone.
+**Example:** Searching for "machine learning" finds your note on Neural Networks. Graph expansion then follows its wikilinks to your notes on Training Data and Model Evaluation, things you might not have found with search alone.
 
 ## Implicit connections
 
-Obsilo can find notes that are semantically similar but not linked to each other. Two notes about closely related topics, written months apart, that you never connected -- the agent spots those.
+Obsilo can find notes that are semantically similar but not linked to each other. Two notes about closely related topics, written months apart, that you never connected. The agent spots those.
 
 When it finds them, a suggestion banner appears in the sidebar offering to show you the discovered relationships. In large vaults, this regularly surfaces connections you would not have found manually.
 
@@ -80,7 +80,7 @@ The larger your vault, the more useful implicit connections get.
 
 ## Local reranking
 
-After the initial search returns candidates, Obsilo can run a second pass using a cross-encoder model to improve result quality. This model runs entirely on your device via WebAssembly -- no data is sent anywhere.
+After the initial search returns candidates, Obsilo can run a second pass using a cross-encoder model to improve result quality. This model runs entirely on your device via WebAssembly, so no data is sent anywhere.
 
 The reranker (based on ms-marco-MiniLM) reads each candidate alongside your query and produces a more accurate relevance score. False positives get pushed down; actually relevant results move up.
 
@@ -109,13 +109,13 @@ For vaults with 5000+ notes, the initial index build may take 10-20 minutes depe
 
 ## Examples
 
-- *"Find notes related to my goals for this year"* -- semantic search finds notes about resolutions, plans, and objectives
-- *"What do I know about distributed systems?"* -- searches by meaning across your entire vault
-- *"Show me notes similar to @architecture-decisions"* -- finds thematically related notes
-- *"Are there any notes I should link together?"* -- triggers implicit connection discovery
+- *"Find notes related to my goals for this year"* (semantic search finds notes about resolutions, plans, and objectives)
+- *"What do I know about distributed systems?"* (searches by meaning across your entire vault)
+- *"Show me notes similar to @architecture-decisions"* (finds thematically related notes)
+- *"Are there any notes I should link together?"* (triggers implicit connection discovery)
 
 ## Next steps
 
-- [Vault Operations](/guide/working-with-obsilo/vault-operations) -- Reading, writing, and organizing your files
-- [Memory & Personalization](/guide/working-with-obsilo/memory-personalization) -- How Obsilo remembers your preferences
-- [Settings Reference](/guide/reference/settings) -- All embedding and search settings explained
+- [Vault Operations](/guide/working-with-obsilo/vault-operations): Reading, writing, and organizing your files
+- [Memory & Personalization](/guide/working-with-obsilo/memory-personalization): How Obsilo remembers your preferences
+- [Settings Reference](/guide/reference/settings): All embedding and search settings explained

@@ -13,10 +13,10 @@ A sub-agent is a separate agent instance spawned by the main agent. It gets its 
 
 ### When sub-agents help
 
-- Research fan-out -- Search multiple topics in parallel instead of sequentially
-- Divide and conquer -- Break a large task into independent pieces
-- Mode isolation -- Run a read-only analysis in Ask mode while the parent works in Agent mode
-- Long tasks -- Keep the main conversation focused while a sub-agent handles a side task
+- Research fan-out: search multiple topics in parallel instead of sequentially
+- Divide and conquer: break a large task into independent pieces
+- Mode isolation: run a read-only analysis in Ask mode while the parent works in Agent mode
+- Long tasks: keep the main conversation focused while a sub-agent handles a side task
 
 ## How `new_task` works
 
@@ -37,7 +37,7 @@ Sub-agents can spawn their own sub-agents, but Obsilo enforces a maximum depth o
 ```
 Main Agent (level 0)
   -> Sub-Agent A (level 1)
-      -> Sub-Agent A1 (level 2) -- maximum depth, cannot spawn further
+      -> Sub-Agent A1 (level 2, maximum depth, cannot spawn further)
   -> Sub-Agent B (level 1)
 ```
 
@@ -63,7 +63,7 @@ What happens:
 
 ### Divide and conquer
 
-Your prompt: *"Reorganize my Projects/ folder -- group notes by status (active, completed, on hold) and create an index note"*
+Your prompt: *"Reorganize my Projects/ folder. Group notes by status (active, completed, on hold) and create an index note"*
 
 What happens:
 1. A sub-agent analyzes all notes and classifies them by status
@@ -102,7 +102,7 @@ Highlight any variance above 10%.
 This integrates with your existing task management: Dataview queries, kanban boards, or any plugin that reads frontmatter.
 
 :::info Not just agent tasks
-Task extraction works on any checklist the agent produces. Project plans, follow-ups from meeting notes, research next steps -- if the agent writes `- [ ]` items, you can capture them.
+Task extraction works on any checklist the agent produces. Project plans, follow-ups from meeting notes, research next steps: if the agent writes `- [ ]` items, you can capture them.
 :::
 
 ## Tips for multi-agent work
@@ -119,6 +119,6 @@ Sub-agents consume additional API calls. Each child agent has its own conversati
 
 ## Next steps
 
-- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows) -- Create workflows that leverage sub-agents
-- [Office Documents](/guide/advanced/office-documents) -- Delegate document creation to sub-agents
-- [Connectors](/guide/advanced/connectors) -- Connect external tools for sub-agents to use
+- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows): Create workflows that leverage sub-agents
+- [Office Documents](/guide/advanced/office-documents): Delegate document creation to sub-agents
+- [Connectors](/guide/advanced/connectors): Connect external tools for sub-agents to use

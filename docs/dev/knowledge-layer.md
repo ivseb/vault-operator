@@ -5,7 +5,7 @@ description: How Obsilo finds relevant information in your vault through a 4-sta
 
 # Knowledge layer
 
-A vault can hold thousands of notes. The agent's context window fits maybe a dozen. The knowledge layer bridges that gap: given a query, it finds the notes most likely to be useful -- without calling any external API.
+A vault can hold thousands of notes. The agent's context window fits maybe a dozen. The knowledge layer bridges that gap: given a query, it finds the notes most likely to be useful, without calling any external API.
 
 Everything runs locally. The vector math, the graph traversal, the reranking model. Your data never leaves the device.
 
@@ -28,27 +28,27 @@ flowchart LR
     R --> Out[Top K results]
 ```
 
-Stage 1 -- vector search. The query is embedded into a vector (using your configured embedding model), then compared against pre-computed chunk vectors via cosine similarity. This finds semantically similar content regardless of wording. A query about "team morale" will match notes about "employee satisfaction" because the vectors are close in embedding space.
+Stage 1: vector search. The query is embedded into a vector (using your configured embedding model), then compared against pre-computed chunk vectors via cosine similarity. This finds semantically similar content regardless of wording. A query about "team morale" will match notes about "employee satisfaction" because the vectors are close in embedding space.
 
 Notes are split into chunks before embedding. Each chunk gets its own row in the `vectors` table. The chunking happens during indexing, not at query time, so search is fast even on large vaults.
 
-Stage 2 -- graph expansion. The initial vector results are seed nodes. The system follows Wikilinks and frontmatter properties outward using breadth-first search. If your "Q3 retrospective" note links to "Action items" and "Team feedback", those get pulled in too. The `GraphStore` (`src/core/knowledge/GraphStore.ts`) handles the BFS traversal over the `edges` table, tracking hop distance so closer neighbors rank higher.
+Stage 2: graph expansion. The initial vector results are seed nodes. The system follows Wikilinks and frontmatter properties outward using breadth-first search. If your "Q3 retrospective" note links to "Action items" and "Team feedback", those get pulled in too. The `GraphStore` (`src/core/knowledge/GraphStore.ts`) handles the BFS traversal over the `edges` table, tracking hop distance so closer neighbors rank higher.
 
 The graph distinguishes between body links (Wikilinks in note content) and frontmatter links (properties like `related`, `parent`, or custom MOC fields). Both types contribute to expansion, but they're stored with different `link_type` values so the system can weight them differently.
 
-Stage 3 -- implicit connections. Some notes are similar but have no explicit link between them. The `ImplicitConnectionService` (`src/core/knowledge/ImplicitConnectionService.ts`) pre-computes these pairs in a background job by comparing vectors across the vault and storing high-similarity pairs. During retrieval, if any current candidate has an implicit connection to another note, that note gets added to the pool.
+Stage 3: implicit connections. Some notes are similar but have no explicit link between them. The `ImplicitConnectionService` (`src/core/knowledge/ImplicitConnectionService.ts`) pre-computes these pairs in a background job by comparing vectors across the vault and storing high-similarity pairs. During retrieval, if any current candidate has an implicit connection to another note, that note gets added to the pool.
 
-This stage is what separates the knowledge layer from a standard search engine. It surfaces relationships that exist semantically but not structurally. You might have two meeting notes from different projects that discuss the same technical problem -- no link between them, no shared tags, but the implicit connection picks them up. The `dismissed_pairs` table lets you prune false positives: if the system keeps surfacing a pair that isn't actually related, you can dismiss it.
+This stage is what separates the knowledge layer from a standard search engine. It surfaces relationships that exist semantically but not structurally. You might have two meeting notes from different projects that discuss the same technical problem. No link between them, no shared tags, but the implicit connection picks them up. The `dismissed_pairs` table lets you prune false positives: if the system keeps surfacing a pair that isn't actually related, you can dismiss it.
 
-Stage 4 -- reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (Xenova/ms-marco-MiniLM-L-6-v2 via transformers.js WASM). Unlike the embedding model which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) downloads the model from HuggingFace on first use and caches it locally.
+Stage 4: reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (Xenova/ms-marco-MiniLM-L-6-v2 via transformers.js WASM). Unlike the embedding model which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) downloads the model from HuggingFace on first use and caches it locally.
 
 The cross-encoder is small (about 80 MB) and runs entirely on CPU via WASM. First-time download takes a few seconds; after that it loads from the local cache in under a second.
 
 ## Indexing
 
-The knowledge layer is only as good as its index. Vault events (file create, modify, delete, rename) trigger re-indexing through a debounced listener registered in `main.ts`. Small edits don't cause an immediate full re-index -- the debounce groups rapid changes into a single indexing pass. When a file changes, only its chunks are re-embedded; the rest of the index stays untouched.
+The knowledge layer is only as good as its index. Vault events (file create, modify, delete, rename) trigger re-indexing through a debounced listener registered in `main.ts`. Small edits don't cause an immediate full re-index. The debounce groups rapid changes into a single indexing pass. When a file changes, only its chunks are re-embedded; the rest of the index stays untouched.
 
-The graph (edges and tags) is re-extracted on each index run. This is fast because it reads Obsidian's metadata cache rather than parsing Markdown directly. The implicit connections are recomputed less frequently -- they run as a background job after the main indexing pass, since comparing every vector pair is more expensive.
+The graph (edges and tags) is re-extracted on each index run. This is fast because it reads Obsidian's metadata cache rather than parsing Markdown directly. The implicit connections are recomputed less frequently. They run as a background job after the main indexing pass, because comparing every vector pair is more expensive.
 
 ## Storage
 
@@ -67,13 +67,13 @@ The database supports three storage locations with a fallback chain:
 - Local: `{vault}/.obsidian-agent/knowledge.db`
 - Obsidian Sync: `{vault}/{pluginDir}/knowledge.db`
 
-The schema is versioned (currently v5). When a schema change ships, `KnowledgeDB` runs migration logic on open. If the migration fails, the database is recreated from scratch -- re-indexing is fast enough that losing the cache is acceptable.
+The schema is versioned (currently v5). When a schema change ships, `KnowledgeDB` runs migration logic on open. If the migration fails, the database is recreated from scratch. Re-indexing is fast enough that losing the cache is acceptable.
 
 ## Background enrichment
 
 Chunk embeddings get a second pass. The `enriched` flag on each vector row tracks whether contextual prefixes have been added. A background job reads un-enriched chunks and prepends document-level context (file path, heading hierarchy, surrounding content) before re-embedding. This improves retrieval quality because a chunk reading "The deadline was moved to Friday" becomes more useful when prefixed with "From: Project Alpha / Status Updates /".
 
-Enrichment runs at low priority during idle time. It doesn't block search -- un-enriched chunks are still searchable, just slightly less accurate. On a vault with 5,000 notes, initial indexing might take a few minutes. The enrichment pass runs afterward and can take 10-20 minutes depending on the embedding model's speed.
+Enrichment runs at low priority during idle time. It doesn't block search. Un-enriched chunks are still searchable, just slightly less accurate. On a vault with 5,000 notes, initial indexing might take a few minutes. The enrichment pass runs afterward and can take 10-20 minutes depending on the embedding model's speed.
 
 ## Search performance
 
@@ -89,6 +89,6 @@ Reranking is the slowest stage. The cross-encoder runs on CPU via WASM, adding 1
 
 ## How results reach the agent
 
-The knowledge layer is consumed through two tools. `semantic_search` is the direct interface -- the agent provides a query and gets ranked results. `search_files` combines keyword matching with semantic search when the knowledge layer is available, falling back to pure keyword search when it isn't.
+The knowledge layer is consumed through two tools. `semantic_search` is the direct interface. The agent provides a query and gets ranked results. `search_files` combines keyword matching with semantic search when the knowledge layer is available, falling back to pure keyword search when it isn't.
 
 Results include the matching text excerpt, the file path, the relevance score, and (when graph expansion contributed) the connection path that led to the result. This connection context helps the agent explain *why* a note is relevant, not just *that* it is.

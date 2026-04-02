@@ -7,10 +7,10 @@ description: Sebastian Hanke -- creator of Obsilo Agent, an agentic AI operating
   <img src="/assets/AD7E0394-7084-4038-99B8-90C331AEF7BF_1_105_c.jpeg" alt="Sebastian Hanke" style="width: 140px; height: 140px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
   <div>
     <h1 style="margin: 0 0 0.25rem;">Sebastian Hanke</h1>
-    <p style="margin: 0; color: var(--vp-c-text-2);">Builder -- Product thinker -- AI toolmaker</p>
+    <p style="margin: 0; color: var(--vp-c-text-2);">Builder | Product thinker | AI toolmaker</p>
     <p style="margin: 0.75rem 0 0;">
-      <a href="https://www.linkedin.com/in/sebastianhanke/" target="_blank" rel="noopener noreferrer">LinkedIn</a> --
-      <a href="https://github.com/pssah4/obsilo" target="_blank" rel="noopener noreferrer">GitHub</a> --
+      <a href="https://www.linkedin.com/in/sebastianhanke/" target="_blank" rel="noopener noreferrer">LinkedIn</a> |
+      <a href="https://github.com/pssah4/obsilo" target="_blank" rel="noopener noreferrer">GitHub</a> |
       <a href="mailto:***REMOVED***">***REMOVED***</a>
     </p>
   </div>
@@ -20,13 +20,13 @@ description: Sebastian Hanke -- creator of Obsilo Agent, an agentic AI operating
 
 ## About me
 
-I'm Sebastian, a product and technology generalist based in Germany. I've spent most of my career working on strategy, product development, and applied technology -- sometimes with early-stage projects, sometimes with established teams.
+I'm Sebastian, a product and technology generalist based in Germany. I've spent most of my career working on strategy, product development, and applied technology, sometimes with early-stage projects, sometimes with established teams.
 
 My interest in knowledge work, thinking tools, and AI brought me to Obsidian. From there I built Obsilo Agent: an autonomous AI layer for your vault. It runs on local or remote models of your choice, respects your privacy, and is fully open source.
 
 ## Why Obsilo Agent
 
-I wanted an AI that works *inside* my knowledge system, not next to it. One that can read my notes, follow my workflows, and actually do things -- not just answer questions. Working with Kilo Code in VS Code showed me what agentic loops should look like when operating inside another tool. Obsilo is that idea applied to knowledge work.
+I wanted an AI that works *inside* my knowledge system, not next to it. One that can read my notes, follow my workflows, and actually do things, not just answer questions. Working with Kilo Code in VS Code showed me what agentic loops should look like when operating inside another tool. Obsilo is that idea applied to knowledge work.
 
 ## Get in touch
 

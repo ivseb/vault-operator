@@ -13,9 +13,9 @@ Obsilo uses a three-tier memory system:
 
 | Tier | What it stores | How it works |
 |------|---------------|-------------|
-| **Session memory** | A summary of each conversation -- what was accomplished, decisions made, open questions | Created automatically when a conversation ends |
-| **Long-term memory** | Durable facts promoted from sessions -- your preferences, active projects, workflow patterns | Extracted in the background by comparing session summaries against existing memory |
-| **Soul** | Core understanding of you -- communication style, personality preferences, how you like the agent to behave | Updated when sessions reveal new preferences or corrections |
+| **Session memory** | A summary of each conversation (what was accomplished, decisions made, open questions) | Created automatically when a conversation ends |
+| **Long-term memory** | Durable facts promoted from sessions (your preferences, active projects, workflow patterns) | Extracted in the background by comparing session summaries against existing memory |
+| **Soul** | Core understanding of you (communication style, personality preferences, how you like the agent to behave) | Updated when sessions reveal new preferences or corrections |
 
 All memory files are stored in `.obsidian-agent/memory/` inside your vault's plugin directory. They are plain Markdown files you can read, edit, or delete at any time.
 
@@ -57,13 +57,13 @@ Use a cheap, fast model for titling (separate from your main model). It only nee
 
 When you first install Obsilo, a conversational setup wizard walks you through the basics:
 
-1. Introduction -- Obsilo introduces itself and asks your name
-2. Naming -- you can rename the agent if you prefer a different name
-3. Backup reminder -- a prompt to back up your vault before letting the agent write
-4. Permissions -- choose your comfort level for automatic approvals
-5. Profile -- share what you use your vault for so Obsilo can tailor its help
+1. Introduction: Obsilo introduces itself and asks your name
+2. Naming: you can rename the agent if you prefer a different name
+3. Backup reminder: a prompt to back up your vault before letting the agent write
+4. Permissions: choose your comfort level for automatic approvals
+5. Profile: share what you use your vault for so Obsilo can tailor its help
 
-The wizard runs as a normal chat conversation -- no forms or popups. Your answers are saved to memory right away, so Obsilo starts personalized from the first real task.
+The wizard runs as a normal chat conversation, not a form or popup. Your answers are saved to memory right away, so Obsilo starts personalized from the first real task.
 
 ## Memory settings
 
@@ -103,4 +103,4 @@ The agent reads this profile at the start of each conversation to personalize it
 
 4. Use the minimum messages threshold wisely. If you often have short chats that are not worth remembering, raise the threshold. If every conversation matters, lower it.
 
-5. Keep Chat-Linking enabled. The frontmatter links create a natural audit trail -- you can always find *why* a note was changed and *what was discussed*.
+5. Keep Chat-Linking enabled. The frontmatter links create a natural audit trail, so you can always find *why* a note was changed and *what was discussed*.

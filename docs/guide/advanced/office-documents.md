@@ -50,12 +50,12 @@ For professional or corporate presentations, Obsilo supports a template-based pi
 
 For best results, Obsilo follows a built-in workflow:
 
-1. Context -- Gather source material from your vault
-2. Template -- Analyze the provided template (or use ad-hoc mode)
-3. Plan -- Map content to slides and shapes
-4. Generate -- Build the document
-5. Verify -- Check for missing placeholders or layout issues
-6. Deliver -- Save to your vault and confirm
+1. Context: Gather source material from your vault
+2. Template: Analyze the provided template (or use ad-hoc mode)
+3. Plan: Map content to slides and shapes
+4. Generate: Build the document
+5. Verify: Check for missing placeholders or layout issues
+6. Deliver: Save to your vault and confirm
 
 :::info Two modes
 Ad-hoc mode creates presentations from scratch without a template (using PptxGenJS). Template mode uses your corporate `.pptx` file to maintain brand consistency. The agent picks the right mode based on whether you provide a template.
@@ -65,11 +65,11 @@ Ad-hoc mode creates presentations from scratch without a template (using PptxGen
 
 Obsilo can parse existing office files and use their content in conversations:
 
-- PPTX -- Extracts text from all slides
-- DOCX -- Extracts headings, paragraphs, tables
-- XLSX -- Extracts sheet data and formulas
-- PDF -- Extracts text content
-- CSV -- Reads structured data
+- PPTX: Extracts text from all slides
+- DOCX: Extracts headings, paragraphs, tables
+- XLSX: Extracts sheet data and formulas
+- PDF: Extracts text content
+- CSV: Reads structured data
 
 How to use it:
 - Drag and drop an office file into the chat
@@ -98,6 +98,6 @@ Visual QA only works if LibreOffice is installed and accessible from the command
 
 ## Next steps
 
-- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows) -- Automate your document creation process
-- [Connectors](/guide/advanced/connectors) -- Connect external tools and data sources
-- [Multi-Agent & Tasks](/guide/advanced/multi-agent) -- Delegate document tasks to sub-agents
+- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows): Automate your document creation process
+- [Connectors](/guide/advanced/connectors): Connect external tools and data sources
+- [Multi-Agent & Tasks](/guide/advanced/multi-agent): Delegate document tasks to sub-agents

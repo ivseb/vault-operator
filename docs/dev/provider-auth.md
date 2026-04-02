@@ -5,7 +5,7 @@ description: How Obsilo connects to 10+ AI providers through a single interface,
 
 # Provider auth
 
-Obsilo supports Anthropic, OpenAI, GitHub Copilot, Kilo Gateway, Azure, OpenRouter, Ollama, LM Studio, and custom OpenAI-compatible endpoints. Each provider has different authentication requirements, but the agent doesn't care -- it talks to a single `ApiHandler` interface.
+Obsilo supports Anthropic, OpenAI, GitHub Copilot, Kilo Gateway, Azure, OpenRouter, Ollama, LM Studio, and custom OpenAI-compatible endpoints. Each provider has different authentication requirements, but the agent doesn't care. It talks to a single `ApiHandler` interface.
 
 ## The factory
 
@@ -27,7 +27,7 @@ The factory uses an exhaustive switch. Add a new provider type to the union and 
 
 Most providers use API key authentication. You paste your key in settings, it gets stored, and every request includes it as a Bearer token. The OpenAI-compatible providers (Ollama, LM Studio, OpenRouter, Azure, custom) all work this way, with minor variations in base URL and header format.
 
-Ollama and LM Studio are local providers -- they run on your machine and don't need an API key at all. The `OpenAiProvider` handles this by making the key optional when the base URL points to localhost. All HTTP requests go through Obsidian's `requestUrl` API rather than native `fetch`, which keeps the plugin compliant with Obsidian's review requirements.
+Ollama and LM Studio are local providers that run on your machine and don't need an API key at all. The `OpenAiProvider` handles this by making the key optional when the base URL points to localhost. All HTTP requests go through Obsidian's `requestUrl` API rather than native `fetch`, which keeps the plugin compliant with Obsidian's review requirements.
 
 ## GitHub Copilot: three-stage token chain
 
@@ -45,7 +45,7 @@ You can provide a custom GitHub OAuth client ID in settings for enterprise GitHu
 
 ## Kilo Gateway: device auth + manual token
 
-The `KiloAuthService` (`src/core/security/KiloAuthService.ts`) supports two auth modes. The device authorization flow works similarly to GitHub Copilot -- you get a code, authorize in a browser, and the service polls until complete. Alternatively, you can paste an API token directly for simpler setups.
+The `KiloAuthService` (`src/core/security/KiloAuthService.ts`) supports two auth modes. The device authorization flow works similarly to GitHub Copilot: you get a code, authorize in a browser, and the service polls until complete. Alternatively, you can paste an API token directly for simpler setups.
 
 Both modes produce the same session state. The service stores user profile information and provider defaults (available models, rate limits) retrieved from the gateway API at `https://api.kilo.ai/api`.
 
@@ -53,7 +53,7 @@ Both modes produce the same session state. The service stores user profile infor
 
 API keys and tokens are sensitive credentials. On desktop, the `SafeStorageService` (`src/core/security/SafeStorageService.ts`) uses Electron's `safeStorage` API to encrypt credentials before storing them. This uses the operating system's keychain (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
 
-The service loads Electron via dynamic `require('electron')` -- one of the few places where `require()` is allowed instead of ES imports, because Electron can only be loaded dynamically in the renderer process.
+The service loads Electron via dynamic `require('electron')`, one of the few places where `require()` is allowed instead of ES imports, because Electron can only be loaded dynamically in the renderer process.
 
 On mobile, Electron isn't available. Credentials fall back to Obsidian's standard plugin data storage. This is less secure than OS-level encryption, but mobile Obsidian doesn't expose a keychain API.
 

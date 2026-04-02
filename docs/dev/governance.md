@@ -7,7 +7,7 @@ description: How Obsilo prevents the agent from doing damage -- path protection,
 
 This is what makes it safe to give an AI write access to your notes.
 
-The principle is fail-closed. If anything goes wrong during an approval check -- missing callback, unloaded config, unexpected error -- the operation is denied. The agent never silently auto-approves. Every tool call, internal or MCP, flows through one central pipeline.
+The principle is fail-closed. If anything goes wrong during an approval check (missing callback, unloaded config, unexpected error), the operation is denied. The agent never silently auto-approves. Every tool call, internal or MCP, flows through one central pipeline.
 
 ## The pipeline
 
@@ -36,9 +36,9 @@ Two files in the vault root control which paths the agent can access:
 
 Both files use glob patterns. A line like `journal/private/**` blocks everything under that folder.
 
-Some paths are always blocked regardless of configuration: `.git/`, the Obsidian workspace and cache files. The governance config files themselves are always write-protected -- the agent cannot edit its own restrictions.
+Some paths are always blocked regardless of configuration: `.git/`, the Obsidian workspace and cache files. The governance config files themselves are always write-protected, so the agent cannot edit its own restrictions.
 
-The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If it hasn't finished loading its patterns yet, it denies all access. Fail-closed, again.
+The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If it hasn't finished loading its patterns yet, it denies all access. Fail-closed, as always.
 
 ## Approval categories
 
@@ -63,11 +63,11 @@ For note edits, the approval UI can show a semantic diff grouped by Markdown str
 
 ## Checkpoints
 
-Before any write operation, the pipeline takes a git snapshot of the affected file. This uses a shadow repository at `.obsidian/plugins/obsilo-agent/checkpoints/` powered by `isomorphic-git` -- pure JavaScript, no native git binary needed.
+Before any write operation, the pipeline takes a git snapshot of the affected file. This uses a shadow repository at `.obsidian/plugins/obsilo-agent/checkpoints/` powered by `isomorphic-git` (pure JavaScript, no native git binary needed).
 
 `GitCheckpointService` (`src/core/checkpoints/GitCheckpointService.ts`) commits the file's current content into the shadow repo before the tool modifies it. Each checkpoint records the task ID, commit hash, timestamp, changed files, and the tool that triggered it. Files that didn't exist before the checkpoint are tracked separately so restore can delete them.
 
-The result: after any task, you can undo all changes. The undo is granular -- each write operation gets its own checkpoint, so you can roll back to any intermediate state. The vault's own git history (if it has one) is never touched.
+The result: after any task, you can undo all changes. The undo is granular: each write operation gets its own checkpoint, so you can roll back to any intermediate state. The vault's own git history (if it has one) is never touched.
 
 ## Audit log
 

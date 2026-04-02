@@ -11,9 +11,9 @@ Obsilo works with many providers and models. Not all of them are equally good at
 
 Obsilo is an agent, not a chat assistant. The model needs to:
 
-- Support tool use (function calling) -- it must be able to call Obsilo's 55+ tools
-- Follow instructions precisely -- the system prompt is complex, with rules, skills, and mode definitions
-- Reason about multi-step tasks -- reading files, searching, editing, and verifying requires planning
+- Support tool use (function calling), since it must be able to call Obsilo's 55+ tools
+- Follow instructions precisely, because the system prompt is complex, with rules, skills, and mode definitions
+- Reason about multi-step tasks, as reading files, searching, editing, and verifying requires planning
 
 :::tip Use the latest, most capable models
 Obsilo works best with strong frontier models that excel at tool use and reasoning. Older or smaller models may struggle with complex tasks, skip approval steps, or call the wrong tools. Testing has been done primarily with Anthropic Claude models.
@@ -38,11 +38,11 @@ You create an account, get an API key, and pay per usage. Best quality and relia
 
 ### Gateway providers (login-based)
 
-No API key needed -- you sign in with an existing account.
+No API key needed. You sign in with an existing account.
 
 | Provider | How to get started | What you get |
 |----------|--------------------|--------------|
-| **GitHub Copilot** | Click "Sign in with GitHub" in the model config. A device code appears -- enter it at github.com/login/device. Requires an active Copilot subscription. | Multiple frontier models through your existing Copilot subscription. No separate API key. Uses an unofficial API -- models may change. |
+| **GitHub Copilot** | Click "Sign in with GitHub" in the model config. A device code appears; enter it at github.com/login/device. Requires an active Copilot subscription. | Multiple frontier models through your existing Copilot subscription. No separate API key. Uses an unofficial API (models may change). |
 | **Kilo Gateway** | Click "Sign in" in the model config, or paste an API token directly. | Centralized gateway to multiple frontier models. Organization context, dynamic model listing, managed access. |
 
 ### Local providers (free, private)
@@ -85,7 +85,7 @@ A typical setup: one frontier model for interactive work, one lightweight model 
 
 ## Embedding models
 
-Semantic search needs a separate embedding model -- a specialized model that converts text into vectors for similarity search.
+Semantic search needs a separate embedding model, a specialized model that converts text into vectors for similarity search.
 
 Configure it in **Settings > Embeddings > add embedding model**. Popular choices:
 - Any OpenAI-compatible embedding endpoint
@@ -106,6 +106,6 @@ The embedding model only affects search quality. It has no effect on chat respon
 
 ## Next steps
 
-- [Chat interface](/guide/working-with-obsilo/chat-interface) -- Deep dive into the chat experience
-- [Knowledge discovery](/guide/working-with-obsilo/knowledge-discovery) -- Set up semantic search (needs an embedding model)
-- [Providers reference](/guide/reference/providers) -- Detailed step-by-step setup for each provider
+- [Chat interface](/guide/working-with-obsilo/chat-interface): Deep dive into the chat experience
+- [Knowledge discovery](/guide/working-with-obsilo/knowledge-discovery): Set up semantic search (needs an embedding model)
+- [Providers reference](/guide/reference/providers): Detailed step-by-step setup for each provider

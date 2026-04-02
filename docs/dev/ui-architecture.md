@@ -18,7 +18,7 @@ flowchart TD
     T --> Tabs[5 main tabs, 19 sub-tabs]
 ```
 
-`AgentSidebarView` (`src/ui/AgentSidebarView.ts`) is the chat interface. It extends Obsidian's `ItemView` and renders in a sidebar leaf. This is where you type messages, see responses, attach files, and watch the agent work. The view manages the `AgentTask` lifecycle -- creating tasks, sending messages, handling streaming responses, and displaying tool execution results. It also handles the mode selector button, model selector, context badge display, and stop/send controls.
+`AgentSidebarView` (`src/ui/AgentSidebarView.ts`) is the chat interface. It extends Obsidian's `ItemView` and renders in a sidebar leaf. This is where you type messages, see responses, attach files, and watch the agent work. The view manages the `AgentTask` lifecycle: creating tasks, sending messages, handling streaming responses, and displaying tool execution results. It also handles the mode selector button, model selector, context badge display, and stop/send controls.
 
 `AgentSettingsTab` (`src/ui/AgentSettingsTab.ts`) is the settings interface. It extends `PluginSettingTab` and organizes configuration across 5 main tabs, each with sub-tabs:
 
@@ -58,11 +58,11 @@ The CSS is authored as a single stylesheet bundled with the plugin. Obsidian's b
 
 ## Modal system
 
-Beyond the two main components, Obsilo uses Obsidian's `Modal` class for dialogs: model configuration, code import, content editing, system prompt preview, task selection, and mode creation. Each modal is a separate class in `src/ui/settings/` or `src/ui/`. Modals follow Obsidian's pattern -- extend `Modal`, override `onOpen` and `onClose`, build the DOM in `onOpen`.
+Beyond the two main components, Obsilo uses Obsidian's `Modal` class for dialogs: model configuration, code import, content editing, system prompt preview, task selection, and mode creation. Each modal is a separate class in `src/ui/settings/` or `src/ui/`. Modals follow Obsidian's pattern: extend `Modal`, override `onOpen` and `onClose`, build the DOM in `onOpen`.
 
 ## Rendering approach
 
-There's no virtual DOM, no diffing, no reactive state. When something changes, the relevant section is cleared and rebuilt. The settings tab calls `this.display()` which empties the container and reconstructs everything. The sidebar is more surgical -- individual message elements are appended to the chat container during streaming, and only specific elements are updated when tool results arrive.
+There's no virtual DOM, no diffing, no reactive state. When something changes, the relevant section is cleared and rebuilt. The settings tab calls `this.display()` which empties the container and reconstructs everything. The sidebar is more surgical: individual message elements are appended to the chat container during streaming, and only specific elements are updated when tool results arrive.
 
 Markdown rendering in chat responses uses Obsidian's built-in `MarkdownRenderer.render()`, which handles syntax highlighting, Wikilinks, and embedded content. This is one area where Obsilo gets framework-level rendering for free.
 

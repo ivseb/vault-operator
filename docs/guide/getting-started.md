@@ -54,7 +54,7 @@ Obsilo supports 10+ providers. You can switch models anytime, even mid-conversat
 
 1. Click the **Obsilo icon** in the left sidebar
 2. Type a message and press **Enter**
-3. Watch the agent work -- it shows every tool call in real time
+3. Watch the agent work. It shows every tool call in real time
 
 ### Try these prompts
 
@@ -68,7 +68,7 @@ Obsilo supports 10+ providers. You can switch models anytime, even mid-conversat
 When you send a message, Obsilo:
 
 1. Reads your message and decides which tools to use
-2. Calls tools (read files, search, write) -- you see each call in the activity block
+2. Calls tools (read files, search, write), and you see each call in the activity block
 3. Asks for your approval before any write operation (unless you enable auto-approve)
 4. Returns a response with the result
 
@@ -76,6 +76,6 @@ Every write operation creates a checkpoint. You can undo any change with one cli
 
 ## Next steps
 
-- [Your first conversation](/guide/first-conversation) -- Learn about modes, context, and how the agent thinks
-- [Choosing a model](/guide/choosing-a-model) -- Find the best model for your workflow
-- [Safety & control](/guide/working-with-obsilo/safety-control) -- Understand permissions and checkpoints
+- [Your first conversation](/guide/first-conversation): Learn about modes, context, and how the agent thinks
+- [Choosing a model](/guide/choosing-a-model): Find the best model for your workflow
+- [Safety & control](/guide/working-with-obsilo/safety-control): Understand permissions and checkpoints

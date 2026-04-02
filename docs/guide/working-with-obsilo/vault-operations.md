@@ -9,7 +9,7 @@ Obsilo can read, write, search, and organize files across your entire vault.
 
 ## How it works
 
-The agent does not access your vault directly. It uses tools -- small, single-purpose functions. When you ask the agent to find a note or create a file, it picks the right tools and calls them on your behalf.
+The agent does not access your vault directly. It uses tools, small single-purpose functions. When you ask the agent to find a note or create a file, it picks the right tools and calls them on your behalf.
 
 Every tool call is visible in the [activity block](/guide/working-with-obsilo/chat-interface#activity-blocks), and write operations require [approval](/guide/working-with-obsilo/safety-control) unless you enable auto-approve.
 
@@ -29,11 +29,11 @@ These tools let the agent look at your files without changing anything. Availabl
 
 ### Examples
 
-- *"What notes do I have in the Projects folder?"* -- uses `list_files`
-- *"Find everything I wrote about client onboarding"* -- uses `search_files`
-- *"Show me all notes tagged #review"* -- uses `search_by_tag`
-- *"What links to my quarterly goals note?"* -- uses `get_linked_notes`
-- *"Read today's daily note"* -- uses `get_daily_note`
+- *"What notes do I have in the Projects folder?"* (uses `list_files`)
+- *"Find everything I wrote about client onboarding"* (uses `search_files`)
+- *"Show me all notes tagged #review"* (uses `search_by_tag`)
+- *"What links to my quarterly goals note?"* (uses `get_linked_notes`)
+- *"Read today's daily note"* (uses `get_daily_note`)
 
 :::tip Semantic search goes further
 Keyword search matches exact words. To find notes by meaning (e.g., "notes about improving sleep" finding a note titled "Evening Routine"), see [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery).
@@ -52,10 +52,10 @@ These tools modify your vault. Only available in Agent mode and require approval
 
 ### Examples
 
-- *"Create a note summarizing our Q1 results"* -- uses `write_file`
-- *"Replace the second paragraph in @project-brief with a shorter version"* -- uses `edit_file`
-- *"Add today's action items to @task-list"* -- uses `append_to_file`
-- *"Set the status field to 'complete' in @project-brief"* -- uses `update_frontmatter`
+- *"Create a note summarizing our Q1 results"* (uses `write_file`)
+- *"Replace the second paragraph in @project-brief with a shorter version"* (uses `edit_file`)
+- *"Add today's action items to @task-list"* (uses `append_to_file`)
+- *"Set the status field to 'complete' in @project-brief"* (uses `update_frontmatter`)
 
 :::info Checkpoints protect your files
 Before any write operation, Obsilo saves a snapshot. If something goes wrong, click Undo in the [undo bar](/guide/working-with-obsilo/chat-interface#the-undo-bar) to restore the original.
@@ -73,9 +73,9 @@ These tools help you restructure your vault.
 
 ### Examples
 
-- *"Create an Archive/2025 folder and move all notes tagged #archived there"* -- uses `create_folder` + `move_file`
-- *"Rename @old-project-name to new-project-name"* -- uses `move_file`
-- *"Delete all empty notes in the Inbox folder"* -- uses `delete_file`
+- *"Create an Archive/2025 folder and move all notes tagged #archived there"* (uses `create_folder` + `move_file`)
+- *"Rename @old-project-name to new-project-name"* (uses `move_file`)
+- *"Delete all empty notes in the Inbox folder"* (uses `delete_file`)
 
 :::warning Deletion uses Obsidian trash
 Deleted files go to Obsidian's trash (`.trash` folder), not permanent deletion. You can recover them from there.
@@ -90,7 +90,7 @@ The agent can give you an overview of your vault using **get_vault_stats**:
 - Tag distribution
 - Recently modified files
 
-**Example:** *"Give me a summary of my vault -- how many notes, what are the most used tags?"*
+**Example:** *"Give me a summary of my vault: how many notes, what are the most used tags?"*
 
 ## Canvas and visual maps
 
@@ -105,7 +105,7 @@ Obsilo can create visual representations of your notes and their relationships.
 
 ## Bases (structured data)
 
-Bases let you work with your notes as structured data -- similar to a database view.
+Bases let you work with your notes as structured data, similar to a database view.
 
 | Tool | What it does |
 |------|-------------|
@@ -129,6 +129,6 @@ Bases use Obsidian's built-in Bases feature. Make sure your Obsidian version sup
 
 ## Next steps
 
-- [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery) -- Semantic search and the knowledge graph
-- [Chat Interface](/guide/working-with-obsilo/chat-interface) -- Attachments, history, and shortcuts
-- [Office Documents](/guide/advanced/office-documents) -- Create PPTX, DOCX, and XLSX from your notes
+- [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery): Semantic search and the knowledge graph
+- [Chat Interface](/guide/working-with-obsilo/chat-interface): Attachments, history, and shortcuts
+- [Office Documents](/guide/advanced/office-documents): Create PPTX, DOCX, and XLSX from your notes

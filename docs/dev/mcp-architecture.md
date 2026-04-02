@@ -17,13 +17,13 @@ flowchart LR
 
 On the left: Obsilo reaches out to MCP servers you've configured. A GitHub server that can search issues. A database server that can run queries. Whatever tools those servers expose become available to the agent alongside its built-in tools.
 
-On the right: Obsilo itself is the server. Claude Desktop connects to it and gets access to your vault -- searching notes, reading files, writing content. Your Obsidian vault becomes a tool that any MCP-compatible agent can use.
+On the right: Obsilo itself is the server. Claude Desktop connects to it and gets access to your vault: searching notes, reading files, writing content. Your Obsidian vault becomes a tool that any MCP-compatible agent can use.
 
 ## Client side
 
 You configure MCP servers in Settings under Providers > MCP Servers. Each server needs a transport type (stdio for local processes, SSE for legacy remote servers, or Streamable HTTP for modern remote servers) and connection details.
 
-When Obsilo connects to a server, it discovers the available tools and resources through MCP's standard discovery protocol. Those tools appear in the agent's tool list alongside built-in tools. The agent calls them like any other tool -- it doesn't need to know they're running in a separate process.
+When Obsilo connects to a server, it discovers the available tools and resources through MCP's standard discovery protocol. Those tools appear in the agent's tool list alongside built-in tools. The agent calls them like any other tool. It doesn't need to know they're running in a separate process.
 
 The MCP client handles reconnection automatically. If a server crashes or becomes unreachable, the client retries with exponential backoff. SSE transport is still supported as a fallback for older MCP servers that haven't migrated to Streamable HTTP.
 
@@ -39,17 +39,17 @@ The `McpBridge` (`src/mcp/McpBridge.ts`) runs an HTTP server on localhost (defau
 | Session | `sync_session`, `update_memory` | Manage conversation history and persistent memory |
 | Write | `write_vault`, `execute_vault_op` | Create, edit, delete files; run vault operations |
 
-The `get_context` tool is mandatory. External agents should call it first in every conversation. It returns the user profile, memory, behavioral patterns, vault statistics, available skills, and rules -- the same context that Obsilo's internal agent gets from its system prompt.
+The `get_context` tool is mandatory. External agents should call it first in every conversation. It returns the user profile, memory, behavioral patterns, vault statistics, available skills, and rules. This is the same context that Obsilo's internal agent gets from its system prompt.
 
-All tool calls dispatch directly to Obsilo's services within Obsidian's renderer process. There's no IPC overhead -- the HTTP handler calls the same functions the internal agent uses.
+All tool calls dispatch directly to Obsilo's services within Obsidian's renderer process. There's no IPC overhead. The HTTP handler calls the same functions the internal agent uses.
 
-The `search_vault` tool on the MCP server uses the same knowledge layer pipeline described on the [knowledge layer](./knowledge-layer.md) page. External agents get the same 4-stage retrieval (vector search, graph expansion, implicit connections, reranking) as the internal agent. The `write_vault` tool supports batch operations -- create, edit, append, and delete in a single call.
+The `search_vault` tool on the MCP server uses the same knowledge layer pipeline described on the [knowledge layer](./knowledge-layer.md) page. External agents get the same 4-stage retrieval (vector search, graph expansion, implicit connections, reranking) as the internal agent. The `write_vault` tool supports batch operations: create, edit, append, and delete in a single call.
 
 ## Remote access
 
 The local HTTP server is only reachable on your machine. For remote access (using Obsilo from Claude Desktop on a different device, or from the Claude web app), the `RelayClient` (`src/mcp/RelayClient.ts`) connects to a Cloudflare Workers relay.
 
-The relay uses HTTP long-polling. The client polls the relay for incoming requests, processes them locally, and sends responses back. Authentication uses a token embedded in the URL. No data is stored on the relay -- it's a passthrough.
+The relay uses HTTP long-polling. The client polls the relay for incoming requests, processes them locally, and sends responses back. Authentication uses a token embedded in the URL. No data is stored on the relay; it's a passthrough.
 
 Remote access requires Obsidian to be running on your machine. The relay can't access your vault on its own; it just forwards requests to the plugin.
 
@@ -61,7 +61,7 @@ When an external agent connects via MCP, it doesn't automatically know how to be
 
 ## Practical implications
 
-You can use Claude Desktop as your primary interface while Obsilo handles the vault integration. Or you can extend Obsilo's capabilities by connecting it to specialized MCP servers -- a code analysis server, a web scraping server, a calendar integration. The protocol is the same in both directions.
+You can use Claude Desktop as your primary interface while Obsilo handles the vault integration. Or you can extend Obsilo's capabilities by connecting it to specialized MCP servers (a code analysis server, a web scraping server, a calendar integration). The protocol is the same in both directions.
 
 The MCP server only runs while Obsidian is open. If you close Obsidian, Claude Desktop loses access to the vault tools until you reopen it.
 
@@ -69,4 +69,4 @@ The MCP server only runs while Obsidian is open. If you close Obsidian, Claude D
 
 The `sync_session` tool handles a specific problem: when you use Obsilo through Claude Desktop, the conversation history lives in Claude Desktop, not in Obsidian. Calling `sync_session` at the end of a conversation replicates the messages into Obsidian's conversation store. You can then browse the conversation in Obsidian's history panel, and the memory system can extract patterns from it.
 
-Session sync is marked as mandatory in the tool description. Claude Desktop is instructed to call it at the end of every conversation. In practice, it's best-effort -- if Claude Desktop terminates the conversation without calling it, the session is simply missing from Obsidian's history.
+Session sync is marked as mandatory in the tool description. Claude Desktop is instructed to call it at the end of every conversation. In practice, it's best-effort. If Claude Desktop terminates the conversation without calling it, the session is simply missing from Obsidian's history.

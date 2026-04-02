@@ -11,9 +11,9 @@ The Obsilo sidebar is where you talk to the agent, attach files, browse past con
 
 Open Obsilo by clicking its icon in the left sidebar. The panel has three areas:
 
-- Toolbar at the top -- mode selector, model picker, and the history button
-- Message area in the center -- your conversation, activity blocks, and approval cards
-- Input bar at the bottom -- text field, attachment button, and send button
+- Toolbar at the top: mode selector, model picker, and the history button
+- Message area in the center: your conversation, activity blocks, and approval cards
+- Input bar at the bottom: text field, attachment button, and send button
 
 ## Sending messages
 
@@ -28,7 +28,7 @@ In **Settings > Obsilo Agent > Interface** you can change the send shortcut to *
 You can attach files to give the agent additional context:
 
 - Drag and drop a file from your desktop or file manager onto the chat input
-- Paste from clipboard -- screenshots and copied images are added automatically
+- Paste from clipboard (screenshots and copied images are added automatically)
 - Click the paperclip icon next to the input field to browse your files
 
 ### Supported file types
@@ -56,8 +56,8 @@ Fastest way to point the agent at a specific note without leaving the chat.
 
 Type **/** in the input field to open the picker. This shows:
 
-- Workflows -- multi-step task templates (e.g., research a topic, reorganize a folder)
-- Support prompts -- pre-written prompts for common tasks
+- Workflows: multi-step task templates (e.g., research a topic, reorganize a folder)
+- Support prompts: pre-written prompts for common tasks
 
 Select an entry to insert it into your message. You can edit the text before sending.
 
@@ -66,7 +66,7 @@ Select an entry to insert it into your message. You can edit the text before sen
 When the agent works, an activity block appears below its response. It shows every tool call in real time:
 
 - The tool name and key parameters (e.g., which file was read or what search query was used)
-- A result preview -- click to expand and see full details
+- A result preview (click to expand and see full details)
 - Diff badges on write operations showing lines added and removed (e.g., `+12 / -3`)
 
 Activity blocks are collapsed by default after the agent finishes. Click to expand them at any time.
@@ -79,15 +79,15 @@ You can always see exactly what the agent did, which files it read, and what it 
 
 When the agent wants to perform a write operation (and auto-approve is off for that category), an approval card appears. It shows what the agent intends to do and gives you three choices:
 
-- Allow once -- approve this single action
-- Always allow -- auto-approve this category from now on
-- Deny -- reject the action
+- Allow once: approve this single action
+- Always allow: auto-approve this category from now on
+- Deny: reject the action
 
 See [Safety & Control](/guide/working-with-obsilo/safety-control) for details on permission categories.
 
 ## The undo bar
 
-After the agent completes a task that changed files, an undo bar appears at the bottom of the conversation. Click Undo to revert all changes made during that task -- every modified file is restored from its checkpoint.
+After the agent completes a task that changed files, an undo bar appears at the bottom of the conversation. Click Undo to revert all changes made during that task. Every modified file is restored from its checkpoint.
 
 The undo bar stays visible until you start a new message or dismiss it.
 
@@ -96,10 +96,10 @@ The undo bar stays visible until you start a new message or dismiss it.
 Obsilo saves every conversation automatically. To access your history:
 
 1. Click the history icon in the toolbar (clock symbol)
-2. Browse past conversations -- each shows a title, date, and preview
+2. Browse past conversations, each showing a title, date, and preview
 3. Click a conversation to restore it and continue where you left off
 
-Conversations are titled automatically based on their content. You can also find linked conversations directly from your notes -- see [Memory & Personalization](/guide/working-with-obsilo/memory-personalization) for chat-linking.
+Conversations are titled automatically based on their content. You can also find linked conversations directly from your notes. See [Memory & Personalization](/guide/working-with-obsilo/memory-personalization) for chat-linking.
 
 ## Context display and condensation
 
@@ -130,6 +130,6 @@ This happens automatically and keeps long conversations running.
 
 ## Next steps
 
-- [Vault Operations](/guide/working-with-obsilo/vault-operations) -- What the agent can do with your files
-- [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery) -- Set up semantic search for better results
-- [Safety & Control](/guide/working-with-obsilo/safety-control) -- Permissions, checkpoints, and the audit log
+- [Vault Operations](/guide/working-with-obsilo/vault-operations): What the agent can do with your files
+- [Knowledge Discovery](/guide/working-with-obsilo/knowledge-discovery): Set up semantic search for better results
+- [Safety & Control](/guide/working-with-obsilo/safety-control): Permissions, checkpoints, and the audit log

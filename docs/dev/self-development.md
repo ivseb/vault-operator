@@ -5,21 +5,21 @@ description: How Obsilo extends its own capabilities at runtime through five tie
 
 # Self-development
 
-Most agents are static. They ship with a fixed set of tools and that's what you get. Obsilo can extend itself at runtime -- writing new instructions, creating new tools, and in the most advanced tier, modifying its own source code.
+Most agents are static. They ship with a fixed set of tools and that's what you get. Obsilo can extend itself at runtime: writing new instructions, creating new tools, and in the most advanced tier, modifying its own source code.
 
 This is powerful and risky. The system has clear boundaries between tiers, each requiring more trust than the last. Lower tiers are safe by default. Higher tiers require explicit approval. No tier lets the agent do something you haven't agreed to.
 
 ## Five tiers
 
-Tier 1 -- skill files. The agent writes Markdown files that contain instructions for itself. These are cheat sheets: "when the user asks for X, here's how to approach it." Skill files live in the vault and are loaded into the system prompt when relevant. Zero risk -- the agent is just writing notes. A skill file might say "when creating meeting notes, always include an action items section and tag attendees." The agent reads this on next conversation start and follows the instructions.
+Tier 1: skill files. The agent writes Markdown files that contain instructions for itself. These are cheat sheets: "when the user asks for X, here's how to approach it." Skill files live in the vault and are loaded into the system prompt when relevant. Zero risk, since the agent is just writing notes. A skill file might say "when creating meeting notes, always include an action items section and tag attendees." The agent reads this on next conversation start and follows the instructions.
 
-Tier 2 -- dynamic tools. The agent writes JavaScript code that runs in a sandboxed environment. Unlike skill files (which are instructions), dynamic tools are executable. The agent defines input parameters, writes the implementation, and registers the tool. Other conversations can then use it. This is where things get interesting: the agent can create tools for tasks that come up repeatedly but aren't covered by built-in tools. If you frequently need to convert CSV data into a specific Markdown table format, the agent can write a dynamic tool for that transformation and use it from then on.
+Tier 2: dynamic tools. The agent writes JavaScript code that runs in a sandboxed environment. Unlike skill files (which are instructions), dynamic tools are executable. The agent defines input parameters, writes the implementation, and registers the tool. Other conversations can then use it. This is where things get interesting: the agent can create tools for tasks that come up repeatedly but aren't covered by built-in tools. If you frequently need to convert CSV data into a specific Markdown table format, the agent can write a dynamic tool for that transformation and use it from then on.
 
-Tier 3 -- source modification. The agent can read and modify its own TypeScript source code through the `EmbeddedSourceManager` (`src/core/self-development/EmbeddedSourceManager.ts`). At build time, an esbuild plugin encodes the entire source tree as base64 and embeds it into `main.js` as a constant. At runtime, the agent can decode it, search through files, make changes, and rebuild the plugin via `PluginBuilder` (`src/core/self-development/PluginBuilder.ts`) and `PluginReloader` (`src/core/self-development/PluginReloader.ts`). Every modification is validated with AST parsing (no syntax errors allowed) and the original source is backed up before changes are applied. This tier exists for advanced self-improvement scenarios and requires explicit user approval.
+Tier 3: source modification. The agent can read and modify its own TypeScript source code through the `EmbeddedSourceManager` (`src/core/self-development/EmbeddedSourceManager.ts`). At build time, an esbuild plugin encodes the entire source tree as base64 and embeds it into `main.js` as a constant. At runtime, the agent can decode it, search through files, make changes, and rebuild the plugin via `PluginBuilder` (`src/core/self-development/PluginBuilder.ts`) and `PluginReloader` (`src/core/self-development/PluginReloader.ts`). Every modification is validated with AST parsing (no syntax errors allowed) and the original source is backed up before changes are applied. This tier exists for advanced self-improvement scenarios and requires explicit user approval.
 
-Tier 4 -- reserved. Intentionally left empty for future capabilities.
+Tier 4: reserved. Intentionally left empty for future capabilities.
 
-Tier 5 -- proactive improvement. The agent observes usage patterns across conversations and suggests new skills or tools without being asked. If it notices you regularly perform a sequence of steps that could be automated, it proposes a skill file or dynamic tool to handle it. You approve or reject the suggestion. The agent never acts on its own at this tier -- it only proposes.
+Tier 5: proactive improvement. The agent observes usage patterns across conversations and suggests new skills or tools without being asked. If it notices you regularly perform a sequence of steps that could be automated, it proposes a skill file or dynamic tool to handle it. You approve or reject the suggestion. The agent never acts on its own at this tier. It only proposes.
 
 ## Sandbox isolation
 
@@ -27,7 +27,7 @@ Dynamic tools (tier 2) run in a sandbox, not in the plugin's main process. The i
 
 Desktop (Electron): `ProcessSandboxExecutor` (`src/core/sandbox/ProcessSandboxExecutor.ts`) spawns a separate Node.js child process with a 128 MB heap limit. The sandbox communicates with the main plugin through a message bridge. If the sandboxed code crashes or exceeds memory, the child process is killed and respawned (up to 3 times). After three failed respawns, the executor gives up and returns an error to the calling tool. The heap limit prevents a runaway script from consuming all system memory.
 
-Mobile: `IframeSandboxExecutor` (`src/core/sandbox/IframeSandboxExecutor.ts`) creates a hidden iframe with restricted permissions. Communication happens via `postMessage`. Mobile sandboxes have tighter constraints -- no filesystem access, no native modules. The iframe approach works on both iOS and Android versions of Obsidian.
+Mobile: `IframeSandboxExecutor` (`src/core/sandbox/IframeSandboxExecutor.ts`) creates a hidden iframe with restricted permissions. Communication happens via `postMessage`. Mobile sandboxes have tighter constraints: no filesystem access, no native modules. The iframe approach works on both iOS and Android versions of Obsidian.
 
 The platform selection happens automatically in `createSandboxExecutor.ts`, which checks whether the Electron environment is available and picks the right executor.
 
@@ -46,7 +46,7 @@ Sandboxed code can't access the Obsidian API directly. Instead, it gets a `Sandb
 
 The bridge is the security boundary. Everything the sandbox does goes through it, and the bridge enforces path validation and rate limits.
 
-CDN imports use esm.sh with the `?bundle` flag as the preferred source, falling back to jsdelivr. Transitive imports are resolved recursively -- if you import a library that imports another library, both get downloaded and bundled. This makes it possible to use substantial npm packages from sandbox code without pre-installing them.
+CDN imports use esm.sh with the `?bundle` flag as the preferred source, falling back to jsdelivr. Transitive imports are resolved recursively. If you import a library that imports another library, both get downloaded and bundled. This makes it possible to use substantial npm packages from sandbox code without pre-installing them.
 
 ## How tiers interact
 
@@ -63,7 +63,7 @@ The `EmbeddedSourceManager` maintains an in-memory Map of file paths to source c
 - Search across files by regex
 - Modify a file's content in memory
 
-Modifications stay in memory until the agent triggers a rebuild. The `PluginBuilder` compiles the modified source into a new `main.js`, and the `PluginReloader` swaps the running plugin with the new build. The entire cycle -- modify, build, reload -- takes a few seconds on a typical machine.
+Modifications stay in memory until the agent triggers a rebuild. The `PluginBuilder` compiles the modified source into a new `main.js`, and the `PluginReloader` swaps the running plugin with the new build. The entire cycle (modify, build, reload) takes a few seconds on a typical machine.
 
 If the rebuild fails (compilation error, validation failure), the original source is restored from backup and the plugin continues running with its previous code. The agent is told what went wrong so it can attempt a fix.
 

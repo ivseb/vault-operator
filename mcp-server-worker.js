@@ -23,6 +23,14 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 
 // src/mcp/mcp-server-worker.ts
 var OBSILO_URL = "http://127.0.0.1:27182";
+var mcpToken = "";
+try {
+  const fs = require("fs");
+  const path = require("path");
+  const os = require("os");
+  mcpToken = fs.readFileSync(path.join(os.homedir(), ".obsidian-agent", "mcp-token"), "utf-8").trim();
+} catch {
+}
 var buffer = "";
 process.stdin.setEncoding("utf-8");
 process.stdin.on("data", (chunk) => {
@@ -50,7 +58,8 @@ async function forwardToObsilo(request, expectResponse = true) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(body)
+          "Content-Length": Buffer.byteLength(body),
+          ...mcpToken ? { "Authorization": `Bearer ${mcpToken}` } : {}
         },
         timeout: 3e4
       }, (res) => {

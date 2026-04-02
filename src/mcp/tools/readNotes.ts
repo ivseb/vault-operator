@@ -5,6 +5,7 @@
 import { TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
+import { validateMcpVaultPath } from './mcpPathValidation';
 
 export async function handleReadNotes(
     plugin: ObsidianAgentPlugin,
@@ -18,6 +19,13 @@ export async function handleReadNotes(
     const results: string[] = [];
 
     for (const path of paths.slice(0, 20)) { // max 20 files per call
+        // AUDIT-006 H-2: Governance check (path traversal, IgnoreService)
+        const validation = validateMcpVaultPath(plugin, path, false);
+        if (!validation.allowed) {
+            results.push(`--- ${path} ---\nError: ${validation.reason}`);
+            continue;
+        }
+
         const file = plugin.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) {
             results.push(`--- ${path} ---\nError: File not found`);

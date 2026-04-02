@@ -6,6 +6,7 @@
 import { TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
+import { validateMcpVaultPath } from './mcpPathValidation';
 
 interface WriteOp {
     type: 'create' | 'edit' | 'append' | 'delete';
@@ -31,6 +32,13 @@ export async function handleWriteVault(
 
     for (const op of operations) {
         try {
+            // AUDIT-006 H-2: Governance check (path traversal, IgnoreService, configDir)
+            const validation = validateMcpVaultPath(plugin, op.path, true);
+            if (!validation.allowed) {
+                results.push(`${op.path}: Error -- ${validation.reason}`);
+                continue;
+            }
+
             switch (op.type) {
                 case 'create': {
                     if (!op.content) { results.push(`${op.path}: Error -- content required for create`); break; }
@@ -63,7 +71,8 @@ export async function handleWriteVault(
                 case 'delete': {
                     const delFile = vault.getAbstractFileByPath(op.path);
                     if (!(delFile instanceof TFile)) { results.push(`${op.path}: Error -- file not found`); break; }
-                    await vault.trash(delFile, true);
+                    // AUDIT-006 L-9: Use fileManager.trashFile() (Review-Bot compliance)
+                    await plugin.app.fileManager.trashFile(delFile);
                     results.push(`${op.path}: Deleted (moved to trash)`);
                     break;
                 }

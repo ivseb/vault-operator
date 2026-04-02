@@ -27,7 +27,7 @@ That's it. Everything else on this page is about controlling, protecting, and ex
 
 ## What happens at each step
 
-The loop starts by assembling a system prompt. This prompt is built from 16 modular sections: mode definition, available tools, active rules, loaded skills, memory context, and more. The system prompt is cached and only rebuilt when something changes -- a mode switch, a tool availability toggle.
+The loop starts by assembling a system prompt. This prompt is built from 16 modular sections: mode definition, available tools, active rules, loaded skills, memory context, and more. The system prompt is cached and only rebuilt when something changes (a mode switch, a tool availability toggle).
 
 The assembled prompt and conversation history go to the AI provider. Obsilo streams the response, firing `onText()` for each text chunk and collecting any `tool_use` blocks.
 
@@ -84,7 +84,7 @@ If the API returns a 400-class error indicating context overflow, emergency cond
 
 Models drift. In a long loop with many iterations, the agent can gradually forget its assigned role and start behaving generically. Power steering counters this.
 
-When `powerSteeringFrequency` is set to a value like 4, the loop injects a synthetic user message every 4 iterations. This message reminds the model of its active mode, role definition, and any active skill names. It doesn't cost an extra API call -- it's just an additional message in the conversation history before the next iteration.
+When `powerSteeringFrequency` is set to a value like 4, the loop injects a synthetic user message every 4 iterations. This message reminds the model of its active mode, role definition, and any active skill names. It doesn't cost an extra API call. It's just an additional message in the conversation history before the next iteration.
 
 ## Multi-agent: spawning child agents
 

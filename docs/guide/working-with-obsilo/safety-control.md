@@ -9,16 +9,16 @@ Nothing changes in your vault without your knowledge. This page covers the safet
 
 ## The approval system
 
-By default, Obsilo is fail-closed -- it asks before performing any action that modifies your vault. Every write, edit, delete, or external call triggers an approval card in the chat.
+By default, Obsilo is fail-closed. It asks before performing any action that modifies your vault. Every write, edit, delete, or external call triggers an approval card in the chat.
 
 ### What an approval card shows
 
 When Obsilo wants to do something, a card appears with:
 
-- Write a file -- the full content that will be written
-- Edit a file -- a diff showing what changes (lines added and removed)
-- Delete a file -- which file will be removed
-- Move/rename -- source and destination paths
+- Write a file: the full content that will be written
+- Edit a file: a diff showing what changes (lines added and removed)
+- Delete a file: which file will be removed
+- Move/rename: source and destination paths
 
 You can Allow once (approve this specific action) or Always allow (auto-approve this category from now on).
 
@@ -28,17 +28,17 @@ You can enable auto-approve per category. Go to **Settings > Obsilo Agent > Perm
 
 | Category | What it covers | Risk level |
 |----------|---------------|-----------|
-| **Read operations** | Reading files, listing folders, searching | Low -- nothing changes |
-| **Note edits** | Editing existing Markdown notes | Medium -- changes your content |
-| **Vault changes** | Creating, moving, or deleting files and folders | Medium-High -- structural changes |
-| **Web operations** | Fetching web pages, searching the internet | Low-Medium -- external data access |
-| **MCP calls** | Calling external tools via the Model Context Protocol | Medium -- depends on the tool |
-| **Subtasks** | Spawning background sub-agents | Low -- inherits parent permissions |
-| **Plugin skills** | Running built-in skill workflows | Low -- guided multi-step tasks |
-| **Plugin API reads** | Reading Obsidian plugin data | Low -- read-only |
-| **Plugin API writes** | Modifying Obsidian plugin settings | High -- can change app behavior |
-| **Recipes** | Running multi-step automated workflows | High -- many actions in sequence |
-| **Sandbox** | Executing code in the isolated sandbox | High -- runs generated code |
+| **Read operations** | Reading files, listing folders, searching | Low (nothing changes) |
+| **Note edits** | Editing existing Markdown notes | Medium (changes your content) |
+| **Vault changes** | Creating, moving, or deleting files and folders | Medium-High (structural changes) |
+| **Web operations** | Fetching web pages, searching the internet | Low-Medium (external data access) |
+| **MCP calls** | Calling external tools via the Model Context Protocol | Medium (depends on the tool) |
+| **Subtasks** | Spawning background sub-agents | Low (inherits parent permissions) |
+| **Plugin skills** | Running built-in skill workflows | Low (guided multi-step tasks) |
+| **Plugin API reads** | Reading Obsidian plugin data | Low (read-only) |
+| **Plugin API writes** | Modifying Obsidian plugin settings | High (can change app behavior) |
+| **Recipes** | Running multi-step automated workflows | High (many actions in sequence) |
+| **Sandbox** | Executing code in the isolated sandbox | High (runs generated code) |
 
 :::warning Permissive mode
 If you auto-approve both web operations and note edits (or vault changes), Obsilo shows a security warning. This combination means the agent could fetch content from the internet and write it to your vault without asking.
@@ -59,7 +59,7 @@ After a task completes, you can review all changes at once:
 3. For each file, you see every change grouped by section (headings, paragraphs, code blocks)
 4. Decide per section: Keep, Undo, or Edit (modify the change manually)
 
-This gives you fine-grained control -- keep most of a task's work while reverting one specific paragraph.
+This gives you fine-grained control: keep most of a task's work while reverting one specific paragraph.
 
 ## Checkpoints and undo
 
@@ -69,8 +69,8 @@ Obsilo creates a checkpoint before the first modification to any file in a task.
 
 After every task that modified files, an undo bar appears:
 
-- "Undo all changes" -- restores every file to its pre-task state with one click
-- "Review changes" -- opens the diff review modal for per-file decisions
+- "Undo all changes": restores every file to its pre-task state with one click
+- "Review changes": opens the diff review modal for per-file decisions
 
 :::tip Undo is always available
 Even if you auto-approve everything, the checkpoint system records the state before changes. You can always undo after the fact.
@@ -83,7 +83,7 @@ Even if you auto-approve everything, the checkpoint system records the state bef
 3. If you undo, the original content is restored from the snapshot
 4. Files that were newly created (did not exist before the task) are deleted on undo
 
-Checkpoints are automatic -- you do not need to configure anything.
+Checkpoints are automatic. You do not need to configure anything.
 
 ## The operation log
 
@@ -124,7 +124,7 @@ There is also `.obsidian-agentprotected` for files the agent can read but never 
 templates/
 ```
 
-Both files are themselves protected -- the agent cannot modify or delete them.
+Both files are themselves protected. The agent cannot modify or delete them.
 
 :::tip Always-blocked paths
 Regardless of your configuration, Obsilo never accesses `.git/`, the Obsidian workspace cache, or internal config files. Blocked by default.
@@ -144,4 +144,4 @@ Regardless of your configuration, Obsilo never accesses `.git/`, the Obsidian wo
 
 6. Back up your vault. Checkpoints provide undo within Obsilo, but a proper vault backup (Obsidian Sync, git, or file-system backup) protects against everything.
 
-7. Use Ask mode for exploration. When you just want answers without changes, switch to Ask mode. It is read-only -- nothing in your vault can be modified.
+7. Use Ask mode for exploration. When you just want answers without changes, switch to Ask mode. It is read-only, so nothing in your vault can be modified.

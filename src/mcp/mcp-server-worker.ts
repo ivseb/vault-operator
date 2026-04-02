@@ -13,6 +13,18 @@
 
 const OBSILO_URL = 'http://127.0.0.1:27182';
 
+// AUDIT-006 H-1: Read auth token from well-known file
+let mcpToken = '';
+try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- standalone Node.js worker
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const path = require('path');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const os = require('os');
+    mcpToken = fs.readFileSync(path.join(os.homedir(), '.obsidian-agent', 'mcp-token'), 'utf-8').trim();
+} catch { /* token file not found -- requests will be rejected by server */ }
+
 // ---------------------------------------------------------------------------
 // Read newline-delimited JSON from stdin
 // ---------------------------------------------------------------------------
@@ -54,6 +66,7 @@ async function forwardToObsilo(request: unknown, expectResponse = true): Promise
                 headers: {
                     'Content-Type': 'application/json',
                     'Content-Length': Buffer.byteLength(body),
+                    ...(mcpToken ? { 'Authorization': `Bearer ${mcpToken}` } : {}),
                 },
                 timeout: 30000,
             }, (res) => {

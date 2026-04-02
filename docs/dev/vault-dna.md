@@ -22,7 +22,7 @@ The `VaultDNAScanner` (`src/core/skills/VaultDNAScanner.ts`) reads `app.plugins.
 - All registered commands
 - Whether the plugin is currently enabled
 
-Commands are the important part. They're the primary way Obsidian plugins expose functionality, and they're how the agent interacts with them -- via the `execute_command` tool.
+Commands are the important part. They're the primary way Obsidian plugins expose functionality, and they're how the agent interacts with them, via the `execute_command` tool.
 
 The scanner distinguishes between core plugins (shipped with Obsidian) and community plugins (installed from the community registry or manually). Core plugins have stable, well-documented command IDs. Community plugins vary widely in quality and naming conventions.
 
@@ -36,7 +36,7 @@ After filtering, each plugin gets classified based on how many agent-usable comm
 
 For each plugin with usable commands, the scanner generates a `.skill.md` file at `.obsidian-agent/plugin-skills/`. These skill files are Markdown documents that describe the plugin's capabilities in a format the agent can understand. They list available commands, describe what each one does, and provide usage hints.
 
-The generated skills are "skeleton" quality -- they contain the structural information extracted from the plugin manifest and commands, but no LLM-generated descriptions or usage examples. This is intentional. The generation runs entirely offline, with no network calls and no LLM involvement. Accuracy is limited to what the manifest provides.
+The generated skills are "skeleton" quality: they contain the structural information extracted from the plugin manifest and commands, but no LLM-generated descriptions or usage examples. This is intentional. The generation runs entirely offline, with no network calls and no LLM involvement. Accuracy is limited to what the manifest provides.
 
 Core Obsidian plugins (daily notes, templates, canvas, etc.) get better treatment. The scanner includes a `CorePluginLibrary` with hand-written definitions for built-in plugins, so their skill files have more detail than what manifest parsing alone produces.
 
@@ -74,4 +74,4 @@ Plugin skills are one category in a broader skill system. Obsilo has three sourc
 2. User skills (written by you or the agent, stored in `.obsidian-agent/skills/`)
 3. Built-in skills (bundled with the plugin)
 
-All three types are Markdown files with the same structure. The agent doesn't distinguish between them at runtime -- they're all loaded into the system prompt based on relevance to the current conversation. The distinction matters for management: plugin skills are regenerated automatically when plugins change, user skills persist until you delete them, and built-in skills update with plugin releases.
+All three types are Markdown files with the same structure. The agent doesn't distinguish between them at runtime. They're all loaded into the system prompt based on relevance to the current conversation. The distinction matters for management: plugin skills are regenerated automatically when plugins change, user skills persist until you delete them, and built-in skills update with plugin releases.

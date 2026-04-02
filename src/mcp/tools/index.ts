@@ -194,7 +194,22 @@ export async function handleToolCall(
     await ensureSession(plugin);
 
     // Execute tool
+    const startMs = Date.now();
     const result = await handler(plugin, args);
+
+    // AUDIT-006 H-2: Audit logging for MCP operations
+    if (plugin.operationLogger) {
+        void plugin.operationLogger.log({
+            timestamp: new Date().toISOString(),
+            taskId: `mcp-${currentSessionId ?? 'unknown'}`,
+            mode: 'mcp',
+            tool: `mcp:${tool}`,
+            params: args,
+            result: result.content.map(c => c.text).join('\n').slice(0, 2000),
+            success: !result.isError,
+            durationMs: Date.now() - startMs,
+        });
+    }
 
     // Inject system context into the first tool response of each session
     // (sent to Claude but NOT logged to history)

@@ -7,17 +7,17 @@ description: MCP client for external tools, MCP server for Claude Desktop, and r
 
 Obsilo can connect to external tools, expose your vault to other AI applications, and provide remote access from anywhere. This is powered by the Model Context Protocol (MCP) and a Cloudflare relay.
 
-## MCP client -- connect external tools
+## MCP client: connect external tools
 
 The MCP client lets Obsilo use tools provided by external MCP servers. You can extend the agent's capabilities without writing plugins.
 
 ### What you can connect
 
 Any MCP-compatible server works. Common examples:
-- Database tools -- query SQLite, PostgreSQL, or other databases
-- Web services -- interact with APIs, fetch data
-- Local tools -- file system utilities, shell commands, custom scripts
-- Third-party integrations -- GitHub, Slack, calendar services
+- Database tools (query SQLite, PostgreSQL, or other databases)
+- Web services (interact with APIs, fetch data)
+- Local tools (file system utilities, shell commands, custom scripts)
+- Third-party integrations (GitHub, Slack, calendar services)
 
 ### Setup
 
@@ -40,7 +40,7 @@ Once connected, the agent can call external tools using `use_mcp_tool` and manag
 You don't need to tell the agent which tools are available. It reads the tool list from each connected MCP server and uses them when relevant to your request.
 :::
 
-## MCP server -- expose your vault to Claude Desktop
+## MCP server: expose your vault to Claude Desktop
 
 You can turn Obsilo into an MCP server, letting Claude Desktop (or any MCP client) read and write your Obsidian vault.
 
@@ -69,7 +69,7 @@ Done. Claude Desktop now sees your vault as an available tool source.
 The write tier lets Claude Desktop modify your vault. Enable it only if you trust the prompts you send through Claude Desktop. The read and session tiers are safe for everyday use.
 :::
 
-## Remote access -- Cloudflare relay
+## Remote access via Cloudflare relay
 
 Remote access lets you interact with your vault from anywhere, as long as Obsidian is running on your machine.
 
@@ -119,6 +119,6 @@ GitHub Copilot works if you already have a Copilot subscription. Kilo Gateway of
 
 ## Next steps
 
-- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows) -- Customize the agent's behavior
-- [Office Documents](/guide/advanced/office-documents) -- Create presentations and documents
-- [Multi-Agent & Tasks](/guide/advanced/multi-agent) -- Delegate work to sub-agents
+- [Skills, Rules & Workflows](/guide/advanced/skills-rules-workflows): Customize the agent's behavior
+- [Office Documents](/guide/advanced/office-documents): Create presentations and documents
+- [Multi-Agent & Tasks](/guide/advanced/multi-agent): Delegate work to sub-agents

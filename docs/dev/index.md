@@ -11,7 +11,7 @@ Obsilo is an AI agent that runs inside Obsidian as a community plugin. You send 
 
 Forget chat interfaces for a moment. A chatbot takes your message, generates a response, and stops. Obsilo does something different: it takes your message, generates a response that may include tool calls (read a file, run a search, edit a note), executes those tools, feeds the results back to the language model, and repeats. The loop continues until the model decides it has finished or a safety limit cuts it off.
 
-That loop is the entire architecture in a nutshell. Everything else -- the approval system, the prompt assembly, the memory layer, the mode system -- exists to make that loop safe, useful, and extensible.
+That loop is the entire architecture in a nutshell. Everything else (the approval system, the prompt assembly, the memory layer, the mode system) exists to make that loop safe, useful, and extensible.
 
 ## Layers
 

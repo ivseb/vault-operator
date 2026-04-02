@@ -128,6 +128,6 @@ Too many rules bloat the system prompt and can confuse the model. Prefer skills 
 
 ## Next steps
 
-- [Office Documents](/guide/advanced/office-documents) -- Create presentations, documents, and spreadsheets
-- [Connectors](/guide/advanced/connectors) -- Connect external tools and expose your vault
-- [Multi-Agent & Tasks](/guide/advanced/multi-agent) -- Delegate work to sub-agents
+- [Office Documents](/guide/advanced/office-documents): Create presentations, documents, and spreadsheets
+- [Connectors](/guide/advanced/connectors): Connect external tools and expose your vault
+- [Multi-Agent & Tasks](/guide/advanced/multi-agent): Delegate work to sub-agents

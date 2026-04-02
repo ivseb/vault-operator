@@ -22,7 +22,7 @@ Switch modes using the dropdown in the chat toolbar, or let the agent switch aut
 If you are new to Obsilo, start in **Ask** mode. It cannot change anything, so you can explore safely. Switch to **Agent** mode when you are ready to let it work.
 :::
 
-## Context -- what the agent knows
+## Context: what the agent knows
 
 The agent sees:
 - Your message and the conversation history
@@ -48,10 +48,10 @@ Click the activity block to expand or collapse it.
 
 By default, the agent asks for your approval before any write operation. An approval card appears showing exactly what the agent wants to do:
 
-- Write file -- shows the full content
-- Edit file -- shows the diff
-- Delete file -- shows which file
-- Move file -- shows source and destination
+- Write file: shows the full content
+- Edit file: shows the diff
+- Delete file: shows which file
+- Move file: shows source and destination
 
 Click **"Allow once"** to approve, or **"Always allow"** to auto-approve that category.
 
@@ -82,6 +82,6 @@ Let it search. The agent can search your vault semantically. Ask broad questions
 
 ## Next steps
 
-- [Choosing a model](/guide/choosing-a-model) -- Provider comparison and recommendations
-- [Chat interface](/guide/working-with-obsilo/chat-interface) -- Deep dive into all chat features
-- [Knowledge discovery](/guide/working-with-obsilo/knowledge-discovery) -- Set up semantic search
+- [Choosing a model](/guide/choosing-a-model): Provider comparison and recommendations
+- [Chat interface](/guide/working-with-obsilo/chat-interface): Deep dive into all chat features
+- [Knowledge discovery](/guide/working-with-obsilo/knowledge-discovery): Set up semantic search

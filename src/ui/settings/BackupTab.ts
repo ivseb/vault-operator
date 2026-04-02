@@ -1,6 +1,7 @@
 import { App, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { DEFAULT_SETTINGS } from '../../types/settings';
+import type { ObsidianAgentSettings } from '../../types/settings';
 import type { GlobalFileService } from '../../core/storage/GlobalFileService';
 import { t } from '../../i18n';
 
@@ -273,7 +274,7 @@ export class BackupTab {
 
                 if (cat.id === 'settings') {
                     files['data.json'] = {
-                        content: JSON.stringify(this.plugin.settings, null, 2),
+                        content: JSON.stringify(this.stripSensitiveFields(this.plugin.settings), null, 2),
                     };
                 } else if (cat.id === 'vault-dna') {
                     const path = '.obsidian-agent/vault-dna.json';
@@ -587,7 +588,32 @@ export class BackupTab {
         return { count, size };
     }
 
-    // ── Settings sanitization (M-8) ────────────────────────────────────────
+    // ── Settings sanitization ──────────────────────────────────────────────
+
+    /**
+     * Strip API keys and tokens before export (AUDIT-006 H-4).
+     * Same field inventory as encryptSettingsForSave() in main.ts.
+     */
+    private stripSensitiveFields(settings: ObsidianAgentSettings): ObsidianAgentSettings {
+        const copy = JSON.parse(JSON.stringify(settings)) as ObsidianAgentSettings;
+        for (const model of copy.activeModels ?? []) {
+            if (model.apiKey) model.apiKey = '';
+        }
+        for (const model of copy.embeddingModels ?? []) {
+            if (model.apiKey) model.apiKey = '';
+        }
+        if (copy.webTools) {
+            copy.webTools.braveApiKey = '';
+            copy.webTools.tavilyApiKey = '';
+        }
+        copy.githubCopilotAccessToken = '';
+        copy.githubCopilotToken = '';
+        copy.kiloToken = '';
+        copy.cloudflareApiToken = '';
+        copy.relayToken = '';
+        copy.mcpServerToken = '';
+        return copy;
+    }
 
     /**
      * Sanitize imported settings: only copy known keys from DEFAULT_SETTINGS,

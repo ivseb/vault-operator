@@ -5,7 +5,7 @@ description: How Obsilo creates and reads PPTX, DOCX, XLSX, and PDF files inside
 
 # Office pipeline
 
-Obsilo can create PowerPoint, Word, and Excel files directly in your vault. It can also read them -- extracting text and structure from office documents to use as context in conversations.
+Obsilo can create PowerPoint, Word, and Excel files directly in your vault. It can also read them, extracting text and structure from office documents to use as context in conversations.
 
 ## Document creation
 
@@ -32,7 +32,7 @@ Template mode depends on a catalog. The `TemplateCatalogLoader` (`src/core/offic
 
 ## The plan_presentation step
 
-The interesting part of the PPTX pipeline is what happens before generation. Raw source material (meeting notes, research, bullet points) needs to be transformed into structured slide content. Asking the agent to do this inline -- while also managing tool calls and conversation flow -- produces mediocre results.
+The interesting part of the PPTX pipeline is what happens before generation. Raw source material (meeting notes, research, bullet points) needs to be transformed into structured slide content. Asking the agent to do this inline, while also managing tool calls and conversation flow, produces mediocre results.
 
 The `plan_presentation` tool (`src/core/tools/vault/PlanPresentationTool.ts`) solves this with a dedicated internal LLM call. It's a tool that calls the LLM itself, separate from the main conversation:
 
@@ -42,7 +42,7 @@ The `plan_presentation` tool (`src/core/tools/vault/PlanPresentationTool.ts`) so
 4. Generate content for every non-decorative shape on each slide
 5. Validate the plan against the catalog (do all required shapes have content? are shape names valid? are placeholders resolved?)
 
-The output is a `DeckPlan` -- a structured JSON object that `create_pptx` can consume directly. This separation between planning and generation means the agent can review and adjust the plan before committing to a file. You can ask the agent to show you the plan, request changes ("move the financials section earlier", "add a slide about timeline"), and only generate the file once the plan looks right.
+The output is a `DeckPlan`, a structured JSON object that `create_pptx` can consume directly. This separation between planning and generation means the agent can review and adjust the plan before committing to a file. You can ask the agent to show you the plan, request changes ("move the financials section earlier", "add a slide about timeline"), and only generate the file once the plan looks right.
 
 The internal LLM call is constrained: it receives the source material and the catalog as structured input, and must produce output conforming to the DeckPlan schema. This is more reliable than asking the conversational LLM to produce the same structure inline, because the constrained call has a single focused task without conversation history taking up context.
 
@@ -69,10 +69,10 @@ Reading office files is the reverse direction. The `parseDocument` function (`sr
 | PDF | `PdfParser` | Page text, basic structure |
 | CSV/JSON | `CsvParser` / `parseJson` | Structured data |
 
-Parsed content is returned as structured text the agent can use as context. This is how the agent reads a 50-slide presentation or a complex spreadsheet -- it doesn't process the raw binary, it works with the extracted text.
+Parsed content is returned as structured text the agent can use as context. This is how the agent reads a 50-slide presentation or a complex spreadsheet. It doesn't process the raw binary; it works with the extracted text.
 
 Document parsing is used in two places: the `read_document` tool (when the agent explicitly reads a file) and the `AttachmentHandler` (when you drag a file into the chat).
 
 ## Why binary tools can't run in the sandbox
 
-Office file generation requires libraries like JSZip that work with Buffer and stream objects. The sandboxed environment (used for dynamic tools) doesn't have access to these Node.js primitives. That's why `create_pptx`, `create_docx`, and `create_xlsx` are built-in tools running in the plugin's main process rather than sandbox-compatible dynamic tools. The same applies to document parsing -- the parsers need ArrayBuffer processing that only works in the main process.
+Office file generation requires libraries like JSZip that work with Buffer and stream objects. The sandboxed environment (used for dynamic tools) doesn't have access to these Node.js primitives. That's why `create_pptx`, `create_docx`, and `create_xlsx` are built-in tools running in the plugin's main process rather than sandbox-compatible dynamic tools. The same applies to document parsing, since the parsers need ArrayBuffer processing that only works in the main process.
