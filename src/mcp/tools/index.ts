@@ -87,7 +87,6 @@ async function logToolCallToHistory(
 
     try {
         const now = new Date().toISOString();
-        const resultText = result.content.map(c => c.text).join('\n');
 
         // Build human-readable description of what happened
         const description = buildHumanReadable(tool, args, result);

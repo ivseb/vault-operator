@@ -443,7 +443,7 @@ export class McpTab {
     }
 
     private findNodePath(): string {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process needed for node path discovery in Electron
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-child-process -- child_process needed for node path discovery in Electron
         const cp = require('child_process') as typeof import('child_process');
         const candidates: string[] = [];
         try { candidates.push(cp.execSync('which node', { encoding: 'utf-8', timeout: 3000 }).trim()); } catch { /* fallback */ }

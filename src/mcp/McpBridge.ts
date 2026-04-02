@@ -241,7 +241,7 @@ export class McpBridge {
         if (this.tunnelProcess) return;
         this.onTunnelUrl = onUrl ?? null;
 
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process in Electron
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-child-process -- child_process in Electron
         const cp = require('child_process') as typeof import('child_process');
 
         // Check if cloudflared is available

@@ -105,7 +105,7 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
             throw new Error(`Sandbox worker failed to start after ${ProcessSandboxExecutor.MAX_RESPAWNS} attempts`);
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-require-imports -- child_process only via dynamic require in Electron renderer (same pattern as SafeStorageService)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, security/detect-child-process -- child_process only via dynamic require in Electron renderer (same pattern as SafeStorageService)
         const cp = require('child_process') as typeof import('child_process');
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- fs only via dynamic require in Electron renderer context
         const fs = require('fs') as typeof import('fs');
