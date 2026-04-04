@@ -33,6 +33,25 @@ interface PlannedToolCall {
     input: Record<string, unknown>;
 }
 
+/** Tools allowed in Stage 1 (search/discovery). Hard allowlist — planner output is filtered. */
+const STAGE1_ALLOWED = new Set([
+    'semantic_search', 'search_files', 'search_by_tag', 'list_files',
+    'get_vault_stats', 'web_search',
+]);
+
+/** Tools allowed in Stage 2 (read). Hard allowlist. */
+const STAGE2_ALLOWED = new Set([
+    'read_file', 'read_document', 'get_frontmatter', 'get_linked_notes',
+]);
+
+/** Tools safe for parallel execution (no side effects). */
+const READ_SAFE = new Set([
+    'read_file', 'read_document', 'list_files', 'search_files',
+    'get_frontmatter', 'get_linked_notes', 'search_by_tag',
+    'get_vault_stats', 'semantic_search', 'query_base',
+    'web_search', 'web_fetch',
+]);
+
 export interface FastPathResult {
     success: boolean;
     historyEntries: MessageParam[];
@@ -112,8 +131,13 @@ export class FastPathExecutor {
             );
 
             if (searchCalls && searchCalls.length > 0) {
-                console.debug(`[FastPath] Stage 1: ${searchCalls.length} search calls`);
-                const searchResults = await this.executeBatch(searchCalls, callbacks, abortSignal);
+                // S-2: Hard allowlist — reject any tools the planner shouldn't have generated
+                const filteredSearch = searchCalls.filter((c) => STAGE1_ALLOWED.has(c.tool));
+                if (filteredSearch.length !== searchCalls.length) {
+                    console.warn(`[FastPath] Stage 1: filtered ${searchCalls.length - filteredSearch.length} disallowed tool(s)`);
+                }
+                console.debug(`[FastPath] Stage 1: ${filteredSearch.length} search calls`);
+                const searchResults = await this.executeBatch(filteredSearch, callbacks, abortSignal);
                 allResults.push(...searchResults);
                 toolCallsExecuted += searchResults.length;
 
@@ -130,8 +154,13 @@ export class FastPathExecutor {
                     );
 
                     if (readCalls && readCalls.length > 0) {
-                        console.debug(`[FastPath] Stage 2: ${readCalls.length} read calls`);
-                        const readResults = await this.executeBatch(readCalls, callbacks, abortSignal);
+                        // S-2: Hard allowlist for Stage 2
+                        const filteredRead = readCalls.filter((c) => STAGE2_ALLOWED.has(c.tool));
+                        if (filteredRead.length !== readCalls.length) {
+                            console.warn(`[FastPath] Stage 2: filtered ${readCalls.length - filteredRead.length} disallowed tool(s)`);
+                        }
+                        console.debug(`[FastPath] Stage 2: ${filteredRead.length} read calls`);
+                        const readResults = await this.executeBatch(filteredRead, callbacks, abortSignal);
                         allResults.push(...readResults);
                         toolCallsExecuted += readResults.length;
                     }
@@ -323,12 +352,6 @@ export class FastPathExecutor {
     // -----------------------------------------------------------------------
 
     private isReadSafe(toolName: string): boolean {
-        const READ_SAFE = new Set([
-            'read_file', 'read_document', 'list_files', 'search_files',
-            'get_frontmatter', 'get_linked_notes', 'search_by_tag',
-            'get_vault_stats', 'semantic_search', 'query_base',
-            'web_search', 'web_fetch',
-        ]);
         return READ_SAFE.has(toolName);
     }
 

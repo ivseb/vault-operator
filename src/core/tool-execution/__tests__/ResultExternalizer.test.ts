@@ -18,6 +18,7 @@ function createMemoryFs(): import('../../storage/types').FileAdapter & { files: 
             return content;
         },
         write: async (path: string, content: string) => { files.set(path, content); },
+        append: async (path: string, content: string) => { files.set(path, (files.get(path) ?? '') + content); },
         remove: async (path: string) => { files.delete(path); dirs.delete(path); },
         mkdir: async (path: string) => { dirs.add(path); },
         list: async (path: string) => ({

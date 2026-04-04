@@ -198,43 +198,33 @@ export class AgentTask {
                 if (bestMatch && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
                     console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
 
-                    // Build system prompt for planner (same as normal loop)
-                    const webEnabled = this.modeService?.isWebEnabled() ?? false;
-                    const plannerPrompt = buildSystemPromptForMode({
-                        mode: activeMode,
-                        globalCustomInstructions,
-                        includeTime,
-                        rulesContent,
-                        skillsSection,
-                        mcpClient,
-                        allowedMcpServers,
-                        memoryContext,
-                        pluginSkillsSection,
-                        isSubtask: false,
-                        webEnabled,
-                        recipesSection,
-                        selfAuthoredSkillsSection,
+                    // Build system prompt for planner (same params as normal loop)
+                    const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
+                    const fpPrompt = buildSystemPromptForMode({
+                        mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
+                        skillsSection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
+                        isSubtask: false, webEnabled: fpWebEnabled, recipesSection, selfAuthoredSkillsSection,
                         configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
                     });
+                    const fpTools = this.modeService
+                        ? this.modeService.getToolDefinitions(activeMode)
+                        : this.toolRegistry.getToolDefinitions();
 
                     const fastPath = new FastPathExecutor(this.api, pipeline);
                     const fpCallbacks = {
                         pushToolResult: () => {},
                         pushProgress: () => {},
-                        handleError: async () => {},
+                        handleError: async (tool: string, error: unknown) => {
+                            console.warn(`[FastPath] Tool error in ${tool}:`, error);
+                        },
                         log: (msg: string) => console.debug(`[FastPath] ${msg}`),
                     };
 
                     const msgText = typeof userMessage === 'string' ? userMessage : '';
-                    // Build tool definitions for planner context (so LLM knows parameter schemas)
-                    const fpTools = this.modeService
-                        ? this.modeService.getToolDefinitions(activeMode)
-                        : this.toolRegistry.getToolDefinitions();
-
                     const result = await fastPath.execute(
                         bestMatch.recipe,
                         msgText,
-                        plannerPrompt,
+                        fpPrompt,
                         fpCallbacks,
                         abortSignal,
                         fpTools,

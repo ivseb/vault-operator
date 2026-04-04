@@ -90,6 +90,7 @@ export class ResultExternalizer {
     private iteration = 0;
     private callCounter = 0;
     private _disabled = false;
+    private _dirCreated = false;
 
     constructor(fs: FileAdapter, taskId: string) {
         this.fs = fs;
@@ -123,13 +124,18 @@ export class ResultExternalizer {
         if (content.length <= EXTERNALIZE_THRESHOLD) return null;
 
         try {
-            // Ensure tmp directory exists
-            const dirExists = await this.fs.exists(this.tmpDir);
-            if (!dirExists) await this.fs.mkdir(this.tmpDir);
+            // E-4: Skip redundant exists check after first mkdir
+            if (!this._dirCreated) {
+                const dirExists = await this.fs.exists(this.tmpDir);
+                if (!dirExists) await this.fs.mkdir(this.tmpDir);
+                this._dirCreated = true;
+            }
 
             // Write full content to temp file (deterministic name using global call counter)
             this.callCounter++;
-            const fileName = `${toolName}-${this.callCounter}.md`;
+            // S-3: Sanitize toolName to prevent path traversal (MCP tools may have special chars)
+            const safeName = toolName.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const fileName = `${safeName}-${this.callCounter}.md`;
             const filePath = `${this.tmpDir}/${fileName}`;
             await this.fs.write(filePath, content);
 

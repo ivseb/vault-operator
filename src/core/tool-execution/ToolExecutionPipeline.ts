@@ -23,6 +23,7 @@ import type {
 } from '../tools/types';
 import type { IgnoreService } from '../governance/IgnoreService';
 import type { OperationLogger } from '../governance/OperationLogger';
+import { ResultExternalizer } from './ResultExternalizer';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 
 /**
@@ -136,7 +137,7 @@ export class ToolExecutionPipeline {
     private resultCache = new Map<string, string>();
 
     /** ADR-063: Context Externalization — large results written to temp files. */
-    private resultExternalizer: import('./ResultExternalizer').ResultExternalizer | null = null;
+    private resultExternalizer: ResultExternalizer | null = null;
 
 
     /** Tools eligible for result caching (read-only, deterministic within a task). */
@@ -161,13 +162,12 @@ export class ToolExecutionPipeline {
 
         // ADR-063: Initialize result externalizer for large tool results
         if (plugin.globalFs) {
-            const { ResultExternalizer } = require('./ResultExternalizer') as typeof import('./ResultExternalizer'); // eslint-disable-line -- dynamic require for lazy init
             this.resultExternalizer = new ResultExternalizer(plugin.globalFs, taskId);
         }
     }
 
     /** ADR-063: Get the externalizer (for Fast Path to disable during batch). */
-    getExternalizer(): import('./ResultExternalizer').ResultExternalizer | null {
+    getExternalizer(): ResultExternalizer | null {
         return this.resultExternalizer;
     }
 
