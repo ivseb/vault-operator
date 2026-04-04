@@ -184,6 +184,71 @@ export class AgentTask {
         // Add user message to the shared history
         history.push({ role: 'user', content: userMessage });
 
+        // ADR-061: Fast Path — if a recipe matches with high confidence,
+        // execute tool steps as a batch before entering the normal loop.
+        // The loop then handles presentation/completion in 1-2 iterations.
+        if (recipesSection && this.depth === 0) {
+            try {
+                const { FastPathExecutor } = await import('./FastPathExecutor');
+                const recipeMatch = this.toolRegistry.plugin.recipeMatchingService?.match(
+                    typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
+                );
+                const bestMatch = recipeMatch?.[0];
+
+                if (bestMatch && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned') {
+                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)})`);
+
+                    // Build system prompt for planner (same as normal loop)
+                    const webEnabled = this.modeService?.isWebEnabled() ?? false;
+                    const plannerPrompt = buildSystemPromptForMode({
+                        mode: activeMode,
+                        globalCustomInstructions,
+                        includeTime,
+                        rulesContent,
+                        skillsSection,
+                        mcpClient,
+                        allowedMcpServers,
+                        memoryContext,
+                        pluginSkillsSection,
+                        isSubtask: false,
+                        webEnabled,
+                        recipesSection,
+                        selfAuthoredSkillsSection,
+                        configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
+                    });
+
+                    const fastPath = new FastPathExecutor(this.api, pipeline);
+                    const fpCallbacks = {
+                        pushToolResult: () => {},
+                        pushProgress: () => {},
+                        handleError: async () => {},
+                        log: (msg: string) => console.debug(`[FastPath] ${msg}`),
+                    };
+
+                    const msgText = typeof userMessage === 'string' ? userMessage : '';
+                    const result = await fastPath.execute(
+                        bestMatch.recipe,
+                        msgText,
+                        plannerPrompt,
+                        fpCallbacks,
+                        abortSignal,
+                    );
+
+                    if (result.success && result.toolCallsExecuted > 0) {
+                        console.debug(`[FastPath] Success: ${result.toolCallsExecuted} tools executed, injecting ${result.historyEntries.length} history entries`);
+                        // Append batch results to history — loop will see them and present
+                        for (const entry of result.historyEntries) {
+                            history.push(entry);
+                        }
+                    } else {
+                        console.debug('[FastPath] No success, continuing with normal loop');
+                    }
+                }
+            } catch (e) {
+                console.warn('[FastPath] Pre-loop check failed (non-fatal), continuing with normal loop:', e);
+            }
+        }
+
         const MAX_ITERATIONS = this.maxIterations;
         const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
 
