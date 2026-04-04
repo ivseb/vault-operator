@@ -226,12 +226,18 @@ export class AgentTask {
                     };
 
                     const msgText = typeof userMessage === 'string' ? userMessage : '';
+                    // Build tool definitions for planner context (so LLM knows parameter schemas)
+                    const fpTools = this.modeService
+                        ? this.modeService.getToolDefinitions(activeMode)
+                        : this.toolRegistry.getToolDefinitions();
+
                     const result = await fastPath.execute(
                         bestMatch.recipe,
                         msgText,
                         plannerPrompt,
                         fpCallbacks,
                         abortSignal,
+                        fpTools,
                     );
 
                     if (result.success && result.toolCallsExecuted > 0) {
@@ -240,6 +246,15 @@ export class AgentTask {
                         for (const entry of result.historyEntries) {
                             history.push(entry);
                         }
+                        // ADR-061: Context hint — tell the loop that search/read is done
+                        history.push({
+                            role: 'user',
+                            content: `[Fast Path completed] The recipe "${bestMatch.recipe.name}" has been executed. `
+                                + `${result.toolCallsExecuted} tool calls completed successfully. `
+                                + `The search and read results are above. `
+                                + `Now: analyze the results and complete the task (write summary, present findings). `
+                                + `Do NOT re-search or re-read the same content — use the results already in context.`,
+                        });
                     } else {
                         console.debug('[FastPath] No success, continuing with normal loop');
                     }
@@ -396,6 +411,24 @@ export class AgentTask {
 
         // Emergency condensing retry: if the API rejects with context overflow,
         // condense and retry the entire loop once instead of aborting.
+        // ADR-061: Todo list as recency anchor (Manus Context Engineering).
+        // Track current todo items so we can inject them at the end of context
+        // before each LLM call, keeping task focus via recency bias.
+        let currentTodoText = '';
+        const originalTodoCallback = this.taskCallbacks.onTodoUpdate;
+        this.taskCallbacks.onTodoUpdate = (items) => {
+            originalTodoCallback?.(items);
+            // Format todo list for injection
+            if (items.length > 0) {
+                currentTodoText = '[Current Task Plan]\n' + items.map((i) => {
+                    const marker = i.status === 'done' ? 'x' : i.status === 'in_progress' ? '~' : ' ';
+                    return `- [${marker}] ${i.text}`;
+                }).join('\n');
+            } else {
+                currentTodoText = '';
+            }
+        };
+
         let emergencyRetried = false;
 
         // Rate limit retry: auto-retry on 429 errors with exponential backoff.
@@ -469,6 +502,15 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
+                // ADR-061: Todo list as recency anchor — inject at end of context before API call.
+                // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
+                // Only inject if todo list exists and has changed since last injection.
+                let todoAnchorIndex = -1;
+                if (currentTodoText && iteration > 0) {
+                    todoAnchorIndex = history.length;
+                    history.push({ role: 'user', content: currentTodoText });
+                }
+
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
                 const toolErrorIds = new Set<string>();
@@ -503,6 +545,12 @@ export class AgentTask {
                         totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
                         totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
                     }
+                }
+
+                // Remove the temporary todo anchor before building the real history
+                // (it was a transient context hint, not a persistent message)
+                if (todoAnchorIndex >= 0 && todoAnchorIndex < history.length) {
+                    history.splice(todoAnchorIndex, 1);
                 }
 
                 // Build the assistant message content

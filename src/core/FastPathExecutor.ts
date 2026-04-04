@@ -21,7 +21,7 @@
 import type { ApiHandler, MessageParam } from '../api/types';
 import type { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import type { ProceduralRecipe } from './mastery/types';
-import type { ToolCallbacks, ToolName } from './tools/types';
+import type { ToolCallbacks, ToolName, ToolDefinition } from './tools/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,6 +97,7 @@ export class FastPathExecutor {
         systemPrompt: string,
         callbacks: ToolCallbacks,
         abortSignal?: AbortSignal,
+        tools?: ToolDefinition[],
     ): Promise<FastPathResult> {
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
 
@@ -104,7 +105,7 @@ export class FastPathExecutor {
             console.debug(`[FastPath] Starting for recipe: ${recipe.name} (${recipe.steps.length} steps)`);
 
             // 1. Planner Call: LLM fills recipe steps with concrete parameters
-            const plannedCalls = await this.plannerCall(recipe, userMessage, systemPrompt, abortSignal);
+            const plannedCalls = await this.plannerCall(recipe, userMessage, systemPrompt, abortSignal, tools);
             if (!plannedCalls || plannedCalls.length === 0) {
                 console.debug('[FastPath] Planner returned no tool calls, falling back to normal loop');
                 return failed;
@@ -193,14 +194,26 @@ export class FastPathExecutor {
         userMessage: string,
         systemPrompt: string,
         abortSignal?: AbortSignal,
+        tools?: ToolDefinition[],
     ): Promise<PlannedToolCall[] | null> {
         const stepsText = recipe.steps
             .map((s, i) => `${i + 1}. ${s.tool} — ${s.note}${s.conditional ? ' [optional]' : ''}`)
             .join('\n');
 
+        // Include input schemas for tools mentioned in the recipe so LLM knows the parameters
+        const recipeToolNames = new Set(recipe.steps.map((s) => s.tool));
+        let toolSchemaHint = '';
+        if (tools && tools.length > 0) {
+            const relevantTools = tools.filter((t) => recipeToolNames.has(t.name));
+            if (relevantTools.length > 0) {
+                toolSchemaHint = '\n\nTOOL PARAMETER SCHEMAS (use these exact parameter names):\n' +
+                    relevantTools.map((t) => `${t.name}: ${JSON.stringify(t.input_schema?.properties ?? {})}`).join('\n');
+            }
+        }
+
         const plannerMessage = PLANNER_INSTRUCTION
             .replace('{STEPS}', stepsText)
-            .replace('{USER_MESSAGE}', userMessage);
+            .replace('{USER_MESSAGE}', userMessage) + toolSchemaHint;
 
         try {
             let responseText = '';
