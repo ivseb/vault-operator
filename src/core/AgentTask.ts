@@ -195,8 +195,8 @@ export class AgentTask {
                 );
                 const bestMatch = recipeMatch?.[0];
 
-                if (bestMatch && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned') {
-                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)})`);
+                if (bestMatch && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
+                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
 
                     // Build system prompt for planner (same as normal loop)
                     const webEnabled = this.modeService?.isWebEnabled() ?? false;
@@ -502,13 +502,19 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
-                // ADR-061: Todo list as recency anchor — inject at end of context before API call.
+                // ADR-061: Todo list as recency anchor — append to last user message.
                 // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
-                // Only inject if todo list exists and has changed since last injection.
-                let todoAnchorIndex = -1;
+                // We temporarily extend the last user message content (not push+splice, which
+                // would violate append-only and invalidate KV-cache).
+                let todoOriginalContent: string | ContentBlock[] | undefined;
                 if (currentTodoText && iteration > 0) {
-                    todoAnchorIndex = history.length;
-                    history.push({ role: 'user', content: currentTodoText });
+                    for (let h = history.length - 1; h >= 0; h--) {
+                        if (history[h].role === 'user' && typeof history[h].content === 'string') {
+                            todoOriginalContent = history[h].content;
+                            history[h] = { ...history[h], content: `${history[h].content as string}\n\n${currentTodoText}` };
+                            break;
+                        }
+                    }
                 }
 
                 const toolUses: ContentBlock[] = [];
@@ -547,10 +553,15 @@ export class AgentTask {
                     }
                 }
 
-                // Remove the temporary todo anchor before building the real history
-                // (it was a transient context hint, not a persistent message)
-                if (todoAnchorIndex >= 0 && todoAnchorIndex < history.length) {
-                    history.splice(todoAnchorIndex, 1);
+                // Restore the original user message content (remove todo anchor)
+                if (todoOriginalContent !== undefined) {
+                    for (let h = history.length - 1; h >= 0; h--) {
+                        if (history[h].role === 'user' && typeof history[h].content === 'string'
+                            && (history[h].content as string).endsWith(currentTodoText)) {
+                            history[h] = { ...history[h], content: todoOriginalContent };
+                            break;
+                        }
+                    }
                 }
 
                 // Build the assistant message content
