@@ -342,6 +342,9 @@ export class AgentTask {
         while (true) {
         try {
             for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+                // ADR-063: Sync iteration counter for deterministic externalization file names
+                pipeline.getExternalizer()?.nextIteration();
+
                 // Early exit if task was cancelled between iterations
                 if (abortSignal?.aborted) {
                     console.debug('[AgentTask] Abort signal detected at iteration start');
@@ -764,6 +767,9 @@ export class AgentTask {
                     toolLedger: repetitionDetector.getLedger(),
                 });
             }
+
+            // ADR-063: Clean up externalized temp files after task completion
+            await pipeline.cleanupExternalized();
 
             this.taskCallbacks.onComplete();
             return;  // Success — exit the emergency retry loop

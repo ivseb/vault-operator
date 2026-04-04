@@ -1,0 +1,199 @@
+/**
+ * ResultExternalizer — ADR-063: Context Externalization
+ *
+ * Writes large tool results to temp files and returns compact references.
+ * Integrated into ToolExecutionPipeline AFTER tool execution, BEFORE
+ * returning the result to the conversation history.
+ *
+ * Design principles (Manus Context Engineering):
+ * - Append-only: references are written once, never modified
+ * - Recoverable: full content stays in temp file, agent can read_file to reload
+ * - Deterministic: file paths use taskId + toolName + iteration (no timestamps)
+ * - Unified: same pattern for all tools, logic lives in pipeline not tools
+ */
+
+import type { FileAdapter } from '../storage/types';
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+/** Results larger than this (in chars) are externalized to a temp file. */
+const EXTERNALIZE_THRESHOLD = 2000;
+
+/** Tools that should NEVER be externalized (original file exists in vault). */
+const SKIP_EXTERNALIZATION = new Set([
+    'write_file', 'edit_file', 'append_to_file', 'create_folder',
+    'delete_file', 'move_file', 'update_frontmatter',
+    'generate_canvas', 'create_base', 'update_base',
+    'create_docx', 'create_pptx', 'create_xlsx',
+    'ask_followup_question', 'attempt_completion', 'switch_mode',
+    'update_todo_list', 'update_settings', 'configure_model',
+    'manage_skill', 'manage_source', 'manage_mcp_server',
+    'enable_plugin', 'new_task', 'evaluate_expression',
+    'open_note', 'get_daily_note',
+]);
+
+// ---------------------------------------------------------------------------
+// Reference formatters (tool-specific compact summaries)
+// ---------------------------------------------------------------------------
+
+function formatSearchFilesRef(content: string, path: string): string {
+    // Extract match count and top results
+    const matchLine = content.match(/Found (\d+) match/);
+    const count = matchLine ? matchLine[1] : '?';
+    // Extract file paths from results (lines starting with the vault path)
+    const fileMatches = content.match(/^[^\n]*\.md:/gm) ?? [];
+    const topFiles = [...new Set(fileMatches.map(m => m.replace(/:$/, '')))]
+        .slice(0, 5)
+        .map(f => `  - ${f}`)
+        .join('\n');
+    return `[search_files] Found ${count} matches.\nTop files:\n${topFiles}\n\nFull results saved to: ${path}\nUse read_file("${path}") to see all matches with context.`;
+}
+
+function formatSemanticSearchRef(content: string, path: string): string {
+    // Extract result count and top entries
+    const lines = content.split('\n').filter(l => l.trim());
+    const resultLines = lines.filter(l => l.match(/^\d+\.|^-\s/));
+    const count = resultLines.length || '?';
+    const top3 = resultLines.slice(0, 3).join('\n');
+    return `[semantic_search] ${count} results.\nTop 3:\n${top3}\n\nFull results saved to: ${path}\nUse read_file("${path}") to see all results with excerpts.`;
+}
+
+function formatReadFileRef(content: string, path: string, toolInput: Record<string, unknown>): string {
+    const filePath = (toolInput.path as string) ?? 'unknown';
+    // Extract headings for navigation
+    const headings = content.match(/^#{1,3}\s+.+$/gm) ?? [];
+    const headingList = headings.slice(0, 8).map(h => `  ${h}`).join('\n');
+    const preview = content.slice(0, 400).replace(/\n/g, ' ').trim();
+    return `[read_file] Content of ${filePath} (${content.length} chars).\nHeadings:\n${headingList || '  (no headings)'}\nPreview: ${preview}...\n\nUse read_file("${filePath}") to re-read the full content.`;
+}
+
+function formatWebRef(content: string, path: string, toolName: string): string {
+    const preview = content.slice(0, 500).replace(/\n/g, ' ').trim();
+    return `[${toolName}] ${content.length} chars fetched.\nPreview: ${preview}...\n\nFull content saved to: ${path}\nUse read_file("${path}") to see full content.`;
+}
+
+function formatDefaultRef(content: string, path: string, toolName: string): string {
+    const preview = content.slice(0, 500).replace(/\n/g, ' ').trim();
+    return `[${toolName}] Result (${content.length} chars).\nPreview: ${preview}...\n\nFull result saved to: ${path}\nUse read_file("${path}") to see full content.`;
+}
+
+// ---------------------------------------------------------------------------
+// ResultExternalizer
+// ---------------------------------------------------------------------------
+
+export class ResultExternalizer {
+    private fs: FileAdapter;
+    private taskId: string;
+    private tmpDir: string;
+    private iteration = 0;
+    private _disabled = false;
+
+    constructor(fs: FileAdapter, taskId: string) {
+        this.fs = fs;
+        this.taskId = taskId;
+        this.tmpDir = `tmp/${taskId}`;
+    }
+
+    /** Disable externalization (used by Fast Path — ADR-061). */
+    disable(): void { this._disabled = true; }
+
+    /** Re-enable externalization. */
+    enable(): void { this._disabled = false; }
+
+    /** Increment iteration counter (call once per agent loop iteration). */
+    nextIteration(): void { this.iteration++; }
+
+    /**
+     * Check if a tool result should be externalized, and if so, write it
+     * to a temp file and return a compact reference. Otherwise return null.
+     */
+    async maybeExternalize(
+        toolName: string,
+        toolInput: Record<string, unknown>,
+        content: string,
+        isError: boolean,
+    ): Promise<string | null> {
+        // Never externalize errors, disabled state, skipped tools, or small results
+        if (this._disabled) return null;
+        if (isError) return null;
+        if (SKIP_EXTERNALIZATION.has(toolName)) return null;
+        if (content.length <= EXTERNALIZE_THRESHOLD) return null;
+
+        try {
+            // Ensure tmp directory exists
+            const dirExists = await this.fs.exists(this.tmpDir);
+            if (!dirExists) await this.fs.mkdir(this.tmpDir);
+
+            // Write full content to temp file (deterministic name, no timestamps)
+            const fileName = `${toolName}-${this.iteration}.md`;
+            const filePath = `${this.tmpDir}/${fileName}`;
+            await this.fs.write(filePath, content);
+
+            // Generate tool-specific compact reference
+            const ref = this.formatReference(toolName, content, filePath, toolInput);
+
+            console.debug(`[Externalize] ${toolName} result (${content.length} chars) → ${filePath}`);
+            return ref;
+        } catch (e) {
+            // Non-fatal: if externalization fails, return null and let the full content through
+            console.warn(`[Externalize] Failed for ${toolName} (non-fatal):`, e);
+            return null;
+        }
+    }
+
+    /**
+     * Clean up all temp files for this task.
+     */
+    async cleanup(): Promise<void> {
+        try {
+            const exists = await this.fs.exists(this.tmpDir);
+            if (exists) {
+                const listing = await this.fs.list(this.tmpDir);
+                for (const file of listing.files) {
+                    await this.fs.remove(file);
+                }
+                await this.fs.remove(this.tmpDir);
+                console.debug(`[Externalize] Cleaned up ${this.tmpDir}`);
+            }
+        } catch (e) {
+            console.warn('[Externalize] Cleanup failed (non-fatal):', e);
+        }
+    }
+
+    /**
+     * Static: clean up orphaned tmp directories (crash recovery on plugin start).
+     */
+    static async cleanupOrphaned(fs: FileAdapter): Promise<void> {
+        try {
+            const exists = await fs.exists('tmp');
+            if (!exists) return;
+            const listing = await fs.list('tmp');
+            const ONE_HOUR = 60 * 60 * 1000;
+            for (const dir of listing.folders ?? []) {
+                try {
+                    const stat = await fs.stat(dir);
+                    if (stat && Date.now() - stat.mtime > ONE_HOUR) {
+                        const files = await fs.list(dir);
+                        for (const f of files.files) await fs.remove(f);
+                        await fs.remove(dir);
+                        console.debug(`[Externalize] Removed orphaned ${dir}`);
+                    }
+                } catch { /* skip */ }
+            }
+        } catch { /* non-fatal */ }
+    }
+
+    private formatReference(toolName: string, content: string, path: string, input: Record<string, unknown>): string {
+        switch (toolName) {
+            case 'search_files': return formatSearchFilesRef(content, path);
+            case 'semantic_search': return formatSemanticSearchRef(content, path);
+            case 'read_file':
+            case 'read_document': return formatReadFileRef(content, path, input);
+            case 'web_search': return formatWebRef(content, path, toolName);
+            case 'web_fetch': return formatWebRef(content, path, toolName);
+            default: return formatDefaultRef(content, path, toolName);
+        }
+    }
+}

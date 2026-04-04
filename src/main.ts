@@ -646,6 +646,12 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
+        // ADR-063: Clean up orphaned externalization temp files from crashed sessions
+        if (this.globalFs) {
+            const { ResultExternalizer } = await import('./core/tool-execution/ResultExternalizer');
+            void ResultExternalizer.cleanupOrphaned(this.globalFs);
+        }
+
         console.debug('Obsilo Agent plugin loaded successfully');
     }
 
