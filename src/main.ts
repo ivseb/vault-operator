@@ -168,7 +168,14 @@ export default class ObsidianAgentPlugin extends Plugin {
                     fm['chats'] = links;
                 });
             } catch (e) {
-                console.warn(`[ChatLink] Failed to stamp ${p}:`, e);
+                // FIX-11: YAML parse errors happen when agent writes frontmatter values
+                // with unquoted special chars (colons, brackets). Log concisely and skip.
+                const msg = e instanceof Error ? e.message : String(e);
+                if (msg.includes('YAML') || msg.includes('mapping')) {
+                    console.warn(`[ChatLink] Skipping ${p} — invalid frontmatter (YAML parse error)`);
+                } else {
+                    console.warn(`[ChatLink] Failed to stamp ${p}:`, e);
+                }
             }
         }
     }
@@ -506,8 +513,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.episodicExtractor.initialize().catch((e) =>
                 console.warn('[Plugin] EpisodicExtractor init failed (non-fatal):', e)
             );
+            // ADR-058: Semantic Recipe Promotion (intent-based, not sequence-based)
             this.recipePromotionService = new RecipePromotionService(
-                this.globalFs,
                 this.recipeStore,
                 () => {
                     const model = this.getMemoryModel();
@@ -515,7 +522,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     return buildApiHandler(modelToLLMProvider(model));
                 },
                 getLearnedEnabled,
-                this.memoryDB,
+                this.episodicExtractor,
             );
             await this.recipePromotionService.initialize().catch((e) =>
                 console.warn('[Plugin] RecipePromotionService init failed (non-fatal):', e)
@@ -824,7 +831,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.mastery = this.settings.mastery ?? masteryDefaults;
         this.settings.mastery.enabled = this.settings.mastery.enabled ?? masteryDefaults.enabled;
         this.settings.mastery.recipeBudget = this.settings.mastery.recipeBudget ?? masteryDefaults.recipeBudget;
-        this.settings.mastery.learnedRecipesEnabled = this.settings.mastery.learnedRecipesEnabled ?? masteryDefaults.learnedRecipesEnabled;
+        // Force-enable learned recipes — no UI toggle exists yet (FIX-10), early installs had false
+        this.settings.mastery.learnedRecipesEnabled = true;
         this.settings.mastery.recipeToggles = this.settings.mastery.recipeToggles ?? masteryDefaults.recipeToggles;
 
         // Enable recipes for existing users — 6 other security layers remain active.

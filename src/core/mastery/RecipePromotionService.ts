@@ -1,106 +1,107 @@
 /**
- * RecipePromotionService — Promotes recurring tool-sequence patterns to learned recipes.
+ * RecipePromotionService — Promotes recurring task patterns to learned recipes.
  *
- * After each episode is recorded, this service checks whether the tool-sequence
- * pattern has appeared 3+ times successfully. If so, it uses one LLM call
- * (memory model) to generate a recipe description and trigger keywords,
- * then saves the result via RecipeStore.
+ * ADR-058: Semantic Recipe Promotion (Intent-based, not sequence-based).
+ * After each episode is recorded, this service checks whether semantically
+ * similar successful episodes exist (via embedding similarity). If 3+ similar
+ * episodes are found, a recipe is generated via one LLM call and saved.
  *
- * FEATURE-1505: Migrated from JSON files to MemoryDB (SQLite).
- * ADR-018: Episodic Task Memory — Promotion zu Rezepten
+ * Replaces the old pattern-key approach (ADR-018) which required identical
+ * tool sequences — proven ineffective in Systemtest 2026-04-03.
+ *
+ * FEATURE-1505: Uses MemoryDB (SQLite) for recipe storage.
  */
 
-import type { FileAdapter } from '../storage/types';
-import type { MemoryDB } from '../knowledge/MemoryDB';
 import type { RecipeStore } from './RecipeStore';
-import type { TaskEpisode } from './EpisodicExtractor';
+import type { TaskEpisode, EpisodicExtractor } from './EpisodicExtractor';
 import type { ProceduralRecipe } from './types';
 import type { ApiHandler } from '../../api/types';
 import { SCHEMA_VERSION } from './staticRecipes';
 
-/** Minimum successful occurrences of a pattern before promotion. */
+/** Minimum similar successful episodes before promotion. */
 const PROMOTION_THRESHOLD = 3;
 
-interface PatternEntry {
-    patternKey: string;
-    toolSequence: string[];
-    episodes: Array<{ userMessage: string; resultSummary: string }>;
-    successCount: number;
-}
+/** Maximum learned recipes to prevent unbounded growth. */
+const MAX_LEARNED_RECIPES = 50;
 
 export class RecipePromotionService {
-    private fs: FileAdapter;
-    private memoryDB: MemoryDB | null;
     private store: RecipeStore;
     private getApi: () => ApiHandler | null;
     private getLearnedEnabled: () => boolean;
-    private patternsDir: string;
+    private episodicExtractor: EpisodicExtractor | null;
 
     constructor(
-        fs: FileAdapter,
         store: RecipeStore,
         getApi: () => ApiHandler | null,
         getLearnedEnabled?: () => boolean,
-        memoryDB?: MemoryDB | null,
+        episodicExtractor?: EpisodicExtractor | null,
     ) {
-        this.fs = fs;
-        this.memoryDB = memoryDB ?? null;
         this.store = store;
         this.getApi = getApi;
         this.getLearnedEnabled = getLearnedEnabled ?? (() => true);
-        this.patternsDir = 'patterns';
+        this.episodicExtractor = episodicExtractor ?? null;
     }
 
     async initialize(): Promise<void> {
-        if (!this.memoryDB?.isOpen()) {
-            const exists = await this.fs.exists(this.patternsDir);
-            if (!exists) await this.fs.mkdir(this.patternsDir);
-        }
-        // One-time migration from files to DB
-        if (this.memoryDB?.isOpen()) {
-            await this.migrateFromFiles();
-        }
+        // No initialization needed — semantic search is provided by EpisodicExtractor
     }
 
     /**
-     * Check if an episode's tool-sequence pattern qualifies for promotion.
+     * Check if an episode qualifies for recipe promotion via semantic similarity.
      * Called after each episode is recorded (fire-and-forget).
+     *
+     * ADR-058: Uses embedding similarity of user messages instead of exact tool sequences.
      */
     async checkForPromotion(episode: TaskEpisode): Promise<void> {
         if (!this.getLearnedEnabled()) return;
         if (!episode.success) return;
         if (episode.toolSequence.length < 2) return;
+        if (!this.episodicExtractor) return;
 
-        const patternKey = this.makePatternKey(episode.toolSequence);
+        // Check if we already have too many learned recipes
+        const allRecipes = this.store.getAll();
+        const learnedCount = allRecipes.filter((r) => r.source === 'learned').length;
+        if (learnedCount >= MAX_LEARNED_RECIPES) return;
 
-        // Check if already promoted as a recipe
-        const existingRecipe = this.store.getById(`learned-${patternKey}`);
-        if (existingRecipe) {
-            this.store.incrementSuccess(existingRecipe.id);
-            return;
-        }
+        try {
+            // Find semantically similar past episodes (ADR-058)
+            const similarEpisodes = await this.episodicExtractor.findSimilarEpisodes(
+                episode.userMessage,
+                PROMOTION_THRESHOLD + 2, // fetch a few extra to filter
+            );
 
-        // Load or create pattern tracker
-        const pattern = await this.loadPattern(patternKey, episode.toolSequence);
-        pattern.episodes.push({
-            userMessage: episode.userMessage.slice(0, 200),
-            resultSummary: episode.resultSummary.slice(0, 200),
-        });
-        pattern.successCount++;
+            // Filter: only successful episodes, exclude the current one
+            const candidates = similarEpisodes.filter(
+                (ep) => ep.success && ep.id !== episode.id && ep.toolSequence.length >= 2,
+            );
 
-        // Persist updated pattern
-        await this.savePattern(pattern);
+            if (candidates.length < PROMOTION_THRESHOLD - 1) return; // -1 because current episode counts
 
-        // Check threshold
-        if (pattern.successCount >= PROMOTION_THRESHOLD) {
-            await this.promoteToRecipe(pattern);
+            // Check if a recipe already covers this intent
+            // (simple heuristic: if any candidate's userMessage is already covered by a learned recipe trigger)
+            const existingRecipes = allRecipes.filter((r) => r.source === 'learned');
+            for (const recipe of existingRecipes) {
+                const triggerTokens = new Set(recipe.trigger.toLowerCase().split(/[|, ]+/).filter((t) => t.length >= 3));
+                const msgTokens = new Set(episode.userMessage.toLowerCase().split(/\s+/).filter((t) => t.length >= 3));
+                const overlap = [...triggerTokens].filter((t) => msgTokens.has(t)).length;
+                if (overlap >= 2) {
+                    // Likely already covered — increment success count instead
+                    this.store.incrementSuccess(recipe.id);
+                    return;
+                }
+            }
+
+            // Promotion threshold met — generate recipe
+            await this.promoteToRecipe(episode, candidates.slice(0, PROMOTION_THRESHOLD - 1));
+        } catch (e) {
+            console.warn('[RecipePromotion] Semantic check failed (non-fatal):', e);
         }
     }
 
     /**
-     * Promote a pattern to a learned recipe using one LLM call.
+     * Promote a set of similar episodes to a learned recipe using one LLM call.
      */
-    private async promoteToRecipe(pattern: PatternEntry): Promise<void> {
+    private async promoteToRecipe(trigger: TaskEpisode, similar: TaskEpisode[]): Promise<void> {
         const api = this.getApi();
         if (!api) {
             console.warn('[RecipePromotion] No API available for promotion LLM call');
@@ -108,22 +109,36 @@ export class RecipePromotionService {
         }
 
         try {
-            const exampleMessages = pattern.episodes
-                .slice(-3)
-                .map((e) => `- "${e.userMessage}" => ${e.resultSummary}`)
+            const allEpisodes = [trigger, ...similar];
+            const exampleMessages = allEpisodes
+                .slice(0, 4)
+                .map((e) => `- "${e.userMessage}" => Tools: ${e.toolSequence.join(' -> ')} => ${e.resultSummary}`)
                 .join('\n');
 
-            const systemPrompt = 'You are a recipe generator. Given a tool sequence pattern and example uses, generate a JSON recipe. Respond ONLY with valid JSON, no markdown.';
-            const userPrompt = `Tool sequence pattern: ${pattern.toolSequence.join(' -> ')}
+            // Find the most common tools across all episodes
+            const toolFreq = new Map<string, number>();
+            for (const ep of allEpisodes) {
+                for (const tool of new Set(ep.toolSequence)) {
+                    toolFreq.set(tool, (toolFreq.get(tool) ?? 0) + 1);
+                }
+            }
+            const commonTools = [...toolFreq.entries()]
+                .filter(([, count]) => count >= 2) // tool used in at least 2 episodes
+                .sort((a, b) => b[1] - a[1])
+                .map(([tool]) => tool);
 
-Example uses:
+            const systemPrompt = 'You are a recipe generator. Given similar task episodes, generate a JSON recipe that captures the common workflow pattern. Respond ONLY with valid JSON, no markdown.';
+            const userPrompt = `These ${allEpisodes.length} tasks were identified as semantically similar:
+
 ${exampleMessages}
+
+Most common tools across episodes: ${commonTools.join(', ')}
 
 Generate a JSON object with:
 - "name": Short recipe name (max 40 chars)
 - "description": One sentence describing what this recipe does (max 100 chars)
-- "trigger": Pipe-separated keywords for matching (max 8 keywords)
-- "steps": Array of {tool, note} objects for each tool in the sequence`;
+- "trigger": Pipe-separated keywords for matching user messages (max 8 keywords, include German and English terms)
+- "steps": Array of {tool, note} objects for the recommended tool sequence (use the most common tools)`;
 
             let responseText = '';
             for await (const chunk of api.createMessage(systemPrompt, [
@@ -132,14 +147,20 @@ Generate a JSON object with:
                 if (chunk.type === 'text') responseText += chunk.text;
             }
 
-            // L-1: Limit response size before parsing to prevent memory exhaustion
+            // L-1: Limit response size before parsing
             if (responseText.length > 50_000) {
                 console.warn('[RecipePromotion] LLM response too large, skipping');
                 return;
             }
 
+            // Strip markdown code fences if present (LLMs often wrap JSON in ```json ... ```)
+            let cleaned = responseText.trim();
+            if (cleaned.startsWith('```')) {
+                cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
+            }
+
             // Parse LLM response (M-9: type-guarded validation)
-            const raw: unknown = JSON.parse(responseText.trim());
+            const raw: unknown = JSON.parse(cleaned);
             if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
                 console.warn('[RecipePromotion] LLM response is not an object, skipping');
                 return;
@@ -160,8 +181,10 @@ Generate a JSON object with:
                 return;
             }
 
+            // Generate a stable ID from the recipe name
+            const idSlug = parsed.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40);
             const recipe: ProceduralRecipe = {
-                id: `learned-${pattern.patternKey}`,
+                id: `learned-${idSlug}-${Date.now()}`,
                 name: parsed.name.slice(0, 40),
                 description: typeof parsed.description === 'string' ? parsed.description.slice(0, 100) : '',
                 trigger: parsed.trigger.slice(0, 200),
@@ -171,146 +194,15 @@ Generate a JSON object with:
                 })),
                 source: 'learned',
                 schemaVersion: SCHEMA_VERSION,
-                successCount: pattern.successCount,
+                successCount: allEpisodes.length,
                 lastUsed: new Date().toISOString(),
                 modes: [],
             };
 
             await this.store.save(recipe);
-            console.debug(`[RecipePromotion] Promoted pattern to recipe: ${recipe.name}`);
-
-            // Clean up pattern tracker
-            await this.deletePattern(pattern.patternKey);
+            console.debug(`[RecipePromotion] Promoted ${allEpisodes.length} similar episodes to recipe: ${recipe.name}`);
         } catch (e) {
             console.warn('[RecipePromotion] Promotion failed:', e);
-        }
-    }
-
-    private makePatternKey(toolSequence: string[]): string {
-        return toolSequence.join('-').replace(/[^a-z0-9_-]/gi, '').slice(0, 80);
-    }
-
-    // -----------------------------------------------------------------------
-    // Pattern persistence (DB or files)
-    // -----------------------------------------------------------------------
-
-    private async loadPattern(key: string, toolSequence: string[]): Promise<PatternEntry> {
-        if (this.memoryDB?.isOpen()) {
-            return this.loadPatternFromDB(key, toolSequence);
-        }
-        return this.loadPatternFromFile(key, toolSequence);
-    }
-
-    private async savePattern(pattern: PatternEntry): Promise<void> {
-        if (this.memoryDB?.isOpen()) {
-            this.savePatternToDB(pattern);
-            return;
-        }
-        await this.savePatternToFile(pattern);
-    }
-
-    private async deletePattern(key: string): Promise<void> {
-        if (this.memoryDB?.isOpen()) {
-            this.deletePatternFromDB(key);
-            return;
-        }
-        await this.deletePatternFromFile(key);
-    }
-
-    // -----------------------------------------------------------------------
-    // DB operations
-    // -----------------------------------------------------------------------
-
-    private loadPatternFromDB(key: string, toolSequence: string[]): PatternEntry {
-        const db = this.memoryDB!.getDB();
-        const result = db.exec('SELECT tool_sequence, episodes, success_count FROM patterns WHERE pattern_key = ?', [key]);
-        if (result.length === 0 || result[0].values.length === 0) {
-            return { patternKey: key, toolSequence, episodes: [], successCount: 0 };
-        }
-        const row = result[0].values[0];
-        return {
-            patternKey: key,
-            toolSequence: JSON.parse((row[0] as string) ?? '[]'),
-            episodes: JSON.parse((row[1] as string) ?? '[]'),
-            successCount: (row[2] as number) ?? 0,
-        };
-    }
-
-    private savePatternToDB(pattern: PatternEntry): void {
-        const db = this.memoryDB!.getDB();
-        db.run(
-            `INSERT OR REPLACE INTO patterns (pattern_key, tool_sequence, episodes, success_count) VALUES (?, ?, ?, ?)`,
-            [pattern.patternKey, JSON.stringify(pattern.toolSequence), JSON.stringify(pattern.episodes), pattern.successCount],
-        );
-        this.memoryDB!.markDirty();
-    }
-
-    private deletePatternFromDB(key: string): void {
-        const db = this.memoryDB!.getDB();
-        db.run('DELETE FROM patterns WHERE pattern_key = ?', [key]);
-        this.memoryDB!.markDirty();
-    }
-
-    // -----------------------------------------------------------------------
-    // Legacy file operations
-    // -----------------------------------------------------------------------
-
-    private async loadPatternFromFile(key: string, toolSequence: string[]): Promise<PatternEntry> {
-        const filePath = `${this.patternsDir}/${key}.json`;
-        try {
-            const exists = await this.fs.exists(filePath);
-            if (exists) {
-                const raw = await this.fs.read(filePath);
-                return JSON.parse(raw) as PatternEntry;
-            }
-        } catch { /* fall through */ }
-        return { patternKey: key, toolSequence, episodes: [], successCount: 0 };
-    }
-
-    private async savePatternToFile(pattern: PatternEntry): Promise<void> {
-        const filePath = `${this.patternsDir}/${pattern.patternKey}.json`;
-        await this.fs.write(filePath, JSON.stringify(pattern, null, 2));
-    }
-
-    private async deletePatternFromFile(key: string): Promise<void> {
-        const filePath = `${this.patternsDir}/${key}.json`;
-        try {
-            const exists = await this.fs.exists(filePath);
-            if (exists) await this.fs.remove(filePath);
-        } catch { /* non-fatal */ }
-    }
-
-    /** One-time migration: import pattern files into DB. */
-    private async migrateFromFiles(): Promise<void> {
-        try {
-            const exists = await this.fs.exists(this.patternsDir);
-            if (!exists) return;
-            const listing = await this.fs.list(this.patternsDir);
-            const jsonFiles = listing.files.filter((f: string) => f.endsWith('.json'));
-            if (jsonFiles.length === 0) return;
-
-            // Check if DB already has patterns (avoid double migration)
-            const dbCount = this.memoryDB!.getDB().exec('SELECT COUNT(*) FROM patterns');
-            if (dbCount.length > 0 && (dbCount[0].values[0][0] as number) > 0) return;
-
-            let migrated = 0;
-            for (const file of jsonFiles) {
-                try {
-                    const raw = await this.fs.read(file);
-                    const pattern = JSON.parse(raw) as PatternEntry;
-                    if (pattern.patternKey) {
-                        this.savePatternToDB(pattern);
-                        migrated++;
-                    }
-                } catch { /* skip corrupt */ }
-            }
-
-            if (migrated > 0) {
-                await this.memoryDB!.save();
-                console.debug(`[RecipePromotion] Migrated ${migrated} patterns from JSON files to DB`);
-            }
-        } catch (e) {
-            console.warn('[RecipePromotion] Migration failed (non-fatal):', e);
         }
     }
 }

@@ -118,7 +118,7 @@ export class ExtractionQueue {
                     await this.save();
                 } catch (e) {
                     // Failure — leave in queue for retry on next startup, stop processing
-                    console.warn('[ExtractionQueue] Processing failed, will retry later:', e);
+                    console.warn(`[Memory] Extraction failed for ${item.conversationId} (type=${item.type}), will retry on next startup:`, e);
                     break;
                 }
 
