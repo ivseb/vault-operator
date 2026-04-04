@@ -88,6 +88,7 @@ export class ResultExternalizer {
     private taskId: string;
     private tmpDir: string;
     private iteration = 0;
+    private callCounter = 0;
     private _disabled = false;
 
     constructor(fs: FileAdapter, taskId: string) {
@@ -126,8 +127,9 @@ export class ResultExternalizer {
             const dirExists = await this.fs.exists(this.tmpDir);
             if (!dirExists) await this.fs.mkdir(this.tmpDir);
 
-            // Write full content to temp file (deterministic name, no timestamps)
-            const fileName = `${toolName}-${this.iteration}.md`;
+            // Write full content to temp file (deterministic name using global call counter)
+            this.callCounter++;
+            const fileName = `${toolName}-${this.callCounter}.md`;
             const filePath = `${this.tmpDir}/${fileName}`;
             await this.fs.write(filePath, content);
 
