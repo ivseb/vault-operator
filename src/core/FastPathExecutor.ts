@@ -118,17 +118,19 @@ export class FastPathExecutor {
         try {
             console.debug(`[FastPath] Starting two-stage for recipe: ${recipe.name} (${recipe.steps.length} steps)`);
 
-            // Disable externalization during batch (Presenter needs full content — ADR-061)
             const externalizer = this.pipeline.getExternalizer();
-            externalizer?.disable();
-
             const allResults: Array<{ tool: string; input: Record<string, unknown>; content: string; isError: boolean }> = [];
             let toolCallsExecuted = 0;
 
-            // ── Stage 1: Search ────────────────────────────────────────
+            // ── Stage 1: Search (externalization ENABLED — search results are large
+            //    and the Presenter doesn't need them, only the Read-Planner does) ────
             const searchCalls = await this.plannerCall(
                 SEARCH_PLANNER, recipe, userMessage, systemPrompt, abortSignal, tools,
             );
+
+            // Capture full search content for the Read-Planner BEFORE externalization
+            // (the planner needs full results to pick the right files)
+            let searchContentForPlanner = '';
 
             if (searchCalls && searchCalls.length > 0) {
                 // S-2: Hard allowlist — reject any tools the planner shouldn't have generated
@@ -138,19 +140,24 @@ export class FastPathExecutor {
                 }
                 console.debug(`[FastPath] Stage 1: ${filteredSearch.length} search calls`);
                 const searchResults = await this.executeBatch(filteredSearch, callbacks, abortSignal);
-                allResults.push(...searchResults);
-                toolCallsExecuted += searchResults.length;
 
-                // ── Stage 2: Read (only if search returned results) ────
-                const searchContent = searchResults
+                // Save full content for Read-Planner before it gets externalized in history
+                searchContentForPlanner = searchResults
                     .filter((r) => !r.isError)
                     .map((r) => `[${r.tool}]\n${r.content}`)
                     .join('\n\n---\n\n');
 
-                if (searchContent.length > 0) {
+                allResults.push(...searchResults);
+                toolCallsExecuted += searchResults.length;
+
+                // ── Stage 2: Read (externalization DISABLED — Presenter needs full
+                //    file content to write a quality summary) ──────────────────────
+                if (searchContentForPlanner.length > 0) {
+                    externalizer?.disable();
+
                     const readCalls = await this.plannerCall(
                         READ_PLANNER, recipe, userMessage, systemPrompt, abortSignal, tools,
-                        searchContent,
+                        searchContentForPlanner,
                     );
 
                     if (readCalls && readCalls.length > 0) {
@@ -164,11 +171,10 @@ export class FastPathExecutor {
                         allResults.push(...readResults);
                         toolCallsExecuted += readResults.length;
                     }
+
+                    externalizer?.enable();
                 }
             }
-
-            // Re-enable externalization for the normal loop
-            externalizer?.enable();
 
             if (toolCallsExecuted === 0) {
                 console.debug('[FastPath] No tools executed, falling back to normal loop');
@@ -182,6 +188,7 @@ export class FastPathExecutor {
 
             return { success: true, historyEntries, toolCallsExecuted };
         } catch (e) {
+            // Re-enable externalization on error (might have been disabled for Stage 2)
             this.pipeline.getExternalizer()?.enable();
             console.warn('[FastPath] Execution failed, falling back to normal loop:', e);
             return failed;
