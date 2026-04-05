@@ -12,6 +12,7 @@
 import type { CustomModel } from '../../types/settings';
 import { buildApiHandlerForModel } from '../../api/index';
 import type { MemoryService } from './MemoryService';
+import { MAX_CHARS_PER_FILE } from './MemoryService';
 import type { PendingExtraction } from './ExtractionQueue';
 
 // ---------------------------------------------------------------------------
@@ -20,31 +21,42 @@ import type { PendingExtraction } from './ExtractionQueue';
 
 const LONG_TERM_EXTRACTION_PROMPT = `You are a memory management assistant. You will receive the user's current long-term memory files and a recent session summary.
 
-Your task: Identify NEW information from the session summary that should be stored in the long-term memory files. Only add genuinely new, durable facts — do not duplicate what already exists.
+Your task: Update the long-term memory files with NEW information from the session summary.
 
-Current memory files:
+CRITICAL BUDGET CONSTRAINT (ADR-059):
+Each memory file has a HARD LIMIT of {MAX_CHARS} characters. The agent only sees the first {MAX_CHARS} characters of each file. Content beyond this limit is INVISIBLE and wasted.
 
-<user_profile>
+When adding new information would push a file over {MAX_CHARS} characters:
+1. Remove or condense the LEAST relevant existing entries
+2. Prefer newer information over older information
+3. Merge similar entries into one concise line
+4. Remove entries that are clearly outdated or superseded
+
+Prefix each entry with [YYYY-MM] to track recency. Undated entries are treated as oldest.
+
+Current memory files (with char counts):
+
+<user_profile chars="{USER_PROFILE_CHARS}/{MAX_CHARS}">
 {USER_PROFILE}
 </user_profile>
 
-<projects>
+<projects chars="{PROJECTS_CHARS}/{MAX_CHARS}">
 {PROJECTS}
 </projects>
 
-<patterns>
+<patterns chars="{PATTERNS_CHARS}/{MAX_CHARS}">
 {PATTERNS}
 </patterns>
 
-<soul>
+<soul chars="{SOUL_CHARS}/{MAX_CHARS}">
 {SOUL}
 </soul>
 
-<errors>
+<errors chars="{ERRORS_CHARS}/{MAX_CHARS}">
 {ERRORS}
 </errors>
 
-<custom_tools>
+<custom_tools chars="{CUSTOM_TOOLS_CHARS}/{MAX_CHARS}">
 {CUSTOM_TOOLS}
 </custom_tools>
 
@@ -63,16 +75,17 @@ Target files:
   Update errors.md when the session reveals:
   - An error that was encountered and resolved
   - A recurring error pattern with a known fix
-  Format: "- Error: <description> → Fix: <resolution>"
+  Format: "- [YYYY-MM] Error: <description> → Fix: <resolution>"
 - custom-tools.md: Register of custom tools and skills created by the agent.
   Update custom-tools.md when the session reveals:
   - A new skill was created (manage_skill), optionally with code modules
-  Format: "- <name> (<type>): <description>"
+  Format: "- [YYYY-MM] <name> (<type>): <description>"
 
 Rules:
 - Only output updates for files that actually need changes
-- Never remove existing information unless it is explicitly contradicted
+- Remove existing information ONLY when it is outdated, superseded, or the file exceeds the budget
 - Keep entries concise — one bullet point per fact
+- The COMPLETE updated section content must stay under the budget
 - If the session summary contains no new durable information, output an empty updates array
 - Output ONLY valid JSON (no code fences, no preamble)
 
@@ -128,18 +141,33 @@ export class LongTermExtractor {
         // Load current memory files
         const files = await this.memoryService.loadMemoryFiles();
 
-        // Build the prompt with current state
         // Load additional memory files for self-improvement
         const errorsContent = await this.memoryService.readFile('errors.md');
         const customToolsContent = await this.memoryService.readFile('custom-tools.md');
 
+        // Build the prompt with current state and budget info (ADR-059)
+        const budget = String(MAX_CHARS_PER_FILE);
+        const userProfile = files.userProfile.trim() || '(empty)';
+        const projects = files.projects.trim() || '(empty)';
+        const patterns = files.patterns.trim() || '(empty)';
+        const soul = files.soul.trim() || '(empty)';
+        const errors = errorsContent.trim() || '(empty)';
+        const customTools = customToolsContent.trim() || '(empty)';
+
         const systemPrompt = LONG_TERM_EXTRACTION_PROMPT
-            .replace('{USER_PROFILE}', files.userProfile.trim() || '(empty)')
-            .replace('{PROJECTS}', files.projects.trim() || '(empty)')
-            .replace('{PATTERNS}', files.patterns.trim() || '(empty)')
-            .replace('{SOUL}', files.soul.trim() || '(empty)')
-            .replace('{ERRORS}', errorsContent.trim() || '(empty)')
-            .replace('{CUSTOM_TOOLS}', customToolsContent.trim() || '(empty)');
+            .replace(/\{MAX_CHARS\}/g, budget)
+            .replace('{USER_PROFILE}', userProfile)
+            .replace('{USER_PROFILE_CHARS}', String(userProfile.length))
+            .replace('{PROJECTS}', projects)
+            .replace('{PROJECTS_CHARS}', String(projects.length))
+            .replace('{PATTERNS}', patterns)
+            .replace('{PATTERNS_CHARS}', String(patterns.length))
+            .replace('{SOUL}', soul)
+            .replace('{SOUL_CHARS}', String(soul.length))
+            .replace('{ERRORS}', errors)
+            .replace('{ERRORS_CHARS}', String(errors.length))
+            .replace('{CUSTOM_TOOLS}', customTools)
+            .replace('{CUSTOM_TOOLS_CHARS}', String(customTools.length));
 
         // The transcript for long-term items is the session summary
         const userMessage = `Session summary to analyze:\n\n${item.transcript}`;

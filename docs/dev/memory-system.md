@@ -23,6 +23,8 @@ Long-term memory is durable facts about you and your work. The `MemoryService` (
 
 Each file has a hard cap of 800 characters when injected into the system prompt, with a combined maximum of 4,000 characters across all files. This keeps memory useful without eating the context window.
 
+The character budget is enforced at extraction time, not just at injection. The `LongTermExtractor` receives the budget as a hard constraint in its prompt: "This file may have a maximum of 800 characters. If adding new information would exceed the budget, remove or condense the least relevant existing entries." Each entry carries a `[YYYY-MM]` recency tag so the extractor can make informed decisions about what to cut. Without this budget enforcement, memory files grow indefinitely, and after a year the visible 800 characters would be full of stale entries while newer, more relevant information sits below the cutoff.
+
 Soul is a special case. It defines how the agent communicates: language, tone, values, anti-patterns. The default soul speaks German, avoids filler phrases, and prioritizes usefulness over politeness. You can edit `soul.md` directly to reshape the agent's personality.
 
 There are also two utility files: `errors.md` tracks known error patterns the agent has encountered, and `custom-tools.md` records dynamic tools and skills the agent has created. Both are loaded on demand rather than injected into every system prompt.
@@ -49,8 +51,8 @@ The `MemoryDB` (`src/core/knowledge/MemoryDB.ts`) is a separate SQLite database 
 |-------|---------|
 | `sessions` | Conversation summaries with title, source, timestamp |
 | `episodes` | Individual task executions: user message, tools used, success/failure |
-| `recipes` | Learned multi-step patterns that can be replayed |
-| `patterns` | Frequently observed tool sequences |
+| `recipes` | Learned and static procedural recipes (promoted from episodes via intent matching) |
+| `patterns` | Legacy table from earlier sequence-based matching (no longer written to) |
 
 The database lives at `{vault-parent}/.obsidian-agent/memory.db` and is shared across vaults. The agent remembers you regardless of which vault you open.
 
@@ -64,13 +66,19 @@ Both the `update_memory` tool and the MCP server's `update_memory` endpoint writ
 
 You can also edit the memory files directly in a text editor. They're plain Markdown. If the agent has learned something incorrect about you, open `user-profile.md` and fix it. The corrected version takes effect on the next conversation.
 
-## Recipes and patterns
+## Recipes and intent matching
 
-Over time, the `episodes` table reveals patterns. If you frequently ask the agent to "create a weekly summary from my daily notes" and it always uses the same sequence of `search_files` -> `read_file` -> `create_note`, that sequence gets stored as a recipe. Future requests matching the same pattern can skip the planning step and jump straight to execution.
+Over time, the `episodes` table reveals patterns. When three or more similar episodes were all successful, the system promotes them into a recipe: a generalized, reusable procedure that the agent can follow without reasoning from scratch. This is the foundation for fast path execution (see [agent loop](./agent-loop)), which reduces token costs by up to 90% for known task types.
 
-Recipes include a `success_count` that tracks how often they've worked. Low-success recipes get deprioritized. The system is conservative about applying recipes, only suggesting them when trigger keywords match with high confidence.
+Recipe promotion uses semantic intent matching, not tool sequence matching. An earlier version tried to detect recurring tasks by comparing the exact sequence of tools the agent used (e.g. `search_files` -> `read_file` -> `create_note`). This never worked in practice because LLMs don't choose tools deterministically. Three functionally identical tasks would produce three different tool sequences, resulting in three separate patterns that never reached the promotion threshold.
 
-Recipes are versioned with a `schema_version` field. If the recipe format changes in a future release, old recipes can be migrated or discarded rather than causing errors. Each recipe also records which modes it applies to, so a recipe learned in "code" mode won't be suggested in "ask" mode.
+The current system compares user messages by cosine similarity using the same embedding model as the knowledge layer. "Search my notes on Kant and summarize" and "Find everything on Hegel and create an overview" score high on similarity regardless of which tools the agent happened to use. After three similar successful episodes, the `RecipePromotionService` generates a recipe via a single LLM call that abstracts the concrete examples into a generalized step sequence.
+
+The system ships eight static recipes for common vault operations (creating canvases, reorganizing notes by tag, linking related documents, etc.). Learned recipes are generated automatically and capped at 50 to prevent unbounded growth.
+
+Recipe matching at query time uses a two-phase approach. Phase 1 is keyword scoring against the recipe's trigger field, which is fast and requires no API call. Phase 2, used as a fallback, checks recipe names and descriptions for token overlap. The combined budget is capped at three recipes and 2,000 characters to avoid bloating the system prompt.
+
+Recipes include a `success_count` that tracks how often they've worked. Only recipes with at least three successful uses qualify for fast path execution. Recipes are versioned with a `schema_version` field so old recipes can be migrated when the format changes. Each recipe records which modes it applies to, so a recipe learned in "agent" mode won't be suggested in "ask" mode.
 
 ## Onboarding
 

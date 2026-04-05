@@ -8,7 +8,7 @@
  * then returns formatted context for injection into the system prompt.
  *
  * Primary path: semantic search over indexed session summaries + episodes.
- * Fallback (no semantic index): most recent 3 session summaries by file date.
+ * Fallback: most recent 3 session summaries from DB (ADR-060), then .md files (legacy).
  *
  * Budget: 4000 chars total (shared between sessions and episodes).
  */
@@ -16,6 +16,7 @@
 import type { FileAdapter } from '../storage/types';
 import type { SemanticIndexService } from '../semantic/SemanticIndexService';
 import type { MemoryService } from './MemoryService';
+import type { MemoryDB } from '../knowledge/MemoryDB';
 
 // ---------------------------------------------------------------------------
 // MemoryRetriever
@@ -26,6 +27,7 @@ export class MemoryRetriever {
         private fs: FileAdapter,
         private memoryService: MemoryService,
         private getSemanticIndex: () => SemanticIndexService | null,
+        private memoryDB: MemoryDB | null = null,
     ) {}
 
     /**
@@ -53,9 +55,12 @@ export class MemoryRetriever {
             }
         }
 
-        // Fallback: most recent session summaries by file modification time
+        // Fallback: most recent session summaries (DB first, then legacy .md files)
         if (excerpts.length === 0) {
-            excerpts = await this.getRecentSessions(topK);
+            excerpts = this.getRecentSessionsFromDB(topK);
+            if (excerpts.length === 0) {
+                excerpts = await this.getRecentSessionsFromFiles(topK);
+            }
         }
 
         // Episodic memory: search for similar past task episodes (ADR-018)
@@ -113,9 +118,32 @@ export class MemoryRetriever {
     }
 
     /**
-     * Fallback: load most recent session summary files.
+     * Primary fallback: load most recent session summaries from MemoryDB.
+     * ADR-060: Sessions are stored in DB since FEATURE-1505.
      */
-    private async getRecentSessions(topK: number): Promise<Array<{ id: string; excerpt: string }>> {
+    private getRecentSessionsFromDB(topK: number): Array<{ id: string; excerpt: string }> {
+        if (!this.memoryDB?.isOpen()) return [];
+        try {
+            const db = this.memoryDB.getDB();
+            const result = db.exec(
+                'SELECT id, summary FROM sessions WHERE summary IS NOT NULL AND summary != \'\' ORDER BY created_at DESC LIMIT ?',
+                [topK],
+            );
+            if (result.length === 0 || result[0].values.length === 0) return [];
+            return result[0].values.map((row) => ({
+                id: (row[0] as string) ?? '',
+                excerpt: (row[1] as string) ?? '',
+            }));
+        } catch (e) {
+            console.warn('[MemoryRetriever] DB fallback failed:', e);
+            return [];
+        }
+    }
+
+    /**
+     * Legacy fallback: load most recent session summary .md files.
+     */
+    private async getRecentSessionsFromFiles(topK: number): Promise<Array<{ id: string; excerpt: string }>> {
         const sessionsDir = this.memoryService.getMemoryDir() + '/sessions';
         try {
             const listed = await this.fs.list(sessionsDir);

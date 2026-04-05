@@ -1869,6 +1869,7 @@ export class AgentSidebarView extends ItemView {
                             this.plugin.globalFs,
                             this.plugin.memoryService,
                             () => this.plugin.semanticIndex,
+                            this.plugin.memoryDB,
                         );
                         const sessionContext = await retriever.retrieveSessionContext(text);
                         if (sessionContext) parts.push(sessionContext);

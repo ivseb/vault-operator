@@ -39,5 +39,6 @@ export function getToolRoutingSection(configDir: string): string {
 14. edit_file > write_file for changes. update_frontmatter > edit_file for YAML frontmatter.
 15. attempt_completion ONLY for multi-step write tasks. For questions/read-only: just write the answer.
 16. ask_followup_question SPARINGLY — only when truly blocked. Make decisions yourself when one option clearly works.
-17. update_todo_list ONLY for tasks with 3+ distinct steps.`;
+17. update_todo_list ONLY for tasks with 3+ distinct steps.
+18. EXTERNALIZED RESULTS. Large tool results may be saved to temporary files. When you see "Full results saved to:" or "Use read_file(...) to see full content", the complete data is in that file. Load it ONLY if you need full details — the compact summary is often sufficient.`;
 }

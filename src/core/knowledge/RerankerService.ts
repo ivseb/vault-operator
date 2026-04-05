@@ -43,6 +43,7 @@ export class RerankerService {
     private tokenizer: TokenizerFn | null = null;
     private _loading = false;
     private _loaded = false;
+    private _failed = false;
 
     /** Whether the model is loaded and ready for inference. */
     get isLoaded(): boolean { return this._loaded; }
@@ -56,7 +57,7 @@ export class RerankerService {
      * Typically takes 2-5s on first load, <1s on subsequent loads (cached).
      */
     async loadModel(): Promise<void> {
-        if (this._loaded || this._loading) return;
+        if (this._loaded || this._loading || this._failed) return;
         this._loading = true;
 
         try {
@@ -78,8 +79,9 @@ export class RerankerService {
             this._loaded = true;
             console.debug(`[Reranker] Model loaded in ${Date.now() - startTime}ms`);
         } catch (e) {
-            console.warn('[Reranker] Failed to load model:', e);
+            console.warn('[Reranker] Failed to load model (will not retry):', e);
             this._loaded = false;
+            this._failed = true;
         } finally {
             this._loading = false;
         }

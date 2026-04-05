@@ -60,6 +60,10 @@ export class ImplicitConnectionService {
      */
     async computeAll(threshold = 0.7): Promise<{ computed: number; stored: number }> {
         if (this.running) return { computed: 0, stored: 0 };
+        if (!this.knowledgeDB.isOpen()) {
+            console.debug('[ImplicitConnections] DB not ready, skipping startup computation');
+            return { computed: 0, stored: 0 };
+        }
         this.running = true;
         this.cancelled = false;
 

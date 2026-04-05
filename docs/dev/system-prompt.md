@@ -18,27 +18,43 @@ A monolithic prompt becomes unworkable past a few hundred lines. Obsilo's prompt
 
 ## Assembly order
 
-Position matters. LLMs pay more attention to content near the top (primacy effect) and the bottom (recency effect). The sections are ordered deliberately:
+Position matters. LLMs pay more attention to content near the top (primacy effect) and the bottom (recency effect). But there is a second constraint that turned out to be more important than primacy: KV-cache efficiency.
+
+Modern LLM APIs cache the key-value state of the prompt prefix. As long as the beginning of the prompt stays identical across calls, the cached tokens don't need to be recomputed. Anthropic's API offers this explicitly with a cache control parameter. OpenAI and DeepSeek do automatic prefix caching. A single changed token at the start invalidates the entire cache for everything after it.
+
+The original prompt had the current timestamp at position 1. Every API call has a different timestamp, which meant zero cache hits across iterations. Moving the timestamp to the very end and sorting all sections by stability made the first ~20,000 tokens cacheable across an entire task session. Over eight iterations, that reduces actual computation from 8 x 25,000 = 200,000 tokens to roughly 25,000 + 7 x 5,000 = 60,000 tokens.
+
+The sections are now ordered by stability, with the stable prefix first and dynamic content last:
+
+**Stable prefix (cached across iterations within a session):**
 
 | # | Section | What it does |
 |---|---------|-------------|
-| 1 | Date/Time + Vault Context | Grounds the agent: when and where it is |
-| 2 | Mode Definition | Sets the role early, shaping everything that follows |
-| 3 | Skills | High-priority workflow instructions (skipped in subtasks) |
-| 4 | Capabilities | Compact summary of what the agent can do |
-| 4.5 | Obsidian Conventions | Vault-specific rules: frontmatter, wikilinks, etc. |
-| 5 | Memory | User memory context (skipped in subtasks) |
-| 6 | Tools | Tool list, filtered by the mode's `toolGroups` |
-| 7 | Plugin Skills | Skills from installed Obsidian plugins |
-| 8 | Tool Routing | Tool selection rules and decision guidelines |
-| 9 | Objective | Task decomposition strategy |
-| 10 | Response Format | Output structure rules (skipped in subtasks) |
-| 11 | Explicit Instructions | Hard behavioral constraints |
-| 12 | Security Boundary | Prompt injection defense, permission boundaries |
-| 13 | Custom Instructions | User's global + per-mode instructions |
-| 14 | Rules | Conditional rules from `.obsilo/rules/` |
+| 1 | Mode Definition | Sets the role, shaping everything that follows |
+| 2 | Capabilities | Compact summary of what the agent can do |
+| 3 | Obsidian Conventions | Vault-specific rules: frontmatter, wikilinks, etc. |
+| 4 | Tools | Tool list, filtered by the mode's `toolGroups` (~8,000 tokens) |
+| 5 | Tool Routing | Tool selection rules and decision guidelines |
+| 6 | Objective | Task decomposition strategy |
+| 7 | Response Format | Output structure rules (skipped in subtasks) |
+| 8 | Security Boundary | Prompt injection defense, permission boundaries |
+
+**Dynamic suffix (can change per message or session, not cached):**
+
+| # | Section | What it does |
+|---|---------|-------------|
+| 9 | Plugin Skills | Skills from installed Obsidian plugins |
+| 10 | Active Skills | High-priority workflow instructions (skipped in subtasks) |
+| 11 | Memory | User memory context (skipped in subtasks) |
+| 12 | Procedural Recipes | Learned and static recipes for known task patterns |
+| 13 | Self-Authored Skills | Skills the agent created via `manage_skill` |
+| 14 | Custom Instructions + Rules | User's global + per-mode instructions, rules from `.obsilo/rules/` |
+| 15 | Vault Context | Current vault state and structure |
+| 16 | Date/Time | Current timestamp (must be last, changes every call) |
 
 Empty sections are filtered out before joining. If there is no memory context, the memory section is absent. No hollow headers, no wasted tokens.
+
+Moving skills from position 3 to position 10 loses some primacy effect. To compensate, the system uses a recency anchor: The current task list is appended as the final user message before every LLM call, exploiting the model's recency bias. This idea is borrowed from Manus' context engineering approach.
 
 ## How skills get injected
 
@@ -46,12 +62,11 @@ Skills are markdown files that contain workflow instructions. They activate when
 
 1. `SkillLoader` reads skills from `.obsilo/skills/` and the bundled skill directory.
 2. The user's message is compared against each skill's trigger patterns.
-3. Matching skills are concatenated into the skills section.
-4. That section is placed at position 3, right after the mode definition, for maximum attention.
+3. Matching skills are concatenated into the active skills section at position 10.
 
-Skills go before the tool list on purpose. They contain high-level strategy ("do X, then Y, then Z") that should guide which tools the agent picks. The agent reads the plan before it sees the toolkit.
+Skills sit in the dynamic block because different messages activate different skills. Placing them in the stable prefix would invalidate the KV cache whenever the active skill set changes. To compensate for the reduced primacy, skills are marked with a `SKILL PRECEDENCE (MANDATORY)` header that the model treats as a strong instruction signal. The recency anchor (task list as last user message) provides additional reinforcement.
 
-Self-authored skills (ones the agent created via `manage_skill`) follow the same path but land at position 7, after tools and plugin skills. They supplement the primary skills, not replace them.
+Self-authored skills (ones the agent created via `manage_skill`) land at position 13, after active skills and memory. They supplement the primary skills, not replace them.
 
 ## How memory gets injected
 
@@ -71,13 +86,9 @@ Two modes can produce very different system prompts from the same set of section
 
 ## Prompt caching
 
-The system prompt and tool definitions are cached per mode in `AgentTask`. The cache is rebuilt only when:
+The system prompt has two levels of caching. At the application level, `AgentTask` caches the assembled prompt per mode and rebuilds it only when the active mode changes, a settings change affects tool availability, or an explicit invalidation is triggered.
 
-- The active mode changes (via `switch_mode`).
-- A settings change affects tool availability (like toggling web tools).
-- An explicit invalidation is triggered.
-
-This avoids rebuilding a 5000+ token prompt on every loop iteration.
+At the API level, the stable prefix (positions 1-8) benefits from provider-level KV-cache. Anthropic's API receives a `cache_control` marker on the system prompt. OpenAI and DeepSeek do automatic prefix caching. Because all dynamic content sits after the stable block, the first ~20,000 tokens are computed once per session and served from cache on subsequent iterations. This is the single biggest cost optimization in the system: it turns the system prompt from the second-largest cost block into a near-zero marginal cost per iteration.
 
 ## Power steering
 

@@ -23,6 +23,7 @@ import type {
 } from '../tools/types';
 import type { IgnoreService } from '../governance/IgnoreService';
 import type { OperationLogger } from '../governance/OperationLogger';
+import { ResultExternalizer } from './ResultExternalizer';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 
 /**
@@ -135,6 +136,9 @@ export class ToolExecutionPipeline {
     /** Per-task result cache for read-only tools. Key = tool:sortedJSON(input). */
     private resultCache = new Map<string, string>();
 
+    /** ADR-063: Context Externalization — large results written to temp files. */
+    private resultExternalizer: ResultExternalizer | null = null;
+
 
     /** Tools eligible for result caching (read-only, deterministic within a task). */
     private static readonly CACHEABLE = new Set([
@@ -155,6 +159,21 @@ export class ToolExecutionPipeline {
         this.taskId = taskId;
         this.mode = mode;
         this.apiHandler = apiHandler;
+
+        // ADR-063: Initialize result externalizer for large tool results
+        if (plugin.globalFs) {
+            this.resultExternalizer = new ResultExternalizer(plugin.globalFs, taskId);
+        }
+    }
+
+    /** ADR-063: Get the externalizer (for Fast Path to disable during batch). */
+    getExternalizer(): ResultExternalizer | null {
+        return this.resultExternalizer;
+    }
+
+    /** ADR-063: Clean up temp files after task completion. */
+    async cleanupExternalized(): Promise<void> {
+        await this.resultExternalizer?.cleanup();
     }
 
     /** Stable cache key: tool name + sorted JSON of input parameters. */
@@ -299,9 +318,22 @@ export class ToolExecutionPipeline {
             const textContent = collectedContent.join('\n');
             await this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
 
-            // Cache successful read-only results for deduplication (text-only)
+            // Cache successful read-only results for deduplication (text-only, FULL content)
             if (!executionHadError && ToolExecutionPipeline.CACHEABLE.has(toolCall.name)) {
                 this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), textContent);
+            }
+
+            // 6b. ADR-063: Context Externalization — write large results to temp files
+            // Must happen AFTER cache write (cache stores full content) and BEFORE return.
+            // Multimodal content (images) is never externalized.
+            let finalContent: string | import('../../api/types').ToolResultContentBlock[] = multimodalContent ?? textContent;
+            if (!multimodalContent && this.resultExternalizer) {
+                const ref = await this.resultExternalizer.maybeExternalize(
+                    toolCall.name, toolCall.input, textContent, executionHadError,
+                );
+                if (ref !== null) {
+                    finalContent = ref;
+                }
             }
 
             // 7. Chat-Linking: track written .md paths for deferred frontmatter stamping (ADR-022)
@@ -315,7 +347,7 @@ export class ToolExecutionPipeline {
             return {
                 type: 'tool_result',
                 tool_use_id: toolCall.id,
-                content: multimodalContent ?? textContent,
+                content: finalContent,
                 is_error: executionHadError,
             };
         } catch (error) {

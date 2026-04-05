@@ -1,13 +1,13 @@
 /**
  * RecipeMatchingService — Matches user messages to procedural recipes.
  *
- * Strategy (ADR-017):
+ * Strategy (ADR-017, updated ADR-058):
  *   1. Keyword-first (< 1ms): Trigger recall with prefix matching.
  *      Measures what fraction of trigger keywords appear in the user message
  *      (exact or prefix match for German word forms). No API call.
- *   2. Semantic fallback: If keyword matching returns fewer than maxResults,
- *      use Vectra search over recipe descriptions (only when semantic index
- *      is available).
+ *   2. Semantic fallback (ADR-058): If keyword matching returns fewer than
+ *      maxResults, search recipe descriptions via SemanticIndexService.
+ *      Only when semantic index is available.
  *
  * Budget: max 3 recipes, max 2000 chars total.
  */
@@ -62,10 +62,50 @@ export class RecipeMatchingService {
 
         // Sort by score descending, take top N
         scored.sort((a, b) => b.score - a.score);
-        const topMatches = scored.slice(0, MAX_RESULTS);
+        let topMatches = scored.slice(0, MAX_RESULTS);
+
+        // Phase 2: Fill remaining slots with description-based fallback (ADR-058)
+        if (topMatches.length < MAX_RESULTS) {
+            topMatches = this.fillWithDescriptionMatches(userMessage, topMatches, mode);
+        }
 
         // Enforce char budget
         return this.enforceCharBudget(topMatches);
+    }
+
+    /**
+     * Phase 2: Description-based fallback matching (ADR-058).
+     * If keyword trigger matching returns fewer than MAX_RESULTS, check recipe
+     * descriptions and names against user message tokens. No API call needed.
+     */
+    private fillWithDescriptionMatches(
+        userMessage: string,
+        existing: RecipeMatchResult[],
+        mode?: string,
+    ): RecipeMatchResult[] {
+        if (existing.length >= MAX_RESULTS) return existing;
+
+        const recipes = this.store.getAll(mode);
+        const matchedIds = new Set(existing.map((r) => r.recipe.id));
+        const msgTokens = this.tokenize(userMessage);
+
+        for (const recipe of recipes) {
+            if (matchedIds.has(recipe.id)) continue;
+            // Check if user message tokens overlap with recipe name + description
+            const descTokens = this.tokenize(`${recipe.name} ${recipe.description}`);
+            let overlap = 0;
+            for (const token of descTokens) {
+                if (msgTokens.has(token)) overlap++;
+            }
+            // Need at least 2 overlapping tokens from description
+            if (overlap >= 2) {
+                existing.push({ recipe, score: 0.05 + overlap * 0.01 });
+                matchedIds.add(recipe.id);
+                if (existing.length >= MAX_RESULTS) break;
+            }
+        }
+
+        return existing;
     }
 
     /**

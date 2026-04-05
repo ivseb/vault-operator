@@ -86,7 +86,7 @@ Obsilo
 };
 
 /** Maximum characters per memory file injected into the system prompt. */
-const MAX_CHARS_PER_FILE = 800;
+export const MAX_CHARS_PER_FILE = 800;
 /** Maximum total characters for the combined memory context. */
 const MAX_TOTAL_CHARS = 4000;
 
@@ -256,10 +256,21 @@ export class MemoryService {
             } catch { /* skip */ }
         }
 
-        try {
-            const listed = await this.fs.list(this.sessionsDir);
-            sessionCount = listed.files.filter((f) => f.endsWith('.md')).length;
-        } catch { /* skip */ }
+        // Count sessions: prefer DB (ADR-060), fallback to .md files
+        if (this.memoryDB?.isOpen()) {
+            try {
+                const result = this.memoryDB.getDB().exec(
+                    "SELECT COUNT(*) FROM sessions WHERE summary IS NOT NULL AND summary != ''",
+                );
+                sessionCount = (result[0]?.values[0]?.[0] as number) ?? 0;
+            } catch { /* skip */ }
+        }
+        if (sessionCount === 0) {
+            try {
+                const listed = await this.fs.list(this.sessionsDir);
+                sessionCount = listed.files.filter((f) => f.endsWith('.md')).length;
+            } catch { /* skip */ }
+        }
 
         return { fileCount, sessionCount, lastUpdated };
     }
