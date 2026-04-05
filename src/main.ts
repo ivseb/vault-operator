@@ -438,7 +438,8 @@ export default class ObsidianAgentPlugin extends Plugin {
 
             // Local Reranking (FEATURE-1504): cross-encoder via transformers.js (WASM)
             if (this.settings.enableReranking) {
-                this.rerankerService = new RerankerService();
+                const pluginAbsDir = `${vaultBasePath}/${pluginDir}`;
+                this.rerankerService = new RerankerService(pluginAbsDir);
                 // Pre-load model at startup so first search is fast
                 this.app.workspace.onLayoutReady(() => {
                     void this.rerankerService?.loadModel();

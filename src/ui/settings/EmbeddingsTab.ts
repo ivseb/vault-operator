@@ -592,7 +592,10 @@ export class EmbeddingsTab {
                     await this.plugin.saveSettings();
                     if (v && !this.plugin.rerankerService) {
                         const { RerankerService } = await import('../../core/knowledge/RerankerService');
-                        this.plugin.rerankerService = new RerankerService();
+                        const adapter = this.plugin.app.vault.adapter as unknown as { getBasePath?(): string };
+                        const basePath = adapter.getBasePath?.() ?? '';
+                        const dir = `${basePath}/${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
+                        this.plugin.rerankerService = new RerankerService(dir);
                         void this.plugin.rerankerService.loadModel();
                     }
                 }),

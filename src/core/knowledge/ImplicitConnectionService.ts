@@ -116,8 +116,13 @@ export class ImplicitConnectionService {
                         }
                     }
 
-                    // Yield every 1000 pairs + check timeout
+                    // Yield every 1000 pairs + check timeout + DB still open
                     if (computed % 1000 === 0) {
+                        if (!this.knowledgeDB.isOpen()) {
+                            console.debug('[ImplicitConnections] DB closed during computation, aborting');
+                            this.cancelled = true;
+                            break;
+                        }
                         if (Date.now() - computeStart > MAX_COMPUTATION_MS) {
                             console.warn(`[ImplicitConnections] Timeout after ${computed} pairs (${MAX_COMPUTATION_MS}ms)`);
                             this.cancelled = true;
@@ -128,9 +133,11 @@ export class ImplicitConnectionService {
                 }
             }
 
-            stmt.free();
-            this.knowledgeDB.markDirty();
-            await this.knowledgeDB.save();
+            try { stmt.free(); } catch { /* statement may already be freed if DB closed */ }
+            if (this.knowledgeDB.isOpen()) {
+                this.knowledgeDB.markDirty();
+                await this.knowledgeDB.save();
+            }
 
             if (!this.cancelled) {
                 console.debug(
@@ -140,7 +147,13 @@ export class ImplicitConnectionService {
 
             return { computed, stored };
         } catch (e) {
-            console.warn('[ImplicitConnections] Computation failed:', e);
+            // DB can close during async computation (plugin reload/unload) — expected, not an error
+            const msg = e instanceof Error ? e.message : String(e);
+            if (msg.includes('Statement closed') || msg.includes('database is closed')) {
+                console.debug('[ImplicitConnections] DB closed during computation, aborting gracefully');
+            } else {
+                console.warn('[ImplicitConnections] Computation failed:', e);
+            }
             return { computed: 0, stored: 0 };
         } finally {
             this.running = false;
