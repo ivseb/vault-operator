@@ -44,6 +44,11 @@ export class RerankerService {
     private _loading = false;
     private _loaded = false;
     private _failed = false;
+    private pluginAbsDir: string;
+
+    constructor(pluginAbsDir: string) {
+        this.pluginAbsDir = pluginAbsDir;
+    }
 
     /** Whether the model is loaded and ready for inference. */
     get isLoaded(): boolean { return this._loaded; }
@@ -63,9 +68,21 @@ export class RerankerService {
         try {
             const { AutoModelForSequenceClassification, AutoTokenizer, env } = await import('@huggingface/transformers');
 
-            // Force WASM backend (Electron may incorrectly detect as Node.js)
-            if (env.backends?.onnx?.wasm) {
-                env.backends.onnx.wasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
+            // Pre-load WASM binary from disk to avoid CDN fetch.
+            // The esbuild plugin patches transformers.js to use the web backend,
+            // which needs the WASM binary. Loading from disk is reliable in Electron.
+            const onnxWasm = env.backends?.onnx?.wasm;
+            if (onnxWasm) {
+                const path = require('path'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
+                const fs = require('fs'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
+                const wasmPath = path.join(this.pluginAbsDir, 'ort-wasm-simd-threaded.wasm');
+                if (fs.existsSync(wasmPath)) {
+                    onnxWasm.wasmBinary = fs.readFileSync(wasmPath).buffer;
+                    onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
+                    console.debug(`[Reranker] Loaded WASM binary from ${wasmPath} (${Math.round(fs.statSync(wasmPath).size / 1024 / 1024)}MB)`);
+                } else {
+                    console.warn(`[Reranker] WASM binary not found at ${wasmPath}`);
+                }
             }
 
             console.debug(`[Reranker] Loading model ${MODEL_ID}...`);
@@ -73,7 +90,8 @@ export class RerankerService {
 
             this.tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID) as unknown as TokenizerFn;
             this.model = await AutoModelForSequenceClassification.from_pretrained(MODEL_ID, {
-                dtype: 'q8', // INT8 quantized model (~23MB)
+                dtype: 'q8',
+                device: 'wasm',
             }) as unknown as ModelFn;
 
             this._loaded = true;
