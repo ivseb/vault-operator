@@ -70,6 +70,31 @@ const context = await esbuild.context({
             }
         },
         {
+            // Force transformers.js to use the web ONNX backend in Electron.
+            // Electron's renderer is detected as IS_NODE_ENV=true, which selects
+            // onnxruntime-node (native addon that can't load). Patching to false
+            // makes it take the web branch with proper device registration.
+            name: "force-onnx-web-backend",
+            setup(build) {
+                build.onResolve({ filter: /backends\/onnx\.js/ }, (args) => {
+                    if (!args.path.includes('onnx')) return;
+                    return { path: args.path, pluginData: { patch: true }, namespace: 'file' };
+                });
+                // Fallback: post-process the bundle to patch IS_NODE_ENV
+                build.onEnd(() => {
+                    const outfile = 'main.js';
+                    if (!existsSync(outfile)) return;
+                    let code = readFileSync(outfile, 'utf-8');
+                    const marker = '} else if (apis.IS_NODE_ENV) {';
+                    if (code.includes(marker)) {
+                        code = code.replace(marker, '} else if (false /* patched: force web backend in Electron */) {');
+                        writeFileSync(outfile, code);
+                        console.log('[force-onnx-web-backend] Patched IS_NODE_ENV in main.js');
+                    }
+                });
+            }
+        },
+        {
             // Embed TypeScript source into the bundle for core self-modification (Phase 4).
             // Only active for production builds. Source files are base64-encoded and injected
             // as a global constant `EMBEDDED_SOURCE` that EmbeddedSourceManager reads at runtime.
@@ -170,6 +195,13 @@ const context = await esbuild.context({
                                 const wasmSrc = join(__dirname, "node_modules/sql.js/dist", wasmName);
                                 if (existsSync(wasmSrc)) {
                                     copyFileSync(wasmSrc, `${VAULT_PLUGIN_DIR}/${wasmName}`);
+                                }
+                            }
+                            // Copy ONNX Runtime WASM binaries for Reranker (transformers.js)
+                            for (const ortFile of ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"]) {
+                                const ortSrc = join(__dirname, "node_modules/onnxruntime-web/dist", ortFile);
+                                if (existsSync(ortSrc)) {
+                                    copyFileSync(ortSrc, `${VAULT_PLUGIN_DIR}/${ortFile}`);
                                 }
                             }
                             // Copy bundled skills to plugin skills directory
