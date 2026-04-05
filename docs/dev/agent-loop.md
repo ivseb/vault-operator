@@ -60,6 +60,46 @@ When the model responds with only text and no tool calls, or when it calls `atte
 
 The `run()` method takes a config object with the user message, task ID, initial mode, conversation history, and optional context like rules, skills, and memory.
 
+## Fast path execution
+
+Not every task needs the full ReAct loop. When the agent has solved the same kind of task before, it can skip most of the iterative reasoning and execute a pre-planned sequence of tool calls instead. This is the fast path, and it is the single largest token cost optimization in the system.
+
+The fast path depends on the recipe system (see [memory](./memory-system)). When a user message arrives, the `RecipeMatchingService` checks whether a matching recipe exists. If so, and if the recipe has been used successfully at least three times, the fast path activates:
+
+1. A single planner LLM call receives the user message plus the recipe and produces a concrete execution plan: a JSON array of tool calls with parameters.
+2. The plan gets executed deterministically through the same `ToolExecutionPipeline`, without further LLM calls. Read operations run in parallel, writes sequentially.
+3. After execution, the normal agent loop takes over for one or two final iterations to formulate the response and present the result.
+
+Instead of eight LLM calls and 634,000 tokens, the fast path typically needs two to three calls and about 70,000 tokens.
+
+The fast path has guardrails. If the planner produces invalid JSON or references unknown tools, the system falls back to the standard ReAct loop. All tool invocations still pass through `ToolExecutionPipeline` with approval checks, checkpoints, and logging. No governance is bypassed.
+
+```mermaid
+flowchart TD
+    A["User message"] --> B{"Recipe\nmatch?"}
+    B -- no --> C["Standard ReAct loop"]
+    B -- yes --> D["Planner LLM call"]
+    D --> E{"Valid\nplan?"}
+    E -- no --> C
+    E -- yes --> F["Execute tool batch"]
+    F --> G["1-2 finishing iterations"]
+    G --> H["Return response"]
+```
+
+## Context externalization
+
+Tool results accumulate in the conversation history and get resent with every subsequent API call. A semantic search returns 20,000 characters. Reading a note adds another 20,000. After eight iterations, accumulated tool results alone can exceed 250,000 tokens.
+
+Context externalization intercepts large tool results before they enter the history. When a result exceeds 2,000 characters, the full content gets written to a temporary file. The history receives a compact reference: what was found, the top entries with relevance scores, and the file path where the full data lives.
+
+This happens in `ResultExternalizer` (`src/core/tool-execution/ResultExternalizer.ts`), called from `ToolExecutionPipeline` after each tool execution. The externalization is transparent to tools: they return their full results as before. The pipeline decides what goes into the history.
+
+Temporary files are stored in `.obsidian-agent/tmp/{taskId}/` with deterministic names (`{toolName}-{callIndex}.md`). No timestamps, no random values, so file paths don't invalidate the KV cache. Cleanup happens after task completion, with a safety sweep on plugin startup for orphaned directories older than one hour.
+
+During fast path execution, externalization is disabled. The final LLM call needs full content for a good summary, and with only two to three iterations the accumulation is minimal.
+
+The history stays strictly append-only. Externalization happens at result creation time, never retroactively. This append-only principle is shared with KV caching and context condensing: none of them work if the history gets modified after the fact.
+
 ## Safety rails
 
 The loop has several mechanisms to prevent runaway behavior.

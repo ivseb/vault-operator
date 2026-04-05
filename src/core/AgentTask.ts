@@ -184,6 +184,76 @@ export class AgentTask {
         // Add user message to the shared history
         history.push({ role: 'user', content: userMessage });
 
+        // ADR-061: Fast Path — if a recipe matches with high confidence,
+        // execute tool steps as a batch before entering the normal loop.
+        // The loop then handles presentation/completion in 1-2 iterations.
+        if (recipesSection && this.depth === 0) {
+            try {
+                const { FastPathExecutor } = await import('./FastPathExecutor');
+                const recipeMatch = this.toolRegistry.plugin.recipeMatchingService?.match(
+                    typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
+                );
+                const bestMatch = recipeMatch?.[0];
+
+                if (bestMatch && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
+                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
+
+                    // Build system prompt for planner (same params as normal loop)
+                    const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
+                    const fpPrompt = buildSystemPromptForMode({
+                        mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
+                        skillsSection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
+                        isSubtask: false, webEnabled: fpWebEnabled, recipesSection, selfAuthoredSkillsSection,
+                        configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
+                    });
+                    const fpTools = this.modeService
+                        ? this.modeService.getToolDefinitions(activeMode)
+                        : this.toolRegistry.getToolDefinitions();
+
+                    const fastPath = new FastPathExecutor(this.api, pipeline);
+                    const fpCallbacks = {
+                        pushToolResult: () => {},
+                        pushProgress: () => {},
+                        handleError: (tool: string, error: unknown) => {
+                            console.warn(`[FastPath] Tool error in ${tool}:`, error);
+                        },
+                        log: (msg: string) => console.debug(`[FastPath] ${msg}`),
+                    };
+
+                    const msgText = typeof userMessage === 'string' ? userMessage : '';
+                    const result = await fastPath.execute(
+                        bestMatch.recipe,
+                        msgText,
+                        fpPrompt,
+                        fpCallbacks,
+                        abortSignal,
+                        fpTools,
+                    );
+
+                    if (result.success && result.toolCallsExecuted > 0) {
+                        console.debug(`[FastPath] Success: ${result.toolCallsExecuted} tools executed, injecting ${result.historyEntries.length} history entries`);
+                        // Append batch results to history — loop will see them and present
+                        for (const entry of result.historyEntries) {
+                            history.push(entry);
+                        }
+                        // ADR-061: Context hint — tell the loop that search/read is done
+                        history.push({
+                            role: 'user',
+                            content: `[Fast Path completed] The recipe "${bestMatch.recipe.name}" has been executed. `
+                                + `${result.toolCallsExecuted} tool calls completed successfully. `
+                                + `The search and read results are above. `
+                                + `Now: analyze the results and complete the task (write summary, present findings). `
+                                + `Do NOT re-search or re-read the same content — use the results already in context.`,
+                        });
+                    } else {
+                        console.debug('[FastPath] No success, continuing with normal loop');
+                    }
+                }
+            } catch (e) {
+                console.warn('[FastPath] Pre-loop check failed (non-fatal), continuing with normal loop:', e);
+            }
+        }
+
         const MAX_ITERATIONS = this.maxIterations;
         const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
 
@@ -331,6 +401,24 @@ export class AgentTask {
 
         // Emergency condensing retry: if the API rejects with context overflow,
         // condense and retry the entire loop once instead of aborting.
+        // ADR-061: Todo list as recency anchor (Manus Context Engineering).
+        // Track current todo items so we can inject them at the end of context
+        // before each LLM call, keeping task focus via recency bias.
+        let currentTodoText = '';
+        const originalTodoCallback = this.taskCallbacks.onTodoUpdate;
+        this.taskCallbacks.onTodoUpdate = (items) => {
+            originalTodoCallback?.(items);
+            // Format todo list for injection
+            if (items.length > 0) {
+                currentTodoText = '[Current Task Plan]\n' + items.map((i) => {
+                    const marker = i.status === 'done' ? 'x' : i.status === 'in_progress' ? '~' : ' ';
+                    return `- [${marker}] ${i.text}`;
+                }).join('\n');
+            } else {
+                currentTodoText = '';
+            }
+        };
+
         let emergencyRetried = false;
 
         // Rate limit retry: auto-retry on 429 errors with exponential backoff.
@@ -342,6 +430,9 @@ export class AgentTask {
         while (true) {
         try {
             for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+                // ADR-063: Sync iteration counter for deterministic externalization file names
+                pipeline.getExternalizer()?.nextIteration();
+
                 // Early exit if task was cancelled between iterations
                 if (abortSignal?.aborted) {
                     console.debug('[AgentTask] Abort signal detected at iteration start');
@@ -401,6 +492,21 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
+                // ADR-061: Todo list as recency anchor — append to last user message.
+                // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
+                // We temporarily extend the last user message content (not push+splice, which
+                // would violate append-only and invalidate KV-cache).
+                let todoOriginalContent: string | ContentBlock[] | undefined;
+                if (currentTodoText && iteration > 0) {
+                    for (let h = history.length - 1; h >= 0; h--) {
+                        if (history[h].role === 'user' && typeof history[h].content === 'string') {
+                            todoOriginalContent = history[h].content;
+                            history[h] = { ...history[h], content: `${history[h].content as string}\n\n${currentTodoText}` };
+                            break;
+                        }
+                    }
+                }
+
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
                 const toolErrorIds = new Set<string>();
@@ -434,6 +540,17 @@ export class AgentTask {
                         totalOutputTokens += chunk.outputTokens;
                         totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
                         totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                    }
+                }
+
+                // Restore the original user message content (remove todo anchor)
+                if (todoOriginalContent !== undefined) {
+                    for (let h = history.length - 1; h >= 0; h--) {
+                        if (history[h].role === 'user' && typeof history[h].content === 'string'
+                            && (history[h].content as string).endsWith(currentTodoText)) {
+                            history[h] = { ...history[h], content: todoOriginalContent };
+                            break;
+                        }
                     }
                 }
 
@@ -764,6 +881,9 @@ export class AgentTask {
                     toolLedger: repetitionDetector.getLedger(),
                 });
             }
+
+            // ADR-063: Clean up externalized temp files after task completion
+            await pipeline.cleanupExternalized();
 
             this.taskCallbacks.onComplete();
             return;  // Success — exit the emergency retry loop
