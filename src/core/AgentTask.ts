@@ -214,7 +214,7 @@ export class AgentTask {
                     const fpCallbacks = {
                         pushToolResult: () => {},
                         pushProgress: () => {},
-                        handleError: async (tool: string, error: unknown) => {
+                        handleError: (tool: string, error: unknown) => {
                             console.warn(`[FastPath] Tool error in ${tool}:`, error);
                         },
                         log: (msg: string) => console.debug(`[FastPath] ${msg}`),
