@@ -11,21 +11,21 @@ function createMemoryFs(): import('../../storage/types').FileAdapter & { files: 
     return {
         files,
         dirs,
-        exists: async (path: string) => files.has(path) || dirs.has(path),
-        read: async (path: string) => {
+        exists: (path: string) => Promise.resolve(files.has(path) || dirs.has(path)),
+        read: (path: string) => {
             const content = files.get(path);
-            if (content === undefined) throw new Error(`File not found: ${path}`);
-            return content;
+            if (content === undefined) return Promise.reject(new Error(`File not found: ${path}`));
+            return Promise.resolve(content);
         },
-        write: async (path: string, content: string) => { files.set(path, content); },
-        append: async (path: string, content: string) => { files.set(path, (files.get(path) ?? '') + content); },
-        remove: async (path: string) => { files.delete(path); dirs.delete(path); },
-        mkdir: async (path: string) => { dirs.add(path); },
-        list: async (path: string) => ({
+        write: (path: string, content: string) => { files.set(path, content); return Promise.resolve(); },
+        append: (path: string, content: string) => { files.set(path, (files.get(path) ?? '') + content); return Promise.resolve(); },
+        remove: (path: string) => { files.delete(path); dirs.delete(path); return Promise.resolve(); },
+        mkdir: (path: string) => { dirs.add(path); return Promise.resolve(); },
+        list: (path: string) => Promise.resolve({
             files: [...files.keys()].filter((f) => f.startsWith(path + '/')),
             folders: [...dirs].filter((d) => d.startsWith(path + '/') && d !== path),
         }),
-        stat: async (path: string) => files.has(path) ? { mtime: Date.now(), size: (files.get(path) ?? '').length } : null,
+        stat: (path: string) => Promise.resolve(files.has(path) ? { mtime: Date.now(), size: (files.get(path) ?? '').length } : null),
     };
 }
 

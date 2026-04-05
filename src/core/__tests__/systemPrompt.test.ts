@@ -24,7 +24,7 @@ async function buildTestPrompt(overrides: Record<string, unknown> = {}) {
             customInstructions: '',
         },
         includeTime: true,
-        configDir: '.obsidian',
+        configDir: 'test-config-dir',
         ...overrides,
     };
 
