@@ -29,7 +29,7 @@ Organized into six groups:
 
 ### Knowledge Discovery
 
-Local vector index (Vectra + Xenova transformers) with no cloud required. Combines semantic similarity with full-text keyword search (RRF fusion), 1-hop wikilink graph augmentation, local reranking (cross-encoder via WebAssembly), contextual retrieval, and implicit connection discovery between unlinked notes.
+Local vector index (SQLite-backed via sql.js) with configurable embedding providers. Combines semantic similarity with full-text keyword search (RRF fusion), graph expansion via wikilinks (1-3 hops), local reranking (cross-encoder via WebAssembly), contextual retrieval, and implicit connection discovery between unlinked notes.
 
 ### Agent Modes
 
@@ -102,15 +102,9 @@ Connect MCP servers via stdio, SSE, or streamable-HTTP. Tools are dynamically di
 
 ## Installation
 
-### Community Plugins
+> **Note:** Obsilo is currently in the Obsidian community plugin review queue and not yet available in the official directory. Until approval, install via BRAT or manually.
 
-1. Open **Obsidian Settings** > **Community Plugins** > **Browse**
-2. Search for **"Obsilo Agent"**
-3. Click **Install**, then **Enable**
-
-### BRAT (Beta)
-
-For the latest beta version:
+### BRAT (recommended)
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Community Plugins
 2. Open BRAT settings and select **Add Beta Plugin**
@@ -161,7 +155,7 @@ This plugin makes network requests depending on your configuration:
 - **Web search** (optional): When using `web_search`, requests go to the configured search API (Brave or Tavily). Disabled by default.
 - **MCP servers** (optional): Connected MCP servers may make additional network requests depending on their configuration.
 - **No telemetry**: The plugin does not collect analytics, usage data, or crash reports.
-- **API key storage**: API keys are stored in Obsidian's plugin settings (`data.json`), which is not encrypted. If you use Obsidian Sync, your keys will be synced.
+- **API key storage**: API keys are encrypted via Electron's safeStorage API when available. On systems without safeStorage support, keys fall back to Obsidian's plugin settings (`data.json`), which is not encrypted. If you use Obsidian Sync, your settings will be synced.
 
 ---
 
@@ -233,7 +227,7 @@ Apache 2.0
 
 - [Kilo Code](https://kilocode.ai) -- architectural inspiration
 - [Obsidian](https://obsidian.md) -- the platform
-- [Vectra](https://github.com/Stevenic/vectra) -- local vector database
-- [Xenova Transformers](https://github.com/xenova/transformers.js) -- local ONNX embeddings
+- [sql.js](https://github.com/sql-js/sql.js) -- SQLite in WebAssembly for the knowledge layer
+- [Hugging Face Transformers.js](https://github.com/huggingface/transformers.js) -- local ONNX reranking
 - [isomorphic-git](https://isomorphic-git.org) -- pure JS git for checkpoints
 - [MCP SDK](https://github.com/modelcontextprotocol/typescript-sdk) -- Model Context Protocol
