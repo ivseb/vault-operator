@@ -43,6 +43,10 @@ interface TestResult {
 }
 
 async function testModelConnection(model: CustomModel): Promise<TestResult> {
+    // Gemini: use requestUrl directly (bypasses CORS restrictions in Electron renderer)
+    if (model.provider === 'gemini') {
+        return testGeminiConnection(model);
+    }
     try {
         const lp = modelToLLMProvider({ ...model, maxTokens: 16 });
         const handler = buildApiHandler(lp);
@@ -129,6 +133,55 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
         }
 
         return { ok: false, message: 'Connection failed', detail: msg || 'Unknown error' };
+    }
+}
+
+/**
+ * Test a Gemini model connection using requestUrl (bypasses CORS in Electron).
+ * Uses a non-streaming POST to the OpenAI-compatible chat/completions endpoint.
+ */
+async function testGeminiConnection(model: CustomModel): Promise<TestResult> {
+    if (!model.apiKey) return { ok: false, message: 'API key required', detail: 'Get your API key from aistudio.google.com → API Keys.' };
+    if (!model.name) return { ok: false, message: 'Model ID required' };
+
+    const url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+    const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Connection timed out after 10s')), 10_000),
+    );
+    try {
+        const res = await Promise.race([
+            requestUrl({
+                url,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${model.apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: model.name,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 16,
+                }),
+                throw: false,
+            }),
+            timeout,
+        ]);
+        if (res.status === 200) return { ok: true, message: 'Connection successful' };
+        if (res.status === 401 || res.status === 403) {
+            return { ok: false, message: `Invalid API key (${res.status})`, detail: 'Get your API key from aistudio.google.com → API Keys.' };
+        }
+        if (res.status === 404) {
+            return { ok: false, message: `Model "${model.name}" not found (404)`, detail: 'Check the exact model name. Use the "Fetch Models" button to see available models.' };
+        }
+        if (res.status === 429) {
+            return { ok: false, message: 'Rate limit reached (429)', detail: 'You\'ve sent too many requests. Wait a moment and try again.' };
+        }
+        const errText = (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })();
+        return { ok: false, message: `HTTP ${res.status}`, detail: errText };
+    } catch (err: unknown) {
+        const msg = (err as { message?: string })?.message ?? 'Unknown error';
+        if (msg.includes('timed out')) return { ok: false, message: 'Connection timed out (10 s)' };
+        return { ok: false, message: 'Connection failed', detail: msg };
     }
 }
 
@@ -341,6 +394,30 @@ async function fetchProviderModels(
         }
         const models = await KiloMetadataService.getInstance().getModels(true);
         return models.map((m) => ({ id: m.id, label: m.id }));
+    }
+
+    // Gemini — OpenAI-compatible endpoint at Google
+    // Uses requestUrl directly (not the req helper) to guarantee res.json is the parsed object,
+    // not a Promise — Obsidian's RequestUrlResponsePromise.json is Promise<any>.
+    if (provider === 'gemini') {
+        if (!apiKey) throw new Error('API key required for Google Gemini');
+        const res = await requestUrl({
+            url: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${apiKey}` },
+            throw: false,
+        });
+        if (res.status === 401 || res.status === 403) throw new Error('Invalid API key');
+        if (res.status !== 200) throw new Error(`HTTP ${res.status}`);
+        const data = res.json;
+        return ((data.data ?? []) as ApiModelEntry[])
+            .filter((m) => /gemini-/i.test(m.id ?? ''))
+            .map((m) => {
+                // Google returns IDs with "models/" prefix — strip it for OpenAI-compatible usage
+                const id = (m.id as string).replace(/^models\//, '');
+                return { id, label: (m.display_name as string) ?? id };
+            })
+            .sort((a, b) => b.id.localeCompare(a.id));
     }
 
     // custom — OpenAI-compatible /v1/models endpoint
