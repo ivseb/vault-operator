@@ -740,17 +740,10 @@ export const de: Translations = {
 
     // =========================================================================
     // Constants — Provider Labels
+    // Brand names moved to src/ui/settings/constants.ts (not locale-dependent).
+    // Only translatable labels remain here.
     // =========================================================================
-    'provider.anthropic': 'Anthropic',
-    'provider.openai': 'OpenAI',
-    'provider.gemini': 'Google Gemini',
-    'provider.ollama': 'Ollama',
-    'provider.lmstudio': 'LM Studio',
-    'provider.openrouter': 'OpenRouter',
-    'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Benutzerdefiniert',
-    'provider.github-copilot': 'GitHub Copilot',
-    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels

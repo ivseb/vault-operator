@@ -6,21 +6,23 @@ import { t } from '../../i18n';
 // ---------------------------------------------------------------------------
 
 /**
- * Provider labels — computed at call time so t() picks up the active locale.
+ * Provider labels — brand names, identical across all locales.
+ * Kept outside the i18n locale module to avoid sentence-case lint conflicts.
  */
+const BRAND_LABELS: Record<string, string> = {
+    anthropic:        'Anthropic',
+    openai:           'OpenAI',
+    gemini:           'Google Gemini',
+    ollama:           'Ollama',
+    lmstudio:         'LM Studio',
+    openrouter:       'OpenRouter',
+    azure:            'Azure OpenAI',
+    'github-copilot': 'GitHub Copilot',
+    'kilo-gateway':   'Kilo Gateway',
+};
+
 function getProviderLabels(): Record<string, string> {
-    return {
-        anthropic: t('provider.anthropic'),
-        openai: t('provider.openai'),
-        gemini: t('provider.gemini'),
-        ollama: t('provider.ollama'),
-        lmstudio: t('provider.lmstudio'),
-        openrouter: t('provider.openrouter'),
-        azure: t('provider.azure'),
-        custom: t('provider.custom'),
-        'github-copilot': t('provider.github-copilot'),
-        'kilo-gateway':   t('provider.kilo-gateway'),
-    };
+    return { ...BRAND_LABELS, custom: t('provider.custom') };
 }
 
 const PROVIDER_COLORS: Record<string, string> = {

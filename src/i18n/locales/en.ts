@@ -742,21 +742,10 @@ export const en: Translations = {
 
     // =========================================================================
     // Constants — Provider Labels
+    // Brand names moved to src/ui/settings/constants.ts (not locale-dependent).
+    // Only translatable labels remain here.
     // =========================================================================
-    'provider.anthropic': 'Anthropic',
-    'provider.openai': 'OpenAI',
-    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- brand name
-    'provider.gemini': 'Google Gemini',
-    'provider.ollama': 'Ollama',
-    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- brand name
-    'provider.lmstudio': 'LM Studio',
-    'provider.openrouter': 'OpenRouter',
-    'provider.azure': 'Azure OpenAI',
     'provider.custom': 'Custom',
-    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- brand name
-    'provider.github-copilot': 'GitHub Copilot',
-    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- brand name
-    'provider.kilo-gateway': 'Kilo Gateway',
 
     // =========================================================================
     // Constants — Tool Labels
