@@ -546,6 +546,10 @@ export interface ObsidianAgentSettings {
     /** Show implicit connection suggestions in the sidebar. */
     enableSuggestionBanner: boolean;
 
+    // Vault Health Check (FEATURE-1901)
+    /** Enable automatic vault health check on startup (orphaned notes, missing links, inconsistencies). */
+    enableVaultHealthCheck: boolean;
+
     // Local Reranking (FEATURE-1504)
     /** Enable local cross-encoder reranking of search results (requires ~23MB model download). */
     enableReranking: boolean;
@@ -830,6 +834,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableImplicitConnections: true,
     implicitThreshold: 0.7,
     enableSuggestionBanner: true,
+    enableVaultHealthCheck: true,
     enableReranking: true,
     rerankCandidates: 20,
     enableMcpServer: false,

@@ -268,6 +268,38 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 }
             }
 
+            // ── Ontology expansion (FEATURE-1902): discover related concepts via cluster membership ──
+            const ontologyStore = this.plugin.ontologyStore;
+            let ontologyCount = 0;
+            if (ontologyStore) {
+                const topKPaths = new Set(results.map((r) => r.path));
+                const seenOntology = new Set<string>();
+                const ontologyLines: string[] = [];
+
+                for (const r of results) {
+                    if (ontologyLines.length >= 5) break;
+                    const related = ontologyStore.getRelatedEntities(r.path, 10);
+                    for (const rel of related) {
+                        if (ontologyLines.length >= 5) break;
+                        if (topKPaths.has(rel.entityPath) || seenOntology.has(rel.entityPath)) continue;
+                        seenOntology.add(rel.entityPath);
+                        const chunks: string[] = await semanticIndex.getChunksByPath(rel.entityPath);
+                        if (chunks.length === 0) continue;
+                        ontologyLines.push(`${ontologyLines.length + 1}. ${toWikilink(rel.entityPath)} — \`${rel.entityPath}\` (cluster: ${toWikilink(rel.cluster)}, ${rel.role})`);
+                        ontologyLines.push(truncate(chunks[0]));
+                        ontologyLines.push('');
+                    }
+                }
+
+                if (ontologyLines.length > 0) {
+                    ontologyCount = seenOntology.size;
+                    lines.push('─────────────────────────────────────────');
+                    lines.push('Related concepts (via ontology):');
+                    lines.push('(Thematically connected — discovered through knowledge structure)\n');
+                    lines.push(...ontologyLines);
+                }
+            }
+
             // ── Implicit connections (FEATURE-1503): semantically similar, no direct link ──
             const implicitService = this.plugin.implicitConnectionService;
             let implicitCount = 0;
@@ -304,7 +336,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
             }
 
             callbacks.pushToolResult(lines.join('\n'));
-            callbacks.log(`Hybrid search: "${query}" → ${results.length} results (${kwCount} keyword), ${graphLinkedCount} graph, ${implicitCount} implicit`);
+            callbacks.log(`Hybrid search: "${query}" → ${results.length} results (${kwCount} keyword), ${graphLinkedCount} graph, ${ontologyCount} ontology, ${implicitCount} implicit`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('semantic_search', error);

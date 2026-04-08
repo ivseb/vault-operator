@@ -118,6 +118,13 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'Only when vault_context block is insufficient. Rarely needed.',
         commonMistakes: 'Calling this routinely — vault_context already provides the structure.',
     },
+    vault_health_check: {
+        group: 'vault', label: 'Health Check', icon: 'shield-check',
+        signature: 'vault_health_check(checks?)',
+        description: 'Run structural health checks: orphaned notes, missing backlinks, broken links, weak clusters, inconsistent tags. Returns findings with fix suggestions.',
+        whenToUse: 'To proactively maintain vault quality. Run periodically or when user asks about vault health.',
+        commonMistakes: 'Running after every small change — best used on demand or at session start.',
+    },
     get_frontmatter: {
         group: 'vault', label: 'Frontmatter', icon: 'tag',
         signature: 'get_frontmatter(path)',

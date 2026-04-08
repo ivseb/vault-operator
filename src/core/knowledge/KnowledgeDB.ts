@@ -38,7 +38,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -98,6 +98,18 @@ CREATE TABLE IF NOT EXISTS dismissed_pairs (
     dismissed_at TEXT NOT NULL,
     UNIQUE(path_a, path_b)
 );
+
+CREATE TABLE IF NOT EXISTS ontology (
+    entity_path TEXT NOT NULL,
+    cluster TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    source TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(entity_path, cluster)
+);
+CREATE INDEX IF NOT EXISTS idx_ontology_cluster ON ontology(cluster);
+CREATE INDEX IF NOT EXISTS idx_ontology_entity ON ontology(entity_path);
 `;
 
 // ---------------------------------------------------------------------------
@@ -290,6 +302,7 @@ export class KnowledgeDB {
             // v2 -> v3: Add edges + tags tables for graph extraction (FEATURE-1502)
             // v3 -> v4: Add implicit_edges table (FEATURE-1503)
             // v4 -> v5: Add dismissed_pairs table (FEATURE-1506)
+            // v5 -> v6: Add ontology table (FEATURE-1902)
             // All CREATE TABLE IF NOT EXISTS — idempotent, handled by initSchema() below
 
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)

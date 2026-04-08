@@ -72,6 +72,8 @@ export class AgentSidebarView extends ItemView {
     // Onboarding key-setup state machine (chat-based flow, no LLM needed)
     private onboarding: OnboardingFlow | null = null;
 
+    // Health badge (FEATURE-1901)
+    private healthBadge: HTMLElement | null = null;
     // Tool picker (pocket-knife button)
     private toolPickerButton: HTMLElement | null = null;
     // Web search toggle button (globe icon)
@@ -181,6 +183,13 @@ export class AgentSidebarView extends ItemView {
 
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan('agent-title-text').setText(t('ui.sidebar.title'));
+
+        // Health badge (FEATURE-1901) — shows finding count from vault health check
+        this.healthBadge = titleRow.createDiv('health-badge');
+        this.healthBadge.classList.add('agent-u-hidden');
+        this.healthBadge.addEventListener('click', () => {
+            void this.sendHealthFindings();
+        });
 
         const headerRight = header.createDiv('agent-header-right');
 
@@ -940,6 +949,41 @@ export class AgentSidebarView extends ItemView {
         this.nextMessageHidden = hidden;
         this.textarea.value = text;
         void this.handleSendMessage();
+    }
+
+    /** Update the health badge with current findings count and severity. Called from main.ts after health check. */
+    updateHealthBadge(findingCount: number, maxSeverity: 'high' | 'medium' | 'low' | null): void {
+        if (!this.healthBadge) return;
+        if (findingCount === 0 || !maxSeverity) {
+            this.healthBadge.classList.add('agent-u-hidden');
+            return;
+        }
+        this.healthBadge.classList.remove('agent-u-hidden');
+        this.healthBadge.setText(String(findingCount));
+        this.healthBadge.className = `health-badge severity-${maxSeverity}`;
+        this.healthBadge.setAttribute('aria-label',
+            `${findingCount} vault health finding(s) -- click to review`);
+    }
+
+    /** Send vault health findings to the chat. Batch mode for many findings, interactive for few. */
+    private sendHealthFindings(): void {
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService || healthService.getFindingCount() === 0) return;
+
+        const count = healthService.getFindingCount();
+        const BATCH_THRESHOLD = 10;
+
+        if (count >= BATCH_THRESHOLD) {
+            this.sendProgrammaticMessage(
+                `Vault health: ${count} findings. Run vault_health_check, then work through ` +
+                `findings autonomously in batches. Follow the vault-health-batch skill. ` +
+                `Ask me only for real decisions, not for each fix.`,
+            );
+        } else {
+            this.sendProgrammaticMessage(
+                `Vault health: ${count} findings. Run vault_health_check and suggest fixes.`,
+            );
+        }
     }
 
     /**

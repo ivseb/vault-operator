@@ -29,6 +29,7 @@ export type ToolName =
     | 'update_frontmatter'
     | 'get_linked_notes'
     | 'get_vault_stats'
+    | 'vault_health_check'
     | 'search_by_tag'
     | 'get_daily_note'
     | 'open_note'

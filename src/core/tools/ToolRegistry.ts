@@ -28,6 +28,7 @@ import { GetFrontmatterTool } from './vault/GetFrontmatterTool';
 import { UpdateFrontmatterTool } from './vault/UpdateFrontmatterTool';
 import { SearchByTagTool } from './vault/SearchByTagTool';
 import { GetVaultStatsTool } from './vault/GetVaultStatsTool';
+import { VaultHealthCheckTool } from './vault/VaultHealthCheckTool';
 import { GetLinkedNotesTool } from './vault/GetLinkedNotesTool';
 import { OpenNoteTool } from './vault/OpenNoteTool';
 import { GetDailyNoteTool } from './vault/GetDailyNoteTool';
@@ -146,6 +147,7 @@ export class ToolRegistry {
         this.register(new UpdateFrontmatterTool(this.plugin));
         this.register(new SearchByTagTool(this.plugin));
         this.register(new GetVaultStatsTool(this.plugin));
+        this.register(new VaultHealthCheckTool(this.plugin));
         this.register(new GetLinkedNotesTool(this.plugin));
         this.register(new OpenNoteTool(this.plugin));
         this.register(new GetDailyNoteTool(this.plugin));
