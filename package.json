@@ -55,7 +55,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "@huggingface/transformers": "^4.0.0",
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "delay": "^5.0.0",
     "diff": "^5.1.0",
     "docx": "^9.6.0",

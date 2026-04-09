@@ -11,6 +11,7 @@
  */
 
 import type { Vault } from 'obsidian';
+import { safeRegex } from '../utils/safeRegex';
 
 export class IgnoreService {
     private vault: Vault;
@@ -155,13 +156,14 @@ export class IgnoreService {
             .replace(/§DOUBLESTAR§/g, '.*');
 
         try {
+            // AUDIT-007 M-1: Use safeRegex() to prevent ReDoS from glob patterns
             // Pattern without slash: match basename or full path
             if (!p.includes('/')) {
-                const basenameRegex = new RegExp(`(^|/)${regexStr}($|/)`);
+                const basenameRegex = safeRegex(`(^|/)${regexStr}($|/)`);
                 return basenameRegex.test(path);
             }
             // Pattern with slash: match from root
-            const fullRegex = new RegExp(`^${regexStr}($|/)`);
+            const fullRegex = safeRegex(`^${regexStr}($|/)`);
             return fullRegex.test(path);
         } catch {
             // Invalid regex — fall back to exact match

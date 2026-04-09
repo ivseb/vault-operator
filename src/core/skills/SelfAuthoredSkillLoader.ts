@@ -578,22 +578,28 @@ export class SelfAuthoredSkillLoader {
         }
     }
 
+    /** Escape regex metacharacters in a string (AUDIT-007 M-2). */
+    private escapeForRegex(s: string): string {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     /** Extract a string field value from a JS object literal block. */
     private extractStringField(block: string, field: string): string | undefined {
         // Matches: field: 'value' or field: "value"
-        const match = block.match(new RegExp(`${field}\\s*:\\s*['"]([^'"]*?)['"]`));
+        // AUDIT-007 M-2: Escape field name to prevent ReDoS
+        const match = block.match(new RegExp(`${this.escapeForRegex(field)}\\s*:\\s*['"]([^'"]*?)['"]`));
         return match ? match[1] : undefined;
     }
 
     /** Extract a boolean field value from a JS object literal block. */
     private extractBooleanField(block: string, field: string): boolean | undefined {
-        const match = block.match(new RegExp(`${field}\\s*:\\s*(true|false)`));
+        const match = block.match(new RegExp(`${this.escapeForRegex(field)}\\s*:\\s*(true|false)`));
         return match ? match[1] === 'true' : undefined;
     }
 
     /** Extract a string array field from a JS object literal block. */
     private extractStringArrayField(block: string, field: string): string[] | undefined {
-        const match = block.match(new RegExp(`${field}\\s*:\\s*\\[([^\\]]*)\\]`));
+        const match = block.match(new RegExp(`${this.escapeForRegex(field)}\\s*:\\s*\\[([^\\]]*)\\]`));
         if (!match) return undefined;
         if (!match[1].trim()) return [];
         return match[1].split(',')
@@ -744,7 +750,8 @@ export class SelfAuthoredSkillLoader {
         if (!fmMatch) return;
 
         const fm = fmMatch[1];
-        const regex = new RegExp(`^${key}:.*$`, 'm');
+        // AUDIT-007 M-2: Escape key to prevent ReDoS
+        const regex = new RegExp(`^${this.escapeForRegex(key)}:.*$`, 'm');
         const updated = regex.test(fm)
             ? fm.replace(regex, `${key}: ${value}`)
             : fm + `\n${key}: ${value}`;

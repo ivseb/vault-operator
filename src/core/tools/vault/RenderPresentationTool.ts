@@ -91,6 +91,11 @@ export class RenderPresentationTool extends BaseTool<'render_presentation'> {
         }
 
         const absolutePptxPath = path.join(vaultRoot, filePath);
+        // AUDIT-007 M-3: Path traversal protection — ensure resolved path stays within vault
+        if (!absolutePptxPath.startsWith(vaultRoot + path.sep) && absolutePptxPath !== vaultRoot) {
+            callbacks.pushToolResult(this.formatError(new Error(`Path traversal blocked: ${filePath}`)));
+            return;
+        }
         if (!fs.existsSync(absolutePptxPath)) {
             callbacks.pushToolResult(this.formatError(new Error(`File not found: ${filePath}`)));
             return;
