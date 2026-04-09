@@ -301,24 +301,34 @@ export class VaultHealthService {
             missingByTarget.set(target, existing);
         }
 
-        // Exclude targets that have an embedded Backlinks-Base.
-        // The Base dynamically shows all notes linking to this entity.
+        // Exclude targets that have a Backlinks-Base file.
+        // The Base dynamically shows all notes linking to this entity --
+        // if the Base exists, the backlinks are covered regardless of embed status.
         for (const [target] of missingByTarget) {
             const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
             const baseFileName = `${targetBaseName}-Backlinks.base`;
             const targetDir = target.includes('/') ? target.split('/').slice(0, -1).join('/') : '';
             const basePath = targetDir ? `${targetDir}/${baseFileName}` : baseFileName;
 
-            if (!this.app.vault.getAbstractFileByPath(basePath)) continue;
-
-            const targetFile = this.app.vault.getAbstractFileByPath(target);
-            if (!(targetFile instanceof TFile)) continue;
-            const cache = this.app.metadataCache.getFileCache(targetFile);
-            const hasBaseEmbed = (cache?.embeds ?? []).some(e =>
-                e.link.endsWith('.base') || e.link.includes('-Backlinks'),
-            );
-            if (hasBaseEmbed) {
+            if (this.app.vault.getAbstractFileByPath(basePath)) {
                 missingByTarget.delete(target);
+            }
+        }
+
+        // Only structural entities need backlinks (Thema, Konzept, Person, Projekt).
+        // Content notes (Quelle, Quellen-Notiz, Notiz, Zettel, etc.) are referenced
+        // but don't need to link back -- they are sources, not hubs.
+        const structuralCategories = new Set([
+            'Thema', 'Konzept', 'Person', 'Projekt',
+            'Topic', 'Concept', 'Project',
+        ]);
+        for (const [target] of missingByTarget) {
+            const file = this.app.vault.getAbstractFileByPath(target);
+            if (!(file instanceof TFile)) { missingByTarget.delete(target); continue; }
+            const cache = this.app.metadataCache.getFileCache(file);
+            const category = this.getNoteCategory(cache, 'Kategorie');
+            if (category && !structuralCategories.has(category)) {
+                missingByTarget.delete(target); // Content note -- no backlink needed
             }
         }
 
@@ -439,9 +449,10 @@ export class VaultHealthService {
             'Concept': 'Concepts',
         };
 
-        // Find all edges where the target note has a Kategorie and the property_name doesn't match
-        // We need to join edges with frontmatter data. Since we can't query frontmatter from SQL,
-        // we iterate over all edges and check the target's category via metadataCache.
+        // Only check edges where the property_name is a category-specific property
+        // (Themen, Konzepte). Other properties (Notizen, Quellen, Personen etc.) are
+        // free collections where any note can appear regardless of its category.
+        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
         const result = db.exec(
             `SELECT DISTINCT target_path, property_name, source_path
              FROM edges
@@ -473,8 +484,12 @@ export class VaultHealthService {
             const expectedProperty = strictCategoryToProperty[category];
             if (!expectedProperty) continue; // Not a strict category (Notiz, Person etc.) — skip
 
-            // Find edges where the property doesn't match the expected one
-            const mismatched = edges.filter(e => e.property !== expectedProperty);
+            // Find edges where a category-specific property doesn't match.
+            // Only Themen/Konzepte properties are checked -- Notizen, Quellen, Personen
+            // are free collections where any note can appear regardless of category.
+            const mismatched = edges.filter(e =>
+                categoryProperties.has(e.property) && e.property !== expectedProperty,
+            );
             if (mismatched.length === 0) continue;
 
             // Group by wrong property
@@ -730,6 +745,103 @@ export class VaultHealthService {
 
         console.debug(`[VaultHealth] cleanupInvalidBacklinks: ${notesProcessed} notes, ${linksRemoved} links removed`);
         return { notesProcessed, linksRemoved };
+    }
+
+    /**
+     * Fix category mismatches: move values from wrong property to correct one.
+     * E.g., if "Agentic AI" has Kategorie "Thema" but a note has it in
+     * Konzepte: [[Agentic AI]], move it to Themen: [[Agentic AI]].
+     */
+    async fixCategoryMismatches(): Promise<{ notesFixed: number; valuesMovied: number }> {
+        const db = this.getDB();
+        let notesFixed = 0;
+        let valuesMovied = 0;
+
+        const strictMapping: Record<string, string> = {
+            'Thema': 'Themen', 'Konzept': 'Konzepte',
+            'Topic': 'Topics', 'Concept': 'Concepts',
+        };
+        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
+
+        const result = db.exec(
+            `SELECT DISTINCT target_path, property_name, source_path
+             FROM edges
+             WHERE link_type = 'frontmatter'
+               AND property_name IN ('Themen', 'Konzepte', 'Topics', 'Concepts')
+             ORDER BY source_path`,
+        );
+        if (result.length === 0 || result[0].values.length === 0) {
+            return { notesFixed: 0, valuesMovied: 0 };
+        }
+
+        // Group by source note -- each source may need multiple property moves
+        const fixesBySource = new Map<string, { targetName: string; wrongProp: string; rightProp: string }[]>();
+
+        for (const row of result[0].values) {
+            const targetPath = row[0] as string;
+            const prop = row[1] as string;
+            const sourcePath = row[2] as string;
+
+            const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
+            if (!(targetFile instanceof TFile)) continue;
+            const cache = this.app.metadataCache.getFileCache(targetFile);
+            const category = this.getNoteCategory(cache, 'Kategorie');
+            if (!category) continue;
+
+            const expectedProp = strictMapping[category];
+            if (!expectedProp || !categoryProperties.has(prop)) continue;
+            if (prop === expectedProp) continue; // Correct -- no fix needed
+
+            const targetName = targetPath.replace(/\.md$/, '').split('/').pop() ?? '';
+            const fixes = fixesBySource.get(sourcePath) ?? [];
+            fixes.push({ targetName, wrongProp: prop, rightProp: expectedProp });
+            fixesBySource.set(sourcePath, fixes);
+        }
+
+        // Apply fixes
+        for (const [sourcePath, fixes] of fixesBySource) {
+            if (this.cancelled) break;
+            const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+            if (!(sourceFile instanceof TFile)) continue;
+
+            try {
+                await this.app.fileManager.processFrontMatter(sourceFile, (fm: Record<string, unknown>) => {
+                    for (const { targetName, wrongProp, rightProp } of fixes) {
+                        const wikilink = `[[${targetName}]]`;
+
+                        // Remove from wrong property
+                        const wrongArr = Array.isArray(fm[wrongProp]) ? (fm[wrongProp] as string[]) : [];
+                        const filtered = wrongArr.filter(v => {
+                            const cleaned = v.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+                            return cleaned !== targetName && !cleaned.endsWith(`/${targetName}`);
+                        });
+                        fm[wrongProp] = filtered.length > 0 ? filtered : null;
+
+                        // Add to correct property
+                        const rightArr = Array.isArray(fm[rightProp]) ? (fm[rightProp] as string[]) : [];
+                        const alreadyThere = rightArr.some(v => {
+                            const cleaned = v.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+                            return cleaned === targetName || cleaned.endsWith(`/${targetName}`);
+                        });
+                        if (!alreadyThere) {
+                            rightArr.push(wikilink);
+                            fm[rightProp] = rightArr;
+                        }
+                        valuesMovied++;
+                    }
+                });
+                notesFixed++;
+
+                if (notesFixed % 10 === 0) {
+                    await new Promise<void>(r => setTimeout(r, 0));
+                }
+            } catch (e) {
+                console.warn(`[VaultHealth] Failed to fix category mismatch in ${sourcePath}:`, e);
+            }
+        }
+
+        console.debug(`[VaultHealth] fixCategoryMismatches: ${notesFixed} notes, ${valuesMovied} values moved`);
+        return { notesFixed, valuesMovied: valuesMovied };
     }
 
     /** Get the Kategorie value from a note's frontmatter cache. */

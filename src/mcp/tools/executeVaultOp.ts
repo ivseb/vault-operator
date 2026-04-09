@@ -75,9 +75,12 @@ export async function handleExecuteVaultOp(
         };
     }
 
-    const result = resultParts.join('\n') || `Operation "${operation}" completed.`;
+    const result = resultParts.join('\n') || `Operation "${operation}" completed (no output).`;
     if (logParts.length > 0) {
         console.debug(`[MCP:execute_vault_op] ${operation}: ${logParts.join('; ')}`);
+    }
+    if (resultParts.length === 0) {
+        console.warn(`[MCP:execute_vault_op] ${operation}: pushToolResult was never called -- tool may have silently failed`);
     }
 
     return {

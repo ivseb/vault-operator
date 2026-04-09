@@ -32,8 +32,8 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 properties: {
                     action: {
                         type: 'string',
-                        enum: ['check', 'fix_backlinks', 'cleanup', 'refresh'],
-                        description: 'Action to perform. "check" (default): run health checks. "fix_backlinks": fix missing backlinks (Bases for Thema/Konzept, frontmatter for others). "cleanup": remove invalid/broken backlinks from frontmatter + clear Notizen for Thema/Konzept (Bases handle those). "refresh": re-extract graph + ontology before checking.',
+                        enum: ['check', 'fix_backlinks', 'cleanup', 'fix_categories', 'refresh'],
+                        description: 'Action to perform. "check" (default): run health checks. "fix_backlinks": fix missing backlinks. "cleanup": remove invalid backlinks. "fix_categories": move values from wrong property to correct (e.g. Thema in Konzepte → Themen). "refresh": re-extract graph + ontology before checking.',
                     },
                 },
             },
@@ -103,6 +103,21 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     `All changes are reversible via Undo.`,
                 );
                 callbacks.log(`cleanup: ${result.notesProcessed} notes, ${result.linksRemoved} removed`);
+
+            } else if (action === 'fix_categories') {
+                try {
+                    const result = await healthService.fixCategoryMismatches();
+                    callbacks.pushToolResult(
+                        `Category mismatches fixed: ${result.notesFixed} notes updated, ${result.valuesMovied} values moved.\n` +
+                        `Thema/Konzept values moved to correct property.\n` +
+                        `All changes are reversible via Undo.`,
+                    );
+                    callbacks.log(`fix_categories: ${result.notesFixed} notes, ${result.valuesMovied} moved`);
+                } catch (catErr) {
+                    const msg = catErr instanceof Error ? catErr.message : String(catErr);
+                    callbacks.pushToolResult(`fix_categories failed: ${msg}`);
+                    console.warn('[VaultHealthCheck] fix_categories error:', catErr);
+                }
             }
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
