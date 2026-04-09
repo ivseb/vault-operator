@@ -917,6 +917,55 @@ export class VaultHealthService {
         await this.app.vault.modify(file, content + separator + `## Verlinkte Notizen\n\n${embedLinkSimple}\n`);
     }
 
+    /**
+     * Remove edges from/to notes that no longer exist in the vault.
+     * This cleans up ghost edges from deleted/trashed notes.
+     * Must run inside Obsidian (not external sqlite3) because the DB is in-memory.
+     */
+    cleanupOrphanedEdges(): { edgesRemoved: number } {
+        const db = this.getDB();
+
+        // Get all paths that have vectors (= exist in vault)
+        const vectorPaths = new Set<string>();
+        const vResult = db.exec('SELECT DISTINCT path FROM vectors WHERE chunk_index = 0');
+        if (vResult.length > 0) {
+            for (const row of vResult[0].values) {
+                vectorPaths.add(row[0] as string);
+            }
+        }
+
+        // Find and delete edges where source or target is not in vectors
+        const edgeResult = db.exec('SELECT DISTINCT source_path FROM edges UNION SELECT DISTINCT target_path FROM edges');
+        if (edgeResult.length === 0) return { edgesRemoved: 0 };
+
+        const orphanedPaths = new Set<string>();
+        for (const row of edgeResult[0].values) {
+            const path = row[0] as string;
+            if (!vectorPaths.has(path)) {
+                orphanedPaths.add(path);
+            }
+        }
+
+        let edgesRemoved = 0;
+        for (const path of orphanedPaths) {
+            const r1 = db.exec('SELECT COUNT(*) FROM edges WHERE source_path = ?', [path]);
+            const r2 = db.exec('SELECT COUNT(*) FROM edges WHERE target_path = ?', [path]);
+            const count = ((r1[0]?.values[0]?.[0] as number) ?? 0) + ((r2[0]?.values[0]?.[0] as number) ?? 0);
+            if (count > 0) {
+                db.run('DELETE FROM edges WHERE source_path = ?', [path]);
+                db.run('DELETE FROM edges WHERE target_path = ?', [path]);
+                edgesRemoved += count;
+            }
+        }
+
+        if (edgesRemoved > 0) {
+            this.knowledgeDB.markDirty();
+            console.debug(`[VaultHealth] cleanupOrphanedEdges: ${edgesRemoved} edges from ${orphanedPaths.size} orphaned paths`);
+        }
+
+        return { edgesRemoved };
+    }
+
     // -----------------------------------------------------------------------
     // Private helpers
     // -----------------------------------------------------------------------

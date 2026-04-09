@@ -32,7 +32,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 properties: {
                     action: {
                         type: 'string',
-                        enum: ['check', 'fix_backlinks', 'cleanup', 'fix_categories', 'refresh'],
+                        enum: ['check', 'fix_backlinks', 'cleanup', 'fix_categories', 'cleanup_edges', 'refresh'],
                         description: 'Action to perform. "check" (default): run health checks. "fix_backlinks": fix missing backlinks. "cleanup": remove invalid backlinks. "fix_categories": move values from wrong property to correct (e.g. Thema in Konzepte → Themen). "refresh": re-extract graph + ontology before checking.',
                     },
                 },
@@ -118,6 +118,14 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     callbacks.pushToolResult(`fix_categories failed: ${msg}`);
                     console.warn('[VaultHealthCheck] fix_categories error:', catErr);
                 }
+
+            } else if (action === 'cleanup_edges') {
+                const result = healthService.cleanupOrphanedEdges();
+                callbacks.pushToolResult(
+                    `Orphaned edges cleaned: ${result.edgesRemoved} edges removed from deleted/trashed notes.\n` +
+                    `Run vault_health_check with action "check" to verify.`,
+                );
+                callbacks.log(`cleanup_edges: ${result.edgesRemoved} removed`);
             }
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
