@@ -22,7 +22,8 @@ export type HealthCheckType =
     | 'missing_backlinks'
     | 'broken_links'
     | 'weak_clusters'
-    | 'inconsistent_tags';
+    | 'inconsistent_tags'
+    | 'category_mismatch';
 
 export interface HealthFinding {
     check: HealthCheckType;
@@ -64,7 +65,7 @@ export class VaultHealthService {
 
         try {
             const db = this.getDB();
-            const checksToRun = checks ?? ['orphans', 'missing_backlinks', 'broken_links', 'weak_clusters', 'inconsistent_tags'];
+            const checksToRun = checks ?? ['orphans', 'missing_backlinks', 'broken_links', 'weak_clusters', 'inconsistent_tags', 'category_mismatch'];
 
             for (const check of checksToRun) {
                 if (this.cancelled) break;
@@ -74,6 +75,7 @@ export class VaultHealthService {
                     case 'broken_links': this.checkBrokenLinks(db); break;
                     case 'weak_clusters': this.checkWeakClusters(db); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
+                    case 'category_mismatch': this.checkCategoryMismatch(db); break;
                 }
                 // Yield to UI thread between checks
                 await new Promise<void>(r => setTimeout(r, 0));
@@ -167,6 +169,9 @@ export class VaultHealthService {
                 case 'inconsistent_tags':
                     lines.push(`- Inconsistent Tags [${severity}]: ${checkFindings.length} spelling variants`);
                     break;
+                case 'category_mismatch':
+                    lines.push(`- Category Mismatch [${severity}]: ${checkFindings.length} notes referenced in wrong property`);
+                    break;
             }
         }
 
@@ -255,7 +260,7 @@ export class VaultHealthService {
             });
             this.findings.push({
                 check: 'orphans',
-                severity: 'high',
+                severity: 'medium',
                 paths: withContext,
                 description: `${withContext.length} note(s) link to existing entities but are not linked back. These notes BELONG to existing clusters -- add backlinks from the target entities, do NOT create new entities.\n\nExamples:\n${details.join('\n')}`,
             });
@@ -282,11 +287,11 @@ export class VaultHealthService {
                      AND e2.target_path = e1.source_path
                      AND e2.link_type = 'frontmatter'
                )
-             LIMIT 50`,
+             LIMIT 200`,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
-        // Group by target (the note that is missing the backlink)
+        // Group by target
         const missingByTarget = new Map<string, string[]>();
         for (const row of result[0].values) {
             const source = row[0] as string;
@@ -294,6 +299,27 @@ export class VaultHealthService {
             const existing = missingByTarget.get(target) ?? [];
             existing.push(source);
             missingByTarget.set(target, existing);
+        }
+
+        // Exclude targets that have an embedded Backlinks-Base.
+        // The Base dynamically shows all notes linking to this entity.
+        for (const [target] of missingByTarget) {
+            const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
+            const baseFileName = `${targetBaseName}-Backlinks.base`;
+            const targetDir = target.includes('/') ? target.split('/').slice(0, -1).join('/') : '';
+            const basePath = targetDir ? `${targetDir}/${baseFileName}` : baseFileName;
+
+            if (!this.app.vault.getAbstractFileByPath(basePath)) continue;
+
+            const targetFile = this.app.vault.getAbstractFileByPath(target);
+            if (!(targetFile instanceof TFile)) continue;
+            const cache = this.app.metadataCache.getFileCache(targetFile);
+            const hasBaseEmbed = (cache?.embeds ?? []).some(e =>
+                e.link.endsWith('.base') || e.link.includes('-Backlinks'),
+            );
+            if (hasBaseEmbed) {
+                missingByTarget.delete(target);
+            }
         }
 
         for (const [target, sources] of missingByTarget) {
@@ -336,7 +362,7 @@ export class VaultHealthService {
         for (const [target, sources] of byTarget) {
             this.findings.push({
                 check: 'broken_links',
-                severity: 'high',
+                severity: 'medium',
                 paths: [target, ...sources],
                 description: `[[${target}]] is referenced from ${sources.length} note(s) but does not exist in the vault`,
             });
@@ -394,6 +420,79 @@ export class VaultHealthService {
                 paths: [],
                 description: `Tags "#${tag1}" and "#${tag2}" differ only in capitalization -- consider unifying`,
             });
+        }
+    }
+
+    /**
+     * Check for category mismatches: a note with Kategorie "Thema" should only
+     * appear in the "Themen" property of other notes, not in "Konzepte" etc.
+     */
+    private checkCategoryMismatch(db: SqlJsDatabase): void {
+        // Map: Kategorie → the property name where it SHOULD be referenced.
+        // Only structural entities (Thema, Konzept) have strict mappings.
+        // Content notes (Notiz, Zettel, Quelle, Meeting-Notiz, Person, Projekt)
+        // can be referenced in any property -- no mismatch possible.
+        const strictCategoryToProperty: Record<string, string> = {
+            'Thema': 'Themen',
+            'Konzept': 'Konzepte',
+            'Topic': 'Topics',
+            'Concept': 'Concepts',
+        };
+
+        // Find all edges where the target note has a Kategorie and the property_name doesn't match
+        // We need to join edges with frontmatter data. Since we can't query frontmatter from SQL,
+        // we iterate over all edges and check the target's category via metadataCache.
+        const result = db.exec(
+            `SELECT DISTINCT target_path, property_name, source_path
+             FROM edges
+             WHERE link_type = 'frontmatter'
+               AND property_name IS NOT NULL
+             ORDER BY target_path`,
+        );
+        if (result.length === 0 || result[0].values.length === 0) return;
+
+        // Group by target
+        const edgesByTarget = new Map<string, { property: string; source: string }[]>();
+        for (const row of result[0].values) {
+            const target = row[0] as string;
+            const prop = row[1] as string;
+            const source = row[2] as string;
+            const list = edgesByTarget.get(target) ?? [];
+            list.push({ property: prop, source });
+            edgesByTarget.set(target, list);
+        }
+
+        // Check each target's category against the property it's referenced in
+        for (const [targetPath, edges] of edgesByTarget) {
+            const file = this.app.vault.getAbstractFileByPath(targetPath);
+            if (!(file instanceof TFile)) continue;
+            const cache = this.app.metadataCache.getFileCache(file);
+            const category = this.getNoteCategory(cache, 'Kategorie');
+            if (!category) continue;
+
+            const expectedProperty = strictCategoryToProperty[category];
+            if (!expectedProperty) continue; // Not a strict category (Notiz, Person etc.) — skip
+
+            // Find edges where the property doesn't match the expected one
+            const mismatched = edges.filter(e => e.property !== expectedProperty);
+            if (mismatched.length === 0) continue;
+
+            // Group by wrong property
+            const byProp = new Map<string, string[]>();
+            for (const m of mismatched) {
+                const list = byProp.get(m.property) ?? [];
+                list.push(m.source);
+                byProp.set(m.property, list);
+            }
+
+            for (const [wrongProp, sources] of byProp) {
+                this.findings.push({
+                    check: 'category_mismatch',
+                    severity: 'medium',
+                    paths: [targetPath, ...sources.slice(0, 5)],
+                    description: `[[${targetPath}]] has Kategorie "${category}" but is referenced via "${wrongProp}" (should be "${expectedProperty}") in ${sources.length} note(s)`,
+                });
+            }
         }
     }
 

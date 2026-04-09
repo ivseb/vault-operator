@@ -448,9 +448,12 @@ export default class ObsidianAgentPlugin extends Plugin {
                         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
                         if (leaves.length > 0 && this.vaultHealthService) {
                             const view = leaves[0].view as AgentSidebarView;
+                            // Badge shows only high-severity findings (actionable items)
+                            const highCount = this.vaultHealthService.getFindings()
+                                .filter(f => f.severity === 'high').length;
                             view.updateHealthBadge(
-                                this.vaultHealthService.getFindingCount(),
-                                this.vaultHealthService.getMaxSeverity(),
+                                highCount,
+                                highCount > 0 ? 'high' : this.vaultHealthService.getMaxSeverity(),
                             );
                         }
                     });
