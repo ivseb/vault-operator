@@ -225,7 +225,7 @@ export class AgentSidebarView extends ItemView {
             cls: 'header-button',
             attr: { 'aria-label': t('ui.sidebar.newChat') },
         });
-        setIcon(newChatBtn.createSpan('toolbar-icon'), 'plus');
+        setIcon(newChatBtn.createSpan('toolbar-icon'), 'message-square-plus');
         newChatBtn.addEventListener('click', () => this.clearConversation());
     }
 
