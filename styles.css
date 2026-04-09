@@ -57,6 +57,75 @@
 .health-badge:hover {
     opacity: 0.85;
 }
+
+/* Vault Health Repair Modal (FEATURE-1901) */
+.vault-health-modal {
+    max-width: 500px;
+}
+.vault-health-findings-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+}
+.vault-health-findings-list li {
+    padding: 4px 0;
+    font-size: 13px;
+}
+.vault-health-severity {
+    display: inline-block;
+    min-width: 54px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-right: 6px;
+}
+.vault-health-severity.severity-high {
+    background: var(--color-red);
+    color: var(--text-on-accent);
+}
+.vault-health-severity.severity-medium {
+    background: var(--color-orange);
+    color: var(--text-on-accent);
+}
+.vault-health-severity.severity-low {
+    background: var(--text-faint);
+    color: var(--background-primary);
+}
+.vault-health-repairable {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+.vault-health-btn-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    justify-content: flex-end;
+}
+.vault-health-progress {
+    color: var(--text-muted);
+    font-style: italic;
+}
+.vault-health-results {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0;
+}
+.vault-health-results li {
+    padding: 3px 0;
+    font-size: 13px;
+}
+.vault-health-remaining {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+.vault-health-error {
+    color: var(--color-red);
+    font-size: 12px;
+}
 .health-badge.severity-high {
     background: var(--color-red);
     color: var(--text-on-accent);

@@ -188,7 +188,11 @@ export class AgentSidebarView extends ItemView {
         this.healthBadge = titleRow.createDiv('health-badge');
         this.healthBadge.classList.add('agent-u-hidden');
         this.healthBadge.addEventListener('click', () => {
-            void this.sendHealthFindings();
+            const findings = this.plugin.vaultHealthService?.getFindings() ?? [];
+            if (findings.length === 0) return;
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
+            const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
+            new VaultHealthRepairModal(this.plugin, findings).open();
         });
 
         const headerRight = header.createDiv('agent-header-right');
