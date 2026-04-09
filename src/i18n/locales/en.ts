@@ -168,6 +168,12 @@ export const en: Translations = {
     'settings.embeddings.mocProperties': 'Map-of-content property names',
     'settings.embeddings.mocPropertiesDesc': 'Properties to extract as graph edges (comma-separated). Example: topics, concepts, people.',
     'settings.embeddings.mocPropertiesPlaceholder': 'Topics, concepts, people',
+    'settings.embeddings.categoryProperty': 'Category property name',
+    'settings.embeddings.categoryPropertyDesc': 'Frontmatter property that defines the note type (e.g. Kategorie, Category).',
+    'settings.embeddings.summaryProperty': 'Summary property name',
+    'settings.embeddings.summaryPropertyDesc': 'Frontmatter property for the short summary (e.g. Zusammenfassung, Summary).',
+    'settings.embeddings.sourceNaming': 'Source naming convention',
+    'settings.embeddings.sourceNamingDesc': 'Naming convention for source files (e.g. Author-Year_Title).',
     'settings.embeddings.graphStats': 'Graph: {{edges}} edges, {{tags}} unique tags extracted',
     'settings.embeddings.graphNotInit': 'Graph: not initialized (enable semantic index first)',
     // Implicit connections (FEATURE-1503)

@@ -546,6 +546,14 @@ export interface ObsidianAgentSettings {
     /** Show implicit connection suggestions in the sidebar. */
     enableSuggestionBanner: boolean;
 
+    // Knowledge Maintenance (FEATURE-1903)
+    /** Frontmatter property name that defines the note category (e.g. "Kategorie"). */
+    categoryProperty: string;
+    /** Frontmatter property name for the short summary (e.g. "Zusammenfassung"). */
+    summaryProperty: string;
+    /** Naming convention for source files (e.g. "Autor-Jahr_Titel"). */
+    sourceNamingConvention: string;
+
     // Vault Health Check (FEATURE-1901)
     /** Enable automatic vault health check on startup (orphaned notes, missing links, inconsistencies). */
     enableVaultHealthCheck: boolean;
@@ -834,6 +842,9 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableImplicitConnections: true,
     implicitThreshold: 0.7,
     enableSuggestionBanner: true,
+    categoryProperty: 'Kategorie',
+    summaryProperty: 'Zusammenfassung',
+    sourceNamingConvention: 'Autor-Jahr_Titel',
     enableVaultHealthCheck: true,
     enableReranking: true,
     rerankCandidates: 20,

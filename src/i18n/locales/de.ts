@@ -168,6 +168,12 @@ export const de: Translations = {
     'settings.embeddings.mocProperties': 'MOC-Property-Namen',
     'settings.embeddings.mocPropertiesDesc': 'Frontmatter-Properties als Graph-Kanten extrahieren (kommagetrennt). Z.B. Themen, Konzepte, Personen.',
     'settings.embeddings.mocPropertiesPlaceholder': 'Themen, Konzepte, Personen',
+    'settings.embeddings.categoryProperty': 'Kategorie-Property',
+    'settings.embeddings.categoryPropertyDesc': 'Frontmatter-Property fuer den Notiz-Typ (z.B. Kategorie, Category).',
+    'settings.embeddings.summaryProperty': 'Zusammenfassungs-Property',
+    'settings.embeddings.summaryPropertyDesc': 'Frontmatter-Property fuer die Kurzzusammenfassung (z.B. Zusammenfassung, Summary).',
+    'settings.embeddings.sourceNaming': 'Quellen-Namenskonvention',
+    'settings.embeddings.sourceNamingDesc': 'Namenskonvention fuer Quellen-Dateien (z.B. Autor-Jahr_Titel).',
     'settings.embeddings.graphStats': 'Graph: {{edges}} Kanten, {{tags}} einzigartige Tags extrahiert',
     'settings.embeddings.graphNotInit': 'Graph: nicht initialisiert (zuerst Semantischen Index aktivieren)',
     // Implicit connections (FEATURE-1503)
