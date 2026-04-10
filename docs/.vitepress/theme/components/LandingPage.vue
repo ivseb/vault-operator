@@ -173,9 +173,9 @@ onMounted(() => {
 
 <template>
   <section class="landing-hero">
-    <a href="/releases/v2.3" class="landing-badge">
-      <span class="landing-badge-version">v2.3.6</span>
-      <span>Community plugin prep & improvements</span>
+    <a href="/releases/v2.4" class="landing-badge">
+      <span class="landing-badge-version">v2.4.1</span>
+      <span>Knowledge ingestion, maintenance & resilience</span>
     </a>
 
     <h1 class="landing-title">Your Obsidian vault,<br>with a real AI Agent.</h1>
