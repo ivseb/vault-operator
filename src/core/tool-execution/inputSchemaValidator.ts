@@ -45,16 +45,19 @@ export function validateToolInput(
     }
 
     // 2. Coerce numeric strings to numbers (LLMs sometimes pass "0" instead of 0)
+    // Only accept simple decimal notation (no scientific notation like "1e100").
     for (const [field, value] of Object.entries(input)) {
         const propSchema = schema.properties?.[field] as PropertySchema | undefined;
         if (!propSchema?.type || value === undefined || value === null) continue;
         if (
             (propSchema.type === 'number' || propSchema.type === 'integer') &&
             typeof value === 'string' &&
-            value.trim() !== '' &&
-            !isNaN(Number(value))
+            /^-?\d+(\.\d+)?$/.test(value.trim())
         ) {
-            input[field] = Number(value);
+            const num = Number(value);
+            if (Number.isFinite(num)) {
+                input[field] = num;
+            }
         }
     }
 

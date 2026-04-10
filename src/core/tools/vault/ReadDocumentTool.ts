@@ -61,19 +61,19 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
                             'Use this for vault files. Either path or attachment_index is required.',
                     },
                     attachment_index: {
-                        type: 'number',
+                        type: 'integer',
                         description:
                             'Index of the chat attachment (0-based). Use this when the document was added ' +
                             'via drag & drop or file picker, not from the vault.',
                     },
                     start_page: {
-                        type: 'number',
+                        type: 'integer',
                         description:
                             'First page to return (1-based, inclusive). Only works with documents that have ' +
                             '"## Page N" headings (typically PDFs). Omit to start from the beginning.',
                     },
                     end_page: {
-                        type: 'number',
+                        type: 'integer',
                         description:
                             'Last page to return (1-based, inclusive). Omit to read to the end.',
                     },

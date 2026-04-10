@@ -74,7 +74,7 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
                         description: 'Path to the source document in the vault (e.g. "Attachements/report.pdf"). Use this for vault files.',
                     },
                     attachment_index: {
-                        type: 'number',
+                        type: 'integer',
                         description: 'Index of the chat attachment (0-based). Use this when the document was added via drag & drop or file picker, not from the vault.',
                     },
                 },
@@ -103,16 +103,10 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
                     // Parse from vault file
                     documentText = await this.parseVaultDocument(source_path);
                 } catch (parseErr) {
-                    // Fallback: if vault parsing fails (e.g. file too large) but attachment text is available, use that
-                    if (this.attachmentTexts.length > 0) {
-                        const fallbackIndex = attachment_index !== undefined && attachment_index >= 0
-                            ? attachment_index : 0;
-                        if (fallbackIndex < this.attachmentTexts.length) {
-                            documentText = this.attachmentTexts[fallbackIndex];
-                            callbacks.log(`Vault parse failed (${parseErr instanceof Error ? parseErr.message : String(parseErr)}), using attachment text as fallback.`);
-                        } else {
-                            throw parseErr;
-                        }
+                    // Fallback: if vault parsing fails but a specific attachment_index was provided, use that
+                    if (attachment_index !== undefined && attachment_index >= 0 && attachment_index < this.attachmentTexts.length) {
+                        documentText = this.attachmentTexts[attachment_index];
+                        callbacks.log(`Vault parse failed (${parseErr instanceof Error ? parseErr.message : String(parseErr)}), using attachment[${attachment_index}] as fallback.`);
                     } else {
                         throw parseErr;
                     }
@@ -186,8 +180,12 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
         }
 
         const ext = file.extension.toLowerCase();
-        // No MAX_FILE_SIZE check here — ingest_document writes to disk, not to LLM context.
-        // Large files (e.g. 60+ MB PDFs) are the primary use case for this tool.
+        // Higher limit than context tools — ingest writes to disk, not to LLM context.
+        // 500 MB cap to prevent OOM from loading entire file into memory.
+        const INGEST_MAX_SIZE = 500 * 1024 * 1024;
+        if (file.stat.size > INGEST_MAX_SIZE) {
+            throw new Error(`Document too large for ingest: ${(file.stat.size / 1024 / 1024).toFixed(1)} MB (limit: 500 MB)`);
+        }
 
         let data: ArrayBuffer;
         if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
