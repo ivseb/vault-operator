@@ -164,7 +164,7 @@ export class KiloGatewayProvider implements ApiHandler {
                 for (const [, acc] of toolCallAccumulators) {
                     let input: Record<string, unknown> = {};
                     try {
-                        input = JSON.parse(acc.argumentsJson);
+                        input = acc.argumentsJson.trim() ? JSON.parse(acc.argumentsJson) : {};
                     } catch (e) {
                         yield {
                             type: 'text',

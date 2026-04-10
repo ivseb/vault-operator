@@ -23,11 +23,13 @@ import { AppendToFileTool } from './vault/AppendToFileTool';
 import { CreateFolderTool } from './vault/CreateFolderTool';
 import { DeleteFileTool } from './vault/DeleteFileTool';
 import { MoveFileTool } from './vault/MoveFileTool';
+import { IngestDocumentTool } from './vault/IngestDocumentTool';
 // Import tools — vault: intelligence (Phase 1.2)
 import { GetFrontmatterTool } from './vault/GetFrontmatterTool';
 import { UpdateFrontmatterTool } from './vault/UpdateFrontmatterTool';
 import { SearchByTagTool } from './vault/SearchByTagTool';
 import { GetVaultStatsTool } from './vault/GetVaultStatsTool';
+import { VaultHealthCheckTool } from './vault/VaultHealthCheckTool';
 import { GetLinkedNotesTool } from './vault/GetLinkedNotesTool';
 import { OpenNoteTool } from './vault/OpenNoteTool';
 import { GetDailyNoteTool } from './vault/GetDailyNoteTool';
@@ -138,6 +140,7 @@ export class ToolRegistry {
         this.register(new WriteFileTool(this.plugin));
         this.register(new EditFileTool(this.plugin));
         this.register(new AppendToFileTool(this.plugin));
+        this.register(new IngestDocumentTool(this.plugin));
         this.register(new CreateFolderTool(this.plugin));
         this.register(new DeleteFileTool(this.plugin));
         this.register(new MoveFileTool(this.plugin));
@@ -146,6 +149,7 @@ export class ToolRegistry {
         this.register(new UpdateFrontmatterTool(this.plugin));
         this.register(new SearchByTagTool(this.plugin));
         this.register(new GetVaultStatsTool(this.plugin));
+        this.register(new VaultHealthCheckTool(this.plugin));
         this.register(new GetLinkedNotesTool(this.plugin));
         this.register(new OpenNoteTool(this.plugin));
         this.register(new GetDailyNoteTool(this.plugin));

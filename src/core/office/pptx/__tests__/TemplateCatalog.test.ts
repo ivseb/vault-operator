@@ -193,7 +193,7 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
                 slide_types: [makeSlideType({ shapes: [makeShape({ name: 'Body', max_chars: 250 })] })],
             });
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
-            expect(result).toContain('(max 250 Zeichen)');
+            expect(result).toContain('(max 250 chars)');
         });
 
         it('omits max_chars suffix when not set', () => {
@@ -249,10 +249,9 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
         it('contains usage instructions', () => {
             const catalog = makeCatalog();
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
-            expect(result).toContain('source_slide: N');
-            expect(result).toContain('ShapeName');
+            expect(result).toContain('"source_slide"');
             expect(result).toContain('REQUIRED');
-            expect(result).toContain('Familie');
+            expect(result).toContain('Verwendung');
         });
     });
 

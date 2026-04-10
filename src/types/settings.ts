@@ -546,6 +546,22 @@ export interface ObsidianAgentSettings {
     /** Show implicit connection suggestions in the sidebar. */
     enableSuggestionBanner: boolean;
 
+    // Knowledge Maintenance (FEATURE-1903)
+    /** Frontmatter property name that defines the note category (e.g. "Kategorie"). */
+    categoryProperty: string;
+    /** Frontmatter property name for the short summary (e.g. "Zusammenfassung"). */
+    summaryProperty: string;
+    /** Naming convention for source files (e.g. "Autor-Jahr_Titel"). */
+    sourceNamingConvention: string;
+
+    // Synthese → Zettel (FEATURE-1904)
+    /** Show "Synthese → Zettel" button on agent messages to save responses as Zettel notes. */
+    enableSynthesisButton: boolean;
+
+    // Vault Health Check (FEATURE-1901)
+    /** Enable automatic vault health check on startup (orphaned notes, missing links, inconsistencies). */
+    enableVaultHealthCheck: boolean;
+
     // Local Reranking (FEATURE-1504)
     /** Enable local cross-encoder reranking of search results (requires ~23MB model download). */
     enableReranking: boolean;
@@ -830,6 +846,11 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableImplicitConnections: true,
     implicitThreshold: 0.7,
     enableSuggestionBanner: true,
+    categoryProperty: 'Kategorie',
+    summaryProperty: 'Zusammenfassung',
+    sourceNamingConvention: 'Autor-Jahr_Titel',
+    enableSynthesisButton: true,
+    enableVaultHealthCheck: true,
     enableReranking: true,
     rerankCandidates: 20,
     enableMcpServer: false,

@@ -160,8 +160,9 @@ export class McpTab {
                             const deployer = new CloudflareDeployer(apiToken);
 
                             // Reuse existing token if available, otherwise generate new one
+                            // AUDIT-007 L-1: Use relay_ prefix instead of sk- to avoid confusion with API keys
                             const relayToken = this.plugin.settings.relayToken
-                                || ('sk-' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+                                || ('relay_' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
                                     .map(b => b.toString(16).padStart(2, '0')).join(''));
 
                             const result = await deployer.deploy(relayToken, (step) => {
@@ -448,8 +449,11 @@ export class McpTab {
         const which = process.platform === 'win32' ? 'where' : 'which';
         const candidates: string[] = [];
         try {
-            const result = cp.execSync(`${which} node`, { encoding: 'utf-8', timeout: 3000 }).trim();
-            candidates.push(result.split('\n')[0].trim()); // 'where' on Windows may return multiple lines
+            // AUDIT-007 M-5: Use spawnSync with args array instead of execSync shell string
+            const result = cp.spawnSync(which, ['node'], { encoding: 'utf-8', timeout: 3000, shell: false });
+            if (result.status === 0 && result.stdout) {
+                candidates.push(result.stdout.trim().split('\n')[0].trim());
+            }
         } catch { /* fallback */ }
         if (process.platform === 'win32') {
             candidates.push('C:\\Program Files\\nodejs\\node.exe');
@@ -461,7 +465,9 @@ export class McpTab {
             if (!c || !fs.existsSync(c)) continue;
             // M-6: Validate the binary is actually Node.js
             try {
-                const version = cp.execSync(`"${c}" --version`, { encoding: 'utf-8', timeout: 3000 }).trim();
+                // AUDIT-007 M-5: Use spawnSync instead of execSync
+                const versionResult = cp.spawnSync(c, ['--version'], { encoding: 'utf-8', timeout: 3000, shell: false });
+                const version = versionResult.stdout?.trim() ?? '';
                 if (version.startsWith('v')) return c;
             } catch { /* not a valid node binary */ }
         }

@@ -19,6 +19,8 @@ import { SemanticIndexService } from './core/semantic/SemanticIndexService';
 import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
+import { OntologyStore } from './core/knowledge/OntologyStore';
+import { VaultHealthService } from './core/knowledge/VaultHealthService';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
 import { MemoryDB } from './core/knowledge/MemoryDB';
@@ -89,6 +91,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     graphStore: GraphStore | null = null;
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
+    ontologyStore: OntologyStore | null = null;
+    vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
     mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
@@ -365,6 +369,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
             this.vectorStore = new VectorStore(this.knowledgeDB);
             this.graphStore = new GraphStore(this.knowledgeDB);
+            this.ontologyStore = new OntologyStore(this.knowledgeDB);
             this.semanticIndex = new SemanticIndexService(this.app.vault, this.knowledgeDB, this.vectorStore, {
                 batchSize: this.settings.semanticBatchSize,
                 embeddingBatchSize: 16,  // texts per API call — batch for performance
@@ -421,6 +426,53 @@ export default class ObsidianAgentPlugin extends Plugin {
                 });
             }
 
+            // Ontology Bootstrap (FEATURE-1902): build cluster mappings from MOC edges
+            if (this.ontologyStore && this.graphStore) {
+                this.app.workspace.onLayoutReady(() => {
+                    // Build category map from metadataCache (Kategorie is a string, not a Wikilink)
+                    const catProp = this.settings.categoryProperty ?? 'Kategorie';
+                    const categoryMap = new Map<string, string>();
+                    for (const file of this.app.vault.getMarkdownFiles()) {
+                        const cache = this.app.metadataCache.getFileCache(file);
+                        if (cache?.frontmatter?.[catProp]) {
+                            const cat = Array.isArray(cache.frontmatter[catProp])
+                                ? (cache.frontmatter[catProp][0] ?? '').toString().trim()
+                                : cache.frontmatter[catProp].toString().trim();
+                            if (cat) categoryMap.set(file.path, cat);
+                        }
+                    }
+                    const result = this.ontologyStore?.bootstrapFromEdges(
+                        this.settings.mocPropertyNames ?? [],
+                        catProp,
+                        categoryMap,
+                    );
+                    if (result) {
+                        console.debug(`[Ontology] Bootstrap: ${result.clusters} clusters, ${result.entries} entries`);
+                    }
+                });
+            }
+
+            // Vault Health Check (FEATURE-1901): background lint on startup
+            if ((this.settings.enableVaultHealthCheck ?? true) && this.knowledgeDB) {
+                this.vaultHealthService = new VaultHealthService(this.app, this.knowledgeDB);
+                this.app.workspace.onLayoutReady(() => {
+                    void this.vaultHealthService?.runChecks().then(() => {
+                        // Update badge in sidebar view after health check completes
+                        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+                        if (leaves.length > 0 && this.vaultHealthService) {
+                            const view = leaves[0].view as AgentSidebarView;
+                            // Badge shows only high-severity findings (actionable items)
+                            const highCount = this.vaultHealthService.getFindings()
+                                .filter(f => f.severity === 'high').length;
+                            view.updateHealthBadge(
+                                highCount,
+                                highCount > 0 ? 'high' : this.vaultHealthService.getMaxSeverity(),
+                            );
+                        }
+                    });
+                });
+            }
+
             // Implicit Connections (FEATURE-1503): discover semantically similar notes
             if (this.settings.enableImplicitConnections && this.vectorStore && this.graphStore) {
                 this.implicitConnectionService = new ImplicitConnectionService(
@@ -456,10 +508,11 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.registerEvent(this.app.vault.on('modify', (file) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
-                // Graph + implicit: update edges/tags and recompute implicit connections
+                // Graph + implicit + ontology: update edges/tags and recompute
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                 }
             }));
             this.registerEvent(this.app.vault.on('create', (file) => {
@@ -468,20 +521,24 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                 }
             }));
             this.registerEvent(this.app.vault.on('delete', (file) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 void this.semanticIndex?.removeFile(file.path);
                 this.graphExtractor?.removeFile(file.path);
+                this.ontologyStore?.removeEntriesForPath(file.path);
             }));
             this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
                 if (!(file instanceof TFile) || !isIndexable(file)) return;
                 void this.semanticIndex?.removeFile(oldPath);
                 this.graphExtractor?.removeFile(oldPath);
+                this.ontologyStore?.removeEntriesForPath(oldPath);
                 if (file instanceof TFile && file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                    this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                 }
                 this.scheduleFileIndex(file.path);
             }));
@@ -671,6 +728,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
+            this.vaultHealthService?.cancel();
             this.rerankerService?.unload();
             this.mcpBridge?.stop();
             // Close databases (final save + cleanup)

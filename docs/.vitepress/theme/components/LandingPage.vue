@@ -173,9 +173,9 @@ onMounted(() => {
 
 <template>
   <section class="landing-hero">
-    <a href="/releases/v2.3" class="landing-badge">
-      <span class="landing-badge-version">v2.3.6</span>
-      <span>Community plugin prep & improvements</span>
+    <a href="/releases/v2.4" class="landing-badge">
+      <span class="landing-badge-version">v2.4.1</span>
+      <span>Knowledge ingestion, maintenance & resilience</span>
     </a>
 
     <h1 class="landing-title">Your Obsidian vault,<br>with a real AI Agent.</h1>
@@ -196,15 +196,15 @@ onMounted(() => {
 
     <p class="landing-sub">Learns your vault, your rules, your workflows.</p>
     <p class="landing-detail">
-      55+ tools, hybrid semantic search, knowledge graph, 3-tier memory,<br>
+      49 tools, hybrid semantic search, knowledge graph, 3-tier memory,<br>
       multi-agent workflows, plugin discovery, office document creation, and full safety controls.<br>
       Local-first. Open source. Always free.
     </p>
 
     <div class="landing-cta">
-      <a href="/guide/getting-started" class="landing-btn-primary">Get Started</a>
-      <a href="/dev/" class="landing-btn-secondary">
-How It Works
+      <a href="/tutorials/getting-started" class="landing-btn-primary">Get Started</a>
+      <a href="/guides/capabilities" class="landing-btn-secondary">
+What Obsilo Can Do
       </a>
     </div>
   </section>

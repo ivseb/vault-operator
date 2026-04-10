@@ -524,6 +524,43 @@ export class EmbeddingsTab {
                 })(); });
             });
 
+        // Knowledge Properties (FEATURE-1903)
+        new Setting(containerEl)
+            .setName(t('settings.embeddings.categoryProperty'))
+            .setDesc(t('settings.embeddings.categoryPropertyDesc'))
+            .addText((text) => {
+                text.setValue(this.plugin.settings.categoryProperty ?? 'Kategorie');
+                text.setPlaceholder('Kategorie');
+                text.inputEl.addEventListener('blur', () => { void (async () => {
+                    this.plugin.settings.categoryProperty = text.getValue().trim() || 'Kategorie';
+                    await this.plugin.saveSettings();
+                })(); });
+            });
+
+        new Setting(containerEl)
+            .setName(t('settings.embeddings.summaryProperty'))
+            .setDesc(t('settings.embeddings.summaryPropertyDesc'))
+            .addText((text) => {
+                text.setValue(this.plugin.settings.summaryProperty ?? 'Zusammenfassung');
+                text.setPlaceholder('Zusammenfassung');
+                text.inputEl.addEventListener('blur', () => { void (async () => {
+                    this.plugin.settings.summaryProperty = text.getValue().trim() || 'Zusammenfassung';
+                    await this.plugin.saveSettings();
+                })(); });
+            });
+
+        new Setting(containerEl)
+            .setName(t('settings.embeddings.sourceNaming'))
+            .setDesc(t('settings.embeddings.sourceNamingDesc'))
+            .addText((text) => {
+                text.setValue(this.plugin.settings.sourceNamingConvention ?? 'Autor-Jahr_Titel');
+                text.setPlaceholder('Autor-Jahr_Titel'); // eslint-disable-line obsidianmd/ui/sentence-case -- naming convention example, not UI text
+                text.inputEl.addEventListener('blur', () => { void (async () => {
+                    this.plugin.settings.sourceNamingConvention = text.getValue().trim() || 'Autor-Jahr_Titel';
+                    await this.plugin.saveSettings();
+                })(); });
+            });
+
         // Graph statistics
         const graphStats = containerEl.createDiv('agent-settings-desc');
         if (this.plugin.graphStore) {

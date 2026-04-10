@@ -6,7 +6,9 @@ import { parseDocument } from '../../core/document-parsers/parseDocument';
 import {
     BINARY_DOCUMENT_EXTENSIONS,
     MAX_FILE_SIZE,
+    MAX_DOCUMENT_FILE_SIZE,
     LARGE_DOCUMENT_CHAR_THRESHOLD,
+    CONTEXT_DOCUMENT_CHAR_LIMIT,
 } from '../../core/document-parsers/types';
 
 /** Extensions handled by the document parser (binary formats via OS file picker). */
@@ -20,6 +22,14 @@ const CHIP_ICON_MAP: Record<string, string> = {
     pdf: 'file-type',
     csv: 'table-2',
 };
+
+/** Escape a string for safe use in XML attribute values. */
+function escapeXmlAttr(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&apos;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Maximum total size of all stored full document texts (memory guard). */
+const MAX_TOTAL_DOC_TEXT_SIZE = 500 * 1024 * 1024; // 500 MB
 
 /** A file (image or text) attached to the current compose turn. */
 export interface AttachmentItem {
@@ -43,6 +53,8 @@ export interface AttachmentItem {
  */
 export class AttachmentHandler {
     readonly pending: AttachmentItem[] = [];
+    /** Full (un-truncated) document texts, parallel to pending[]. Used by IngestDocumentTool and ReadDocumentTool. */
+    private fullDocTexts: string[] = [];
 
     constructor(
         private vault: Vault,
@@ -64,7 +76,12 @@ export class AttachmentHandler {
     }
 
     async processFile(file: File): Promise<void> {
-        if (file.size > MAX_FILE_SIZE) {
+        // Documents (PDF, Office) get text-extracted — allow larger files.
+        // Images get base64-encoded into context — keep stricter limit.
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+        const isDocument = DOCUMENT_EXTENSIONS.some(d => file.name.toLowerCase().endsWith(d));
+        const sizeLimit = isDocument ? MAX_DOCUMENT_FILE_SIZE : MAX_FILE_SIZE;
+        if (file.size > sizeLimit) {
             new Notice(t('ui.attachment.tooLarge', { name: file.name }));
             return;
         }
@@ -78,7 +95,6 @@ export class AttachmentHandler {
         const TEXT_EXTENSIONS = ['.txt', '.md', '.json', '.py', '.ts', '.js', '.jsx', '.tsx', '.css', '.html', '.xml', '.yaml', '.yml', '.sh'];
 
         const mediaType = IMAGE_TYPES[file.type];
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
 
         // Resolve OS file path to vault-relative path if possible.
         // Electron File objects have a non-standard .path property with the full OS path.
@@ -116,14 +132,21 @@ export class AttachmentHandler {
                     resolvedVaultPath = await this.saveExternalTemplateToVault(file.name, arrayBuffer);
                 }
 
-                const vaultPathAttr = resolvedVaultPath ? ` vault_path="${resolvedVaultPath}"` : '';
+                const vaultPathAttr = resolvedVaultPath ? ` vault_path="${escapeXmlAttr(resolvedVaultPath)}"` : '';
+                // Include original filename for external files (not full OS path to avoid information disclosure)
+                const osPath = (file as unknown as { path?: string }).path;
+                const sourceFileName = !resolvedVaultPath && osPath ? osPath.split('/').pop() ?? '' : '';
+                const sourceAttr = sourceFileName ? ` source_name="${escapeXmlAttr(sourceFileName)}"` : '';
+                const contextText = this.truncateForContext(result.text, result.metadata.pageCount);
+                this.pushFullDocText(result.text);
+                const safeName = escapeXmlAttr(displayName);
                 const item: AttachmentItem = {
                     name: displayName,
                     extension: ext,
                     vaultPath: resolvedVaultPath,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${displayName}" format="${ext}"${vaultPathAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${safeName}" format="${ext}"${vaultPathAttr}${sourceAttr}${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
                     },
                 };
 
@@ -143,7 +166,7 @@ export class AttachmentHandler {
             this.pending.push({
                 name: displayName,
                 vaultPath,
-                block: { type: 'text', text: `<attached_file name="${displayName}">\n${text}\n</attached_file>` },
+                block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(displayName)}">\n${text}\n</attached_file>` },
             });
         } else {
             new Notice(t('ui.attachment.unsupported', { name: file.name }));
@@ -165,13 +188,16 @@ export class AttachmentHandler {
                     new Notice(t('ui.attachment.largeDocument', { name: file.path }));
                 }
 
+                const contextText = this.truncateForContext(result.text, result.metadata.pageCount);
+                this.pushFullDocText(result.text);
+                const safePath = escapeXmlAttr(file.path);
                 const item: AttachmentItem = {
                     name: file.path,
                     extension: ext,
                     vaultPath: file.path,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${file.path}" format="${ext}" vault_path="${file.path}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${safePath}" format="${ext}" vault_path="${safePath}"${result.metadata.pageCount ? ` pages="${result.metadata.pageCount}"` : ''}>\n${contextText}\n</attached_document>`,
                     },
                 };
 
@@ -192,7 +218,7 @@ export class AttachmentHandler {
                     extension: ext,
                     block: {
                         type: 'text',
-                        text: `<attached_document name="${file.path}" format="${ext}">\n${result.text}\n</attached_document>`,
+                        text: `<attached_document name="${escapeXmlAttr(file.path)}" format="${ext}">\n${result.text}\n</attached_document>`,
                     },
                 });
             } else {
@@ -201,7 +227,7 @@ export class AttachmentHandler {
                 this.pending.push({
                     name: file.path,
                     extension: ext,
-                    block: { type: 'text', text: `<attached_file name="${file.path}">\n${content}\n</attached_file>` },
+                    block: { type: 'text', text: `<attached_file name="${escapeXmlAttr(file.path)}">\n${content}\n</attached_file>` },
                 });
             }
             this.renderChips();
@@ -239,7 +265,66 @@ export class AttachmentHandler {
             if (att.objectUrl) URL.revokeObjectURL(att.objectUrl);
         }
         this.pending.length = 0;
+        this.fullDocTexts.length = 0;
         this.chipBar.empty();
+    }
+
+    /** Returns the full (un-truncated) document texts for IngestDocumentTool and ReadDocumentTool. */
+    getFullDocTexts(): string[] {
+        return this.fullDocTexts;
+    }
+
+    /** Push a full document text with cumulative size guard to prevent OOM. */
+    private pushFullDocText(text: string): void {
+        const currentSize = this.fullDocTexts.reduce((sum, t) => sum + t.length, 0);
+        if (currentSize + text.length > MAX_TOTAL_DOC_TEXT_SIZE) {
+            const msg = `Total attachment text exceeds ${MAX_TOTAL_DOC_TEXT_SIZE / 1024 / 1024} MB limit. ` +
+                'This document will not be available for ingest_document or read_document.';
+            console.warn(`[AttachmentHandler] ${msg}`);
+            // Push error marker so tools get a clear error instead of silently empty text
+            this.fullDocTexts.push(`[ERROR: ${msg}]`);
+            return;
+        }
+        this.fullDocTexts.push(text);
+    }
+
+    /**
+     * Truncate document text for the LLM context window.
+     * Cuts at the last `## Page N` boundary before the limit (PDF), or at the last
+     * paragraph break for other formats. Appends a truncation notice.
+     */
+    private truncateForContext(text: string, pageCount?: number): string {
+        if (text.length <= CONTEXT_DOCUMENT_CHAR_LIMIT) return text;
+
+        const limitSlice = text.slice(0, CONTEXT_DOCUMENT_CHAR_LIMIT);
+
+        // Try to cut at a ## Page N boundary for clean truncation
+        const pageHeaderRegex = /\n## Page \d+\n/g;
+        let lastPageBoundary = -1;
+        let lastPageMatch: RegExpExecArray | null;
+        while ((lastPageMatch = pageHeaderRegex.exec(limitSlice)) !== null) {
+            lastPageBoundary = lastPageMatch.index;
+        }
+
+        let truncated: string;
+        let pagesShown: string;
+        if (lastPageBoundary > 0) {
+            truncated = text.slice(0, lastPageBoundary);
+            // Count how many pages are in the truncated text
+            const shownCount = (truncated.match(/^## Page \d+$/gm) ?? []).length;
+            pagesShown = `~${shownCount} of ${pageCount ?? '?'}`;
+        } else {
+            // Fallback: cut at last paragraph break
+            const lastPara = limitSlice.lastIndexOf('\n\n');
+            truncated = lastPara > 0 ? text.slice(0, lastPara) : limitSlice;
+            pagesShown = pageCount ? `partial (${pageCount} total)` : 'partial';
+        }
+
+        return truncated +
+            `\n\n[Document truncated for context window. Showing first ${pagesShown} pages. ` +
+            'The full text is pre-parsed and available to tools. ' +
+            'Use ingest_document (with attachment_index) to create a note with the COMPLETE original text appended automatically — this works regardless of file size. ' +
+            'Use read_document with start_page/end_page to read specific page ranges.]';
     }
 
     /**

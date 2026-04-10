@@ -72,6 +72,8 @@ export class AgentSidebarView extends ItemView {
     // Onboarding key-setup state machine (chat-based flow, no LLM needed)
     private onboarding: OnboardingFlow | null = null;
 
+    // Health badge (FEATURE-1901)
+    private healthBadge: HTMLElement | null = null;
     // Tool picker (pocket-knife button)
     private toolPickerButton: HTMLElement | null = null;
     // Web search toggle button (globe icon)
@@ -182,6 +184,17 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan('agent-title-text').setText(t('ui.sidebar.title'));
 
+        // Health badge (FEATURE-1901) — shows finding count from vault health check
+        this.healthBadge = titleRow.createDiv('health-badge');
+        this.healthBadge.classList.add('agent-u-hidden');
+        this.healthBadge.addEventListener('click', () => {
+            const findings = this.plugin.vaultHealthService?.getFindings() ?? [];
+            if (findings.length === 0) return;
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
+            const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
+            new VaultHealthRepairModal(this.plugin, findings).open();
+        });
+
         const headerRight = header.createDiv('agent-header-right');
 
         // Settings button — moved here from toolbar
@@ -212,7 +225,7 @@ export class AgentSidebarView extends ItemView {
             cls: 'header-button',
             attr: { 'aria-label': t('ui.sidebar.newChat') },
         });
-        setIcon(newChatBtn.createSpan('toolbar-icon'), 'plus');
+        setIcon(newChatBtn.createSpan('toolbar-icon'), 'message-square-plus');
         newChatBtn.addEventListener('click', () => this.clearConversation());
     }
 
@@ -333,9 +346,22 @@ export class AgentSidebarView extends ItemView {
         inputWrapper.addEventListener('drop', (e: DragEvent) => {
             e.preventDefault();
             inputWrapper.removeClass('drag-over');
+
+            // OS file drop (external drag from Finder/Explorer)
             const files = e.dataTransfer?.files;
-            if (files) {
+            if (files && files.length > 0) {
                 for (const file of Array.from(files)) void this.attachments.processFile(file);
+                return;
+            }
+
+            // Obsidian internal drag (from file explorer / search results)
+            // Obsidian passes the vault-relative path as plain text
+            const textData = e.dataTransfer?.getData('text/plain');
+            if (textData) {
+                const vaultFile = this.app.vault.getAbstractFileByPath(textData);
+                if (vaultFile instanceof TFile) {
+                    void this.attachments.addVaultFile(vaultFile);
+                }
             }
         });
 
@@ -359,49 +385,53 @@ export class AgentSidebarView extends ItemView {
         this.updateModelButton();
         this.modelButton.addEventListener('click', (e) => this.showModelMenu(e));
 
-        // Tool picker button (ghost style) — hidden for Ask mode
-        this.toolPickerButton = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button toolbar-ghost tool-picker-button',
-            attr: { 'aria-label': t('ui.sidebar.selectTools') },
+        // "+" button — context menu for adding files/notes (FEATURE-1907)
+        const plusBtn = toolbarLeft.createEl('button', {
+            cls: 'toolbar-button toolbar-ghost plus-button',
+            attr: { 'aria-label': t('ui.sidebar.addContext') },
         });
-        setIcon(this.toolPickerButton.createSpan('toolbar-icon'), 'pocket-knife');
-        this.toolPickerButton.addEventListener('click', (e) => this.toolPicker.show(e, this.toolPickerButton!, this.containerEl));
-        this.updateToolPickerButton();
-
-        // Web search toggle (globe icon) — quick toggle for webTools.enabled
-        this.webToggleButton = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button toolbar-ghost web-toggle-button',
-            attr: { 'aria-label': t('ui.sidebar.toggleWebSearch') },
-        });
-        setIcon(this.webToggleButton.createSpan('toolbar-icon'), 'globe');
-        this.webToggleButton.addEventListener('click', () => { void this.toggleWebSearch(); });
-        this.updateWebToggleButton();
-
-        // Attach file button (ghost style)
-        const attachBtn = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button toolbar-ghost attach-button',
-            attr: { 'aria-label': t('ui.sidebar.attachFile') },
-        });
-        setIcon(attachBtn.createSpan('toolbar-icon'), 'paperclip');
-        attachBtn.addEventListener('click', () => this.attachments.openFilePicker());
-
-        // Vault file button — inserts @ and triggers autocomplete
-        const vaultBtn = toolbarLeft.createEl('button', {
-            cls: 'toolbar-button toolbar-ghost vault-attach-button',
-            attr: { 'aria-label': t('ui.sidebar.addVaultFile') },
-        });
-        setIcon(vaultBtn.createSpan('toolbar-icon'), 'at-sign');
-        vaultBtn.addEventListener('click', () => {
-            this.vaultFilePicker.show(vaultBtn, this.containerEl);
+        setIcon(plusBtn.createSpan('toolbar-icon'), 'plus');
+        plusBtn.addEventListener('click', (e) => {
+            const menu = new Menu();
+            menu.addItem(item => item
+                .setTitle(t('ui.sidebar.attachFile'))
+                .setIcon('paperclip')
+                .onClick(() => this.attachments.openFilePicker()));
+            menu.addItem(item => item
+                .setTitle(t('ui.sidebar.addVaultFile'))
+                .setIcon('at-sign')
+                .onClick(() => this.vaultFilePicker.show(plusBtn, this.containerEl)));
+            menu.showAtMouseEvent(e);
         });
 
-        // Ellipsis options menu button
+        // "..." button — tools, skills, web search (FEATURE-1907)
         const ellipsisBtn = toolbarLeft.createEl('button', {
             cls: 'toolbar-button toolbar-ghost ellipsis-button',
             attr: { 'aria-label': t('ui.sidebar.moreOptions') },
         });
         setIcon(ellipsisBtn.createSpan('toolbar-icon'), 'ellipsis');
-        ellipsisBtn.addEventListener('click', (e) => this.showOptionsMenu(e));
+        ellipsisBtn.addEventListener('click', (e) => {
+            const menu = new Menu();
+            // Tools & Skills — opens existing ToolPicker
+            menu.addItem(item => item
+                .setTitle(t('ui.sidebar.selectTools'))
+                .setIcon('pocket-knife')
+                .onClick(() => this.toolPicker.show(e, ellipsisBtn, this.containerEl)));
+            // Web search toggle
+            const webEnabled = this.plugin.settings.webTools?.enabled ?? false;
+            menu.addItem(item => item
+                .setTitle(webEnabled ? t('ui.sidebar.webSearchOn') : t('ui.sidebar.webSearchOff'))
+                .setIcon('globe')
+                .onClick(() => { void this.toggleWebSearch(); }));
+            menu.addSeparator();
+            // Original options menu items
+            this.addOptionsMenuItems(menu);
+            menu.showAtMouseEvent(e);
+        });
+
+        // Keep references for backward compat (hidden, managed via "..." menu now)
+        this.toolPickerButton = ellipsisBtn;
+        this.webToggleButton = ellipsisBtn;
 
         // Feature 3: Stop button (hidden by default, shown when task is running)
         this.stopButton = toolbarRight.createEl('button', {
@@ -942,6 +972,41 @@ export class AgentSidebarView extends ItemView {
         void this.handleSendMessage();
     }
 
+    /** Update the health badge with current findings count and severity. Called from main.ts after health check. */
+    updateHealthBadge(findingCount: number, maxSeverity: 'high' | 'medium' | 'low' | null): void {
+        if (!this.healthBadge) return;
+        if (findingCount === 0 || !maxSeverity) {
+            this.healthBadge.classList.add('agent-u-hidden');
+            return;
+        }
+        this.healthBadge.classList.remove('agent-u-hidden');
+        this.healthBadge.setText(String(findingCount));
+        this.healthBadge.className = `health-badge severity-${maxSeverity}`;
+        this.healthBadge.setAttribute('aria-label',
+            `${findingCount} vault health finding(s) -- click to review`);
+    }
+
+    /** Send vault health findings to the chat. Batch mode for many findings, interactive for few. */
+    private sendHealthFindings(): void {
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService || healthService.getFindingCount() === 0) return;
+
+        const count = healthService.getFindingCount();
+        const BATCH_THRESHOLD = 10;
+
+        if (count >= BATCH_THRESHOLD) {
+            this.sendProgrammaticMessage(
+                `Vault health: ${count} findings. Run vault_health_check, then work through ` +
+                `findings autonomously in batches. Follow the vault-health-batch skill. ` +
+                `Ask me only for real decisions, not for each fix.`,
+            );
+        } else {
+            this.sendProgrammaticMessage(
+                `Vault health: ${count} findings. Run vault_health_check and suggest fixes.`,
+            );
+        }
+    }
+
     /**
      * Feature 1+3: Handle sending a message with persistent history and cancellation
      */
@@ -1232,6 +1297,20 @@ export class AgentSidebarView extends ItemView {
             // Update existing tracker with current model's context window
             this.contextTracker.updateContextWindow(contextWindow, maxTokens);
         }
+
+        // Pass full (un-truncated) document texts to IngestDocumentTool and ReadDocumentTool
+        // so they can access complete content even when the context version is truncated.
+        try {
+            const docTexts = this.attachments.getFullDocTexts();
+            if (docTexts.length > 0) {
+                for (const toolName of ['ingest_document', 'read_document'] as const) {
+                    const tool = this.plugin.toolRegistry.getTool(toolName);
+                    if (tool && typeof (tool as unknown as Record<string, unknown>).setAttachmentTexts === 'function') {
+                        (tool as unknown as { setAttachmentTexts(t: string[]): void }).setAttachmentTexts(docTexts);
+                    }
+                }
+            }
+        } catch { /* non-critical -- tools will fall back to source_path */ }
 
         const task = new AgentTask(
             resolvedApiHandler,
@@ -2270,7 +2349,10 @@ export class AgentSidebarView extends ItemView {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
-                    this.renderMarkdownMessage(msg.text, 'assistant');
+                    const msgEl = this.renderMarkdownMessage(msg.text, 'assistant');
+                    if (msgEl) {
+                        this.addResponseActions(msgEl, msg.text);
+                    }
                 }
             }
         }
@@ -2355,8 +2437,8 @@ export class AgentSidebarView extends ItemView {
     /**
      * Feature 2: Render markdown into a new assistant message (for static messages)
      */
-    private renderMarkdownMessage(markdown: string, role: 'assistant' | 'user'): void {
-        if (!this.chatContainer) return;
+    private renderMarkdownMessage(markdown: string, role: 'assistant' | 'user'): HTMLElement | null {
+        if (!this.chatContainer) return null;
         const msgEl = this.chatContainer.createDiv(`message ${role}-message`);
         const contentEl = msgEl.createDiv('message-content');
         void MarkdownRenderer.render(this.app, markdown, contentEl, '', this);
@@ -2367,6 +2449,7 @@ export class AgentSidebarView extends ItemView {
             this.addUserMessageActions(msgEl, markdown);
         }
         this.chatContainer.scrollTop = this.chatContainer.scrollHeight;
+        return msgEl;
     }
 
     private addUserMessage(text: string, attachments: AttachmentItem[] = [], activeFile?: TFile | null): void {
@@ -2471,8 +2554,8 @@ export class AgentSidebarView extends ItemView {
 
     // ── Ellipsis options menu ─────────────────────────────────────────────────
 
-    private showOptionsMenu(e: MouseEvent): void {
-        const menu = new Menu();
+    /** Add options menu items to an existing menu (used by both ellipsis and standalone). */
+    private addOptionsMenuItems(menu: Menu): void {
         const settings = this.plugin.settings;
 
         // Refresh Index (current file)
@@ -2544,6 +2627,12 @@ export class AgentSidebarView extends ItemView {
             });
         });
 
+    }
+
+    /** Show the options menu (standalone, for backward compat). */
+    private showOptionsMenu(e: MouseEvent): void {
+        const menu = new Menu();
+        this.addOptionsMenuItems(menu);
         menu.showAtMouseEvent(e);
     }
 
@@ -2897,6 +2986,20 @@ export class AgentSidebarView extends ItemView {
                 }
             })();
         });
+
+        // Synthesis note: Agent summarizes the chat and creates a connected note
+        if (this.plugin.settings.enableSynthesisButton !== false) {
+            makeBtn('notebook-pen', t('ui.sidebar.synthesisZettel'), () => {
+                this.sendProgrammaticMessage(
+                    'Erstelle eine Synthese-Note aus diesem Chat. ' +
+                    'Fasse die wichtigsten Erkenntnisse, Entscheidungen und Ergebnisse zusammen. ' +
+                    'Erstelle die Note mit vollstaendigem Frontmatter (Zusammenfassung, Themen, Konzepte, Tags, Kategorie: Zettel) ' +
+                    'und vernetze sie mit bestehenden Notes im Vault. ' +
+                    'Speichere die Note in Inbox/. Oeffne die Note nach dem Erstellen.',
+                    true, // hidden: user bubble not shown
+                );
+            });
+        }
 
         // Copy to clipboard
         makeBtn('copy', t('ui.sidebar.copyResponse'), () => {
