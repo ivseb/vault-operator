@@ -468,6 +468,11 @@ export class EsbuildWasmManager {
             new Notice(`Sandbox: Downloading "${name}" from CDN`, 5000);
         }
 
+        // AUDIT-007 M-4: Validate package name to prevent URL injection
+        if (!/^[@a-zA-Z0-9][\w./_-]*$/.test(name)) {
+            throw new Error(`Invalid package name: ${name}`);
+        }
+
         // M-2: Resolve version from npm registry for pinning + deprecation check
         const version = await this.resolvePackageVersion(name);
         const versionedName = version ? `${name}@${version}` : name;

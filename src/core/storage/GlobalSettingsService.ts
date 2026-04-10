@@ -130,6 +130,25 @@ export class GlobalSettingsService {
             if (webTools.braveApiKey) webTools.braveApiKey = this.safeStorage.decrypt(webTools.braveApiKey);
             if (webTools.tavilyApiKey) webTools.tavilyApiKey = this.safeStorage.decrypt(webTools.tavilyApiKey);
         }
+        // AUDIT-007 H-1: Decrypt all token fields (aligned with main.ts)
+        if (settings.githubCopilotAccessToken) {
+            settings.githubCopilotAccessToken = this.safeStorage.decrypt(settings.githubCopilotAccessToken as string);
+        }
+        if (settings.githubCopilotToken) {
+            settings.githubCopilotToken = this.safeStorage.decrypt(settings.githubCopilotToken as string);
+        }
+        if (settings.kiloToken) {
+            settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken as string);
+        }
+        if (settings.cloudflareApiToken) {
+            settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken as string);
+        }
+        if (settings.relayToken) {
+            settings.relayToken = this.safeStorage.decrypt(settings.relayToken as string);
+        }
+        if (settings.mcpServerToken) {
+            settings.mcpServerToken = this.safeStorage.decrypt(settings.mcpServerToken as string);
+        }
     }
 
     private encryptGlobal(settings: Record<string, unknown>): Record<string, unknown> {
@@ -152,6 +171,25 @@ export class GlobalSettingsService {
             if (webTools.tavilyApiKey && !this.safeStorage.isEncrypted(webTools.tavilyApiKey)) {
                 webTools.tavilyApiKey = this.safeStorage.encrypt(webTools.tavilyApiKey);
             }
+        }
+        // AUDIT-007 H-1: Encrypt all token fields (aligned with main.ts)
+        if (copy.githubCopilotAccessToken && !this.safeStorage.isEncrypted(copy.githubCopilotAccessToken as string)) {
+            copy.githubCopilotAccessToken = this.safeStorage.encrypt(copy.githubCopilotAccessToken as string);
+        }
+        if (copy.githubCopilotToken && !this.safeStorage.isEncrypted(copy.githubCopilotToken as string)) {
+            copy.githubCopilotToken = this.safeStorage.encrypt(copy.githubCopilotToken as string);
+        }
+        if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken as string)) {
+            copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken as string);
+        }
+        if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken as string)) {
+            copy.cloudflareApiToken = this.safeStorage.encrypt(copy.cloudflareApiToken as string);
+        }
+        if (copy.relayToken && !this.safeStorage.isEncrypted(copy.relayToken as string)) {
+            copy.relayToken = this.safeStorage.encrypt(copy.relayToken as string);
+        }
+        if (copy.mcpServerToken && !this.safeStorage.isEncrypted(copy.mcpServerToken as string)) {
+            copy.mcpServerToken = this.safeStorage.encrypt(copy.mcpServerToken as string);
         }
         copy._encrypted = true;
         return copy;
