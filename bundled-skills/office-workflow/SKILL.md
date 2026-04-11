@@ -66,14 +66,7 @@ create_pptx(
 
 **Adhoc mode:** Write HTML slides on 1280x720 canvas with data-object elements.
 
-## Step 5: VERIFY
-
-After creation, call render_presentation on 2-3 representative slides:
-- First content slide, one data/process slide, last content slide
-- Check for: empty shapes, text overflow, placeholder text, layout issues
-- Fix specific slides and regenerate if needed (max 2 rounds)
-
-## Step 6: DELIVER
+## Step 5: DELIVER
 
 Present the result. Offer DOCX handout for reading decks. Ask if adjustments needed.
 
@@ -84,4 +77,3 @@ Present the result. Offer DOCX handout for reading decks. Ask if adjustments nee
 - Using adhoc HTML mode when a corporate template was requested
 - Leaving placeholder text ("Your slide title", "42%") from examples
 - Same slide type twice in a row
-- Skipping the VERIFY step (render_presentation)

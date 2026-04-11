@@ -40,7 +40,7 @@ import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
-import { initI18n, t } from './i18n';
+import { t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { KiloAuthService } from './core/security/KiloAuthService';
@@ -231,9 +231,6 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 1. Load settings (merges global + vault-local)
         await this.loadSettings();
-
-        // 1b. Initialize i18n with user's language preference
-        await initI18n(this.settings.language);
 
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
@@ -840,12 +837,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
         ap.skills = ap.skills ?? false;
-        // Migrate: Visual Intelligence default enabled (FEATURE-1115)
-        // One-time: enable for existing installs that never had Visual Intelligence
-        if (!(saved as Record<string, unknown>)._viMigrated) {
-            this.settings.visualIntelligence = { ...this.settings.visualIntelligence, enabled: true };
-            (this.settings as unknown as Record<string, unknown>)._viMigrated = true;
-        }
         // Deep-merge autoApproval: new keys from DEFAULT_SETTINGS are applied
         // so the UI always reflects the actual effective value (WYSIWYG).
         const apDefaults = DEFAULT_SETTINGS.autoApproval;

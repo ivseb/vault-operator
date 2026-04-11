@@ -633,17 +633,11 @@ export interface ObsidianAgentSettings {
     // Recipes (PAS-1.5)
     recipes: RecipeSettings;
 
-    // Visual Intelligence (FEATURE-1115)
-    visualIntelligence: VisualIntelligenceSettings;
-
     // Agent Skill Mastery (ADR-016/017/018)
     mastery: MasterySettings;
 
     // Onboarding
     onboarding: OnboardingSettings;
-
-    // Language (i18n)
-    language: import('../i18n/types').Language;
 
     // Security
     /** Sandbox execution backend: auto (Desktop=process, Mobile=iframe), process, iframe (ADR-021) */
@@ -704,15 +698,6 @@ export interface PluginApiSettings {
 // ---------------------------------------------------------------------------
 // Visual Intelligence Settings (FEATURE-1115)
 // ---------------------------------------------------------------------------
-
-export interface VisualIntelligenceSettings {
-    /** Master toggle — when true, render_presentation tool is available */
-    enabled: boolean;
-    /** Custom LibreOffice path override (for non-standard installations) */
-    libreOfficePath?: string;
-    /** User has approved multimodal template analysis (LibreOffice rendering + Claude Vision API calls) */
-    multimodalAnalysisApproved: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Recipe Settings (PAS-1.5, ADR-109)
@@ -908,10 +893,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         recipeToggles: {},
         customRecipes: [],
     },
-    visualIntelligence: {
-        enabled: true,
-        multimodalAnalysisApproved: false,
-    },
     mastery: {
         enabled: true,
         recipeBudget: 2000,
@@ -924,7 +905,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         skippedSteps: [],
         startedAt: '',
     },
-    language: 'en',
     sandboxMode: 'auto',
     taskExtraction: {
         enabled: true,

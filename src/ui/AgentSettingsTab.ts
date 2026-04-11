@@ -14,7 +14,6 @@ import { WorkflowsTab }   from './settings/WorkflowsTab';
 import { SkillsTab }      from './settings/SkillsTab';
 import { PromptsTab }     from './settings/PromptsTab';
 import { McpTab }         from './settings/McpTab';
-import { VisualIntelligenceTab } from './settings/VisualIntelligenceTab';
 import { VaultTab }       from './settings/VaultTab';
 import { InterfaceTab }   from './settings/InterfaceTab';
 import { LogTab }         from './settings/LogTab';
@@ -22,7 +21,6 @@ import { DebugTab }       from './settings/DebugTab';
 import { BackupTab }      from './settings/BackupTab';
 import { MemoryTab }      from './settings/MemoryTab';
 import { ShellTab }       from './settings/ShellTab';
-import { LanguageTab }    from './settings/LanguageTab';
 
 // Re-export for backward compatibility (used in main.ts and other places)
 export { ModelConfigModal } from './settings/ModelConfigModal';
@@ -30,7 +28,7 @@ export { ContentEditorModal } from './settings/ContentEditorModal';
 
 // ---------------------------------------------------------------------------
 
-export type TabId = 'providers' | 'agent-behaviour' | 'vault' | 'advanced' | 'language';
+export type TabId = 'providers' | 'agent-behaviour' | 'vault' | 'advanced';
 
 export class AgentSettingsTab extends PluginSettingTab {
     plugin: ObsidianAgentPlugin;
@@ -78,7 +76,6 @@ export class AgentSettingsTab extends PluginSettingTab {
             { id: 'agent-behaviour', label: t('settings.group.agentBehaviour'), icon: 'users-round'  },
             { id: 'vault',           label: t('settings.group.vault'),           icon: 'server'       },
             { id: 'advanced',        label: t('settings.group.advanced'),        icon: 'settings-2'   },
-            { id: 'language',        label: t('settings.tab.language'),          icon: 'globe'        },
         ];
         tabs.forEach(({ id, label, icon }) => {
             const btn = nav.createEl('button', {
@@ -119,7 +116,6 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeTab === 'agent-behaviour') this.buildAgentBehaviourTab(content);
         if (this.activeTab === 'vault')           new VaultTab(this.plugin, this.app, () => this.display()).build(content);
         if (this.activeTab === 'advanced')        this.buildAdvancedTab(content);
-        if (this.activeTab === 'language')        new LanguageTab(this.plugin, this.app, () => this.display()).build(content);
     }
 
     // ---------------------------------------------------------------------------
@@ -223,7 +219,6 @@ export class AgentSettingsTab extends PluginSettingTab {
             [
                 { id: 'interface',           label: t('settings.tab.interface') },
                 { id: 'shell',               label: t('settings.tab.shell')     },
-                { id: 'visual-intelligence', label: 'Visual Intelligence'       },
                 { id: 'log',                 label: t('settings.tab.log')       },
                 { id: 'debug',               label: t('settings.tab.debug')     },
                 { id: 'backup',              label: t('settings.tab.backup')    },
@@ -235,7 +230,6 @@ export class AgentSettingsTab extends PluginSettingTab {
         const rerender = () => this.display();
         if (this.activeAdvancedSubTab === 'interface')           new InterfaceTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'shell')               new ShellTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'visual-intelligence') new VisualIntelligenceTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'log')                 new LogTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'debug')     new DebugTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'backup')    new BackupTab(this.plugin, this.app, rerender).build(content);

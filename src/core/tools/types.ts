@@ -35,9 +35,8 @@ export type ToolName =
     | 'open_note'
     | 'generate_canvas'
     | 'create_excalidraw'
-    // Vault: presentation planning + visual intelligence
+    // Vault: presentation planning
     | 'plan_presentation'
-    | 'render_presentation'
     // Vault: office document creation
     | 'create_pptx'
     | 'create_docx'
