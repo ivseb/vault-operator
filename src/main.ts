@@ -20,6 +20,7 @@ import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
 import { OntologyStore } from './core/knowledge/OntologyStore';
+import { CommunityDetectionService } from './core/knowledge/CommunityDetectionService';
 import { VaultHealthService } from './core/knowledge/VaultHealthService';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
@@ -92,6 +93,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
     ontologyStore: OntologyStore | null = null;
+    communityDetectionService: CommunityDetectionService | null = null;
     vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
@@ -367,6 +369,9 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.vectorStore = new VectorStore(this.knowledgeDB);
             this.graphStore = new GraphStore(this.knowledgeDB);
             this.ontologyStore = new OntologyStore(this.knowledgeDB);
+            this.communityDetectionService = new CommunityDetectionService(
+                this.knowledgeDB, this.graphStore, this.ontologyStore,
+            );
             this.semanticIndex = new SemanticIndexService(this.app.vault, this.knowledgeDB, this.vectorStore, {
                 batchSize: this.settings.semanticBatchSize,
                 embeddingBatchSize: 16,  // texts per API call — batch for performance
