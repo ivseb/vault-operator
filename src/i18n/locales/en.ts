@@ -1252,6 +1252,7 @@ export const en: Translations = {
     'modal.vaultHealth.checkWeakClusters': 'Semantically related, unlinked pairs',
     'modal.vaultHealth.checkInconsistentTags': 'Inconsistent tags',
     'modal.vaultHealth.checkCategoryMismatch': 'Incorrect category assignments',
+    'modal.vaultHealth.checkGodNodes': 'Overloaded hub notes',
     'modal.vaultHealth.repairableCount': '{{count}} finding(s) auto-repairable (backlinks, categories, orphaned edges).',
     'modal.vaultHealth.repairBtn': 'Repair',
     'modal.vaultHealth.repairing': 'Repairing...',

@@ -58,6 +58,7 @@ export class VaultHealthRepairModal extends Modal {
             weak_clusters: t('modal.vaultHealth.checkWeakClusters'),
             inconsistent_tags: t('modal.vaultHealth.checkInconsistentTags'),
             category_mismatch: t('modal.vaultHealth.checkCategoryMismatch'),
+            god_nodes: t('modal.vaultHealth.checkGodNodes'),
         };
 
         const list = contentEl.createEl('ul', { cls: 'vault-health-findings-list' });
