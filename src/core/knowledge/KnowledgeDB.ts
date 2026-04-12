@@ -117,6 +117,20 @@ CREATE TABLE IF NOT EXISTS ontology (
 );
 CREATE INDEX IF NOT EXISTS idx_ontology_cluster ON ontology(cluster);
 CREATE INDEX IF NOT EXISTS idx_ontology_entity ON ontology(entity_path);
+
+CREATE TABLE IF NOT EXISTS note_freshness (
+    path TEXT PRIMARY KEY,
+    freshness_class TEXT NOT NULL DEFAULT 'stable',
+    temporal_marker_count INTEGER NOT NULL DEFAULT 0,
+    classified_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dismissed_freshness (
+    note_path TEXT NOT NULL,
+    hint_type TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    UNIQUE(note_path, hint_type)
+);
 `;
 
 // ---------------------------------------------------------------------------
