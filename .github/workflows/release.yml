@@ -33,10 +33,60 @@ jobs:
       - name: Build plugin
         run: node esbuild.config.mjs production
 
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets/skills release-assets/templates
+
+          # Core files
+          cp main.js manifest.json styles.css release-assets/
+
+          # Worker scripts (built by esbuild entrypoints)
+          [ -f sandbox-worker.js ] && cp sandbox-worker.js release-assets/
+          [ -f mcp-server-worker.js ] && cp mcp-server-worker.js release-assets/
+
+          # sql.js WASM binaries for KnowledgeDB (FIX-16)
+          for wasm in sql-wasm.wasm sql-wasm-browser.wasm; do
+            [ -f "node_modules/sql.js/dist/$wasm" ] && cp "node_modules/sql.js/dist/$wasm" release-assets/
+          done
+
+          # ONNX Runtime WASM binaries for Reranker
+          for ort in ort-wasm-simd-threaded.wasm ort-wasm-simd-threaded.mjs; do
+            [ -f "node_modules/onnxruntime-web/dist/$ort" ] && cp "node_modules/onnxruntime-web/dist/$ort" release-assets/
+          done
+
+          # Bundled skills
+          if [ -d "bundled-skills" ]; then
+            for skill_dir in bundled-skills/*/; do
+              skill_name=$(basename "$skill_dir")
+              mkdir -p "release-assets/skills/$skill_name"
+              cp "$skill_dir"* "release-assets/skills/$skill_name/" 2>/dev/null || true
+            done
+          fi
+
+          # PPTX templates
+          if [ -d "assets/templates" ]; then
+            cp assets/templates/*.pptx release-assets/templates/ 2>/dev/null || true
+          fi
+
+          # Logo
+          [ -f src/assets/logo.png ] && cp src/assets/logo.png release-assets/
+
+          # Create tarball of extras (skills + templates have directory structure)
+          cd release-assets
+          tar czf ../obsilo-assets.tar.gz --exclude='main.js' --exclude='manifest.json' --exclude='styles.css' .
+          cd ..
+
+          echo "=== Release assets ==="
+          find release-assets -type f | sort
+
       - name: Verify build output
         run: |
-          ls -lh main.js manifest.json styles.css
-          echo "manifest version: $(jq -r .version manifest.json)"
+          ls -lh release-assets/main.js release-assets/manifest.json release-assets/styles.css
+          echo "manifest version: $(jq -r .version release-assets/manifest.json)"
+          echo "WASM files:"
+          ls -lh release-assets/*.wasm 2>/dev/null || echo "  (none)"
+          echo "Workers:"
+          ls -lh release-assets/*-worker.js 2>/dev/null || echo "  (none)"
 
       - name: Create GitHub Release with assets
         uses: softprops/action-gh-release@v2
@@ -50,10 +100,13 @@ jobs:
             1. Install BRAT from Community Plugins
             2. BRAT → Add Beta Plugin → `https://github.com/pssah4/obsilo`
 
-            Or install manually: download `main.js`, `manifest.json`, `styles.css` and place them in `.obsidian/plugins/obsilo-agent/`.
+            Or install manually:
+            1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/obsilo-agent/`
+            2. Download and extract `obsilo-assets.tar.gz` into the same folder
           files: |
-            main.js
-            manifest.json
-            styles.css
+            release-assets/main.js
+            release-assets/manifest.json
+            release-assets/styles.css
+            obsilo-assets.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

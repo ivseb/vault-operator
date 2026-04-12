@@ -17,7 +17,7 @@
  * FEATURE-1500: SQLite Knowledge DB
  */
 
-import type { Vault } from 'obsidian';
+import { type Vault, requestUrl } from 'obsidian';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -187,16 +187,7 @@ export class KnowledgeDB {
         const configDir = this.vault.configDir;
         const pluginMainDir = path.join(pluginBasePath, configDir, 'plugins', 'obsilo-agent');
 
-        // Try browser variant first (what esbuild bundles), then fallback
-        let wasmBinary: Buffer;
-        const browserWasm = path.join(pluginMainDir, 'sql-wasm-browser.wasm');
-        const nodeWasm = path.join(pluginMainDir, 'sql-wasm.wasm');
-        try {
-            wasmBinary = fs.readFileSync(browserWasm);
-        } catch {
-            wasmBinary = fs.readFileSync(nodeWasm);
-        }
-
+        const wasmBinary = await this.loadWasmBinary(pluginMainDir);
         this.SQL = await initSqlJs({ wasmBinary: wasmBinary.buffer });
 
         // Clean up stale .tmp files from interrupted writes
@@ -228,6 +219,43 @@ export class KnowledgeDB {
     getDB(): SqlJsDatabase {
         if (!this.db) throw new Error('KnowledgeDB not opened. Call open() first.');
         return this.db;
+    }
+
+    /**
+     * Load sql-wasm.wasm binary: try local disk first, download from CDN as fallback (FIX-16).
+     * BRAT installs only main.js/manifest/styles -- WASM files are missing for those users.
+     */
+    private async loadWasmBinary(pluginMainDir: string): Promise<Buffer> {
+        const candidates = [
+            path.join(pluginMainDir, 'sql-wasm-browser.wasm'),
+            path.join(pluginMainDir, 'sql-wasm.wasm'),
+        ];
+
+        // Try reading from disk (existing behavior)
+        for (const candidate of candidates) {
+            try {
+                return fs.readFileSync(candidate);
+            } catch {
+                // try next
+            }
+        }
+
+        // Fallback: download from CDN via Obsidian's requestUrl (FIX-16)
+        const cdnUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.14.1/dist/sql-wasm.wasm';
+        console.debug('[KnowledgeDB] WASM not found on disk, downloading from CDN...');
+        const response = await requestUrl({ url: cdnUrl });
+        const buffer = Buffer.from(response.arrayBuffer);
+
+        // Cache to disk for next startup
+        const cachePath = candidates[1]; // sql-wasm.wasm
+        try {
+            fs.writeFileSync(cachePath, buffer);
+            console.debug('[KnowledgeDB] WASM cached to', cachePath);
+        } catch {
+            console.debug('[KnowledgeDB] Could not cache WASM to disk (non-fatal)');
+        }
+
+        return buffer;
     }
 
     /** Check if the DB is open and ready. */
