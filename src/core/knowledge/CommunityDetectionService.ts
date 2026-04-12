@@ -11,7 +11,7 @@
 
 import Graph from 'graphology';
 import louvain from 'graphology-communities-louvain';
-import type { KnowledgeDB, SqlJsDatabase } from './KnowledgeDB';
+import type { KnowledgeDB } from './KnowledgeDB';
 import type { GraphStore } from './GraphStore';
 import type { OntologyStore, OntologyEntry, OntologySource } from './OntologyStore';
 
@@ -104,7 +104,7 @@ export class CommunityDetectionService {
         // 4. Group nodes by community
         const communities = new Map<number, string[]>();
         graph.forEachNode((node) => {
-            const communityId = communityMap[node] as number;
+            const communityId = communityMap[node];
             const members = communities.get(communityId) ?? [];
             members.push(node);
             communities.set(communityId, members);
@@ -132,7 +132,7 @@ export class CommunityDetectionService {
                     const subCommunities = louvain(subGraph);
                     const subGroups = new Map<number, string[]>();
                     subGraph.forEachNode((node) => {
-                        const cid = subCommunities[node] as number;
+                        const cid = subCommunities[node];
                         const g = subGroups.get(cid) ?? [];
                         g.push(node);
                         subGroups.set(cid, g);
