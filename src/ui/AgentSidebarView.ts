@@ -2585,6 +2585,27 @@ export class AgentSidebarView extends ItemView {
             });
         });
 
+        // Vault Health Check
+        menu.addItem((item) => {
+            item.setTitle('Vault health check');
+            item.setIcon('heart-pulse');
+            item.onClick(async () => {
+                if (!this.plugin.vaultHealthService) {
+                    new Notice('Vault health service not available. Enable semantic index first.');
+                    return;
+                }
+                new Notice('Running vault health check...');
+                const findings = await this.plugin.vaultHealthService.runChecks();
+                if (findings.length === 0) {
+                    new Notice('No issues found -- vault is healthy.');
+                    return;
+                }
+                // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
+                const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
+                new VaultHealthRepairModal(this.plugin, findings).open();
+            });
+        });
+
         // Cancel Indexing (only shown while building)
         if (this.plugin.semanticIndex?.building) {
             menu.addItem((item) => {
