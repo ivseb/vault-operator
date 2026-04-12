@@ -44,7 +44,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS edges (
     target_path TEXT NOT NULL,
     link_type TEXT NOT NULL,
     property_name TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
     UNIQUE(source_path, target_path, link_type, property_name)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
@@ -318,6 +319,15 @@ export class KnowledgeDB {
             if (currentVersion < 2) {
                 try {
                     this.db.run('ALTER TABLE vectors ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0');
+                } catch {
+                    // Column may already exist if schema was partially migrated
+                }
+            }
+
+            // v6 -> v7: Add confidence column to edges (FEATURE-2001, ADR-069)
+            if (currentVersion < 7) {
+                try {
+                    this.db.run('ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0');
                 } catch {
                     // Column may already exist if schema was partially migrated
                 }

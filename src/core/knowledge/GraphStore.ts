@@ -19,6 +19,8 @@ export interface Edge {
     targetPath: string;
     linkType: 'body' | 'frontmatter';
     propertyName: string | null;
+    /** Connection reliability: 1.0 for user-authored links, variable for inferred. Default 1.0. */
+    confidence?: number;
 }
 
 export interface GraphNeighbor {
@@ -27,6 +29,8 @@ export interface GraphNeighbor {
     viaPath: string;
     linkType: string;
     propertyName: string | null;
+    /** Connection reliability: 1.0 for explicit edges, cosine similarity for implicit. */
+    confidence: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -54,10 +58,10 @@ export class GraphStore {
 
         if (edges.length === 0) return;
         const stmt = db.prepare(
-            'INSERT OR IGNORE INTO edges (source_path, target_path, link_type, property_name) VALUES (?, ?, ?, ?)',
+            'INSERT OR IGNORE INTO edges (source_path, target_path, link_type, property_name, confidence) VALUES (?, ?, ?, ?, ?)',
         );
         for (const e of edges) {
-            stmt.run([sourcePath, e.targetPath, e.linkType, e.propertyName]);
+            stmt.run([sourcePath, e.targetPath, e.linkType, e.propertyName, e.confidence ?? 1.0]);
         }
         stmt.free();
         this.knowledgeDB.markDirty();
@@ -115,9 +119,9 @@ export class GraphStore {
 
                 // Bidirectional: outgoing + incoming edges
                 const rows = db.exec(
-                    `SELECT target_path AS path, link_type, property_name FROM edges WHERE source_path = ?
+                    `SELECT target_path AS path, link_type, property_name, confidence FROM edges WHERE source_path = ?
                      UNION
-                     SELECT source_path AS path, link_type, property_name FROM edges WHERE target_path = ?`,
+                     SELECT source_path AS path, link_type, property_name, confidence FROM edges WHERE target_path = ?`,
                     [current, current],
                 );
 
@@ -133,6 +137,63 @@ export class GraphStore {
                         viaPath: current,
                         linkType: row[1] as string,
                         propertyName: row[2] as string | null,
+                        confidence: row[3] as number,
+                    });
+                    nextFrontier.push(neighborPath);
+
+                    if (result.length >= maxResults) break;
+                }
+            }
+
+            frontier = nextFrontier;
+        }
+
+        return result;
+    }
+
+    /**
+     * BFS neighbor expansion including implicit edges (cosine similarity).
+     * Same logic as getNeighbors but unions explicit edges (confidence from DB)
+     * with implicit edges (similarity as confidence). FEATURE-2001, ADR-069.
+     */
+    getNeighborsWithImplicit(originPath: string, hops = 1, maxResults = 10): GraphNeighbor[] {
+        const db = this.getDB();
+        const visited = new Set<string>([originPath]);
+        const result: GraphNeighbor[] = [];
+        const MAX_VISITED = 1000;
+
+        let frontier = [originPath];
+
+        for (let hop = 1; hop <= hops && frontier.length > 0; hop++) {
+            const nextFrontier: string[] = [];
+
+            for (const current of frontier) {
+                if (result.length >= maxResults || visited.size >= MAX_VISITED) break;
+
+                const rows = db.exec(
+                    `SELECT target_path AS path, link_type, property_name, confidence FROM edges WHERE source_path = ?
+                     UNION
+                     SELECT source_path AS path, link_type, property_name, confidence FROM edges WHERE target_path = ?
+                     UNION
+                     SELECT target_path AS path, 'implicit' AS link_type, NULL AS property_name, similarity AS confidence FROM implicit_edges WHERE source_path = ?
+                     UNION
+                     SELECT source_path AS path, 'implicit' AS link_type, NULL AS property_name, similarity AS confidence FROM implicit_edges WHERE target_path = ?`,
+                    [current, current, current, current],
+                );
+
+                if (rows.length === 0) continue;
+                for (const row of rows[0].values) {
+                    const neighborPath = row[0] as string;
+                    if (visited.has(neighborPath)) continue;
+                    visited.add(neighborPath);
+
+                    result.push({
+                        path: neighborPath,
+                        hopDistance: hop,
+                        viaPath: current,
+                        linkType: row[1] as string,
+                        propertyName: row[2] as string | null,
+                        confidence: row[3] as number,
                     });
                     nextFrontier.push(neighborPath);
 

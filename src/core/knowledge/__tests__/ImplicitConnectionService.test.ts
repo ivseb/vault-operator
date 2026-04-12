@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS edges (
     target_path TEXT NOT NULL,
     link_type TEXT NOT NULL,
     property_name TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
     UNIQUE(source_path, target_path, link_type, property_name)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
