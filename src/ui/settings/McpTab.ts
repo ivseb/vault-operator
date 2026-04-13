@@ -199,7 +199,7 @@ export class McpTab {
 
                 new Setting(containerEl)
                     .setName('Connector URL')
-                    .setDesc('Use this URL in your AI assistant. It includes the auth token -- do not share it.')
+                    .setDesc('Use this URL in your AI assistant. It includes the auth token. Do not share it.')
                     .addButton((btn) => {
                         btn.setButtonText('Copy URL').onClick(() => {
                             void navigator.clipboard.writeText(mcpUrl);

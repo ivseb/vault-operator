@@ -1,15 +1,14 @@
 /**
- * VaultHealthRepairModal -- Detailed findings view with selective repair.
+ * VaultHealthRepairModal -- Findings view with selective repair, discuss, and skip.
  *
- * Shows each finding individually with affected notes, fix preview,
- * and per-finding checkboxes. User selects which findings to repair.
- * Non-repairable findings show a "discuss with agent" option.
+ * Shows each finding with checkboxes (repairable), discuss (all), and skip (all).
+ * Discuss opens a new agent chat. Skip persists the dismissal in KnowledgeDB.
  *
  * FEATURE-1901: Vault Health Check
  * FIX-15: Detailed findings + selective repair
  */
 
-import { Modal, Notice } from 'obsidian';
+import { Modal, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
@@ -33,11 +32,17 @@ export class VaultHealthRepairModal extends Modal {
     private plugin: ObsidianAgentPlugin;
     private findings: HealthFinding[];
     private selectedFindings = new Set<number>();
+    private onDiscuss?: (prompt: string) => void;
 
-    constructor(plugin: ObsidianAgentPlugin, findings: HealthFinding[]) {
+    constructor(
+        plugin: ObsidianAgentPlugin,
+        findings: HealthFinding[],
+        onDiscuss?: (prompt: string) => void,
+    ) {
         super(plugin.app);
         this.plugin = plugin;
         this.findings = findings;
+        this.onDiscuss = onDiscuss;
     }
 
     onOpen(): void {
@@ -60,7 +65,7 @@ export class VaultHealthRepairModal extends Modal {
         const repairableCount = this.findings.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
         const totalCount = this.findings.length;
 
-        contentEl.createEl('h3', { text: `Vault health check (${totalCount} findings)` });
+        contentEl.createEl('h3', { text: `Vault health (${totalCount} findings)` });
 
         // Group findings by check type
         const grouped = new Map<HealthCheckType, { findings: HealthFinding[]; indices: number[] }>();
@@ -84,7 +89,7 @@ export class VaultHealthRepairModal extends Modal {
             summary.createSpan({ cls: `vault-health-severity severity-${severity}`, text: severity });
             summary.createSpan({ text: ` ${label} (${checkFindings.length})` });
             if (!isRepairable) {
-                summary.createSpan({ cls: 'vault-health-tag-info', text: ' -- manual review' });
+                summary.createSpan({ cls: 'vault-health-tag-info', text: ' (review recommended)' });
             }
 
             const content = details.createDiv('vault-health-section-content');
@@ -95,6 +100,7 @@ export class VaultHealthRepairModal extends Modal {
 
                 const row = content.createDiv('vault-health-finding-row');
 
+                // Checkbox (repairable only)
                 if (isRepairable) {
                     const checkbox = row.createEl('input', { type: 'checkbox' });
                     checkbox.checked = true;
@@ -116,8 +122,7 @@ export class VaultHealthRepairModal extends Modal {
                     noteLink.setText(this.formatPath(primaryPath));
                     noteLink.addEventListener('click', () => {
                         this.close();
-                        const file = this.app.vault.getAbstractFileByPath(primaryPath);
-                        if (file) void this.app.workspace.openLinkText(primaryPath, '');
+                        void this.app.workspace.openLinkText(primaryPath, '');
                     });
                 }
 
@@ -129,6 +134,35 @@ export class VaultHealthRepairModal extends Modal {
                     });
                 }
 
+                // Action buttons (right side of row)
+                const actions = row.createDiv('vault-health-finding-actions');
+
+                // Discuss with agent (all finding types)
+                const discussBtn = actions.createEl('button', {
+                    cls: 'vault-health-icon-btn',
+                    attr: { 'aria-label': 'Discuss with agent' },
+                });
+                setIcon(discussBtn, 'message-square');
+                discussBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const prompt = this.buildFindingPrompt(finding);
+                    this.close();
+                    if (this.onDiscuss) {
+                        this.onDiscuss(prompt);
+                    }
+                });
+
+                // Skip/dismiss (all finding types)
+                const skipBtn = actions.createEl('button', {
+                    cls: 'vault-health-icon-btn',
+                    attr: { 'aria-label': 'Dismiss this finding' },
+                });
+                setIcon(skipBtn, 'eye-off');
+                skipBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    this.dismissFinding(finding, globalIdx, row, content, details, check, checkFindings.length);
+                });
+
                 // Fix preview or description
                 const preview = content.createDiv('vault-health-fix-preview');
                 if (isRepairable) {
@@ -136,20 +170,6 @@ export class VaultHealthRepairModal extends Modal {
                 } else {
                     preview.setText(this.getInfoText(finding));
                 }
-            }
-
-            // "Discuss with agent" button for non-repairable sections
-            if (!isRepairable && checkFindings.length > 0) {
-                const discussBtn = content.createEl('button', {
-                    text: 'Discuss with agent',
-                    cls: 'vault-health-discuss-btn',
-                });
-                discussBtn.addEventListener('click', () => {
-                    const text = this.buildDiscussText(check, checkFindings);
-                    void navigator.clipboard.writeText(text);
-                    new Notice('Finding copied to clipboard -- paste in the chat to discuss with the agent.');
-                    this.close();
-                });
             }
         }
 
@@ -172,6 +192,20 @@ export class VaultHealthRepairModal extends Modal {
             });
         }
 
+        // Reset dismissed findings button
+        const dismissedCount = this.plugin.vaultHealthService?.getDismissedCount() ?? 0;
+        if (dismissedCount > 0) {
+            const resetBtn = btnRow.createEl('button', {
+                text: `Reset ${dismissedCount} dismissed`,
+                cls: 'vault-health-reset-btn',
+            });
+            resetBtn.addEventListener('click', () => {
+                this.plugin.vaultHealthService?.restoreDismissed();
+                new Notice('Dismissed findings restored. Run health check again to see them.');
+                resetBtn.remove();
+            });
+        }
+
         const closeBtn = btnRow.createEl('button', { text: 'Close' });
         closeBtn.addEventListener('click', () => this.close());
     }
@@ -181,6 +215,76 @@ export class VaultHealthRepairModal extends Modal {
         if (btn) {
             btn.setText(`Repair selected (${this.selectedFindings.size})`);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Dismiss a finding
+    // -----------------------------------------------------------------------
+
+    private dismissFinding(
+        finding: HealthFinding,
+        globalIdx: number,
+        row: HTMLElement,
+        content: HTMLElement,
+        details: HTMLElement,
+        check: HealthCheckType,
+        originalCount: number,
+    ): void {
+        // Persist dismissal
+        const path = finding.paths[0] ?? '';
+        this.plugin.vaultHealthService?.dismissFinding(finding.check, path);
+
+        // Remove from selected
+        this.selectedFindings.delete(globalIdx);
+        this.updateRepairButton();
+
+        // Remove the row and its fix-preview
+        const nextSibling = row.nextElementSibling;
+        row.remove();
+        if (nextSibling?.classList.contains('vault-health-fix-preview')) {
+            nextSibling.remove();
+        }
+
+        // Update section header count
+        const remaining = content.querySelectorAll('.vault-health-finding-row').length;
+        if (remaining === 0) {
+            details.remove();
+        } else {
+            const headerText = details.querySelector('.vault-health-section-header');
+            if (headerText) {
+                const label = CHECK_LABELS[check] ?? check;
+                const spans = headerText.querySelectorAll('span');
+                if (spans.length >= 2) {
+                    spans[1].setText(` ${label} (${remaining})`);
+                }
+            }
+        }
+
+        // Update badge
+        const allFindings = this.plugin.vaultHealthService?.getFindings() ?? [];
+        this.updateBadge(allFindings);
+    }
+
+    // -----------------------------------------------------------------------
+    // Prompt builder for discuss
+    // -----------------------------------------------------------------------
+
+    private buildFindingPrompt(finding: HealthFinding): string {
+        const label = CHECK_LABELS[finding.check] ?? finding.check;
+        const paths = finding.paths.map(p => `[[${this.formatPath(p)}]]`).join(', ');
+        return (
+            `Vault health finding (${label}):\n` +
+            `${finding.description}\n\n` +
+            `Affected notes: ${paths}\n\n` +
+            `Analyze this finding and suggest a concrete fix. ` +
+            `After I confirm, implement it using vault operations.`
+        );
+    }
+
+    private buildDiscussText(check: HealthCheckType, findings: HealthFinding[]): string {
+        const label = CHECK_LABELS[check] ?? check;
+        const paths = findings.flatMap(f => f.paths).slice(0, 10);
+        return `I need help with vault health findings (${label}):\n\n${findings.map(f => `- ${f.description.split('\n')[0]}`).join('\n')}\n\nAffected notes: ${paths.map(p => `[[${this.formatPath(p)}]]`).join(', ')}`;
     }
 
     // -----------------------------------------------------------------------
@@ -219,12 +323,6 @@ export class VaultHealthRepairModal extends Modal {
             default:
                 return finding.description.slice(0, 150);
         }
-    }
-
-    private buildDiscussText(check: HealthCheckType, findings: HealthFinding[]): string {
-        const label = CHECK_LABELS[check] ?? check;
-        const paths = findings.flatMap(f => f.paths).slice(0, 10);
-        return `I need help with vault health findings (${label}):\n\n${findings.map(f => `- ${f.description.split('\n')[0]}`).join('\n')}\n\nAffected notes: ${paths.map(p => `[[${this.formatPath(p)}]]`).join(', ')}`;
     }
 
     private formatPath(path: string): string {
@@ -272,7 +370,6 @@ export class VaultHealthRepairModal extends Modal {
         let categoriesResult = { notesFixed: 0, valuesMovied: 0 };
         let cleanupResult = { notesProcessed: 0, linksRemoved: 0 };
 
-        // Only run repairs for selected types
         if (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch')) {
             progress.setText('Cleaning up orphaned edges...');
             edgesResult = healthService.cleanupOrphanedEdges();
@@ -299,8 +396,8 @@ export class VaultHealthRepairModal extends Modal {
             );
         }
 
-        // Re-extract graph data BEFORE re-checking (FIX-13)
-        progress.setText('Verifying result...');
+        // Re-extract graph data before re-checking (FIX-13)
+        progress.setText('Verifying...');
         if (this.plugin.graphExtractor) {
             this.plugin.graphExtractor.extractAll(this.app.vault);
             if (this.plugin.ontologyStore) {
@@ -365,15 +462,15 @@ export class VaultHealthRepairModal extends Modal {
             categories.valuesMovied + cleanup.linksRemoved;
 
         if (totalFixes === 0) {
-            contentEl.createEl('p', { text: 'No repairs needed -- all clean.' });
+            contentEl.createEl('p', { text: 'No repairs needed. All clean.' });
         }
 
-        // Remaining findings (only repairable count for user)
+        // Remaining findings
         const remainingRepairable = newFindings.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
         const totalRemaining = newFindings.length;
         contentEl.createEl('p', {
             cls: 'vault-health-remaining',
-            text: `Remaining: ${totalRemaining} finding(s) (${remainingRepairable} repairable).`,
+            text: `Remaining: ${totalRemaining} finding(s), ${remainingRepairable} repairable.`,
         });
 
         // Buttons
@@ -480,7 +577,6 @@ export class VaultHealthRepairModal extends Modal {
         const leaves = this.app.workspace.getLeavesOfType('obsilo-agent-sidebar');
         if (leaves.length > 0) {
             const view = leaves[0].view as unknown as { updateHealthBadge(count: number, severity: string | null): void };
-            // Badge counts only repairable findings -- non-repairable need manual intervention
             const repairableFindings = findings.filter(f => REPAIRABLE_CHECKS.has(f.check));
             const highCount = repairableFindings.filter(f => f.severity === 'high').length;
             const count = repairableFindings.length;

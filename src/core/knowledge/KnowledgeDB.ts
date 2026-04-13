@@ -131,6 +131,13 @@ CREATE TABLE IF NOT EXISTS dismissed_freshness (
     dismissed_at TEXT NOT NULL,
     UNIQUE(note_path, hint_type)
 );
+
+CREATE TABLE IF NOT EXISTS dismissed_health_findings (
+    check_type TEXT NOT NULL,
+    path TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (check_type, path)
+);
 `;
 
 // ---------------------------------------------------------------------------

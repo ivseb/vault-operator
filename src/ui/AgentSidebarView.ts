@@ -188,11 +188,7 @@ export class AgentSidebarView extends ItemView {
         this.healthBadge = titleRow.createDiv('health-badge');
         this.healthBadge.classList.add('agent-u-hidden');
         this.healthBadge.addEventListener('click', () => {
-            const findings = this.plugin.vaultHealthService?.getFindings() ?? [];
-            if (findings.length === 0) return;
-            // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
-            const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
-            new VaultHealthRepairModal(this.plugin, findings).open();
+            this.openHealthModal();
         });
 
         const headerRight = header.createDiv('agent-header-right');
@@ -972,7 +968,19 @@ export class AgentSidebarView extends ItemView {
         void this.handleSendMessage();
     }
 
-    /** Update the health badge with current findings count and severity. Called from main.ts after health check. */
+    /** Open the vault health repair modal with discuss callback. */
+    private openHealthModal(): void {
+        const findings = this.plugin.vaultHealthService?.getFindings() ?? [];
+        if (findings.length === 0) return;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
+        const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
+        new VaultHealthRepairModal(this.plugin, findings, (prompt) => {
+            this.clearConversation();
+            this.sendProgrammaticMessage(prompt, false);
+        }).open();
+    }
+
+    /** Update the health badge dot. Called from main.ts after health check. */
     updateHealthBadge(findingCount: number, maxSeverity: 'high' | 'medium' | 'low' | null): void {
         if (!this.healthBadge) return;
         if (findingCount === 0 || !maxSeverity) {
@@ -980,10 +988,9 @@ export class AgentSidebarView extends ItemView {
             return;
         }
         this.healthBadge.classList.remove('agent-u-hidden');
-        this.healthBadge.setText(String(findingCount));
+        this.healthBadge.setText('');
         this.healthBadge.className = `health-badge severity-${maxSeverity}`;
-        this.healthBadge.setAttribute('aria-label',
-            `${findingCount} vault health finding(s) -- click to review`);
+        this.healthBadge.setAttribute('aria-label', 'Vault health findings available');
     }
 
     /** Send vault health findings to the chat. Batch mode for many findings, interactive for few. */
@@ -2608,14 +2615,13 @@ export class AgentSidebarView extends ItemView {
                     return;
                 }
                 new Notice('Running vault health check...');
-                const findings = await this.plugin.vaultHealthService.runChecks();
+                await this.plugin.vaultHealthService.runChecks();
+                const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {
-                    new Notice('No issues found -- vault is healthy.');
+                    new Notice('No issues found. Vault is healthy.');
                     return;
                 }
-                // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import for modal
-                const { VaultHealthRepairModal } = require('./modals/VaultHealthRepairModal') as typeof import('./modals/VaultHealthRepairModal');
-                new VaultHealthRepairModal(this.plugin, findings).open();
+                this.openHealthModal();
             });
         });
 

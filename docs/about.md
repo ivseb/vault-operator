@@ -8,15 +8,8 @@ description: Sebastian Hanke, creator of Obsilo Agent, an agentic AI operating l
   <div>
     <h1 style="margin: 0 0 0.25rem;">Sebastian Hanke</h1>
     <p style="margin: 0; color: var(--vp-c-text-2);">Builder | Product thinker | AI toolmaker</p>
-    <p style="margin: 0.75rem 0 0;">
-      <a href="https://www.linkedin.com/in/sebastianhanke/" target="_blank" rel="noopener noreferrer">LinkedIn</a> |
-      <a href="https://github.com/pssah4/obsilo" target="_blank" rel="noopener noreferrer">GitHub</a> |
-      <a href="mailto:***REMOVED***">***REMOVED***</a>
-    </p>
   </div>
 </div>
-
----
 
 ## About me
 
