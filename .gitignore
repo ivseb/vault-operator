@@ -51,6 +51,7 @@ jspm_packages/
 # Build artifacts
 dist/
 build/
+src/_generated/
 
 # Environment variables
 .env

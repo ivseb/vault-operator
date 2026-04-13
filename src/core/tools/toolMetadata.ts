@@ -273,15 +273,6 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
-    // ── Visual Intelligence ──────────────────────────────────────────────
-    render_presentation: {
-        group: 'skill', label: 'Render Presentation', icon: 'eye',
-        signature: 'render_presentation(file, slides?)',
-        description: 'Render a PPTX to images via LibreOffice for visual quality inspection. Returns slide images.',
-        example: 'render_presentation("Presentations/quarterly.pptx", [1, 3, 5])',
-        whenToUse: 'After creating a presentation with create_pptx -- visually verify text fits, layout is correct.',
-        commonMistakes: 'Forgetting to enable Visual Intelligence in Settings or not having LibreOffice installed.',
-    },
     check_presentation_quality: {
         group: 'skill', label: 'Quality Check', icon: 'check-circle',
         signature: 'check_presentation_quality(file)',

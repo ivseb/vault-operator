@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS edges (
     target_path TEXT NOT NULL,
     link_type TEXT NOT NULL,
     property_name TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
     UNIQUE(source_path, target_path, link_type, property_name)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
@@ -38,6 +39,16 @@ CREATE TABLE IF NOT EXISTS tags (
     UNIQUE(path, tag)
 );
 CREATE INDEX IF NOT EXISTS idx_tags_tag ON tags(tag);
+
+CREATE TABLE IF NOT EXISTS implicit_edges (
+    source_path TEXT NOT NULL,
+    target_path TEXT NOT NULL,
+    similarity REAL NOT NULL,
+    computed_at TEXT NOT NULL,
+    UNIQUE(source_path, target_path)
+);
+CREATE INDEX IF NOT EXISTS idx_implicit_source ON implicit_edges(source_path);
+CREATE INDEX IF NOT EXISTS idx_implicit_target ON implicit_edges(target_path);
 `;
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>>;
@@ -280,6 +291,108 @@ describe('GraphStore', () => {
             const { store } = await createGraphStore();
             const neighbors = store.getNeighbors('isolated.md', 1, 10);
             expect(neighbors.length).toBe(0);
+        });
+
+        it('should include confidence in results (default 1.0)', async () => {
+            const { store } = await createGraphStore();
+            store.replaceEdgesForPath('a.md', [
+                { targetPath: 'b.md', linkType: 'body', propertyName: null },
+            ]);
+
+            const neighbors = store.getNeighbors('a.md', 1, 10);
+            expect(neighbors[0].confidence).toBe(1.0);
+        });
+
+        it('should include explicit confidence when set', async () => {
+            const { store } = await createGraphStore();
+            store.replaceEdgesForPath('a.md', [
+                { targetPath: 'b.md', linkType: 'body', propertyName: null, confidence: 0.8 },
+            ]);
+
+            const neighbors = store.getNeighbors('a.md', 1, 10);
+            expect(neighbors[0].confidence).toBe(0.8);
+        });
+    });
+
+    describe('getNeighborsWithImplicit', () => {
+        it('should find explicit neighbors', async () => {
+            const { store } = await createGraphStore();
+            store.replaceEdgesForPath('a.md', [
+                { targetPath: 'b.md', linkType: 'body', propertyName: null },
+            ]);
+
+            const neighbors = store.getNeighborsWithImplicit('a.md', 1, 10);
+            expect(neighbors.length).toBe(1);
+            expect(neighbors[0].path).toBe('b.md');
+            expect(neighbors[0].confidence).toBe(1.0);
+            expect(neighbors[0].linkType).toBe('body');
+        });
+
+        it('should find implicit neighbors from implicit_edges', async () => {
+            const { store, db } = await createGraphStore();
+            // No explicit edges, only implicit
+            db.run(
+                'INSERT INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
+                ['a.md', 'b.md', 0.85, '2026-04-12'],
+            );
+
+            const neighbors = store.getNeighborsWithImplicit('a.md', 1, 10);
+            expect(neighbors.length).toBe(1);
+            expect(neighbors[0].path).toBe('b.md');
+            expect(neighbors[0].confidence).toBe(0.85);
+            expect(neighbors[0].linkType).toBe('implicit');
+            expect(neighbors[0].propertyName).toBeNull();
+        });
+
+        it('should union explicit and implicit neighbors', async () => {
+            const { store, db } = await createGraphStore();
+            store.replaceEdgesForPath('a.md', [
+                { targetPath: 'b.md', linkType: 'body', propertyName: null },
+            ]);
+            db.run(
+                'INSERT INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
+                ['a.md', 'c.md', 0.72, '2026-04-12'],
+            );
+
+            const neighbors = store.getNeighborsWithImplicit('a.md', 1, 10);
+            expect(neighbors.length).toBe(2);
+
+            const explicit = neighbors.find(n => n.path === 'b.md');
+            const implicit = neighbors.find(n => n.path === 'c.md');
+            expect(explicit?.confidence).toBe(1.0);
+            expect(explicit?.linkType).toBe('body');
+            expect(implicit?.confidence).toBe(0.72);
+            expect(implicit?.linkType).toBe('implicit');
+        });
+
+        it('should deduplicate: explicit wins over implicit for same target', async () => {
+            const { store, db } = await createGraphStore();
+            // b.md reachable via explicit AND implicit
+            store.replaceEdgesForPath('a.md', [
+                { targetPath: 'b.md', linkType: 'body', propertyName: null },
+            ]);
+            db.run(
+                'INSERT INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
+                ['a.md', 'b.md', 0.9, '2026-04-12'],
+            );
+
+            const neighbors = store.getNeighborsWithImplicit('a.md', 1, 10);
+            // SQL UNION deduplicates -- only one b.md entry
+            expect(neighbors.filter(n => n.path === 'b.md').length).toBe(1);
+        });
+
+        it('should find implicit neighbors bidirectionally', async () => {
+            const { store, db } = await createGraphStore();
+            // b.md has implicit edge TO a.md (a is target, searching from a)
+            db.run(
+                'INSERT INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
+                ['b.md', 'a.md', 0.77, '2026-04-12'],
+            );
+
+            const neighbors = store.getNeighborsWithImplicit('a.md', 1, 10);
+            expect(neighbors.length).toBe(1);
+            expect(neighbors[0].path).toBe('b.md');
+            expect(neighbors[0].confidence).toBe(0.77);
         });
     });
 });

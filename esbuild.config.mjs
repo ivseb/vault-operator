@@ -15,6 +15,67 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === "production");
 
+/**
+ * FIX-19: Generate embedded assets JSON for BRAT self-provisioning.
+ * Scans the same sources as vault-deploy: workers, bundled-skills, templates.
+ * Assets are extracted at runtime by AssetProvisioner if missing from plugin dir.
+ */
+function generateEmbeddedAssets() {
+    const assets = {};
+    let workerCount = 0, skillCount = 0, templateCount = 0;
+
+    // Workers (built by previous esbuild steps)
+    for (const worker of ["sandbox-worker.js", "mcp-server-worker.js"]) {
+        if (existsSync(worker)) {
+            assets[worker] = readFileSync(worker, "utf-8");
+            workerCount++;
+        }
+    }
+
+    // Bundled skills (scan directory -- new skills are picked up automatically)
+    const bundledSkillsDir = join(__dirname, "bundled-skills");
+    if (existsSync(bundledSkillsDir)) {
+        for (const skillDir of readdirSync(bundledSkillsDir)) {
+            const srcDir = join(bundledSkillsDir, skillDir);
+            if (!statSync(srcDir).isDirectory()) continue;
+            for (const file of readdirSync(srcDir)) {
+                if (file.startsWith('.')) continue; // AUDIT-010 L-1: skip dotfiles (.DS_Store etc.)
+                const filePath = join(srcDir, file);
+                if (statSync(filePath).isDirectory()) continue;
+                assets[`skills/${skillDir}/${file}`] = readFileSync(filePath, "utf-8");
+                skillCount++;
+            }
+        }
+    }
+
+    // PPTX templates (binary -- base64 encoded with prefix)
+    const templatesSrc = join(__dirname, "assets/templates");
+    if (existsSync(templatesSrc)) {
+        for (const f of readdirSync(templatesSrc).filter(f => f.endsWith(".pptx"))) {
+            assets[`templates/${f}`] = "base64:" + readFileSync(join(templatesSrc, f)).toString("base64");
+            templateCount++;
+        }
+    }
+
+    // Validate: workers are mandatory
+    if (workerCount === 0) {
+        throw new Error("[embed-assets] FATAL: No worker files found. Build workers before main.");
+    }
+
+    // Write generated file
+    const outDir = join(__dirname, "src/_generated");
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+    const json = JSON.stringify(assets);
+
+    // Safety: abort if generated file is suspiciously large (>5MB)
+    if (json.length > 5 * 1024 * 1024) {
+        throw new Error(`[embed-assets] FATAL: Generated assets too large (${(json.length / 1024).toFixed(0)}KB). Check for unexpected files.`);
+    }
+
+    writeFileSync(join(outDir, "embedded-assets.json"), json);
+    console.log(`[embed-assets] Embedded ${workerCount} workers, ${skillCount} skills, ${templateCount} templates (${(json.length / 1024).toFixed(0)}KB)`);
+}
+
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
 // Set PLUGIN_DIR in your .env or shell environment
 // Load .env file if it exists (for PLUGIN_DIR with iCloud paths containing spaces)
@@ -276,9 +337,13 @@ if (prod) {
     // Workers first — vault-deploy (main's onEnd) copies worker files
     await workerContext.rebuild();
     await mcpWorkerContext.rebuild();
+    // FIX-19: Embed runtime assets into main.js for BRAT self-provisioning
+    generateEmbeddedAssets();
     await context.rebuild();
     process.exit(0);
 } else {
+    // FIX-19: Generate initial embedded assets for watch mode (workers may not exist yet)
+    try { generateEmbeddedAssets(); } catch { /* workers not yet built — will be generated on first rebuild */ }
     await context.watch();
     await workerContext.watch();
     await mcpWorkerContext.watch();

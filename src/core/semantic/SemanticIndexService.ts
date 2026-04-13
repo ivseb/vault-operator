@@ -97,6 +97,8 @@ export class SemanticIndexService {
     lastBuildResult: BuildResult | null = null;
 
     // Background enrichment state (Pass 2)
+    /** Per-chunk freshness votes collected during enrichment (FEATURE-2006). */
+    private freshnessVotes: Array<'volatile' | 'evolving' | 'stable'> = [];
     private enrichmentRunning = false;
     private enrichmentCancelled = false;
     private enrichmentAbortController: AbortController | null = null;
@@ -872,6 +874,12 @@ export class SemanticIndexService {
                         await new Promise<void>(r => setTimeout(r, 0));
                     }
 
+                    // Store note-level freshness class from per-chunk votes (FEATURE-2006)
+                    if (this.freshnessVotes.length > 0) {
+                        this.storeFreshnessClass(filePath, this.freshnessVotes);
+                        this.freshnessVotes = [];
+                    }
+
                     // Pause between files to avoid rate limiting
                     await this.sleep(100);
                 }
@@ -933,13 +941,23 @@ export class SemanticIndexService {
                 const prompt =
                     `<document title="${title}">\n${headings ? `Headings:\n${headings}\n\n` : ''}${docContext}\n</document>\n\n` +
                     `<chunk>\n${chunk.slice(0, 800)}\n</chunk>\n\n` +
-                    `Give a short (2-3 sentence) context that situates this chunk within the document. ` +
-                    `Mention the document topic and what specific aspect this chunk covers. ` +
-                    `Answer only with the context, no preamble.`;
+                    `First: Is this content time-sensitive? Reply <freshness>volatile</freshness> (changes rapidly, e.g. regulations, tech trends), ` +
+                    `<freshness>evolving</freshness> (changes occasionally, e.g. research), or <freshness>stable</freshness> (rarely changes, e.g. history, math). ` +
+                    `Then give a short (2-3 sentence) context that situates this chunk within the document. ` +
+                    `Mention the document topic and what specific aspect this chunk covers.`;
 
-                const contextPrefix = await this.generateContextPrefix(prompt);
-                if (contextPrefix) {
-                    enriched.push(`${contextPrefix}\n\n${chunk}`);
+                const rawPrefix = await this.generateContextPrefix(prompt);
+                if (rawPrefix) {
+                    // Extract freshness tag if present (FEATURE-2006)
+                    const freshnessMatch = rawPrefix.match(/^<freshness>(volatile|evolving|stable)<\/freshness>\s*/);
+                    const contextPrefix = freshnessMatch
+                        ? rawPrefix.slice(freshnessMatch[0].length).trim()
+                        : rawPrefix;
+                    // Collect freshness classification per chunk
+                    if (freshnessMatch) {
+                        this.freshnessVotes.push(freshnessMatch[1] as 'volatile' | 'evolving' | 'stable');
+                    }
+                    enriched.push(contextPrefix ? `${contextPrefix}\n\n${chunk}` : chunk);
                 } else {
                     enriched.push(chunk);
                 }
@@ -949,6 +967,28 @@ export class SemanticIndexService {
             }
         }
         return enriched;
+    }
+
+    /**
+     * Store the note-level freshness class from per-chunk majority vote.
+     * FEATURE-2006: zero additional cost -- piggybacks on enrichment.
+     */
+    private storeFreshnessClass(filePath: string, votes: Array<'volatile' | 'evolving' | 'stable'>): void {
+        if (votes.length === 0) return;
+        try {
+            const db = this.knowledgeDB.getDB();
+            // Majority vote
+            const counts = { volatile: 0, evolving: 0, stable: 0 };
+            for (const v of votes) counts[v]++;
+            const winner = (Object.entries(counts) as Array<[string, number]>)
+                .sort((a, b) => b[1] - a[1])[0][0];
+            db.run(
+                'INSERT OR REPLACE INTO note_freshness (path, freshness_class, temporal_marker_count, classified_at) VALUES (?, ?, 0, ?)',
+                [filePath, winner, new Date().toISOString()],
+            );
+        } catch {
+            // Non-fatal: freshness is best-effort
+        }
     }
 
     /**

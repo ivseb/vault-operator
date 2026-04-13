@@ -23,7 +23,8 @@ export type HealthCheckType =
     | 'broken_links'
     | 'weak_clusters'
     | 'inconsistent_tags'
-    | 'category_mismatch';
+    | 'category_mismatch'
+    | 'god_nodes';
 
 export interface HealthFinding {
     check: HealthCheckType;
@@ -42,6 +43,8 @@ export class VaultHealthService {
     private findings: HealthFinding[] = [];
     private running = false;
     private cancelled = false;
+    /** Incoming-connection threshold above which a note is flagged as god node (FEATURE-2003). */
+    godNodeThreshold = 50;
     /** Callback to notify UI of updated findings (e.g. badge refresh). */
     onFindingsUpdated: ((findings: HealthFinding[]) => void) | null = null;
 
@@ -65,7 +68,7 @@ export class VaultHealthService {
 
         try {
             const db = this.getDB();
-            const checksToRun = checks ?? ['orphans', 'missing_backlinks', 'broken_links', 'weak_clusters', 'inconsistent_tags', 'category_mismatch'];
+            const checksToRun = checks ?? ['orphans', 'missing_backlinks', 'broken_links', 'weak_clusters', 'inconsistent_tags', 'category_mismatch', 'god_nodes'];
 
             for (const check of checksToRun) {
                 if (this.cancelled) break;
@@ -76,6 +79,7 @@ export class VaultHealthService {
                     case 'weak_clusters': this.checkWeakClusters(db); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
                     case 'category_mismatch': this.checkCategoryMismatch(db); break;
+                    case 'god_nodes': this.checkGodNodes(db); break;
                 }
                 // Yield to UI thread between checks
                 await new Promise<void>(r => setTimeout(r, 0));
@@ -375,6 +379,37 @@ export class VaultHealthService {
                 severity: 'medium',
                 paths: [target, ...sources],
                 description: `[[${target}]] is referenced from ${sources.length} note(s) but does not exist in the vault`,
+            });
+        }
+    }
+
+    /**
+     * Check for god nodes: notes with excessive incoming connections.
+     * Analogous to "god classes" in software -- overloaded hubs reduce
+     * signal-to-noise in the graph. FEATURE-2003, EPIC-020.
+     */
+    private checkGodNodes(db: SqlJsDatabase): void {
+        const threshold = this.godNodeThreshold ?? 50;
+        const result = db.exec(
+            `SELECT target_path, COUNT(*) AS in_degree
+             FROM edges
+             GROUP BY target_path
+             HAVING COUNT(*) > ?
+             ORDER BY in_degree DESC
+             LIMIT 20`,
+            [threshold],
+        );
+        if (result.length === 0 || result[0].values.length === 0) return;
+
+        for (const row of result[0].values) {
+            const path = row[0] as string;
+            const degree = row[1] as number;
+
+            this.findings.push({
+                check: 'god_nodes',
+                severity: 'medium',
+                paths: [path],
+                description: `[[${path}]] has ${degree} incoming connections (threshold: ${threshold}) -- consider splitting into sub-topics`,
             });
         }
     }

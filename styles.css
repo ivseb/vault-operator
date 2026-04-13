@@ -63,18 +63,9 @@
     opacity: 0.85;
 }
 
-/* Vault Health Repair Modal (FEATURE-1901) */
+/* Vault Health Repair Modal (FEATURE-1901, FIX-15) */
 .vault-health-modal {
-    max-width: 500px;
-}
-.vault-health-findings-list {
-    list-style: none;
-    padding: 0;
-    margin: 12px 0;
-}
-.vault-health-findings-list li {
-    padding: 4px 0;
-    font-size: 13px;
+    max-width: 600px;
 }
 .vault-health-severity {
     display: inline-block;
@@ -98,11 +89,63 @@
     background: var(--text-faint);
     color: var(--background-primary);
 }
-.vault-health-repairable {
+/* Collapsible sections */
+.vault-health-section {
+    margin: 8px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+}
+.vault-health-section-header {
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+}
+.vault-health-section-header:hover {
+    background: var(--background-modifier-hover);
+}
+.vault-health-section-content {
+    padding: 4px 12px 12px;
+}
+.vault-health-tag-info {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-style: italic;
+}
+/* Individual finding rows */
+.vault-health-finding-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.vault-health-finding-row input[type="checkbox"] {
+    flex-shrink: 0;
+}
+.vault-health-note-link {
+    color: var(--text-accent);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+}
+.vault-health-note-link:hover {
+    color: var(--text-accent-hover);
+}
+.vault-health-path-count {
+    color: var(--text-muted);
+    font-size: 11px;
+}
+.vault-health-fix-preview {
+    padding: 2px 0 6px 28px;
     font-size: 12px;
     color: var(--text-muted);
-    margin-top: 8px;
 }
+.vault-health-discuss-btn {
+    margin: 8px 0 4px;
+    font-size: 12px;
+}
+/* Buttons + results */
 .vault-health-btn-row {
     display: flex;
     gap: 8px;
@@ -2161,6 +2204,33 @@
     line-height: 1.5;
 }
 
+.followup-item-row {
+    display: flex;
+    gap: 4px;
+    align-items: stretch;
+    margin-bottom: 4px;
+}
+.followup-append-btn {
+    flex-shrink: 0;
+    width: 28px;
+    min-width: 28px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.followup-append-btn:hover {
+    border-color: var(--interactive-accent);
+    color: var(--interactive-accent);
+    background: var(--background-modifier-hover);
+}
 .followup-item {
     display: block;
     width: 100%;

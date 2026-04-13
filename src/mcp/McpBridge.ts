@@ -23,6 +23,14 @@ const DEFAULT_PORT = 27182;
 type TunnelUrlCallback = (url: string | null) => void;
 
 // Tool definitions exposed to Claude
+// Agent-internal tools that don't make sense for external MCP clients
+export const AGENT_INTERNAL_TOOLS = new Set([
+    'ask_followup_question', 'attempt_completion', 'switch_mode', 'new_task',
+    'update_todo_list', 'execute_recipe', 'manage_skill', 'manage_mcp_server',
+    'manage_source', 'resolve_capability_gap', 'configure_model', 'read_agent_logs',
+    'update_settings', 'enable_plugin', 'call_plugin_api',
+]);
+
 const TOOLS: McpToolDefinition[] = [
     {
         name: 'get_context',
@@ -78,7 +86,7 @@ const TOOLS: McpToolDefinition[] = [
     },
     {
         name: 'execute_vault_op',
-        description: 'Execute specialized vault operations: generate_canvas, update_frontmatter, create_base, search_by_tag, get_daily_note, execute_command, get_linked_notes.',
+        description: 'Execute any vault operation by name. Available operations are listed dynamically at runtime.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -484,6 +492,14 @@ export class McpBridge {
             let description = t.description;
             if (t.name === 'write_vault') {
                 description += folderList + defaultFolder + rulesHint;
+            }
+            if (t.name === 'execute_vault_op') {
+                const available = this.plugin.toolRegistry.getAllTools()
+                    .map(tool => tool.name)
+                    .filter(name => !AGENT_INTERNAL_TOOLS.has(name))
+                    .sort()
+                    .join(', ');
+                description = `Execute any vault operation by name. Available: ${available}.`;
             }
             if (t.name === 'search_vault') {
                 description += `\n\nVault has ${vault.getMarkdownFiles().length} notes. Semantic index: ${this.plugin.semanticIndex?.isIndexed ? 'built' : 'not built'}.`;
