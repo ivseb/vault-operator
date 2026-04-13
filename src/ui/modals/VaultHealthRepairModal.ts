@@ -160,6 +160,8 @@ export class VaultHealthRepairModal extends Modal {
                 setIcon(skipBtn, 'eye-off');
                 skipBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
+                    ev.preventDefault();
+                    console.debug('[VaultHealth] Dismiss clicked:', finding.check, finding.paths[0]);
                     this.dismissFinding(finding, globalIdx, row, content, details, check, checkFindings.length);
                 });
 
