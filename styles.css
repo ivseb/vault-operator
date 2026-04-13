@@ -166,6 +166,26 @@
     font-size: 12px;
     color: var(--text-muted);
 }
+.vault-health-search-row {
+    margin-bottom: 8px;
+}
+.vault-health-search-input {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+    font-size: 13px;
+}
+.vault-health-dismissed-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+.vault-health-empty {
+    color: var(--text-muted);
+    font-size: 12px;
+    font-style: italic;
+}
 /* Buttons + results */
 .vault-health-btn-row {
     display: flex;

@@ -176,12 +176,33 @@ export class VaultHealthService {
         this.knowledgeDB.markDirty();
     }
 
+    /** Restore a single dismissed finding. */
+    restoreDismissedFinding(checkType: string, path: string): void {
+        if (!this.knowledgeDB.isOpen()) return;
+        const db = this.getDB();
+        db.run('DELETE FROM dismissed_health_findings WHERE check_type = ? AND path = ?', [checkType, path]);
+        this.knowledgeDB.markDirty();
+    }
+
     /** Number of dismissed findings. */
     getDismissedCount(): number {
         if (!this.knowledgeDB.isOpen()) return 0;
         const db = this.getDB();
         const result = db.exec('SELECT COUNT(*) FROM dismissed_health_findings');
         return result.length > 0 ? Number(result[0].values[0][0]) : 0;
+    }
+
+    /** Get all dismissed findings. */
+    getDismissedFindings(): Array<{ checkType: string; path: string; dismissedAt: string }> {
+        if (!this.knowledgeDB.isOpen()) return [];
+        const db = this.getDB();
+        const result = db.exec('SELECT check_type, path, dismissed_at FROM dismissed_health_findings ORDER BY dismissed_at DESC');
+        if (result.length === 0) return [];
+        return result[0].values.map(row => ({
+            checkType: row[0] as string,
+            path: row[1] as string,
+            dismissedAt: row[2] as string,
+        }));
     }
 
     /**

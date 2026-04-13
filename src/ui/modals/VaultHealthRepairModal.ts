@@ -194,17 +194,15 @@ export class VaultHealthRepairModal extends Modal {
             });
         }
 
-        // Reset dismissed findings button
+        // Show dismissed findings button
         const dismissedCount = this.plugin.vaultHealthService?.getDismissedCount() ?? 0;
         if (dismissedCount > 0) {
-            const resetBtn = btnRow.createEl('button', {
-                text: `Reset ${dismissedCount} dismissed`,
+            const dismissedBtn = btnRow.createEl('button', {
+                text: `${dismissedCount} dismissed`,
                 cls: 'vault-health-reset-btn',
             });
-            resetBtn.addEventListener('click', () => {
-                this.plugin.vaultHealthService?.restoreDismissed();
-                new Notice('Dismissed findings restored. Run health check again to see them.');
-                resetBtn.remove();
+            dismissedBtn.addEventListener('click', () => {
+                this.showDismissedList(contentEl);
             });
         }
 
@@ -265,6 +263,86 @@ export class VaultHealthRepairModal extends Modal {
         // Update badge
         const allFindings = this.plugin.vaultHealthService?.getFindings() ?? [];
         this.updateBadge(allFindings);
+    }
+
+    // -----------------------------------------------------------------------
+    // Dismissed findings list
+    // -----------------------------------------------------------------------
+
+    private showDismissedList(containerEl: HTMLElement): void {
+        containerEl.empty();
+        containerEl.createEl('h3', { text: 'Dismissed findings' });
+
+        const dismissed = this.plugin.vaultHealthService?.getDismissedFindings() ?? [];
+        if (dismissed.length === 0) {
+            containerEl.createEl('p', { text: 'No dismissed findings.' });
+            const backBtn = containerEl.createEl('button', { text: 'Back', cls: 'mod-cta' });
+            backBtn.addEventListener('click', () => this.showFindings());
+            return;
+        }
+
+        // Search input
+        const searchRow = containerEl.createDiv('vault-health-search-row');
+        const searchInput = searchRow.createEl('input', {
+            type: 'text',
+            placeholder: 'Filter...',
+            cls: 'vault-health-search-input',
+        });
+
+        const listEl = containerEl.createDiv('vault-health-dismissed-list');
+
+        const renderList = (filter: string) => {
+            listEl.empty();
+            const lowerFilter = filter.toLowerCase();
+            const filtered = filter
+                ? dismissed.filter(d => d.path.toLowerCase().includes(lowerFilter) || d.checkType.toLowerCase().includes(lowerFilter))
+                : dismissed;
+
+            for (const d of filtered) {
+                const row = listEl.createDiv('vault-health-finding-row');
+
+                const label = CHECK_LABELS[d.checkType] ?? d.checkType;
+                row.createSpan({ cls: `vault-health-severity severity-medium`, text: label });
+                row.createSpan({ cls: 'vault-health-note-link', text: ` ${this.formatPath(d.path)}` });
+
+                const restoreBtn = row.createEl('button', {
+                    cls: 'vault-health-icon-btn',
+                    attr: { 'aria-label': 'Restore this finding' },
+                });
+                setIcon(restoreBtn, 'eye');
+                restoreBtn.style.setProperty('opacity', '0.6');
+                restoreBtn.addEventListener('click', () => {
+                    this.plugin.vaultHealthService?.restoreDismissedFinding(d.checkType, d.path);
+                    row.remove();
+                    const remaining = listEl.querySelectorAll('.vault-health-finding-row').length;
+                    if (remaining === 0) {
+                        listEl.createEl('p', { text: 'All restored. Run health check to see them.' });
+                    }
+                });
+            }
+
+            if (filtered.length === 0) {
+                listEl.createEl('p', { cls: 'vault-health-empty', text: 'No matches.' });
+            }
+        };
+
+        renderList('');
+        searchInput.addEventListener('input', () => renderList(searchInput.value));
+
+        // Bottom buttons
+        const btnRow = containerEl.createDiv('vault-health-btn-row');
+
+        const restoreAllBtn = btnRow.createEl('button', {
+            text: 'Restore all',
+        });
+        restoreAllBtn.addEventListener('click', () => {
+            this.plugin.vaultHealthService?.restoreDismissed();
+            new Notice('All dismissed findings restored. Run health check to see them.');
+            this.showFindings();
+        });
+
+        const backBtn = btnRow.createEl('button', { text: 'Back', cls: 'mod-cta' });
+        backBtn.addEventListener('click', () => this.showFindings());
     }
 
     // -----------------------------------------------------------------------
