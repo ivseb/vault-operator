@@ -5,7 +5,7 @@ description: How tools work, how they're registered and grouped, and what happen
 
 # Tool system
 
-A tool is a function the LLM can call. Each tool has a name, a description, a JSON schema for its inputs, and an `execute` method. That is the entire abstraction.
+A tool is a function the LLM can call. Each tool has a name, a description, a JSON schema for its inputs, and an `execute` method. That's the entire abstraction.
 
 The model never touches the vault directly. It describes _what_ it wants to do by emitting a tool call, and the tool system decides whether and how to carry it out.
 
@@ -32,7 +32,7 @@ abstract class BaseTool<TName extends ToolName = ToolName> {
 
 `ToolRegistry` (`src/core/tools/ToolRegistry.ts`) is a `Map<ToolName, BaseTool>`. Its constructor takes the plugin instance and optional service references (MCP client, sandbox executor, skill loader) and registers all internal tools at startup.
 
-The registry has one job beyond storage: `getToolDefinitions(mode)` filters tools by the active mode's `toolGroups` setting. A mode that only enables the `read` group won't expose write tools to the LLM. The model cannot call what it cannot see.
+The registry has one job beyond storage: `getToolDefinitions(mode)` filters tools by the active mode's `toolGroups` setting. A mode that only enables the `read` group won't expose write tools to the LLM. The model can't call what it can't see.
 
 ## Tool groups
 
@@ -52,7 +52,7 @@ When you create a [custom mode](/concepts/mode-system), you pick which groups it
 
 ## Execution pipeline
 
-Every tool call flows through `ToolExecutionPipeline` (`src/core/tool-execution/ToolExecutionPipeline.ts`). Here is the path from invocation to result:
+Every tool call flows through `ToolExecutionPipeline` (`src/core/tool-execution/ToolExecutionPipeline.ts`). The path from invocation to result:
 
 ```mermaid
 flowchart LR
@@ -79,7 +79,7 @@ Read-only calls skip steps 3 and 4 entirely.
 
 When the model emits multiple tool calls in a single response, read-safe tools run concurrently via `Promise.all()`. Write tools and control-flow tools always run sequentially. A single iteration can resolve four `read_file` calls in parallel instead of waiting for each one.
 
-The distinction is simple: if `isWriteOperation` is false and the tool is in the `PARALLEL_SAFE` set, it runs concurrently. Everything else queues.
+The rule is simple: if `isWriteOperation` is false and the tool is in the `PARALLEL_SAFE` set, it runs concurrently. Everything else queues.
 
 ## Dynamic tools
 
@@ -91,6 +91,6 @@ Dynamic tools go through the same `ToolExecutionPipeline` as built-in tools. A d
 
 `ToolRepetitionDetector` (`src/core/tool-execution/ToolRepetitionDetector.ts`) catches the agent when it gets stuck calling the same tool with the same arguments in a loop.
 
-It maintains a sliding window of the last 15 calls. If an identical `tool:input` combination appears 3 or more times, the call is blocked with a recoverable error. For search tools, it also checks semantic similarity. Queries with a Jaccard overlap above 0.5 that appear 3+ times are blocked too.
+It maintains a sliding window of the last 15 calls. If an identical `tool:input` combination appears 3 or more times, the call is blocked with a recoverable error. For search tools, it also checks semantic similarity: queries with a Jaccard overlap above 0.5 that appear 3+ times are blocked too.
 
-The error is recoverable on purpose. The agent sees the message and can try a different approach. The `consecutiveMistakeLimit` in `AgentTask` is the ultimate safety net if the agent keeps failing anyway.
+The error is recoverable on purpose. The agent sees the message and can try a different approach. `consecutiveMistakeLimit` in `AgentTask` is the final safety net if the agent keeps failing anyway.

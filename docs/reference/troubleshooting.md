@@ -5,7 +5,7 @@ description: Common issues and how to fix them.
 
 # Troubleshooting
 
-Solutions for the most common Obsilo issues. If your problem isn't listed here, check the **Debug** tab in settings or ask in the community forum.
+Fixes for the most common Obsilo issues. If your problem isn't here, check the **Debug** tab in settings or ask in the community forum.
 
 ## Model connection issues
 
@@ -17,7 +17,7 @@ Symptom: "Connection failed" or "API key invalid" when testing a model.
 | Expired key | Some providers expire keys after inactivity. Generate a new one. |
 | Wrong base URL | For Azure and custom endpoints, verify the full URL including `/v1` if required. |
 | Rate limited | Wait a few minutes and try again. Consider setting a rate limit in **Settings > Loop**. |
-| Firewall or proxy | Obsidian uses Electron's network stack. Ensure your firewall allows outbound HTTPS. |
+| Firewall or proxy | Obsidian uses Electron's network stack. Check that your firewall allows outbound HTTPS. |
 
 :::tip Test button
 Always use the **Test connection** button after adding or changing a model. It verifies the key, endpoint, and model name in one step.
@@ -48,7 +48,7 @@ Symptom: The agent keeps calling tools repeatedly without making progress, or hi
 | Context overflow | Enable **context condensing** in **Settings > Loop**. Lower the condensing threshold if you see 400-errors. |
 
 :::info Emergency stop
-Click the **Stop** button in the chat toolbar at any time to immediately halt the agent. Any changes already made can be undone via the checkpoint system.
+Click the **Stop** button in the chat toolbar at any time to halt the agent. You can undo any changes already made via the checkpoint system.
 :::
 
 ## Permission issues
@@ -109,5 +109,5 @@ Symptom: The agent doesn't remember things from previous conversations.
 | `Checkpoint failed` | Could not create a file snapshot before editing. | Check disk space. Increase snapshot timeout in Settings > Vault. |
 
 :::tip Debug tab
-The **Debug** tab in settings shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for all providers. Start here when troubleshooting unexpected behavior.
+The **Debug** tab in settings shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for each provider. Start here when something behaves unexpectedly.
 :::

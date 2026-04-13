@@ -5,22 +5,22 @@ description: Sub-tasks, task extraction, and how Obsilo delegates work to child 
 
 # Multi-agent & tasks
 
-For complex work, a single agent conversation can get unwieldy. Obsilo handles this with sub-agents: child agents that take on specific parts of a larger task independently. It also extracts actionable tasks from conversations and turns them into trackable notes.
+For complex work, a single agent conversation can get unwieldy. Obsilo handles this with sub-agents: child agents that take on specific parts of a larger task on their own. It also pulls actionable tasks out of conversations and turns them into trackable notes.
 
 ## What are sub-agents?
 
-A sub-agent is a separate agent instance spawned by the main agent. It gets its own conversation, its own mode, and its own tool access. The parent agent delegates a specific job, waits for the result, and continues with its own work.
+A sub-agent is a separate agent instance spawned by the main agent. It gets its own conversation, its own mode, and its own tool access. The parent hands off a specific job, waits for the result, then carries on.
 
 ### When sub-agents help
 
-- Research fan-out: search multiple topics in parallel instead of sequentially
+- Research fan-out: search multiple topics in parallel instead of one after the other
 - Divide and conquer: break a large task into independent pieces
 - Mode isolation: run a read-only analysis in Ask mode while the parent works in Agent mode
-- Long tasks: keep the main conversation focused while a sub-agent handles a side task
+- Long tasks: keep the main conversation focused while a sub-agent handles a side errand
 
 ## How `new_task` works
 
-The agent spawns sub-agents using the `new_task` tool. You don't call this tool directly. The agent decides when delegation makes sense.
+The agent spawns sub-agents through the `new_task` tool. You don't call this tool directly. The agent decides when delegation makes sense.
 
 ### What the agent specifies
 
@@ -43,10 +43,10 @@ Main Agent (level 0)
 
 ### Parallel execution
 
-Read-safe tools (searching, reading files, semantic search) run in parallel using `Promise.all`. A sub-agent researching three topics searches for all three simultaneously, not one after another.
+Read-safe tools (searching, reading files, semantic search) run in parallel via `Promise.all`. A sub-agent researching three topics searches all three at once, not one after another.
 
 :::tip You don't need to manage this
-Sub-agent orchestration is automatic. Describe your goal and the agent decides whether to delegate. For example: *"Research these 5 companies and create a comparison table"* might spawn sub-agents for each company.
+Sub-agent orchestration is automatic. Describe your goal and the agent decides whether to delegate. For example, *"Research these 5 companies and create a comparison table"* might spawn one sub-agent per company.
 :::
 
 ## Practical examples
@@ -72,13 +72,13 @@ What happens:
 
 ## Task extraction
 
-Obsilo watches for actionable items in agent responses. When the agent produces a list with unchecked checkboxes (`- [ ]`), the TaskExtractor detects them automatically.
+Obsilo watches for actionable items in agent responses. When the agent produces a list with unchecked checkboxes (`- [ ]`), the TaskExtractor picks them up automatically.
 
 ### How it works
 
-1. The agent responds with tasks in its message (e.g., a project plan with action items)
+1. The agent responds with tasks in its message (a project plan, action items)
 2. Obsilo detects the `- [ ]` items
-3. A TaskSelectionModal appears, letting you pick which tasks to save
+3. A TaskSelectionModal pops up so you can pick which tasks to save
 4. Selected tasks become individual notes in your vault
 
 ### Task notes
@@ -99,7 +99,7 @@ Compare actual spending against planned budget for each department.
 Highlight any variance above 10%.
 ```
 
-This works with your existing task management: Dataview queries, kanban boards, or any plugin that reads frontmatter.
+This plays nicely with your existing task management: Dataview queries, kanban boards, or any plugin that reads frontmatter.
 
 :::info Not just agent tasks
 Task extraction works on any checklist the agent produces: project plans, follow-ups from meeting notes, research next steps. If the agent writes `- [ ]` items, you can capture them.
@@ -107,11 +107,11 @@ Task extraction works on any checklist the agent produces: project plans, follow
 
 ## Tips for multi-agent work
 
-1. Be ambitious. Multi-step requests like "research, compare, and summarize" are exactly what sub-agents handle well.
+1. Be ambitious. Multi-step requests like "research, compare, and summarize" are exactly what sub-agents are good at.
 2. Provide scope. Mention specific folders, tags, or file names so sub-agents know where to look.
 3. Check the activity block. You can see each sub-agent's tool calls in the parent's activity view.
 4. Use task extraction. When the agent gives you a plan, let it create task notes so nothing falls through the cracks.
-5. Trust the depth limit. Two levels of sub-agents handle most real-world scenarios. If you need more, break the work into separate conversations.
+5. Trust the depth limit. Two levels of sub-agents cover most real-world scenarios. If you need more, break the work into separate conversations.
 
 :::warning Model quality matters
 Sub-agents consume additional API calls. Each child agent has its own conversation with the model. Use a capable model (Claude Sonnet or better) for multi-agent tasks. Smaller models may struggle with delegation decisions.
@@ -119,6 +119,6 @@ Sub-agents consume additional API calls. Each child agent has its own conversati
 
 ## Next steps
 
-- [Skills, Rules & Workflows](/guides/skills-rules-workflows): Create workflows that use sub-agents
-- [Office Documents](/guides/office-documents): Delegate document creation to sub-agents
-- [Connectors](/guides/connectors): Connect external tools for sub-agents to use
+- [Skills, Rules & Workflows](/guides/skills-rules-workflows): Build workflows that use sub-agents
+- [Office Documents](/guides/office-documents): Hand off document creation to sub-agents
+- [Connectors](/guides/connectors): Hook up external tools for sub-agents to call

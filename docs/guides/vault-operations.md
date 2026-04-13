@@ -9,13 +9,13 @@ Obsilo can read, write, search, and organize files across your entire vault.
 
 ## How it works
 
-The agent does not access your vault directly. It uses tools: small, single-purpose functions. When you ask the agent to find a note or create a file, it picks the right tools and calls them on your behalf.
+The agent does not access your vault directly. It uses tools: small, single-purpose functions. When you ask it to find a note or create a file, it picks the right tools and calls them on your behalf.
 
-Every tool call is visible in the [activity block](/guides/chat-interface#activity-blocks), and write operations require [approval](/guides/safety-control) unless you enable auto-approve.
+Every tool call shows up in the [activity block](/guides/chat-interface#activity-blocks), and write operations need [approval](/guides/safety-control) unless you enable auto-approve.
 
 ## Reading your vault
 
-These tools let the agent look at your files without changing anything. Available in both Ask and Agent mode.
+These tools let the agent look at your files without changing anything. They work in both Ask and Agent mode.
 
 | Tool | What it does |
 |------|-------------|
@@ -41,7 +41,7 @@ Keyword search matches exact words. To find notes by meaning (e.g., "notes about
 
 ## Writing and editing
 
-These tools modify your vault. Only available in Agent mode and require approval by default.
+These tools modify your vault. They only work in Agent mode and need approval by default.
 
 | Tool | What it does |
 |------|-------------|
@@ -122,10 +122,10 @@ Bases use Obsidian's built-in Bases feature. Make sure your Obsidian version sup
 ## Tips
 
 1. Be specific about paths. "The Projects folder" is clearer than "my project notes."
-2. Use @-mentions to reference specific files. The agent does not have to search for them.
+2. Use @-mentions for specific files. The agent doesn't have to search for them then.
 3. Let the agent chain tools. A request like "find all notes about X, summarize them, and create a new note with the summary" uses multiple tools automatically.
 4. Check the activity block to see which files were read or changed.
-5. Start in Ask mode if you only want to explore. Switch to Agent mode when you are ready to make changes.
+5. Start in Ask mode if you just want to explore. Switch to Agent mode when you're ready to make changes.
 
 ## Next steps
 

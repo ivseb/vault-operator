@@ -13,10 +13,10 @@ Obsilo is fail-closed by default. It asks before any action that modifies your v
 
 ### What an approval card shows
 
-When Obsilo wants to do something, a card appears with:
+When Obsilo wants to do something, a card appears showing exactly what:
 
 - **Write a file:** the full content that will be written
-- **Edit a file:** a diff showing what changes (lines added and removed)
+- **Edit a file:** a diff with lines added and removed
 - **Delete a file:** which file will be removed
 - **Move/rename:** source and destination paths
 
@@ -48,29 +48,29 @@ If you auto-approve both web operations and note edits (or vault changes), Obsil
 
 ### The approval card
 
-Before any write operation, an approval card appears in the chat. For file edits, it shows a color-coded diff with a badge like `+3 / -1` indicating lines added and removed. Read the diff before approving.
+Before any write operation, an approval card appears in the chat. For file edits, it shows a color-coded diff with a badge like `+3 / -1` for lines added and removed. Read the diff before approving.
 
 ### The diff review modal
 
-After a task completes, you can review all changes at once:
+After a task finishes, you can review all changes at once:
 
 1. The undo bar appears below the last message
 2. Click "Review changes" to open the diff review modal
 3. For each file, you see every change grouped by section (headings, paragraphs, code blocks)
 4. Decide per section: Keep, Undo, or Edit (modify the change manually)
 
-This gives you fine-grained control: keep most of a task's work while reverting one specific paragraph.
+This gives you fine-grained control. Keep most of a task's work while reverting one specific paragraph.
 
 ## Checkpoints and undo
 
-Obsilo creates a checkpoint before the first modification to any file in a task. Checkpoints are stored in a shadow repository (using isomorphic-git) that does not interfere with your own git history.
+Obsilo creates a checkpoint before the first modification to any file in a task. Checkpoints live in a shadow repository (via isomorphic-git) that does not touch your own git history.
 
 ### The undo bar
 
 After every task that modified files, an undo bar appears:
 
-- **"Undo all changes":** restores every file to its pre-task state with one click
-- **"Review changes":** opens the diff review modal for per-file decisions
+- **"Undo all changes":** restore every file to its pre-task state in one click
+- **"Review changes":** open the diff review modal for per-file decisions
 
 :::tip Undo is always available
 Even if you auto-approve everything, the checkpoint system records the state before changes. You can always undo after the fact.
@@ -81,9 +81,9 @@ Even if you auto-approve everything, the checkpoint system records the state bef
 1. Obsilo snapshots each file before its first modification in a task
 2. The snapshot is stored as a git commit in the shadow repository
 3. If you undo, the original content is restored from the snapshot
-4. Files that were newly created (did not exist before the task) are deleted on undo
+4. Files that were newly created (didn't exist before the task) are deleted on undo
 
-Checkpoints are automatic. You do not need to configure anything.
+Checkpoints are automatic. There is nothing to configure.
 
 ## The operation log
 
@@ -108,7 +108,7 @@ The operation log records that a file was read or written, but not the full cont
 Create `.obsidian-agentignore` in your vault root to define paths the agent should never access. Same syntax as `.gitignore`:
 
 ```
-# Private journal -- agent cannot read or modify these
+# Private journal: agent cannot read or modify these
 journal/
 diary-*.md
 
@@ -120,28 +120,28 @@ secrets/
 There is also `.obsidian-agentprotected` for files the agent can read but never write:
 
 ```
-# Templates -- agent can reference but not modify
+# Templates: agent can reference but not modify
 templates/
 ```
 
-Both files are protected. The agent cannot modify or delete them.
+Both files are protected themselves. The agent cannot modify or delete them.
 
 :::tip Always-blocked paths
-Obsilo never accesses `.git/`, the Obsidian workspace cache, or internal config files, regardless of your configuration.
+Obsilo never accesses `.git/`, the Obsidian workspace cache, or internal config files, no matter how you configure it.
 :::
 
 ## Best practices
 
 1. Start with approvals on. Leave auto-approve disabled until you are comfortable with how Obsilo works. Watch the approval cards to learn what the agent does.
 
-2. Enable categories gradually. Auto-approve reads first (low risk), then note edits after you trust the agent's judgment. Keep vault changes and sandbox on manual approval longer.
+2. Enable categories gradually. Auto-approve reads first (low risk), then note edits once you trust the agent's judgment. Keep vault changes and sandbox on manual approval longer.
 
-3. Avoid the permissive combination. Do not auto-approve web operations and writes at the same time unless you fully trust the content sources.
+3. Avoid the permissive combination. Don't auto-approve web operations and writes at the same time unless you fully trust the content sources.
 
 4. Use the ignore file. If you have sensitive notes (financial records, medical info, private journals), add them to `.obsidian-agentignore` before giving the agent broad permissions.
 
-5. Review the operation log periodically. A quick scan of recent logs shows what the agent has been doing and catches anything unexpected.
+5. Review the operation log now and then. A quick scan of recent logs shows what the agent has been doing and catches anything weird.
 
-6. Back up your vault. Checkpoints provide undo within Obsilo, but a proper vault backup (Obsidian Sync, git, or file-system backup) protects against everything.
+6. Back up your vault. Checkpoints give you undo inside Obsilo, but a proper vault backup (Obsidian Sync, git, or a file-system backup) protects against everything else.
 
 7. Use Ask mode for exploration. When you just want answers without changes, switch to Ask mode. It is read-only, so nothing in your vault can be modified.

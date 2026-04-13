@@ -19,10 +19,7 @@ These two modes are defined in `src/core/modes/builtinModes.ts`.
 
 You can create your own modes beyond Ask and Agent. A custom mode has a slug, a display name, a role definition, one or more tool groups, and optional custom instructions.
 
-Custom modes are stored at two levels:
-
-- Global: in `~/.obsidian-agent/modes.json`, available across all vaults. Managed by `GlobalModeStore` (`src/core/modes/GlobalModeStore.ts`).
-- Vault-local: in the plugin's settings for a specific vault. Scoped to that vault only.
+Custom modes are stored at two levels. Global modes live in `~/.obsidian-agent/modes.json` and are available across all vaults, managed by `GlobalModeStore` (`src/core/modes/GlobalModeStore.ts`). Vault-local modes live in the plugin's settings for a specific vault and are scoped to that vault only.
 
 If a vault-local mode has the same slug as a built-in, the vault version replaces the built-in. This lets you customize the default behavior without losing the originals.
 
@@ -41,17 +38,17 @@ The model cannot call a tool it does not see. If your custom mode enables only `
 
 Users can further restrict tools within a mode through `setModeToolOverride()`. Overrides can only remove tools, never add ones outside the mode's groups. You can narrow access but not escalate it.
 
-Web tools have an extra gate: when `webTools.enabled` is false, `web_fetch` and `web_search` are stripped from every mode's tool set, regardless of configuration.
+Web tools have an extra gate. When `webTools.enabled` is false, `web_fetch` and `web_search` are stripped from every mode's tool set, regardless of configuration.
 
 ## Mode switching
 
 The agent or the user can switch modes mid-conversation. The `switch_mode` tool persists the new active mode and triggers a system prompt rebuild. Tool definitions are re-filtered for the new mode, so the next iteration sees a different set of capabilities.
 
-Ask mode uses this for escalation. When someone asks "create a note about X," the agent recognizes it cannot write and calls `switch_mode('agent')` to hand off.
+Ask mode uses this for escalation. When someone asks "create a note about X", the agent recognizes it cannot write and calls `switch_mode('agent')` to hand off.
 
 ## Multi-agent mode propagation
 
-When a parent agent spawns a subtask via `new_task`, it specifies which mode the child runs in. The child inherits mode restrictions from the parent. A common pattern: Agent mode spawns an Ask-mode subtask for research, keeping the child read-only while the parent handles writes.
+When a parent agent spawns a subtask via `new_task`, it specifies which mode the child runs in. The child inherits mode restrictions from the parent. A common pattern is Agent mode spawning an Ask-mode subtask for research, keeping the child read-only while the parent handles writes.
 
 The child cannot escalate beyond its assigned mode. If it was given Ask, it stays in Ask.
 

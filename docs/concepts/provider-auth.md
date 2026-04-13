@@ -5,7 +5,7 @@ description: How Obsilo connects to 10+ AI providers through a single interface,
 
 # Provider auth
 
-Obsilo supports Anthropic, OpenAI, GitHub Copilot, Kilo Gateway, Azure, OpenRouter, Ollama, LM Studio, and custom OpenAI-compatible endpoints. Each provider has different authentication requirements, but the agent talks to a single `ApiHandler` interface.
+Obsilo supports Anthropic, OpenAI, GitHub Copilot, Kilo Gateway, Azure, OpenRouter, Ollama, LM Studio, and custom OpenAI-compatible endpoints. Each provider authenticates differently, but the agent talks to a single `ApiHandler` interface.
 
 ## The factory
 
@@ -27,19 +27,19 @@ The factory uses an exhaustive switch. Add a new provider type to the union and 
 
 Most providers use API key authentication. You paste your key in settings, and every request includes it as a Bearer token. The OpenAI-compatible providers (Ollama, LM Studio, OpenRouter, Azure, custom) all work this way, with minor variations in base URL and header format.
 
-Ollama and LM Studio are local providers that run on your machine and don't need an API key at all. The `OpenAiProvider` handles this by making the key optional when the base URL points to localhost. All HTTP requests go through Obsidian's `requestUrl` API rather than native `fetch`, which keeps the plugin compliant with Obsidian's review requirements.
+Ollama and LM Studio are local providers that run on your machine and don't need an API key. The `OpenAiProvider` makes the key optional when the base URL points to localhost. All HTTP requests go through Obsidian's `requestUrl` API rather than native `fetch`, which keeps the plugin compliant with Obsidian's review requirements.
 
 ## GitHub Copilot: three-stage token chain
 
-GitHub Copilot authentication requires a three-stage flow, handled by `GitHubCopilotAuthService` (`src/core/security/GitHubCopilotAuthService.ts`):
+GitHub Copilot authentication takes three stages, handled by `GitHubCopilotAuthService` (`src/core/security/GitHubCopilotAuthService.ts`).
 
-1. Device code flow. The service requests a device code from GitHub, then shows you a URL and a short code. You open the URL in a browser, enter the code, and authorize the application. The service polls until authorization completes.
+First, the device code flow. The service requests a device code from GitHub, then shows you a URL and a short code. You open the URL in a browser, enter the code, and authorize the application. The service polls until authorization completes.
 
-2. Access token. GitHub returns a long-lived access token (valid ~30 days), stored securely and used to obtain short-lived Copilot tokens.
+Second, the access token. GitHub returns a long-lived access token (valid ~30 days), which is stored securely and used to obtain short-lived Copilot tokens.
 
-3. Copilot token. The access token is exchanged for a Copilot-specific token (valid ~1 hour) sent with each API request. On expiry, the service refreshes it automatically using the access token.
+Third, the Copilot token. The access token is exchanged for a Copilot-specific token (valid ~1 hour) that gets sent with each API request. On expiry, the service refreshes it automatically using the access token.
 
-The custom fetch wrapper (`getCopilotFetch()`) is injected into the OpenAI SDK for streaming chat completions because the SDK's built-in fetch doesn't handle Copilot's token format. The wrapper also handles token expiry: if a request fails with a 401, it triggers a refresh and retries.
+A custom fetch wrapper (`getCopilotFetch()`) is injected into the OpenAI SDK for streaming chat completions because the SDK's built-in fetch doesn't handle Copilot's token format. The wrapper also handles token expiry: if a request fails with a 401, it triggers a refresh and retries.
 
 You can provide a custom GitHub OAuth client ID in settings for enterprise GitHub instances. The default client ID targets github.com.
 
@@ -51,15 +51,15 @@ Both modes produce the same session state. The service stores user profile infor
 
 ## Encrypted storage
 
-On desktop, the `SafeStorageService` (`src/core/security/SafeStorageService.ts`) uses Electron's `safeStorage` API to encrypt credentials before storing them. This uses the operating system's keychain (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
+On desktop, `SafeStorageService` (`src/core/security/SafeStorageService.ts`) uses Electron's `safeStorage` API to encrypt credentials before storing them. That in turn uses the operating system's keychain (Keychain on macOS, Credential Manager on Windows, libsecret on Linux).
 
 The service loads Electron via dynamic `require('electron')`, one of the few places where `require()` is allowed instead of ES imports, because Electron can only be loaded dynamically in the renderer process.
 
-On mobile, Electron isn't available. Credentials fall back to Obsidian's standard plugin data storage. This is less secure than OS-level encryption, but mobile Obsidian doesn't expose a keychain API.
+On mobile, Electron isn't available, so credentials fall back to Obsidian's standard plugin data storage. Less secure than OS-level encryption, but mobile Obsidian doesn't expose a keychain API.
 
 ## Concurrency
 
-Both the Copilot and Kilo auth services include concurrency guards. If multiple requests trigger a token refresh simultaneously, only one refresh runs. The others wait for the same promise. This prevents duplicate auth requests and race conditions during high-frequency API usage.
+Both the Copilot and Kilo auth services include concurrency guards. If multiple requests trigger a token refresh at the same time, only one refresh runs, and the others wait on the same promise. That prevents duplicate auth requests and race conditions during high-frequency API usage.
 
 ## Adding a new provider
 

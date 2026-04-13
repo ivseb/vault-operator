@@ -7,7 +7,7 @@ description: Setup guides for all supported AI providers. Anthropic, OpenAI, Goo
 
 Obsilo supports 11 AI providers. Setup instructions for each one follow.
 
-For all providers: open **Settings > Obsilo Agent > Models**, click **"+ add model"**, and select your provider.
+For all providers, open **Settings > Obsilo Agent > Models**, click **"+ add model"**, and select your provider.
 
 ## Cloud providers
 
@@ -25,7 +25,7 @@ Setup:
 3. In Obsilo, select **Anthropic** as provider, paste the key, and pick a model
 
 :::tip Best tool use
-Anthropic models are consistently the best at using Obsilo's tools correctly. If quality is your priority, start here.
+Anthropic models are the most reliable at calling Obsilo's tools correctly. If quality matters most, start here.
 :::
 
 ### OpenAI
@@ -60,7 +60,7 @@ Setup:
 4. Browse available models or pick from the pre-configured list
 
 :::tip Free tier
-Google Gemini offers a free tier with reasonable rate limits. If you want to try Obsilo without spending anything, this is a good starting point.
+Google Gemini has a free tier with reasonable rate limits. Good starting point if you want to try Obsilo without paying.
 :::
 
 ### OpenRouter
@@ -91,7 +91,7 @@ Setup:
 3. In Obsilo, select **Azure OpenAI** as provider and fill in all three fields
 
 :::info Enterprise use
-Azure OpenAI works well for organizations with compliance requirements. Data stays within your Azure tenant.
+Azure OpenAI fits organizations with compliance requirements. Data stays inside your Azure tenant.
 :::
 
 ## Gateway providers
@@ -112,7 +112,7 @@ Setup (OAuth device flow):
 5. Obsilo automatically detects your available models
 
 :::tip No extra cost
-If you already pay for GitHub Copilot, this costs nothing extra. The models are included in your subscription.
+If you already pay for GitHub Copilot, this costs nothing extra. The models come with your subscription.
 :::
 
 ### Kilo Gateway
@@ -182,7 +182,7 @@ Setup:
 3. Enter an **API key** if your server requires one
 4. Type the **model name** exactly as the server expects
 
-This works with any server that implements the OpenAI chat completions API, including vLLM, text-generation-inference, LocalAI, and self-hosted endpoints.
+This works with any server that implements the OpenAI chat completions API: vLLM, text-generation-inference, LocalAI, and self-hosted endpoints.
 
 ## Provider comparison
 

@@ -5,7 +5,7 @@ description: How Obsilo turns a single message into a multi-step, tool-using con
 
 # The agent loop
 
-A chatbot responds once. An agent loops. That distinction is the single most important thing to understand about Obsilo.
+A chatbot responds once. An agent loops. That distinction is the main thing to understand about Obsilo.
 
 When you send a message, Obsilo passes it to the language model along with a system prompt and tool definitions. The model responds with text, tool calls, or both. If there are tool calls, Obsilo executes them, appends the results to the conversation history, and sends everything back to the model. This repeats until the model responds with only text, calls `attempt_completion`, or a safety limit stops the loop.
 
@@ -27,15 +27,15 @@ That's it. Everything else on this page is about controlling, protecting, and ex
 
 ## What happens at each step
 
-The loop starts by assembling a system prompt from 16 modular sections: mode definition, available tools, active rules, loaded skills, memory context, and more. The system prompt is cached and only rebuilt when something changes (a mode switch, a tool availability toggle).
+The loop starts by assembling a system prompt from 16 modular sections: mode definition, available tools, active rules, loaded skills, memory context, and a few others. The system prompt is cached and only rebuilt when something changes, for example a mode switch or a tool availability toggle.
 
 The assembled prompt and conversation history go to the AI provider. Obsilo streams the response, firing `onText()` for each text chunk and collecting any `tool_use` blocks.
 
 If the response contains tool calls, each one goes through `ToolExecutionPipeline` (`src/core/tool-execution/ToolExecutionPipeline.ts`). The pipeline validates paths, checks approval requirements, creates checkpoints before write operations, executes the tool, and logs the result. No tool bypasses this pipeline, not even MCP tools from external servers.
 
-Read-only tools from the parallel-safe set (`read_file`, `search_files`, `semantic_search`, etc.) run concurrently via `Promise.all()`. Write tools and control-flow tools run one at a time.
+Read-only tools from the parallel-safe set (`read_file`, `search_files`, `semantic_search` and a few more) run concurrently via `Promise.all()`. Write tools and control-flow tools run one at a time.
 
-The tool results go back into the conversation history as structured result blocks. Then the loop sends the updated history to the model for the next iteration.
+The tool results go back into the conversation history as structured result blocks. The loop then sends the updated history to the model for the next iteration.
 
 When the model responds with only text and no tool calls, or when it calls `attempt_completion`, the loop ends and the response goes back to the UI.
 
@@ -62,13 +62,13 @@ The `run()` method takes a config object with the user message, task ID, initial
 
 ## Fast path execution
 
-Not every task needs the full ReAct loop. When the agent has solved the same kind of task before, it can skip most of the iterative reasoning and execute a pre-planned sequence of tool calls. This is the fast path, the single largest token cost optimization in the system.
+Not every task needs the full ReAct loop. When the agent has solved the same kind of task before, it can skip most of the iterative reasoning and execute a pre-planned sequence of tool calls. This is the fast path, and it is the single biggest token-cost optimization in the system.
 
 The fast path depends on the recipe system (see [memory](./memory-system)). When a user message arrives, `RecipeMatchingService` checks whether a matching recipe exists. If one matches and has been used successfully at least three times, the fast path activates:
 
-1. A single planner LLM call receives the user message plus the recipe and produces a concrete execution plan: a JSON array of tool calls with parameters.
+1. A single planner LLM call receives the user message plus the recipe and produces a concrete execution plan, a JSON array of tool calls with parameters.
 2. The plan gets executed deterministically through the same `ToolExecutionPipeline`, without further LLM calls. Read operations run in parallel, writes sequentially.
-3. After execution, the normal agent loop takes over for one or two final iterations to formulate the response and present the result.
+3. The normal agent loop then takes over for one or two final iterations to formulate the response.
 
 Instead of eight LLM calls and 634,000 tokens, the fast path typically needs two to three calls and about 70,000 tokens.
 
@@ -90,27 +90,27 @@ flowchart TD
 
 Tool results accumulate in the conversation history and are resent with every API call. A semantic search returns 20,000 characters. Reading a note adds another 20,000. After eight iterations, tool results alone can exceed 250,000 tokens.
 
-Context externalization intercepts large tool results before they enter the history. When a result exceeds 2,000 characters, the full content gets written to a temporary file. The history receives a compact reference: what was found, the top entries with relevance scores, and the file path where the full data lives.
+Context externalization intercepts large tool results before they enter the history. When a result exceeds 2,000 characters, the full content gets written to a temporary file. The history receives a compact reference describing what was found, the top entries with relevance scores, and the file path where the full data lives.
 
-`ResultExternalizer` (`src/core/tool-execution/ResultExternalizer.ts`) handles this, called from `ToolExecutionPipeline` after each tool execution. Externalization is transparent to tools: they return full results as before. The pipeline decides what enters the history.
+`ResultExternalizer` (`src/core/tool-execution/ResultExternalizer.ts`) handles this, called from `ToolExecutionPipeline` after each tool execution. Externalization is transparent to tools. They return full results as before, and the pipeline decides what enters the history.
 
-Temporary files are stored in `.obsidian-agent/tmp/{taskId}/` with deterministic names (`{toolName}-{callIndex}.md`). No timestamps, no random values, so file paths don't invalidate the KV cache. Cleanup happens after task completion, with a safety sweep on plugin startup for orphaned directories older than one hour.
+Temporary files live in `.obsidian-agent/tmp/{taskId}/` with deterministic names (`{toolName}-{callIndex}.md`). No timestamps, no random values, so file paths don't invalidate the KV cache. Cleanup happens after task completion, with a safety sweep on plugin startup for orphaned directories older than one hour.
 
 During fast path execution, externalization is disabled. The final LLM call needs full content for a good summary, and with only two to three iterations the accumulation is minimal.
 
-The history stays strictly append-only. Externalization happens at result creation time, never retroactively. KV caching and context condensing share this principle: none of them work if the history gets modified after the fact.
+The history is strictly append-only. Externalization happens at result creation time, never retroactively. KV caching and context condensing share this principle. Neither works if the history gets modified after the fact.
 
 ## Safety rails
 
-The loop has several mechanisms to prevent runaway behavior.
+The loop has several mechanisms to stop runaway behavior.
 
-Iteration limits: a soft limit at 60% of `maxIterations` and a hard limit at `maxIterations` (default 25). At the soft limit, the agent receives a warning to wrap up. At the hard limit, the loop terminates unconditionally.
+Iteration limits. A soft limit at 60% of `maxIterations` and a hard limit at `maxIterations` (default 25). At the soft limit, the agent receives a warning to wrap up. At the hard limit, the loop terminates unconditionally.
 
-Consecutive mistake tracking: every tool error increments a counter. A successful call resets it to zero. If the counter reaches `consecutiveMistakeLimit`, the loop aborts. This stops the agent from burning tokens on a broken approach.
+Consecutive mistake tracking. Every tool error increments a counter. A successful call resets it to zero. If the counter reaches `consecutiveMistakeLimit`, the loop aborts. This stops the agent from burning tokens on a broken approach.
 
-Tool repetition detection: `ToolRepetitionDetector` keeps a sliding window of the last 15 tool calls. If the same tool with identical input appears 3 or more times, it gets blocked. For search tools, the detector also catches semantically similar queries using Jaccard similarity. Blocked calls return recoverable errors so the agent can try something different.
+Tool repetition detection. `ToolRepetitionDetector` keeps a sliding window of the last 15 tool calls. If the same tool with identical input appears 3 or more times, it gets blocked. For search tools, the detector also catches semantically similar queries using Jaccard similarity. Blocked calls return recoverable errors so the agent can try something different.
 
-Rate limiting: when `rateLimitMs` is set, each iteration pauses for at least that many milliseconds. A simple throttle for API cost control.
+Rate limiting. When `rateLimitMs` is set, each iteration pauses for at least that many milliseconds. A simple throttle for API cost control.
 
 ## Context condensing
 
@@ -124,15 +124,15 @@ If the API returns a 400-class error indicating context overflow, emergency cond
 
 Models drift. In a long loop with many iterations, the agent can gradually forget its assigned role and start behaving generically. Power steering counters this.
 
-When `powerSteeringFrequency` is set to a value like 4, the loop injects a synthetic user message every 4 iterations. This message reminds the model of its active mode, role definition, and active skill names. It doesn't cost an extra API call; it's an additional message in the conversation history before the next iteration.
+When `powerSteeringFrequency` is set to a value like 4, the loop injects a synthetic user message every 4 iterations. This message reminds the model of its active mode, role definition, and active skill names. It doesn't cost an extra API call. It is just an additional message in the conversation history before the next iteration.
 
 ## Multi-agent: spawning child agents
 
-The `new_task` tool lets the agent spawn a child `AgentTask` for a subtask. The child gets a fresh conversation history (no parent context leaks), its own mode, and a depth counter incremented by one. Condensing and power steering are disabled for children to keep them lean and fast.
+The `new_task` tool lets the agent spawn a child `AgentTask` for a subtask. The child gets a fresh conversation history (no parent context leaks), its own mode, and a depth counter incremented by one. Condensing and power steering are disabled for children to keep them lean.
 
 The parent's approval callback is forwarded to the child, so write operations from child agents still require human approval.
 
-When a child reaches `maxSubtaskDepth` (default 2), the `new_task` tool is removed from its available tools entirely, preventing unbounded recursive spawning. Token usage from children accumulates into the parent's totals for accurate cost tracking.
+When a child reaches `maxSubtaskDepth` (default 2), the `new_task` tool is removed from its available tools entirely, which prevents unbounded recursive spawning. Token usage from children accumulates into the parent's totals for accurate cost tracking.
 
 ## Next
 

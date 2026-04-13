@@ -15,11 +15,11 @@ description: Sebastian Hanke, creator of Obsilo Agent, an agentic AI operating l
 
 I'm Sebastian, a product and technology generalist based in Germany. I've spent most of my career working on strategy, product development, and applied technology, sometimes with early-stage projects, sometimes with established teams.
 
-My interest in knowledge work, thinking tools, and AI brought me to Obsidian. From there I built Obsilo Agent: an autonomous AI layer for your vault. It runs on local or remote models of your choice, respects your privacy, and is fully open source.
+My interest in knowledge work, thinking tools, and AI brought me to Obsidian. From there I built Obsilo Agent, an autonomous AI layer for your vault. It runs on local or remote models, keeps your data where you want it, and the whole thing is open source.
 
 ## Why Obsilo Agent
 
-I wanted an AI that works *inside* my knowledge system, not next to it. One that can read my notes, follow my workflows, and actually do things, not just answer questions. Working with Kilo Code in VS Code showed me what agentic loops should look like when operating inside another tool. Obsilo is that idea applied to knowledge work.
+I wanted an AI that works *inside* my knowledge system, not next to it. One that can read my notes, follow my workflows, and actually do things instead of just answering questions. Working with Kilo Code in VS Code showed me what agentic loops look like when they operate inside another tool. Obsilo is that idea applied to knowledge work.
 
 ## Get in touch
 
