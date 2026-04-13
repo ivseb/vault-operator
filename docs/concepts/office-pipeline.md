@@ -9,7 +9,7 @@ Obsilo can create PowerPoint, Word, and Excel files directly in your vault. It c
 
 ## Document creation
 
-Three built-in tools handle file creation: `create_pptx`, `create_docx`, and `create_xlsx`. Each writes binary output to the vault using a shared `writeBinaryToVault()` utility that enforces path-traversal protection.
+Three built-in tools handle file creation: `create_pptx`, `create_docx`, and `create_xlsx`. Each writes binary output to the vault through a shared `writeBinaryToVault()` utility that enforces path-traversal protection.
 
 DOCX and XLSX generation are straightforward. PPTX is where most of the complexity lives, because presentations have visual structure that matters.
 
@@ -24,7 +24,7 @@ flowchart TD
     T --> F
 ```
 
-Ad-hoc mode builds slides from scratch using PptxGenJS. The agent specifies slide content (titles, bullets, images) and the library generates a clean but generic presentation. The output uses sensible defaults for fonts and colors but won't match your company's brand guidelines. Good for quick drafts or when no corporate template exists.
+Ad-hoc mode builds slides from scratch using PptxGenJS. The agent specifies slide content (titles, bullets, images) and the library generates a clean but generic presentation. The output uses sensible defaults for fonts and colors but won't match your company's brand guidelines. Good for quick drafts, or when no corporate template exists.
 
 Template mode uses existing `.pptx` templates through pptx-automizer. Your corporate slide deck becomes the foundation. The agent fills in content while preserving the template's design, fonts, and layout. This is the mode that produces presentation-quality output.
 
@@ -32,9 +32,9 @@ Template mode depends on a catalog. The `TemplateCatalogLoader` (`src/core/offic
 
 ## The plan_presentation step
 
-The critical part of the PPTX pipeline is what happens before generation. Raw source material (meeting notes, research, bullet points) must be transformed into structured slide content. Asking the agent to do this inline, while managing tool calls and conversation flow, produces mediocre results.
+The important part of the PPTX pipeline is what happens before generation. Raw source material (meeting notes, research, bullet points) has to be turned into structured slide content. Asking the agent to do this inline, while it is also managing tool calls and conversation flow, produces mediocre results.
 
-The `plan_presentation` tool (`src/core/tools/vault/PlanPresentationTool.ts`) solves this with a dedicated internal LLM call. It's a tool that calls the LLM itself, separate from the main conversation:
+The `plan_presentation` tool (`src/core/tools/vault/PlanPresentationTool.ts`) solves this with a dedicated internal LLM call. It is a tool that calls the LLM itself, separate from the main conversation:
 
 1. Read the source material and the template catalog
 2. Extract key messages from the source
@@ -44,16 +44,11 @@ The `plan_presentation` tool (`src/core/tools/vault/PlanPresentationTool.ts`) so
 
 The output is a `DeckPlan`, a structured JSON object that `create_pptx` consumes directly. Separating planning from generation lets the agent review and adjust the plan before committing to a file. You can ask the agent to show the plan, request changes ("move the financials section earlier", "add a slide about timeline"), and only generate the file once the plan looks right.
 
-The internal LLM call is constrained: it receives the source material and the catalog as structured input, and must produce output conforming to the DeckPlan schema. This is more reliable than asking the conversational LLM to produce the same structure inline, because the constrained call has a single focused task without conversation history taking up context.
+The internal LLM call is constrained. It receives the source material and the catalog as structured input, and has to produce output conforming to the DeckPlan schema. This is more reliable than asking the conversational LLM to produce the same structure inline, because the constrained call has a single focused task and no conversation history eating context.
 
 ## Template catalog structure
 
-Catalogs describe what each slide layout offers. For each slide type, the catalog lists:
-
-- Available shapes with their names and content types (text, bullet list, image placeholder, chart data)
-- Required shapes that must have content
-- Shape groups (elements that belong together visually)
-- Special roles like section numbers or page indicators
+Catalogs describe what each slide layout offers. For each slide type, the catalog lists available shapes with their names and content types (text, bullet list, image placeholder, chart data), required shapes that must have content, shape groups (elements that belong together visually), and special roles like section numbers or page indicators.
 
 The agent selects slide types based on the content it needs to present. A "key findings" section might use a title + two-column layout, while a data summary might use a chart slide.
 
@@ -69,10 +64,10 @@ Reading office files is the reverse direction. The `parseDocument` function (`sr
 | PDF | `PdfParser` | Page text, basic structure |
 | CSV/JSON | `CsvParser` / `parseJson` | Structured data |
 
-Parsed content returns as structured text the agent can use as context. The agent reads a 50-slide presentation or complex spreadsheet through the extracted text, not the raw binary.
+Parsed content returns as structured text the agent can use as context. The agent reads a 50-slide presentation or a large spreadsheet through the extracted text, not the raw binary.
 
-Document parsing is used in two places: the `read_document` tool (when the agent explicitly reads a file) and the `AttachmentHandler` (when you drag a file into the chat).
+Document parsing runs in two places: the `read_document` tool (when the agent explicitly reads a file) and the `AttachmentHandler` (when you drag a file into the chat).
 
 ## Why binary tools can't run in the sandbox
 
-Office file generation requires libraries like JSZip that work with Buffer and stream objects. The sandboxed environment (used for dynamic tools) doesn't have access to these Node.js primitives. That's why `create_pptx`, `create_docx`, and `create_xlsx` are built-in tools running in the plugin's main process rather than sandbox-compatible dynamic tools. The same applies to document parsing, since the parsers need ArrayBuffer processing that only works in the main process.
+Office file generation requires libraries like JSZip that work with Buffer and stream objects. The sandboxed environment used for dynamic tools doesn't have access to these Node.js primitives. That is why `create_pptx`, `create_docx`, and `create_xlsx` are built-in tools running in the plugin's main process instead of sandbox-compatible dynamic tools. The same applies to document parsing, since the parsers need ArrayBuffer processing that only works in the main process.

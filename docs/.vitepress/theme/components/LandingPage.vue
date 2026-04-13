@@ -194,11 +194,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <p class="landing-sub">Learns your vault, your rules, your workflows.</p>
+    <p class="landing-sub">Learns your vault and your workflows.</p>
     <p class="landing-detail">
-      49 tools, hybrid semantic search, knowledge graph, 3-tier memory,<br>
-      multi-agent workflows, plugin discovery, office document creation, and full safety controls.<br>
-      Local-first. Open source. Always free.
+      49 tools. Hybrid semantic search, a real knowledge graph, persistent memory.<br>
+      Multi-agent workflows, plugin discovery, office document creation, checkpoint-backed safety.<br>
+      Local-first. Open source. Free to use.
     </p>
 
     <div class="landing-cta">

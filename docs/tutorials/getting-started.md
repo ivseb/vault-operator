@@ -5,7 +5,7 @@ description: Install Obsilo and start your first conversation in under 3 minutes
 
 # Installation & quick start
 
-Get Obsilo running in your Obsidian vault in under 3 minutes.
+This takes about 3 minutes if your API key is already handy.
 
 ## Install the plugin
 
@@ -29,7 +29,7 @@ Obsilo needs an AI model to work. Open **Settings > Obsilo Agent > Models** and 
 2. Sign in and click **"Create API Key"**
 3. Copy the key and paste it into Obsilo
 
-Google Gemini has a free tier with reasonable rate limits. Good enough to try everything out.
+Google Gemini has a free tier with reasonable rate limits, which is enough to try everything out before paying anyone.
 
 ### Best quality
 
@@ -46,8 +46,8 @@ If you want no data leaving your machine, run a model locally:
 - Install [Ollama](https://ollama.ai), then run `ollama pull llama3.2`
 - Or download [LM Studio](https://lmstudio.ai), install a model, and start the server
 
-:::info No lock-in
-Obsilo supports 10+ providers. You can switch models anytime, even mid-conversation. Configure multiple models and pick the right one for each task.
+:::info Multiple providers
+Obsilo supports 10+ providers. You can switch models mid-conversation, so it's fine to configure several and pick per task.
 :::
 
 ## Your first chat
@@ -65,17 +65,10 @@ Obsilo supports 10+ providers. You can switch models anytime, even mid-conversat
 
 ## What happens behind the scenes
 
-When you send a message, Obsilo:
+When you send a message, Obsilo reads it and decides which tools to use. It then calls those tools (read files, search, write) while you see each call in the activity block. Before any write operation it asks for your approval, unless you've enabled auto-approve for that category. Then it returns a response.
 
-1. Reads your message and decides which tools to use
-2. Calls tools (read files, search, write), and you see each call in the activity block
-3. Asks for your approval before any write operation (unless you enable auto-approve)
-4. Returns a response with the result
-
-Every write operation creates a checkpoint. You can undo any change with one click.
+Every write operation creates a checkpoint, so you can undo any change with one click.
 
 ## Next steps
 
-- [Your first conversation](/tutorials/first-conversation): Learn about modes, context, and how the agent thinks
-- [Choosing a model](/guides/choosing-a-model): Find the best model for your workflow
-- [Safety & control](/guides/safety-control): Understand permissions and checkpoints
+From here, read [Your first conversation](/tutorials/first-conversation) for modes and context, [Choosing a model](/guides/choosing-a-model) to pick a model for your workflow, and [Safety & control](/guides/safety-control) for how permissions and checkpoints work.

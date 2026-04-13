@@ -5,7 +5,7 @@ description: Learn the basics of chatting with Obsilo, including modes, context,
 
 # Your first conversation
 
-Obsilo is not a chatbot. It is an agent that can read, write, and search your vault. A few concepts help before you start.
+Obsilo is an agent that reads, writes, and searches your vault. A few concepts help before you start.
 
 ## Modes
 
@@ -31,7 +31,7 @@ The agent sees:
 - @-mentioned files (type `@` in the chat to search your vault)
 - Its memory of past conversations (if memory is enabled)
 
-It does **not** read your entire vault upfront. It searches and reads files on demand, using tools.
+It does **not** read your entire vault upfront. It searches and reads files on demand via tools.
 
 ## The activity block
 
@@ -72,16 +72,12 @@ Enabling auto-approve for writes means the agent acts without asking. The checkp
 
 Be specific. "Summarize the meeting notes from March" works better than "summarize my notes."
 
-Mention files directly. Use `@filename` to point the agent to specific notes instead of hoping it finds them.
+Use `@filename` to point the agent at specific notes instead of hoping it finds them. Pick the mode deliberately: Ask for questions, Agent for actions.
 
-Use modes deliberately. Ask mode for questions, Agent mode for actions.
+The activity block shows exactly what the agent did, which is useful for learning how it works and for catching mistakes when it goes sideways.
 
-Check the activity block. It shows exactly what the agent did, which is useful for learning how it works and for catching mistakes.
-
-Let it search. The agent can search your vault semantically. Ask broad questions like "What do I know about X?" and it will find the relevant notes.
+For broad questions like "What do I know about X?", just ask. The agent will run a semantic search on the vault itself.
 
 ## Next steps
 
-- [Choosing a model](/guides/choosing-a-model): Provider comparison and recommendations
-- [Chat interface](/guides/chat-interface): Deep dive into all chat features
-- [Knowledge discovery](/guides/knowledge-discovery): Set up semantic search
+See [Choosing a model](/guides/choosing-a-model) for provider comparisons, [Chat interface](/guides/chat-interface) for the full feature set, and [Knowledge discovery](/guides/knowledge-discovery) to set up semantic search.

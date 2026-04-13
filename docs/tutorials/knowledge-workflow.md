@@ -5,21 +5,13 @@ description: Set up semantic search, discover hidden connections, and check your
 
 # Your first knowledge workflow
 
-By the end of this tutorial you will have:
+This tutorial walks you through setting up an embedding model, running semantic search, finding connections through the knowledge graph, surfacing unlinked-but-related notes, and running a vault health check.
 
-- Set up an embedding model for meaning-based search
-- Run your first semantic search
-- Found notes connected through the knowledge graph
-- Discovered implicit connections between unlinked notes
-- Checked your vault for structural issues
-
-**Prerequisites:** Obsilo installed and a model configured. At least 20-30 notes in your vault. See [Getting Started](/tutorials/getting-started) if you haven't set up yet.
+**Prerequisites:** Obsilo installed and a model configured, plus at least 20-30 notes in your vault. See [Getting Started](/tutorials/getting-started) if you haven't set up yet.
 
 ## Step 1: Configure an embedding model
 
-Semantic search needs an embedding model to convert your notes into vectors. Open **Settings > Embeddings**.
-
-**Recommended setup:**
+Semantic search needs an embedding model to convert your notes into vectors. Open **Settings > Embeddings** and pick one:
 
 | Option | Provider | Why |
 |--------|----------|-----|
@@ -27,21 +19,13 @@ Semantic search needs an embedding model to convert your notes into vectors. Ope
 | Free | Google Gemini (if available) | No cost, decent quality |
 | Local | Ollama `nomic-embed-text` | Private, no API key needed |
 
-1. Select a provider and enter your API key (if needed)
-2. Click **Test Connection** to verify it works
-3. Leave the other settings at their defaults
+Enter your API key if the provider needs one, click **Test Connection** to verify it works, and leave the other settings at their defaults.
 
 ## Step 2: Build the index
 
-Still in **Settings > Embeddings**, click **Build Index**. Obsilo processes your notes in batches:
+Still in **Settings > Embeddings**, click **Build Index**. Obsilo processes your notes in batches. A small vault (under 100 notes) finishes in about a minute, 500 notes take a few minutes, and 2000+ notes run for 10-20 minutes.
 
-- Small vault (< 100 notes): Takes about a minute
-- Medium vault (500 notes): A few minutes
-- Large vault (2000+ notes): 10-20 minutes
-
-The progress bar shows how many notes have been processed. You can keep working in Obsidian while it runs.
-
-Once done, you will see a confirmation with the number of indexed notes.
+The progress bar shows how many notes have been processed. You can keep working in Obsidian while it runs. When it finishes you get a confirmation with the number of indexed notes.
 
 ## Step 3: Search by meaning
 
@@ -59,7 +43,7 @@ Now try a question that pulls in connections:
 
 > "Find all notes related to productivity and show me how they connect to each other."
 
-The agent uses graph expansion: after finding relevant notes via semantic search, it follows wikilinks, backlinks, and shared tags to discover related content. Notes that link to each other or share properties get pulled into the results.
+The agent uses graph expansion. After finding relevant notes via semantic search, it follows wikilinks, backlinks, and shared tags to pull in related content. Notes that link to each other or share properties get added to the result set.
 
 ## Step 5: Discover implicit connections
 
@@ -79,15 +63,17 @@ Ask the agent to run a structural check:
 
 The agent calls `vault_health_check` and reports findings grouped by type:
 
-- **Orphaned notes:** Notes with no incoming links
-- **Missing backlinks:** One-directional links where the target doesn't link back
-- **Broken links:** Wikilinks pointing to notes that no longer exist
-- **Weak clusters:** Semantically similar notes that aren't linked yet
-- **Inconsistent tags:** Spelling variants like `#meeting` vs `#meetings`
-- **Category mismatches:** Notes whose category property disagrees with the cluster they belong to
-- **God nodes:** Hub notes with too many connections to still act as useful indexes
+| Finding | What it means |
+|---------|---------------|
+| Orphaned notes | Notes with no incoming links |
+| Missing backlinks | One-directional links where the target doesn't link back |
+| Broken links | Wikilinks pointing to notes that no longer exist |
+| Weak clusters | Semantically similar notes that aren't linked yet |
+| Inconsistent tags | Spelling variants like `#meeting` vs `#meetings` |
+| Category mismatches | Notes whose category property disagrees with the cluster they belong to |
+| God nodes | Hub notes with too many connections to still act as useful indexes |
 
-Open the repair modal from the sidebar badge to work through them. Findings have three actions. Repair applies a mechanical fix. Discuss opens a fresh agent chat that walks through the specific finding with you. Dismiss hides a finding that's actually fine by design. Every repair creates a checkpoint you can undo.
+Open the repair modal from the sidebar badge to work through them. Findings have three actions: Repair applies a mechanical fix, Discuss opens a fresh agent chat that walks through the specific finding with you, and Dismiss hides a finding that's actually fine by design. Every repair creates a checkpoint you can undo.
 
 ## Step 7: See what was remembered
 
@@ -95,15 +81,15 @@ After this session, Obsilo has learned something about you. Check what it rememb
 
 > "What do you remember about me?"
 
-The agent pulls from its 3-tier memory: the current session summary, any long-term facts it extracted, and your user profile. Over time, it uses these memories to give better answers and skip questions it already knows the answer to.
+The agent pulls from its 3-tier memory: the current session summary, any long-term facts it extracted, and your user profile. Over time it uses these to give better answers and skip questions it already knows the answer to.
 
 ## Step 8: Integrate a note or a whole folder
 
-Ingest is the other side of discovery. Instead of searching for something, you add new material to the vault in a way that keeps the graph intact. For a single note, ask:
+Ingest is the other side of discovery. Instead of searching for something, you add new material to the vault in a way that keeps the graph intact. For a single note:
 
 > "Integrate this note into my vault."
 
-For a folder of imports, bookmarks, or meeting notes, ask:
+For a folder of imports, bookmarks, or meeting notes:
 
 > "Integrate all notes in my imports/ folder."
 
@@ -113,11 +99,8 @@ See [Knowledge ingest](/guides/knowledge-ingest) for the full workflow.
 
 ## What you learned
 
-You now have semantic search running, which means Obsilo can find notes by meaning rather than just keywords. You know how to explore connections, discover missing links, keep your vault healthy, and bulk-import new content.
+You now have semantic search running, which means Obsilo can find notes by meaning rather than just keywords. You also know how to walk the graph, surface missing links, run a health check, and bulk-import new content.
 
-**Next steps:**
+## Further reading
 
-- [Knowledge discovery](/guides/knowledge-discovery): All search and graph features in detail
-- [Knowledge ingest](/guides/knowledge-ingest): The structured workflow for adding new notes, PDFs, and folders
-- [Vault health check](/guides/vault-health): Regular maintenance for your vault
-- [Memory and personalization](/guides/memory-personalization): How the agent builds your profile
+[Knowledge discovery](/guides/knowledge-discovery) covers the search and graph features in detail. [Knowledge ingest](/guides/knowledge-ingest) is the full workflow for adding new notes, PDFs, and folders. [Vault health check](/guides/vault-health) is worth running regularly. [Memory and personalization](/guides/memory-personalization) explains how the agent builds your profile.

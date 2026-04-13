@@ -5,10 +5,10 @@ description: Complete list of all 49 tools available to the Obsilo agent, organi
 
 # Tools reference
 
-Obsilo has 49 built-in tools organized into six groups. The agent picks the right tool automatically based on your request. You never need to call tools yourself.
+Obsilo has 49 built-in tools in six groups. The agent picks the right tool based on your request. You never call tools yourself.
 
 :::tip How tools work
-When you ask Obsilo to do something, it selects one or more tools, shows you what it plans to do (in the activity block), and asks for approval before any write operation. See [Safety & Control](/guides/safety-control) for details.
+When you ask Obsilo to do something, it picks one or more tools, shows its plan in the activity block, and asks for approval before any write operation. See [Safety & Control](/guides/safety-control) for details.
 :::
 
 ## Tool groups at a glance
@@ -25,7 +25,7 @@ When you ask Obsilo to do something, it selects one or more tools, shows you wha
 
 ## Read tools
 
-Tools for reading, searching, and exploring your vault. These never modify anything.
+Tools for reading, searching, and exploring your vault. They never modify anything.
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
@@ -46,7 +46,7 @@ Tools that understand your vault's structure, metadata, and connections.
 | `get_linked_notes` | Get forward links and backlinks for a note. | To understand how notes connect in the graph. |
 | `get_daily_note` | Read (or create) a daily note for today, yesterday, or any offset. | To work with your daily notes. |
 | `open_note` | Open a note in the Obsidian editor. | After creating or editing a note so you can see the result. |
-| `semantic_search` | Find notes by meaning using AI-powered similarity search. | For natural-language questions about vault content ("What do I know about X?"). |
+| `semantic_search` | Find notes by meaning using embedding-based similarity search. | For natural-language questions about vault content ("What do I know about X?"). |
 | `query_base` | Query an Obsidian Bases database file and return matching records. | To retrieve structured data from a .base file. |
 | `vault_health_check` | Run structural checks on the knowledge graph: orphans, broken links, missing backlinks, weak clusters, inconsistent tags, category mismatches, god-nodes. Returns findings with severity. | To audit vault quality or diagnose a specific issue area. Runs against the knowledge database, no LLM tokens used. See [Vault Health](/guides/vault-health). |
 | `ingest_document` | Parse a PDF, DOCX, or other document into text and index it. Falls back to the Text Extractor plugin cache for scanned PDFs. | Before searching the content of an imported or attached document. |
@@ -58,7 +58,7 @@ Tools that understand your vault's structure, metadata, and connections.
 
 ## Edit tools
 
-Tools that create, modify, or delete files in your vault. Each one triggers an approval prompt (unless auto-approved).
+Tools that create, modify, or delete files in your vault. Each one triggers an approval prompt unless auto-approved.
 
 | Tool | Description | When to use |
 |------|-------------|-------------|
@@ -131,7 +131,7 @@ Each mode (Ask, Agent, or your custom modes) can enable or disable specific tool
 
 ## Quick-pick guide
 
-Not sure which tool the agent should use? This table maps common tasks to the right tool.
+Common tasks mapped to the right tool.
 
 | You want to... | Best tool | Why not the alternative |
 |----------------|-----------|------------------------|
@@ -151,8 +151,8 @@ Not sure which tool the agent should use? This table maps common tasks to the ri
 ## Notes on tool behavior
 
 - Read tools run in parallel. When the agent needs to read multiple files, it reads them all at once.
-- Edit tools run sequentially. Write operations are processed one at a time to avoid conflicts.
-- Checkpoints are automatic. Before any edit tool modifies a file, a snapshot is created. You can undo any change.
-- The sandbox is isolated. Code in `evaluate_expression` runs in a sandboxed environment with limited vault access. It cannot access the file system directly or run shell commands.
-- Office tools create binary files. `create_pptx`, `create_docx`, and `create_xlsx` produce real Office files that open in Microsoft Office, Google Docs, or LibreOffice.
-- Quality gates apply. Some tools (`create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`, `create_excalidraw`) include a self-check step where the agent verifies the output meets quality standards.
+- Edit tools run sequentially. Write operations go one at a time to avoid conflicts.
+- Checkpoints run automatically. Before any edit tool modifies a file, Obsilo creates a snapshot so you can undo the change.
+- `evaluate_expression` code runs in a sandbox with limited vault access. It cannot touch the file system directly or run shell commands.
+- `create_pptx`, `create_docx`, and `create_xlsx` produce real Office files that open in Microsoft Office, Google Docs, or LibreOffice.
+- `create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`, and `create_excalidraw` run a self-check after output so the agent can verify quality.

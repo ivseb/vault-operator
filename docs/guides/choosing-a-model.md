@@ -5,21 +5,21 @@ description: Understand AI providers, how to configure them, and what matters fo
 
 # Choosing a model
 
-Obsilo works with many providers and models. Not all are equally good at being agents.
+Obsilo works with many providers and models. Not all of them are equally good at being agents.
 
 ## What makes a good model for Obsilo
 
 Obsilo is an agent, not a chat assistant. The model needs to:
 
-- Support tool use (function calling). It must call Obsilo's 49 tools.
-- Follow instructions precisely. The system prompt is complex, with rules, skills, and mode definitions.
-- Reason about multi-step tasks. Reading files, searching, editing, and verifying requires planning.
+- Support tool use (function calling). It has to call Obsilo's 49 tools.
+- Follow instructions precisely. The system prompt is dense with rules, skills, and mode definitions.
+- Reason about multi-step tasks. Reading files, searching, editing, and verifying takes planning.
 
 :::tip Use the latest, most capable models
-Obsilo works best with strong frontier models that excel at tool use and reasoning. Older or smaller models may struggle with complex tasks, skip approval steps, or call the wrong tools. Testing has been done primarily with Anthropic Claude models.
+Obsilo works best with strong frontier models that are good at tool use and reasoning. Older or smaller models may struggle with bigger tasks, skip approval steps, or call the wrong tools. Most of the testing has been done with Anthropic Claude models.
 :::
 
-For background tasks like memory extraction, chat titling, or contextual retrieval, a cheap model is fine. These tasks are simple and don't require tool use.
+For background tasks like memory extraction, chat titling, or contextual retrieval, a cheap model is fine. Those tasks are simple and don't need tool use.
 
 ## Provider categories
 
@@ -27,7 +27,7 @@ Obsilo supports three categories of providers, each with different trade-offs.
 
 ### Cloud providers (API key)
 
-You create an account, get an API key, and pay per usage. Best quality and reliability.
+Create an account, get an API key, pay per usage. Best quality and reliability.
 
 | Provider | How to get started | What you get |
 |----------|--------------------|--------------|
@@ -74,20 +74,15 @@ For API-key providers, the "Quick pick" dropdown shows popular models with pre-f
 
 ## Using different models for different tasks
 
-You don't have to use the same model everywhere. Obsilo lets you assign models per context:
+You don't have to use the same model everywhere. Obsilo lets you assign models per context. In Settings > Modes, each mode can override the default model: a strong model for Agent mode and a cheaper one for Ask mode works well. Settings > Memory lets you pick a small model for background memory extraction (it only summarizes conversations). Settings > Interface > Chat Linking has its own model for generating conversation titles. Settings > Embeddings lets you pick a cheap model for enriching search chunks in the background.
 
-- **Per-mode models:** In Settings > Modes, each mode can override the default model. Use a strong model for Agent mode and a cheaper one for Ask mode.
-- **Memory model:** In Settings > Memory, pick a small model for background extraction (it only summarizes conversations).
-- **Chat titling model:** In Settings > Interface > Chat Linking, pick a small model for generating conversation titles.
-- **Contextual retrieval model:** In Settings > Embeddings, pick a cheap model for enriching search chunks in the background.
-
-A typical setup: one frontier model for interactive work, one lightweight model for everything in the background.
+A typical setup is one frontier model for interactive work and one lightweight model for everything in the background.
 
 ## Embedding models
 
-Semantic search needs a separate embedding model. This specialized model converts text into vectors for similarity search.
+Semantic search needs a separate embedding model. This is a specialized model that converts text into vectors for similarity search.
 
-Configure it in **Settings > Embeddings > add embedding model**. Popular choices:
+Configure it in **Settings > Embeddings > add embedding model**. Common choices:
 - Any OpenAI-compatible embedding endpoint
 - Local embedding models via Ollama (e.g., `nomic-embed-text`)
 - GitHub Copilot and Kilo Gateway also support embedding models
@@ -106,6 +101,6 @@ The embedding model only affects search quality. It has no effect on chat respon
 
 ## Next steps
 
-- [Chat interface](/guides/chat-interface): Deep dive into the chat experience
+- [Chat interface](/guides/chat-interface): How the chat experience works in detail
 - [Knowledge discovery](/guides/knowledge-discovery): Set up semantic search (needs an embedding model)
-- [Providers reference](/reference/providers): Detailed step-by-step setup for each provider
+- [Providers reference](/reference/providers): Step-by-step setup for each provider

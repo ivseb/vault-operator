@@ -5,17 +5,17 @@ description: MCP client for external tools, MCP server for Claude Desktop, and r
 
 # Connectors
 
-Obsilo can connect to external tools, expose your vault to other AI applications, and provide remote access from anywhere, using the Model Context Protocol (MCP) and a Cloudflare relay.
+Obsilo can connect to external tools, expose your vault to other AI applications, and let you reach it remotely. It does this through the Model Context Protocol (MCP) and a Cloudflare relay.
 
 ## MCP client: connect external tools
 
-The MCP client lets Obsilo use tools provided by external MCP servers. You can extend the agent's capabilities without writing plugins.
+The MCP client lets Obsilo use tools that live in external MCP servers. You can extend what the agent can do without writing a plugin.
 
 ### What you can connect
 
-Any MCP-compatible server works. Common examples:
+Any MCP-compatible server works. A few common examples:
 - Database tools (query SQLite, PostgreSQL, or other databases)
-- Web services (interact with APIs, fetch data)
+- Web services (call APIs, fetch data)
 - Local tools (file system utilities, shell commands, custom scripts)
 - Third-party integrations (GitHub, Slack, calendar services)
 
@@ -32,17 +32,17 @@ Any MCP-compatible server works. Common examples:
 | Streamable HTTP | Modern remote servers (recommended for remote) |
 
 4. Enter the server command or URL
-5. Save. The agent discovers available tools automatically.
+5. Save. The agent picks up available tools automatically.
 
-Once connected, the agent can call external tools using `use_mcp_tool` and manage servers with `manage_mcp_server`.
+Once connected, the agent calls external tools with `use_mcp_tool` and manages servers with `manage_mcp_server`.
 
 :::tip Discovery is automatic
-You don't need to tell the agent which tools are available. It reads the tool list from each connected MCP server and uses them when relevant to your request.
+You don't need to tell the agent which tools are available. It reads the tool list from each connected MCP server and uses them when they fit your request.
 :::
 
 ## MCP server: expose your vault to Claude Desktop
 
-You can turn Obsilo into an MCP server, letting Claude Desktop (or any MCP client) read and write your Obsidian vault.
+You can turn Obsilo into an MCP server so Claude Desktop (or any MCP client) can read and write your Obsidian vault.
 
 ### Why this matters
 
@@ -56,16 +56,16 @@ Claude Desktop cannot access your Obsidian notes on its own. With Obsilo's MCP s
 | Session | `sync_session`, `update_memory` | Synchronize conversation context and memory |
 | Write | `write_vault`, `execute_vault_op` | Create and modify notes; run vault operations |
 
-`execute_vault_op` is the gateway to all vault operations. It lists about 33 available tools at runtime, including `vault_health_check`, `semantic_search`, `create_pptx`, and others. The list is generated from the plugin's tool registry, so new tools appear automatically without configuration changes.
+`execute_vault_op` is the gateway to all vault operations. It lists about 33 available tools at runtime, including `vault_health_check`, `semantic_search`, `create_pptx`, and others. The list is generated from the plugin's tool registry, so new tools show up automatically without any config changes.
 
 ### Setup
 
 1. Open **Settings > Obsilo Agent > MCP > Server** tab
 2. Enable the MCP server
-3. Click **"Configure Claude Desktop"**. This automatically adds the configuration to Claude Desktop's config file.
+3. Click **"Configure Claude Desktop"**. This adds the configuration to Claude Desktop's config file for you.
 4. Restart Claude Desktop
 
-Done. Claude Desktop now sees your vault as an available tool source.
+That's it. Claude Desktop now sees your vault as an available tool source.
 
 :::warning Write access
 The write tier lets Claude Desktop modify your vault. Enable it only if you trust the prompts you send through Claude Desktop. The read and session tiers are safe for everyday use.
@@ -73,11 +73,11 @@ The write tier lets Claude Desktop modify your vault. Enable it only if you trus
 
 ## Remote access via Cloudflare relay
 
-Remote access lets you interact with your vault from anywhere, as long as Obsidian is running on your machine.
+Remote access lets you talk to your vault from anywhere, as long as Obsidian is running on your machine.
 
 ### How it works
 
-A Cloudflare Workers relay acts as a bridge between your local Obsilo instance and remote clients. The RelayClient in Obsilo maintains a persistent connection to the deployed worker.
+A Cloudflare Workers relay acts as a bridge between your local Obsilo instance and remote clients. The RelayClient in Obsilo holds a persistent connection to the deployed worker.
 
 ### Setup
 
@@ -92,7 +92,7 @@ Remote access requires Obsidian to be running on your machine. The relay forward
 
 ## Provider overview
 
-Obsilo supports 10+ AI providers. Most use a simple API key, but two have alternative authentication:
+Obsilo supports 10+ AI providers. Most use a plain API key. Two of them use a different auth flow:
 
 | Provider | Auth method | Notes |
 |----------|------------|-------|
@@ -116,11 +116,11 @@ Obsilo supports 10+ AI providers. Most use a simple API key, but two have altern
 4. For manual token: paste your token from the Kilo dashboard
 
 :::tip Free access
-GitHub Copilot works if you already have a Copilot subscription. Kilo Gateway offers community access with shared limits. Both are good options to try Obsilo without purchasing a separate API key.
+GitHub Copilot works if you already have a Copilot subscription. Kilo Gateway offers community access with shared limits. Both are good ways to try Obsilo without buying a separate API key.
 :::
 
 ## Next steps
 
 - [Skills, Rules & Workflows](/guides/skills-rules-workflows): Customize the agent's behavior
 - [Office Documents](/guides/office-documents): Create presentations and documents
-- [Multi-Agent & Tasks](/guides/multi-agent): Delegate work to sub-agents
+- [Multi-Agent & Tasks](/guides/multi-agent): Hand work off to sub-agents

@@ -14,13 +14,13 @@ Configure AI models and providers. You can add multiple models and switch betwee
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
 | Model list | All configured models with provider, name, and status | Empty | Add at least one model to start |
-| Active model | The model used for conversations | First added | Use a capable model (Claude Sonnet, GPT-4o) |
+| Active model | The model used for conversations | First added | Use a strong model (Claude Sonnet, GPT-4o) |
 | + add model | Opens the model configuration dialog | -- | Start with one cloud + one local model |
 | Import from code | Import model configurations shared as code snippets | -- | Useful for team setups |
 | Test connection | Verify that a model's API key and endpoint work | -- | Always test after adding a new model |
 
 :::tip Multiple models
-Add several models and assign them to different modes. Use a fast/cheap model for Ask mode and a powerful one for Agent mode.
+Add several models and assign them to different modes. Use a fast, cheap model for Ask mode and a stronger one for Agent mode.
 :::
 
 ## Embeddings
@@ -46,7 +46,7 @@ The semantic index stores embeddings locally. For a vault with 1,000 notes, expe
 
 ### Knowledge properties
 
-Vault conventions used by the [knowledge ingest](/guides/knowledge-ingest) workflow and [vault health check](/guides/vault-health). Set these once to match your vault's existing schema.
+Vault conventions used by the [knowledge ingest](/guides/knowledge-ingest) workflow and [vault health check](/guides/vault-health). Set these once to match your vault's schema.
 
 | Setting | What it does | Default | Recommendation |
 |---------|-------------|---------|----------------|
@@ -99,7 +99,7 @@ Configure agent modes. Each mode defines which tools, skills, and model the agen
 | Ask mode | Read-only mode with only read and vault intelligence tools | Built-in | Keep as your safe exploration mode |
 | Agent mode | Full-access mode with all tools enabled | Built-in | Your primary working mode |
 | Custom modes | User-defined modes with custom tool sets and system prompts | Empty | Create modes for specific workflows (Researcher, Writer) |
-| Per-mode model | Override which model a mode uses | Global model | Set a fast model for Ask, a powerful one for Agent |
+| Per-mode model | Override which model a mode uses | Global model | Set a fast model for Ask, a stronger one for Agent |
 | Per-mode tools | Select which tool groups are available in each mode | Varies by mode | Restrict tools to what the mode actually needs |
 | Per-mode skills | Attach specific skills to a mode | None | Attach relevant skills for the mode's purpose |
 

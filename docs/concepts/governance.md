@@ -7,7 +7,7 @@ description: How Obsilo prevents the agent from doing damage. Path protection, a
 
 This is what makes it safe to give an AI write access to your notes.
 
-The principle is fail-closed. If anything goes wrong during an approval check, whether a missing callback, unloaded config, or unexpected error, the operation is denied. The agent never silently auto-approves. Every tool call, internal or MCP, flows through one central pipeline.
+The principle is fail-closed. If anything goes wrong during an approval check (a missing callback, an unloaded config, an unexpected error), the operation is denied. The agent never silently auto-approves. Every tool call, internal or MCP, flows through one central pipeline.
 
 ## The pipeline
 
@@ -23,7 +23,7 @@ flowchart LR
     D --> E[Result]
 ```
 
-Three questions, in order: Is the path allowed? Is the operation approved? Only then does the tool run. After execution, the result is logged.
+Three questions, in order. Is the path allowed? Is the operation approved? Only then does the tool run, and the result is logged afterward.
 
 ## Path protection
 
@@ -38,7 +38,7 @@ Both files use glob patterns. A line like `journal/private/**` blocks everything
 
 Some paths are always blocked regardless of configuration: `.git/`, Obsidian workspace files, and cache files. The governance config files themselves are always write-protected, so the agent cannot edit its own restrictions.
 
-The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If it hasn't finished loading its patterns yet, it denies all access. Fail-closed, as always.
+The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If it hasn't finished loading its patterns yet, it denies all access. Fail-closed.
 
 ## Approval categories
 
@@ -59,7 +59,7 @@ Every tool is classified into an approval group. The group determines whether th
 
 Self-modification tools are the strictest category. The agent can create and edit its own skills and source code, but a human must approve every change. There is no auto-approve setting for this group.
 
-For note edits, the approval UI can show a semantic diff grouped by Markdown structure (frontmatter, headings, lists, code blocks) rather than raw line hunks. You can approve, reject, or edit individual sections before confirming.
+For note edits, the approval UI can show a semantic diff grouped by Markdown structure (frontmatter, headings, lists, code blocks) instead of raw line hunks. You can approve, reject, or edit individual sections before confirming.
 
 ## Checkpoints
 
@@ -67,7 +67,7 @@ Before any write operation, the pipeline takes a git snapshot of the affected fi
 
 `GitCheckpointService` (`src/core/checkpoints/GitCheckpointService.ts`) commits the file's current content into the shadow repo before the tool modifies it. Each checkpoint records the task ID, commit hash, timestamp, changed files, and the tool that triggered it. Files that didn't exist before the checkpoint are tracked separately so restore can delete them.
 
-The result: after any task, you can undo all changes. The undo is granular: each write operation gets its own checkpoint, so you can roll back to any intermediate state. The vault's own git history (if it has one) is never touched.
+After any task, you can undo all changes. Every write operation gets its own checkpoint, so you can roll back to any intermediate state. The vault's own git history, if it has one, is never touched.
 
 ## Audit log
 
@@ -86,6 +86,6 @@ Each entry records:
 | `success` | Whether the call succeeded |
 | `durationMs` | Execution time |
 
-Sensitive values (passwords, tokens, API keys) are replaced with `[REDACTED]` before logging. File content fields are logged as `[N chars]` rather than the full text. URLs have credentials stripped.
+Sensitive values (passwords, tokens, API keys) are replaced with `[REDACTED]` before logging. File content fields are logged as `[N chars]` instead of the full text. URLs have credentials stripped.
 
 The log is append-only during a session. You can read it with any tool that understands JSONL, or use the built-in `read_agent_logs` tool to have the agent analyze its own history.

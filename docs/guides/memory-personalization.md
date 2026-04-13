@@ -9,7 +9,7 @@ Obsilo remembers what you care about, how you like to work, and what you have di
 
 ## How it remembers
 
-Obsilo uses a three-tier memory system:
+Memory has three tiers:
 
 | Tier | What it stores | How it works |
 |------|---------------|-------------|
@@ -25,19 +25,19 @@ Memory files are just text. Open them in any editor to see what Obsilo remembers
 
 ## Chat history
 
-Every conversation is saved automatically (when chat history is enabled). You can browse, restore, and continue past conversations.
+When chat history is enabled, every conversation is saved automatically. You can browse, restore, and continue past conversations.
 
 To access your chat history:
 
 1. Click the clock icon in the chat toolbar
-2. A sliding panel shows all past conversations grouped by date (Today, Yesterday, This Week, Older)
-3. Click any conversation to restore it and continue where you left off
+2. A sliding panel shows past conversations grouped by date (Today, Yesterday, This Week, Older)
+3. Click any conversation to restore it and pick up where you left off
 
 Conversations show the time they started and a short title. If you have a titling model configured (see Chat-Linking below), titles are generated automatically from the conversation content.
 
 ## Chat-Linking
 
-When Obsilo creates or edits a note, it can add a link back to the conversation in the note's frontmatter. This lets you trace any change back to the conversation that caused it.
+When Obsilo creates or edits a note, it can add a link back to the conversation in the note's frontmatter. This way you can trace any change back to the conversation that caused it.
 
 How it works:
 
@@ -45,9 +45,9 @@ How it works:
 - The value is a clickable link in the format `obsidian://obsilo-chat?id=...`
 - Clicking the link opens Obsilo and jumps straight to that conversation
 
-Semantic titling: If you configure a small, fast model (like Haiku or GPT-4o mini) as the titling model, Obsilo generates meaningful conversation titles automatically. Without a titling model, the first 60 characters of the conversation are used instead.
+If you configure a small, fast model (like Haiku or GPT-4o mini) as the titling model, Obsilo generates meaningful conversation titles automatically. Without a titling model, it falls back to the first 60 characters of the conversation.
 
-To configure Chat-Linking: Go to **Settings > Obsilo Agent > Interface** and look for the "Auto-link chats in frontmatter" toggle. You can also select your preferred titling model there.
+To configure Chat-Linking, go to **Settings > Obsilo Agent > Interface** and look for the "Auto-link chats in frontmatter" toggle. You can pick your titling model there too.
 
 :::info Cost saving
 Use a cheap, fast model for titling (separate from your main model). It only needs to generate a short title, so even the smallest models work fine.
@@ -58,12 +58,12 @@ Use a cheap, fast model for titling (separate from your main model). It only nee
 When you first install Obsilo, a conversational setup wizard walks you through the basics:
 
 1. Introduction: Obsilo introduces itself and asks your name
-2. Naming: you can rename the agent if you prefer a different name
-3. Backup reminder: a prompt to back up your vault before letting the agent write
-4. Permissions: choose your comfort level for automatic approvals
-5. Profile: share what you use your vault for so Obsilo can tailor its help
+2. Naming: rename the agent if you prefer a different name
+3. Backup reminder: a prompt to back up your vault before you let the agent write
+4. Permissions: pick your comfort level for automatic approvals
+5. Profile: tell it what you use your vault for so it can tailor its help
 
-The wizard runs as a normal chat conversation, not a form or popup. Your answers are saved to memory right away, so Obsilo starts personalized from the first real task.
+The wizard runs as a normal chat conversation, not a form or popup. Your answers go straight into memory, so Obsilo is personalized from the first real task.
 
 ## Memory settings
 
@@ -89,18 +89,18 @@ As you work with Obsilo, it builds a profile of your preferences in `user-profil
 - Your name and how you prefer to be addressed
 - Topics and projects you work on
 - Communication style preferences (brief vs. detailed, formal vs. casual)
-- Tools and workflows you use frequently
+- Tools and workflows you use often
 
-The agent reads this profile at the start of each conversation to personalize its responses. You can edit the file directly to correct or add information.
+The agent reads this profile at the start of each conversation to personalize its responses. Edit the file directly to fix or add anything.
 
 ## Tips
 
-1. Have real conversations. The more you interact, the better Obsilo understands your preferences. Short one-off questions do not generate much memory.
+1. Have real conversations. The more you interact, the better Obsilo picks up on your preferences. Short one-off questions don't generate much memory.
 
-2. Correct the agent. If Obsilo gets a preference wrong, tell it. Corrections are prioritized in memory extraction.
+2. Correct the agent. If Obsilo gets a preference wrong, tell it. Corrections get priority in memory extraction.
 
-3. Review your memory files occasionally. Open `.obsidian-agent/memory/` and scan the files. Remove anything outdated or incorrect.
+3. Skim your memory files now and then. Open `.obsidian-agent/memory/` and remove anything outdated or wrong.
 
-4. Use the minimum messages threshold wisely. If you often have short chats that are not worth remembering, raise the threshold. If every conversation matters, lower it.
+4. Tune the minimum messages threshold to your habits. If you often have short chats not worth remembering, raise it. If every conversation matters, lower it.
 
-5. Keep Chat-Linking enabled. The frontmatter links create an audit trail. You can always find *why* a note was changed and *what was discussed*.
+5. Keep Chat-Linking on. The frontmatter links give you an audit trail: you can always find *why* a note was changed and *what was discussed*.

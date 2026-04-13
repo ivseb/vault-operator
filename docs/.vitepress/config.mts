@@ -116,9 +116,9 @@ const conceptsSidebar = [
 export default withMermaid(
   defineConfig({
     title: 'Obsilo',
-    description: 'Agentic AI for Obsidian',
+    description: 'An AI agent for your Obsidian vault',
     head: [
-      ['meta', { property: 'og:title', content: 'Obsilo - Agentic AI for Obsidian' }],
+      ['meta', { property: 'og:title', content: 'Obsilo, an AI agent for your Obsidian vault' }],
       ['meta', { property: 'og:description', content: 'An autonomous AI agent for Obsidian with 49 tools, semantic search, multi-agent workflows, and full safety controls.' }],
     ],
 
