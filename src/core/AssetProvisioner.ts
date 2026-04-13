@@ -58,7 +58,7 @@ export async function ensureRuntimeAssets(plugin: Plugin): Promise<void> {
         if (content.startsWith('base64:')) {
             const raw = content.slice(7);
             const bytes = Uint8Array.from(atob(raw), c => c.charCodeAt(0));
-            await adapter.writeBinary(fullPath, bytes.buffer as ArrayBuffer);
+            await adapter.writeBinary(fullPath, bytes.buffer);
         } else {
             await adapter.write(fullPath, content);
         }

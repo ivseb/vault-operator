@@ -12,7 +12,6 @@ import { Modal, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
-import { t } from '../../i18n';
 
 const REPAIRABLE_CHECKS = new Set<HealthCheckType>([
     'missing_backlinks', 'category_mismatch', 'inconsistent_tags',
