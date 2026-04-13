@@ -5,6 +5,7 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
+import { AGENT_INTERNAL_TOOLS } from '../McpBridge';
 
 export async function handleGetContext(plugin: ObsidianAgentPlugin): Promise<McpToolResult> {
     const sections: string[] = [];
@@ -17,6 +18,17 @@ export async function handleGetContext(plugin: ObsidianAgentPlugin): Promise<Mcp
             if (ctx) sections.push(ctx);
         } catch { /* non-fatal */ }
     }
+
+    // Available vault operations (via execute_vault_op)
+    const availableOps = plugin.toolRegistry.getAllTools()
+        .map(t => t.name)
+        .filter(name => !AGENT_INTERNAL_TOOLS.has(name))
+        .sort();
+    sections.push([
+        '--- Available Vault Operations (via execute_vault_op) ---',
+        `Use execute_vault_op with operation parameter set to any of: ${availableOps.join(', ')}`,
+        'Pass tool-specific parameters via the params object.',
+    ].join('\n'));
 
     // Vault stats
     const vault = plugin.app.vault;
