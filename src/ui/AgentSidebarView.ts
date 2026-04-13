@@ -172,9 +172,10 @@ export class AgentSidebarView extends ItemView {
 
     onClose(): Promise<void> {
         this.currentAbortController?.abort();
-        this.saveCurrentConversation();
-        this.enqueueMemoryExtraction();
-        this.attachments.clear();
+        // Guard every call: onClose may run before onOpen completed if plugin init failed upstream
+        try { this.saveCurrentConversation(); } catch { /* non-fatal */ }
+        try { this.enqueueMemoryExtraction(); } catch { /* non-fatal */ }
+        this.attachments?.clear();
         return Promise.resolve();
     }
 

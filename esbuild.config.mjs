@@ -22,7 +22,7 @@ const prod = (process.argv[2] === "production");
  */
 function generateEmbeddedAssets() {
     const assets = {};
-    let workerCount = 0, skillCount = 0, templateCount = 0;
+    let workerCount = 0, skillCount = 0, templateCount = 0, wasmCount = 0;
 
     // Workers (built by previous esbuild steps)
     for (const worker of ["sandbox-worker.js", "mcp-server-worker.js"]) {
@@ -57,6 +57,30 @@ function generateEmbeddedAssets() {
         }
     }
 
+    // WASM runtime binaries -- FIX-22: full self-contained install for BRAT.
+    // Without these, BRAT users hit ENOENT on KnowledgeDB.open() and reranker
+    // falls through to unreliable HF CDN (cas-bridge.xethub.hf.co ERR_CONTENT_LENGTH_MISMATCH).
+    // Total footprint: ~13 MB raw, ~17 MB base64.
+    const wasmSources = [
+        { src: "node_modules/sql.js/dist/sql-wasm.wasm", dest: "sql-wasm.wasm" },
+        { src: "node_modules/sql.js/dist/sql-wasm-browser.wasm", dest: "sql-wasm-browser.wasm" },
+        { src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm", dest: "ort-wasm-simd-threaded.wasm" },
+        { src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs", dest: "ort-wasm-simd-threaded.mjs" },
+    ];
+    for (const { src, dest } of wasmSources) {
+        const abs = join(__dirname, src);
+        if (!existsSync(abs)) {
+            throw new Error(`[embed-assets] FATAL: Required WASM asset not found: ${src}. Run npm install.`);
+        }
+        if (dest.endsWith(".wasm")) {
+            assets[dest] = "base64:" + readFileSync(abs).toString("base64");
+        } else {
+            // .mjs is text
+            assets[dest] = readFileSync(abs, "utf-8");
+        }
+        wasmCount++;
+    }
+
     // Validate: workers are mandatory
     if (workerCount === 0) {
         throw new Error("[embed-assets] FATAL: No worker files found. Build workers before main.");
@@ -67,13 +91,16 @@ function generateEmbeddedAssets() {
     if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
     const json = JSON.stringify(assets);
 
-    // Safety: abort if generated file is suspiciously large (>5MB)
-    if (json.length > 5 * 1024 * 1024) {
-        throw new Error(`[embed-assets] FATAL: Generated assets too large (${(json.length / 1024).toFixed(0)}KB). Check for unexpected files.`);
+    // Safety: abort if generated file is suspiciously large.
+    // Current footprint (FIX-22): ~17 MB with WASM. Limit at 25 MB gives headroom
+    // for additional bundled skills/templates without hiding genuine bloat.
+    const MAX_EMBED_BYTES = 25 * 1024 * 1024;
+    if (json.length > MAX_EMBED_BYTES) {
+        throw new Error(`[embed-assets] FATAL: Generated assets too large (${(json.length / 1024 / 1024).toFixed(1)}MB, limit ${MAX_EMBED_BYTES / 1024 / 1024}MB). Review wasmSources or raise the limit deliberately.`);
     }
 
     writeFileSync(join(outDir, "embedded-assets.json"), json);
-    console.log(`[embed-assets] Embedded ${workerCount} workers, ${skillCount} skills, ${templateCount} templates (${(json.length / 1024).toFixed(0)}KB)`);
+    console.log(`[embed-assets] Embedded ${workerCount} workers, ${skillCount} skills, ${templateCount} templates, ${wasmCount} WASM (${(json.length / 1024 / 1024).toFixed(1)}MB)`);
 }
 
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
