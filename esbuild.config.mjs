@@ -39,6 +39,7 @@ function generateEmbeddedAssets() {
             const srcDir = join(bundledSkillsDir, skillDir);
             if (!statSync(srcDir).isDirectory()) continue;
             for (const file of readdirSync(srcDir)) {
+                if (file.startsWith('.')) continue; // AUDIT-010 L-1: skip dotfiles (.DS_Store etc.)
                 const filePath = join(srcDir, file);
                 if (statSync(filePath).isDirectory()) continue;
                 assets[`skills/${skillDir}/${file}`] = readFileSync(filePath, "utf-8");

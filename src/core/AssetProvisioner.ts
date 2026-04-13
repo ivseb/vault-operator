@@ -38,6 +38,11 @@ export async function ensureRuntimeAssets(plugin: Plugin): Promise<void> {
     let count = 0;
 
     for (const [relativePath, content] of Object.entries(assets)) {
+        // AUDIT-010 M-1: Defense-in-depth against path traversal
+        if (relativePath.includes('..') || relativePath.startsWith('/') || relativePath.startsWith('\\')) {
+            console.warn(`[AssetProvisioner] Rejected unsafe path: ${relativePath}`);
+            continue;
+        }
         const fullPath = `${pluginDir}/${relativePath}`;
 
         // Ensure parent directory exists

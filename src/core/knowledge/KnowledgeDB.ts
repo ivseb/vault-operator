@@ -221,6 +221,9 @@ export class KnowledgeDB {
         return this.db;
     }
 
+    // AUDIT-010 M-2: SHA-256 hash of sql.js@1.14.1 sql-wasm.wasm for CDN integrity check
+    private static readonly SQL_WASM_SHA256 = '438c88f666dc054ce4e9395f80fe9db4218b1a3c379960454880f048a7898aed';
+
     /**
      * Load sql-wasm.wasm binary: try local disk first, download from CDN as fallback (FIX-16).
      * BRAT installs only main.js/manifest/styles -- WASM files are missing for those users.
@@ -244,6 +247,15 @@ export class KnowledgeDB {
         const cdnUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.14.1/dist/sql-wasm.wasm';
         console.debug('[KnowledgeDB] WASM not found on disk, downloading from CDN...');
         const response = await requestUrl({ url: cdnUrl });
+
+        // AUDIT-010 M-2/M-3: Verify integrity before trusting CDN content
+        const hashBuffer = await crypto.subtle.digest('SHA-256', response.arrayBuffer);
+        const hashHex = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        if (hashHex !== KnowledgeDB.SQL_WASM_SHA256) {
+            throw new Error(`[KnowledgeDB] WASM integrity check failed (expected ${KnowledgeDB.SQL_WASM_SHA256.slice(0, 16)}..., got ${hashHex.slice(0, 16)}...)`);
+        }
+
         const buffer = Buffer.from(response.arrayBuffer);
 
         // Cache to disk for next startup
