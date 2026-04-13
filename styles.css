@@ -2205,26 +2205,33 @@
 }
 
 .followup-item-row {
-    display: flex;
-    gap: 4px;
-    align-items: stretch;
+    position: relative;
     margin-bottom: 4px;
 }
 .followup-append-btn {
-    flex-shrink: 0;
-    width: 28px;
-    min-width: 28px;
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 22px;
     padding: 0;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    background: var(--background-secondary);
+    border-radius: 4px;
+    background: var(--background-primary);
     color: var(--text-muted);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
+    line-height: 20px;
+    text-align: center;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+}
+.followup-item-row:hover .followup-append-btn {
+    opacity: 1;
+    pointer-events: auto;
 }
 .followup-append-btn:hover {
     border-color: var(--interactive-accent);
@@ -2232,6 +2239,7 @@
     background: var(--background-modifier-hover);
 }
 .followup-item {
+    position: relative;
     display: block;
     width: 100%;
     box-sizing: border-box;
@@ -2243,7 +2251,7 @@
     min-height: 0;
     max-width: 100%;
     overflow: visible;
-    padding: 6px 12px;
+    padding: 6px 32px 6px 12px;
     margin: 3px 0;
     border: 1px solid var(--background-modifier-border);
     border-radius: 8px;

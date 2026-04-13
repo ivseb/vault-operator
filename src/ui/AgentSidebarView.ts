@@ -1806,24 +1806,25 @@ export class AgentSidebarView extends ItemView {
                                 return name.contains('/') ? name.split('/').pop()! : name;
                             });
                             const itemRow = followupList.createDiv('followup-item-row');
-                            // "+" button: append text to textarea without sending
-                            const appendBtn = itemRow.createEl('button', { cls: 'followup-append-btn', text: '+' });
-                            appendBtn.setAttribute('aria-label', 'Add to input');
-                            appendBtn.addEventListener('click', (ev) => {
-                                ev.stopPropagation();
-                                if (this.textarea) {
-                                    const sep = this.textarea.value.trim() ? '\n' : '';
-                                    this.textarea.value = this.textarea.value + sep + displayText;
-                                    this.textarea.focus();
-                                    this.textarea.dispatchEvent(new Event('input'));
-                                }
-                            });
                             // Main button: send immediately (existing behavior)
                             const item = itemRow.createEl('button', { cls: 'followup-item', text: displayText });
                             item.addEventListener('click', () => {
                                 if (this.textarea) {
                                     this.textarea.value = displayText;
                                     void this.handleSendMessage();
+                                }
+                            });
+                            // "+" button: append text to textarea without sending (inside item, right-aligned, hover-only)
+                            const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
+                            appendBtn.setAttribute('aria-label', 'Add to input');
+                            appendBtn.addEventListener('click', (ev) => {
+                                ev.stopPropagation();
+                                ev.preventDefault();
+                                if (this.textarea) {
+                                    const sep = this.textarea.value.trim() ? '\n' : '';
+                                    this.textarea.value = this.textarea.value + sep + displayText;
+                                    this.textarea.focus();
+                                    this.textarea.dispatchEvent(new Event('input'));
                                 }
                             });
                         }
@@ -2363,10 +2364,8 @@ export class AgentSidebarView extends ItemView {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
-                    const msgEl = this.renderMarkdownMessage(msg.text, 'assistant');
-                    if (msgEl) {
-                        this.addResponseActions(msgEl, msg.text);
-                    }
+                    // renderMarkdownMessage already adds response actions for assistant messages
+                    this.renderMarkdownMessage(msg.text, 'assistant');
                 }
             }
         }

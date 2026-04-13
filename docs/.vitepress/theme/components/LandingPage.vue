@@ -174,7 +174,7 @@ onMounted(() => {
 <template>
   <section class="landing-hero">
     <a href="/releases/v2.4" class="landing-badge">
-      <span class="landing-badge-version">v2.4.3</span>
+      <span class="landing-badge-version">v2.4</span>
       <span>Graph intelligence, Claude remote Obsilo use optimization</span>
     </a>
 
