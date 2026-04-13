@@ -44,7 +44,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS dismissed_freshness (
     hint_type TEXT NOT NULL,
     dismissed_at TEXT NOT NULL,
     UNIQUE(note_path, hint_type)
+);
+
+CREATE TABLE IF NOT EXISTS dismissed_health_findings (
+    check_type TEXT NOT NULL,
+    path TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    PRIMARY KEY (check_type, path)
 );
 `;
 
@@ -391,6 +398,7 @@ export class KnowledgeDB {
             // v3 -> v4: Add implicit_edges table (FEATURE-1503)
             // v4 -> v5: Add dismissed_pairs table (FEATURE-1506)
             // v5 -> v6: Add ontology table (FEATURE-1902)
+            // v7 -> v8: Add dismissed_health_findings table (vault health skip/ignore)
             // All CREATE TABLE IF NOT EXISTS — idempotent, handled by initSchema() below
 
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)

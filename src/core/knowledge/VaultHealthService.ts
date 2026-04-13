@@ -85,7 +85,24 @@ export class VaultHealthService {
                 await new Promise<void>(r => setTimeout(r, 0));
             }
 
-            // Sort: high → medium → low
+            // Filter out dismissed findings
+            const dismissed = new Set<string>();
+            try {
+                const db = this.getDB();
+                const rows = db.exec('SELECT check_type, path FROM dismissed_health_findings');
+                if (rows.length > 0) {
+                    for (const row of rows[0].values) {
+                        dismissed.add(`${String(row[0])}:${String(row[1])}`);
+                    }
+                }
+            } catch { /* non-fatal */ }
+            if (dismissed.size > 0) {
+                this.findings = this.findings.filter(
+                    f => !dismissed.has(`${f.check}:${f.paths[0] ?? ''}`),
+                );
+            }
+
+            // Sort: high -> medium -> low
             const severityOrder = { high: 0, medium: 1, low: 2 };
             this.findings.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
 
@@ -134,6 +151,58 @@ export class VaultHealthService {
     /** Cancel an in-progress check. */
     cancel(): void {
         this.cancelled = true;
+    }
+
+    /** Dismiss a finding so it won't appear in future checks. */
+    dismissFinding(checkType: string, path: string): void {
+        if (!this.knowledgeDB.isOpen()) return;
+        const db = this.getDB();
+        db.run(
+            'INSERT OR REPLACE INTO dismissed_health_findings (check_type, path, dismissed_at) VALUES (?, ?, ?)',
+            [checkType, path, new Date().toISOString()],
+        );
+        this.knowledgeDB.markDirty();
+        // Remove from cached findings
+        this.findings = this.findings.filter(
+            f => !(f.check === checkType && f.paths[0] === path),
+        );
+    }
+
+    /** Clear all dismissed findings. */
+    restoreDismissed(): void {
+        if (!this.knowledgeDB.isOpen()) return;
+        const db = this.getDB();
+        db.run('DELETE FROM dismissed_health_findings');
+        this.knowledgeDB.markDirty();
+    }
+
+    /** Restore a single dismissed finding. */
+    restoreDismissedFinding(checkType: string, path: string): void {
+        if (!this.knowledgeDB.isOpen()) return;
+        const db = this.getDB();
+        db.run('DELETE FROM dismissed_health_findings WHERE check_type = ? AND path = ?', [checkType, path]);
+        this.knowledgeDB.markDirty();
+    }
+
+    /** Number of dismissed findings. */
+    getDismissedCount(): number {
+        if (!this.knowledgeDB.isOpen()) return 0;
+        const db = this.getDB();
+        const result = db.exec('SELECT COUNT(*) FROM dismissed_health_findings');
+        return result.length > 0 ? Number(result[0].values[0][0]) : 0;
+    }
+
+    /** Get all dismissed findings. */
+    getDismissedFindings(): Array<{ checkType: string; path: string; dismissedAt: string }> {
+        if (!this.knowledgeDB.isOpen()) return [];
+        const db = this.getDB();
+        const result = db.exec('SELECT check_type, path, dismissed_at FROM dismissed_health_findings ORDER BY dismissed_at DESC');
+        if (result.length === 0) return [];
+        return result[0].values.map(row => ({
+            checkType: row[0] as string,
+            path: row[1] as string,
+            dismissedAt: row[2] as string,
+        }));
     }
 
     /**

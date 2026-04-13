@@ -211,7 +211,7 @@ export class BackupTab {
 
             const textWrap = label.createSpan({ cls: 'agent-backup-label-text' });
             textWrap.createSpan({ text: cat.label, cls: 'agent-backup-label-name' });
-            textWrap.createSpan({ text: ` -- ${cat.description}`, cls: 'agent-backup-label-desc' });
+            textWrap.createSpan({ text: ` (${cat.description})`, cls: 'agent-backup-label-desc' });
 
             void this.loadCategoryStats(cat).then((info) => {
                 textWrap.createSpan({

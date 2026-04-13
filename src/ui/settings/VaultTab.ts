@@ -12,6 +12,9 @@ export class VaultTab {
             text: t('settings.vault.desc'),
         });
 
+        // ── Checkpoints ─────────────────────────────────────────────────────
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'CHECKPOINTS' });
+
         new Setting(containerEl)
             .setName(t('settings.vault.enableCheckpoints'))
             .setDesc(t('settings.vault.enableCheckpointsDesc'))
@@ -48,7 +51,7 @@ export class VaultTab {
             );
 
         // ── Task Extraction (FEATURE-100) ────────────────────────────────────
-        containerEl.createEl('h3', { text: t('settings.vault.taskExtraction') });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.vault.taskExtraction') });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
             text: t('settings.vault.taskExtractionDesc'),

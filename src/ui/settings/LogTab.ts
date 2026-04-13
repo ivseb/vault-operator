@@ -133,7 +133,7 @@ export class LogTab {
             if (!e.success && e.error) {
                 statusTd.createEl('span', {
                     cls: 'agent-log-error-msg',
-                    text: ` -- ${this.truncate(e.error, 80)}`,
+                    text: `: ${this.truncate(e.error, 80)}`,
                 });
             }
 
