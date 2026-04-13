@@ -20,6 +20,7 @@ import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
 import { OntologyStore } from './core/knowledge/OntologyStore';
+import { CommunityDetectionService } from './core/knowledge/CommunityDetectionService';
 import { VaultHealthService } from './core/knowledge/VaultHealthService';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
@@ -40,7 +41,7 @@ import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
-import { initI18n, t } from './i18n';
+import { t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { KiloAuthService } from './core/security/KiloAuthService';
@@ -92,6 +93,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
     ontologyStore: OntologyStore | null = null;
+    communityDetectionService: CommunityDetectionService | null = null;
     vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
     rerankerService: RerankerService | null = null;
@@ -232,11 +234,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 1. Load settings (merges global + vault-local)
         await this.loadSettings();
 
-        // 1b. Initialize i18n with user's language preference
-        await initI18n(this.settings.language);
-
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+
+        // FIX-19: Ensure runtime assets exist on disk (BRAT self-provisioning)
+        const { ensureRuntimeAssets } = await import('./core/AssetProvisioner');
+        await ensureRuntimeAssets(this).catch((e) =>
+            console.warn('[Plugin] Asset provisioning failed (non-fatal):', e)
+        );
 
         // FEATURE-1508: One-time migration from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/
         if (!this.settings._parentDirMigrated) {
@@ -367,9 +372,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.knowledgeDB.open().catch((e) =>
                 console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e)
             );
+            // FIX-18: If open() failed, null out to prevent cascading "not opened" errors
+            if (!this.knowledgeDB.isOpen()) {
+                console.warn('[Plugin] KnowledgeDB not available — semantic features disabled for this session');
+                this.knowledgeDB = null;
+            }
+            // Only create downstream stores if DB is available
+            if (!this.knowledgeDB) {
+                this.semanticIndex = null;
+            } else {
             this.vectorStore = new VectorStore(this.knowledgeDB);
             this.graphStore = new GraphStore(this.knowledgeDB);
             this.ontologyStore = new OntologyStore(this.knowledgeDB);
+            this.communityDetectionService = new CommunityDetectionService(
+                this.knowledgeDB, this.graphStore, this.ontologyStore,
+            );
             this.semanticIndex = new SemanticIndexService(this.app.vault, this.knowledgeDB, this.vectorStore, {
                 batchSize: this.settings.semanticBatchSize,
                 embeddingBatchSize: 16,  // texts per API call — batch for performance
@@ -461,12 +478,14 @@ export default class ObsidianAgentPlugin extends Plugin {
                         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
                         if (leaves.length > 0 && this.vaultHealthService) {
                             const view = leaves[0].view as AgentSidebarView;
-                            // Badge shows only high-severity findings (actionable items)
-                            const highCount = this.vaultHealthService.getFindings()
-                                .filter(f => f.severity === 'high').length;
+                            // Badge shows repairable findings only (FIX-15: aligned with modal logic)
+                            const repairableTypes = new Set(['missing_backlinks', 'category_mismatch', 'inconsistent_tags']);
+                            const repairableFindings = this.vaultHealthService.getFindings()
+                                .filter(f => repairableTypes.has(f.check));
+                            const highCount = repairableFindings.filter(f => f.severity === 'high').length;
                             view.updateHealthBadge(
-                                highCount,
-                                highCount > 0 ? 'high' : this.vaultHealthService.getMaxSeverity(),
+                                repairableFindings.length,
+                                highCount > 0 ? 'high' : (repairableFindings.length > 0 ? 'medium' : null),
                             );
                         }
                     });
@@ -497,6 +516,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                     void this.rerankerService?.loadModel();
                 });
             }
+            } // end FIX-18 else (knowledgeDB available)
         }
 
         // Auto-index: keep semantic index current as vault files change.
@@ -550,6 +570,11 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.memoryDB.open().catch((e) =>
                 console.warn('[Plugin] MemoryDB open failed (non-fatal):', e)
             );
+            // FIX-18: null out if open failed to prevent cascading errors
+            if (!this.memoryDB.isOpen()) {
+                console.warn('[Plugin] MemoryDB not available — memory features degraded');
+                this.memoryDB = null;
+            }
         }
 
         // Agent Skill Mastery — Procedural Recipes (ADR-017)
@@ -840,12 +865,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
         ap.skills = ap.skills ?? false;
-        // Migrate: Visual Intelligence default enabled (FEATURE-1115)
-        // One-time: enable for existing installs that never had Visual Intelligence
-        if (!(saved as Record<string, unknown>)._viMigrated) {
-            this.settings.visualIntelligence = { ...this.settings.visualIntelligence, enabled: true };
-            (this.settings as unknown as Record<string, unknown>)._viMigrated = true;
-        }
         // Deep-merge autoApproval: new keys from DEFAULT_SETTINGS are applied
         // so the UI always reflects the actual effective value (WYSIWYG).
         const apDefaults = DEFAULT_SETTINGS.autoApproval;
@@ -1354,9 +1373,12 @@ export default class ObsidianAgentPlugin extends Plugin {
      * and knowledge.db to {vault}/.obsidian-agent/. One-time, idempotent.
      */
     private async migrateToParentDir(vaultBasePath: string): Promise<void> {
-        const fs = await import('fs');
-        const path = await import('path');
-        const os = await import('os');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- dynamic import('fs') fails in Electron ("Failed to resolve module specifier 'fs'"), FIX-17
+        const fs = require('fs') as typeof import('fs');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- FIX-17
+        const path = require('path') as typeof import('path');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- FIX-17
+        const os = require('os') as typeof import('os');
 
         const oldRoot = path.join(os.homedir(), '.obsidian-agent');
         const newRoot = this.globalFs.getRoot();

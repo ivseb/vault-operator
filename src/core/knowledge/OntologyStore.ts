@@ -16,7 +16,7 @@ import type { KnowledgeDB, SqlJsDatabase } from './KnowledgeDB';
 // ---------------------------------------------------------------------------
 
 export type OntologyRole = 'hub' | 'member' | 'bridge';
-export type OntologySource = 'moc' | 'implicit' | 'ingest';
+export type OntologySource = 'moc' | 'implicit' | 'ingest' | 'louvain';
 
 export interface OntologyEntry {
     entityPath: string;
@@ -175,6 +175,29 @@ export class OntologyStore {
     removeEntriesForPath(path: string): void {
         const db = this.getDB();
         db.run('DELETE FROM ontology WHERE entity_path = ?', [path]);
+        this.knowledgeDB.markDirty();
+    }
+
+    /**
+     * Replace all Louvain community detection results. Atomic: DELETE old + batch INSERT.
+     * FEATURE-2002, ADR-070.
+     */
+    replaceLouvainClusters(entries: OntologyEntry[]): void {
+        const db = this.getDB();
+        db.run("DELETE FROM ontology WHERE source = 'louvain'");
+
+        if (entries.length === 0) {
+            this.knowledgeDB.markDirty();
+            return;
+        }
+        const now = new Date().toISOString();
+        const stmt = db.prepare(
+            'INSERT OR IGNORE INTO ontology (entity_path, cluster, role, confidence, source, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        );
+        for (const e of entries) {
+            stmt.run([e.entityPath, e.cluster, e.role, e.confidence, 'louvain', now]);
+        }
+        stmt.free();
         this.knowledgeDB.markDirty();
     }
 

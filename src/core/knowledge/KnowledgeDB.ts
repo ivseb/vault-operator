@@ -17,7 +17,7 @@
  * FEATURE-1500: SQLite Knowledge DB
  */
 
-import type { Vault } from 'obsidian';
+import { type Vault, requestUrl } from 'obsidian';
 import * as path from 'path';
 import * as fs from 'fs';
 
@@ -44,7 +44,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS edges (
     target_path TEXT NOT NULL,
     link_type TEXT NOT NULL,
     property_name TEXT,
+    confidence REAL NOT NULL DEFAULT 1.0,
     UNIQUE(source_path, target_path, link_type, property_name)
 );
 CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_path);
@@ -116,6 +117,20 @@ CREATE TABLE IF NOT EXISTS ontology (
 );
 CREATE INDEX IF NOT EXISTS idx_ontology_cluster ON ontology(cluster);
 CREATE INDEX IF NOT EXISTS idx_ontology_entity ON ontology(entity_path);
+
+CREATE TABLE IF NOT EXISTS note_freshness (
+    path TEXT PRIMARY KEY,
+    freshness_class TEXT NOT NULL DEFAULT 'stable',
+    temporal_marker_count INTEGER NOT NULL DEFAULT 0,
+    classified_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dismissed_freshness (
+    note_path TEXT NOT NULL,
+    hint_type TEXT NOT NULL,
+    dismissed_at TEXT NOT NULL,
+    UNIQUE(note_path, hint_type)
+);
 `;
 
 // ---------------------------------------------------------------------------
@@ -172,16 +187,7 @@ export class KnowledgeDB {
         const configDir = this.vault.configDir;
         const pluginMainDir = path.join(pluginBasePath, configDir, 'plugins', 'obsilo-agent');
 
-        // Try browser variant first (what esbuild bundles), then fallback
-        let wasmBinary: Buffer;
-        const browserWasm = path.join(pluginMainDir, 'sql-wasm-browser.wasm');
-        const nodeWasm = path.join(pluginMainDir, 'sql-wasm.wasm');
-        try {
-            wasmBinary = fs.readFileSync(browserWasm);
-        } catch {
-            wasmBinary = fs.readFileSync(nodeWasm);
-        }
-
+        const wasmBinary = await this.loadWasmBinary(pluginMainDir);
         this.SQL = await initSqlJs({ wasmBinary: wasmBinary.buffer });
 
         // Clean up stale .tmp files from interrupted writes
@@ -213,6 +219,55 @@ export class KnowledgeDB {
     getDB(): SqlJsDatabase {
         if (!this.db) throw new Error('KnowledgeDB not opened. Call open() first.');
         return this.db;
+    }
+
+    // AUDIT-010 M-2: SHA-256 hash of sql.js@1.14.1 sql-wasm.wasm for CDN integrity check
+    private static readonly SQL_WASM_SHA256 = '438c88f666dc054ce4e9395f80fe9db4218b1a3c379960454880f048a7898aed';
+
+    /**
+     * Load sql-wasm.wasm binary: try local disk first, download from CDN as fallback (FIX-16).
+     * BRAT installs only main.js/manifest/styles -- WASM files are missing for those users.
+     */
+    private async loadWasmBinary(pluginMainDir: string): Promise<Buffer> {
+        const candidates = [
+            path.join(pluginMainDir, 'sql-wasm-browser.wasm'),
+            path.join(pluginMainDir, 'sql-wasm.wasm'),
+        ];
+
+        // Try reading from disk (existing behavior)
+        for (const candidate of candidates) {
+            try {
+                return fs.readFileSync(candidate);
+            } catch {
+                // try next
+            }
+        }
+
+        // Fallback: download from CDN via Obsidian's requestUrl (FIX-16)
+        const cdnUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.14.1/dist/sql-wasm.wasm';
+        console.debug('[KnowledgeDB] WASM not found on disk, downloading from CDN...');
+        const response = await requestUrl({ url: cdnUrl });
+
+        // AUDIT-010 M-2/M-3: Verify integrity before trusting CDN content
+        const hashBuffer = await crypto.subtle.digest('SHA-256', response.arrayBuffer);
+        const hashHex = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        if (hashHex !== KnowledgeDB.SQL_WASM_SHA256) {
+            throw new Error(`[KnowledgeDB] WASM integrity check failed (expected ${KnowledgeDB.SQL_WASM_SHA256.slice(0, 16)}..., got ${hashHex.slice(0, 16)}...)`);
+        }
+
+        const buffer = Buffer.from(response.arrayBuffer);
+
+        // Cache to disk for next startup
+        const cachePath = candidates[1]; // sql-wasm.wasm
+        try {
+            fs.writeFileSync(cachePath, buffer);
+            console.debug('[KnowledgeDB] WASM cached to', cachePath);
+        } catch {
+            console.debug('[KnowledgeDB] Could not cache WASM to disk (non-fatal)');
+        }
+
+        return buffer;
     }
 
     /** Check if the DB is open and ready. */
@@ -318,6 +373,15 @@ export class KnowledgeDB {
             if (currentVersion < 2) {
                 try {
                     this.db.run('ALTER TABLE vectors ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0');
+                } catch {
+                    // Column may already exist if schema was partially migrated
+                }
+            }
+
+            // v6 -> v7: Add confidence column to edges (FEATURE-2001, ADR-069)
+            if (currentVersion < 7) {
+                try {
+                    this.db.run('ALTER TABLE edges ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0');
                 } catch {
                     // Column may already exist if schema was partially migrated
                 }

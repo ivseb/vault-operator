@@ -1,7 +1,7 @@
 ---
 name: vault-health-batch
 description: Autonomer Batch-Modus fuer Vault Health Findings. Arbeitet Orphans, Missing Backlinks und Tags in Batches ab ohne bei jedem Fix zu fragen.
-trigger: vault-health-batch|findings.*autonom|batch.*health|health.*batch|vault health.*\d+ findings
+trigger: vault-health-batch|findings.*autonom.*batch|batch.*health.*fix|health.*batch.*repair
 source: bundled
 requiredTools: [vault_health_check, update_frontmatter, write_file, read_file, semantic_search]
 ---

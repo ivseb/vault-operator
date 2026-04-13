@@ -232,7 +232,10 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 lines.push('');
             }
 
-            // ── Graph expansion (FEATURE-1502): systematic DB-based neighbor lookup ──
+            // ── Graph expansion (FEATURE-1502, FEATURE-2004): confidence-weighted neighbor lookup ──
+            // Uses getNeighborsWithImplicit() to include both explicit edges (confidence=1.0)
+            // and implicit edges (confidence=cosine similarity). Neighbors sorted by confidence
+            // so strongly connected notes appear first. ADR-069, ADR-071.
             const graphStore = this.plugin.graphStore;
             let graphLinkedCount = 0;
             if (graphStore && this.plugin.settings.enableGraphExpansion) {
@@ -243,16 +246,16 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
 
                 for (const r of results) {
                     if (graphLines.length >= 5) break;
-                    const neighbors = graphStore.getNeighbors(r.path, hops, 5);
+                    const neighbors = graphStore.getNeighborsWithImplicit(r.path, hops, 10)
+                        .sort((a, b) => b.confidence - a.confidence);
                     for (const n of neighbors) {
                         if (graphLines.length >= 5) break;
                         if (topKPaths.has(n.path) || seenGraph.has(n.path)) continue;
                         seenGraph.add(n.path);
                         const chunks: string[] = await semanticIndex.getChunksByPath(n.path);
                         if (chunks.length === 0) continue;
-                        const ctx = n.propertyName
-                            ? `via ${toWikilink(n.viaPath)} (${n.propertyName})`
-                            : `via ${toWikilink(n.viaPath)}`;
+                        const linkLabel = n.linkType === 'implicit' ? 'similar' : (n.propertyName ?? 'link');
+                        const ctx = `via ${toWikilink(n.viaPath)} (${linkLabel}, confidence: ${n.confidence.toFixed(2)})`;
                         graphLines.push(`${graphLines.length + 1}. ${toWikilink(n.path)} — \`${n.path}\` (${ctx})`);
                         graphLines.push(truncate(chunks[0]));
                         graphLines.push('');
@@ -263,7 +266,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                     graphLinkedCount = seenGraph.size;
                     lines.push('─────────────────────────────────────────');
                     lines.push(`Graph context (${hops}-hop expansion):`);
-                    lines.push('(Connected via Wikilinks/MOC — relevant by structure, not semantic match)\n');
+                    lines.push('(Connected via Wikilinks, MOC, or semantic similarity — sorted by confidence)\n');
                     lines.push(...graphLines);
                 }
             }
