@@ -265,6 +265,18 @@ export class VaultHealthRepairModal extends Modal {
         this.updateBadge(allFindings);
     }
 
+    /** Re-run health checks and refresh the findings view. */
+    private async refreshAndShowFindings(): Promise<void> {
+        const healthService = this.plugin.vaultHealthService;
+        if (healthService) {
+            await healthService.runChecks();
+            this.findings = healthService.getFindings();
+            this.selectedFindings.clear();
+            this.updateBadge(this.findings);
+        }
+        this.showFindings();
+    }
+
     // -----------------------------------------------------------------------
     // Dismissed findings list
     // -----------------------------------------------------------------------
@@ -316,7 +328,7 @@ export class VaultHealthRepairModal extends Modal {
                     row.remove();
                     const remaining = listEl.querySelectorAll('.vault-health-finding-row').length;
                     if (remaining === 0) {
-                        listEl.createEl('p', { text: 'All restored. Run health check to see them.' });
+                        void this.refreshAndShowFindings();
                     }
                 });
             }
@@ -337,12 +349,13 @@ export class VaultHealthRepairModal extends Modal {
         });
         restoreAllBtn.addEventListener('click', () => {
             this.plugin.vaultHealthService?.restoreDismissed();
-            new Notice('All dismissed findings restored. Run health check to see them.');
-            this.showFindings();
+            void this.refreshAndShowFindings();
         });
 
         const backBtn = btnRow.createEl('button', { text: 'Back', cls: 'mod-cta' });
-        backBtn.addEventListener('click', () => this.showFindings());
+        backBtn.addEventListener('click', () => {
+            void this.refreshAndShowFindings();
+        });
     }
 
     // -----------------------------------------------------------------------
