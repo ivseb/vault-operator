@@ -980,7 +980,7 @@ export class SemanticIndexService {
             // Majority vote
             const counts = { volatile: 0, evolving: 0, stable: 0 };
             for (const v of votes) counts[v]++;
-            const winner = (Object.entries(counts) as Array<[string, number]>)
+            const winner = Object.entries(counts)
                 .sort((a, b) => b[1] - a[1])[0][0];
             db.run(
                 'INSERT OR REPLACE INTO note_freshness (path, freshness_class, temporal_marker_count, classified_at) VALUES (?, ?, 0, ?)',

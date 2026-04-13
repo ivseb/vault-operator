@@ -27,7 +27,7 @@ function parseFreshnessFromResponse(rawPrefix: string): {
 function majorityVote(votes: Array<'volatile' | 'evolving' | 'stable'>): string {
     const counts = { volatile: 0, evolving: 0, stable: 0 };
     for (const v of votes) counts[v]++;
-    return (Object.entries(counts) as Array<[string, number]>)
+    return Object.entries(counts)
         .sort((a, b) => b[1] - a[1])[0][0];
 }
 
