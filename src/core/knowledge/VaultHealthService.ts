@@ -92,7 +92,7 @@ export class VaultHealthService {
                 const rows = db.exec('SELECT check_type, path FROM dismissed_health_findings');
                 if (rows.length > 0) {
                     for (const row of rows[0].values) {
-                        dismissed.add(`${row[0]}:${row[1]}`);
+                        dismissed.add(`${String(row[0])}:${String(row[1])}`);
                     }
                 }
             } catch { /* non-fatal */ }

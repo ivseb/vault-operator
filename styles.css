@@ -156,6 +156,9 @@
 .vault-health-finding-row:hover .vault-health-icon-btn {
     opacity: 1;
 }
+.vault-health-icon-btn-visible {
+    opacity: 0.6;
+}
 .vault-health-icon-btn:hover {
     opacity: 1;
     color: var(--interactive-accent);

@@ -211,10 +211,9 @@ export class VaultHealthRepairModal extends Modal {
     }
 
     private updateRepairButton(): void {
-        const btn = this.contentEl.querySelector('.vault-health-repair-btn') as HTMLButtonElement | null;
-        if (btn) {
-            btn.setText(`Repair selected (${this.selectedFindings.size})`);
-        }
+        const btn = this.contentEl.querySelector('.vault-health-repair-btn');
+        if (!(btn instanceof HTMLButtonElement)) return;
+        btn.setText(`Repair selected (${this.selectedFindings.size})`);
     }
 
     // -----------------------------------------------------------------------
@@ -322,7 +321,7 @@ export class VaultHealthRepairModal extends Modal {
                     attr: { 'aria-label': 'Restore this finding' },
                 });
                 setIcon(restoreBtn, 'eye');
-                restoreBtn.style.setProperty('opacity', '0.6');
+                restoreBtn.addClass('vault-health-icon-btn-visible');
                 restoreBtn.addEventListener('click', () => {
                     this.plugin.vaultHealthService?.restoreDismissedFinding(d.checkType, d.path);
                     row.remove();
