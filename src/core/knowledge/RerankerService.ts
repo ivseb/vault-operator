@@ -71,19 +71,26 @@ export class RerankerService {
             // Pre-load WASM binary from disk to avoid CDN fetch.
             // The esbuild plugin patches transformers.js to use the web backend,
             // which needs the WASM binary. Loading from disk is reliable in Electron.
+            // FIX-22: WASM is now embedded in main.js and extracted by AssetProvisioner,
+            // so wasmPath must exist. If it doesn't, we bail out instead of letting
+            // transformers.js fall through to an unreliable HF CDN fetch.
             const onnxWasm = env.backends?.onnx?.wasm;
-            if (onnxWasm) {
-                const path = require('path'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
-                const fs = require('fs'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
-                const wasmPath = path.join(this.pluginAbsDir, 'ort-wasm-simd-threaded.wasm');
-                if (fs.existsSync(wasmPath)) {
-                    onnxWasm.wasmBinary = fs.readFileSync(wasmPath).buffer;
-                    onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
-                    console.debug(`[Reranker] Loaded WASM binary from ${wasmPath} (${Math.round(fs.statSync(wasmPath).size / 1024 / 1024)}MB)`);
-                } else {
-                    console.warn(`[Reranker] WASM binary not found at ${wasmPath}`);
-                }
+            if (!onnxWasm) {
+                console.warn('[Reranker] ONNX WASM backend not available in this transformers.js build');
+                this._failed = true;
+                return;
             }
+            const path = require('path'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
+            const fs = require('fs'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
+            const wasmPath = path.join(this.pluginAbsDir, 'ort-wasm-simd-threaded.wasm');
+            if (!fs.existsSync(wasmPath)) {
+                console.warn(`[Reranker] WASM binary missing at ${wasmPath} -- reranker disabled. Reinstall the plugin via BRAT to restore assets.`);
+                this._failed = true;
+                return;
+            }
+            onnxWasm.wasmBinary = fs.readFileSync(wasmPath).buffer;
+            onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
+            console.debug(`[Reranker] Loaded WASM binary from ${wasmPath} (${Math.round(fs.statSync(wasmPath).size / 1024 / 1024)}MB)`);
 
             console.debug(`[Reranker] Loading model ${MODEL_ID}...`);
             const startTime = Date.now();
