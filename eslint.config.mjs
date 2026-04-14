@@ -3,6 +3,18 @@ import tseslint from 'typescript-eslint';
 import security from 'eslint-plugin-security';
 import noUnsanitized from 'eslint-plugin-no-unsanitized';
 import obsidianmd from 'eslint-plugin-obsidianmd';
+import { DEFAULT_BRANDS } from 'eslint-plugin-obsidianmd/dist/lib/rules/ui/brands.js';
+import { DEFAULT_ACRONYMS } from 'eslint-plugin-obsidianmd/dist/lib/rules/ui/acronyms.js';
+
+// Brand + acronym allowlist for the Bedrock provider. These have to be merged
+// with the obsidianmd defaults because passing a brands/acronyms option replaces
+// the built-in list entirely instead of extending it.
+// Kept minimal: only brands that appear in new Bedrock-specific UI text. Adding
+// too many (Ollama, Azure, OpenAI...) would conflict with existing lowercase
+// usages in src/i18n/locales/en.ts where those words refer to CLI commands or
+// filenames, not branded products.
+const OBSILO_BRANDS = [...DEFAULT_BRANDS, 'Amazon Bedrock', 'Bedrock'];
+const OBSILO_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS', 'EU', 'US', 'VPC', 'ARN'];
 
 export default tseslint.config(
     eslint.configs.recommended,
@@ -45,8 +57,19 @@ export default tseslint.config(
             'no-unsanitized/property': 'error',
             // Obsidian Community Plugin Review-Bot Rules
             ...obsidianmd.configs.recommended,
-            // Bot-matching config: only enforceCamelCaseLower, no custom overrides
-            'obsidianmd/ui/sentence-case-locale-module': ['error', { enforceCamelCaseLower: true }],
+            // Bot-matching config: enforceCamelCaseLower plus merged brand/acronym allowlist
+            // for the Bedrock provider. OBSILO_BRANDS/ACRONYMS extend the obsidianmd defaults
+            // (not replace them), so existing strings in locale files keep passing.
+            'obsidianmd/ui/sentence-case-locale-module': ['error', {
+                enforceCamelCaseLower: true,
+                brands: OBSILO_BRANDS,
+                acronyms: OBSILO_ACRONYMS,
+            }],
+            'obsidianmd/ui/sentence-case': ['error', {
+                enforceCamelCaseLower: true,
+                brands: OBSILO_BRANDS,
+                acronyms: OBSILO_ACRONYMS,
+            }],
         },
     },
     {

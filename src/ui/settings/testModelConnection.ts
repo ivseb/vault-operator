@@ -47,13 +47,21 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
     if (model.provider === 'gemini') {
         return testGeminiConnection(model);
     }
+    // Bedrock: pre-validate required fields before instantiating the client so the user
+    // gets a clear message instead of a low-level SDK throw.
+    if (model.provider === 'bedrock') {
+        if (!model.awsRegion) return { ok: false, message: 'AWS region required', detail: 'Pick a region in the Bedrock auth section.' };
+        if (!model.awsAccessKey || !model.awsSecretKey) {
+            return { ok: false, message: 'AWS credentials required', detail: 'Fill both Access key ID and Secret access key.' };
+        }
+    }
     try {
         const lp = modelToLLMProvider({ ...model, maxTokens: 16 });
         const handler = buildApiHandler(lp);
         const abort = new AbortController();
-        // Ollama needs to swap models into memory — allow up to 30 s; Copilot/Kilo may need token refresh
+        // Ollama needs to swap models into memory — allow up to 30 s; Copilot/Kilo/Bedrock may need extra time
         const timeoutMs = model.provider === 'ollama' ? 30000
-            : (model.provider === 'github-copilot' || model.provider === 'kilo-gateway') ? 15000
+            : (model.provider === 'github-copilot' || model.provider === 'kilo-gateway' || model.provider === 'bedrock') ? 15000
             : 8000;
         const timer = setTimeout(() => abort.abort(), timeoutMs);
         try {
@@ -130,6 +138,44 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
 
         if (s === 403) {
             return { ok: false, message: 'Access denied (403)', detail: 'Your API key may not have permission to use this model, or billing is required.' };
+        }
+
+        // Bedrock error name mapping. AWS SDK raises typed errors with a `name` field
+        // instead of an HTTP status, so the generic 401/403/404 branches above do not
+        // catch them. Map the common ones to user-actionable messages.
+        if (model.provider === 'bedrock') {
+            const name = errObj?.name ?? '';
+            if (name === 'UnrecognizedClientException' || name === 'InvalidSignatureException') {
+                return {
+                    ok: false,
+                    message: 'Invalid AWS credentials',
+                    detail: 'Check that the Access key ID and Secret access key are correct and still active in IAM.',
+                };
+            }
+            if (name === 'AccessDeniedException') {
+                return {
+                    ok: false,
+                    message: 'Bedrock access denied',
+                    detail: 'The IAM user lacks bedrock:InvokeModel / bedrock:InvokeModelWithResponseStream on this model, or the model is not enabled in Model Access for this region.',
+                };
+            }
+            if (name === 'ValidationException') {
+                return {
+                    ok: false,
+                    message: 'Invalid model or region',
+                    detail: `The model ID is not valid in ${model.awsRegion ?? 'this region'}. For EU regions, try a cross-region inference profile ID like eu.anthropic.claude-sonnet-4-5-20250929-v1:0.`,
+                };
+            }
+            if (name === 'ResourceNotFoundException') {
+                return {
+                    ok: false,
+                    message: 'Model not found',
+                    detail: 'The model ID does not exist in this region or is not enabled under Model access in the Bedrock console.',
+                };
+            }
+            if (name === 'ThrottlingException') {
+                return { ok: false, message: 'Throttled by Bedrock', detail: 'Too many requests. Retry in a moment.' };
+            }
         }
 
         return { ok: false, message: 'Connection failed', detail: msg || 'Unknown error' };

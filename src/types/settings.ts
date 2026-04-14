@@ -7,7 +7,7 @@
 // Adapted from Obsidian Copilot's CustomModel pattern
 // ---------------------------------------------------------------------------
 
-export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway';
+export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway' | 'bedrock';
 
 export interface CustomModel {
     /** Model identifier used in API calls (e.g. "claude-sonnet-4-5-20250929") */
@@ -34,6 +34,14 @@ export interface CustomModel {
     thinkingEnabled?: boolean;
     /** Thinking budget in tokens (used when thinkingEnabled is true, default 10000) */
     thinkingBudgetTokens?: number;
+    /** AWS region (Bedrock only), e.g. "eu-central-1", "us-east-1" */
+    awsRegion?: string;
+    /** AWS IAM access key ID (Bedrock only) */
+    awsAccessKey?: string;
+    /** AWS IAM secret access key (Bedrock only) */
+    awsSecretKey?: string;
+    /** Optional AWS session token for temporary credentials from SSO/STS (Bedrock only) */
+    awsSessionToken?: string;
 }
 
 /** Provider-level default base URLs used for setup UX and built-in models. */
@@ -221,6 +229,14 @@ export interface LLMProvider {
     thinkingEnabled?: boolean;
     /** Thinking budget in tokens */
     thinkingBudgetTokens?: number;
+    /** AWS region (Bedrock only) */
+    awsRegion?: string;
+    /** AWS access key ID (Bedrock only) */
+    awsAccessKey?: string;
+    /** AWS secret access key (Bedrock only) */
+    awsSecretKey?: string;
+    /** AWS session token (Bedrock only, optional) */
+    awsSessionToken?: string;
 }
 
 /** Convert a CustomModel to LLMProvider for the API handler layer */
@@ -236,6 +252,10 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         promptCachingEnabled: model.promptCachingEnabled,
         thinkingEnabled: model.thinkingEnabled,
         thinkingBudgetTokens: model.thinkingBudgetTokens,
+        awsRegion: model.awsRegion,
+        awsAccessKey: model.awsAccessKey,
+        awsSecretKey: model.awsSecretKey,
+        awsSessionToken: model.awsSessionToken,
     };
 }
 

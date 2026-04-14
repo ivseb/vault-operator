@@ -82,6 +82,10 @@ export class ModelConfigModal extends Modal {
     private formPromptCachingEnabled: boolean;
     private formThinkingEnabled: boolean;
     private formThinkingBudgetTokens: number;
+    private formAwsRegion: string;
+    private formAwsAccessKey: string;
+    private formAwsSecretKey: string;
+    private formAwsSessionToken: string;
 
     private apiKeyRow: HTMLElement | null = null;
     private baseUrlRow: HTMLElement | null = null;
@@ -112,6 +116,7 @@ export class ModelConfigModal extends Modal {
     private maxTokensNoteEl: HTMLElement | null = null;
     private copilotAuthRow: HTMLElement | null = null;
     private kiloAuthRow: HTMLElement | null = null;
+    private bedrockAuthRow: HTMLElement | null = null;
     private thinkingBudgetSliderEl: HTMLInputElement | null = null;
     private thinkingBudgetValueEl: HTMLElement | null = null;
 
@@ -142,6 +147,10 @@ export class ModelConfigModal extends Modal {
         this.formPromptCachingEnabled = this.model.promptCachingEnabled ?? false;
         this.formThinkingEnabled = this.model.thinkingEnabled ?? false;
         this.formThinkingBudgetTokens = this.model.thinkingBudgetTokens ?? 10000;
+        this.formAwsRegion = this.model.awsRegion ?? 'eu-central-1';
+        this.formAwsAccessKey = this.model.awsAccessKey ?? '';
+        this.formAwsSecretKey = this.model.awsSecretKey ?? '';
+        this.formAwsSessionToken = this.model.awsSessionToken ?? '';
     }
 
     onOpen(): void {
@@ -179,7 +188,7 @@ export class ModelConfigModal extends Modal {
         // ── Provider ─────────────────────────────────────────────────────
         const provRow = row(t('modal.modelConfig.provider'));
         const provSel = provRow.createEl('select', { cls: 'mcm-select' });
-        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'gemini', 'github-copilot', 'kilo-gateway', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
+        (this.forEmbedding ? EMBEDDING_PROVIDERS : ['anthropic', 'openai', 'gemini', 'bedrock', 'github-copilot', 'kilo-gateway', 'ollama', 'lmstudio', 'openrouter', 'azure', 'custom'] as ProviderType[]).forEach((p) => {
             const opt = provSel.createEl('option', { value: p, text: PROVIDER_LABELS[p] });
             if (p === this.formProvider) opt.selected = true;
         });
@@ -328,6 +337,10 @@ export class ModelConfigModal extends Modal {
         // ── Kilo Gateway Auth (shown instead of API Key for kilo-gateway) ──
         this.kiloAuthRow = form.createDiv('mcm-row mcm-kilo-auth');
         this.buildKiloAuthSection(this.kiloAuthRow);
+
+        // ── Bedrock Auth (shown instead of API Key for bedrock) ──
+        this.bedrockAuthRow = form.createDiv('mcm-row mcm-bedrock-auth');
+        this.buildBedrockAuthSection(this.bedrockAuthRow);
 
         // ── Base URL ──────────────────────────────────────────────────────
         this.baseUrlRow = form.createDiv('mcm-row');
@@ -509,10 +522,12 @@ export class ModelConfigModal extends Modal {
         // Show/hide fields per provider
         const isCopilot = p === 'github-copilot';
         const isKilo = p === 'kilo-gateway';
-        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio' || isCopilot || isKilo);
+        const isBedrock = p === 'bedrock';
+        this.apiKeyRow.classList.toggle('agent-u-hidden', p === 'ollama' || p === 'lmstudio' || isCopilot || isKilo || isBedrock);
         if (this.copilotAuthRow) this.copilotAuthRow.classList.toggle('agent-u-hidden', !isCopilot);
         if (this.kiloAuthRow) this.kiloAuthRow.classList.toggle('agent-u-hidden', !isKilo);
-        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'gemini' || p === 'openrouter' || isCopilot || isKilo);
+        if (this.bedrockAuthRow) this.bedrockAuthRow.classList.toggle('agent-u-hidden', !isBedrock);
+        this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'gemini' || p === 'openrouter' || isCopilot || isKilo || isBedrock);
         if (this.apiVersionRow) this.apiVersionRow.classList.toggle('agent-u-hidden', p !== 'azure');
         if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle('agent-u-hidden', p !== 'ollama');
         if (this.customBrowserRow) this.customBrowserRow.classList.toggle('agent-u-hidden', p !== 'custom' && p !== 'lmstudio');
@@ -743,6 +758,26 @@ export class ModelConfigModal extends Modal {
             steps.createEl('li', { text: t('guide.copilot.step2') });
             steps.createEl('li', { text: t('guide.copilot.step3') });
             guide.createDiv({ cls: 'mcm-guide-tip', text: t('guide.copilot.disclaimer') });
+
+        } else if (provider === 'bedrock') {
+            guide.createEl('strong', { text: 'Amazon Bedrock setup' });
+            const steps = guide.createEl('ol', { cls: 'mcm-guide-steps' });
+            steps.createEl('li', {
+                text: 'In the AWS console, open Bedrock in your preferred region and request access to the model families you need on the model access page. Approval is usually instant for the common foundation models.',
+            });
+            steps.createEl('li', {
+                text: 'Create an IAM user with a policy that allows the invoke model and invoke model with response stream actions. For cross-region inference profiles (recommended for the EU), grant those actions on all regions in the profile.',
+            });
+            steps.createEl('li', {
+                text: 'Generate an access key ID and secret access key for the user and paste them below. For temporary credentials via AWS SSO or STS, also fill the session token field.',
+            });
+            steps.createEl('li', {
+                text: 'Pick a model from the quick pick dropdown. The EU cross-region inference profiles work from any EU region, and the US profiles cover US regions.',
+            });
+            guide.createDiv({
+                cls: 'mcm-guide-tip',
+                text: 'Tip: an eu-central-1 region combined with an EU inference profile gives the lowest latency from Europe while keeping data inside the EU.',
+            });
 
         } else if (provider === 'custom') {
             guide.createEl('strong', { text: t('guide.custom.heading') });
@@ -1108,22 +1143,101 @@ export class ModelConfigModal extends Modal {
         input.focus();
     }
 
+    // ---------------------------------------------------------------------------
+    // Amazon Bedrock Auth Section
+    // ---------------------------------------------------------------------------
+
+    private buildBedrockAuthSection(container: HTMLElement): void {
+        const BEDROCK_REGIONS: { id: string; label: string }[] = [
+            { id: 'eu-central-1', label: 'Europe (Frankfurt) — eu-central-1' },
+            { id: 'eu-west-1', label: 'Europe (Ireland) — eu-west-1' },
+            { id: 'eu-west-2', label: 'Europe (London) — eu-west-2' },
+            { id: 'eu-west-3', label: 'Europe (Paris) — eu-west-3' },
+            { id: 'eu-north-1', label: 'Europe (Stockholm) — eu-north-1' },
+            { id: 'us-east-1', label: 'US East (N. Virginia) — us-east-1' },
+            { id: 'us-east-2', label: 'US East (Ohio) — us-east-2' },
+            { id: 'us-west-2', label: 'US West (Oregon) — us-west-2' },
+            { id: 'ap-northeast-1', label: 'Asia Pacific (Tokyo) — ap-northeast-1' },
+            { id: 'ap-southeast-1', label: 'Asia Pacific (Singapore) — ap-southeast-1' },
+            { id: 'ap-southeast-2', label: 'Asia Pacific (Sydney) — ap-southeast-2' },
+        ];
+
+        // Region row
+        const regionLabel = container.createDiv('mcm-label');
+        regionLabel.createSpan({ text: 'AWS region' });
+        regionLabel.createSpan({
+            cls: 'mcm-desc',
+            text: 'Pick the region where your IAM user has Bedrock access. EU model IDs (eu.*) route across EU regions.',
+        });
+        const regionSel = container.createEl('select', { cls: 'mcm-select' });
+        BEDROCK_REGIONS.forEach(({ id, label }) => {
+            const opt = regionSel.createEl('option', { value: id, text: label });
+            if (id === this.formAwsRegion) opt.selected = true;
+        });
+        regionSel.addEventListener('change', () => {
+            this.formAwsRegion = regionSel.value;
+        });
+
+        // Access key ID
+        const akLabel = container.createDiv('mcm-label');
+        akLabel.createSpan({ text: 'Access key ID' });
+        akLabel.createSpan({
+            cls: 'mcm-desc',
+            text: 'From IAM → Users → Security credentials. Requires bedrock:InvokeModel and bedrock:InvokeModelWithResponseStream.',
+        });
+        const akInput = container.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'text', placeholder: 'Paste your access key ID' },
+        });
+        akInput.value = this.formAwsAccessKey;
+        akInput.addEventListener('input', () => (this.formAwsAccessKey = akInput.value.trim()));
+
+        // Secret access key
+        const skLabel = container.createDiv('mcm-label');
+        skLabel.createSpan({ text: 'Secret access key' });
+        const skInput = container.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'password', placeholder: 'Paste the secret access key' },
+        });
+        skInput.value = this.formAwsSecretKey;
+        skInput.addEventListener('input', () => (this.formAwsSecretKey = skInput.value.trim()));
+
+        // Session token (optional)
+        const stLabel = container.createDiv('mcm-label');
+        stLabel.createSpan({ text: 'Session token (optional)' });
+        stLabel.createSpan({
+            cls: 'mcm-desc',
+            text: 'Only needed for temporary credentials from AWS SSO or STS.',
+        });
+        const stInput = container.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'password', placeholder: 'Leave empty for long-lived IAM user credentials' },
+        });
+        stInput.value = this.formAwsSessionToken;
+        stInput.addEventListener('input', () => (this.formAwsSessionToken = stInput.value.trim()));
+    }
+
     private save(): void {
         const name = this.formName || this.model.name;
         if (!name) { new Notice(t('modal.modelConfig.modelIdRequired')); return; }
+        const isBedrock = this.formProvider === 'bedrock';
         this.onSave({
             ...this.model,
             name,
             provider: this.formProvider,
             displayName: this.formDisplayName || undefined,
-            apiKey: this.formApiKey || undefined,
-            baseUrl: this.formBaseUrl || undefined,
+            apiKey: isBedrock ? undefined : (this.formApiKey || undefined),
+            baseUrl: isBedrock ? undefined : (this.formBaseUrl || undefined),
             apiVersion: this.formApiVersion || undefined,
             maxTokens: this.formMaxTokens,
             temperature: this.formTemperatureEnabled ? this.formTemperatureValue : undefined,
             promptCachingEnabled: this.formPromptCachingEnabled || undefined,
             thinkingEnabled: this.formThinkingEnabled || undefined,
             thinkingBudgetTokens: this.formThinkingEnabled ? this.formThinkingBudgetTokens : undefined,
+            awsRegion: isBedrock ? (this.formAwsRegion || undefined) : undefined,
+            awsAccessKey: isBedrock ? (this.formAwsAccessKey || undefined) : undefined,
+            awsSecretKey: isBedrock ? (this.formAwsSecretKey || undefined) : undefined,
+            awsSessionToken: isBedrock ? (this.formAwsSessionToken || undefined) : undefined,
         });
         this.close();
     }
