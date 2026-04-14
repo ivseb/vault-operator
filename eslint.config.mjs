@@ -49,6 +49,7 @@ export default tseslint.config(
             '@typescript-eslint/restrict-template-expressions': ['error', { allowNumber: true, allowBoolean: true }],
             '@typescript-eslint/await-thenable': 'error',
             '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
+            '@typescript-eslint/no-implied-eval': 'error',
             // Security
             'security/detect-child-process': 'error',
             'security/detect-eval-with-expression': 'error',
