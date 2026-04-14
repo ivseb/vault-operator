@@ -15,6 +15,9 @@ import { DEFAULT_ACRONYMS } from 'eslint-plugin-obsidianmd/dist/lib/rules/ui/acr
 // filenames, not branded products.
 const OBSILO_BRANDS = [...DEFAULT_BRANDS, 'Amazon Bedrock', 'Bedrock'];
 const OBSILO_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS', 'EU', 'US', 'VPC', 'ARN'];
+// Proper nouns that should keep their casing in Bedrock-related UI copy but
+// don't belong in the general brand list (they are not branded products).
+const OBSILO_IGNORE_WORDS = ['Europe', 'Frankfurt'];
 
 export default tseslint.config(
     eslint.configs.recommended,
@@ -64,11 +67,13 @@ export default tseslint.config(
                 enforceCamelCaseLower: true,
                 brands: OBSILO_BRANDS,
                 acronyms: OBSILO_ACRONYMS,
+                ignoreWords: OBSILO_IGNORE_WORDS,
             }],
             'obsidianmd/ui/sentence-case': ['error', {
                 enforceCamelCaseLower: true,
                 brands: OBSILO_BRANDS,
                 acronyms: OBSILO_ACRONYMS,
+                ignoreWords: OBSILO_IGNORE_WORDS,
             }],
         },
     },

@@ -6,9 +6,13 @@
  * eu-central-1 and other EU regions via cross-region inference profiles
  * (model IDs like `eu.anthropic.claude-sonnet-4-5-20250929-v1:0`).
  *
- * Authentication: AWS Access Key ID + Secret Access Key (+ optional Session
- * Token for temporary credentials from AWS SSO / STS). AWS Profile Chain
- * and ARN-based custom inference endpoints are planned for Phase 2.
+ * Two authentication modes:
+ *   1. Bedrock API key (bearer token, simpler, recommended) -- uses the
+ *      clientConfig.token + authSchemePreference: ['httpBearerAuth'] path.
+ *      This is AWS's newer single-token credential, typically exported as
+ *      AWS_BEARER_TOKEN_BEDROCK in other tools. Optional custom endpoint URL.
+ *   2. IAM access key ID + secret access key (classic SigV4 signing), plus
+ *      optional session token for AWS SSO / STS temporary credentials.
  *
  * Shape matches src/api/providers/anthropic.ts: emits our internal ApiStream
  * chunks (text, tool_use, usage) so the AgentTask conversation loop doesn't
@@ -19,6 +23,7 @@ import {
     BedrockRuntimeClient,
     ConverseStreamCommand,
     ConverseCommand,
+    type BedrockRuntimeClientConfig,
     type ContentBlock as BedrockContentBlock,
     type Message as BedrockMessage,
     type SystemContentBlock,
@@ -55,20 +60,38 @@ export class BedrockProvider implements ApiHandler {
             throw new Error('[Bedrock] awsRegion is required (e.g. eu-central-1, us-east-1)');
         }
 
-        const accessKeyId = config.awsAccessKey?.trim();
-        const secretAccessKey = config.awsSecretKey?.trim();
-        if (!accessKeyId || !secretAccessKey) {
-            throw new Error('[Bedrock] awsAccessKey and awsSecretKey are required');
-        }
+        // Default to bearer-token mode if not specified, since it's the recommended path.
+        const authMode = config.awsAuthMode ?? 'api-key';
 
-        this.client = new BedrockRuntimeClient({
+        const clientConfig: BedrockRuntimeClientConfig = {
             region,
-            credentials: {
+            // Optional custom endpoint URL -- users can point at e.g.
+            // https://bedrock-runtime.eu-central-1.amazonaws.com explicitly.
+            // Falls back to the default regional endpoint when empty.
+            ...(config.baseUrl?.trim() ? { endpoint: config.baseUrl.trim() } : {}),
+        };
+
+        if (authMode === 'api-key') {
+            const apiKey = config.awsApiKey?.trim();
+            if (!apiKey) {
+                throw new Error('[Bedrock] API key is required when authMode is api-key');
+            }
+            clientConfig.token = { token: apiKey };
+            clientConfig.authSchemePreference = ['httpBearerAuth'];
+        } else {
+            const accessKeyId = config.awsAccessKey?.trim();
+            const secretAccessKey = config.awsSecretKey?.trim();
+            if (!accessKeyId || !secretAccessKey) {
+                throw new Error('[Bedrock] awsAccessKey and awsSecretKey are required when authMode is access-key');
+            }
+            clientConfig.credentials = {
                 accessKeyId,
                 secretAccessKey,
                 ...(config.awsSessionToken ? { sessionToken: config.awsSessionToken.trim() } : {}),
-            },
-        });
+            };
+        }
+
+        this.client = new BedrockRuntimeClient(clientConfig);
     }
 
     getModel(): { id: string; info: ModelInfo } {

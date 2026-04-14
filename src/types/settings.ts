@@ -36,11 +36,16 @@ export interface CustomModel {
     thinkingBudgetTokens?: number;
     /** AWS region (Bedrock only), e.g. "eu-central-1", "us-east-1" */
     awsRegion?: string;
-    /** AWS IAM access key ID (Bedrock only) */
+    /** Auth mode for Bedrock: 'api-key' uses a single bearer token (new AWS Bedrock API Keys),
+     * 'access-key' uses the classic IAM access key + secret key pair with SigV4 signing */
+    awsAuthMode?: 'api-key' | 'access-key';
+    /** AWS Bedrock API key (bearer token). Used when awsAuthMode === 'api-key'. */
+    awsApiKey?: string;
+    /** AWS IAM access key ID. Used when awsAuthMode === 'access-key'. */
     awsAccessKey?: string;
-    /** AWS IAM secret access key (Bedrock only) */
+    /** AWS IAM secret access key. Used when awsAuthMode === 'access-key'. */
     awsSecretKey?: string;
-    /** Optional AWS session token for temporary credentials from SSO/STS (Bedrock only) */
+    /** Optional AWS session token for temporary credentials from SSO/STS (access-key mode only) */
     awsSessionToken?: string;
 }
 
@@ -231,6 +236,10 @@ export interface LLMProvider {
     thinkingBudgetTokens?: number;
     /** AWS region (Bedrock only) */
     awsRegion?: string;
+    /** Bedrock auth mode */
+    awsAuthMode?: 'api-key' | 'access-key';
+    /** Bedrock API key (bearer token) */
+    awsApiKey?: string;
     /** AWS access key ID (Bedrock only) */
     awsAccessKey?: string;
     /** AWS secret access key (Bedrock only) */
@@ -253,6 +262,8 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         thinkingEnabled: model.thinkingEnabled,
         thinkingBudgetTokens: model.thinkingBudgetTokens,
         awsRegion: model.awsRegion,
+        awsAuthMode: model.awsAuthMode,
+        awsApiKey: model.awsApiKey,
         awsAccessKey: model.awsAccessKey,
         awsSecretKey: model.awsSecretKey,
         awsSessionToken: model.awsSessionToken,

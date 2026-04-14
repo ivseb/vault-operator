@@ -83,9 +83,12 @@ export class ModelConfigModal extends Modal {
     private formThinkingEnabled: boolean;
     private formThinkingBudgetTokens: number;
     private formAwsRegion: string;
+    private formAwsAuthMode: 'api-key' | 'access-key';
+    private formAwsApiKey: string;
     private formAwsAccessKey: string;
     private formAwsSecretKey: string;
     private formAwsSessionToken: string;
+    private formAwsEndpoint: string;
 
     private apiKeyRow: HTMLElement | null = null;
     private baseUrlRow: HTMLElement | null = null;
@@ -148,9 +151,12 @@ export class ModelConfigModal extends Modal {
         this.formThinkingEnabled = this.model.thinkingEnabled ?? false;
         this.formThinkingBudgetTokens = this.model.thinkingBudgetTokens ?? 10000;
         this.formAwsRegion = this.model.awsRegion ?? 'eu-central-1';
+        this.formAwsAuthMode = this.model.awsAuthMode ?? 'api-key';
+        this.formAwsApiKey = this.model.awsApiKey ?? '';
         this.formAwsAccessKey = this.model.awsAccessKey ?? '';
         this.formAwsSecretKey = this.model.awsSecretKey ?? '';
         this.formAwsSessionToken = this.model.awsSessionToken ?? '';
+        this.formAwsEndpoint = this.model.provider === 'bedrock' ? (this.model.baseUrl ?? '') : '';
     }
 
     onOpen(): void {
@@ -339,7 +345,8 @@ export class ModelConfigModal extends Modal {
         this.buildKiloAuthSection(this.kiloAuthRow);
 
         // ── Bedrock Auth (shown instead of API Key for bedrock) ──
-        this.bedrockAuthRow = form.createDiv('mcm-row mcm-bedrock-auth');
+        // This is a section wrapper, not a row -- it contains multiple rows internally.
+        this.bedrockAuthRow = form.createDiv('mcm-bedrock-auth');
         this.buildBedrockAuthSection(this.bedrockAuthRow);
 
         // ── Base URL ──────────────────────────────────────────────────────
@@ -527,6 +534,7 @@ export class ModelConfigModal extends Modal {
         if (this.copilotAuthRow) this.copilotAuthRow.classList.toggle('agent-u-hidden', !isCopilot);
         if (this.kiloAuthRow) this.kiloAuthRow.classList.toggle('agent-u-hidden', !isKilo);
         if (this.bedrockAuthRow) this.bedrockAuthRow.classList.toggle('agent-u-hidden', !isBedrock);
+        if (isBedrock) this.updateBedrockAuthVisibility();
         this.baseUrlRow.classList.toggle('agent-u-hidden', p === 'openai' || p === 'gemini' || p === 'openrouter' || isCopilot || isKilo || isBedrock);
         if (this.apiVersionRow) this.apiVersionRow.classList.toggle('agent-u-hidden', p !== 'azure');
         if (this.ollamaBrowserRow) this.ollamaBrowserRow.classList.toggle('agent-u-hidden', p !== 'ollama');
@@ -766,17 +774,17 @@ export class ModelConfigModal extends Modal {
                 text: 'In the AWS console, open Bedrock in your preferred region and request access to the model families you need on the model access page. Approval is usually instant for the common foundation models.',
             });
             steps.createEl('li', {
-                text: 'Create an IAM user with a policy that allows the invoke model and invoke model with response stream actions. For cross-region inference profiles (recommended for the EU), grant those actions on all regions in the profile.',
+                text: 'Pick an authentication method. The Bedrock API key is a single bearer token copied once from the Bedrock console. The IAM access key + secret is the classic flow if you already have one set up.',
             });
             steps.createEl('li', {
-                text: 'Generate an access key ID and secret access key for the user and paste them below. For temporary credentials via AWS SSO or STS, also fill the session token field.',
+                text: 'Pick the region that hosts your access. For the EU, the Frankfurt region is the common choice.',
             });
             steps.createEl('li', {
                 text: 'Pick a model from the quick pick dropdown. The EU cross-region inference profiles work from any EU region, and the US profiles cover US regions.',
             });
             guide.createDiv({
                 cls: 'mcm-guide-tip',
-                text: 'Tip: an eu-central-1 region combined with an EU inference profile gives the lowest latency from Europe while keeping data inside the EU.',
+                text: 'Tip: Frankfurt combined with an EU inference profile gives the lowest latency from Europe while keeping data inside the EU.',
             });
 
         } else if (provider === 'custom') {
@@ -1147,29 +1155,54 @@ export class ModelConfigModal extends Modal {
     // Amazon Bedrock Auth Section
     // ---------------------------------------------------------------------------
 
+    private bedrockApiKeyRow: HTMLElement | null = null;
+    private bedrockAccessKeyRow: HTMLElement | null = null;
+    private bedrockSecretKeyRow: HTMLElement | null = null;
+    private bedrockSessionTokenRow: HTMLElement | null = null;
+
     private buildBedrockAuthSection(container: HTMLElement): void {
         const BEDROCK_REGIONS: { id: string; label: string }[] = [
-            { id: 'eu-central-1', label: 'Europe (Frankfurt) — eu-central-1' },
-            { id: 'eu-west-1', label: 'Europe (Ireland) — eu-west-1' },
-            { id: 'eu-west-2', label: 'Europe (London) — eu-west-2' },
-            { id: 'eu-west-3', label: 'Europe (Paris) — eu-west-3' },
-            { id: 'eu-north-1', label: 'Europe (Stockholm) — eu-north-1' },
-            { id: 'us-east-1', label: 'US East (N. Virginia) — us-east-1' },
-            { id: 'us-east-2', label: 'US East (Ohio) — us-east-2' },
-            { id: 'us-west-2', label: 'US West (Oregon) — us-west-2' },
-            { id: 'ap-northeast-1', label: 'Asia Pacific (Tokyo) — ap-northeast-1' },
-            { id: 'ap-southeast-1', label: 'Asia Pacific (Singapore) — ap-southeast-1' },
-            { id: 'ap-southeast-2', label: 'Asia Pacific (Sydney) — ap-southeast-2' },
+            { id: 'eu-central-1',  label: 'Europe — Frankfurt (eu-central-1)' },
+            { id: 'eu-west-1',     label: 'Europe — Ireland (eu-west-1)' },
+            { id: 'eu-west-2',     label: 'Europe — London (eu-west-2)' },
+            { id: 'eu-west-3',     label: 'Europe — Paris (eu-west-3)' },
+            { id: 'eu-north-1',    label: 'Europe — Stockholm (eu-north-1)' },
+            { id: 'us-east-1',     label: 'US — N. Virginia (us-east-1)' },
+            { id: 'us-east-2',     label: 'US — Ohio (us-east-2)' },
+            { id: 'us-west-2',     label: 'US — Oregon (us-west-2)' },
+            { id: 'ap-northeast-1', label: 'Asia Pacific — Tokyo (ap-northeast-1)' },
+            { id: 'ap-southeast-1', label: 'Asia Pacific — Singapore (ap-southeast-1)' },
+            { id: 'ap-southeast-2', label: 'Asia Pacific — Sydney (ap-southeast-2)' },
         ];
 
-        // Region row
-        const regionLabel = container.createDiv('mcm-label');
-        regionLabel.createSpan({ text: 'AWS region' });
-        regionLabel.createSpan({
-            cls: 'mcm-desc',
-            text: 'Pick the region where your IAM user has Bedrock access. EU model IDs (eu.*) route across EU regions.',
+        const mkRow = (label: string, desc?: string): HTMLElement => {
+            const r = container.createDiv('mcm-row');
+            const labelEl = r.createDiv('mcm-label');
+            labelEl.createSpan({ text: label });
+            if (desc) labelEl.createSpan({ text: desc, cls: 'mcm-desc' });
+            return r;
+        };
+
+        // ── Authentication method ────────────────────────────────────────
+        const authRow = mkRow(
+            'Authentication',
+            'Bedrock API key is the new AWS bearer-token scheme and works with a single token. Access key + secret is the classic IAM flow.',
+        );
+        const authSel = authRow.createEl('select', { cls: 'mcm-select' });
+        authSel.createEl('option', { value: 'api-key',    text: 'Bedrock API key (bearer token, recommended)' });
+        authSel.createEl('option', { value: 'access-key', text: 'IAM access key + secret key' });
+        authSel.value = this.formAwsAuthMode;
+        authSel.addEventListener('change', () => {
+            this.formAwsAuthMode = authSel.value as 'api-key' | 'access-key';
+            this.updateBedrockAuthVisibility();
         });
-        const regionSel = container.createEl('select', { cls: 'mcm-select' });
+
+        // ── Region ────────────────────────────────────────────────────────
+        const regionRow = mkRow(
+            'Region',
+            'The AWS region hosting your Bedrock access. Cross-region inference profiles (eu., us.) route across regions in that geography.',
+        );
+        const regionSel = regionRow.createEl('select', { cls: 'mcm-select' });
         BEDROCK_REGIONS.forEach(({ id, label }) => {
             const opt = regionSel.createEl('option', { value: id, text: label });
             if (id === this.formAwsRegion) opt.selected = true;
@@ -1178,56 +1211,90 @@ export class ModelConfigModal extends Modal {
             this.formAwsRegion = regionSel.value;
         });
 
-        // Access key ID
-        const akLabel = container.createDiv('mcm-label');
-        akLabel.createSpan({ text: 'Access key ID' });
-        akLabel.createSpan({
-            cls: 'mcm-desc',
-            text: 'From IAM → Users → Security credentials. Requires bedrock:InvokeModel and bedrock:InvokeModelWithResponseStream.',
+        // ── Custom endpoint URL (optional) ───────────────────────────────
+        const endpointRow = mkRow(
+            'Endpoint URL',
+            'Optional. Leave empty to use the default regional endpoint. Set explicitly for VPC endpoints or providers like https://bedrock-runtime.eu-central-1.amazonaws.com.',
+        );
+        const endpointInput = endpointRow.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'text', placeholder: 'https://bedrock-runtime.eu-central-1.amazonaws.com' },
         });
-        const akInput = container.createEl('input', {
+        endpointInput.value = this.formAwsEndpoint;
+        endpointInput.addEventListener('input', () => (this.formAwsEndpoint = endpointInput.value.trim()));
+
+        // ── Bedrock API key (bearer token) ───────────────────────────────
+        this.bedrockApiKeyRow = mkRow(
+            'Bedrock API key',
+            'Paste the bearer token from the Bedrock console or from the AWS_BEARER_TOKEN_BEDROCK environment variable.',
+        );
+        const apiKeyInput = this.bedrockApiKeyRow.createEl('input', {
+            cls: 'mcm-input',
+            attr: { type: 'password', placeholder: 'Paste your Bedrock API key' },
+        });
+        apiKeyInput.value = this.formAwsApiKey;
+        apiKeyInput.addEventListener('input', () => (this.formAwsApiKey = apiKeyInput.value.trim()));
+
+        // ── Access key ID (classic mode) ─────────────────────────────────
+        this.bedrockAccessKeyRow = mkRow(
+            'Access key ID',
+            'From IAM → users → security credentials. Requires the invoke model and invoke model with response stream actions.',
+        );
+        const akInput = this.bedrockAccessKeyRow.createEl('input', {
             cls: 'mcm-input',
             attr: { type: 'text', placeholder: 'Paste your access key ID' },
         });
         akInput.value = this.formAwsAccessKey;
         akInput.addEventListener('input', () => (this.formAwsAccessKey = akInput.value.trim()));
 
-        // Secret access key
-        const skLabel = container.createDiv('mcm-label');
-        skLabel.createSpan({ text: 'Secret access key' });
-        const skInput = container.createEl('input', {
+        // ── Secret access key (classic mode) ─────────────────────────────
+        this.bedrockSecretKeyRow = mkRow('Secret access key');
+        const skInput = this.bedrockSecretKeyRow.createEl('input', {
             cls: 'mcm-input',
             attr: { type: 'password', placeholder: 'Paste the secret access key' },
         });
         skInput.value = this.formAwsSecretKey;
         skInput.addEventListener('input', () => (this.formAwsSecretKey = skInput.value.trim()));
 
-        // Session token (optional)
-        const stLabel = container.createDiv('mcm-label');
-        stLabel.createSpan({ text: 'Session token (optional)' });
-        stLabel.createSpan({
-            cls: 'mcm-desc',
-            text: 'Only needed for temporary credentials from AWS SSO or STS.',
-        });
-        const stInput = container.createEl('input', {
+        // ── Session token (classic mode, optional) ───────────────────────
+        this.bedrockSessionTokenRow = mkRow(
+            'Session token',
+            'Optional. Only for temporary credentials from AWS SSO or STS.',
+        );
+        const stInput = this.bedrockSessionTokenRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Leave empty for long-lived IAM user credentials' },
+            attr: { type: 'password', placeholder: 'Leave empty for long-lived IAM credentials' },
         });
         stInput.value = this.formAwsSessionToken;
         stInput.addEventListener('input', () => (this.formAwsSessionToken = stInput.value.trim()));
+
+        // Apply initial visibility based on current auth mode
+        this.updateBedrockAuthVisibility();
+    }
+
+    private updateBedrockAuthVisibility(): void {
+        const isApiKey = this.formAwsAuthMode === 'api-key';
+        this.bedrockApiKeyRow?.classList.toggle('agent-u-hidden', !isApiKey);
+        this.bedrockAccessKeyRow?.classList.toggle('agent-u-hidden', isApiKey);
+        this.bedrockSecretKeyRow?.classList.toggle('agent-u-hidden', isApiKey);
+        this.bedrockSessionTokenRow?.classList.toggle('agent-u-hidden', isApiKey);
     }
 
     private save(): void {
         const name = this.formName || this.model.name;
         if (!name) { new Notice(t('modal.modelConfig.modelIdRequired')); return; }
         const isBedrock = this.formProvider === 'bedrock';
+        const bedrockIsApiKey = isBedrock && this.formAwsAuthMode === 'api-key';
         this.onSave({
             ...this.model,
             name,
             provider: this.formProvider,
             displayName: this.formDisplayName || undefined,
             apiKey: isBedrock ? undefined : (this.formApiKey || undefined),
-            baseUrl: isBedrock ? undefined : (this.formBaseUrl || undefined),
+            // Bedrock re-uses baseUrl for the optional custom endpoint URL.
+            baseUrl: isBedrock
+                ? (this.formAwsEndpoint || undefined)
+                : (this.formBaseUrl || undefined),
             apiVersion: this.formApiVersion || undefined,
             maxTokens: this.formMaxTokens,
             temperature: this.formTemperatureEnabled ? this.formTemperatureValue : undefined,
@@ -1235,9 +1302,13 @@ export class ModelConfigModal extends Modal {
             thinkingEnabled: this.formThinkingEnabled || undefined,
             thinkingBudgetTokens: this.formThinkingEnabled ? this.formThinkingBudgetTokens : undefined,
             awsRegion: isBedrock ? (this.formAwsRegion || undefined) : undefined,
-            awsAccessKey: isBedrock ? (this.formAwsAccessKey || undefined) : undefined,
-            awsSecretKey: isBedrock ? (this.formAwsSecretKey || undefined) : undefined,
-            awsSessionToken: isBedrock ? (this.formAwsSessionToken || undefined) : undefined,
+            awsAuthMode: isBedrock ? this.formAwsAuthMode : undefined,
+            // Only persist credentials matching the selected auth mode so we don't
+            // leak a secret access key when the user switched to the bearer path.
+            awsApiKey: bedrockIsApiKey ? (this.formAwsApiKey || undefined) : undefined,
+            awsAccessKey: isBedrock && !bedrockIsApiKey ? (this.formAwsAccessKey || undefined) : undefined,
+            awsSecretKey: isBedrock && !bedrockIsApiKey ? (this.formAwsSecretKey || undefined) : undefined,
+            awsSessionToken: isBedrock && !bedrockIsApiKey ? (this.formAwsSessionToken || undefined) : undefined,
         });
         this.close();
     }

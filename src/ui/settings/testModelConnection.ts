@@ -50,9 +50,26 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
     // Bedrock: pre-validate required fields before instantiating the client so the user
     // gets a clear message instead of a low-level SDK throw.
     if (model.provider === 'bedrock') {
-        if (!model.awsRegion) return { ok: false, message: 'AWS region required', detail: 'Pick a region in the Bedrock auth section.' };
-        if (!model.awsAccessKey || !model.awsSecretKey) {
-            return { ok: false, message: 'AWS credentials required', detail: 'Fill both Access key ID and Secret access key.' };
+        if (!model.awsRegion) {
+            return { ok: false, message: 'AWS region required', detail: 'Pick a region in the Bedrock auth section.' };
+        }
+        const authMode = model.awsAuthMode ?? 'api-key';
+        if (authMode === 'api-key') {
+            if (!model.awsApiKey) {
+                return {
+                    ok: false,
+                    message: 'Bedrock API key required',
+                    detail: 'Paste the bearer token from the Bedrock console or from the AWS_BEARER_TOKEN_BEDROCK environment variable.',
+                };
+            }
+        } else {
+            if (!model.awsAccessKey || !model.awsSecretKey) {
+                return {
+                    ok: false,
+                    message: 'AWS credentials required',
+                    detail: 'Fill both access key ID and secret access key, or switch to the Bedrock API key mode.',
+                };
+            }
         }
     }
     try {
