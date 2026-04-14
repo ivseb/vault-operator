@@ -48,6 +48,17 @@ import type { ToolDefinition } from '../../core/tools/types';
 const BEDROCK_DEFAULT_CONTEXT_WINDOW = 200_000;
 const BEDROCK_DEFAULT_MAX_TOKENS = 8192;
 
+/**
+ * Pull the region out of a Bedrock endpoint URL, e.g.
+ * `https://bedrock-runtime.eu-central-1.amazonaws.com` -> `eu-central-1`.
+ * Returns null if the URL does not match the expected AWS pattern.
+ */
+export function extractRegionFromBedrockUrl(url: string | undefined): string | null {
+    if (!url) return null;
+    const match = url.match(/^https?:\/\/(?:[^.]+\.)?([a-z]{2}-[a-z]+-\d+)\.amazonaws\.com/i);
+    return match ? match[1].toLowerCase() : null;
+}
+
 export class BedrockProvider implements ApiHandler {
     private client: BedrockRuntimeClient;
     private config: LLMProvider;
@@ -55,9 +66,11 @@ export class BedrockProvider implements ApiHandler {
     constructor(config: LLMProvider) {
         this.config = config;
 
-        const region = config.awsRegion?.trim();
+        // Prefer the explicit region field, fall back to parsing it out of the
+        // endpoint URL. That way the user can set just one of the two fields.
+        const region = config.awsRegion?.trim() || extractRegionFromBedrockUrl(config.baseUrl) || '';
         if (!region) {
-            throw new Error('[Bedrock] awsRegion is required (e.g. eu-central-1, us-east-1)');
+            throw new Error('[Bedrock] awsRegion is required (e.g. eu-central-1) -- either pick a region or give an endpoint URL containing one');
         }
 
         // Default to bearer-token mode if not specified, since it's the recommended path.

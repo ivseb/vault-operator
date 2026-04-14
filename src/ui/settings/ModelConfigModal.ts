@@ -895,13 +895,28 @@ export class ModelConfigModal extends Modal {
 
     private async runTest(): Promise<void> {
         if (!this.testBtn || !this.testResultEl) return;
+        const isBedrock = this.formProvider === 'bedrock';
+        const bedrockIsApiKey = isBedrock && this.formAwsAuthMode === 'api-key';
         const m: CustomModel = {
             name: this.formName || this.model.name,
             provider: this.formProvider,
-            apiKey: this.formApiKey || undefined,
-            baseUrl: this.formBaseUrl || undefined,
+            apiKey: isBedrock ? undefined : (this.formApiKey || undefined),
+            // Bedrock reuses baseUrl for the optional endpoint URL.
+            baseUrl: isBedrock
+                ? (this.formAwsEndpoint || undefined)
+                : (this.formBaseUrl || undefined),
             apiVersion: this.formApiVersion || undefined,
             enabled: true,
+            // Bedrock-specific fields -- without these, testModelConnection's
+            // pre-validation fails with "AWS region required" even when the
+            // dropdown shows a region, because runTest wouldn't otherwise pass
+            // them through.
+            awsRegion: isBedrock ? (this.formAwsRegion || undefined) : undefined,
+            awsAuthMode: isBedrock ? this.formAwsAuthMode : undefined,
+            awsApiKey: bedrockIsApiKey ? (this.formAwsApiKey || undefined) : undefined,
+            awsAccessKey: isBedrock && !bedrockIsApiKey ? (this.formAwsAccessKey || undefined) : undefined,
+            awsSecretKey: isBedrock && !bedrockIsApiKey ? (this.formAwsSecretKey || undefined) : undefined,
+            awsSessionToken: isBedrock && !bedrockIsApiKey ? (this.formAwsSessionToken || undefined) : undefined,
         };
         if (!m.name) { this.showTestResult(false, t('modal.modelConfig.enterModelIdFirst'), undefined); return; }
         this.testBtn.disabled = true;

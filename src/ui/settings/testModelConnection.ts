@@ -50,8 +50,15 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
     // Bedrock: pre-validate required fields before instantiating the client so the user
     // gets a clear message instead of a low-level SDK throw.
     if (model.provider === 'bedrock') {
-        if (!model.awsRegion) {
-            return { ok: false, message: 'AWS region required', detail: 'Pick a region in the Bedrock auth section.' };
+        // Region may come from the explicit field or be encoded in the endpoint URL
+        // (e.g. https://bedrock-runtime.eu-central-1.amazonaws.com).
+        const regionFromUrl = model.baseUrl?.match(/^https?:\/\/(?:[^.]+\.)?([a-z]{2}-[a-z]+-\d+)\.amazonaws\.com/i)?.[1]?.toLowerCase();
+        if (!model.awsRegion && !regionFromUrl) {
+            return {
+                ok: false,
+                message: 'AWS region required',
+                detail: 'Pick a region in the dropdown, or enter an endpoint URL containing a region (e.g. bedrock-runtime.eu-central-1.amazonaws.com).',
+            };
         }
         const authMode = model.awsAuthMode ?? 'api-key';
         if (authMode === 'api-key') {
