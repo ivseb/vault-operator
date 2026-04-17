@@ -31,11 +31,16 @@ const PROTECTED_FORMATS: { pattern: RegExp; redirect: string }[] = [
             + 'for editing. write_file cannot hand-author the format reliably.',
     },
     {
-        pattern: /\.drawio\.(svg|png)$/i,
-        redirect: 'Drawio / Diagrams.net SVG / PNG format. The agent cannot hand-author the embedded mxfile '
-            + 'metadata correctly — the file looks like an image but is rejected by the plugin with '
-            + '"Not a diagram file". Use the built-in create_drawio tool instead (writes pure .drawio), '
-            + 'which the plugin renders and exports to SVG / PNG on demand.',
+        pattern: /\.drawio\.svg$/i,
+        redirect: 'Drawio-SVG dual format. Use the built-in create_drawio tool with output_path ending in '
+            + '.drawio.svg — the tool emits both the SVG preview and the embedded mxfile content-attribute '
+            + 'correctly. write_file would ship a broken file that the plugin rejects with "Not a diagram file".',
+    },
+    {
+        pattern: /\.drawio\.png$/i,
+        redirect: 'Drawio-PNG dual format requires raster output with embedded mxfile metadata, which the agent '
+            + 'cannot author. Use create_drawio with .drawio.svg instead; the plugin exports to PNG on demand '
+            + 'from its own editor.',
     },
     {
         pattern: /\.excalidraw(\.md)?$/i,

@@ -122,6 +122,107 @@ function layoutVertices(
 }
 
 /* ------------------------------------------------------------------ */
+/*  .drawio.svg wrapper                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Build a Drawio-compatible SVG. The drawio-obsidian and obsidian-diagrams-net
+ * plugins both look for a `content` attribute on the root <svg> element
+ * containing the raw mxfile XML (leading `<`) — see
+ * https://github.com/zapthedingbat/drawio-obsidian main.js `Editor.prototype.isDataSvg`.
+ *
+ * The SVG body itself is a static preview of the diagram so Obsidian's default
+ * SVG renderer shows something useful without the plugin — boxes, labels and
+ * arrows at their laid-out positions. The plugin overrides this when the user
+ * opens the file for editing.
+ */
+function buildDrawioSvg(
+    mxfileXml: string,
+    nodes: DrawioNodeInput[],
+    edges: DrawioEdgeInput[],
+    positions: Map<string, Position>,
+    idMap: Map<string, string>,
+): string {
+    // Page size — compute bounding box from positions so the SVG canvas
+    // matches what the plugin will render.
+    let maxX = 0;
+    let maxY = 0;
+    for (const pos of positions.values()) {
+        maxX = Math.max(maxX, pos.x + pos.width + 40);
+        maxY = Math.max(maxY, pos.y + pos.height + 40);
+    }
+    const width = Math.max(400, maxX);
+    const height = Math.max(300, maxY);
+
+    // Preview elements: rectangles + text for each node, lines for each edge.
+    const svgParts: string[] = [];
+
+    // Edges first so they sit behind boxes.
+    for (const edge of edges) {
+        if (!idMap.has(edge.from) || !idMap.has(edge.to)) continue;
+        const src = positions.get(edge.from);
+        const dst = positions.get(edge.to);
+        if (!src || !dst) continue;
+        const x1 = src.x + src.width / 2;
+        const y1 = src.y + src.height;
+        const x2 = dst.x + dst.width / 2;
+        const y2 = dst.y;
+        svgParts.push(
+            `<path d="M ${x1} ${y1} L ${x2} ${y2}" stroke="#555" stroke-width="1.5" fill="none" marker-end="url(#obsilo-drawio-arrow)"/>`,
+        );
+        if (edge.label) {
+            const lx = (x1 + x2) / 2;
+            const ly = (y1 + y2) / 2;
+            svgParts.push(
+                `<text x="${lx}" y="${ly}" fill="#333" font-family="sans-serif" font-size="11" text-anchor="middle" dy="-4">${xmlAttr(edge.label)}</text>`,
+            );
+        }
+    }
+
+    for (const node of nodes) {
+        const pos = positions.get(node.id);
+        if (!pos) continue;
+        const { fill, stroke } = resolveColors(node.color);
+        const rx = node.shape === 'rectangle' ? 0 : node.shape === 'ellipse' ? pos.width / 2 : node.shape === 'rhombus' ? 0 : 8;
+        const ry = node.shape === 'ellipse' ? pos.height / 2 : rx;
+        if (node.shape === 'rhombus') {
+            const cx = pos.x + pos.width / 2;
+            const cy = pos.y + pos.height / 2;
+            svgParts.push(
+                `<polygon points="${cx},${pos.y} ${pos.x + pos.width},${cy} ${cx},${pos.y + pos.height} ${pos.x},${cy}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`,
+            );
+        } else {
+            svgParts.push(
+                `<rect x="${pos.x}" y="${pos.y}" width="${pos.width}" height="${pos.height}" rx="${rx}" ry="${ry}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`,
+            );
+        }
+        const cx = pos.x + pos.width / 2;
+        const cy = pos.y + pos.height / 2 + 4;
+        svgParts.push(
+            `<text x="${cx}" y="${cy}" fill="#222" font-family="sans-serif" font-size="12" text-anchor="middle">${xmlAttr(node.label)}</text>`,
+        );
+    }
+
+    // content attribute needs the raw mxfile XML with XML attribute escaping.
+    const contentAttr = xmlAttr(mxfileXml);
+
+    return [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" `
+            + `width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" `
+            + `content="${contentAttr}">`,
+        '<defs>',
+        '<marker id="obsilo-drawio-arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto">',
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/>',
+        '</marker>',
+        '</defs>',
+        `<rect width="${width}" height="${height}" fill="#ffffff"/>`,
+        svgParts.join(''),
+        '</svg>',
+    ].join('');
+}
+
+/* ------------------------------------------------------------------ */
 /*  Tool class                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -137,16 +238,19 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
         return {
             name: 'create_drawio',
             description:
-                'Create a Draw.io / diagrams.net flowchart (.drawio file) with labeled boxes and arrows. ' +
-                'The file is fully editable in the drawio-obsidian or obsidian-diagrams-net plugin afterwards. ' +
-                'NEVER use write_file to create .drawio or .drawio.svg files — the format requires a specific mxfile wrapper ' +
-                'that write_file will reject.',
+                'Create a Draw.io / diagrams.net flowchart programmatically. Accepts both .drawio (pure mxfile XML) '
+                + 'and .drawio.svg (SVG with embedded mxfile content-attribute — renders as an image preview in Obsidian '
+                + 'and opens as an editable diagram in the drawio-obsidian / obsidian-diagrams-net plugin). '
+                + 'Choose .drawio.svg when the user wants a visible diagram without enabling a plugin action; '
+                + 'choose .drawio when the file is purely data. NEVER use write_file for either extension — '
+                + 'the embedded metadata format is strict and write_file will reject it.',
             input_schema: {
                 type: 'object',
                 properties: {
                     output_path: {
                         type: 'string',
-                        description: 'Path for the diagram file. Must end with .drawio (e.g. "Diagrams/workflow.drawio").',
+                        description: 'Path for the diagram file. Must end with .drawio OR .drawio.svg '
+                            + '(e.g. "Diagrams/workflow.drawio.svg").',
                     },
                     nodes: {
                         type: 'array',
@@ -197,9 +301,11 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
             callbacks.pushToolResult(this.formatError(new Error('output_path is required')));
             return;
         }
-        if (!outputPath.endsWith('.drawio')) {
+        const wantsSvg = /\.drawio\.svg$/i.test(outputPath);
+        const wantsPureXml = /\.drawio$/i.test(outputPath);
+        if (!wantsSvg && !wantsPureXml) {
             callbacks.pushToolResult(
-                this.formatError(new Error('output_path must end with .drawio (no .svg / .png suffix).')),
+                this.formatError(new Error('output_path must end with .drawio or .drawio.svg.')),
             );
             return;
         }
@@ -258,8 +364,9 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
 
         const cells = cellParts.join('');
         const now = new Date().toISOString();
-        const xml = [
-            '<?xml version="1.0" encoding="UTF-8"?>',
+
+        // The pure .drawio payload (and also the content-attribute of the SVG wrapper).
+        const mxfileXml = [
             `<mxfile host="Obsidian" modified="${now}" agent="obsilo-agent" version="1.0" type="device">`,
             '<diagram name="Page-1" id="obsilo-main">',
             '<mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">',
@@ -271,6 +378,13 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
             '</mxfile>',
         ].join('');
 
+        let fileContent: string;
+        if (wantsSvg) {
+            fileContent = buildDrawioSvg(mxfileXml, nodes, edges, positions, idMap);
+        } else {
+            fileContent = `<?xml version="1.0" encoding="UTF-8"?>${mxfileXml}`;
+        }
+
         // ── Write via Obsidian API (binary-safe, path-validated) ───────────
         try {
             const existing = this.app.vault.getAbstractFileByPath(outputPath);
@@ -280,7 +394,7 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
                 if (!(existing instanceof TFile)) {
                     throw new Error(`Path exists but is not a file: ${outputPath}`);
                 }
-                await this.app.vault.modify(existing, xml);
+                await this.app.vault.modify(existing, fileContent);
             } else {
                 // Create
                 const lastSlash = outputPath.lastIndexOf('/');
@@ -288,7 +402,7 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
                     const dir = outputPath.slice(0, lastSlash);
                     await this.app.vault.createFolder(dir).catch(() => { /* already exists */ });
                 }
-                await this.app.vault.create(outputPath, xml);
+                await this.app.vault.create(outputPath, fileContent);
             }
 
             const edgeHint = droppedEdges > 0
