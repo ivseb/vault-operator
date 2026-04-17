@@ -727,11 +727,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
-        // ADR-063: Clean up orphaned externalization temp files from crashed sessions
-        if (this.globalFs) {
-            const { ResultExternalizer } = await import('./core/tool-execution/ResultExternalizer');
-            void ResultExternalizer.cleanupOrphaned(this.globalFs);
-        }
+        // ADR-063: Clean up orphaned externalization temp files from crashed sessions.
+        // BUG-014 / FEATURE-1803: tmp files now live inside the vault under
+        // .obsidian-agent/tmp so the orphan-sweeper has to use the vault adapter.
+        const { ResultExternalizer } = await import('./core/tool-execution/ResultExternalizer');
+        const { VaultDataFileAdapter } = await import('./core/storage/VaultDataFileAdapter');
+        const vaultFs = new VaultDataFileAdapter(this.app.vault.adapter);
+        void ResultExternalizer.cleanupOrphaned(vaultFs);
 
         console.debug('Obsilo Agent plugin loaded successfully');
     }
