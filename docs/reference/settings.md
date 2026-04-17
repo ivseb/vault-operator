@@ -212,11 +212,17 @@ Checkpoint and snapshot settings for the undo system.
 | Snapshot timeout | Maximum time to wait for a snapshot to complete (ms) | 5000 | Increase for very large files |
 | Auto-cleanup | Automatically remove old checkpoints | On | Keep on to save storage |
 
+### Agent folder
+
+Vault-relative folder where Obsilo keeps its own files: plugin skills, the vault-dna snapshot, externalised tmp results, and the local knowledge database. Default is `.obsidian-agent`.
+
+Use the **Pick folder...** button to choose an existing folder from a fuzzy picker (works the same on Windows, macOS, and Linux), or type a new path that will be created on next use. Existing files are not auto-migrated when you change this path — move them manually if needed.
+
 ## Other tabs
 
 | Tab | What it does |
 |-----|-------------|
 | Log | Browse the daily audit trail of all tool calls with timestamps and parameters |
-| Debug | Internal diagnostics: debug mode toggle, **Agent folder** text field (vault-relative folder for plugin skills, the vault-dna snapshot, and externalised tmp results; default `.obsidian-agent`; existing files are not auto-migrated when you change this) |
+| Debug | Internal diagnostics: debug mode toggle, system prompt preview |
 | Backup | Export and import your complete Obsilo configuration |
 | Language | Set the agent's response language (follows Obsidian's language by default) |

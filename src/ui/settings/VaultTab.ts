@@ -1,5 +1,7 @@
 import { App, Setting } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { DEFAULT_AGENT_FOLDER } from '../../core/utils/agentFolder';
+import { AgentFolderPickerModal } from './AgentFolderPickerModal';
 import { t } from '../../i18n';
 
 
@@ -91,6 +93,45 @@ export class VaultTab {
                     this.plugin.settings.taskExtraction = { ...taskSettings, preferTaskNotesPlugin: v };
                     await this.plugin.saveSettings();
                 }),
+            );
+
+        // ── Agent Folder (FEATURE-0507 / Issue #26) ────────────────────────────
+        containerEl.createEl('h3', {
+            cls: 'agent-settings-section',
+            text: t('settings.vault.agentFolderHeading'),
+        });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: t('settings.vault.agentFolderDesc'),
+        });
+
+        let currentInput: HTMLInputElement | null = null;
+
+        new Setting(containerEl)
+            .setName(t('settings.vault.agentFolder'))
+            .setDesc(t('settings.vault.agentFolderFieldDesc'))
+            .addText((text) => {
+                currentInput = text.inputEl;
+                text
+                    .setPlaceholder(DEFAULT_AGENT_FOLDER)
+                    .setValue(this.plugin.settings.agentFolderPath ?? DEFAULT_AGENT_FOLDER)
+                    .onChange(async (v) => {
+                        const trimmed = v.trim();
+                        this.plugin.settings.agentFolderPath = trimmed.length > 0 ? trimmed : DEFAULT_AGENT_FOLDER;
+                        await this.plugin.saveSettings();
+                    });
+            })
+            .addButton((btn) =>
+                btn
+                    .setButtonText(t('settings.vault.agentFolderPick'))
+                    .setIcon('folder')
+                    .onClick(() => {
+                        new AgentFolderPickerModal(this.app, (path) => {
+                            this.plugin.settings.agentFolderPath = path;
+                            if (currentInput) currentInput.value = path;
+                            void this.plugin.saveSettings();
+                        }).open();
+                    }),
             );
     }
 }
