@@ -162,12 +162,17 @@ export class GitHubCopilotProvider implements ApiHandler {
             ? Math.max(this.config.maxTokens ?? 8192, budgetTokens)
             : (this.config.maxTokens ?? 8192);
 
+        // BUG-015 / FEATURE-1206: GitHub Copilot routes through models that
+        // require max_completion_tokens instead of max_tokens (gpt-5,
+        // gpt-5-codex, o3, o4-mini). The Copilot Gateway accepts
+        // max_completion_tokens uniformly across the catalog, so we send only
+        // the new parameter for all models.
         const requestBody: Record<string, unknown> = {
             model: this.config.model,
             messages: openAiMessages,
             tools: openAiTools,
             temperature: temperature !== undefined ? Math.min(temperature, 2.0) : undefined,
-            max_tokens: effectiveMaxTokens,
+            max_completion_tokens: effectiveMaxTokens,
             stream: true,
             stream_options: { include_usage: true },
             // Extended thinking: passed as top-level body param for Claude-via-Copilot
@@ -294,9 +299,10 @@ export class GitHubCopilotProvider implements ApiHandler {
      * Used by skill matching LLM-fallback.
      */
     async classifyText(prompt: string, abortSignal?: AbortSignal): Promise<string> {
+        // BUG-015 / FEATURE-1206: see createMessage() for the rationale.
         const response = await this.client.chat.completions.create({
             model: this.config.model,
-            max_tokens: 50,
+            max_completion_tokens: 50,
             messages: [{ role: 'user', content: prompt }],
         }, {
             signal: abortSignal ?? undefined,
