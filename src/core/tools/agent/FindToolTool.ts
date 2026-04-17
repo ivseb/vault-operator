@@ -51,6 +51,7 @@ export class FindToolTool extends BaseTool<'find_tool'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool contract requires a Promise<void> return; this tool's work is CPU-bound only
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const query = ((input.query as string) ?? '').trim().toLowerCase();
