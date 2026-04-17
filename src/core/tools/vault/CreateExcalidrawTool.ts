@@ -21,6 +21,11 @@ import type ObsidianAgentPlugin from '../../../main';
 /*  Excalidraw element interfaces (subset needed for box + text)      */
 /* ------------------------------------------------------------------ */
 
+interface ExcalidrawBoundReference {
+    id: string;
+    type: 'arrow' | 'text';
+}
+
 interface ExcalidrawBaseElement {
     id: string;
     type: string;
@@ -43,7 +48,7 @@ interface ExcalidrawBaseElement {
     groupIds: string[];
     frameId: null;
     roundness: { type: number } | null;
-    boundElements: null;
+    boundElements: ExcalidrawBoundReference[] | null;
     updated: number;
     link: null;
     locked: boolean;
@@ -66,7 +71,25 @@ interface ExcalidrawText extends ExcalidrawBaseElement {
     lineHeight: number;
 }
 
-type ExcalidrawElement = ExcalidrawRectangle | ExcalidrawText;
+/**
+ * Excalidraw arrow with endpoint bindings. Points are relative to (x, y):
+ * first point is always [0, 0], subsequent points are offsets. With
+ * startBinding / endBinding set, Excalidraw re-routes the arrow when the
+ * bound rectangle is moved — the user can rearrange the layout in the
+ * plugin and the arrows follow.
+ */
+interface ExcalidrawArrow extends ExcalidrawBaseElement {
+    type: 'arrow';
+    points: [number, number][];
+    lastCommittedPoint: null;
+    startBinding: { elementId: string; focus: number; gap: number } | null;
+    endBinding: { elementId: string; focus: number; gap: number } | null;
+    startArrowhead: 'arrow' | 'bar' | 'dot' | 'triangle' | null;
+    endArrowhead: 'arrow' | 'bar' | 'dot' | 'triangle' | null;
+    elbowed?: boolean;
+}
+
+type ExcalidrawElement = ExcalidrawRectangle | ExcalidrawText | ExcalidrawArrow;
 
 interface ExcalidrawScene {
     type: 'excalidraw';
@@ -204,6 +227,35 @@ function buildText(
     };
 }
 
+/**
+ * Build an Excalidraw arrow that connects two rectangles by id. Endpoint
+ * bindings keep the arrow attached when the user moves the rectangles in
+ * the plugin. Points are `[[0,0], [dx,dy]]` — Excalidraw's renderer
+ * straightens / re-routes the line based on bindings and geometry.
+ */
+function buildArrow(
+    id: string,
+    fromRect: { id: string; x: number; y: number; width: number; height: number },
+    toRect: { id: string; x: number; y: number; width: number; height: number },
+): ExcalidrawArrow {
+    const start = { x: fromRect.x + fromRect.width / 2, y: fromRect.y + fromRect.height };
+    const end = { x: toRect.x + toRect.width / 2, y: toRect.y };
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const base = buildBaseProps(id, start.x, start.y, Math.abs(dx) || 1, Math.abs(dy) || 1, 'transparent');
+    return {
+        ...base,
+        type: 'arrow',
+        roundness: { type: 2 },
+        points: [[0, 0], [dx, dy]],
+        lastCommittedPoint: null,
+        startBinding: { elementId: fromRect.id, focus: 0, gap: 4 },
+        endBinding: { elementId: toRect.id, focus: 0, gap: 4 },
+        startArrowhead: null,
+        endArrowhead: 'arrow',
+    };
+}
+
 /* ------------------------------------------------------------------ */
 /*  Tool class                                                        */
 /* ------------------------------------------------------------------ */
@@ -243,11 +295,12 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                 'The plugin supports arrows, freehand, custom shapes, layers, and palette colors. ' +
                 'This built-in tool only draws labeled rectangles and is reserved for vaults ' +
                 'where the plugin is not installed.'
-            : 'Create an Excalidraw drawing (.excalidraw.md) with labeled boxes. ' +
+            : 'Create an Excalidraw drawing (.excalidraw.md) with labeled boxes and optional arrows between them. ' +
                 'The file format is handled automatically — never use write_file for .excalidraw.md files. ' +
-                'Supports colored boxes with labels and optional descriptions. ' +
-                'Note: if you need arrows, freehand, or richer features, ask the user to install the ' +
-                'Excalidraw community plugin (id: obsidian-excalidraw-plugin), which is far more capable.';
+                'Supports colored boxes with labels, optional descriptions, and directed arrows that stay attached ' +
+                'when the user moves boxes around. Reference boxes in arrows by their "id" field or by zero-based array index. ' +
+                'Note: for freehand, custom shapes, or palette editing, ask the user to install the Excalidraw community ' +
+                'plugin (id: obsidian-excalidraw-plugin), which is fully interactive.';
         return {
             name: 'create_excalidraw',
             description,
@@ -264,6 +317,10 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                         items: {
                             type: 'object',
                             properties: {
+                                id: {
+                                    type: 'string',
+                                    description: 'Optional stable id referenced by arrows (e.g. "capture", "review"). Auto-generated if omitted.',
+                                },
                                 label: {
                                     type: 'string',
                                     description: 'Text displayed in the box',
@@ -281,6 +338,18 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                             required: ['label'],
                         },
                         description: 'Array of boxes to draw (max 12)',
+                    },
+                    arrows: {
+                        type: 'array',
+                        items: {
+                            type: 'object',
+                            properties: {
+                                from: { type: 'string', description: 'Source box id (or its array index as a string, e.g. "0").' },
+                                to: { type: 'string', description: 'Target box id (or its array index as a string).' },
+                            },
+                            required: ['from', 'to'],
+                        },
+                        description: 'Optional arrows connecting boxes. Reference boxes by their "id" field, or by zero-based array index as a string. Arrows stay attached when the user moves boxes in the Excalidraw editor.',
                     },
                     title: {
                         type: 'string',
@@ -301,6 +370,7 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
         const { callbacks } = context;
         const outputPath = ((input.output_path as string) ?? '').trim();
         const rawElements = Array.isArray(input.elements) ? input.elements : [];
+        const rawArrows = Array.isArray(input.arrows) ? input.arrows as Array<{ from?: string; to?: string }> : [];
         const title = ((input.title as string) ?? '').trim();
         const layout: 'grid' | 'row' = input.layout === 'row' ? 'row' : 'grid';
 
@@ -338,8 +408,11 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                 startY = TITLE_MARGIN_BOTTOM + 40;
             }
 
-            // Layout boxes
+            // Layout boxes. Track rectangles so arrows can re-look them up
+            // by user-provided id (BUG-018 Wave 2 arrows extension).
             const cols = layout === 'row' ? elements.length : 2;
+            const rectsByUserId = new Map<string, { id: string; x: number; y: number; width: number; height: number }>();
+            const rectsByIndex: typeof rectsByUserId extends Map<string, infer V> ? V[] : never = [];
 
             for (let i = 0; i < elements.length; i++) {
                 const elem = elements[i];
@@ -359,6 +432,10 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
 
                 // Rectangle
                 sceneElements.push(buildRectangle(rectId, x, y, BOX_W, boxH, color));
+                const rectRef = { id: rectId, x, y, width: BOX_W, height: boxH };
+                rectsByIndex.push(rectRef);
+                const userId = typeof elem.id === 'string' && elem.id.trim().length > 0 ? elem.id.trim() : null;
+                if (userId) rectsByUserId.set(userId, rectRef);
 
                 if (hasDesc) {
                     // Label at top of box
@@ -375,6 +452,45 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                         buildText(labelId, x, y, BOX_W, boxH, label, LABEL_FONT_SIZE),
                     );
                 }
+            }
+
+            // Arrows (BUG-018 Wave 2). Resolve endpoint by user-id first,
+            // fall back to numeric array index as a string. Arrows with
+            // unknown endpoints are silently dropped but logged.
+            let droppedArrows = 0;
+            const resolveRef = (ref: string) => {
+                const direct = rectsByUserId.get(ref);
+                if (direct) return direct;
+                const idx = Number.parseInt(ref, 10);
+                if (Number.isFinite(idx) && idx >= 0 && idx < rectsByIndex.length) {
+                    return rectsByIndex[idx];
+                }
+                return null;
+            };
+
+            for (let i = 0; i < rawArrows.length; i++) {
+                const arrow = rawArrows[i];
+                const from = typeof arrow.from === 'string' ? resolveRef(arrow.from) : null;
+                const to = typeof arrow.to === 'string' ? resolveRef(arrow.to) : null;
+                if (!from || !to || from === to) {
+                    droppedArrows++;
+                    continue;
+                }
+                const arrowId = `arrow-${i}`;
+                sceneElements.push(buildArrow(arrowId, from, to));
+
+                // Attach the arrow reference to each bound rectangle so
+                // Excalidraw moves the arrow endpoints when the user drags
+                // the boxes around.
+                for (const el of sceneElements) {
+                    if (el.type === 'rectangle' && (el.id === from.id || el.id === to.id)) {
+                        const ref: ExcalidrawBoundReference = { id: arrowId, type: 'arrow' };
+                        el.boundElements = el.boundElements ? [...el.boundElements, ref] : [ref];
+                    }
+                }
+            }
+            if (droppedArrows > 0) {
+                callbacks.log(`create_excalidraw: dropped ${droppedArrows} arrow(s) with unknown endpoints`);
             }
 
             // Build scene
@@ -431,15 +547,17 @@ export class CreateExcalidrawTool extends BaseTool<'create_excalidraw'> {
                 await this.app.vault.create(outputPath, fileContent);
             }
 
+            const arrowCount = sceneElements.filter((el) => el.type === 'arrow').length;
             callbacks.pushToolResult(
                 `Excalidraw drawing created: **${outputPath}**\n` +
                 `- ${elements.length} boxes\n` +
+                (arrowCount > 0 ? `- ${arrowCount} arrows\n` : '') +
                 (title ? `- Title: "${title}"\n` : '') +
                 `- Layout: ${layout}\n\n` +
                 `Open the file in Obsidian to view the drawing.`,
             );
             callbacks.log(
-                `Created Excalidraw drawing: ${outputPath} (${elements.length} boxes)`,
+                `Created Excalidraw drawing: ${outputPath} (${elements.length} boxes, ${arrowCount} arrows)`,
             );
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
