@@ -36,6 +36,18 @@ export interface ToolMeta {
      * structure, hard to manually correct. See qualityGates.ts.
      */
     qualityGate?: boolean;
+    /**
+     * FEATURE-1600 (Deferred Tool Loading): when true, this tool's schema is
+     * NOT included in the default system prompt. The LLM can still discover
+     * and activate it via the meta-tool `find_tool`, which injects the full
+     * schema for the rest of the session.
+     *
+     * Mark a tool as deferred when it is specialised (e.g. office-format
+     * generation, base queries, expression evaluation) and not needed for
+     * most conversations. Leave false for core read / edit / search / agent-
+     * control tools that are always relevant.
+     */
+    deferred?: boolean;
 }
 
 /** Alias used by qualityGates.ts for validation. */
@@ -249,11 +261,20 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     },
     create_excalidraw: {
         group: 'edit', label: 'Excalidraw', icon: 'pencil',
-        signature: 'create_excalidraw(output_path, elements, title?, layout?)',
-        description: 'Create an Excalidraw drawing (.excalidraw.md) with labeled boxes. Format is handled automatically — never use write_file for .excalidraw.md files.',
-        example: 'create_excalidraw("Drawings/overview.excalidraw.md", [{"label":"Topic 1","color":"blue"},{"label":"Topic 2","color":"green"}], "Project Overview")',
+        signature: 'create_excalidraw(output_path, elements, arrows?, title?, layout?)',
+        description: 'Create an Excalidraw drawing (.excalidraw.md) with labeled boxes and optional arrows between them. Format is handled automatically — never use write_file for .excalidraw.md files.',
+        example: 'create_excalidraw("Drawings/overview.excalidraw.md", [{"id":"a","label":"Start"},{"id":"b","label":"End"}], [{"from":"a","to":"b"}])',
         whenToUse: 'To create any Excalidraw visualization. Always prefer this over write_file for .excalidraw.md files.',
         commonMistakes: 'Using write_file for .excalidraw.md — always use create_excalidraw instead.',
+        qualityGate: true,
+    },
+    create_drawio: {
+        group: 'edit', label: 'Drawio Flowchart', icon: 'network',
+        signature: 'create_drawio(output_path, nodes, edges?, layout?)',
+        description: 'Create a Draw.io / diagrams.net flowchart (.drawio or .drawio.svg) with labeled nodes and directed arrows. The SVG variant renders in Obsidian and opens editable in the drawio-obsidian or obsidian-diagrams-net plugin. NEVER use write_file for .drawio files — the mxfile wrapper is strict.',
+        example: 'create_drawio("Diagrams/flow.drawio.svg", [{"id":"a","label":"Idea","shape":"rounded"},{"id":"b","label":"Relevant?","shape":"rhombus"}], [{"from":"a","to":"b","label":"yes"}])',
+        whenToUse: 'User asks for a draw.io / diagrams.net diagram. Pick .drawio.svg if the diagram should render as a preview in Obsidian, .drawio for pure data.',
+        commonMistakes: 'Using write_file with .drawio.svg and hand-authored XML — the plugin rejects those as "Not a diagram file". Always use create_drawio.',
         qualityGate: true,
     },
     create_base: {
@@ -380,6 +401,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Delegating simple 1-4 step tasks — do those yourself with your own tools.',
     },
 
+    find_tool: {
+        group: 'agent', label: 'Find Tool', icon: 'search',
+        signature: 'find_tool(query)',
+        description: 'Discover and activate specialised tools not in the default schema. Use when you need office-format creation (pptx/docx/xlsx), diagrams (canvas/excalidraw/drawio), base queries, expression evaluation, skill/source management, or vault-health helpers. Keyword search (case-insensitive) ranks matches by name > label > description and activates the top results for the rest of the session.',
+        example: 'find_tool({ query: "pptx" })',
+        whenToUse: 'The user asks for something the currently loaded tools do not cover — before giving up, try find_tool with a relevant keyword.',
+        commonMistakes: 'Calling find_tool repeatedly for the same query. Once activated, the tool stays available; call it directly on the next turn.',
+    },
     // NOTE: group is 'agent' for mode-level availability (shows in Agent Control tools).
     // The Pipeline classifies this as 'sandbox' ApprovalGroup for approval checks.
     evaluate_expression: {
@@ -462,6 +491,52 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Writing fake .pdf/.docx content instead of using the proper export recipe.',
     },
 };
+
+/**
+ * FEATURE-1600: tools whose schemas are NOT included in the default system
+ * prompt. The LLM discovers them via the meta-tool `find_tool`, which
+ * activates the schema for the rest of the session.
+ *
+ * Maintained as a list (rather than a `deferred: true` flag on every entry)
+ * to keep TOOL_METADATA compact and the deferred set reviewable at a glance.
+ * Categories: office-format generation, base operations, vault-stat helpers,
+ * self-development, niche agent utilities. Core read/edit/search/agent-control
+ * tools stay in the default prompt.
+ */
+export const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
+    // Vault: rarely-needed intelligence helpers
+    'get_vault_stats',
+    'vault_health_check',
+    'search_by_tag',
+    'get_linked_notes',
+    'get_daily_note',
+    'open_note',
+    'query_base',
+    // Vault: specialised writers
+    'generate_canvas',
+    'create_excalidraw',
+    'create_drawio',
+    'create_base',
+    'update_base',
+    // Office / presentation pipeline
+    'check_presentation_quality',
+    'plan_presentation',
+    'create_pptx',
+    'create_docx',
+    'create_xlsx',
+    'ingest_document',
+    // Self-development + niche agent utilities
+    'evaluate_expression',
+    'manage_skill',
+    'manage_source',
+    'manage_mcp_server',
+    'resolve_capability_gap',
+]);
+
+/** FEATURE-1600: true when a tool is deferred and must be activated via find_tool. */
+export function isDeferredTool(toolName: string): boolean {
+    return DEFERRED_TOOL_NAMES.has(toolName);
+}
 
 /**
  * Get tools for a specific group.

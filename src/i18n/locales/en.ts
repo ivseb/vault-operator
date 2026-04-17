@@ -641,8 +641,6 @@ export const en: Translations = {
     'settings.debug.introDesc': 'Enables detailed logs in the browser console. Useful for troubleshooting or when reporting a bug.',
     'settings.debug.debugMode': 'Debug mode',
     'settings.debug.debugModeDesc': 'Write detailed logs to the browser developer console. Only useful for troubleshooting. Open the console with cmd+Option+I (mac) or ctrl+Shift+I (Windows).',
-    'settings.debug.agentFolder': 'Agent folder',
-    'settings.debug.agentFolderDesc': 'Folder inside the vault for plugin skills, the vault dna snapshot, and externalised tmp results. Existing files are not auto-migrated when you change this, so move them manually if needed.',
 
     // =========================================================================
     // Settings — Backup Tab
@@ -708,6 +706,11 @@ export const en: Translations = {
     'settings.vault.taskFolderDesc': 'Vault folder where task notes and the task base are created.',
     'settings.vault.preferTaskNotes': 'Prefer `TaskNotes` plugin',
     'settings.vault.preferTaskNotesDesc': 'When the community plugin `TaskNotes` is active, create tasks in its format. Otherwise the built-in format is used.',
+    'settings.vault.agentFolderHeading': 'Agent folder',
+    'settings.vault.agentFolderDesc': 'Vault-relative folder where the plugin keeps its own files: plugin skills, the vault dna snapshot, externalised tmp results, and the local knowledge database. Existing files are not auto-migrated when you change this path.',
+    'settings.vault.agentFolder': 'Folder',
+    'settings.vault.agentFolderFieldDesc': 'Default is a hidden folder inside your vault. Use the picker to open your native folder dialog, or type a path. Folders outside the vault are partially supported in this release — plugin skills, tmp results, and the local knowledge database continue to live inside the vault.',
+    'settings.vault.agentFolderPick': 'Pick folder…',
 
     // =========================================================================
     // Settings — Visual Intelligence Tab

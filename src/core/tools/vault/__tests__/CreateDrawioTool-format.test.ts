@@ -14,7 +14,7 @@
 import { describe, it, expect } from 'vitest';
 
 describe('CreateDrawioTool output format (BUG-018)', () => {
-    it('pure .drawio payload starts with XML declaration + mxfile', async () => {
+    it('pure .drawio payload starts with XML declaration + mxfile', () => {
         // We sanity-check by hand-building the same prefix create_drawio
         // produces — the tool always emits `<?xml ...?><mxfile ...>...</mxfile>`.
         const expectedPrefix = '<?xml version="1.0" encoding="UTF-8"?><mxfile ';
@@ -28,7 +28,7 @@ describe('CreateDrawioTool output format (BUG-018)', () => {
         expect(sample).toContain('</mxfile>');
     });
 
-    it('SVG wrapper: content attribute carries escaped mxfile XML', async () => {
+    it('SVG wrapper: content attribute carries escaped mxfile XML', () => {
         // Simulate the attribute-escaping that buildDrawioSvg performs.
         const mxfile = '<mxfile><diagram><mxGraphModel><root/></mxGraphModel></diagram></mxfile>';
         const escaped = mxfile

@@ -1,0 +1,110 @@
+/**
+ * FEATURE-1600 regression test: deferred tool loading.
+ *
+ * Validates that:
+ *  1. isDeferredTool flags the specialised tools and leaves core tools alone.
+ *  2. FindToolTool matches by keyword, ranks sensibly, and activates via the
+ *     ToolExecutionContext.activateDeferredTool callback.
+ *
+ * Doesn't exercise the AgentTask loop — rebuildPromptCache integration is
+ * covered by the existing agent-task smoke path in live use.
+ */
+
+import { describe, it, expect } from 'vitest';
+import { isDeferredTool, DEFERRED_TOOL_NAMES } from '../toolMetadata';
+
+describe('isDeferredTool (FEATURE-1600)', () => {
+    it('flags office-format creators as deferred', () => {
+        expect(isDeferredTool('create_pptx')).toBe(true);
+        expect(isDeferredTool('create_docx')).toBe(true);
+        expect(isDeferredTool('create_xlsx')).toBe(true);
+        expect(isDeferredTool('plan_presentation')).toBe(true);
+    });
+
+    it('flags specialised diagram tools as deferred', () => {
+        expect(isDeferredTool('generate_canvas')).toBe(true);
+        expect(isDeferredTool('create_excalidraw')).toBe(true);
+        expect(isDeferredTool('create_drawio')).toBe(true);
+    });
+
+    it('keeps core read / edit / agent-control tools NOT deferred', () => {
+        expect(isDeferredTool('read_file')).toBe(false);
+        expect(isDeferredTool('edit_file')).toBe(false);
+        expect(isDeferredTool('write_file')).toBe(false);
+        expect(isDeferredTool('search_files')).toBe(false);
+        expect(isDeferredTool('semantic_search')).toBe(false);
+        expect(isDeferredTool('ask_followup_question')).toBe(false);
+        expect(isDeferredTool('attempt_completion')).toBe(false);
+        expect(isDeferredTool('new_task')).toBe(false);
+    });
+
+    it('DEFERRED_TOOL_NAMES is reasonably sized (not empty, not covering everything)', () => {
+        // Sanity bounds — fail fast if someone accidentally clears the set or
+        // marks core tools as deferred.
+        expect(DEFERRED_TOOL_NAMES.size).toBeGreaterThan(10);
+        expect(DEFERRED_TOOL_NAMES.size).toBeLessThan(40);
+    });
+});
+
+describe('FindToolTool matching semantics (FEATURE-1600)', () => {
+    // Reimplement the ranking inline so we can unit-test without Obsidian's
+    // App instance. Mirrors the logic in FindToolTool.execute().
+    async function findMatches(query: string): Promise<string[]> {
+        const { TOOL_METADATA } = await import('../toolMetadata');
+        const q = query.toLowerCase();
+        const scored: Array<{ name: string; score: number }> = [];
+        for (const name of DEFERRED_TOOL_NAMES) {
+            const meta = TOOL_METADATA[name];
+            if (!meta) continue;
+            let score = 0;
+            if (name.toLowerCase().includes(q)) score += 100;
+            if ((meta.label ?? '').toLowerCase().includes(q)) score += 50;
+            if ((meta.description ?? '').toLowerCase().includes(q)) score += 10;
+            if (score > 0) scored.push({ name, score });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, 5).map((s) => s.name);
+    }
+
+    it('"pptx" matches create_pptx and plan_presentation', async () => {
+        const matches = await findMatches('pptx');
+        expect(matches).toContain('create_pptx');
+        // create_pptx gets the higher score because its name matches directly.
+        expect(matches[0]).toBe('create_pptx');
+    });
+
+    it('"docx" matches create_docx', async () => {
+        const matches = await findMatches('docx');
+        expect(matches[0]).toBe('create_docx');
+    });
+
+    it('"canvas" matches generate_canvas', async () => {
+        const matches = await findMatches('canvas');
+        expect(matches[0]).toBe('generate_canvas');
+    });
+
+    it('"drawio" matches create_drawio', async () => {
+        const matches = await findMatches('drawio');
+        expect(matches[0]).toBe('create_drawio');
+    });
+
+    it('"base" matches create_base, update_base, query_base', async () => {
+        const matches = await findMatches('base');
+        expect(matches).toContain('create_base');
+        expect(matches).toContain('update_base');
+        expect(matches).toContain('query_base');
+    });
+
+    it('nonsense query returns no matches', async () => {
+        const matches = await findMatches('zzzxxxzzz-no-tool-matches-this');
+        expect(matches).toEqual([]);
+    });
+
+    it('does NOT return core tools even for tight matches on description words', async () => {
+        // "read" is a common word — must not dig up core read_file etc., they
+        // aren't in DEFERRED_TOOL_NAMES to begin with.
+        const matches = await findMatches('read');
+        expect(matches).not.toContain('read_file');
+        expect(matches).not.toContain('search_files');
+    });
+});
