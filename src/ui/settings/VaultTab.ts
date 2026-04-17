@@ -1,7 +1,7 @@
 import { App, Setting } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { DEFAULT_AGENT_FOLDER } from '../../core/utils/agentFolder';
-import { AgentFolderPickerModal } from './AgentFolderPickerModal';
+import { pickAgentFolder } from './AgentFolderPickerModal';
 import { t } from '../../i18n';
 
 
@@ -126,11 +126,13 @@ export class VaultTab {
                     .setButtonText(t('settings.vault.agentFolderPick'))
                     .setIcon('folder')
                     .onClick(() => {
-                        new AgentFolderPickerModal(this.app, (path) => {
-                            this.plugin.settings.agentFolderPath = path;
-                            if (currentInput) currentInput.value = path;
-                            void this.plugin.saveSettings();
-                        }).open();
+                        void (async () => {
+                            const picked = await pickAgentFolder(this.app);
+                            if (!picked) return;
+                            this.plugin.settings.agentFolderPath = picked.path;
+                            if (currentInput) currentInput.value = picked.path;
+                            await this.plugin.saveSettings();
+                        })();
                     }),
             );
     }

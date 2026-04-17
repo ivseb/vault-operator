@@ -1,95 +1,99 @@
 /**
- * AgentFolderPickerModal
+ * pickAgentFolder — native OS folder picker.
  *
- * FEATURE-0507 follow-up: a FuzzySuggestModal that lists every folder in the
- * current vault plus a "Create new folder…" option. Used by the VaultTab
- * "Agent folder" setting so the user never has to hand-type paths (no
- * platform-specific quirks — Obsidian's vault API is uniform on
- * Windows / macOS / Linux).
+ * Issue #26 follow-up: users asked for Finder / Explorer / GNOME-Files style
+ * selection instead of a vault-scoped fuzzy picker. Obsidian runs on Electron
+ * so we reach for the renderer's dialog bridge. Depending on the Obsidian
+ * version, `electron.remote` (older) or `@electron/remote` (modern) provides
+ * `dialog.showOpenDialog`. Both patterns are tried before we give up.
  *
- * The user can also keep hand-typing into the text input; this modal is an
- * opt-in convenience. Paths stay vault-relative.
+ * Returns:
+ *  - `{ kind: 'vault-relative', path: '.obsidian-agent/...' }` when the chosen
+ *    folder is inside the vault. The path is normalised and saved as-is.
+ *  - `{ kind: 'absolute', path: '/Users/.../somewhere' }` when the user picked
+ *    a folder outside the vault. For v2.5.1 this is stored but most
+ *    consumers continue to use the default `.obsidian-agent` inside the vault
+ *    (see getInternalAgentFolderPath). Full cross-vault support follows later.
+ *  - `null` when the user cancelled or the native dialog is not available.
  */
 
-import { App, FuzzySuggestModal, Notice, TFolder, normalizePath, type FuzzyMatch } from 'obsidian';
+import { App, Notice, normalizePath } from 'obsidian';
+import * as path from 'path';
 
-interface FolderEntry {
-    path: string;
-    label: string;
-    isCreateNew?: boolean;
+export type PickResult =
+    | { kind: 'vault-relative'; path: string }
+    | { kind: 'absolute'; path: string }
+    | null;
+
+interface ElectronDialog {
+    showOpenDialog(options: {
+        title?: string;
+        defaultPath?: string;
+        properties?: string[];
+    }): Promise<{ canceled: boolean; filePaths: string[] }>;
 }
 
-export class AgentFolderPickerModal extends FuzzySuggestModal<FolderEntry> {
-    private readonly onPick: (path: string) => void;
+function resolveElectronDialog(): ElectronDialog | null {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron can only be loaded dynamically in the renderer
+        const electron = require('electron');
+        // Direct module (Obsidian's renderer re-exports dialog in some builds).
+        if (electron?.dialog?.showOpenDialog) return electron.dialog as ElectronDialog;
+        // Legacy remote bridge — still works in current Obsidian (Electron 28+).
+        if (electron?.remote?.dialog?.showOpenDialog) return electron.remote.dialog as ElectronDialog;
+    } catch { /* fall through */ }
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron can only be loaded dynamically in the renderer
+        const remote = require('@electron/remote');
+        if (remote?.dialog?.showOpenDialog) return remote.dialog as ElectronDialog;
+    } catch { /* fall through */ }
+    return null;
+}
 
-    constructor(app: App, onPick: (path: string) => void) {
-        super(app);
-        this.onPick = onPick;
-        this.setPlaceholder('Pick or type a vault-relative folder for the agent…');
+function getVaultBasePath(app: App): string | null {
+    const adapter = app.vault.adapter as unknown as { getBasePath?(): string };
+    const p = adapter.getBasePath?.();
+    return typeof p === 'string' && p.length > 0 ? p : null;
+}
+
+export async function pickAgentFolder(app: App): Promise<PickResult> {
+    const dialog = resolveElectronDialog();
+    if (!dialog) {
+        new Notice('Native folder picker unavailable in this Obsidian build. Type the path manually.');
+        return null;
     }
 
-    getItems(): FolderEntry[] {
-        const entries: FolderEntry[] = [];
-        const seen = new Set<string>();
+    const vaultBase = getVaultBasePath(app);
 
-        // Walk the whole vault root to get every folder, including hidden ones
-        // that Obsidian's index skips (dot-folders like .obsidian-agent).
-        // vault.adapter.list gives us those.
-        const collect = (folder: TFolder, depth = 0) => {
-            if (depth > 10) return; // paranoia
-            for (const child of folder.children) {
-                if (child instanceof TFolder) {
-                    const path = child.path;
-                    if (!seen.has(path)) {
-                        seen.add(path);
-                        entries.push({ path, label: path });
-                    }
-                    collect(child, depth + 1);
-                }
+    const result = await dialog.showOpenDialog({
+        title: 'Choose agent folder',
+        defaultPath: vaultBase ?? undefined,
+        properties: ['openDirectory', 'createDirectory'],
+    });
+
+    if (result.canceled || result.filePaths.length === 0) return null;
+    const chosen = result.filePaths[0];
+
+    if (vaultBase) {
+        // Normalise trailing separators before comparing.
+        const normBase = path.resolve(vaultBase);
+        const normChosen = path.resolve(chosen);
+        if (normChosen === normBase || normChosen.startsWith(normBase + path.sep)) {
+            const rel = path.relative(normBase, normChosen);
+            // Empty relative means the user picked the vault root itself;
+            // that would make the agent folder equal the vault root, which is
+            // almost certainly not what they want.
+            if (rel.length === 0) {
+                new Notice('Picking the vault root is not allowed — choose or create a subfolder.');
+                return null;
             }
-        };
-
-        const root = this.app.vault.getRoot();
-        collect(root);
-
-        // Promote the legacy default to the top if present
-        entries.sort((a, b) => a.path.localeCompare(b.path));
-
-        // Always offer "Create new folder…" — the text the user types in the
-        // search box becomes the folder name. FuzzySuggestModal won't match
-        // items that don't exist, so we add a stub that always ranks.
-        entries.unshift({ path: '.obsidian-agent', label: '.obsidian-agent (default)' });
-
-        return entries;
-    }
-
-    getItemText(item: FolderEntry): string {
-        return item.label;
-    }
-
-    renderSuggestion(match: FuzzyMatch<FolderEntry>, el: HTMLElement): void {
-        const { item } = match;
-        el.createEl('div', { text: item.label });
-        if (item.path !== item.label) {
-            el.createEl('small', { text: item.path, cls: 'agent-folder-picker-path' });
+            return { kind: 'vault-relative', path: normalizePath(rel.replace(/\\/g, '/')) };
         }
     }
 
-    onChooseItem(item: FolderEntry): void {
-        // FuzzySuggestModal.onChooseItem is void — do the async work in an IIFE
-        // and prefix with `void` so the Promise isn't surfaced to the caller.
-        void (async () => {
-            const path = normalizePath(item.path);
-            if (!(await this.app.vault.adapter.exists(path))) {
-                try {
-                    await this.app.vault.adapter.mkdir(path);
-                    new Notice(`Created folder: ${path}`);
-                } catch (e) {
-                    new Notice(`Failed to create folder "${path}": ${(e as Error).message}`);
-                    return;
-                }
-            }
-            this.onPick(path);
-        })();
-    }
+    new Notice(
+        'Folders outside the vault are partially supported in v2.5.1: the path will be saved, but plugin skills, tmp results, and the local knowledge database continue to live in the default `.obsidian-agent` folder inside your vault. Full cross-vault support is planned.',
+        12_000,
+    );
+    return { kind: 'absolute', path: chosen };
 }

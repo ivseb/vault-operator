@@ -709,7 +709,7 @@ export const en: Translations = {
     'settings.vault.agentFolderHeading': 'Agent folder',
     'settings.vault.agentFolderDesc': 'Vault-relative folder where the plugin keeps its own files: plugin skills, the vault dna snapshot, externalised tmp results, and the local knowledge database. Existing files are not auto-migrated when you change this path.',
     'settings.vault.agentFolder': 'Folder',
-    'settings.vault.agentFolderFieldDesc': 'Use the picker for an existing folder or type a new path (will be created on next use).',
+    'settings.vault.agentFolderFieldDesc': 'Default is a hidden folder inside your vault. Use the picker to open your native folder dialog, or type a path. Folders outside the vault are partially supported in this release — plugin skills, tmp results, and the local knowledge database continue to live inside the vault.',
     'settings.vault.agentFolderPick': 'Pick folder…',
 
     // =========================================================================
