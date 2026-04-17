@@ -54,6 +54,7 @@ export type ToolName =
     | 'attempt_completion'
     | 'switch_mode'
     | 'new_task'
+    | 'find_tool'
     | 'update_todo_list'
     // MCP
     | 'use_mcp_tool'
@@ -208,6 +209,14 @@ export interface ToolExecutionContext {
      * Called when settings that affect tool availability change (e.g. webTools.enabled).
      */
     invalidateToolCache?: () => void;
+
+    /**
+     * FEATURE-1600: add a deferred tool to the active set for the rest of the
+     * session. Called by the `find_tool` meta-tool after it matches a deferred
+     * tool. The AgentTask injects the activated tool's schema into the next
+     * rebuildPromptCache. No-op if the tool is already active or not deferred.
+     */
+    activateDeferredTool?: (toolName: string) => void;
 }
 
 /**

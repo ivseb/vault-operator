@@ -24,6 +24,7 @@ import { BUILT_IN_MODES } from './modes/builtinModes';
 import { QUALITY_GATES } from './tools/qualityGates';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
+import { isDeferredTool } from './tools/toolMetadata';
 
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
@@ -372,6 +373,10 @@ export class AgentTask {
         let cachedSystemPrompt = '';
         let cachedTools: ToolDefinition[] = [];
         let cacheInvalidated = false;
+        // FEATURE-1600 (Deferred Tool Loading): tools that the LLM activated
+        // via find_tool during this session. Injected into the prompt cache
+        // until the task ends.
+        const activatedDeferredTools = new Set<string>();
 
         const rebuildPromptCache = () => {
             const webEnabled = this.modeService?.isWebEnabled() ?? false;
@@ -391,9 +396,22 @@ export class AgentTask {
                 selfAuthoredSkillsSection,
                 configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
             });
-            cachedTools = this.modeService
+            const baseTools = this.modeService
                 ? this.modeService.getToolDefinitions(activeMode)
                 : this.toolRegistry.getToolDefinitions();
+
+            // FEATURE-1600: by default hide deferred tools from the prompt.
+            // The LLM can activate them via find_tool, which adds them to
+            // activatedDeferredTools and invalidates the cache.
+            cachedTools = baseTools.filter((t) => !isDeferredTool(t.name));
+
+            // Inject activated deferred tools (if any were unlocked via find_tool).
+            for (const name of activatedDeferredTools) {
+                const extra = baseTools.find((t) => t.name === name);
+                if (extra && !cachedTools.includes(extra)) {
+                    cachedTools.push(extra);
+                }
+            }
 
             // BUG-018 Wave 2: hard tool-filter for plugin-shadowed built-ins.
             // If e.g. the Excalidraw community plugin is active, create_excalidraw
@@ -406,6 +424,14 @@ export class AgentTask {
 
             cachedPromptMode = activeMode.slug;
             cacheInvalidated = false;
+        };
+
+        /** FEATURE-1600: activate a deferred tool for the rest of this task. */
+        const activateDeferredTool = (toolName: string) => {
+            if (!isDeferredTool(toolName)) return;
+            if (activatedDeferredTools.has(toolName)) return;
+            activatedDeferredTools.add(toolName);
+            cacheInvalidated = true;
         };
 
         /** Called by UpdateSettingsTool when settings that affect tool availability change */
@@ -702,6 +728,7 @@ export class AgentTask {
                         updateTodos: this.taskCallbacks.onTodoUpdate,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
                         invalidateToolCache,
+                        activateDeferredTool,
                         conversationId,
                     });
                     // Record successful calls in the ledger (for condensing preservation)
