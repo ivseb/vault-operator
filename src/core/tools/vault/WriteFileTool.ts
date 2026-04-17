@@ -25,11 +25,17 @@ import { getAgentFolderPath } from '../../utils/agentFolder';
  */
 const PROTECTED_FORMATS: { pattern: RegExp; redirect: string }[] = [
     {
-        pattern: /\.drawio(\.svg|\.png)?$/i,
-        redirect: 'Drawio / Diagrams.net format. Use execute_command("drawio-obsidian:create-new-diagram") '
-            + 'or execute_command("obsidian-diagrams-net:...") if either plugin is installed. The plugin opens '
-            + 'an editor for the user to draw — there is no programmatic creation path because the format '
-            + 'requires a binary mxfile wrapper that cannot be reliably hand-authored.',
+        pattern: /\.drawio$/i,
+        redirect: 'Drawio / Diagrams.net format. Use the built-in create_drawio tool — it emits a valid '
+            + 'mxfile wrapper that the drawio-obsidian and obsidian-diagrams-net plugins accept and open '
+            + 'for editing. write_file cannot hand-author the format reliably.',
+    },
+    {
+        pattern: /\.drawio\.(svg|png)$/i,
+        redirect: 'Drawio / Diagrams.net SVG / PNG format. The agent cannot hand-author the embedded mxfile '
+            + 'metadata correctly — the file looks like an image but is rejected by the plugin with '
+            + '"Not a diagram file". Use the built-in create_drawio tool instead (writes pure .drawio), '
+            + 'which the plugin renders and exports to SVG / PNG on demand.',
     },
     {
         pattern: /\.excalidraw(\.md)?$/i,

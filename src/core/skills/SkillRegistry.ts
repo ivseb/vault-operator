@@ -126,8 +126,8 @@ export class SkillRegistry {
         lines.push('  RIGHT: User says "Dataview query" -> use call_plugin_api("dataview", "query", ...)');
         lines.push('- WRONG: User says "Excalidraw" or "Skizze" -> you use create_excalidraw built-in');
         lines.push('  RIGHT: Excalidraw plugin installed -> execute_command("obsidian-excalidraw-plugin:excalidraw-autocreate-newtab") (or read plugin .skill.md for the exact command). The built-in only draws boxes.');
-        lines.push('- WRONG: User says "Draw.io diagram" -> you use write_file or invent a create_drawio tool');
-        lines.push('  RIGHT: Diagrams.net plugin installed -> read its .skill.md, then execute_command("obsidian-diagrams-net:app:diagrams-net-new-diagram") or whatever the skill file lists.');
+        lines.push('- WRONG: User says "Draw.io diagram" -> you use write_file with a .drawio.svg file (the plugin will reject it as "Not a diagram file")');
+        lines.push('  RIGHT: Use the built-in create_drawio tool. It emits a valid .drawio file with mxfile wrapper that the drawio-obsidian / obsidian-diagrams-net plugin opens and lets the user extend.');
         lines.push('- WRONG: User mentions a disabled plugin -> you ask the user to enable it manually');
         lines.push('  RIGHT: User mentions a disabled plugin -> enable_plugin(plugin_id) yourself, then use the plugin');
         lines.push('');
