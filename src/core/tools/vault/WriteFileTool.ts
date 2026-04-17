@@ -13,6 +13,48 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getAgentFolderPath } from '../../utils/agentFolder';
 
+/**
+ * BUG-018 follow-up: protected file extensions that the agent must NEVER
+ * write directly. These are structured / binary / dual-format files that
+ * other tools or plugins own. Letting the agent hallucinate the format
+ * (esp. drawio.svg, excalidraw, office formats) produces files that look
+ * right but are rejected by the consuming plugin or app.
+ *
+ * The error message points the agent at the right tool / plugin so it can
+ * retry without bouncing through write_file again.
+ */
+const PROTECTED_FORMATS: { pattern: RegExp; redirect: string }[] = [
+    {
+        pattern: /\.drawio(\.svg|\.png)?$/i,
+        redirect: 'Drawio / Diagrams.net format. Use execute_command("drawio-obsidian:create-new-diagram") '
+            + 'or execute_command("obsidian-diagrams-net:...") if either plugin is installed. The plugin opens '
+            + 'an editor for the user to draw — there is no programmatic creation path because the format '
+            + 'requires a binary mxfile wrapper that cannot be reliably hand-authored.',
+    },
+    {
+        pattern: /\.excalidraw(\.md)?$/i,
+        redirect: 'Excalidraw format. Use execute_command("obsidian-excalidraw-plugin:excalidraw-autocreate-newtab") '
+            + 'if the Excalidraw community plugin is installed, otherwise use the built-in create_excalidraw '
+            + 'tool (basic boxes only).',
+    },
+    {
+        pattern: /\.canvas$/i,
+        redirect: 'Obsidian canvas format. Use the built-in generate_canvas tool — it knows the JSON shape.',
+    },
+    {
+        pattern: /\.pptx$/i,
+        redirect: 'PowerPoint format. Use the built-in create_pptx tool. For template-based decks, plan_presentation first.',
+    },
+    {
+        pattern: /\.docx$/i,
+        redirect: 'Word format. Use the built-in create_docx tool.',
+    },
+    {
+        pattern: /\.xlsx$/i,
+        redirect: 'Excel format. Use the built-in create_xlsx tool.',
+    },
+];
+
 interface WriteFileInput {
     path: string;
     content: string;
@@ -60,6 +102,24 @@ export class WriteFileTool extends BaseTool<'write_file'> {
             }
             if (content === undefined || content === null) {
                 throw new Error('Content parameter is required');
+            }
+
+            // BUG-018: refuse halluzinated structured / binary formats so the
+            // agent doesn't ship files that pass write_file but fail to open
+            // in the consuming plugin / app (e.g. .drawio.svg without a valid
+            // mxfile wrapper -> "Not a diagram file").
+            for (const { pattern, redirect } of PROTECTED_FORMATS) {
+                if (pattern.test(path)) {
+                    callbacks.pushToolResult(
+                        this.formatError(
+                            new Error(
+                                `write_file refuses ${path} because this is a protected format. ${redirect} `
+                                    + 'Do NOT retry write_file with this extension — the file would be rejected by the consumer.',
+                            ),
+                        ),
+                    );
+                    return;
+                }
             }
 
             // Config-dir paths are not in the vault index — use adapter directly.
