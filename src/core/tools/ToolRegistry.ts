@@ -10,6 +10,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { BaseTool } from './BaseTool';
 import type { ToolName, ToolDefinition } from './types';
+import { isDeferredTool } from './toolMetadata';
 
 // Import tools — vault: read
 import { ReadFileTool } from './vault/ReadFileTool';
@@ -58,6 +59,7 @@ import { AttemptCompletionTool } from './agent/AttemptCompletionTool';
 import { UpdateTodoListTool } from './agent/UpdateTodoListTool';
 import { SwitchModeTool } from './agent/SwitchModeTool';
 import { NewTaskTool } from './agent/NewTaskTool';
+import { FindToolTool } from './agent/FindToolTool';
 // Plugin Skills (PAS-1)
 import { ExecuteCommandTool } from './agent/ExecuteCommandTool';
 import { ResolveCapabilityGapTool } from './agent/ResolveCapabilityGapTool';
@@ -178,6 +180,8 @@ export class ToolRegistry {
         this.register(new UpdateTodoListTool(this.plugin));
         this.register(new SwitchModeTool(this.plugin));
         this.register(new NewTaskTool(this.plugin));
+        // FEATURE-1600: meta-tool for activating deferred tools on demand
+        this.register(new FindToolTool(this.plugin));
         // Plugin Skills (PAS-1)
         this.register(new ExecuteCommandTool(this.plugin));
         this.register(new ResolveCapabilityGapTool(this.plugin));
@@ -238,10 +242,19 @@ export class ToolRegistry {
     }
 
     /**
-     * Get tool definitions (schemas) for LLM
+     * Get tool definitions (schemas) for LLM.
+     *
+     * FEATURE-1600 (Deferred Tool Loading): pass `{ includeDeferred: false }`
+     * (or rely on the default) to exclude specialised tools from the
+     * system-prompt schema. They can be activated later via the meta-tool
+     * `find_tool`. The full set is still available via `includeDeferred: true`
+     * (used by the Settings UI, tests, and subtask spawners).
      */
-    getToolDefinitions(): ToolDefinition[] {
-        return this.getAllTools().map((tool) => tool.getDefinition());
+    getToolDefinitions(options?: { includeDeferred?: boolean }): ToolDefinition[] {
+        const includeDeferred = options?.includeDeferred ?? true;
+        const all = this.getAllTools().map((tool) => tool.getDefinition());
+        if (includeDeferred) return all;
+        return all.filter((def) => !isDeferredTool(def.name));
     }
 
     /**

@@ -124,6 +124,8 @@ export interface ContextExtensions {
     onCheckpoint?: (checkpoint: import('../checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /** Invalidate cached tool definitions (e.g. after webTools.enabled changes) */
     invalidateToolCache?: () => void;
+    /** FEATURE-1600: activate a deferred tool for the rest of the session. */
+    activateDeferredTool?: (toolName: string) => void;
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
 }
@@ -314,6 +316,7 @@ export class ToolExecutionPipeline {
                 switchMode: extensions?.switchMode,
                 spawnSubtask: extensions?.spawnSubtask,
                 invalidateToolCache: extensions?.invalidateToolCache,
+                activateDeferredTool: extensions?.activateDeferredTool,
             };
 
             await tool.execute(toolCall.input, context);
