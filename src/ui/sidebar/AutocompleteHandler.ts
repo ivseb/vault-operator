@@ -77,7 +77,29 @@ export class AutocompleteHandler {
                     },
                 }));
 
-            this.items = [...workflowItems, ...customItems];
+            // Skills: activate the skill's body as explicit instructions for this turn.
+            // FEATURE-2205 (EPIC-022 follow-up): align with Claude Code's slash UX.
+            const skillLoader = this.plugin.selfAuthoredSkillLoader;
+            const skillItems = skillLoader
+                ? skillLoader.getAllSkills()
+                    .map((s) => ({ skill: s, slug: slugifySkillName(s.name) }))
+                    .filter(({ slug }) => query === '' || slug.startsWith(query))
+                    .map(({ skill, slug }) => ({
+                        label: skill.name,
+                        sub: `/${slug}`,
+                        tag: 'Skill',
+                        onSelect: () => {
+                            const ta = this.getTextarea();
+                            if (!ta) return;
+                            const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
+                            ta.value = `/${slug}${rest ? ' ' + rest : ''}`;
+                            this.hide();
+                            ta.focus();
+                        },
+                    }))
+                : [];
+
+            this.items = [...workflowItems, ...customItems, ...skillItems];
             if (this.items.length === 0) { this.hide(); return; }
             this.selectedIndex = 0;
             this.render();
@@ -94,8 +116,20 @@ export class AutocompleteHandler {
             const makeFileOnSelect = (f: TFile) => async () => {
                 const ta = this.getTextarea();
                 if (!ta) return;
-                const newValue = value.slice(0, atIdx) + value.slice(atIdx + 1 + query.length);
-                ta.value = newValue.trim();
+                // FEATURE-2206: keep the @-reference inline so the sentence
+                // reads naturally ("Lese @Referenznote und ..."). The file is
+                // still added as an attachment; the inline text is just a
+                // human-readable anchor.
+                const inlineRef = `@${f.basename}`;
+                const before = value.slice(0, atIdx);
+                const after = value.slice(atIdx + 1 + query.length);
+                const needsTrailingSpace = after.length === 0 || !after.startsWith(' ');
+                const replacement = `${inlineRef}${needsTrailingSpace ? ' ' : ''}`;
+                const newValue = before + replacement + after;
+                ta.value = newValue;
+                // Put the cursor just after the inlined reference so typing continues naturally.
+                const newCursor = (before + replacement).length;
+                ta.setSelectionRange(newCursor, newCursor);
                 this.hide();
                 await this.addVaultFile(f);
                 ta.focus();
@@ -160,6 +194,13 @@ export class AutocompleteHandler {
         this.selectedIndex = 0;
     }
 
+    /** Re-slugifies a skill name to a URL-safe slash command token. Public so
+     * the send-message pipeline can re-run the same transformation when it
+     * resolves `/skill-slug`. */
+    static slugifySkillName(name: string): string {
+        return slugifySkillName(name);
+    }
+
     private render(): void {
         const inputArea = this.getInputArea();
         if (!inputArea) return;
@@ -187,4 +228,8 @@ export class AutocompleteHandler {
             });
         });
     }
+}
+
+function slugifySkillName(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
