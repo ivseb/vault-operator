@@ -53,6 +53,7 @@ import { EpisodicExtractor } from './core/mastery/EpisodicExtractor';
 import { RecipePromotionService } from './core/mastery/RecipePromotionService';
 import { ConsoleRingBuffer } from './core/observability/ConsoleRingBuffer';
 import { SelfAuthoredSkillLoader } from './core/skills/SelfAuthoredSkillLoader';
+import { migrateLegacySkillsIfNeeded } from './core/skills/SkillMigration';
 import type { ISandboxExecutor } from './core/sandbox/ISandboxExecutor';
 import { createSandboxExecutor } from './core/sandbox/createSandboxExecutor';
 import { EsbuildWasmManager } from './core/sandbox/EsbuildWasmManager';
@@ -342,6 +343,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Late-bind ToolRegistry to SelfAuthoredSkillLoader (circular dependency)
         this.selfAuthoredSkillLoader.setDependencies(
             this.esbuildWasmManager, this.sandboxExecutor, this.toolRegistry,
+        );
+
+        // FEATURE-2201: one-time migration from legacy `.obsilo-sync/skills/` to
+        // the configurable agent-folder (ADR-072). Idempotent via `.migrated` marker.
+        await migrateLegacySkillsIfNeeded(this).then((report) => {
+            if (report && (report.migratedSlugs.length > 0 || report.errors.length > 0)) {
+                console.debug('[Plugin] Skill migration:', report);
+            }
+        }).catch((e) =>
+            console.warn('[Plugin] Skill migration failed (non-fatal):', e)
         );
 
         // Load skills (includes cached code module tools)

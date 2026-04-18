@@ -102,3 +102,17 @@ export function getVaultDnaPath(holder: SettingsHolder): string {
 export function getTmpRoot(holder: SettingsHolder): string {
     return normalizePath(`${getInternalAgentFolderPath(holder)}/tmp`);
 }
+
+/**
+ * Directory holding self-authored and user-imported skills
+ * (`<agent-folder>/skills/<slug>/SKILL.md[+ subfolders]`).
+ *
+ * EPIC-022 / ADR-075: unifies the old hard-wired `.obsilo-sync/skills/`
+ * with the configurable agent-folder root from ADR-072. A one-time
+ * migration at plugin start moves the legacy tree on first v2.6 launch.
+ */
+export const LEGACY_SELF_AUTHORED_SKILLS_DIR = '.obsilo-sync/skills';
+
+export function getSelfAuthoredSkillsDir(holder: SettingsHolder): string {
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/skills`);
+}

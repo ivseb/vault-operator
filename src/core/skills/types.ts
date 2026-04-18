@@ -52,3 +52,62 @@ export interface PluginSkillMeta {
     /** Method names discovered via Reflection on the API object */
     apiMethods?: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Self-Authored Skill Types -- EPIC-022 / ADR-075
+// ---------------------------------------------------------------------------
+
+/**
+ * Content sidecars a skill folder may ship. Listed in the system prompt so
+ * the agent knows what to reach for via `read_file` / `evaluate_expression`.
+ * The loader never inlines these files -- they stay on disk.
+ */
+export interface SkillInventory {
+    /** Files in `scripts/`. Language is derived from the file extension. */
+    scripts: SkillScriptFile[];
+    /** Files in `references/` -- long docs, on-demand only. */
+    references: string[];
+    /** Files in `assets/` -- templates, images, data blobs. */
+    assets: string[];
+    /** `*.skill.md` files next to SKILL.md. Populated only for coordinators. */
+    subRoles: SkillSubRole[];
+}
+
+export interface SkillScriptFile {
+    /** Filename relative to the skill folder, e.g. `scripts/helpers.ts`. */
+    path: string;
+    /** Derived from the extension. Only `ts`/`js` are sandbox-executable. */
+    language: SkillScriptLanguage;
+    /** Size in bytes, surfaced in the prompt. */
+    sizeBytes: number;
+}
+
+export type SkillScriptLanguage = 'ts' | 'js' | 'py' | 'sh' | 'md' | 'other';
+
+/**
+ * Sub-role metadata extracted from a `*.skill.md` file next to a coordinator's
+ * `SKILL.md`. Only the frontmatter is read -- the body stays on disk and is
+ * loaded via `read_file` when the coordinator delegates.
+ */
+export interface SkillSubRole {
+    /** Role id from frontmatter, falls back to the filename stem. */
+    role: string;
+    name: string;
+    description: string;
+    /** Filename relative to the skill folder, e.g. `writer.skill.md`. */
+    filePath: string;
+}
+
+/** Result of a one-time skill migration from a legacy path. */
+export interface SkillMigrationResult {
+    /** Slugs that were copied from the legacy source. */
+    migratedSlugs: string[];
+    /** Slugs skipped because the destination already had them. */
+    skippedSlugs: string[];
+    /** Error messages per slug. */
+    errors: string[];
+    /** Vault-relative (or absolute) source dir that was scanned. */
+    sourceDir: string;
+    /** Target dir under the configured agent folder. */
+    targetDir: string;
+}
