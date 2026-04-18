@@ -1118,11 +1118,11 @@ export class AgentSidebarView extends ItemView {
             }
 
             // 2. If no workflow matched, try custom prompts
-            if (!slashResolved) {
-                const spaceIdx = text.indexOf(' ');
-                const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
-                const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
+            const spaceIdx = text.indexOf(' ');
+            const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
+            const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
 
+            if (!slashResolved) {
                 const prompt = (this.plugin.settings.customPrompts ?? []).find(
                     (p) => p.slug === slug && p.enabled !== false,
                 );
@@ -1134,6 +1134,28 @@ export class AgentSidebarView extends ItemView {
                         activeFile: activeFileName,
                     });
                     messageToSend = resolved + (activeFile
+                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
+                        : '');
+                    slashResolved = true;
+                }
+            }
+
+            // 3. If no prompt matched, try self-authored skills. Slug comes from
+            // AutocompleteHandler.slugifySkillName so the handler and the resolver
+            // stay in sync. FEATURE-2205 (EPIC-022 follow-up).
+            if (!slashResolved) {
+                const skillLoader = this.plugin.selfAuthoredSkillLoader;
+                const matchedSkill = skillLoader?.getAllSkills().find(
+                    (s) => AutocompleteHandler.slugifySkillName(s.name) === slug,
+                );
+                if (matchedSkill) {
+                    const parts = [
+                        `<explicit_instructions skill="${matchedSkill.name}">`,
+                        matchedSkill.body,
+                        '</explicit_instructions>',
+                    ];
+                    if (rest) parts.push('', rest);
+                    messageToSend = parts.join('\n') + (activeFile
                         ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                         : '');
                 }
