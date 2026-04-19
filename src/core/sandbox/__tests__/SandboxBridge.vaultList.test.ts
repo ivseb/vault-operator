@@ -66,4 +66,76 @@ describe('SandboxBridge.vaultList root handling (BUG-022)', () => {
         const bridge = makeBridge([], { 'note.md': makeNonFolder() });
         expect(() => bridge.vaultList('note.md')).toThrow(/Not a folder/);
     });
+
+    // BUG-028 (Beta-11): trailing slashes on folder paths broke the sandbox
+    // because getAbstractFileByPath('Notes/') returns null in Obsidian.
+    // Agents naturally type 'Notes/' when enumerating a folder.
+    it("strips a trailing slash: 'Notes/' resolves like 'Notes'", () => {
+        const sub = makeFolder('Notes', [{ path: 'Notes/x.md' }]);
+        const bridge = makeBridge([], { 'Notes': sub });
+        expect(bridge.vaultList('Notes/')).toEqual(['Notes/x.md']);
+    });
+
+    it("strips multiple trailing slashes", () => {
+        const sub = makeFolder('folder', [{ path: 'folder/a.md' }]);
+        const bridge = makeBridge([], { 'folder': sub });
+        expect(bridge.vaultList('folder///')).toEqual(['folder/a.md']);
+    });
+});
+
+// BUG-028 unit tests for the exported helper -- cover every variant the
+// agents might throw at the bridge.
+describe('normaliseVaultPath', () => {
+    it('maps root variants to the empty string', async () => {
+        const { normaliseVaultPath } = await import('../SandboxBridge');
+        expect(normaliseVaultPath('/')).toBe('');
+        expect(normaliseVaultPath('.')).toBe('');
+        expect(normaliseVaultPath('./')).toBe('');
+    });
+
+    it('strips trailing slashes', async () => {
+        const { normaliseVaultPath } = await import('../SandboxBridge');
+        expect(normaliseVaultPath('Notes/')).toBe('Notes');
+        expect(normaliseVaultPath('Notes/sub/')).toBe('Notes/sub');
+        expect(normaliseVaultPath('Notes///')).toBe('Notes');
+    });
+
+    it('leaves clean paths unchanged', async () => {
+        const { normaliseVaultPath } = await import('../SandboxBridge');
+        expect(normaliseVaultPath('Notes')).toBe('Notes');
+        expect(normaliseVaultPath('Notes/sub/file.md')).toBe('Notes/sub/file.md');
+        expect(normaliseVaultPath('')).toBe('');
+    });
+});
+
+// BUG-027 (Beta-11): circuit-breaker auto-reset so a stuck bridge does
+// not wedge the agent for the rest of the session.
+describe('SandboxBridge circuit auto-reset (BUG-027)', () => {
+    function makeEmptyBridge() {
+        return makeBridge([], {});
+    }
+
+    it('auto-resets after the cooldown window expires', async () => {
+        const bridge = makeEmptyBridge();
+        // Trip the breaker: 20 errors in a row.
+        for (let i = 0; i < 20; i++) bridge.recordError();
+        // Still tripped -- circuit is open.
+        expect(() => bridge.vaultList('/')).toThrow(/circuit open/);
+
+        // Fake the cooldown by rewinding lastErrorAt 31 seconds.
+        (bridge as unknown as { lastErrorAt: number }).lastErrorAt = Date.now() - 31_000;
+
+        // Next call probes the circuit, auto-resets, and returns normally.
+        expect(() => bridge.vaultList('/')).not.toThrow();
+    });
+
+    it('recordSuccess clears an open circuit so consecutive good calls stay fast', () => {
+        const bridge = makeEmptyBridge();
+        for (let i = 0; i < 20; i++) bridge.recordError();
+        (bridge as unknown as { lastErrorAt: number }).lastErrorAt = Date.now() - 31_000;
+        expect(() => bridge.vaultList('/')).not.toThrow();
+        // After one success, the circuit is closed AND consecutiveErrors reset.
+        expect((bridge as unknown as { circuitOpen: boolean }).circuitOpen).toBe(false);
+        expect((bridge as unknown as { consecutiveErrors: number }).consecutiveErrors).toBe(0);
+    });
 });

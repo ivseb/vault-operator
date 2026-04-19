@@ -21,9 +21,15 @@ export class SandboxBridge {
     private readonly MAX_WRITES_PER_MIN = 10;
     private readonly MAX_REQUESTS_PER_MIN = 5;
 
-    // M-8: Circuit breaker — disable bridge after excessive consecutive errors
+    // M-8: Circuit breaker — disable bridge after excessive consecutive errors.
+    // BUG-027 (2026-04-19): auto-reset after COOLDOWN_MS so a stuck circuit
+    // doesn't permanently wedge the agent for the rest of the session. Once
+    // tripped, the bridge stays closed for the cooldown window, then gives
+    // the caller one chance to succeed and resets the counter.
     private consecutiveErrors = 0;
+    private lastErrorAt = 0;
     private static readonly MAX_CONSECUTIVE_ERRORS = 20;
+    private static readonly CIRCUIT_COOLDOWN_MS = 30_000;
     private circuitOpen = false;
 
     private readonly URL_ALLOWLIST = [
@@ -37,43 +43,62 @@ export class SandboxBridge {
 
     async vaultRead(path: string): Promise<string> {
         this.checkCircuitBreaker();
-        this.validateVaultPath(path);
-        this.logBridgeOp('vault-read', path);
-        const file = this.plugin.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) throw new Error(`Not a file: ${path}`);
-        const result = await this.plugin.app.vault.read(file);
-        this.recordSuccess();
-        return result;
+        try {
+            const normalised = normaliseVaultPath(path);
+            this.validateVaultPath(normalised);
+            this.logBridgeOp('vault-read', normalised);
+            const file = this.plugin.app.vault.getAbstractFileByPath(normalised);
+            if (!(file instanceof TFile)) throw new Error(`Not a file: ${path}`);
+            const result = await this.plugin.app.vault.read(file);
+            this.recordSuccess();
+            return result;
+        } catch (e) {
+            this.recordError();
+            throw e;
+        }
     }
 
     async vaultReadBinary(path: string): Promise<ArrayBuffer> {
         this.checkCircuitBreaker();
-        this.validateVaultPath(path);
-        this.logBridgeOp('vault-read-binary', path);
-        const file = this.plugin.app.vault.getAbstractFileByPath(path);
-        if (!(file instanceof TFile)) throw new Error(`Not a file: ${path}`);
-        const result = await this.plugin.app.vault.readBinary(file);
-        this.recordSuccess();
-        return result;
+        try {
+            const normalised = normaliseVaultPath(path);
+            this.validateVaultPath(normalised);
+            this.logBridgeOp('vault-read-binary', normalised);
+            const file = this.plugin.app.vault.getAbstractFileByPath(normalised);
+            if (!(file instanceof TFile)) throw new Error(`Not a file: ${path}`);
+            const result = await this.plugin.app.vault.readBinary(file);
+            this.recordSuccess();
+            return result;
+        } catch (e) {
+            this.recordError();
+            throw e;
+        }
     }
 
     vaultList(path: string): string[] {
         this.checkCircuitBreaker();
-        // BUG-022: vaultList('/') used to throw because
-        // getAbstractFileByPath('/') returns null -- Obsidian addresses the
-        // vault root with an empty string and offers vault.getRoot() for the
-        // special case. Normalise '/' to '' before validation so sandbox
-        // scripts can enumerate the root naturally.
-        const normalised = path === '/' ? '' : path;
-        this.validateVaultPath(normalised);
-        this.logBridgeOp('vault-list', normalised);
-        const folder = normalised === ''
-            ? this.plugin.app.vault.getRoot()
-            : this.plugin.app.vault.getAbstractFileByPath(normalised);
-        if (!(folder instanceof TFolder)) throw new Error(`Not a folder: ${path}`);
-        const result = folder.children.map(c => c.path);
-        this.recordSuccess();
-        return result;
+        try {
+            // BUG-022: vaultList('/') used to throw because
+            // getAbstractFileByPath('/') returns null -- Obsidian addresses the
+            // vault root with an empty string and offers vault.getRoot() for
+            // the special case.
+            // BUG-028 (2026-04-19): trailing slashes on folder paths
+            // (e.g. 'Notes/') also returned null from getAbstractFileByPath.
+            // normaliseVaultPath now strips them globally.
+            const normalised = normaliseVaultPath(path);
+            this.validateVaultPath(normalised);
+            this.logBridgeOp('vault-list', normalised);
+            const folder = normalised === ''
+                ? this.plugin.app.vault.getRoot()
+                : this.plugin.app.vault.getAbstractFileByPath(normalised);
+            if (!(folder instanceof TFolder)) throw new Error(`Not a folder: ${path}`);
+            const result = folder.children.map(c => c.path);
+            this.recordSuccess();
+            return result;
+        } catch (e) {
+            this.recordError();
+            throw e;
+        }
     }
 
     async vaultWrite(path: string, content: string): Promise<void> {
@@ -164,24 +189,40 @@ export class SandboxBridge {
         console.debug(`[SandboxBridge] ${type}: ${detail}`);
     }
 
-    /** Check circuit breaker — throws if bridge is disabled. */
+    /**
+     * Check circuit breaker — throws if bridge is disabled. BUG-027: the
+     * circuit auto-resets after CIRCUIT_COOLDOWN_MS of inactivity so a stuck
+     * state doesn't permanently block the agent. The one probe that follows
+     * the cooldown either succeeds (recordSuccess clears the counter) or
+     * fails (recordError re-trips).
+     */
     private checkCircuitBreaker(): void {
-        if (this.circuitOpen) {
-            throw new Error('SandboxBridge circuit open — too many consecutive errors. Reset the sandbox.');
+        if (!this.circuitOpen) return;
+        const sinceLast = Date.now() - this.lastErrorAt;
+        if (sinceLast >= SandboxBridge.CIRCUIT_COOLDOWN_MS) {
+            console.debug('[SandboxBridge] Circuit auto-reset after', sinceLast, 'ms cooldown');
+            this.consecutiveErrors = 0;
+            this.circuitOpen = false;
+            return;
         }
+        throw new Error(
+            `SandboxBridge circuit open — too many consecutive errors. Will auto-reset in ${Math.max(0, SandboxBridge.CIRCUIT_COOLDOWN_MS - sinceLast)} ms.`,
+        );
     }
 
-    /** Record a successful operation — resets error counter. */
+    /** Record a successful operation — resets error counter and closes the circuit. */
     private recordSuccess(): void {
         this.consecutiveErrors = 0;
+        this.circuitOpen = false;
     }
 
     /** Record a failed operation — may trip the circuit breaker. */
     recordError(): void {
         this.consecutiveErrors++;
+        this.lastErrorAt = Date.now();
         if (this.consecutiveErrors >= SandboxBridge.MAX_CONSECUTIVE_ERRORS) {
             this.circuitOpen = true;
-            console.warn('[SandboxBridge] Circuit breaker tripped — bridge disabled after 20 consecutive errors.');
+            console.warn(`[SandboxBridge] Circuit breaker tripped — bridge disabled after ${SandboxBridge.MAX_CONSECUTIVE_ERRORS} consecutive errors. Auto-reset in ${SandboxBridge.CIRCUIT_COOLDOWN_MS / 1000}s.`);
         }
     }
 
@@ -264,4 +305,26 @@ export class SandboxBridge {
             this.lastReset = Date.now();
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * BUG-028 (2026-04-19): Obsidian's `getAbstractFileByPath` treats `Notes`
+ * and `Notes/` as different paths -- the trailing slash makes it return
+ * null. Agents naturally type folder paths with a trailing slash
+ * (`vault.list('Notes/')`), so every vault-bridge entry normalises the
+ * path before validation. Also translates root variants (`/`, `.`) to the
+ * empty string so vaultList's getRoot() branch is reachable.
+ *
+ * Exported for unit tests.
+ */
+export function normaliseVaultPath(raw: string): string {
+    if (raw === '/' || raw === '.' || raw === './') return '';
+    // Strip trailing slashes (except on the root which is already ''); leave
+    // leading characters alone so validateVaultPath can still reject
+    // absolute paths.
+    return raw.replace(/\/+$/, '');
 }
