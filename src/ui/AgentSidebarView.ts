@@ -11,6 +11,7 @@ import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
+import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
@@ -389,7 +390,7 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(plusBtn.createSpan('toolbar-icon'), 'plus');
         plusBtn.addEventListener('click', (e) => {
-            void this.showPlusMenu(e, plusBtn);
+            this.showPlusMenu(e, plusBtn);
         });
 
         // "..." button — tools, skills, web search (FEATURE-1907)
@@ -444,7 +445,7 @@ export class AgentSidebarView extends ItemView {
      * Picking a skill/prompt/workflow prefixes the textarea with the right
      * trigger and focuses the input so the user can add free text.
      */
-    private async showPlusMenu(e: MouseEvent, anchor: HTMLElement): Promise<void> {
+    private showPlusMenu(e: MouseEvent, anchor: HTMLElement): void {
         const menu = new Menu();
         menu.addItem(item => item
             .setTitle(t('ui.sidebar.attachFile'))
@@ -455,40 +456,86 @@ export class AgentSidebarView extends ItemView {
             .setIcon('at-sign')
             .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
         menu.addSeparator();
+        menu.addItem(item => item
+            .setTitle('Insert skill...')
+            .setIcon('sparkles')
+            .onClick(() => this.openCommandPicker('skills', anchor)));
+        menu.addItem(item => item
+            .setTitle('Insert prompt...')
+            .setIcon('message-square-quote')
+            .onClick(() => this.openCommandPicker('prompts', anchor)));
+        menu.addItem(item => item
+            .setTitle('Insert workflow...')
+            .setIcon('workflow')
+            .onClick(() => this.openCommandPicker('workflows', anchor)));
+        menu.showAtMouseEvent(e);
+    }
 
-        const skills = this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [];
-        for (const skill of skills) {
-            const slug = AutocompleteHandler.slugifySkillName(skill.name);
-            menu.addItem(item => item
-                .setTitle(`Skill: ${skill.name}`)
-                .setIcon('sparkles')
-                .onClick(() => this.insertPrefixedCommand('/', slug)));
+    private async openCommandPicker(
+        category: 'skills' | 'prompts' | 'workflows',
+        anchor: HTMLElement,
+    ): Promise<void> {
+        const items = await this.collectCommandItems(category);
+        const title = category === 'skills'
+            ? 'Search skills...'
+            : category === 'prompts'
+                ? 'Search prompts...'
+                : 'Search workflows...';
+        const empty = category === 'skills'
+            ? 'No skills installed. Import one via Settings -> Skills.'
+            : category === 'prompts'
+                ? 'No custom prompts configured yet.'
+                : 'No workflows available in this vault.';
+        const picker = new CommandPicker(items, title, empty);
+        picker.show(anchor, this.containerEl);
+    }
+
+    private async collectCommandItems(
+        category: 'skills' | 'prompts' | 'workflows',
+    ): Promise<CommandPickerItem[]> {
+        if (category === 'skills') {
+            const skills = this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [];
+            return skills.map((skill) => {
+                const slug = AutocompleteHandler.slugifySkillName(skill.name);
+                return {
+                    label: skill.name,
+                    sub: `/${slug}`,
+                    tag: 'Skill',
+                    icon: 'sparkles',
+                    searchable: skill.description,
+                    onSelect: () => this.insertPrefixedCommand('/', slug),
+                };
+            });
         }
 
-        const prompts = (this.plugin.settings.customPrompts ?? []).filter(p => p.enabled !== false);
-        if (prompts.length > 0) menu.addSeparator();
-        for (const prompt of prompts) {
-            menu.addItem(item => item
-                .setTitle(`Prompt: ${prompt.name}`)
-                .setIcon('message-square-quote')
-                .onClick(() => this.insertPrefixedCommand('#', prompt.slug)));
+        if (category === 'prompts') {
+            const activeMode = this.plugin.settings.currentMode;
+            const prompts = (this.plugin.settings.customPrompts ?? []).filter(
+                (p) => p.enabled !== false && (!p.mode || p.mode === activeMode),
+            );
+            return prompts.map((prompt) => ({
+                label: prompt.name,
+                sub: `#${prompt.slug}`,
+                tag: 'Prompt',
+                icon: 'message-square-quote',
+                searchable: prompt.content,
+                onSelect: () => this.insertPrefixedCommand('#', prompt.slug),
+            }));
         }
 
         const workflowLoader = this.plugin.workflowLoader;
-        if (workflowLoader) {
-            const workflows = await workflowLoader.discoverWorkflows();
-            const toggles = this.plugin.settings.workflowToggles ?? {};
-            const visible = workflows.filter(w => toggles[w.path] !== false);
-            if (visible.length > 0) menu.addSeparator();
-            for (const wf of visible) {
-                menu.addItem(item => item
-                    .setTitle(`Workflow: ${wf.displayName}`)
-                    .setIcon('workflow')
-                    .onClick(() => this.insertPrefixedCommand('\u00a7', wf.slug)));
-            }
-        }
-
-        menu.showAtMouseEvent(e);
+        if (!workflowLoader) return [];
+        const workflows = await workflowLoader.discoverWorkflows();
+        const toggles = this.plugin.settings.workflowToggles ?? {};
+        return workflows
+            .filter((w) => toggles[w.path] !== false)
+            .map((wf) => ({
+                label: wf.displayName,
+                sub: `\u00a7${wf.slug}`,
+                tag: 'Workflow',
+                icon: 'workflow',
+                onSelect: () => this.insertPrefixedCommand('\u00a7', wf.slug),
+            }));
     }
 
     private insertPrefixedCommand(prefix: string, slug: string): void {
