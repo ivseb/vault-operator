@@ -204,16 +204,34 @@ export default class ObsidianAgentPlugin extends Plugin {
      * 5. Initialize MCP connections
      * 6. Start semantic indexing
      */
+    /**
+     * Resolves when doLoad() has populated settings + ModeService. The view's
+     * onOpen awaits this before reading any plugin state so it cannot race
+     * with layout-restore (BUG-026, 2026-04-19).
+     */
+    readyPromise!: Promise<void>;
+
     onload(): void {
+        // BUG-026 (2026-04-19): create the readiness promise BEFORE registerView.
+        // Obsidian instantiates the view the moment registerView runs (to restore
+        // saved layout), which in a BRAT hot reload is before doLoad() has loaded
+        // settings or the mode service. Reading plugin.settings.currentMode at
+        // that point threw and left the sidebar broken. The view awaits this
+        // promise in its onOpen.
+        let markReady: () => void = () => {};
+        this.readyPromise = new Promise<void>((resolve) => { markReady = resolve; });
+
         // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
         // immediately — before any async initialization runs.
         // ModeService uses lazy toolRegistry access, so the view is safe
-        // to construct even before doLoad() finishes.
+        // to construct even before doLoad() finishes; the view waits on
+        // readyPromise before reading any plugin state.
         this.registerView(
             VIEW_TYPE_AGENT_SIDEBAR,
             (leaf) => new AgentSidebarView(leaf, this)
         );
-        void this.doLoad();
+
+        void this.doLoad().finally(() => markReady());
     }
 
     private async doLoad(): Promise<void> {
