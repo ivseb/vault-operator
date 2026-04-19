@@ -704,9 +704,28 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Register 'Chats' property as list type so Properties view shows individual items
         this.app.metadataTypeManager.setType('chats', 'multitext');
 
-        // Auto-open sidebar when Obsidian starts
+        // Auto-open sidebar when Obsidian starts.
+        //
+        // FEATURE-2208 (BRAT update fix, 2026-04-19): After a plugin hot-reload
+        // (e.g. BRAT update) Obsidian keeps the old leaf in the workspace but
+        // the view DOM is stale -- the input field disappears until the user
+        // reloads Obsidian. Force a fresh onOpen by cycling each existing
+        // leaf through the 'empty' view state, then reactivating normally.
         this.app.workspace.onLayoutReady(() => {
-            void this.activateView();
+            void (async () => {
+                const stale = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+                for (const leaf of stale) {
+                    try {
+                        await leaf.setViewState({ type: 'empty' });
+                        await leaf.setViewState({ type: VIEW_TYPE_AGENT_SIDEBAR, active: true });
+                    } catch (e) {
+                        console.debug('[Plugin] Failed to rebuild stale sidebar leaf:', e);
+                    }
+                }
+                if (stale.length === 0) {
+                    await this.activateView();
+                }
+            })();
         });
 
         // 4. Register commands
