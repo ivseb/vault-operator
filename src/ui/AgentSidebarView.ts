@@ -202,14 +202,14 @@ export class AgentSidebarView extends ItemView {
 
         // FEATURE-1901 / BUG-025 (2026-04-19): vault-health indicator moved from
         // next-to-title to left-of-settings in the header-right group, and the
-        // severity dot replaced with a `heart-pulse` lucide icon. Hidden unless
+        // severity dot replaced with a `stethoscope` lucide icon. Hidden unless
         // at least one finding exists. Colour comes from the severity-* class
         // via styles.css.
         this.healthBadge = headerRight.createEl('button', {
             cls: 'header-button health-badge',
             attr: { 'aria-label': t('ui.sidebar.vaultHealth') },
         });
-        setIcon(this.healthBadge.createSpan('toolbar-icon'), 'heart-pulse');
+        setIcon(this.healthBadge.createSpan('toolbar-icon'), 'stethoscope');
         this.healthBadge.classList.add('agent-u-hidden');
         this.healthBadge.addEventListener('click', () => {
             this.openHealthModal();
@@ -2793,7 +2793,7 @@ export class AgentSidebarView extends ItemView {
         // Vault Health Check
         menu.addItem((item) => {
             item.setTitle('Vault health check');
-            item.setIcon('heart-pulse');
+            item.setIcon('stethoscope');
             item.onClick(async () => {
                 if (!this.plugin.vaultHealthService) {
                     new Notice('Vault health service not available. Enable semantic index first.');
