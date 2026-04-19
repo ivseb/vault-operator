@@ -54,32 +54,59 @@ export class FindToolTool extends BaseTool<'find_tool'> {
     // eslint-disable-next-line @typescript-eslint/require-await -- BaseTool contract requires a Promise<void> return; this tool's work is CPU-bound only
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
-        const query = ((input.query as string) ?? '').trim().toLowerCase();
+        const rawQuery = ((input.query as string) ?? '').trim().toLowerCase();
 
-        if (!query) {
+        if (!rawQuery) {
             callbacks.pushToolResult(this.formatError(new Error('query is required')));
             return;
         }
 
-        // Score every deferred tool on how well the query matches its
-        // name / label / description. Simple case-insensitive substring
-        // ranking: name match > label match > description match.
+        // BUG-021 / Wave-4 finding: the LLM phrases the query as
+        // "vault health check" but the tool name is `vault_health_check`
+        // and the label is just "Health Check". Pure substring match
+        // scores 0 in every haystack and falls through to the
+        // "no deferred tools matched" branch.
+        //
+        // Fix: (1) normalise underscores to spaces in all haystacks,
+        // (2) tokenise the query on whitespace and score per-word
+        // matches so multi-word queries still rank above stray hits.
+        // Minimum 3 chars: shorter tokens like "no", "at", "is" explode into
+        // false positives (e.g. "no" matches "note" in every vault-note tool).
+        const queryTokens = Array.from(new Set(
+            rawQuery.split(/[\s_-]+/).filter((t) => t.length >= 3),
+        ));
+        const queryPhrase = rawQuery.replace(/[_\s-]+/g, ' ').trim();
+
         type Match = { name: string; label: string; description: string; score: number };
         const matches: Match[] = [];
+
+        const normalise = (s: string) => s.toLowerCase().replace(/[_-]+/g, ' ');
 
         for (const name of DEFERRED_TOOL_NAMES) {
             const meta = TOOL_METADATA[name];
             if (!meta) continue;
-            const nameLower = name.toLowerCase();
-            const labelLower = (meta.label ?? '').toLowerCase();
-            const descLower = (meta.description ?? '').toLowerCase();
+            const nameN = normalise(name);
+            const labelN = normalise(meta.label ?? '');
+            const descN = normalise(meta.description ?? '');
 
             let score = 0;
-            if (nameLower.includes(query)) score += 100;
-            if (labelLower.includes(query)) score += 50;
-            if (descLower.includes(query)) score += 10;
+            let strongHit = false; // phrase-level, name-token, or label-token hit
 
-            if (score > 0) {
+            if (nameN.includes(queryPhrase)) { score += 200; strongHit = true; }
+            if (labelN.includes(queryPhrase)) { score += 100; strongHit = true; }
+            if (descN.includes(queryPhrase)) score += 20;
+
+            for (const token of queryTokens) {
+                if (nameN.includes(token)) { score += 30; strongHit = true; }
+                if (labelN.includes(token)) { score += 15; strongHit = true; }
+                if (descN.includes(token)) score += 3;
+            }
+
+            // Description-only token hits are noisy (common words like "tool",
+            // "note", "file" appear everywhere). Require at least one strong
+            // hit (phrase anywhere, or token on name / label) before the tool
+            // is considered a match.
+            if (score > 0 && strongHit) {
                 matches.push({ name, label: meta.label, description: meta.description, score });
             }
         }
@@ -89,7 +116,7 @@ export class FindToolTool extends BaseTool<'find_tool'> {
 
         if (top.length === 0) {
             callbacks.pushToolResult(
-                `No deferred tools matched "${query}". If you need a capability that does not map to an available tool, ask the user to install the relevant Obsidian plugin, or try a core tool (read_file, edit_file, semantic_search).`,
+                `No deferred tools matched "${rawQuery}". If you need a capability that does not map to an available tool, ask the user to install the relevant Obsidian plugin, or try a core tool (read_file, edit_file, semantic_search).`,
             );
             return;
         }
@@ -114,6 +141,6 @@ export class FindToolTool extends BaseTool<'find_tool'> {
                     + '\n\nTheir full schemas are now in the tool list — call them directly in your next step.',
             ),
         );
-        callbacks.log(`find_tool: activated [${top.map((m) => m.name).join(', ')}] for query "${query}"`);
+        callbacks.log(`find_tool: activated [${top.map((m) => m.name).join(', ')}] for query "${rawQuery}"`);
     }
 }
