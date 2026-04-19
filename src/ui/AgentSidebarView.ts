@@ -187,14 +187,25 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan('agent-title-text').setText(t('ui.sidebar.title'));
 
-        // Health badge (FEATURE-1901) — shows finding count from vault health check
-        this.healthBadge = titleRow.createDiv('health-badge');
+        const headerRight = header.createDiv('agent-header-right');
+
+        // FEATURE-1901 / BUG-025 (2026-04-19): vault-health indicator moved from
+        // next-to-title to left-of-settings in the header-right group, and the
+        // severity dot replaced with a `heart-pulse` lucide icon. Hidden unless
+        // at least one finding exists. Colour comes from the severity-* class
+        // via styles.css.
+        this.healthBadge = headerRight.createEl('button', {
+            cls: 'header-button health-badge',
+            attr: { 'aria-label': t('ui.sidebar.vaultHealth') },
+        });
+        setIcon(this.healthBadge.createSpan('toolbar-icon'), 'heart-pulse');
         this.healthBadge.classList.add('agent-u-hidden');
         this.healthBadge.addEventListener('click', () => {
             this.openHealthModal();
         });
-
-        const headerRight = header.createDiv('agent-header-right');
+        // Sync from the plugin in case the health check already ran before the
+        // view mounted (common after a BRAT hot-reload or leaf rebuild).
+        this.syncHealthBadge();
 
         // Settings button — moved here from toolbar
         const settingsBtn = headerRight.createEl('button', {
@@ -1101,7 +1112,7 @@ export class AgentSidebarView extends ItemView {
         }).open();
     }
 
-    /** Update the health badge dot. Called from main.ts after health check. */
+    /** Update the health-pulse icon. Called from main.ts after health check. */
     updateHealthBadge(findingCount: number, maxSeverity: 'high' | 'medium' | 'low' | null): void {
         if (!this.healthBadge) return;
         if (findingCount === 0 || !maxSeverity) {
@@ -1109,9 +1120,33 @@ export class AgentSidebarView extends ItemView {
             return;
         }
         this.healthBadge.classList.remove('agent-u-hidden');
-        this.healthBadge.setText('');
-        this.healthBadge.className = `health-badge severity-${maxSeverity}`;
-        this.healthBadge.setAttribute('aria-label', 'Vault health findings available');
+        // Rebuild the className deterministically: keep the base classes, add
+        // one severity marker. Avoid clobbering by using classList operations.
+        this.healthBadge.classList.remove('severity-high', 'severity-medium', 'severity-low');
+        this.healthBadge.classList.add(`severity-${maxSeverity}`);
+        this.healthBadge.setAttribute(
+            'aria-label',
+            `${t('ui.sidebar.vaultHealth')} (${findingCount})`,
+        );
+    }
+
+    /**
+     * Pull the current findings from the plugin and update the badge. Used
+     * when the view mounts after the health check already ran (BRAT hot
+     * reload, leaf rebuild, etc.).
+     */
+    private syncHealthBadge(): void {
+        const svc = this.plugin.vaultHealthService;
+        if (!svc) return;
+        const findings = svc.getFindings();
+        if (findings.length === 0) {
+            this.updateHealthBadge(0, null);
+            return;
+        }
+        const hasHigh = findings.some((f) => f.severity === 'high');
+        const hasMedium = findings.some((f) => f.severity === 'medium');
+        const severity = hasHigh ? 'high' : (hasMedium ? 'medium' : 'low');
+        this.updateHealthBadge(findings.length, severity);
     }
 
     /** Send vault health findings to the chat. Batch mode for many findings, interactive for few. */

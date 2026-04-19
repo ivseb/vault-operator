@@ -840,8 +840,9 @@ export const en: Translations = {
     // =========================================================================
     // Chat UI — Sidebar
     // =========================================================================
-    'ui.sidebar.title': 'Obsilo agent',
+    'ui.sidebar.title': 'Obsilo',
     'ui.sidebar.settings': 'Settings',
+    'ui.sidebar.vaultHealth': 'Vault health findings available',
     'ui.sidebar.chatHistory': 'Chat history',
     'ui.sidebar.newChat': 'New chat',
     'ui.sidebar.selectMode': 'Select mode',
