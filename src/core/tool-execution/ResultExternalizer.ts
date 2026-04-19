@@ -166,21 +166,26 @@ export class ResultExternalizer {
     }
 
     /**
-     * Clean up all temp files for this task.
+     * Clean up all temp files for this task. BUG-023 (2026-04-19): macOS
+     * iCloud file providers occasionally hold a transient lock on the
+     * directory and reject `unlink` with EPERM. Retry a few times with
+     * back-off; if the lock persists the orphan sweeper on the next plugin
+     * start will finish the job.
      */
     async cleanup(): Promise<void> {
         try {
-            const exists = await this.fs.exists(this.tmpDir);
-            if (exists) {
-                const listing = await this.fs.list(this.tmpDir);
-                for (const file of listing.files) {
-                    await this.fs.remove(file);
-                }
-                await this.fs.remove(this.tmpDir);
-                console.debug(`[Externalize] Cleaned up ${this.tmpDir}`);
+            if (!(await this.fs.exists(this.tmpDir))) return;
+            const listing = await this.fs.list(this.tmpDir);
+            for (const file of listing.files) {
+                await removeWithRetry(this.fs, file);
             }
+            await removeWithRetry(this.fs, this.tmpDir);
+            console.debug(`[Externalize] Cleaned up ${this.tmpDir}`);
         } catch (e) {
-            console.warn('[Externalize] Cleanup failed (non-fatal):', e);
+            console.warn(
+                '[Externalize] Cleanup failed after retries (non-fatal, will retry on next plugin start):',
+                e,
+            );
         }
     }
 
@@ -200,8 +205,8 @@ export class ResultExternalizer {
                     const stat = await fs.stat(dir);
                     if (stat && Date.now() - stat.mtime > ONE_HOUR) {
                         const files = await fs.list(dir);
-                        for (const f of files.files) await fs.remove(f);
-                        await fs.remove(dir);
+                        for (const f of files.files) await removeWithRetry(fs, f);
+                        await removeWithRetry(fs, dir);
                         console.debug(`[Externalize] Removed orphaned ${dir}`);
                     }
                 } catch { /* skip */ }
@@ -210,14 +215,49 @@ export class ResultExternalizer {
     }
 
     private formatReference(toolName: string, content: string, path: string, input: Record<string, unknown>): string {
-        switch (toolName) {
-            case 'search_files': return formatSearchFilesRef(content, path);
-            case 'semantic_search': return formatSemanticSearchRef(content, path);
-            case 'read_file':
-            case 'read_document': return formatReadFileRef(content, path, input);
-            case 'web_search': return formatWebRef(content, path, toolName);
-            case 'web_fetch': return formatWebRef(content, path, toolName);
-            default: return formatDefaultRef(content, path, toolName);
+        return formatReferenceDispatch(toolName, content, path, input);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * BUG-023: remove with retry + back-off so transient EPERM locks from macOS
+ * iCloud file providers don't leak tmp directories. Three attempts over
+ * ~700ms is enough to clear the vast majority of locks; anything stuck
+ * longer gets swept up by `cleanupOrphaned` on the next plugin start.
+ */
+async function removeWithRetry(fs: FileAdapter, path: string): Promise<void> {
+    const delays = [0, 150, 500];
+    let lastError: unknown = null;
+    for (const delay of delays) {
+        if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+        try {
+            await fs.remove(path);
+            return;
+        } catch (e) {
+            lastError = e;
+            if (!isTransientFsError(e)) throw e;
         }
+    }
+    throw lastError;
+}
+
+function isTransientFsError(e: unknown): boolean {
+    const code = (e as { code?: unknown })?.code;
+    return code === 'EPERM' || code === 'EBUSY' || code === 'ETXTBSY';
+}
+
+function formatReferenceDispatch(toolName: string, content: string, path: string, input: Record<string, unknown>): string {
+    switch (toolName) {
+        case 'search_files': return formatSearchFilesRef(content, path);
+        case 'semantic_search': return formatSemanticSearchRef(content, path);
+        case 'read_file':
+        case 'read_document': return formatReadFileRef(content, path, input);
+        case 'web_search': return formatWebRef(content, path, toolName);
+        case 'web_fetch': return formatWebRef(content, path, toolName);
+        default: return formatDefaultRef(content, path, toolName);
     }
 }

@@ -155,6 +155,44 @@ describe('ResultExternalizer', () => {
 
             expect(fs.files.size).toBe(0);
         });
+
+        it('BUG-023: retries transient EPERM (iCloud lock) before giving up', async () => {
+            const ext = await createExternalizer(fs);
+            await ext.maybeExternalize('search_files', {}, 'x'.repeat(3000), false);
+            expect(fs.files.size).toBe(1);
+
+            // Fail the first two remove() calls with EPERM, then succeed.
+            const realRemove = fs.remove;
+            const attempts: number[] = [];
+            fs.remove = (path: string) => {
+                attempts.push(1);
+                if (attempts.length <= 2) {
+                    const err = Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+                    return Promise.reject(err);
+                }
+                return realRemove(path);
+            };
+
+            await ext.cleanup();
+
+            expect(attempts.length).toBeGreaterThanOrEqual(3);
+            expect(fs.files.size).toBe(0);
+        });
+
+        it('BUG-023: reports cleanup failure non-fatally after retries exhaust', async () => {
+            const ext = await createExternalizer(fs);
+            await ext.maybeExternalize('search_files', {}, 'x'.repeat(3000), false);
+
+            fs.remove = () => {
+                const err = Object.assign(new Error('EPERM: locked'), { code: 'EPERM' });
+                return Promise.reject(err);
+            };
+
+            // Must not throw -- cleanup swallows unrecoverable failures and
+            // leaves the orphan sweeper to finish on next plugin start.
+            await expect(ext.cleanup()).resolves.toBeUndefined();
+            expect(fs.files.size).toBe(1);
+        });
     });
 
     describe('cleanupOrphaned', () => {

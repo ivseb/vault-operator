@@ -45,15 +45,16 @@
     color: var(--text-normal);
 }
 
-/* Vault Health Badge (FEATURE-1901) */
+/* Vault Health Badge (FEATURE-1901 / BUG-025 2026-04-19):
+ * The badge is now a header-button styled like its neighbours. Colour comes
+ * from the severity-* class and drives the lucide heart-pulse icon via
+ * currentColor. Hidden via the shared `agent-u-hidden` utility when no
+ * findings exist. */
 .health-badge {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
     cursor: pointer;
-    margin-left: 6px;
-    vertical-align: middle;
+}
+.health-badge .toolbar-icon {
+    color: currentColor;
 }
 .health-badge:hover {
     opacity: 0.85;
@@ -219,16 +220,13 @@
     font-size: 12px;
 }
 .health-badge.severity-high {
-    background: var(--color-red);
-    color: var(--text-on-accent);
+    color: var(--color-red);
 }
 .health-badge.severity-medium {
-    background: var(--color-orange);
-    color: var(--text-on-accent);
+    color: var(--color-orange);
 }
 .health-badge.severity-low {
-    background: var(--text-faint);
-    color: var(--background-primary);
+    color: var(--text-muted);
 }
 
 .agent-meta {

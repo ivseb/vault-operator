@@ -243,13 +243,15 @@ export class FastPathExecutor {
                 if (chunk.type === 'text') responseText += chunk.text;
             }
 
-            // Strip markdown code fences
-            let cleaned = responseText.trim();
-            if (cleaned.startsWith('```')) {
-                cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-            }
-
-            const parsed: unknown = JSON.parse(cleaned);
+            // BUG-024: tolerant JSON extraction. Some LLMs (Copilot Sonnet
+            // variants seen in production) wrap the JSON in prose preambles
+            // or add trailing commentary. Strip fences first, then scan for
+            // the first balanced JSON array or object and parse only that
+            // slice. Unsalvageable output still lands in the catch below and
+            // falls back to the normal agent loop.
+            const extracted = extractFirstJsonDocument(responseText);
+            if (!extracted) return null;
+            const parsed: unknown = JSON.parse(extracted);
             if (!Array.isArray(parsed)) return null;
 
             const valid: PlannedToolCall[] = [];
@@ -372,4 +374,62 @@ export class FastPathExecutor {
         }
         return String(content);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tolerant JSON extraction (BUG-024)
+// ---------------------------------------------------------------------------
+
+/**
+ * Scans raw LLM output and returns the first balanced JSON array or object
+ * substring, or null when no complete document is found. Strips markdown
+ * fences first and respects string literals + escape sequences so braces
+ * inside strings do not unbalance the counter.
+ *
+ * Exported for unit tests.
+ */
+export function extractFirstJsonDocument(raw: string): string | null {
+    let text = raw.trim();
+
+    // Strip the common ```json / ``` fence, with or without the language tag.
+    if (text.startsWith('```')) {
+        text = text.replace(/^```(?:json)?\n?/i, '');
+        const closingFence = text.lastIndexOf('```');
+        if (closingFence !== -1) text = text.slice(0, closingFence);
+        text = text.trim();
+    }
+
+    const start = firstJsonStart(text);
+    if (start === -1) return null;
+
+    const opening = text[start];
+    const closing = opening === '[' ? ']' : '}';
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+
+    for (let i = start; i < text.length; i++) {
+        const ch = text[i];
+        if (inString) {
+            if (escape) { escape = false; continue; }
+            if (ch === '\\') { escape = true; continue; }
+            if (ch === '"') { inString = false; }
+            continue;
+        }
+        if (ch === '"') { inString = true; continue; }
+        if (ch === opening) depth++;
+        else if (ch === closing) {
+            depth--;
+            if (depth === 0) return text.slice(start, i + 1);
+        }
+    }
+    return null; // never balanced -- let caller bail
+}
+
+function firstJsonStart(text: string): number {
+    const firstArray = text.indexOf('[');
+    const firstObject = text.indexOf('{');
+    if (firstArray === -1) return firstObject;
+    if (firstObject === -1) return firstArray;
+    return Math.min(firstArray, firstObject);
 }

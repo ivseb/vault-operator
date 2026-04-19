@@ -46,21 +46,36 @@ describe('isDeferredTool (FEATURE-1600)', () => {
     });
 });
 
-describe('FindToolTool matching semantics (FEATURE-1600)', () => {
+describe('FindToolTool matching semantics (FEATURE-1600 + BUG-021 Wave-4)', () => {
     // Reimplement the ranking inline so we can unit-test without Obsidian's
-    // App instance. Mirrors the logic in FindToolTool.execute().
+    // App instance. Mirrors the logic in FindToolTool.execute() AFTER the
+    // Wave-4 tokenize + normalise fix.
     async function findMatches(query: string): Promise<string[]> {
         const { TOOL_METADATA } = await import('../toolMetadata');
-        const q = query.toLowerCase();
+        const rawQuery = query.trim().toLowerCase();
+        const queryTokens = Array.from(new Set(rawQuery.split(/[\s_-]+/).filter((t) => t.length >= 3)));
+        const queryPhrase = rawQuery.replace(/[_\s-]+/g, ' ').trim();
+        const normalise = (s: string) => s.toLowerCase().replace(/[_-]+/g, ' ');
+
         const scored: Array<{ name: string; score: number }> = [];
         for (const name of DEFERRED_TOOL_NAMES) {
             const meta = TOOL_METADATA[name];
             if (!meta) continue;
+            const nameN = normalise(name);
+            const labelN = normalise(meta.label ?? '');
+            const descN = normalise(meta.description ?? '');
+
             let score = 0;
-            if (name.toLowerCase().includes(q)) score += 100;
-            if ((meta.label ?? '').toLowerCase().includes(q)) score += 50;
-            if ((meta.description ?? '').toLowerCase().includes(q)) score += 10;
-            if (score > 0) scored.push({ name, score });
+            let strongHit = false;
+            if (nameN.includes(queryPhrase)) { score += 200; strongHit = true; }
+            if (labelN.includes(queryPhrase)) { score += 100; strongHit = true; }
+            if (descN.includes(queryPhrase)) score += 20;
+            for (const token of queryTokens) {
+                if (nameN.includes(token)) { score += 30; strongHit = true; }
+                if (labelN.includes(token)) { score += 15; strongHit = true; }
+                if (descN.includes(token)) score += 3;
+            }
+            if (score > 0 && strongHit) scored.push({ name, score });
         }
         scored.sort((a, b) => b.score - a.score);
         return scored.slice(0, 5).map((s) => s.name);
@@ -106,5 +121,33 @@ describe('FindToolTool matching semantics (FEATURE-1600)', () => {
         const matches = await findMatches('read');
         expect(matches).not.toContain('read_file');
         expect(matches).not.toContain('search_files');
+    });
+
+    // BUG-021 (Wave-4): the LLM typed multi-word natural-language queries that
+    // matched nothing under the old single-substring search. The tokenizer
+    // plus underscore-normalise pass makes these work.
+    it('"vault health check" (spaces, as typed by the LLM) matches vault_health_check', async () => {
+        const matches = await findMatches('vault health check');
+        expect(matches[0]).toBe('vault_health_check');
+    });
+
+    it('"vault-health-check" (hyphens) matches vault_health_check', async () => {
+        const matches = await findMatches('vault-health-check');
+        expect(matches[0]).toBe('vault_health_check');
+    });
+
+    it('"health" single token matches vault_health_check via label', async () => {
+        const matches = await findMatches('health');
+        expect(matches).toContain('vault_health_check');
+    });
+
+    it('"create pptx" picks create_pptx over plan_presentation', async () => {
+        const matches = await findMatches('create pptx');
+        expect(matches[0]).toBe('create_pptx');
+    });
+
+    it('"ingest document" matches ingest_document', async () => {
+        const matches = await findMatches('ingest document');
+        expect(matches[0]).toBe('ingest_document');
     });
 });

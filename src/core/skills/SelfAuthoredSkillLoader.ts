@@ -14,6 +14,7 @@
 
 import { TFile, TFolder } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
+import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import type ObsidianAgentPlugin from '../../main';
 import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
 import type { ISandboxExecutor } from '../sandbox/ISandboxExecutor';
@@ -21,6 +22,12 @@ import type { ToolRegistry } from '../tools/ToolRegistry';
 import { DynamicToolFactory } from '../tools/dynamic/DynamicToolFactory';
 import type { CodeModuleInfo, DynamicToolDefinition } from '../tools/dynamic/types';
 import type { ToolName } from '../tools/types';
+import type {
+    SkillInventory,
+    SkillScriptFile,
+    SkillScriptLanguage,
+    SkillSubRole,
+} from './types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +48,14 @@ export interface SelfAuthoredSkill {
     successCount: number;
     body: string;
     filePath: string;
+    /**
+     * Content sidecars in the skill folder (`scripts/`, `references/`,
+     * `assets/`, sub-role `*.skill.md`). Empty for flat single-file skills.
+     * EPIC-022 / ADR-075.
+     */
+    inventory: SkillInventory;
+    /** `type: coordinator` frontmatter flag. Empty inventory.subRoles if false. */
+    isCoordinator: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,8 +65,15 @@ export interface SelfAuthoredSkill {
 export class SelfAuthoredSkillLoader {
     private skills = new Map<string, SelfAuthoredSkill>();
     private readonly skillsDir: string;
-    /** Vault sync directory for user/learned skills (.obsilo-sync/skills/) */
-    private readonly syncSkillsDir: string;
+    /**
+     * User/learned skills dir. Computed on each loadAll() so a change to
+     * the agent-folder setting (ADR-072) is picked up without plugin reload.
+     * FEATURE-2201 Decision 2026-04-18: moved from hardcoded `.obsilo-sync/skills/`
+     * to `getSelfAuthoredSkillsDir(plugin)`.
+     */
+    private getUserSkillsDir(): string {
+        return getSelfAuthoredSkillsDir(this.plugin);
+    }
     private esbuildManager: EsbuildWasmManager | null;
     private sandboxExecutor: ISandboxExecutor | null;
     private toolRegistry: ToolRegistry | null;
@@ -67,7 +89,6 @@ export class SelfAuthoredSkillLoader {
         toolRegistry?: ToolRegistry | null,
     ) {
         this.skillsDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}/skills`;
-        this.syncSkillsDir = '.obsilo-sync/skills';
         this.esbuildManager = esbuildManager ?? null;
         this.sandboxExecutor = sandboxExecutor ?? null;
         this.toolRegistry = toolRegistry ?? null;
@@ -97,8 +118,8 @@ export class SelfAuthoredSkillLoader {
 
         // 1. Bundled skills from plugin dir
         await this.scanSkillsFrom(this.skillsDir);
-        // 2. User/learned skills from vault sync dir
-        await this.scanSkillsFrom(this.syncSkillsDir);
+        // 2. User/learned skills from the configured agent folder
+        await this.scanSkillsFrom(this.getUserSkillsDir());
 
         // After all skills are loaded, load cached code modules and register tools
         for (const skill of this.skills.values()) {
@@ -109,6 +130,15 @@ export class SelfAuthoredSkillLoader {
         }
 
         console.debug(`[SelfAuthoredSkillLoader] Loaded ${this.skills.size} skill(s)`);
+    }
+
+    /**
+     * Re-run the full scan. Called after a skill import or migration so the
+     * new skills become visible without reloading the plugin.
+     * FEATURE-2201 / FEATURE-2202.
+     */
+    async refresh(): Promise<void> {
+        await this.loadAll();
     }
 
     /**
@@ -126,13 +156,121 @@ export class SelfAuthoredSkillLoader {
                 if (await adapter.exists(skillPath)) {
                     const content = await adapter.read(skillPath);
                     const parsed = this.parseSkillMd(content, skillPath);
-                    if (parsed) {
-                        this.skills.set(parsed.name, parsed);
-                    }
+                    if (!parsed) continue;
+                    // FEATURE-2201: populate inventory from scripts/, references/,
+                    // assets/, and sub-role *.skill.md files next to SKILL.md.
+                    parsed.inventory = await this.loadSkillInventory(subfolderPath, parsed.isCoordinator);
+                    this.skills.set(parsed.name, parsed);
                 }
             }
         } catch (e) {
             console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${dir}:`, e);
+        }
+    }
+
+    /**
+     * Scan the Anthropic sub-directories under a skill folder and, for
+     * coordinator skills, gather sub-role frontmatter. Errors during a
+     * subfolder scan are logged and treated as empty -- the skill still
+     * loads without its sidecars.
+     * FEATURE-2201 / ADR-075.
+     */
+    private async loadSkillInventory(skillFolder: string, isCoordinator: boolean): Promise<SkillInventory> {
+        const adapter = this.plugin.app.vault.adapter;
+        const inventory: SkillInventory = {
+            scripts: [],
+            references: [],
+            assets: [],
+            subRoles: [],
+        };
+
+        const scriptsDir = `${skillFolder}/scripts`;
+        if (await adapter.exists(scriptsDir)) {
+            try {
+                const entries = await adapter.list(scriptsDir);
+                for (const filePath of entries.files) {
+                    const filename = filePath.slice(skillFolder.length + 1); // include "scripts/"
+                    const language = this.detectScriptLanguage(filePath);
+                    const stat = await adapter.stat(filePath).catch(() => null);
+                    inventory.scripts.push({
+                        path: filename,
+                        language,
+                        sizeBytes: stat?.size ?? 0,
+                    });
+                }
+            } catch (e) {
+                console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${scriptsDir}:`, e);
+            }
+        }
+
+        const referencesDir = `${skillFolder}/references`;
+        if (await adapter.exists(referencesDir)) {
+            try {
+                const entries = await adapter.list(referencesDir);
+                for (const filePath of entries.files) {
+                    inventory.references.push(filePath.slice(skillFolder.length + 1));
+                }
+            } catch (e) {
+                console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${referencesDir}:`, e);
+            }
+        }
+
+        const assetsDir = `${skillFolder}/assets`;
+        if (await adapter.exists(assetsDir)) {
+            try {
+                const entries = await adapter.list(assetsDir);
+                for (const filePath of entries.files) {
+                    inventory.assets.push(filePath.slice(skillFolder.length + 1));
+                }
+            } catch (e) {
+                console.warn(`[SelfAuthoredSkillLoader] Failed to scan ${assetsDir}:`, e);
+            }
+        }
+
+        if (isCoordinator) {
+            try {
+                const entries = await adapter.list(skillFolder);
+                for (const filePath of entries.files) {
+                    const filename = filePath.slice(skillFolder.length + 1);
+                    if (!filename.endsWith('.skill.md')) continue;
+                    const subRole = await this.parseSubRole(filePath, filename);
+                    if (subRole) inventory.subRoles.push(subRole);
+                }
+            } catch (e) {
+                console.warn(`[SelfAuthoredSkillLoader] Failed to scan sub-roles in ${skillFolder}:`, e);
+            }
+        }
+
+        return inventory;
+    }
+
+    private detectScriptLanguage(path: string): SkillScriptLanguage {
+        const lower = path.toLowerCase();
+        if (lower.endsWith('.ts')) return 'ts';
+        if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) return 'js';
+        if (lower.endsWith('.py')) return 'py';
+        if (lower.endsWith('.sh') || lower.endsWith('.bash') || lower.endsWith('.zsh')) return 'sh';
+        if (lower.endsWith('.md')) return 'md';
+        return 'other';
+    }
+
+    private async parseSubRole(filePath: string, filename: string): Promise<SkillSubRole | null> {
+        const adapter = this.plugin.app.vault.adapter;
+        try {
+            const content = await adapter.read(filePath);
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n?/);
+            if (!fmMatch) return null;
+            const fm = this.parseFrontmatter(fmMatch[1]);
+            const stem = filename.replace(/\.skill\.md$/, '');
+            return {
+                role: fm.role ?? stem,
+                name: fm.name ?? stem,
+                description: fm.description ?? '',
+                filePath: filename,
+            };
+        } catch (e) {
+            console.warn(`[SelfAuthoredSkillLoader] Failed to parse sub-role ${filePath}:`, e);
+            return null;
         }
     }
 
@@ -188,17 +326,57 @@ export class SelfAuthoredSkillLoader {
 
     /**
      * Get metadata summary for system prompt (Progressive Disclosure: metadata only).
+     *
+     * For skills that ship a FEATURE-2201 inventory (scripts/references/assets)
+     * or a FEATURE-2204 coordinator, this method appends a nested block with
+     * the filenames and sub-roles so the agent knows what to `read_file` or
+     * execute via the sandbox.
      */
     getMetadataSummary(): string {
         if (this.skills.size === 0) return '';
         return [...this.skills.values()]
-            .map(s => {
-                const codeBadge = s.codeModules.length > 0
-                    ? ` [code: ${s.codeModuleInfos.map(m => m.name).join(', ')}]`
-                    : '';
-                return `- ${s.name}: ${s.description} [trigger: ${s.triggerSource}]${codeBadge}`;
-            })
+            .map(s => this.renderSkillSummary(s))
             .join('\n');
+    }
+
+    private renderSkillSummary(s: SelfAuthoredSkill): string {
+        const codeBadge = s.codeModules.length > 0
+            ? ` [code: ${s.codeModuleInfos.map(m => m.name).join(', ')}]`
+            : '';
+        const coordinatorBadge = s.isCoordinator ? ' (coordinator)' : '';
+        const head = `- ${s.name}${coordinatorBadge}: ${s.description} [trigger: ${s.triggerSource}]${codeBadge}`;
+        const inventoryLines = this.renderInventoryLines(s);
+        return inventoryLines.length === 0 ? head : [head, ...inventoryLines].join('\n');
+    }
+
+    private renderInventoryLines(s: SelfAuthoredSkill): string[] {
+        const { scripts, references, assets, subRoles } = s.inventory;
+        const lines: string[] = [];
+
+        if (scripts.length > 0) {
+            const rendered = scripts.map(sc => {
+                const execTag = sc.language === 'ts' || sc.language === 'js'
+                    ? 'sandbox-executable'
+                    : `${sc.language}, reference-only`;
+                return `${sc.path} (${execTag})`;
+            }).join(', ');
+            lines.push(`  Scripts: ${rendered}`);
+        }
+
+        if (references.length > 0) {
+            lines.push(`  References (on-demand via read_file): ${references.join(', ')}`);
+        }
+
+        if (assets.length > 0) {
+            lines.push(`  Assets: ${assets.join(', ')}`);
+        }
+
+        if (s.isCoordinator && subRoles.length > 0) {
+            const rendered = subRoles.map(r => `${r.filePath} (${r.role}: ${r.description})`).join(', ');
+            lines.push(`  Sub-roles (read on demand): ${rendered}`);
+        }
+
+        return lines;
     }
 
     /**
@@ -247,11 +425,12 @@ export class SelfAuthoredSkillLoader {
     }
 
     /**
-     * Get the skills directory path for new user/learned skills.
-     * Returns .obsilo-sync/skills/ so new skills are synced via Obsidian Sync.
+     * Get the skills directory path for new user/learned skills. Resolves to
+     * `<agent-folder>/skills/` per ADR-072 (configurable root). Historical
+     * location `.obsilo-sync/skills/` is migrated on plugin start.
      */
     getSkillsDir(): string {
-        return this.syncSkillsDir;
+        return this.getUserSkillsDir();
     }
 
     // -----------------------------------------------------------------------
@@ -459,6 +638,8 @@ export class SelfAuthoredSkillLoader {
             const content = await this.plugin.app.vault.read(file);
             const parsed = this.parseSkillMd(content, file.path);
             if (parsed) {
+                const skillFolder = file.path.replace(/\/SKILL\.md$/, '');
+                parsed.inventory = await this.loadSkillInventory(skillFolder, parsed.isCoordinator);
                 this.skills.set(parsed.name, parsed);
             }
         } catch (e) {
@@ -648,12 +829,29 @@ export class SelfAuthoredSkillLoader {
     }
 
     private parseSkillMd(content: string, filePath: string): SelfAuthoredSkill | null {
-        // Split frontmatter and body at --- delimiters
-        const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-        if (!fmMatch) return null;
+        // Accept two metadata shapes:
+        //   1) YAML frontmatter at the top (Obsilo + Anthropic standard).
+        //   2) HTML-comment metadata block anywhere in the file (real-world
+        //      Anthropic skills sometimes ship this form -- EPIC-022 beta
+        //      feedback 2026-04-19).
+        let frontmatter: string | null = null;
+        let body: string | null = null;
 
-        const frontmatter = fmMatch[1];
-        const body = fmMatch[2].trim();
+        const yaml = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+        if (yaml) {
+            frontmatter = yaml[1];
+            body = yaml[2].trim();
+        } else {
+            const html = content.match(/<!--\s*(?:Metadata|metadata|SKILL|skill)\s*\n([\s\S]*?)\n-->/);
+            if (html) {
+                frontmatter = html[1];
+                // Body = full content WITHOUT the metadata block so the skill
+                // markdown the user wrote still reaches the prompt.
+                body = content.replace(html[0], '').trim();
+            }
+        }
+
+        if (frontmatter === null || body === null) return null;
 
         // Parse frontmatter key-value pairs
         const fm = this.parseFrontmatter(frontmatter);
@@ -676,6 +874,9 @@ export class SelfAuthoredSkillLoader {
             successCount: fm.successCount ? parseInt(fm.successCount, 10) : 0,
             body,
             filePath,
+            // FEATURE-2201: inventory gets populated by scanSkillsFrom() after parse.
+            inventory: { scripts: [], references: [], assets: [], subRoles: [] },
+            isCoordinator: fm.type === 'coordinator',
         };
     }
 
@@ -706,12 +907,14 @@ export class SelfAuthoredSkillLoader {
     }
 
     private isSkillFile(file: TFile): boolean {
-        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(this.syncSkillsDir))
+        const userDir = this.getUserSkillsDir();
+        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(userDir))
             && file.name === 'SKILL.md';
     }
 
     private isCodeFile(file: TFile): boolean {
-        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(this.syncSkillsDir))
+        const userDir = this.getUserSkillsDir();
+        return (file.path.startsWith(this.skillsDir) || file.path.startsWith(userDir))
             && file.extension === 'ts'
             && file.path.includes('/code/');
     }

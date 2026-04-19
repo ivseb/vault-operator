@@ -11,6 +11,8 @@ import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
+import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
+import { resolveObsidianDraggedFiles } from './sidebar/dragManagerBridge';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
@@ -115,6 +117,17 @@ export class AgentSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
+        // BUG-026 (2026-04-19): wait for plugin.doLoad() to finish before
+        // reading settings / mode service. Obsidian instantiates this view
+        // the moment registerView runs (layout restore), which during a BRAT
+        // hot reload is before settings exist. Without this guard the view
+        // threw "Cannot read properties of undefined (reading 'currentMode')"
+        // and the whole sidebar stayed broken.
+        const readiness = (this.plugin as unknown as { readyPromise?: Promise<void> }).readyPromise;
+        if (readiness) {
+            try { await readiness; } catch { /* doLoad errors are surfaced elsewhere; keep rendering */ }
+        }
+
         // Initialize ModeService — loads global modes from ~/.obsidian-agent/modes.json
         await this.modeService.initialize();
 
@@ -185,14 +198,25 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan('agent-title-text').setText(t('ui.sidebar.title'));
 
-        // Health badge (FEATURE-1901) — shows finding count from vault health check
-        this.healthBadge = titleRow.createDiv('health-badge');
+        const headerRight = header.createDiv('agent-header-right');
+
+        // FEATURE-1901 / BUG-025 (2026-04-19): vault-health indicator moved from
+        // next-to-title to left-of-settings in the header-right group, and the
+        // severity dot replaced with a `stethoscope` lucide icon. Hidden unless
+        // at least one finding exists. Colour comes from the severity-* class
+        // via styles.css.
+        this.healthBadge = headerRight.createEl('button', {
+            cls: 'header-button health-badge',
+            attr: { 'aria-label': t('ui.sidebar.vaultHealth') },
+        });
+        setIcon(this.healthBadge.createSpan('toolbar-icon'), 'stethoscope');
         this.healthBadge.classList.add('agent-u-hidden');
         this.healthBadge.addEventListener('click', () => {
             this.openHealthModal();
         });
-
-        const headerRight = header.createDiv('agent-header-right');
+        // Sync from the plugin in case the health check already ran before the
+        // view mounted (common after a BRAT hot-reload or leaf rebuild).
+        this.syncHealthBadge();
 
         // Settings button — moved here from toolbar
         const settingsBtn = headerRight.createEl('button', {
@@ -334,25 +358,41 @@ export class AgentSidebarView extends ItemView {
             }
         });
 
-        // Drag-and-drop handler on the input wrapper
+        // Drag-and-drop handler on the input wrapper. BUG-019: stopPropagation
+        // is required on both events so the workspace doesn't steal the drop
+        // and open the file in a new tab. The drop payload is resolved in
+        // priority order: external OS files, Obsidian's internal drag manager,
+        // finally a plain-text path fallback for older Obsidian builds.
         inputWrapper.addEventListener('dragover', (e: DragEvent) => {
             e.preventDefault();
+            e.stopPropagation();
             inputWrapper.addClass('drag-over');
         });
         inputWrapper.addEventListener('dragleave', () => inputWrapper.removeClass('drag-over'));
         inputWrapper.addEventListener('drop', (e: DragEvent) => {
             e.preventDefault();
+            e.stopPropagation();
             inputWrapper.removeClass('drag-over');
 
-            // OS file drop (external drag from Finder/Explorer)
+            // OS file drop (external drag from Finder/Explorer/GNOME-Files)
             const files = e.dataTransfer?.files;
             if (files && files.length > 0) {
                 for (const file of Array.from(files)) void this.attachments.processFile(file);
                 return;
             }
 
-            // Obsidian internal drag (from file explorer / search results)
-            // Obsidian passes the vault-relative path as plain text
+            // BUG-019: Obsidian's internal drag populates app.dragManager.draggable
+            // instead of dataTransfer.files. This is undocumented but stable across
+            // Obsidian 1.4+ and widely used by community plugins. Guarded by a
+            // null-check so a future API change silently falls through to the
+            // text/plain path.
+            const draggedFiles = resolveObsidianDraggedFiles(this.app);
+            if (draggedFiles.length > 0) {
+                for (const file of draggedFiles) void this.attachments.addVaultFile(file);
+                return;
+            }
+
+            // Last-resort fallback: plain-text vault-relative path.
             const textData = e.dataTransfer?.getData('text/plain');
             if (textData) {
                 const vaultFile = this.app.vault.getAbstractFileByPath(textData);
@@ -389,16 +429,7 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(plusBtn.createSpan('toolbar-icon'), 'plus');
         plusBtn.addEventListener('click', (e) => {
-            const menu = new Menu();
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.attachFile'))
-                .setIcon('paperclip')
-                .onClick(() => this.attachments.openFilePicker()));
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.addVaultFile'))
-                .setIcon('at-sign')
-                .onClick(() => this.vaultFilePicker.show(plusBtn, this.containerEl)));
-            menu.showAtMouseEvent(e);
+            this.showPlusMenu(e, plusBtn);
         });
 
         // "..." button — tools, skills, web search (FEATURE-1907)
@@ -446,6 +477,117 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'send-horizontal');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+    }
+
+    /**
+     * `+` menu (FEATURE-2207 / 2208): attachments, skills, prompts, workflows.
+     * Picking a skill/prompt/workflow prefixes the textarea with the right
+     * trigger and focuses the input so the user can add free text.
+     */
+    private showPlusMenu(e: MouseEvent, anchor: HTMLElement): void {
+        const menu = new Menu();
+        menu.addItem(item => item
+            .setTitle(t('ui.sidebar.attachFile'))
+            .setIcon('paperclip')
+            .onClick(() => this.attachments.openFilePicker()));
+        menu.addItem(item => item
+            .setTitle(t('ui.sidebar.addVaultFile'))
+            .setIcon('at-sign')
+            .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
+        menu.addSeparator();
+        menu.addItem(item => item
+            .setTitle('Insert skill...')
+            .setIcon('sparkles')
+            .onClick(() => this.openCommandPicker('skills', anchor)));
+        menu.addItem(item => item
+            .setTitle('Insert prompt...')
+            .setIcon('message-square-quote')
+            .onClick(() => this.openCommandPicker('prompts', anchor)));
+        menu.addItem(item => item
+            .setTitle('Insert workflow...')
+            .setIcon('workflow')
+            .onClick(() => this.openCommandPicker('workflows', anchor)));
+        menu.showAtMouseEvent(e);
+    }
+
+    private async openCommandPicker(
+        category: 'skills' | 'prompts' | 'workflows',
+        anchor: HTMLElement,
+    ): Promise<void> {
+        const items = await this.collectCommandItems(category);
+        const title = category === 'skills'
+            ? 'Search skills...'
+            : category === 'prompts'
+                ? 'Search prompts...'
+                : 'Search workflows...';
+        const empty = category === 'skills'
+            ? 'No skills installed. Import one via Settings -> Skills.'
+            : category === 'prompts'
+                ? 'No custom prompts configured yet.'
+                : 'No workflows available in this vault.';
+        const picker = new CommandPicker(items, title, empty);
+        picker.show(anchor, this.containerEl);
+    }
+
+    private async collectCommandItems(
+        category: 'skills' | 'prompts' | 'workflows',
+    ): Promise<CommandPickerItem[]> {
+        if (category === 'skills') {
+            const skills = this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [];
+            return skills.map((skill) => {
+                const slug = AutocompleteHandler.slugifySkillName(skill.name);
+                return {
+                    label: skill.name,
+                    sub: `/${slug}`,
+                    tag: 'Skill',
+                    icon: 'sparkles',
+                    searchable: skill.description,
+                    onSelect: () => this.insertPrefixedCommand('/', slug),
+                };
+            });
+        }
+
+        if (category === 'prompts') {
+            const activeMode = this.plugin.settings.currentMode;
+            const prompts = (this.plugin.settings.customPrompts ?? []).filter(
+                (p) => p.enabled !== false && (!p.mode || p.mode === activeMode),
+            );
+            return prompts.map((prompt) => ({
+                label: prompt.name,
+                sub: `#${prompt.slug}`,
+                tag: 'Prompt',
+                icon: 'message-square-quote',
+                searchable: prompt.content,
+                onSelect: () => this.insertPrefixedCommand('#', prompt.slug),
+            }));
+        }
+
+        const workflowLoader = this.plugin.workflowLoader;
+        if (!workflowLoader) return [];
+        const workflows = await workflowLoader.discoverWorkflows();
+        const toggles = this.plugin.settings.workflowToggles ?? {};
+        return workflows
+            .filter((w) => toggles[w.path] !== false)
+            .map((wf) => ({
+                label: wf.displayName,
+                sub: `\u00a7${wf.slug}`,
+                tag: 'Workflow',
+                icon: 'workflow',
+                onSelect: () => this.insertPrefixedCommand('\u00a7', wf.slug),
+            }));
+    }
+
+    private insertPrefixedCommand(prefix: string, slug: string): void {
+        if (!this.inputArea) return;
+        const textarea = this.inputArea.querySelector('textarea');
+        if (!(textarea instanceof HTMLTextAreaElement)) return;
+        const existing = textarea.value;
+        const leadsWithPrefix = /^[/#\u00a7]/.test(existing);
+        const body = leadsWithPrefix ? existing.split(/\s+/).slice(1).join(' ') : existing;
+        textarea.value = `${prefix}${slug}${body ? ' ' + body : ' '}`;
+        textarea.focus();
+        const pos = textarea.value.length;
+        textarea.setSelectionRange(pos, pos);
     }
 
     private updateContextBadge(): void {
@@ -981,7 +1123,7 @@ export class AgentSidebarView extends ItemView {
         }).open();
     }
 
-    /** Update the health badge dot. Called from main.ts after health check. */
+    /** Update the health-pulse icon. Called from main.ts after health check. */
     updateHealthBadge(findingCount: number, maxSeverity: 'high' | 'medium' | 'low' | null): void {
         if (!this.healthBadge) return;
         if (findingCount === 0 || !maxSeverity) {
@@ -989,9 +1131,33 @@ export class AgentSidebarView extends ItemView {
             return;
         }
         this.healthBadge.classList.remove('agent-u-hidden');
-        this.healthBadge.setText('');
-        this.healthBadge.className = `health-badge severity-${maxSeverity}`;
-        this.healthBadge.setAttribute('aria-label', 'Vault health findings available');
+        // Rebuild the className deterministically: keep the base classes, add
+        // one severity marker. Avoid clobbering by using classList operations.
+        this.healthBadge.classList.remove('severity-high', 'severity-medium', 'severity-low');
+        this.healthBadge.classList.add(`severity-${maxSeverity}`);
+        this.healthBadge.setAttribute(
+            'aria-label',
+            `${t('ui.sidebar.vaultHealth')} (${findingCount})`,
+        );
+    }
+
+    /**
+     * Pull the current findings from the plugin and update the badge. Used
+     * when the view mounts after the health check already ran (BRAT hot
+     * reload, leaf rebuild, etc.).
+     */
+    private syncHealthBadge(): void {
+        const svc = this.plugin.vaultHealthService;
+        if (!svc) return;
+        const findings = svc.getFindings();
+        if (findings.length === 0) {
+            this.updateHealthBadge(0, null);
+            return;
+        }
+        const hasHigh = findings.some((f) => f.severity === 'high');
+        const hasMedium = findings.some((f) => f.severity === 'medium');
+        const severity = hasHigh ? 'high' : (hasMedium ? 'medium' : 'low');
+        this.updateHealthBadge(findings.length, severity);
     }
 
     /** Send vault health findings to the chat. Batch mode for many findings, interactive for few. */
@@ -1096,33 +1262,35 @@ export class AgentSidebarView extends ItemView {
             messageToSend = textWithContext;
         }
 
-        // Process slash commands (Sprint 3.3) — if text starts with /workflow-slug or /prompt-slug,
-        // replace with workflow/prompt content as explicit instructions (plain string only;
-        // attachment blocks are passed through unchanged).
-        if (typeof messageToSend === 'string' && text.startsWith('/')) {
-            let slashResolved = false;
+        // Prefix commands (FEATURE-2207 decision 2026-04-19):
+        //   '/skill-slug'    -> activate a self-authored skill
+        //   '#prompt-slug'   -> inject a custom prompt template
+        //   '\u00a7workflow-slug' -> run a workflow
+        // Legacy: '/' used to resolve workflows + prompts + skills. We keep
+        // skills on '/' and redirect the other two to their own prefixes.
+        if (typeof messageToSend === 'string' && /^[/#\u00a7]/.test(text)) {
+            const prefix = text[0];
+            const spaceIdx = text.indexOf(' ');
+            const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
+            const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
 
-            // 1. Try workflows first
-            const workflowLoader = this.plugin.workflowLoader;
-            if (workflowLoader) {
-                const processedText = await workflowLoader.processSlashCommand(
-                    text,
-                    this.plugin.settings.workflowToggles ?? {},
+            if (prefix === '/') {
+                const skillLoader = this.plugin.selfAuthoredSkillLoader;
+                const matchedSkill = skillLoader?.getAllSkills().find(
+                    (s) => AutocompleteHandler.slugifySkillName(s.name) === slug,
                 );
-                if (processedText !== text) {
-                    messageToSend = processedText + (activeFile
+                if (matchedSkill) {
+                    const parts = [
+                        `<explicit_instructions skill="${matchedSkill.name}">`,
+                        matchedSkill.body,
+                        '</explicit_instructions>',
+                    ];
+                    if (rest) parts.push('', rest);
+                    messageToSend = parts.join('\n') + (activeFile
                         ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                         : '');
-                    slashResolved = true;
                 }
-            }
-
-            // 2. If no workflow matched, try custom prompts
-            if (!slashResolved) {
-                const spaceIdx = text.indexOf(' ');
-                const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
-                const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
-
+            } else if (prefix === '#') {
                 const prompt = (this.plugin.settings.customPrompts ?? []).find(
                     (p) => p.slug === slug && p.enabled !== false,
                 );
@@ -1136,6 +1304,22 @@ export class AgentSidebarView extends ItemView {
                     messageToSend = resolved + (activeFile
                         ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                         : '');
+                }
+            } else if (prefix === '\u00a7') {
+                // Workflows expect a leading '/' in the existing loader API so we
+                // re-shape the command for backward compat before dispatch.
+                const workflowLoader = this.plugin.workflowLoader;
+                if (workflowLoader) {
+                    const reshaped = `/${slug}${rest ? ' ' + rest : ''}`;
+                    const processedText = await workflowLoader.processSlashCommand(
+                        reshaped,
+                        this.plugin.settings.workflowToggles ?? {},
+                    );
+                    if (processedText !== reshaped) {
+                        messageToSend = processedText + (activeFile
+                            ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
+                            : '');
+                    }
                 }
             }
         }
@@ -2609,7 +2793,7 @@ export class AgentSidebarView extends ItemView {
         // Vault Health Check
         menu.addItem((item) => {
             item.setTitle('Vault health check');
-            item.setIcon('heart-pulse');
+            item.setIcon('stethoscope');
             item.onClick(async () => {
                 if (!this.plugin.vaultHealthService) {
                     new Notice('Vault health service not available. Enable semantic index first.');

@@ -53,6 +53,7 @@ import { EpisodicExtractor } from './core/mastery/EpisodicExtractor';
 import { RecipePromotionService } from './core/mastery/RecipePromotionService';
 import { ConsoleRingBuffer } from './core/observability/ConsoleRingBuffer';
 import { SelfAuthoredSkillLoader } from './core/skills/SelfAuthoredSkillLoader';
+import { migrateLegacySkillsIfNeeded } from './core/skills/SkillMigration';
 import type { ISandboxExecutor } from './core/sandbox/ISandboxExecutor';
 import { createSandboxExecutor } from './core/sandbox/createSandboxExecutor';
 import { EsbuildWasmManager } from './core/sandbox/EsbuildWasmManager';
@@ -203,16 +204,34 @@ export default class ObsidianAgentPlugin extends Plugin {
      * 5. Initialize MCP connections
      * 6. Start semantic indexing
      */
+    /**
+     * Resolves when doLoad() has populated settings + ModeService. The view's
+     * onOpen awaits this before reading any plugin state so it cannot race
+     * with layout-restore (BUG-026, 2026-04-19).
+     */
+    readyPromise!: Promise<void>;
+
     onload(): void {
+        // BUG-026 (2026-04-19): create the readiness promise BEFORE registerView.
+        // Obsidian instantiates the view the moment registerView runs (to restore
+        // saved layout), which in a BRAT hot reload is before doLoad() has loaded
+        // settings or the mode service. Reading plugin.settings.currentMode at
+        // that point threw and left the sidebar broken. The view awaits this
+        // promise in its onOpen.
+        let markReady: () => void = () => {};
+        this.readyPromise = new Promise<void>((resolve) => { markReady = resolve; });
+
         // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
         // immediately — before any async initialization runs.
         // ModeService uses lazy toolRegistry access, so the view is safe
-        // to construct even before doLoad() finishes.
+        // to construct even before doLoad() finishes; the view waits on
+        // readyPromise before reading any plugin state.
         this.registerView(
             VIEW_TYPE_AGENT_SIDEBAR,
             (leaf) => new AgentSidebarView(leaf, this)
         );
-        void this.doLoad();
+
+        void this.doLoad().finally(() => markReady());
     }
 
     private async doLoad(): Promise<void> {
@@ -342,6 +361,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Late-bind ToolRegistry to SelfAuthoredSkillLoader (circular dependency)
         this.selfAuthoredSkillLoader.setDependencies(
             this.esbuildWasmManager, this.sandboxExecutor, this.toolRegistry,
+        );
+
+        // FEATURE-2201: one-time migration from legacy `.obsilo-sync/skills/` to
+        // the configurable agent-folder (ADR-072). Idempotent via `.migrated` marker.
+        await migrateLegacySkillsIfNeeded(this).then((report) => {
+            if (report && (report.migratedSlugs.length > 0 || report.errors.length > 0)) {
+                console.debug('[Plugin] Skill migration:', report);
+            }
+        }).catch((e) =>
+            console.warn('[Plugin] Skill migration failed (non-fatal):', e)
         );
 
         // Load skills (includes cached code module tools)
@@ -693,9 +722,28 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Register 'Chats' property as list type so Properties view shows individual items
         this.app.metadataTypeManager.setType('chats', 'multitext');
 
-        // Auto-open sidebar when Obsidian starts
+        // Auto-open sidebar when Obsidian starts.
+        //
+        // FEATURE-2208 (BRAT update fix, 2026-04-19): After a plugin hot-reload
+        // (e.g. BRAT update) Obsidian keeps the old leaf in the workspace but
+        // the view DOM is stale -- the input field disappears until the user
+        // reloads Obsidian. Force a fresh onOpen by cycling each existing
+        // leaf through the 'empty' view state, then reactivating normally.
         this.app.workspace.onLayoutReady(() => {
-            void this.activateView();
+            void (async () => {
+                const stale = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+                for (const leaf of stale) {
+                    try {
+                        await leaf.setViewState({ type: 'empty' });
+                        await leaf.setViewState({ type: VIEW_TYPE_AGENT_SIDEBAR, active: true });
+                    } catch (e) {
+                        console.debug('[Plugin] Failed to rebuild stale sidebar leaf:', e);
+                    }
+                }
+                if (stale.length === 0) {
+                    await this.activateView();
+                }
+            })();
         });
 
         // 4. Register commands
