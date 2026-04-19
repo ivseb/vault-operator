@@ -31,76 +31,16 @@ export class AutocompleteHandler {
         if (!textarea) return;
         const value = textarea.value;
 
-        // / at the very start → workflow + prompt autocomplete
-        if (value.startsWith('/')) {
+        // Split characters (FEATURE-2207 decision 2026-04-19):
+        //   '/' -> Skills  (primary action, Claude Code muscle memory)
+        //   '#' -> Prompts (template snippet)
+        //   '§' -> Workflows (structured multi-step)
+        const prefix = value[0];
+        if (prefix === '/' || prefix === '#' || prefix === '\u00a7') {
             const query = value.slice(1).split(' ')[0].toLowerCase();
-
-            const workflowLoader = this.plugin.workflowLoader;
-            const workflows: { path: string; slug: string; displayName: string }[] = workflowLoader
-                ? await workflowLoader.discoverWorkflows()
-                : [];
-            const wfToggles = this.plugin.settings.workflowToggles ?? {};
-            const workflowItems = workflows
-                .filter((w) => wfToggles[w.path] !== false && (query === '' || w.slug.startsWith(query)))
-                .map((w) => ({
-                    label: w.displayName,
-                    sub: `/${w.slug}`,
-                    tag: 'Workflow',
-                    onSelect: () => {
-                        const ta = this.getTextarea();
-                        if (!ta) return;
-                        const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
-                        ta.value = `/${w.slug}${rest ? ' ' + rest : ''}`;
-                        this.hide();
-                        ta.focus();
-                    },
-                }));
-
-            const activeMode = this.plugin.settings.currentMode;
-            const customItems = (this.plugin.settings.customPrompts ?? [])
-                .filter((p) =>
-                    p.enabled !== false &&
-                    (query === '' || p.slug.startsWith(query)) &&
-                    (!p.mode || p.mode === activeMode)
-                )
-                .map((p) => ({
-                    label: p.name,
-                    sub: `/${p.slug}`,
-                    tag: 'Prompt',
-                    onSelect: () => {
-                        const ta = this.getTextarea();
-                        if (!ta) return;
-                        const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
-                        ta.value = `/${p.slug}${rest ? ' ' + rest : ''}`;
-                        this.hide();
-                        ta.focus();
-                    },
-                }));
-
-            // Skills: activate the skill's body as explicit instructions for this turn.
-            // FEATURE-2205 (EPIC-022 follow-up): align with Claude Code's slash UX.
-            const skillLoader = this.plugin.selfAuthoredSkillLoader;
-            const skillItems = skillLoader
-                ? skillLoader.getAllSkills()
-                    .map((s) => ({ skill: s, slug: slugifySkillName(s.name) }))
-                    .filter(({ slug }) => query === '' || slug.startsWith(query))
-                    .map(({ skill, slug }) => ({
-                        label: skill.name,
-                        sub: `/${slug}`,
-                        tag: 'Skill',
-                        onSelect: () => {
-                            const ta = this.getTextarea();
-                            if (!ta) return;
-                            const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
-                            ta.value = `/${slug}${rest ? ' ' + rest : ''}`;
-                            this.hide();
-                            ta.focus();
-                        },
-                    }))
-                : [];
-
-            this.items = [...workflowItems, ...customItems, ...skillItems];
-            if (this.items.length === 0) { this.hide(); return; }
+            const items = await this.buildPrefixItems(prefix, query, value);
+            if (items.length === 0) { this.hide(); return; }
+            this.items = items;
             this.selectedIndex = 0;
             this.render();
             return;
@@ -156,6 +96,61 @@ export class AutocompleteHandler {
         }
 
         this.hide();
+    }
+
+    private async buildPrefixItems(prefix: string, query: string, value: string): Promise<AutocompleteItem[]> {
+        const makeSwap = (slug: string) => () => {
+            const ta = this.getTextarea();
+            if (!ta) return;
+            const rest = value.includes(' ') ? value.slice(value.indexOf(' ') + 1) : '';
+            ta.value = `${prefix}${slug}${rest ? ' ' + rest : ''}`;
+            this.hide();
+            ta.focus();
+        };
+
+        if (prefix === '/') {
+            const skillLoader = this.plugin.selfAuthoredSkillLoader;
+            if (!skillLoader) return [];
+            return skillLoader.getAllSkills()
+                .map((s) => ({ skill: s, slug: slugifySkillName(s.name) }))
+                .filter(({ slug }) => query === '' || slug.startsWith(query))
+                .map(({ skill, slug }) => ({
+                    label: skill.name,
+                    sub: `/${slug}`,
+                    tag: 'Skill',
+                    onSelect: makeSwap(slug),
+                }));
+        }
+
+        if (prefix === '#') {
+            const activeMode = this.plugin.settings.currentMode;
+            return (this.plugin.settings.customPrompts ?? [])
+                .filter((p) =>
+                    p.enabled !== false &&
+                    (query === '' || p.slug.startsWith(query)) &&
+                    (!p.mode || p.mode === activeMode)
+                )
+                .map((p) => ({
+                    label: p.name,
+                    sub: `#${p.slug}`,
+                    tag: 'Prompt',
+                    onSelect: makeSwap(p.slug),
+                }));
+        }
+
+        // prefix === '\u00a7' (section sign, workflows)
+        const workflowLoader = this.plugin.workflowLoader;
+        if (!workflowLoader) return [];
+        const workflows = await workflowLoader.discoverWorkflows();
+        const wfToggles = this.plugin.settings.workflowToggles ?? {};
+        return workflows
+            .filter((w) => wfToggles[w.path] !== false && (query === '' || w.slug.startsWith(query)))
+            .map((w) => ({
+                label: w.displayName,
+                sub: `\u00a7${w.slug}`,
+                tag: 'Workflow',
+                onSelect: makeSwap(w.slug),
+            }));
     }
 
     /** Returns true if the event was consumed by the autocomplete. */

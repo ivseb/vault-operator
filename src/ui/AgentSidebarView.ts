@@ -389,16 +389,7 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(plusBtn.createSpan('toolbar-icon'), 'plus');
         plusBtn.addEventListener('click', (e) => {
-            const menu = new Menu();
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.attachFile'))
-                .setIcon('paperclip')
-                .onClick(() => this.attachments.openFilePicker()));
-            menu.addItem(item => item
-                .setTitle(t('ui.sidebar.addVaultFile'))
-                .setIcon('at-sign')
-                .onClick(() => this.vaultFilePicker.show(plusBtn, this.containerEl)));
-            menu.showAtMouseEvent(e);
+            void this.showPlusMenu(e, plusBtn);
         });
 
         // "..." button — tools, skills, web search (FEATURE-1907)
@@ -446,6 +437,71 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'send-horizontal');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+    }
+
+    /**
+     * `+` menu (FEATURE-2207 / 2208): attachments, skills, prompts, workflows.
+     * Picking a skill/prompt/workflow prefixes the textarea with the right
+     * trigger and focuses the input so the user can add free text.
+     */
+    private async showPlusMenu(e: MouseEvent, anchor: HTMLElement): Promise<void> {
+        const menu = new Menu();
+        menu.addItem(item => item
+            .setTitle(t('ui.sidebar.attachFile'))
+            .setIcon('paperclip')
+            .onClick(() => this.attachments.openFilePicker()));
+        menu.addItem(item => item
+            .setTitle(t('ui.sidebar.addVaultFile'))
+            .setIcon('at-sign')
+            .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
+        menu.addSeparator();
+
+        const skills = this.plugin.selfAuthoredSkillLoader?.getAllSkills() ?? [];
+        for (const skill of skills) {
+            const slug = AutocompleteHandler.slugifySkillName(skill.name);
+            menu.addItem(item => item
+                .setTitle(`Skill: ${skill.name}`)
+                .setIcon('sparkles')
+                .onClick(() => this.insertPrefixedCommand('/', slug)));
+        }
+
+        const prompts = (this.plugin.settings.customPrompts ?? []).filter(p => p.enabled !== false);
+        if (prompts.length > 0) menu.addSeparator();
+        for (const prompt of prompts) {
+            menu.addItem(item => item
+                .setTitle(`Prompt: ${prompt.name}`)
+                .setIcon('message-square-quote')
+                .onClick(() => this.insertPrefixedCommand('#', prompt.slug)));
+        }
+
+        const workflowLoader = this.plugin.workflowLoader;
+        if (workflowLoader) {
+            const workflows = await workflowLoader.discoverWorkflows();
+            const toggles = this.plugin.settings.workflowToggles ?? {};
+            const visible = workflows.filter(w => toggles[w.path] !== false);
+            if (visible.length > 0) menu.addSeparator();
+            for (const wf of visible) {
+                menu.addItem(item => item
+                    .setTitle(`Workflow: ${wf.displayName}`)
+                    .setIcon('workflow')
+                    .onClick(() => this.insertPrefixedCommand('\u00a7', wf.slug)));
+            }
+        }
+
+        menu.showAtMouseEvent(e);
+    }
+
+    private insertPrefixedCommand(prefix: string, slug: string): void {
+        if (!this.inputArea) return;
+        const textarea = this.inputArea.querySelector('textarea');
+        if (!(textarea instanceof HTMLTextAreaElement)) return;
+        const existing = textarea.value;
+        const leadsWithPrefix = /^[/#\u00a7]/.test(existing);
+        const body = leadsWithPrefix ? existing.split(/\s+/).slice(1).join(' ') : existing;
+        textarea.value = `${prefix}${slug}${body ? ' ' + body : ' '}`;
+        textarea.focus();
+        const pos = textarea.value.length;
+        textarea.setSelectionRange(pos, pos);
     }
 
     private updateContextBadge(): void {
@@ -1096,54 +1152,19 @@ export class AgentSidebarView extends ItemView {
             messageToSend = textWithContext;
         }
 
-        // Process slash commands (Sprint 3.3) — if text starts with /workflow-slug or /prompt-slug,
-        // replace with workflow/prompt content as explicit instructions (plain string only;
-        // attachment blocks are passed through unchanged).
-        if (typeof messageToSend === 'string' && text.startsWith('/')) {
-            let slashResolved = false;
-
-            // 1. Try workflows first
-            const workflowLoader = this.plugin.workflowLoader;
-            if (workflowLoader) {
-                const processedText = await workflowLoader.processSlashCommand(
-                    text,
-                    this.plugin.settings.workflowToggles ?? {},
-                );
-                if (processedText !== text) {
-                    messageToSend = processedText + (activeFile
-                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
-                        : '');
-                    slashResolved = true;
-                }
-            }
-
-            // 2. If no workflow matched, try custom prompts
+        // Prefix commands (FEATURE-2207 decision 2026-04-19):
+        //   '/skill-slug'    -> activate a self-authored skill
+        //   '#prompt-slug'   -> inject a custom prompt template
+        //   '\u00a7workflow-slug' -> run a workflow
+        // Legacy: '/' used to resolve workflows + prompts + skills. We keep
+        // skills on '/' and redirect the other two to their own prefixes.
+        if (typeof messageToSend === 'string' && /^[/#\u00a7]/.test(text)) {
+            const prefix = text[0];
             const spaceIdx = text.indexOf(' ');
             const slug = spaceIdx === -1 ? text.slice(1) : text.slice(1, spaceIdx);
             const rest = spaceIdx === -1 ? '' : text.slice(spaceIdx + 1).trim();
 
-            if (!slashResolved) {
-                const prompt = (this.plugin.settings.customPrompts ?? []).find(
-                    (p) => p.slug === slug && p.enabled !== false,
-                );
-                if (prompt) {
-                    const activeFileName = activeFile?.name;
-                    const { resolvePromptContent } = await import('../core/context/SupportPrompts');
-                    const resolved = resolvePromptContent(prompt.content, {
-                        userInput: rest,
-                        activeFile: activeFileName,
-                    });
-                    messageToSend = resolved + (activeFile
-                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
-                        : '');
-                    slashResolved = true;
-                }
-            }
-
-            // 3. If no prompt matched, try self-authored skills. Slug comes from
-            // AutocompleteHandler.slugifySkillName so the handler and the resolver
-            // stay in sync. FEATURE-2205 (EPIC-022 follow-up).
-            if (!slashResolved) {
+            if (prefix === '/') {
                 const skillLoader = this.plugin.selfAuthoredSkillLoader;
                 const matchedSkill = skillLoader?.getAllSkills().find(
                     (s) => AutocompleteHandler.slugifySkillName(s.name) === slug,
@@ -1158,6 +1179,37 @@ export class AgentSidebarView extends ItemView {
                     messageToSend = parts.join('\n') + (activeFile
                         ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
                         : '');
+                }
+            } else if (prefix === '#') {
+                const prompt = (this.plugin.settings.customPrompts ?? []).find(
+                    (p) => p.slug === slug && p.enabled !== false,
+                );
+                if (prompt) {
+                    const activeFileName = activeFile?.name;
+                    const { resolvePromptContent } = await import('../core/context/SupportPrompts');
+                    const resolved = resolvePromptContent(prompt.content, {
+                        userInput: rest,
+                        activeFile: activeFileName,
+                    });
+                    messageToSend = resolved + (activeFile
+                        ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
+                        : '');
+                }
+            } else if (prefix === '\u00a7') {
+                // Workflows expect a leading '/' in the existing loader API so we
+                // re-shape the command for backward compat before dispatch.
+                const workflowLoader = this.plugin.workflowLoader;
+                if (workflowLoader) {
+                    const reshaped = `/${slug}${rest ? ' ' + rest : ''}`;
+                    const processedText = await workflowLoader.processSlashCommand(
+                        reshaped,
+                        this.plugin.settings.workflowToggles ?? {},
+                    );
+                    if (processedText !== reshaped) {
+                        messageToSend = processedText + (activeFile
+                            ? `\n\n<context>\nActive file in editor: ${activeFile.path}\n</context>`
+                            : '');
+                    }
                 }
             }
         }
