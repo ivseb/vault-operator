@@ -115,7 +115,7 @@ describe('SandboxBridge circuit auto-reset (BUG-027)', () => {
         return makeBridge([], {});
     }
 
-    it('auto-resets after the cooldown window expires', async () => {
+    it('auto-resets after the cooldown window expires', () => {
         const bridge = makeEmptyBridge();
         // Trip the breaker: 20 errors in a row.
         for (let i = 0; i < 20; i++) bridge.recordError();
