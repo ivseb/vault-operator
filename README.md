@@ -2,7 +2,7 @@
 
 **Agentic AI for Obsidian.**
 
-An autonomous AI operating layer for your Obsidian vault. 49+ tools, semantic search, persistent memory, multi-agent workflows, office document creation, and full safety controls. Works with 10+ providers. Local-first. Open source. Free.
+An autonomous AI operating layer for your Obsidian vault. 50+ tools, semantic search, persistent memory, multi-agent workflows, office document creation, plugin discovery, and full safety controls. Works with 10+ providers. Local-first. Open source. Free.
 
 [www.obsilo.ai](https://www.obsilo.ai)
 
@@ -14,17 +14,18 @@ You describe a task in natural language. Obsilo plans, searches your vault, read
 
 ## Features
 
-### 49+ Built-in Tools
+### 50+ Built-in Tools
 
-Organized into six groups:
+Organized into eight groups:
 
 - **Read & Search**: `read_file`, `read_document`, `list_files`, `search_files`
 - **Vault Intelligence**: `semantic_search`, `get_frontmatter`, `search_by_tag`, `get_linked_notes`, `get_vault_stats`, `get_daily_note`, `query_base`, `open_note`
-- **Write & Edit**: `write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, `create_folder`, `delete_file`, `move_file`, `generate_canvas`, `create_excalidraw`, `create_base`, `update_base`
+- **Write & Edit**: `write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, `create_folder`, `delete_file`, `move_file`, `generate_canvas`, `create_excalidraw`, `create_drawio`, `create_base`, `update_base`
 - **Office Documents**: `plan_presentation`, `create_pptx`, `create_docx`, `create_xlsx`
+- **Knowledge Maintenance**: `ingest_document`, `vault_health_check`
 - **Web**: `web_fetch`, `web_search` (Brave / Tavily)
-- **Agent Control**: `new_task`, `update_todo_list`, `ask_followup_question`, `evaluate_expression`, `manage_skill`, `switch_mode`, and more
-- **Plugin Integration**: `execute_command`, `call_plugin_api`, `enable_plugin`, `resolve_capability_gap`, `execute_recipe`, `render_presentation`
+- **Agent Control**: `new_task`, `update_todo_list`, `ask_followup_question`, `evaluate_expression`, `manage_skill`, `manage_source`, `switch_mode`, `find_tool`, `read_agent_logs`, `configure_model`, `update_settings`, `manage_mcp_server`
+- **Plugin Integration**: `execute_command`, `call_plugin_api`, `enable_plugin`, `resolve_capability_gap`, `execute_recipe`
 - **MCP**: `use_mcp_tool` -- connect any MCP server
 
 ### Knowledge Discovery
@@ -50,6 +51,10 @@ Create PowerPoint, Word, and Excel files directly in your vault:
 ### Sandbox Code Execution
 
 Run TypeScript directly in a secure sandboxed iframe. Import npm packages (pptxgenjs, xlsx, pdf-lib, d3, etc.) from CDN -- no Node.js or shell required. Process data, automate complex batch operations, and create reusable skills with code modules.
+
+### Knowledge Maintenance
+
+Keep your vault clean and discoverable as it grows. `ingest_document` parses PDF, DOCX, PPTX, XLSX, CSV, and JSON into structured Markdown with extracted metadata. `vault_health_check` audits the vault for orphaned notes, broken links, missing frontmatter, duplicate titles, and stale content -- and proposes fixes you can approve in batches.
 
 ### Plugin Integration
 
@@ -181,29 +186,39 @@ This plugin makes network requests depending on your configuration:
 
 Full documentation: **[www.obsilo.ai](https://www.obsilo.ai)**
 
-**Getting Started**
-- [Installation & Quick Start](https://www.obsilo.ai/guide/getting-started)
-- [Your First Conversation](https://www.obsilo.ai/guide/first-conversation)
-- [Choosing a Model](https://www.obsilo.ai/guide/choosing-a-model)
+**Tutorials**
+- [Installation & Quick Start](https://www.obsilo.ai/tutorials/getting-started)
+- [Your First Conversation](https://www.obsilo.ai/tutorials/first-conversation)
+- [Your First Knowledge Workflow](https://www.obsilo.ai/tutorials/knowledge-workflow)
 
-**Working with Obsilo**
-- [Chat Interface](https://www.obsilo.ai/guide/working-with-obsilo/chat-interface)
-- [Vault Operations](https://www.obsilo.ai/guide/working-with-obsilo/vault-operations)
-- [Knowledge Discovery](https://www.obsilo.ai/guide/working-with-obsilo/knowledge-discovery)
-- [Memory & Personalization](https://www.obsilo.ai/guide/working-with-obsilo/memory-personalization)
-- [Safety & Control](https://www.obsilo.ai/guide/working-with-obsilo/safety-control)
-
-**Advanced**
-- [Skills, Rules & Workflows](https://www.obsilo.ai/guide/advanced/skills-rules-workflows)
-- [Office Documents](https://www.obsilo.ai/guide/advanced/office-documents)
-- [Connectors (MCP)](https://www.obsilo.ai/guide/advanced/connectors)
-- [Multi-Agent & Tasks](https://www.obsilo.ai/guide/advanced/multi-agent)
+**Guides**
+- [What Obsilo Can Do](https://www.obsilo.ai/guides/capabilities)
+- [Choosing a Model](https://www.obsilo.ai/guides/choosing-a-model)
+- [Chat Interface](https://www.obsilo.ai/guides/chat-interface)
+- [Vault Operations](https://www.obsilo.ai/guides/vault-operations)
+- [Knowledge Discovery](https://www.obsilo.ai/guides/knowledge-discovery)
+- [Memory & Personalization](https://www.obsilo.ai/guides/memory-personalization)
+- [Safety & Control](https://www.obsilo.ai/guides/safety-control)
+- [Skills, Rules & Workflows](https://www.obsilo.ai/guides/skills-rules-workflows)
+- [Office Documents](https://www.obsilo.ai/guides/office-documents)
+- [Connectors (MCP)](https://www.obsilo.ai/guides/connectors)
+- [Multi-Agent & Tasks](https://www.obsilo.ai/guides/multi-agent)
+- [Knowledge Ingest](https://www.obsilo.ai/guides/knowledge-ingest)
+- [Vault Health Check](https://www.obsilo.ai/guides/vault-health)
 
 **Reference**
-- [Tools](https://www.obsilo.ai/guide/reference/tools)
-- [Providers & Models](https://www.obsilo.ai/guide/reference/providers)
-- [Settings](https://www.obsilo.ai/guide/reference/settings)
-- [Troubleshooting](https://www.obsilo.ai/guide/reference/troubleshooting)
+- [Tools](https://www.obsilo.ai/reference/tools)
+- [Providers & Models](https://www.obsilo.ai/reference/providers)
+- [Settings](https://www.obsilo.ai/reference/settings)
+- [Troubleshooting](https://www.obsilo.ai/reference/troubleshooting)
+
+**Concepts**
+- [How Obsilo Works](https://www.obsilo.ai/concepts/)
+- [The Agent Loop](https://www.obsilo.ai/concepts/agent-loop)
+- [Tool System](https://www.obsilo.ai/concepts/tool-system)
+- [Knowledge Layer](https://www.obsilo.ai/concepts/knowledge-layer)
+- [Memory System](https://www.obsilo.ai/concepts/memory-system)
+- [Governance](https://www.obsilo.ai/concepts/governance)
 
 ---
 
