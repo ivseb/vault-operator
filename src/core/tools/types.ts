@@ -76,7 +76,11 @@ export type ToolName =
     // Self-Development (Phase 3: Expression evaluation)
     | 'evaluate_expression'
     // Self-Development (Phase 4: Core Self-Modification)
-    | 'manage_source';
+    | 'manage_source'
+    // Memory v2 internal -- Engine-only tool schemas, never registered with
+    // the agent ToolRegistry. Carried in ToolName so ApiHandler.createMessage
+    // type-checks across the same ToolDefinition surface.
+    | '_memory_atomize';
 
 /**
  * Tool use request from LLM
