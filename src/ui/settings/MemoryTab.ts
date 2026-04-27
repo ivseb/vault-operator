@@ -21,7 +21,16 @@ import { MemoryAtomizer } from '../../core/memory/MemoryAtomizer';
 import { MemoryMigrationJob, type MigrationReport } from '../../core/memory/MemoryMigrationJob';
 
 export class MemoryTab {
-    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
+    /**
+     * Local UI state: which model the user picked for the v2 migration.
+     * Defaults to the memory-model key on tab open. Reset on tab rebuild --
+     * this is a one-shot decision, not worth persisting in plugin settings.
+     */
+    private migrationModelKey: string;
+
+    constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {
+        this.migrationModelKey = plugin.settings.memory.memoryModelKey ?? '';
+    }
 
     private buildIntroSection(containerEl: HTMLElement): void {
         const infoBanner = containerEl.createDiv('agent-settings-info-banner');
@@ -234,6 +243,29 @@ export class MemoryTab {
         // copies originals into memory-v1-backup/{ISO}/. Originals stay
         // untouched -- Phase 5 retires them after live verification.
         containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory v2 Migration (Beta)' });
+
+        const activeModels = this.plugin.settings.activeModels.filter(m => m.enabled);
+
+        // Independent model dropdown (BUG-031): the global chat provider
+        // can be on a quota-limited tier (e.g. Copilot 402). Migration is
+        // a one-shot LLM job; let the user pick a model that is known to
+        // work, separately from chat / memory / contextual choices.
+        new Setting(containerEl)
+            .setName('Migration model')
+            .setDesc(
+                'Which model atomises the legacy memory files. Haiku 4.5 is sufficient ' +
+                'for typical memory MDs; Sonnet 4.6 if the source has dense compound prose. ' +
+                'Defaults to your Memory Model.',
+            )
+            .addDropdown(d => {
+                d.addOption('', '(use Memory Model)');
+                for (const m of activeModels) {
+                    d.addOption(getModelKey(m), `${m.displayName ?? m.name} (${m.provider})`);
+                }
+                d.setValue(this.migrationModelKey);
+                d.onChange((v) => { this.migrationModelKey = v; });
+            });
+
         const v2Setting = new Setting(containerEl)
             .setName('Migrate v1 memory to v2')
             .setDesc(
@@ -248,16 +280,44 @@ export class MemoryTab {
 
     private async runMemoryV2Migration(btn: HTMLButtonElement): Promise<void> {
         const memDB = this.plugin.memoryDB;
-        const apiHandler = this.plugin.apiHandler;
         const fs = this.plugin.globalFs;
-        if (!memDB?.isOpen() || !apiHandler || !fs) {
-            new Notice('Memory v2 migration: memory DB, API handler, or file adapter not ready');
+        if (!memDB?.isOpen() || !fs) {
+            new Notice('Memory v2 migration: memory DB or file adapter not ready');
+            return;
+        }
+
+        // Migration uses an independent model selection (BUG-031, 2026-04-28).
+        // The dropdown next to the Migrate button captures the choice; we
+        // re-read it here so the user sees what they picked. Falling back to
+        // the memory model or the global chat handler is intentional so the
+        // button stays useful even before the user touches the dropdown.
+        const selectedKey = this.migrationModelKey;
+        const candidate = selectedKey
+            ? this.plugin.settings.activeModels.find(m => getModelKey(m) === selectedKey && m.enabled)
+            : null;
+        const fallback = this.plugin.getMemoryModel();
+        const chosen = candidate ?? fallback;
+
+        let atomizerApi = this.plugin.apiHandler;
+        let providerLabel = 'global chat provider';
+        if (chosen) {
+            const { buildApiHandlerForModel } = await import('../../api/index');
+            atomizerApi = buildApiHandlerForModel(chosen);
+            providerLabel = `${chosen.displayName ?? chosen.name} (${chosen.provider})`;
+        }
+        if (!atomizerApi) {
+            new Notice(
+                'Memory v2 migration: no API handler available. ' +
+                'Pick a model in the migration dropdown or under Settings -> Memory -> Memory Model.',
+                10000,
+            );
             return;
         }
 
         const ok = await confirmModal(this.app, {
             title: 'Migrate v1 memory to v2?',
             message:
+                `Provider: ${providerLabel}\n\n` +
                 '5 markdown files will be sent through an LLM atomizer and stored as facts. ' +
                 'soul.md becomes a default communication style. knowledge.md stays as is. ' +
                 '\n\nOriginals are copied to memory-v1-backup/{timestamp}/. They are NOT deleted.',
@@ -270,7 +330,7 @@ export class MemoryTab {
         btn.disabled = true;
         const factStore = new FactStore(memDB);
         const styleStore = new CommunicationStyleStore(memDB);
-        const atomizer = new MemoryAtomizer(apiHandler);
+        const atomizer = new MemoryAtomizer(atomizerApi);
         const job = new MemoryMigrationJob(fs, factStore, styleStore, atomizer);
 
         const progressNotice = new Notice('Memory v2 migration in progress...', 0);
