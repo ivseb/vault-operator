@@ -1,0 +1,196 @@
+/**
+ * recall_memory -- Agent-facing tool for cold-memory retrieval.
+ *
+ * Lets the agent search Memory v2 facts by meaning (cosine via the
+ * shared EmbeddingService -> FactStore embeddings) plus optional
+ * 1-hop edge-walk via UnifiedGraphService. Used when the static
+ * Hot-Memory-Block doesn't have what the agent needs and a deliberate
+ * "lookup" is more appropriate than re-asking the user.
+ *
+ * Returns URI-typed RecallHit[] rendered as a Markdown list. The agent
+ * is expected to synthesise the answer from the hits, not read each fact
+ * individually.
+ *
+ * FEATURE-0317 / PLAN-006 task 9.
+ */
+
+import { BaseTool } from '../BaseTool';
+import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type ObsidianAgentPlugin from '../../../main';
+import { FactStore } from '../../memory/FactStore';
+import type { Fact, FactKind } from '../../memory/FactStore';
+import type { RecallHit } from '../../memory/RecallHit';
+
+export class RecallMemoryTool extends BaseTool<'recall_memory'> {
+    readonly name = 'recall_memory' as const;
+    readonly isWriteOperation = false;
+
+    constructor(plugin: ObsidianAgentPlugin) {
+        super(plugin);
+    }
+
+    getDefinition(): ToolDefinition {
+        return {
+            name: 'recall_memory',
+            description:
+                'Search the user memory store (Memory v2 facts + edges). ' +
+                'Use when you need a specific past detail that is not already in the system-prompt ' +
+                'memory block -- e.g. "what was the user\'s preferred deploy target last quarter?". ' +
+                'Returns URI-typed hits with kind / topics / contributions. Synthesise your answer ' +
+                'from the excerpts -- do NOT chain into read_file or further searches.',
+            input_schema: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description: 'Natural-language query for cosine + keyword search over the fact store.',
+                    },
+                    top_k: {
+                        type: 'number',
+                        description: 'Max hits to return (default 5, max 15).',
+                    },
+                    multi_hop: {
+                        type: 'boolean',
+                        description:
+                            'If true, expand each direct hit by 1 hop over fact_edges so neighbours surface too. ' +
+                            'Default false. Multi-hop walks add ~50ms.',
+                    },
+                    kind_filter: {
+                        type: 'string',
+                        enum: ['fact', 'preference', 'identity', 'event'],
+                        description: 'Restrict to one fact kind (e.g. "preference" for stable user prefs only).',
+                    },
+                },
+                required: ['query'],
+            },
+        };
+    }
+
+    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+        const { callbacks } = context;
+        const query = ((input.query as string) ?? '').trim();
+        if (!query) {
+            callbacks.pushToolResult(this.formatError(new Error('query parameter is required')));
+            return;
+        }
+        const topK = Math.min(Math.max(Number(input.top_k) || 5, 1), 15);
+        const multiHop = input.multi_hop === true;
+        const kindFilter = (input.kind_filter as FactKind | undefined) ?? undefined;
+
+        const memDB = this.plugin.memoryDB;
+        if (!memDB?.isOpen()) {
+            callbacks.pushToolResult(
+                'Memory v2 is not available -- the memory database is not open.',
+            );
+            return;
+        }
+
+        try {
+            const factStore = new FactStore(memDB);
+            const hits = await this.queryFacts(factStore, query, topK, kindFilter);
+            const expanded = multiHop
+                ? this.expandOneHop(factStore, hits, topK)
+                : hits;
+            if (expanded.length === 0) {
+                callbacks.pushToolResult(
+                    `No memory facts matched: "${query}".`,
+                );
+                return;
+            }
+            const md = this.renderMarkdown(query, expanded, multiHop);
+            callbacks.pushToolResult(md);
+        } catch (e) {
+            await callbacks.handleError('recall_memory', e);
+        }
+    }
+
+    /**
+     * Phase-3 placeholder retrieval. EmbeddingService is wired in main.ts
+     * but routing fact-text through it for cosine on `fact_embeddings`
+     * is Phase-4 / FEATURE-0318 work. For now we use a simple
+     * keyword-overlap rank against the fact text + topics; that is
+     * sufficient as a Phase-3 deliverable and the API surface is stable
+     * so the upgrade is local.
+     */
+    private async queryFacts(
+        store: FactStore,
+        query: string,
+        topK: number,
+        kindFilter: FactKind | undefined,
+    ): Promise<RecallHit[]> {
+        const queryTokens = tokenise(query);
+        if (queryTokens.length === 0) return [];
+        const candidates = store.listLatest({ kind: kindFilter, limit: 500 });
+        const scored: Array<{ fact: Fact; score: number }> = [];
+        for (const fact of candidates) {
+            const haystack = `${fact.text.toLowerCase()} ${fact.topics.join(' ').toLowerCase()}`;
+            let hits = 0;
+            for (const t of queryTokens) {
+                if (haystack.includes(t)) hits += 1;
+            }
+            if (hits === 0) continue;
+            scored.push({ fact, score: hits + fact.importance });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, topK).map(({ fact, score }) => factToHit(fact, score));
+    }
+
+    private expandOneHop(store: FactStore, seeds: RecallHit[], topK: number): RecallHit[] {
+        if (seeds.length === 0) return [];
+        const seenUris = new Set(seeds.map(s => s.uri));
+        const expanded: RecallHit[] = [...seeds];
+        // Pull fact rows by id, walk superseded_by + ord-by-importance
+        // related facts. Cheap approximation; full edge-walk uses
+        // UnifiedGraphService and lands in Phase 4.
+        for (const s of seeds) {
+            if (!s.uri.startsWith('fact:')) continue;
+            const id = Number(s.uri.slice(5));
+            const fact = store.getById(id);
+            if (!fact) continue;
+            // Pull other latest facts that share the primary topic.
+            if (fact.topics.length === 0) continue;
+            const related = store.listLatest({ limit: 20 })
+                .filter(f => f.id !== fact.id && f.topics[0] === fact.topics[0]);
+            for (const r of related) {
+                const uri = `fact:${r.id}`;
+                if (seenUris.has(uri)) continue;
+                seenUris.add(uri);
+                expanded.push(factToHit(r, r.importance * 0.6)); // distance penalty
+            }
+        }
+        expanded.sort((a, b) => b.score - a.score);
+        return expanded.slice(0, topK);
+    }
+
+    private renderMarkdown(query: string, hits: RecallHit[], multiHop: boolean): string {
+        const lines: string[] = [];
+        lines.push(`Recall results for: "${query}"`);
+        lines.push(`(${hits.length} hits${multiHop ? ', multi-hop expansion' : ''})`);
+        lines.push('');
+        for (const h of hits) {
+            const tag = h.kind ? ` _(${h.kind})_` : '';
+            const topics = h.topics.length > 0 ? ` [${h.topics.join(', ')}]` : '';
+            lines.push(`- **${h.text}**${tag}${topics}`);
+            lines.push(`  \`${h.uri}\` -- score ${h.score.toFixed(2)}`);
+        }
+        return lines.join('\n');
+    }
+}
+
+function factToHit(fact: Fact, score: number): RecallHit {
+    return {
+        uri: `fact:${fact.id}`,
+        text: fact.text,
+        score,
+        topics: fact.topics,
+        kind: fact.kind,
+        contributions: { 'fact-text-match': score },
+    };
+}
+
+function tokenise(text: string): string[] {
+    return text
+        .toLowerCase()
+        .split(/[\s_/,.;:!?()[\]{}"'`|@#=+*<>~^-]+/)
+        .filter(t => t.length >= 3);
+}

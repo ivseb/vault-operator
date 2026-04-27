@@ -36,6 +36,7 @@ import { OpenNoteTool } from './vault/OpenNoteTool';
 import { GetDailyNoteTool } from './vault/GetDailyNoteTool';
 // Import tools — vault: semantic search (Phase C2)
 import { SemanticSearchTool } from './vault/SemanticSearchTool';
+import { RecallMemoryTool } from './memory/RecallMemoryTool';
 // Import tools — vault: canvas (Phase C3)
 import { GenerateCanvasTool } from './vault/GenerateCanvasTool';
 // Import tools — vault: excalidraw
@@ -156,6 +157,8 @@ export class ToolRegistry {
         this.register(new GetDailyNoteTool(this.plugin));
         // Vault: semantic search (Phase C2 — only active when index is built)
         this.register(new SemanticSearchTool(this.plugin));
+        // Memory v2: recall_memory (FEATURE-0317 / PLAN-006 task 9)
+        this.register(new RecallMemoryTool(this.plugin));
         // Vault: canvas (Phase C3)
         this.register(new GenerateCanvasTool(this.plugin));
         // Vault: excalidraw

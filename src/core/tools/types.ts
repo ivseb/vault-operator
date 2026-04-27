@@ -77,6 +77,8 @@ export type ToolName =
     | 'evaluate_expression'
     // Self-Development (Phase 4: Core Self-Modification)
     | 'manage_source'
+    // Memory v2 (Phase 3 / FEATURE-0317): cold-memory recall for the agent.
+    | 'recall_memory'
     // Memory v2 internal -- Engine-only tool schemas, never registered with
     // the agent ToolRegistry. Carried in ToolName so ApiHandler.createMessage
     // type-checks across the same ToolDefinition surface.
