@@ -17,6 +17,8 @@ import { WorkflowLoader } from './core/context/WorkflowLoader';
 import { SkillsManager } from './core/context/SkillsManager';
 import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
+import { EmbeddingService } from './core/memory/EmbeddingService';
+import { ObsiloEmbeddingProvider } from './core/memory/ObsiloEmbeddingProvider';
 import { KnowledgeDB, WriterLockHeldError } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
@@ -91,6 +93,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     workflowLoader: WorkflowLoader;
     skillsManager: SkillsManager;
     semanticIndex: SemanticIndexService | null = null;
+    embeddingService: EmbeddingService | null = null;
     knowledgeDB: KnowledgeDB | null = null;
     vectorStore: VectorStore | null = null;
     graphStore: GraphStore | null = null;
@@ -457,6 +460,16 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.semanticIndex.initialize().catch((e) =>
                 console.warn('[Plugin] Semantic index init failed (non-fatal):', e)
             );
+            // Memory v2 / FEATURE-0316 task 6: shared EmbeddingService backed by
+            // SemanticIndexService.embedTexts. Phase 2+ engine modules (FactStore
+            // embeddings, future history embeddings, Hybrid-Search Cosine signal)
+            // route through this single Service instead of growing parallel
+            // embed paths.
+            const semanticIndexRef = this.semanticIndex;
+            this.embeddingService = new EmbeddingService(new ObsiloEmbeddingProvider(
+                (texts) => semanticIndexRef.embedTexts(texts),
+                () => semanticIndexRef.getEmbeddingModelInfo(),
+            ));
             // Auto-index on startup if configured
             if (this.settings.semanticAutoIndex === 'startup') {
                 // buildIndex() auto-triggers enrichment after completion

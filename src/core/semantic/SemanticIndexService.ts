@@ -150,6 +150,28 @@ export class SemanticIndexService {
         if (model) console.debug(`[SemanticIndex] Using embedding model: ${model.name} (${model.provider})`);
     }
 
+    /**
+     * Public adapter for the Memory v2 EmbeddingService thin-adapter pattern
+     * (FEATURE-0316 / PLAN-005 task 6). Other engine modules can route their
+     * embedding requests through ObsiloEmbeddingProvider, which delegates here
+     * so the entire batch + retry + provider-quirk stack stays in one place.
+     *
+     * Throws when no embedding model is configured -- callers must pre-check
+     * via `getEmbeddingModelInfo()` or wrap their own try/catch.
+     */
+    async embedTexts(texts: string[]): Promise<Float32Array[]> {
+        return this.embedBatch(texts);
+    }
+
+    /**
+     * Returns the active embedding model identity for callers that need to
+     * surface it (UI, EmbeddingService.ModelInfo). Null when unconfigured.
+     */
+    getEmbeddingModelInfo(): { model: string; provider: string } | null {
+        if (!this.embeddingModel) return null;
+        return { model: this.embeddingModel.name, provider: this.embeddingModel.provider };
+    }
+
     /** Stop an in-progress buildIndex(). Aborts pending API calls immediately. */
     cancelBuild(): void {
         this.cancelled = true;
