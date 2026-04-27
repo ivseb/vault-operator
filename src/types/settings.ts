@@ -458,6 +458,21 @@ export interface MemorySettings {
     memoryModelKey: string;
     /** Minimum total messages (user + assistant) before extraction triggers */
     extractionThreshold: number;
+    /**
+     * Memory v2 migration state (FEATURE-0316).
+     * - `not-applicable`: fresh install, never had v1 memory MDs -> Memory v2 is the only path
+     * - `pending`: v1 user upgraded but has not yet decided
+     * - `completed`: migration ran successfully (timestamp + counts in v2MigrationReport)
+     * - `skipped`: user chose "Later" in the upgrade modal
+     */
+    v2MigrationStatus: 'not-applicable' | 'pending' | 'completed' | 'skipped';
+    /** ISO timestamp + counts of the last successful migration run (null if never). */
+    v2MigrationReport: {
+        completedAt: string;
+        factsInserted: number;
+        stylesInserted: number;
+        backupFolder: string;
+    } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -903,6 +918,11 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         autoUpdateLongTerm: true,
         memoryModelKey: '',
         extractionThreshold: 6,
+        // Default for FRESH installs. Existing v1 users get bumped to 'pending'
+        // by the detector in main.ts when memory/{file}.md is found and no
+        // facts row exists yet. See `detectMemoryV2MigrationStatus`.
+        v2MigrationStatus: 'not-applicable',
+        v2MigrationReport: null,
     },
     chatLinking: {
         enabled: true,

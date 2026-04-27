@@ -238,18 +238,54 @@ export class MemoryTab {
         }
 
         // ─── Memory v2 Migration (FEATURE-0316 / PLAN-005 task 7) ────────
-        // Beta-only entry point. Atomises 5 of the 7 legacy memory MD files
-        // into the v2 fact schema, soul.md into communication_styles, and
-        // copies originals into memory-v1-backup/{ISO}/. Originals stay
-        // untouched -- Phase 5 retires them after live verification.
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory v2 Migration (Beta)' });
+        // The whole section is hidden for fresh installs (status === 'not-applicable')
+        // because they never had v1 memory files to migrate. Existing users
+        // see one of three sub-states: pending (migration outstanding),
+        // completed (one-line summary + re-run option), skipped ("Later"
+        // chosen in the upgrade modal -- offer to migrate anyway).
+        const v2Status = this.plugin.settings.memory.v2MigrationStatus;
+        if (v2Status !== 'not-applicable') {
+            this.buildMemoryV2MigrationSection(containerEl);
+        }
+    }
 
+    private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {
+        const mem = this.plugin.settings.memory;
+        const status = mem.v2MigrationStatus;
+
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory v2 Migration' });
+
+        // Status banner -- different copy per state so users always know
+        // where they stand.
+        const banner = containerEl.createDiv('agent-settings-info-banner');
+        const bannerText = banner.createDiv({ cls: 'agent-settings-info-text' });
+        if (status === 'pending') {
+            bannerText.createEl('strong', { text: 'Migration pending. ' });
+            bannerText.appendText(
+                'Pick a migration model below and click "Migrate now". ' +
+                'Your originals stay in place; a copy goes into memory-v1-backup/{timestamp}/.',
+            );
+        } else if (status === 'completed' && mem.v2MigrationReport) {
+            const r = mem.v2MigrationReport;
+            const date = new Date(r.completedAt).toLocaleString();
+            bannerText.createEl('strong', { text: 'Migration done. ' });
+            bannerText.appendText(
+                `Completed ${date} -- ${r.factsInserted} facts, ${r.stylesInserted} style row${r.stylesInserted === 1 ? '' : 's'}. ` +
+                `Backup: ${r.backupFolder}. You can re-run the migration if you want to incorporate later edits to the v1 files (dedup is on).`,
+            );
+        } else if (status === 'skipped') {
+            bannerText.createEl('strong', { text: 'Migration skipped. ' });
+            bannerText.appendText(
+                'You chose "Later" in the Memory v2 announcement. ' +
+                'The migration is still available below whenever you want to run it.',
+            );
+        }
+
+        // Model dropdown (BUG-031): the global chat provider can be on a
+        // quota-limited tier (e.g. Copilot 402). Migration is a one-shot
+        // LLM job; let the user pick a model that is known to work,
+        // separately from chat / memory / contextual choices.
         const activeModels = this.plugin.settings.activeModels.filter(m => m.enabled);
-
-        // Independent model dropdown (BUG-031): the global chat provider
-        // can be on a quota-limited tier (e.g. Copilot 402). Migration is
-        // a one-shot LLM job; let the user pick a model that is known to
-        // work, separately from chat / memory / contextual choices.
         new Setting(containerEl)
             .setName('Migration model')
             .setDesc(
@@ -267,14 +303,15 @@ export class MemoryTab {
             });
 
         const v2Setting = new Setting(containerEl)
-            .setName('Migrate v1 memory to v2')
+            .setName(status === 'completed' ? 'Re-run migration' : 'Migrate v1 memory to v2')
             .setDesc(
                 'Atomises user-profile.md, projects.md, patterns.md, errors.md, custom-tools.md ' +
                 'into the new fact schema. soul.md becomes a communication style. knowledge.md ' +
                 'is left as a vault note. Originals are copied to memory-v1-backup/{timestamp}/.',
             );
         v2Setting.addButton((b) =>
-            b.setButtonText('Migrate now').onClick(() => void this.runMemoryV2Migration(b.buttonEl)),
+            b.setButtonText(status === 'completed' ? 'Re-run' : 'Migrate now')
+                .onClick(() => void this.runMemoryV2Migration(b.buttonEl)),
         );
     }
 
@@ -339,6 +376,16 @@ export class MemoryTab {
             progressNotice.hide();
             new Notice(formatReport(report), 12000);
             console.debug('[MemoryV2Migration] Report:', report);
+            // Persist outcome -- next plugin load skips the upgrade modal,
+            // and the settings banner switches to the "Migration done" copy.
+            this.plugin.settings.memory.v2MigrationStatus = 'completed';
+            this.plugin.settings.memory.v2MigrationReport = {
+                completedAt: report.timestamp,
+                factsInserted: report.totalFactsInserted,
+                stylesInserted: report.totalStylesInserted,
+                backupFolder: report.backupFolder,
+            };
+            await this.plugin.saveSettings();
         } catch (e) {
             progressNotice.hide();
             console.error('[MemoryV2Migration] Failed:', e);

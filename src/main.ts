@@ -822,6 +822,12 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (stale.length === 0) {
                     await this.activateView();
                 }
+                // Memory v2 upgrade prompt -- BUG-031 follow-up. Fires only
+                // when the detector finds legacy v1 MDs and no v2 facts yet.
+                // Fresh installs are silent.
+                this.detectAndPromptMemoryV2Upgrade().catch(e =>
+                    console.warn('[Plugin] Memory v2 upgrade detection failed (non-fatal):', e),
+                );
             })();
         });
 
@@ -1446,6 +1452,71 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Open Obsidian settings and navigate to a specific tab/subtab.
      * Used by protocol handler and agent deep-links.
      */
+    /**
+     * Memory v2 upgrade detection (FEATURE-0316 / BUG-031 follow-up).
+     *
+     * Fresh installs ship with `v2MigrationStatus = 'not-applicable'` so this
+     * method is a no-op for them (the v1 MD files never existed). Existing
+     * users from earlier obsilo releases land here on first plugin load
+     * after the update -- if they have the legacy memory MDs but no v2
+     * facts yet, status flips to 'pending' and the upgrade modal opens.
+     *
+     * Idempotent: status stays 'completed'/'skipped' once decided.
+     */
+    async detectAndPromptMemoryV2Upgrade(): Promise<void> {
+        if (!this.memoryDB?.isOpen() || !this.globalFs) return;
+        const mem = this.settings.memory;
+
+        // First detection pass: bump 'not-applicable' to a real verdict for
+        // existing users. Fresh installs without v1 MDs stay 'not-applicable'.
+        if (mem.v2MigrationStatus === 'not-applicable') {
+            const hasV1 = await this.hasLegacyMemoryFiles();
+            if (!hasV1) return; // truly fresh, nothing to migrate
+            const factsCount = this.countV2Facts();
+            mem.v2MigrationStatus = factsCount === 0 ? 'pending' : 'completed';
+            await this.saveSettings();
+        }
+
+        if (mem.v2MigrationStatus !== 'pending') return;
+
+        const { memoryV2UpgradeModal } = await import('./ui/modals/MemoryV2UpgradeModal');
+        const choice = await memoryV2UpgradeModal(this.app, { reason: 'auto-on-load' });
+        if (choice === 'migrate') {
+            this.openSettingsAt('agent', 'memory');
+        } else {
+            mem.v2MigrationStatus = 'skipped';
+            await this.saveSettings();
+        }
+    }
+
+    private async hasLegacyMemoryFiles(): Promise<boolean> {
+        if (!this.globalFs) return false;
+        const candidates = [
+            'memory/user-profile.md', 'memory/projects.md', 'memory/patterns.md',
+            'memory/errors.md', 'memory/custom-tools.md', 'memory/soul.md',
+        ];
+        for (const path of candidates) {
+            try {
+                if (await this.globalFs.exists(path)) {
+                    const content = await this.globalFs.read(path).catch(() => '');
+                    // Non-empty content = real legacy data, not just the auto-created template
+                    if (content.trim().length > 50) return true;
+                }
+            } catch { /* try next */ }
+        }
+        return false;
+    }
+
+    private countV2Facts(): number {
+        if (!this.memoryDB?.isOpen()) return 0;
+        try {
+            const result = this.memoryDB.getDB().exec('SELECT COUNT(*) FROM facts');
+            return (result[0]?.values?.[0]?.[0] as number) ?? 0;
+        } catch {
+            return 0;
+        }
+    }
+
     openSettingsAt(tab: string, subTab?: string): void {
         // Open the Obsidian settings modal
         const setting = this.app.setting;
