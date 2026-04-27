@@ -466,6 +466,13 @@ export interface MemorySettings {
      * - `skipped`: user chose "Later" in the upgrade modal
      */
     v2MigrationStatus: 'not-applicable' | 'pending' | 'completed' | 'skipped';
+    /**
+     * Memory engine version selector (FEATURE-0317 cut-over flag).
+     * - `v1`: legacy MD-file pipeline (default while v2 stabilises)
+     * - `v2`: ContextComposer-driven hot-memory block from facts + edges
+     * Both paths coexist; flipping requires a plugin reload.
+     */
+    engineVersion: 'v1' | 'v2';
     /** ISO timestamp + counts of the last successful migration run (null if never). */
     v2MigrationReport: {
         completedAt: string;
@@ -923,6 +930,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         // facts row exists yet. See `detectMemoryV2MigrationStatus`.
         v2MigrationStatus: 'not-applicable',
         v2MigrationReport: null,
+        engineVersion: 'v1',
     },
     chatLinking: {
         enabled: true,

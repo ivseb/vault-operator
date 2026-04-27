@@ -132,6 +132,38 @@ const TOOLS: McpToolDefinition[] = [
             required: ['category', 'content'],
         },
     },
+    // Memory v2 Phase 3 (FEATURE-0317 / PLAN-006 task 10): expose
+    // implicit-edge + note-metadata reads so a Setup-C standalone engine
+    // (McpKnowledgeAdapter) can route Vault-graph queries through the
+    // Plugin-MCP. Read-only.
+    {
+        name: 'get_vault_implicit_edges',
+        description:
+            'Return implicit (cosine-based) neighbours of a vault note. Used by Memory v2 ' +
+            'cross-DB walks when the engine runs as a standalone service.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: { type: 'string', description: 'Vault-relative note path.' },
+                hops: { type: 'number', description: 'BFS depth (1-3, default 1).' },
+                limit: { type: 'number', description: 'Max neighbours (default 20).' },
+            },
+            required: ['path'],
+        },
+    },
+    {
+        name: 'get_vault_note_metadata',
+        description:
+            'Return tags + last-indexed timestamp for a vault note. Used by Memory v2 ' +
+            'edge-resolution to detect stale references.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: { type: 'string', description: 'Vault-relative note path.' },
+            },
+            required: ['path'],
+        },
+    },
 ];
 
 // ---------------------------------------------------------------------------

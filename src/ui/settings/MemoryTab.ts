@@ -249,6 +249,27 @@ export class MemoryTab {
         if (v2Status === 'pending' || v2Status === 'skipped') {
             this.buildMemoryV2MigrationSection(containerEl);
         }
+
+        // ─── Memory engine version (FEATURE-0317 cut-over) ───────────────
+        // The cut-over flag is always visible. v2 starts off so users on
+        // v1 can flip when they are ready; flipping requires a plugin
+        // reload because AgentTask reads the value at construction time.
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory engine (Beta)' });
+        new Setting(containerEl)
+            .setName('Engine version')
+            .setDesc(
+                'v1 = legacy MD-file memory (default). v2 = dynamic ContextComposer ' +
+                'using the fact store. Reload Obsidian after switching.',
+            )
+            .addDropdown(d => {
+                d.addOption('v1', 'v1 (Markdown files)');
+                d.addOption('v2', 'v2 (ContextComposer)');
+                d.setValue(this.plugin.settings.memory.engineVersion);
+                d.onChange(async (v) => {
+                    this.plugin.settings.memory.engineVersion = v as 'v1' | 'v2';
+                    await this.plugin.saveSettings();
+                });
+            });
     }
 
     private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {

@@ -2152,7 +2152,40 @@ export class AgentSidebarView extends ItemView {
         // Load memory context for system prompt injection
         let memoryContext: string | undefined;
         const isFirstMessage = this.conversationHistory.length === 0;
-        if (this.plugin.settings.memory.enabled && this.plugin.memoryService) {
+
+        // Memory v2 cut-over (FEATURE-0317 / PLAN-006 task 12). When the
+        // engineVersion flag is 'v2' AND the new stack is ready, the
+        // ContextComposer renders the memory block. Otherwise we fall
+        // through to the legacy v1 path below so the agent never starts
+        // a turn without context.
+        if (
+            this.plugin.settings.memory.engineVersion === 'v2'
+            && this.plugin.memoryDB?.isOpen()
+            && this.plugin.embeddingService?.isReady()
+        ) {
+            try {
+                const { TopicInference } = await import('../core/memory/TopicInference');
+                const { UserProfileView } = await import('../core/memory/UserProfileView');
+                const { ContextComposer } = await import('../core/memory/ContextComposer');
+                const inference = new TopicInference(this.plugin.memoryDB);
+                const profileView = new UserProfileView(this.plugin.memoryDB);
+                const composer = new ContextComposer(this.plugin.memoryDB, inference, profileView);
+                let userEmbedding: Float32Array | null = null;
+                if (text.trim()) {
+                    const vectors = await this.plugin.embeddingService.embed([text]);
+                    userEmbedding = vectors[0] ?? null;
+                }
+                const composed = composer.compose({
+                    sessionId: this.activeConversationId ?? 'transient',
+                    userMessageEmbedding: userEmbedding,
+                });
+                if (composed.markdown) memoryContext = composed.markdown;
+            } catch (e) {
+                console.warn('[Memory v2] ContextComposer failed, falling back to v1:', e);
+            }
+        }
+
+        if (!memoryContext && this.plugin.settings.memory.enabled && this.plugin.memoryService) {
             try {
                 const parts: string[] = [];
 
