@@ -39,6 +39,7 @@ import { SingleCallProcessor } from './core/memory/SingleCallProcessor';
 import { MemoryV2Telemetry } from './core/memory/MemoryV2Telemetry';
 import { DriftEventBus } from './core/memory/DriftEventBus';
 import { TokenBudgetGuard } from './core/memory/TokenBudgetGuard';
+import { generateSoakReport } from './core/memory/SoakReport';
 import { McpClient } from './core/mcp/McpClient';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
@@ -969,6 +970,15 @@ export default class ObsidianAgentPlugin extends Plugin {
             callback: () => { void this.saveActiveConversationToMemory(); },
         });
 
+        // FEATURE-0319 Phase 6/7 soak: daily health snapshot. User runs once a
+        // day, copies JSON to chat for trend analysis. Plain navigator.clipboard
+        // -- Notice fallback if the API is unavailable (rare in Electron).
+        this.addCommand({
+            id: 'generate-memory-soak-report',
+            name: 'Generate memory soak report',
+            callback: () => { void this.generateAndCopySoakReport(); },
+        });
+
         // Development: Test tool execution
         this.addCommand({
             id: 'test-tool-execution',
@@ -1634,6 +1644,35 @@ export default class ObsidianAgentPlugin extends Plugin {
             factsUpdated: report.factsUpdated,
             skipped: false,
         });
+    }
+
+    /**
+     * Phase 6 -> 7 soak: build a SoakReport, JSON-stringify, copy to clipboard,
+     * notify the user. Designed for once-a-day human-in-the-loop monitoring --
+     * the user pastes the JSON into chat and the agent compares against
+     * previous days to spot trends.
+     */
+    async generateAndCopySoakReport(): Promise<void> {
+        try {
+            const report = generateSoakReport({
+                memoryDB: this.memoryDB,
+                historyDB: this.historyDB,
+                conversationStore: this.conversationStore,
+                extractionQueue: this.extractionQueue,
+                settings: { memory: this.settings.memory },
+            });
+            const json = JSON.stringify(report, null, 2);
+            try {
+                await navigator.clipboard.writeText(json);
+                new Notice('Memory soak report copied to clipboard. Paste into chat for analysis.');
+            } catch {
+                console.debug('[Plugin] Soak report (clipboard unavailable):\n' + json);
+                new Notice('Soak report logged to console (clipboard unavailable).');
+            }
+        } catch (e) {
+            console.warn('[Plugin] Soak report generation failed:', e);
+            new Notice('Soak report failed -- check console for details.');
+        }
     }
 
     /**
