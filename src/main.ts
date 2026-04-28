@@ -806,6 +806,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                     console.warn('[Plugin] Queue processing failed (non-fatal):', e)
                 );
             }
+
+            // FEATURE-0319b / PLAN-008 task C.7: sync CapabilityManifest into
+            // Memory v2 under profile_id='_obsilo'. Detects manifest changes
+            // via djb2 hash and replaces the snapshot atomically.
+            this.syncCapabilitySnapshot().catch((e) =>
+                console.warn('[Plugin] Capability snapshot sync failed (non-fatal):', e),
+            );
         }
 
         // LLM provider (null if no API key configured)
@@ -1465,6 +1472,45 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (leaves.length === 0) return null;
         const view = leaves[0].view as AgentSidebarView;
         return view.snapshotForMemory?.() ?? null;
+    }
+
+    /**
+     * Sync the curated CapabilityManifest into Memory v2 (FEATURE-0319b).
+     * On every plugin onload the live manifest is hashed (djb2 sync). If
+     * the hash differs from settings.memory.lastCapabilityHash, the old
+     * capability snapshot is deprecated and the new one is inserted as
+     * facts under profile_id='_obsilo'. Idempotent on identical runs.
+     */
+    async syncCapabilitySnapshot(): Promise<void> {
+        if (!this.memoryDB?.isOpen()) return;
+        const { CAPABILITIES, manifestHash } = await import('./core/memory/CapabilityManifest');
+        const { FactStore } = await import('./core/memory/FactStore');
+        const { OBSILO_PROFILE } = await import('./core/memory/SoulView');
+
+        const newHash = manifestHash();
+        if (this.settings.memory.lastCapabilityHash === newHash) return;
+
+        const factStore = new FactStore(this.memoryDB);
+        const existing = factStore.listLatest({ profileId: OBSILO_PROFILE, limit: 500 })
+            .filter(f => f.topics.includes('capability'));
+        for (const fact of existing) {
+            factStore.deprecate(fact.id, 'superseded by new capability snapshot');
+        }
+        for (const cap of CAPABILITIES) {
+            factStore.insert({
+                text: `${cap.summary}${cap.notes ? ' ' + cap.notes : ''}`,
+                topics: ['capability', cap.area, cap.key],
+                kind: 'identity',
+                importance: 0.6,
+                profileId: OBSILO_PROFILE,
+                sourceInterface: 'obsilo-self',
+                metadata: { area: cap.area, key: cap.key },
+            });
+        }
+        await this.memoryDB.save().catch(() => undefined);
+        this.settings.memory.lastCapabilityHash = newHash;
+        await this.saveSettings();
+        console.debug(`[Plugin] Capability snapshot synced: ${CAPABILITIES.length} entries (hash=${newHash}, replaced ${existing.length} stale)`);
     }
 
     /**

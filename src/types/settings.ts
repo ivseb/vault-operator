@@ -481,6 +481,13 @@ export interface MemorySettings {
         inputTokens: number;
         outputTokens: number;
     } | null;
+
+    /**
+     * Hash of the last-synced CapabilityManifest (FEATURE-0319b).
+     * On each plugin onload the live manifest is hashed and compared;
+     * mismatch triggers a soul-snapshot rebuild (deprecate old, insert new).
+     */
+    lastCapabilityHash?: string | null;
 }
 
 // ---------------------------------------------------------------------------

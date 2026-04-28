@@ -155,6 +155,9 @@ export class MemoryTab {
                     );
             }
 
+            // ─── Obsilo's Soul (FEATURE-0319b L2 + L3) ─────────────────
+            this.buildSoulSection(containerEl);
+
             // ─── Memory Files ─────────────────────────────────────────
             containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.memory.headingFiles') });
 
@@ -254,6 +257,130 @@ export class MemoryTab {
         if (v2Status === 'pending' || v2Status === 'skipped') {
             this.buildMemoryV2MigrationSection(containerEl);
         }
+    }
+
+    private buildSoulSection(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', {
+            cls: 'agent-settings-section',
+            text: 'Obsilo’s soul',
+        });
+
+        const memDB = this.plugin.memoryDB;
+        if (!memDB?.isOpen()) {
+            containerEl.createEl('p', {
+                cls: 'agent-settings-hint',
+                text: 'Memory database not open. Open the plugin once to initialize, then return here.',
+            });
+            return;
+        }
+
+        const intro = containerEl.createDiv({ cls: 'agent-settings-hint' });
+        intro.setText(
+            'Curated values, anti-patterns, identity and communication style. ' +
+            'Surfaces in every conversation’s system prompt (top-3 per category, ranked by importance). ' +
+            'You can also instruct Obsilo directly in chat -- the agent uses update_soul to persist your guidance.',
+        );
+
+        void (async () => {
+            const { SoulView } = await import('../../core/memory/SoulView');
+            const view = new SoulView(memDB);
+            const snapshot = view.snapshot();
+            this.renderSoulCategory(containerEl, 'Identity', 'identity', snapshot.identity);
+            this.renderSoulCategory(containerEl, 'Values', 'value', snapshot.values);
+            this.renderSoulCategory(containerEl, 'Anti-Patterns', 'anti_pattern', snapshot.antiPatterns);
+            this.renderSoulCategory(containerEl, 'Communication', 'communication', snapshot.communication);
+
+            // Read-only capability snapshot (L3) -- diagnostic.
+            const caps = view.getCapabilities();
+            const capWrap = containerEl.createDiv({ cls: 'agent-settings-soul-caps' });
+            const capHeader = capWrap.createEl('details');
+            capHeader.createEl('summary', {
+                text: `Capabilities snapshot (${caps.length} entries, auto-synced)`,
+            });
+            const capList = capHeader.createEl('ul', { cls: 'agent-settings-soul-cap-list' });
+            for (const c of caps) {
+                capList.createEl('li').setText(c.text);
+            }
+        })().catch(e => console.warn('[MemoryTab] soul section render failed:', e));
+    }
+
+    private renderSoulCategory(
+        containerEl: HTMLElement,
+        label: string,
+        category: 'value' | 'anti_pattern' | 'identity' | 'communication',
+        facts: Array<{ id: number; text: string; importance: number }>,
+    ): void {
+        const block = containerEl.createDiv({ cls: 'agent-settings-soul-block' });
+        const header = block.createDiv({ cls: 'agent-settings-soul-header' });
+        header.createEl('h4', { text: label });
+        const addBtn = header.createEl('button', {
+            text: '+',
+            attr: { 'aria-label': `Add ${label} entry` },
+        });
+        addBtn.addEventListener('click', () => { void this.promptAddSoulEntry(category, label); });
+
+        if (facts.length === 0) {
+            block.createDiv({ cls: 'agent-settings-soul-empty', text: '(empty)' });
+            return;
+        }
+        const list = block.createEl('ul', { cls: 'agent-settings-soul-list' });
+        for (const f of facts) {
+            const item = list.createEl('li');
+            item.createSpan({ cls: 'agent-settings-soul-text', text: f.text });
+            const removeBtn = item.createEl('button', {
+                cls: 'agent-settings-soul-remove',
+                text: 'remove',
+            });
+            removeBtn.addEventListener('click', () => { void this.removeSoulEntry(f.id, label); });
+        }
+    }
+
+    private async promptAddSoulEntry(
+        category: 'value' | 'anti_pattern' | 'identity' | 'communication',
+        label: string,
+    ): Promise<void> {
+        const { promptModal } = await import('../modals/PromptModal');
+        const text = await promptModal(this.app, {
+            title: `Add ${label} entry`,
+            message: 'Single self-contained statement (max ~120 chars).',
+            placeholder: 'e.g. "Avoid filler phrases"',
+            submitLabel: 'Add',
+        });
+        if (!text || !text.trim()) return;
+        const memDB = this.plugin.memoryDB;
+        if (!memDB?.isOpen()) {
+            new Notice('Memory database not open.');
+            return;
+        }
+        const { OBSILO_PROFILE } = await import('../../core/memory/SoulView');
+        const factStore = new FactStore(memDB);
+        factStore.insert({
+            text: text.trim(),
+            topics: ['soul', category],
+            kind: 'identity',
+            importance: 0.7,
+            profileId: OBSILO_PROFILE,
+            sourceInterface: 'obsilo-self',
+        });
+        await memDB.save().catch(() => undefined);
+        this.rerender();
+    }
+
+    private async removeSoulEntry(factId: number, label: string): Promise<void> {
+        const ok = await confirmModal(this.app, {
+            title: `Remove ${label} entry`,
+            message: 'This deprecates the entry (soft-delete). The audit trail keeps it for recovery.',
+            confirmLabel: 'Remove',
+            cancelLabel: 'Cancel',
+            destructive: true,
+        });
+        if (!ok) return;
+        const memDB = this.plugin.memoryDB;
+        if (!memDB?.isOpen()) return;
+        const factStore = new FactStore(memDB);
+        factStore.deprecate(factId, 'removed by user via settings UI');
+        await memDB.save().catch(() => undefined);
+        this.rerender();
     }
 
     private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {
