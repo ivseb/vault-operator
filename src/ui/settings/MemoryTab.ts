@@ -108,6 +108,24 @@ export class MemoryTab {
                     }),
                 );
 
+            // Threshold lives directly under Auto-extract because it only
+            // makes sense in that context. Hidden when Auto is off.
+            if (mem.autoExtractSessions) {
+                new Setting(containerEl)
+                    .setName(t('settings.memory.minMessages'))
+                    .setDesc(t('settings.memory.minMessagesDesc'))
+                    .addSlider((s) =>
+                        s
+                            .setLimits(2, 20, 1)
+                            .setValue(mem.extractionThreshold)
+                            .setDynamicTooltip()
+                            .onChange(async (v) => {
+                                this.plugin.settings.memory.extractionThreshold = v;
+                                await this.plugin.saveSettings();
+                            }),
+                    );
+            }
+
             // Hint that the manual path is always available, even when auto is off.
             const manualHint = containerEl.createEl('div', { cls: 'agent-settings-hint' });
             manualHint.setText(t('settings.memory.manualAlwaysHint'));
@@ -135,25 +153,6 @@ export class MemoryTab {
                     await this.plugin.saveSettings();
                 });
             });
-
-            // ─── Extraction Threshold (only relevant when Auto is on) ───
-            if (mem.autoExtractSessions) {
-                containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.memory.headingThreshold') });
-
-                new Setting(containerEl)
-                    .setName(t('settings.memory.minMessages'))
-                    .setDesc(t('settings.memory.minMessagesDesc'))
-                    .addSlider((s) =>
-                        s
-                            .setLimits(2, 20, 1)
-                            .setValue(mem.extractionThreshold)
-                            .setDynamicTooltip()
-                            .onChange(async (v) => {
-                                this.plugin.settings.memory.extractionThreshold = v;
-                                await this.plugin.saveSettings();
-                            }),
-                    );
-            }
 
             // ─── Obsilo's Soul (FEATURE-0319b L2 + L3) ─────────────────
             this.buildSoulSection(containerEl);
