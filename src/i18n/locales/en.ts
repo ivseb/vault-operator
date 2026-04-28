@@ -855,6 +855,7 @@ export const en: Translations = {
     'ui.sidebar.webSearchOn': 'Web search (on)',
     'ui.sidebar.webSearchOff': 'Web search (off)',
     'ui.sidebar.saveToMemory': 'Save conversation to memory',
+    'ui.history.saveToMemory': 'Save this conversation to memory',
     'ui.sidebar.stop': 'Stop',
     'ui.sidebar.send': 'Send message',
     'ui.sidebar.placeholder': 'Type your message here...',

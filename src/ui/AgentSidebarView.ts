@@ -265,6 +265,7 @@ export class AgentSidebarView extends ItemView {
                 (id) => { void this.deleteConversation(id); },
                 (convId, title) => { void this.stampChatLinkToActiveFile(convId, title); },
                 this.activeConversationId,
+                (id, title) => { void this.saveHistoryConversationToMemory(id, title); },
             );
             this.historyPanel.mount(chatWrapper);
         }
@@ -768,6 +769,43 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('notice.memorySaveQueued'));
         } catch (e) {
             console.warn('[Memory] Manual save failed:', e);
+            new Notice(t('notice.memorySaveFailed'));
+        }
+    }
+
+    /**
+     * Save a HISTORY conversation (not the currently active one) to memory.
+     * Loads the persisted UiMessages from ConversationStore and enqueues
+     * them with bypassThrottle=true. Used by the Star button in HistoryPanel.
+     */
+    private async saveHistoryConversationToMemory(id: string, title: string): Promise<void> {
+        const mem = this.plugin.settings.memory;
+        if (!mem.enabled) {
+            new Notice(t('notice.memoryDisabled'));
+            return;
+        }
+        const queue = this.plugin.extractionQueue;
+        const store = this.plugin.conversationStore;
+        if (!queue || !store) {
+            new Notice(t('notice.memoryNoActiveConversation'));
+            return;
+        }
+        try {
+            const data = await store.load(id);
+            if (!data || data.uiMessages.length === 0) {
+                new Notice(t('notice.memoryNoActiveConversation'));
+                return;
+            }
+            const messages = data.uiMessages.map((m) => ({ role: m.role, text: m.text }));
+            await queue.enqueueImmediate({
+                conversationId: id,
+                messages,
+                title,
+                queuedAt: new Date().toISOString(),
+            });
+            new Notice(t('notice.memorySaveQueued'));
+        } catch (e) {
+            console.warn('[Memory] Save history conversation failed:', e);
             new Notice(t('notice.memorySaveFailed'));
         }
     }
