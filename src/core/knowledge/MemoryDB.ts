@@ -23,7 +23,7 @@ import type { SqlJsDatabase } from './KnowledgeDB';
 // Schema versioning
 // ---------------------------------------------------------------------------
 
-export const MEMORY_SCHEMA_VERSION = 3;
+export const MEMORY_SCHEMA_VERSION = 4;
 
 // ---------------------------------------------------------------------------
 // v1 schema -- legacy memory pipeline (unchanged from FEATURE-1505)
@@ -292,6 +292,10 @@ export class MemoryDB {
         // Default 'default' covers Obsilo's single-user reality; UCM later
         // assigns per-profile values (work / personal / coding / ...).
         this.applyV3ProfileColumn(db);
+        // Phase 4 (FEATURE-0318 task B.3): delta-window state per thread so
+        // SingleCallExtractor can pull only new messages and persist a
+        // ~200 token rolling summary.
+        this.applyV4ConversationDeltaColumns(db);
         this.bumpSchemaVersion(db);
         console.debug(`[MemoryDB] Schema initialized (version ${MEMORY_SCHEMA_VERSION})`);
     }
@@ -310,6 +314,22 @@ export class MemoryDB {
         // Index is wrapped in IF NOT EXISTS so a re-run on a partial migration
         // (column exists but index missing) still completes.
         db.run(`CREATE INDEX IF NOT EXISTS idx_facts_profile ON facts(profile_id)`);
+    }
+
+    /**
+     * Idempotent ADD COLUMN for conversation_threads.last_extracted_message_index
+     * and conversation_threads.delta_summary. Phase 4 / FEATURE-0318 task B.3.
+     */
+    private applyV4ConversationDeltaColumns(db: SqlJsDatabase): void {
+        const cols = db.exec('PRAGMA table_info(conversation_threads)');
+        if (cols.length === 0) return;
+        const names = cols[0].values.map(r => r[1] as string);
+        if (!names.includes('last_extracted_message_index')) {
+            db.run(`ALTER TABLE conversation_threads ADD COLUMN last_extracted_message_index INTEGER`);
+        }
+        if (!names.includes('delta_summary')) {
+            db.run(`ALTER TABLE conversation_threads ADD COLUMN delta_summary TEXT`);
+        }
     }
 
     /**

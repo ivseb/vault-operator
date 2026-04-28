@@ -390,3 +390,72 @@ describe('MemoryDB schema v2 -> v3 profile_id migration (Phase 3.5)', () => {
         db.close();
     });
 });
+
+// Phase 4 (FEATURE-0318 task B.3): conversation_threads gets two delta-window
+// columns so SingleCallExtractor can pull only new messages and persist a
+// rolling 200-token summary.
+describe('MemoryDB schema v3 -> v4 conversation delta migration (Phase 4)', () => {
+    function applyV4(db: ReturnType<typeof SQL.Database.prototype.constructor>) {
+        const cols = db.exec('PRAGMA table_info(conversation_threads)');
+        const names = cols[0].values.map((r: unknown[]) => r[1] as string);
+        if (!names.includes('last_extracted_message_index')) {
+            db.run(`ALTER TABLE conversation_threads ADD COLUMN last_extracted_message_index INTEGER`);
+        }
+        if (!names.includes('delta_summary')) {
+            db.run(`ALTER TABLE conversation_threads ADD COLUMN delta_summary TEXT`);
+        }
+    }
+
+    it('v3 DB upgrades to v4 without losing existing thread rows', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE);
+        // Seed a v3-shape thread row before applying v4.
+        db.run(
+            `INSERT INTO conversation_threads (thread_id, created_at, last_active_at)
+             VALUES ('legacy-thread', '2026-04-27', '2026-04-27')`,
+        );
+
+        applyV4(db);
+
+        const result = db.exec(
+            'SELECT thread_id, last_extracted_message_index, delta_summary FROM conversation_threads',
+        );
+        expect(result[0].values).toHaveLength(1);
+        expect(result[0].values[0][0]).toBe('legacy-thread');
+        expect(result[0].values[0][1]).toBeNull();
+        expect(result[0].values[0][2]).toBeNull();
+        db.close();
+    });
+
+    it('v4 DB persists delta-window state and reads it back', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE);
+        applyV4(db);
+        db.run(
+            `INSERT INTO conversation_threads
+                (thread_id, created_at, last_active_at,
+                 last_extracted_message_index, delta_summary)
+             VALUES ('t1', '2026-04-28', '2026-04-28', 12, 'so-far summary')`,
+        );
+        const result = db.exec(
+            `SELECT last_extracted_message_index, delta_summary
+               FROM conversation_threads WHERE thread_id = 't1'`,
+        );
+        expect(result[0].values[0]).toEqual([12, 'so-far summary']);
+        db.close();
+    });
+
+    it('idempotent re-run: ALTER TABLE skipped when columns already exist', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE);
+        applyV4(db);
+        expect(() => applyV4(db)).not.toThrow();
+        db.close();
+    });
+});
