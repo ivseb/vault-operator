@@ -82,7 +82,8 @@ export type ToolName =
     // Memory v2 internal -- Engine-only tool schemas, never registered with
     // the agent ToolRegistry. Carried in ToolName so ApiHandler.createMessage
     // type-checks across the same ToolDefinition surface.
-    | '_memory_atomize';
+    | '_memory_atomize'
+    | '_memory_single_call';
 
 /**
  * Tool use request from LLM
