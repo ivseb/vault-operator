@@ -22,6 +22,14 @@ interface BackupCategory {
     dir: string | null;
     recursive: boolean;
     description: string;
+    /**
+     * Additional individual files to include, relative to root, even when
+     * they live outside `dir`. Used for the SQLite databases that sit at
+     * the agent-folder root (memory.db) or under a different subfolder
+     * (knowledge.db). Saved into the ZIP under the same path so a restore
+     * lands them back where they came from.
+     */
+    extraFiles?: string[];
 }
 
 /** Category IDs (stable, used for toggles and manifest keys) */
@@ -52,6 +60,9 @@ function getCategories(plugin: ObsidianAgentPlugin): BackupCategory[] {
             dir: 'memory',
             recursive: true,
             description: t('settings.backup.catMemoryDesc'),
+            // memory.db lives at the agent-folder root (vault-parent/.obsidian-agent/memory.db)
+            // -- pick it up explicitly so the SQLite Memory v2 store survives a roundtrip.
+            extraFiles: ['memory.db'],
         },
         {
             id: 'memory-v1-backup',
@@ -153,10 +164,12 @@ function getCategories(plugin: ObsidianAgentPlugin): BackupCategory[] {
         {
             id: 'semantic-index',
             label: t('settings.backup.catSemanticIndex'),
-            root: 'global',
-            dir: 'semantic-index',
+            // FEATURE-1508: knowledge.db is vault-local under the agent folder.
+            root: 'vault',
+            dir: null,
             recursive: false,
             description: t('settings.backup.catSemanticIndexDesc'),
+            extraFiles: [`${getAgentFolderPath(plugin)}/knowledge.db`],
         },
     ];
 }
@@ -338,15 +351,35 @@ export class BackupTab {
                 const path = getVaultDnaPath(this.plugin);
                 const exists = await this.app.vault.adapter.exists(path);
                 if (!exists) return '0 files';
-                const content = await this.app.vault.adapter.read(path);
-                return `1 file, ${this.formatSize(content.length)}`;
+                const stat = await this.app.vault.adapter.stat(path);
+                return `1 file, ${this.formatSize(stat?.size ?? 0)}`;
             }
 
-            const adapter = this.adapterFor(cat);
-            const dir = cat.dir!;
-            const exists = await adapter.exists(dir);
-            if (!exists) return '0 files';
-            const { count, size } = await this.countAndSizeFromAdapter(adapter, dir, cat.recursive);
+            let count = 0;
+            let size = 0;
+
+            if (cat.dir) {
+                const adapter = this.adapterFor(cat);
+                if (await adapter.exists(cat.dir)) {
+                    const stats = await this.countAndSizeFromAdapter(adapter, cat.dir, cat.recursive);
+                    count += stats.count;
+                    size += stats.size;
+                }
+            }
+
+            for (const filePath of cat.extraFiles ?? []) {
+                const adapter = this.adapterFor(cat);
+                if (!(await adapter.exists(filePath))) continue;
+                count += 1;
+                if (cat.root === 'global') {
+                    const data = await this.globalFs.readBinary(filePath);
+                    size += data.byteLength;
+                } else {
+                    const stat = await this.app.vault.adapter.stat(filePath);
+                    size += stat?.size ?? 0;
+                }
+            }
+
             return `${count} file${count !== 1 ? 's' : ''}, ${this.formatSize(size)}`;
         } catch {
             return '0 files';
@@ -396,6 +429,24 @@ export class BackupTab {
                         const files = await this.collectBinaryFiles(cat, cat.dir, cat.dir, cat.recursive);
                         for (const [relPath, data] of files) {
                             addToZip(relPath, data);
+                        }
+                    }
+                }
+
+                // Individual files outside the main dir (e.g. SQLite DBs).
+                if (cat.extraFiles) {
+                    for (const filePath of cat.extraFiles) {
+                        try {
+                            const exists = cat.root === 'global'
+                                ? await this.globalFs.exists(filePath)
+                                : await this.app.vault.adapter.exists(filePath);
+                            if (!exists) continue;
+                            const data = cat.root === 'global'
+                                ? await this.globalFs.readBinary(filePath)
+                                : new Uint8Array(await this.app.vault.adapter.readBinary(filePath));
+                            addToZip(filePath, data);
+                        } catch (e) {
+                            console.warn(`[BackupTab] extraFile skipped: ${filePath}`, e);
                         }
                     }
                 }
@@ -622,11 +673,16 @@ export class BackupTab {
                     }
                 } else {
                     const catDef = getCategories(this.plugin).find((c) => c.id === catId);
-                    if (!catDef || !catDef.dir) continue;
+                    if (!catDef) continue;
+                    const extraFileSet = new Set(catDef.extraFiles ?? []);
                     for (const fileEntry of catData.files) {
                         const data = await readEntry(fileEntry.path);
                         if (!data) continue;
-                        const fullPath = `${catDef.dir}/${fileEntry.path}`;
+                        // extraFiles store the full path verbatim; dir-walked
+                        // files are relative to catDef.dir and need re-prefixing.
+                        const fullPath = extraFileSet.has(fileEntry.path)
+                            ? fileEntry.path
+                            : (catDef.dir ? `${catDef.dir}/${fileEntry.path}` : fileEntry.path);
                         if (catDef.root === 'global') {
                             await this.globalFs.writeBinary(fullPath, data);
                         } else {
