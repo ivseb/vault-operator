@@ -38,6 +38,8 @@ import { GetDailyNoteTool } from './vault/GetDailyNoteTool';
 import { SemanticSearchTool } from './vault/SemanticSearchTool';
 import { RecallMemoryTool } from './memory/RecallMemoryTool';
 import { MarkForMemoryTool } from './memory/MarkForMemoryTool';
+import { UpdateSoulTool } from './memory/UpdateSoulTool';
+import { InspectSelfTool } from './agent/InspectSelfTool';
 // Import tools — vault: canvas (Phase C3)
 import { GenerateCanvasTool } from './vault/GenerateCanvasTool';
 // Import tools — vault: excalidraw
@@ -162,6 +164,9 @@ export class ToolRegistry {
         this.register(new RecallMemoryTool(this.plugin));
         // Memory v2: mark_for_memory (FEATURE-0318 / PLAN-007 manual trigger)
         this.register(new MarkForMemoryTool(this.plugin));
+        // Memory v2: agent-self layer (FEATURE-0319b / PLAN-008)
+        this.register(new UpdateSoulTool(this.plugin));
+        this.register(new InspectSelfTool(this.plugin));
         // Vault: canvas (Phase C3)
         this.register(new GenerateCanvasTool(this.plugin));
         // Vault: excalidraw

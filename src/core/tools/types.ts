@@ -81,6 +81,9 @@ export type ToolName =
     | 'recall_memory'
     // Memory v2 (Phase 4 / FEATURE-0318): user-triggered manual extraction.
     | 'mark_for_memory'
+    // Memory v2 (Phase 4.5 / FEATURE-0319b): agent-self layer.
+    | 'update_soul'
+    | 'inspect_self'
     // Memory v2 internal -- Engine-only tool schemas, never registered with
     // the agent ToolRegistry. Carried in ToolName so ApiHandler.createMessage
     // type-checks across the same ToolDefinition surface.
