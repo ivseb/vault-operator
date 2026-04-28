@@ -1,4 +1,4 @@
-import { App, Notice, setIcon } from 'obsidian';
+import { App, Notice, Setting, setIcon, type ButtonComponent } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { DEFAULT_SETTINGS } from '../../types/settings';
 import type { ObsidianAgentSettings } from '../../types/settings';
@@ -211,6 +211,77 @@ export class BackupTab {
 
         this.buildExportSection(containerEl);
         this.buildImportSection(containerEl);
+        this.buildLegacyMigrationsSection(containerEl);
+    }
+
+    /**
+     * One-time imports from legacy data formats. Lives here so the rest
+     * of Memory settings stays focused on day-to-day operations.
+     */
+    private buildLegacyMigrationsSection(container: HTMLElement): void {
+        const section = container.createDiv('agent-backup-section');
+        section.createEl('h4', { text: 'Legacy migrations' });
+        section.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: 'One-time pulls from older data formats. Safe to run repeatedly, no duplicates are created.',
+        });
+
+        new Setting(section)
+            .setName('Import legacy soul.md')
+            .setDesc('Reads memory/soul.md and adds each bullet under Identity / Values / Anti-Patterns / Communication into Obsilo’s soul. Idempotent.')
+            .addButton((b: ButtonComponent) => b
+                .setButtonText('Import')
+                .onClick(() => { void this.importLegacySoulMd(); }));
+    }
+
+    private async importLegacySoulMd(): Promise<void> {
+        const memSvc = this.plugin.memoryService;
+        const memDB = this.plugin.memoryDB;
+        if (!memSvc || !memDB?.isOpen()) {
+            new Notice('Memory not initialised.');
+            return;
+        }
+        const content = await memSvc.readFile('soul.md').catch(() => '');
+        if (!content || content.trim().length === 0) {
+            new Notice('No soul.md found.');
+            return;
+        }
+        const { parseSoulSections } = await import('../../core/memory/soulMdParser');
+        const sections = parseSoulSections(content);
+        const { OBSILO_PROFILE, SoulView } = await import('../../core/memory/SoulView');
+        const { FactStore } = await import('../../core/memory/FactStore');
+        const view = new SoulView(memDB);
+        const factStore = new FactStore(memDB);
+        const existingTexts = new Set<string>();
+        const snap = view.snapshot();
+        for (const f of snap.identity) existingTexts.add(f.text);
+        for (const f of snap.values) existingTexts.add(f.text);
+        for (const f of snap.antiPatterns) existingTexts.add(f.text);
+        for (const f of snap.communication) existingTexts.add(f.text);
+
+        let inserted = 0;
+        const insertCategory = (cat: 'identity' | 'value' | 'anti_pattern' | 'communication', items: string[]) => {
+            for (const item of items) {
+                if (!item.trim() || existingTexts.has(item.trim())) continue;
+                factStore.insert({
+                    text: item.trim(),
+                    topics: ['soul', cat],
+                    kind: 'identity',
+                    importance: 0.7,
+                    profileId: OBSILO_PROFILE,
+                    sourceInterface: 'obsilo-self',
+                    metadata: { migratedFrom: 'soul.md' },
+                });
+                inserted += 1;
+            }
+        };
+        insertCategory('identity', sections.identity);
+        insertCategory('value', sections.values);
+        insertCategory('anti_pattern', sections.antiPatterns);
+        insertCategory('communication', sections.communication);
+
+        await memDB.save().catch(() => undefined);
+        new Notice(`Imported ${inserted} soul entries from soul.md`);
     }
 
     // ── Export ────────────────────────────────────────────────────────────────

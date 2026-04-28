@@ -50,9 +50,8 @@ export class MemoryViewerModal extends Modal {
 
         const intro = this.contentEl.createEl('p', { cls: 'memory-viewer-intro' });
         intro.setText(
-            'Everything Obsilo stores about you and itself. ' +
-            'Adding entries happens in chat (just tell the agent). ' +
-            'Use this view to inspect or remove anything.',
+            'Everything Obsilo remembers about you and how it knows itself. ' +
+            'New entries come from chat (just say it). This view shows what is stored and lets you remove anything.',
         );
 
         // Compute counts per bucket
@@ -231,7 +230,7 @@ export class MemoryViewerModal extends Modal {
     private async handleDelete(fact: Fact): Promise<void> {
         const ok = await confirmModal(this.app, {
             title: 'Remove this memory entry?',
-            message: `"${fact.text}"\n\nThis is a soft-delete -- the audit trail keeps it for recovery.`,
+            message: `"${fact.text}"\n\nThis is a soft-delete. The audit trail keeps it for recovery.`,
             confirmLabel: 'Remove',
             cancelLabel: 'Cancel',
             destructive: true,

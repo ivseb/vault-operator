@@ -227,12 +227,10 @@ export class MemoryTab {
             text: 'Memory contents',
         });
 
-        const intro = containerEl.createDiv({ cls: 'agent-settings-hint' });
-        intro.setText(
-            'Inspect everything Obsilo stores -- about you, about itself, and its self-awareness ' +
-            'capabilities. Add entries by talking to the agent in chat ("merk dir, ich mag keine Emojis"); ' +
-            'this view is for transparency and removal.',
-        );
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text: 'See what Obsilo remembers about you and how it knows itself. To add an entry, just say it in chat ("merk dir, ich mag keine Emojis"). This view is for checking what is stored and removing entries you do not want.',
+        });
 
         new Setting(containerEl)
             .setName('View memory')
@@ -244,69 +242,7 @@ export class MemoryTab {
                     const { MemoryViewerModal } = await import('../modals/MemoryViewerModal');
                     new MemoryViewerModal(this.app, this.plugin).open();
                 }));
-
-        new Setting(containerEl)
-            .setName('Import legacy soul.md')
-            .setDesc('One-time pull from the old memory/soul.md into Memory v2. Idempotent.')
-            .addButton((b) => b
-                .setButtonText('Import')
-                .onClick(() => { void this.importLegacySoulMd(); }));
     }
-
-    /**
-     * One-time importer: parses the legacy memory/soul.md (OpenClaw-style
-     * structure with `## Name`, `## Communication`, `## Values`,
-     * `## Anti-Patterns`, `## Identity`) into L2 facts. Bullet items become
-     * single facts. Idempotent via duplicate-text check on insert.
-     */
-    private async importLegacySoulMd(): Promise<void> {
-        const memSvc = this.plugin.memoryService;
-        const memDB = this.plugin.memoryDB;
-        if (!memSvc || !memDB?.isOpen()) {
-            new Notice('Memory not initialised.');
-            return;
-        }
-        const content = await memSvc.readFile('soul.md').catch(() => '');
-        if (!content || content.trim().length === 0) {
-            new Notice('No soul.md found.');
-            return;
-        }
-        const sections = parseSoulSections(content);
-        const { OBSILO_PROFILE, SoulView } = await import('../../core/memory/SoulView');
-        const view = new SoulView(memDB);
-        const factStore = new FactStore(memDB);
-        const existingTexts = new Set<string>();
-        for (const f of view.snapshot().identity) existingTexts.add(f.text);
-        for (const f of view.snapshot().values) existingTexts.add(f.text);
-        for (const f of view.snapshot().antiPatterns) existingTexts.add(f.text);
-        for (const f of view.snapshot().communication) existingTexts.add(f.text);
-
-        let inserted = 0;
-        const insertCategory = (cat: 'identity' | 'value' | 'anti_pattern' | 'communication', items: string[]) => {
-            for (const item of items) {
-                if (!item.trim() || existingTexts.has(item.trim())) continue;
-                factStore.insert({
-                    text: item.trim(),
-                    topics: ['soul', cat],
-                    kind: 'identity',
-                    importance: 0.7,
-                    profileId: OBSILO_PROFILE,
-                    sourceInterface: 'obsilo-self',
-                    metadata: { migratedFrom: 'soul.md' },
-                });
-                inserted += 1;
-            }
-        };
-        insertCategory('identity', sections.identity);
-        insertCategory('value', sections.values);
-        insertCategory('anti_pattern', sections.antiPatterns);
-        insertCategory('communication', sections.communication);
-
-        await memDB.save().catch(() => undefined);
-        new Notice(`Imported ${inserted} soul entries from soul.md`);
-        this.rerender();
-    }
-
 
     private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {
         const status = this.plugin.settings.memory.v2MigrationStatus;
@@ -475,39 +411,3 @@ function formatReport(report: UpgradeReport): string {
 
 // Re-export for legacy callers (kept for type imports until Phase 4 cleanup).
 export type { MigrationReport };
-
-interface SoulSections {
-    identity: string[];
-    values: string[];
-    antiPatterns: string[];
-    communication: string[];
-}
-
-/**
- * Parse a legacy soul.md into the four L2 categories. Recognises
- * common OpenClaw-style headings ("## Identity", "## Values",
- * "## Anti-Patterns", "## Communication"); bullet items underneath
- * become facts. Other sections (e.g. "## Name") are merged into
- * identity.
- */
-function parseSoulSections(content: string): SoulSections {
-    const out: SoulSections = { identity: [], values: [], antiPatterns: [], communication: [] };
-    const lines = content.split('\n');
-    let bucket: keyof SoulSections | null = null;
-    for (const raw of lines) {
-        const line = raw.trim();
-        const heading = /^#{1,3}\s+(.+)$/.exec(line);
-        if (heading) {
-            const name = heading[1].toLowerCase();
-            if (name.includes('value')) bucket = 'values';
-            else if (name.includes('anti')) bucket = 'antiPatterns';
-            else if (name.includes('communication') || name.includes('style')) bucket = 'communication';
-            else if (name.includes('identity') || name.includes('name') || name.includes('role')) bucket = 'identity';
-            else bucket = null;
-            continue;
-        }
-        const bullet = /^[-*+]\s+(.+)$/.exec(line);
-        if (bucket && bullet) out[bucket].push(bullet[1].trim());
-    }
-    return out;
-}
