@@ -35,8 +35,7 @@ import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
 import { ExtractionQueue } from './core/memory/ExtractionQueue';
-import { SessionExtractor } from './core/memory/SessionExtractor';
-import { LongTermExtractor } from './core/memory/LongTermExtractor';
+import { SingleCallProcessor } from './core/memory/SingleCallProcessor';
 import { McpClient } from './core/mcp/McpClient';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
@@ -752,25 +751,25 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] ExtractionQueue load failed (non-fatal):', e)
             );
 
-            // Wire SessionExtractor as the queue processor
-            const sessionExtractor = new SessionExtractor(
-                this.memoryService,
-                () => this.getMemoryModel(),
-                () => this.settings.memory.autoUpdateLongTerm,
-                this.extractionQueue,
-                () => this.semanticIndex,
-            );
-            const longTermExtractor = new LongTermExtractor(
-                this.memoryService,
-                () => this.getMemoryModel(),
-            );
-            this.extractionQueue.setProcessor(async (item) => {
-                if (item.type === 'session') {
-                    await sessionExtractor.process(item);
-                } else if (item.type === 'long-term') {
-                    await longTermExtractor.process(item);
-                }
-            });
+            // FEATURE-0318 / PLAN-007 task C.1: Single-Call replaces both
+            // SessionExtractor and LongTermExtractor. One tool-calling LLM
+            // round produces session summary + atomic facts + mentions +
+            // delta-window summary in a single pass.
+            const memoryService = this.memoryService;
+            const memoryDB = this.memoryDB;
+            if (!memoryDB) {
+                console.warn('[Plugin] memoryDB unavailable -- extraction queue will skip items.');
+                this.extractionQueue.setProcessor(() => Promise.resolve());
+            } else {
+                const singleCallProcessor = new SingleCallProcessor({
+                    memoryService,
+                    memoryDB,
+                    embeddingService: this.embeddingService,
+                    getMemoryModel: () => this.getMemoryModel(),
+                    getSemanticIndex: () => this.semanticIndex,
+                });
+                this.extractionQueue.setProcessor((item) => singleCallProcessor.process(item));
+            }
 
             // Process any pending extractions from a previous session
             if (!this.extractionQueue.isEmpty()) {
@@ -1027,7 +1026,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.memory = this.settings.memory ?? memDefaults;
         this.settings.memory.enabled = this.settings.memory.enabled ?? memDefaults.enabled;
         this.settings.memory.autoExtractSessions = this.settings.memory.autoExtractSessions ?? memDefaults.autoExtractSessions;
-        this.settings.memory.autoUpdateLongTerm = this.settings.memory.autoUpdateLongTerm ?? memDefaults.autoUpdateLongTerm;
         this.settings.memory.memoryModelKey = this.settings.memory.memoryModelKey ?? memDefaults.memoryModelKey;
         this.settings.memory.extractionThreshold = this.settings.memory.extractionThreshold ?? memDefaults.extractionThreshold;
 

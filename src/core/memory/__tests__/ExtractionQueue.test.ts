@@ -3,13 +3,12 @@ import type { FileAdapter } from '../../storage/types';
 import { ExtractionQueue } from '../ExtractionQueue';
 import type { PendingExtraction } from '../ExtractionQueue';
 
-function makeItem(id: string, type: 'session' | 'long-term' = 'session'): PendingExtraction {
+function makeItem(id: string): PendingExtraction {
     return {
         conversationId: id,
-        transcript: `Transcript for ${id}`,
+        messages: [{ role: 'user', text: `Hello from ${id}` }],
         title: `Title ${id}`,
         queuedAt: new Date().toISOString(),
-        type,
     };
 }
 
@@ -233,8 +232,8 @@ describe('ExtractionQueue', () => {
             const fs = createMockFs();
             const queue = new ExtractionQueue(fs);
             await queue.enqueueImmediate({
-                conversationId: 'a', transcript: 't', title: 'T',
-                queuedAt: new Date().toISOString(), type: 'single-call',
+                conversationId: 'a', messages: [{ role: 'user', text: 'hi' }], title: 'T',
+                queuedAt: new Date().toISOString(),
             });
             const peeked = queue.peek();
             expect(peeked?.bypassThrottle).toBe(true);
@@ -244,8 +243,8 @@ describe('ExtractionQueue', () => {
             const fs = createMockFs();
             const queue = new ExtractionQueue(fs);
             await queue.enqueue({
-                conversationId: 'a', transcript: 't', title: 'T',
-                queuedAt: new Date().toISOString(), type: 'session',
+                conversationId: 'a', messages: [{ role: 'user', text: 'hi' }], title: 'T',
+                queuedAt: new Date().toISOString(),
             });
             expect(queue.peek()?.bypassThrottle).toBeUndefined();
         });
@@ -254,8 +253,8 @@ describe('ExtractionQueue', () => {
             const fs = createMockFs();
             const queue1 = new ExtractionQueue(fs);
             await queue1.enqueueImmediate({
-                conversationId: 'a', transcript: 't', title: 'T',
-                queuedAt: new Date().toISOString(), type: 'single-call',
+                conversationId: 'a', messages: [{ role: 'user', text: 'hi' }], title: 'T',
+                queuedAt: new Date().toISOString(),
             });
             const queue2 = new ExtractionQueue(fs);
             await queue2.load();

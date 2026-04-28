@@ -107,16 +107,6 @@ export class MemoryTab {
                     }),
                 );
 
-            new Setting(containerEl)
-                .setName(t('settings.memory.autoLongTerm'))
-                .setDesc(t('settings.memory.autoLongTermDesc'))
-                .addToggle((t) =>
-                    t.setValue(mem.autoUpdateLongTerm).onChange(async (v) => {
-                        this.plugin.settings.memory.autoUpdateLongTerm = v;
-                        await this.plugin.saveSettings();
-                    }),
-                );
-
             // ─── Memory Model ─────────────────────────────────────────
             containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.memory.headingModel') });
 

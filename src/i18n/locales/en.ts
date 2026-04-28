@@ -412,8 +412,6 @@ export const en: Translations = {
     'settings.memory.enableMemoryDesc': 'Allow the agent to build long-term memory from conversations. Disable to stop all extraction.',
     'settings.memory.autoExtract': 'Auto-extract session summaries',
     'settings.memory.autoExtractDesc': 'Automatically create a summary when a conversation ends.',
-    'settings.memory.autoLongTerm': 'Auto-update long-term memory',
-    'settings.memory.autoLongTermDesc': 'Promote durable facts from session summaries to long-term memory files.',
     'settings.memory.modelSelect': 'Model for memory extraction',
     'settings.memory.modelSelectDesc': 'Select a small, fast model (e.g., haiku) for cost-efficient background extraction.',
     'settings.memory.noModels': 'No models configured. Add and enable a model in providers first.',

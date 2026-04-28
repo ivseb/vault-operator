@@ -14,12 +14,17 @@ import type { FileAdapter } from '../storage/types';
 // Types
 // ---------------------------------------------------------------------------
 
+export interface PendingExtractionMessage {
+    role: 'user' | 'assistant';
+    text: string;
+}
+
 export interface PendingExtraction {
     conversationId: string;
-    transcript: string;
+    /** Full conversation messages -- delta-window slicing happens in the processor. */
+    messages: PendingExtractionMessage[];
     title: string;
     queuedAt: string;
-    type: 'session' | 'long-term' | 'single-call';
     /**
      * Bypass-Flag (FEATURE-0318 / PLAN-007 task A.6): set by explicit
      * user-triggered saves (Star button, /save now command, mark_for_memory
@@ -176,7 +181,7 @@ export class ExtractionQueue {
                         break;
                     }
                     // Transient failure — leave in queue for retry on next startup, stop processing
-                    console.warn(`[Memory] Extraction failed for ${item.conversationId} (type=${item.type}), will retry on next startup:`, e);
+                    console.warn(`[Memory] Extraction failed for ${item.conversationId}, will retry on next startup:`, e);
                     break;
                 }
 

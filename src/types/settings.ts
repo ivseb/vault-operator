@@ -452,8 +452,6 @@ export interface MemorySettings {
     enabled: boolean;
     /** Automatically extract session summaries when a conversation ends */
     autoExtractSessions: boolean;
-    /** Promote durable facts from session summaries to long-term memory files */
-    autoUpdateLongTerm: boolean;
     /** Model key for extraction LLM calls (picks from activeModels[]) */
     memoryModelKey: string;
     /** Minimum total messages (user + assistant) before extraction triggers */
@@ -915,7 +913,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     memory: {
         enabled: true,
         autoExtractSessions: true,
-        autoUpdateLongTerm: true,
         memoryModelKey: '',
         extractionThreshold: 6,
         // Default for FRESH installs. Existing v1 users get bumped to 'pending'

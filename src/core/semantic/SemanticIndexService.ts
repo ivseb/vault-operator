@@ -772,7 +772,7 @@ export class SemanticIndexService {
 
     /**
      * Index a session summary into the vector store.
-     * Called after SessionExtractor saves a summary file.
+     * Called after SingleCallProcessor saves a session summary.
      * Items are tagged with source='session' so they can be filtered separately.
      */
     async indexSessionSummary(sessionId: string, content: string): Promise<void> {

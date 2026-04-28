@@ -2436,25 +2436,18 @@ export class AgentSidebarView extends ItemView {
         if (!mem.enabled || !mem.autoExtractSessions || !queue) return;
         if (!this.activeConversationId || this.uiMessages.length < mem.extractionThreshold) return;
 
-        // Build a minimal transcript from UI messages (~8000 chars max)
-        const MAX_TRANSCRIPT = 8000;
-        let transcript = '';
-        for (const msg of this.uiMessages) {
-            const prefix = msg.role === 'user' ? 'User: ' : 'Assistant: ';
-            const line = prefix + msg.text + '\n\n';
-            if (transcript.length + line.length > MAX_TRANSCRIPT) break;
-            transcript += line;
-        }
+        // Phase 4: hand structured messages to SingleCallProcessor; delta-window
+        // slicing happens engine-side via ThreadDeltaStore.last_extracted_message_index.
+        const messages = this.uiMessages.map((m) => ({ role: m.role, text: m.text }));
 
         const title = this.uiMessages.find((m) => m.role === 'user')?.text.slice(0, 60).replace(/\n/g, ' ').trim()
             || t('ui.sidebar.conversation');
 
         queue.enqueue({
             conversationId: this.activeConversationId,
-            transcript,
+            messages,
             title,
             queuedAt: new Date().toISOString(),
-            type: 'session',
         }).catch((e) => console.warn('[Memory] Enqueue failed:', e));
     }
 
