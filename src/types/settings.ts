@@ -711,6 +711,8 @@ export interface ObsidianAgentSettings {
     _syncDirMigrated?: boolean;
     /** Whether data has been migrated from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/ (FEATURE-1508) */
     _parentDirMigrated?: boolean;
+    /** Whether the legacy in-vault folders (.obsilo, .obsilo-sync, .obsidian/.obsilo) have been cleaned up. */
+    _legacyVaultDirsCleaned?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;

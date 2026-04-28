@@ -312,6 +312,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveData({ ...this.settings, _parentDirMigrated: true });
         }
 
+        // Legacy in-vault folder cleanup. Pre-FEATURE-1508 the plugin
+        // experimented with .obsilo / .obsilo-sync / .obsidian/.obsilo
+        // names. cleanupLegacyVaultDirs() handled them but only ran via
+        // the migrateToParentDir branch when ~/.obsidian-agent had already
+        // disappeared. For users where the legacy ~/.obsidian-agent still
+        // exists alongside, that branch never fired. Run it directly,
+        // gated by an idempotent flag.
+        if (!this.settings._legacyVaultDirsCleaned) {
+            await this.cleanupLegacyVaultDirs().catch((e) =>
+                console.warn('[Plugin] Legacy vault dir cleanup failed (non-fatal):', e)
+            );
+            this.settings._legacyVaultDirsCleaned = true;
+            await this.saveSettings();
+        }
+
         // Governance: ignore/protected path rules
         this.ignoreService = new IgnoreService(this.app.vault);
         await this.ignoreService.load();
