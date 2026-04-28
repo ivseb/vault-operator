@@ -45,22 +45,20 @@ class MemoryV2UpgradeModalImpl extends Modal {
         contentEl.empty();
         contentEl.addClass('agent-memory-v2-upgrade-modal');
 
-        contentEl.createEl('h2', { text: 'Memory v2 is here' });
+        contentEl.createEl('h2', { text: 'Obsilo upgrade' });
 
         const intro = contentEl.createEl('p');
         intro.appendText(
-            'Obsilo just upgraded its memory subsystem. Your existing memory ' +
-            '(user-profile, projects, patterns, errors, custom-tools, soul) ' +
-            'still works as before. Memory v2 adds new capabilities on top:',
+            'This release replaces the original memory subsystem with a faster, ' +
+            'more capable engine. We need to upgrade your existing memory in one ' +
+            'short cascade. Steps run automatically:',
         );
 
         const benefits = contentEl.createEl('ul');
         const items: Array<[string, string]> = [
-            ['Atomic facts', 'Memory is split into self-contained statements with topics, importance, and provenance — not free-form Markdown blocks.'],
-            ['Hybrid search', 'Search now fuses semantic similarity, keyword match, and tag-match (Reciprocal Rank Fusion). Notes with the right tag rank up even when the body misses the query.'],
-            ['Communication style', 'Your soul.md becomes a structured style row, queryable per topic / context / thread.'],
-            ['Audit trail', 'Every state change (insert, confirm, supersede, deprecate) is logged for transparency.'],
-            ['Engine-extract ready', 'The new engine has zero Obsidian coupling, so the same memory can later power the Unified Chat Memory across other interfaces.'],
+            ['Atomise legacy memory', 'user-profile, projects, patterns, errors, custom-tools become self-contained facts with topics, importance, and provenance. soul.md becomes your communication style.'],
+            ['Seed topic centroids', 'The engine pre-computes per-topic embeddings so context locks instantly without an LLM call.'],
+            ['Refresh defaults', 'Future releases plug release-specific upgrade steps in here.'],
         ];
         for (const [title, body] of items) {
             const li = benefits.createEl('li');
@@ -71,22 +69,23 @@ class MemoryV2UpgradeModalImpl extends Modal {
         const safety = contentEl.createEl('p', { cls: 'agent-memory-v2-upgrade-safety' });
         safety.createEl('strong', { text: 'Safe upgrade: ' });
         safety.appendText(
-            'The migration copies your originals into memory-v1-backup/{timestamp}/ ' +
-            'before touching anything. Your original memory files are NOT deleted -- ' +
-            'they keep working in parallel until a future release retires them.',
+            'Originals are copied into memory-v1-backup/{timestamp}/ before any ' +
+            'change. Backups stay accessible under Settings → Advanced → Backups. ' +
+            'New installs never see this dialog -- they ship on the new engine ' +
+            'from minute one.',
         );
 
         const later = contentEl.createEl('p');
-        later.appendText('You can run the migration any time from ');
-        later.createEl('em', { text: 'Settings → Memory → Memory v2 Migration' });
-        later.appendText('.');
+        later.appendText('You can run this upgrade later from ');
+        later.createEl('em', { text: 'Settings → Memory → Obsilo upgrade' });
+        later.appendText('. The dialog only appears once per release.');
 
         new Setting(contentEl)
             .addButton(btn => btn
                 .setButtonText('Later')
                 .onClick(() => this.decide('later')))
             .addButton(btn => btn
-                .setButtonText('Migrate now')
+                .setButtonText('Upgrade now')
                 .setCta()
                 .onClick(() => this.decide('migrate')));
     }

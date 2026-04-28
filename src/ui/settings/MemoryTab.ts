@@ -18,7 +18,11 @@ import { confirmModal } from '../modals/PromptModal';
 import { FactStore } from '../../core/memory/FactStore';
 import { CommunicationStyleStore } from '../../core/memory/CommunicationStyleStore';
 import { MemoryAtomizer } from '../../core/memory/MemoryAtomizer';
-import { MemoryMigrationJob, type MigrationReport } from '../../core/memory/MemoryMigrationJob';
+import {
+    MemoryV2UpgradeOrchestrator,
+    type UpgradeReport,
+} from '../../core/memory/MemoryV2UpgradeOrchestrator';
+import type { MigrationReport } from '../../core/memory/MemoryMigrationJob';
 
 export class MemoryTab {
     /**
@@ -245,66 +249,49 @@ export class MemoryTab {
         // migration finished ('completed') -- it is a one-time event.
         // The v1 backup folder remains accessible via Settings ->
         // Advanced -> Backups (category "memory-v1-backup").
+        // The Memory v2 upgrade section is the only memory-engine UI now.
+        // v2 is the default + only path; the previous engineVersion toggle
+        // was removed because keeping v1 around as a user choice was
+        // complexity for nostalgia, not value.
         const v2Status = this.plugin.settings.memory.v2MigrationStatus;
         if (v2Status === 'pending' || v2Status === 'skipped') {
             this.buildMemoryV2MigrationSection(containerEl);
         }
-
-        // ─── Memory engine version (FEATURE-0317 cut-over) ───────────────
-        // The cut-over flag is always visible. v2 starts off so users on
-        // v1 can flip when they are ready; flipping requires a plugin
-        // reload because AgentTask reads the value at construction time.
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory engine (Beta)' });
-        new Setting(containerEl)
-            .setName('Engine version')
-            .setDesc(
-                'v1 = legacy MD-file memory (default). v2 = dynamic ContextComposer ' +
-                'using the fact store. Reload Obsidian after switching.',
-            )
-            .addDropdown(d => {
-                d.addOption('v1', 'v1 (Markdown files)');
-                d.addOption('v2', 'v2 (ContextComposer)');
-                d.setValue(this.plugin.settings.memory.engineVersion);
-                d.onChange(async (v) => {
-                    this.plugin.settings.memory.engineVersion = v as 'v1' | 'v2';
-                    await this.plugin.saveSettings();
-                });
-            });
     }
 
     private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {
         const status = this.plugin.settings.memory.v2MigrationStatus;
 
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Memory v2 Migration' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Obsilo upgrade' });
 
-        // Status banner -- different copy per pre-migration state.
+        // Status banner -- different copy per pre-upgrade state.
         const banner = containerEl.createDiv('agent-settings-info-banner');
         const bannerText = banner.createDiv({ cls: 'agent-settings-info-text' });
         if (status === 'pending') {
-            bannerText.createEl('strong', { text: 'Migration pending. ' });
+            bannerText.createEl('strong', { text: 'Upgrade pending. ' });
             bannerText.appendText(
-                'Pick a migration model below and click "Migrate now". ' +
-                'Your originals stay in place; a copy goes into memory-v1-backup/{timestamp}/, ' +
-                'available later under Advanced > Backups.',
+                'A short cascade brings your existing Obsilo memory onto the new engine: ' +
+                'atomise legacy memory files, seed topic centroids, refresh defaults. ' +
+                'Originals are copied to memory-v1-backup/{timestamp}/ before any change.',
             );
         } else if (status === 'skipped') {
-            bannerText.createEl('strong', { text: 'Migration skipped. ' });
+            bannerText.createEl('strong', { text: 'Upgrade skipped. ' });
             bannerText.appendText(
-                'You chose "Later" in the Memory v2 announcement. ' +
-                'The migration is a one-time event -- once you run it, this section disappears.',
+                'You chose "Later" in the announcement. The upgrade is a one-time event -- ' +
+                'once it runs, this section disappears.',
             );
         }
 
         // Model dropdown (BUG-031): the global chat provider can be on a
-        // quota-limited tier (e.g. Copilot 402). Migration is a one-shot
-        // LLM job; let the user pick a model that is known to work,
-        // separately from chat / memory / contextual choices.
+        // quota-limited tier (e.g. Copilot 402). The atomiser step is the
+        // only LLM-heavy part of the cascade; let the user pick a model
+        // that is known to have quota.
         const activeModels = this.plugin.settings.activeModels.filter(m => m.enabled);
         new Setting(containerEl)
-            .setName('Migration model')
+            .setName('Atomiser model')
             .setDesc(
-                'Which model atomises the legacy memory files. Haiku 4.5 is sufficient ' +
-                'for typical memory MDs; Sonnet 4.6 if the source has dense compound prose. ' +
+                'Used for the atomise-legacy-memory step. Haiku 4.5 is sufficient for ' +
+                'typical memory MDs; Sonnet 4.6 if the source has dense compound prose. ' +
                 'Defaults to your Memory Model.',
             )
             .addDropdown(d => {
@@ -316,16 +303,15 @@ export class MemoryTab {
                 d.onChange((v) => { this.migrationModelKey = v; });
             });
 
-        const v2Setting = new Setting(containerEl)
-            .setName('Migrate v1 memory to v2')
+        const upgradeSetting = new Setting(containerEl)
+            .setName('Run upgrade')
             .setDesc(
-                'Atomises user-profile.md, projects.md, patterns.md, errors.md, custom-tools.md ' +
-                'into the new fact schema. soul.md becomes a communication style. knowledge.md ' +
-                'is left as a vault note. Originals are copied to memory-v1-backup/{timestamp}/. ' +
-                'This section disappears after a successful run.',
+                'Runs the full upgrade cascade in one go. Backups are written before any ' +
+                'change. This section disappears after a successful run; backups stay ' +
+                'accessible under Settings → Advanced → Backups.',
             );
-        v2Setting.addButton((b) =>
-            b.setButtonText('Migrate now')
+        upgradeSetting.addButton((b) =>
+            b.setButtonText('Upgrade now')
                 .onClick(() => void this.runMemoryV2Migration(b.buttonEl)),
         );
     }
@@ -333,16 +319,14 @@ export class MemoryTab {
     private async runMemoryV2Migration(btn: HTMLButtonElement): Promise<void> {
         const memDB = this.plugin.memoryDB;
         const fs = this.plugin.globalFs;
-        if (!memDB?.isOpen() || !fs) {
-            new Notice('Memory v2 migration: memory DB or file adapter not ready');
+        const embeddingService = this.plugin.embeddingService;
+        if (!memDB?.isOpen() || !fs || !embeddingService) {
+            new Notice('Obsilo upgrade: memory DB, file adapter, or embedding service not ready');
             return;
         }
 
-        // Migration uses an independent model selection (BUG-031, 2026-04-28).
-        // The dropdown next to the Migrate button captures the choice; we
-        // re-read it here so the user sees what they picked. Falling back to
-        // the memory model or the global chat handler is intentional so the
-        // button stays useful even before the user touches the dropdown.
+        // Atomiser uses an independent model selection (BUG-031, 2026-04-28).
+        // Falls back to the memory model, then the global chat provider.
         const selectedKey = this.migrationModelKey;
         const candidate = selectedKey
             ? this.plugin.settings.activeModels.find(m => getModelKey(m) === selectedKey && m.enabled)
@@ -359,66 +343,86 @@ export class MemoryTab {
         }
         if (!atomizerApi) {
             new Notice(
-                'Memory v2 migration: no API handler available. ' +
-                'Pick a model in the migration dropdown or under Settings -> Memory -> Memory Model.',
+                'Obsilo upgrade: no API handler available for the atomiser step. ' +
+                'Pick a model in the dropdown above or under Settings → Memory → Memory Model.',
                 10000,
             );
             return;
         }
 
         const ok = await confirmModal(this.app, {
-            title: 'Migrate v1 memory to v2?',
+            title: 'Run Obsilo upgrade?',
             message:
-                `Provider: ${providerLabel}\n\n` +
-                '5 markdown files will be sent through an LLM atomizer and stored as facts. ' +
-                'soul.md becomes a default communication style. knowledge.md stays as is. ' +
-                '\n\nOriginals are copied to memory-v1-backup/{timestamp}/. They are NOT deleted.',
-            confirmLabel: 'Migrate',
+                `Atomiser provider: ${providerLabel}\n\n` +
+                'Cascade steps:\n' +
+                '  1. Atomise legacy memory files into the new fact schema\n' +
+                '  2. Seed topic centroids so context locks instantly\n' +
+                '  3. Refresh release-specific settings defaults\n\n' +
+                'Originals are copied to memory-v1-backup/{timestamp}/. They are NOT deleted.',
+            confirmLabel: 'Upgrade',
             cancelLabel: 'Cancel',
         });
         if (!ok) return;
 
-        btn.setText('Migrating...');
+        btn.setText('Upgrading...');
         btn.disabled = true;
         const factStore = new FactStore(memDB);
         const styleStore = new CommunicationStyleStore(memDB);
         const atomizer = new MemoryAtomizer(atomizerApi);
-        const job = new MemoryMigrationJob(fs, factStore, styleStore, atomizer);
+        const orchestrator = new MemoryV2UpgradeOrchestrator();
 
-        const progressNotice = new Notice('Memory v2 migration in progress...', 0);
+        const progressNotice = new Notice('Obsilo upgrade running...', 0);
         try {
-            const report = await job.run();
+            const report = await orchestrator.run({
+                fs, factStore, styleStore, atomizer, embeddingService,
+                memoryDB: memDB,
+                onProgress: (msg) => progressNotice.setMessage(`Obsilo upgrade: ${msg}`),
+            });
             progressNotice.hide();
-            new Notice(formatReport(report), 12000);
-            console.debug('[MemoryV2Migration] Report:', report);
-            // Persist outcome -- next plugin load skips the upgrade modal,
-            // and the settings banner switches to the "Migration done" copy.
-            this.plugin.settings.memory.v2MigrationStatus = 'completed';
-            this.plugin.settings.memory.v2MigrationReport = {
-                completedAt: report.timestamp,
-                factsInserted: report.totalFactsInserted,
-                stylesInserted: report.totalStylesInserted,
-                backupFolder: report.backupFolder,
-            };
-            await this.plugin.saveSettings();
+
+            if (report.aborted) {
+                const failed = report.steps.find(s => !s.ok);
+                new Notice(`Obsilo upgrade aborted: ${failed?.error ?? 'unknown error'}`, 12000);
+                console.error('[ObsiloUpgrade] Aborted:', report);
+                return;
+            }
+
+            new Notice(formatReport(report), 14000);
+            console.debug('[ObsiloUpgrade] Report:', report);
+
+            // Persist outcome from the migration step so the settings banner
+            // switches state and the modal stops appearing on next load.
+            const migrationReport = MemoryV2UpgradeOrchestrator.findMigrationReport(report);
+            if (migrationReport) {
+                this.plugin.settings.memory.v2MigrationStatus = 'completed';
+                this.plugin.settings.memory.v2MigrationReport = {
+                    completedAt: migrationReport.timestamp,
+                    factsInserted: migrationReport.totalFactsInserted,
+                    stylesInserted: migrationReport.totalStylesInserted,
+                    backupFolder: migrationReport.backupFolder,
+                };
+                await this.plugin.saveSettings();
+            }
         } catch (e) {
             progressNotice.hide();
-            console.error('[MemoryV2Migration] Failed:', e);
-            new Notice(`Memory v2 migration failed: ${(e as Error).message}`, 10000);
+            console.error('[ObsiloUpgrade] Failed:', e);
+            new Notice(`Obsilo upgrade failed: ${(e as Error).message}`, 10000);
         } finally {
-            btn.setText('Migrate now');
+            btn.setText('Upgrade now');
             btn.disabled = false;
             this.rerender();
         }
     }
 }
 
-function formatReport(report: MigrationReport): string {
-    const lines = [
-        `Memory v2 migration done.`,
-        `Facts inserted: ${report.totalFactsInserted}.`,
-        `Style rows: ${report.totalStylesInserted}.`,
-        `Backup: ${report.backupFolder}`,
-    ];
+function formatReport(report: UpgradeReport): string {
+    const lines = ['Obsilo upgrade done.'];
+    for (const step of report.steps) {
+        const tag = step.skipped ? 'skipped' : step.ok ? 'ok' : 'failed';
+        lines.push(`  ${step.label}: ${tag}${step.detail ? ` -- ${step.detail}` : ''}`);
+    }
     return lines.join('\n');
 }
+
+// Re-export for legacy callers (kept for type imports until Phase 4 cleanup).
+export type { MigrationReport };

@@ -2149,17 +2149,16 @@ export class AgentSidebarView extends ItemView {
 
         const allowedMcpServers = this.plugin.settings.modeMcpServers?.[activeMode.slug];
 
-        // Load memory context for system prompt injection
+        // Memory v2 is the only path. The legacy v1 MD-file pipeline was
+        // removed once the upgrade orchestrator landed -- existing users
+        // are taken through the upgrade modal on first load, fresh users
+        // start on v2 from minute one. ContextComposer renders an empty
+        // block until the user has facts; no fallback to v1.
         let memoryContext: string | undefined;
         const isFirstMessage = this.conversationHistory.length === 0;
 
-        // Memory v2 cut-over (FEATURE-0317 / PLAN-006 task 12). When the
-        // engineVersion flag is 'v2' AND the new stack is ready, the
-        // ContextComposer renders the memory block. Otherwise we fall
-        // through to the legacy v1 path below so the agent never starts
-        // a turn without context.
         if (
-            this.plugin.settings.memory.engineVersion === 'v2'
+            this.plugin.settings.memory.enabled
             && this.plugin.memoryDB?.isOpen()
             && this.plugin.embeddingService?.isReady()
         ) {
@@ -2181,25 +2180,23 @@ export class AgentSidebarView extends ItemView {
                 });
                 if (composed.markdown) memoryContext = composed.markdown;
             } catch (e) {
-                console.warn('[Memory v2] ContextComposer failed, falling back to v1:', e);
+                console.warn('[Memory] ContextComposer failed:', e);
             }
         }
 
-        if (!memoryContext && this.plugin.settings.memory.enabled && this.plugin.memoryService) {
+        // Session retrieval + onboarding: independent of v1/v2 memory engine.
+        // Session summaries live in the same memory.db.sessions table either
+        // way; onboarding prompts are still surfaced through MemoryService
+        // until OnboardingService gets re-homed onto the v2 stores
+        // (FEATURE-0323).
+        if (this.plugin.settings.memory.enabled && this.plugin.memoryService) {
             try {
-                const parts: string[] = [];
-
-                // Long-term memory files (user-profile, projects, patterns)
-                const files = await this.plugin.memoryService.loadMemoryFiles();
-                const ctx = this.plugin.memoryService.buildMemoryContext(files);
-                if (ctx) parts.push(ctx);
+                const parts: string[] = memoryContext ? [memoryContext] : [];
 
                 // Onboarding: inject step-specific setup instructions when setup is incomplete
-                if (this.plugin.memoryService) {
-                    const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
-                    const onboardingPrompt = onboarding.getOnboardingPrompt();
-                    if (onboardingPrompt) parts.unshift(onboardingPrompt);
-                }
+                const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
+                const onboardingPrompt = onboarding.getOnboardingPrompt();
+                if (onboardingPrompt) parts.unshift(onboardingPrompt);
 
                 // Session retrieval — only on first message, using raw user text
                 // (not userMessageText which includes <context> and <vault_context> blocks).
@@ -2220,7 +2217,7 @@ export class AgentSidebarView extends ItemView {
 
                 if (parts.length > 0) memoryContext = parts.join('\n\n');
             } catch (e) {
-                console.warn('[Memory] Failed to load memory context:', e);
+                console.warn('[Memory] Session retrieval failed:', e);
             }
         }
 
