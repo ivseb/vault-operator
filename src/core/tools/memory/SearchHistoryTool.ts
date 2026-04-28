@@ -115,7 +115,11 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
             const link = `obsidian://obsilo-chat?id=${encodeURIComponent(sessionId)}`;
             const snippet = text.length > 220 ? text.slice(0, 217) + '...' : text;
             const date = shortDate(createdAt);
-            lines.push(`- **${role}** in [${title}](${link}) -- ${date}`);
+            // Auto-link bracket <...> tells the CommonMark parser this is
+            // a URL, not a vault-internal path. Without it Obsidian's
+            // markdown renderer feeds the link to openLinkText() and the
+            // ":" in the protocol scheme triggers a createFolder error.
+            lines.push(`- **${role}** in [${title}](<${link}>) -- ${date}`);
             lines.push(`  > ${snippet}`);
         }
         return lines.join('\n');

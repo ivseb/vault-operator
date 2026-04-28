@@ -1408,6 +1408,19 @@ export const en: Translations = {
     'copilot.authFailed': 'Authentication failed: {error}',
     'copilot.signedOut': 'Signed out from GitHub copilot.',
 
+    // ChatGPT OAuth (EPIC-021)
+    'chatgpt.auth': 'ChatGPT account',
+    'chatgpt.authDesc': 'Use your ChatGPT Plus or Pro subscription. This uses unofficial codex endpoints; the schema can change without notice.',
+    'chatgpt.signIn': 'Sign in with ChatGPT',
+    'chatgpt.signOut': 'Disconnect',
+    'chatgpt.notConnected': 'Not connected',
+    'chatgpt.unsupportedPlatform': 'Desktop only (OS keychain required)',
+    'chatgpt.polling': 'Waiting for browser...',
+    'chatgpt.openedBrowser': 'Browser opened. Complete sign-in there, then return to Obsidian.',
+    'chatgpt.authSuccess': 'Successfully connected to ChatGPT.',
+    'chatgpt.authFailed': 'Sign-in failed: {error}',
+    'chatgpt.signedOut': 'Disconnected from ChatGPT.',
+
     // Kilo gateway
     'kilo.auth': 'Kilo account',
     'kilo.authDesc': 'Sign in with your account to use gateway models.',

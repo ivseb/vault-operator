@@ -3106,10 +3106,26 @@ export class AgentSidebarView extends ItemView {
     /**
      * Make internal [[wikilinks]] and note links in the rendered markdown clickable.
      * MarkdownRenderer handles most links, but we intercept to ensure sidebar context.
+     *
+     * Special-case obsidian://obsilo-chat?id=X URLs (used by recall_memory and
+     * search_history outputs): route through the plugin's deep-link handler
+     * directly. Without this they'd fall through to openLinkText() and the
+     * ":" in the protocol scheme triggers a createFolder error.
      */
     private wireInternalLinks(contentEl: HTMLElement): void {
         contentEl.querySelectorAll('a').forEach((anchor) => {
             const href = anchor.getAttribute('href') ?? '';
+            if (href.startsWith('obsidian://obsilo-chat')) {
+                anchor.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    const match = /[?&]id=([^&]+)/.exec(href);
+                    if (match) {
+                        const id = decodeURIComponent(match[1]);
+                        void this.plugin.openChatById(id);
+                    }
+                });
+                return;
+            }
             // Internal links: [[Note]] renders as data-href or href without http
             if (!href.startsWith('http') && !href.startsWith('mailto')) {
                 anchor.addEventListener('click', (e) => {

@@ -51,6 +51,7 @@ import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
 import { t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
+import { ChatGptOAuthService } from './core/auth/ChatGptOAuthService';
 import { KiloAuthService } from './core/security/KiloAuthService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
@@ -1106,6 +1107,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         kiloAuth.loadFromSettings(this.settings);
         kiloAuth.setSaveCallback(async () => {
             kiloAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
+        // Initialize ChatGPT OAuth service with persisted tokens (ADR-088, ADR-089)
+        const chatgptAuth = ChatGptOAuthService.getInstance();
+        chatgptAuth.loadFromSettings(this.settings);
+        chatgptAuth.setSaveCallback(async () => {
+            chatgptAuth.saveToSettings(this.settings);
             await this.saveData(this.encryptSettingsForSave(this.settings));
         });
 

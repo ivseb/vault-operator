@@ -214,7 +214,9 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
             const id = uri.slice('thread://'.length);
             const meta = this.plugin.conversationStore?.list().find(m => m.id === id);
             const title = meta?.title?.trim() || 'Conversation';
-            return `${edgeType}: [${title}](obsidian://obsilo-chat?id=${encodeURIComponent(id)})`;
+            // Auto-link bracket <...> avoids Obsidian's markdown renderer
+            // mistaking the protocol URL for a vault-internal file path.
+            return `${edgeType}: [${title}](<obsidian://obsilo-chat?id=${encodeURIComponent(id)}>)`;
         }
         if (uri.startsWith('vault://')) {
             const path = uri.slice('vault://'.length);
