@@ -76,6 +76,9 @@ export class AgentSidebarView extends ItemView {
 
     // Health badge (FEATURE-1901)
     private healthBadge: HTMLElement | null = null;
+    // Memory star toggle (FEATURE-0318)
+    private memoryStarBtn: HTMLElement | null = null;
+    private memoryStarIconEl: HTMLElement | null = null;
     // Tool picker (pocket-knife button)
     private toolPickerButton: HTMLElement | null = null;
     // Web search toggle button (globe icon)
@@ -240,6 +243,18 @@ export class AgentSidebarView extends ItemView {
             this.ensureHistoryPanel();
             this.historyPanel?.toggle();
         });
+
+        // Save-to-memory star (FEATURE-0318): toggles between empty / filled
+        // depending on whether the active conversation already has facts in
+        // Memory v2. Click pins or unpins.
+        this.memoryStarBtn = headerRight.createEl('button', {
+            cls: 'header-button memory-star-button',
+            attr: { 'aria-label': t('ui.sidebar.saveToMemory') },
+        });
+        this.memoryStarIconEl = this.memoryStarBtn.createSpan('toolbar-icon');
+        setIcon(this.memoryStarIconEl, 'star');
+        this.memoryStarBtn.addEventListener('click', () => { void this.handleMemoryStarToggle(); });
+        this.refreshMemoryStarButton();
 
         // New Chat button — clears conversation history
         const newChatBtn = headerRight.createEl('button', {
@@ -769,10 +784,66 @@ export class AgentSidebarView extends ItemView {
         try {
             await queue.enqueueImmediate(snapshot);
             new Notice(t('notice.memorySaveQueued'));
+            void this.pollMemoryStarUntilReady(snapshot.conversationId);
         } catch (e) {
             console.warn('[Memory] Manual save failed:', e);
             new Notice(t('notice.memorySaveFailed'));
         }
+    }
+
+    /**
+     * Header star-toggle: pin (extract) or unpin (deprecate facts) the
+     * currently active conversation. Filled = facts present in DB.
+     */
+    private async handleMemoryStarToggle(): Promise<void> {
+        if (!this.activeConversationId) {
+            new Notice(t('notice.memoryNoActiveConversation'));
+            return;
+        }
+        const inMem = this.plugin.countMemoryFactsForConversation(this.activeConversationId) > 0;
+        if (inMem) {
+            await this.removeHistoryConversationFromMemory(this.activeConversationId, '');
+            this.refreshMemoryStarButton();
+        } else {
+            await this.handleSaveToMemory();
+        }
+    }
+
+    /**
+     * Update the header Star icon to reflect whether the active
+     * conversation has facts in memory.
+     */
+    refreshMemoryStarButton(): void {
+        if (!this.memoryStarIconEl || !this.memoryStarBtn) return;
+        const id = this.activeConversationId;
+        const inMem = id ? this.plugin.countMemoryFactsForConversation(id) > 0 : false;
+        setIcon(this.memoryStarIconEl, inMem ? 'star-off' : 'star');
+        this.memoryStarBtn.classList.toggle('header-button-active', inMem);
+        this.memoryStarBtn.setAttribute('aria-label',
+            inMem ? t('ui.history.removeFromMemory') : t('ui.sidebar.saveToMemory'));
+    }
+
+    /**
+     * After enqueueImmediate, the LLM extraction runs in the background
+     * and only THEN do facts land in the DB. Poll for up to 90s so the
+     * UI eventually reflects the saved state without forcing the user
+     * to reopen the panel.
+     */
+    private async pollMemoryStarUntilReady(conversationId: string): Promise<void> {
+        const startedAt = Date.now();
+        const TIMEOUT_MS = 90_000;
+        const INTERVAL_MS = 2_000;
+        while (Date.now() - startedAt < TIMEOUT_MS) {
+            await new Promise(resolve => setTimeout(resolve, INTERVAL_MS));
+            if (this.plugin.countMemoryFactsForConversation(conversationId) > 0) {
+                this.refreshMemoryStarButton();
+                this.historyPanel?.refresh();
+                return;
+            }
+        }
+        // Timeout -- one final refresh just in case.
+        this.refreshMemoryStarButton();
+        this.historyPanel?.refresh();
     }
 
     /**
@@ -822,6 +893,7 @@ export class AgentSidebarView extends ItemView {
                 queuedAt: new Date().toISOString(),
             });
             new Notice(t('notice.memorySaveQueued'));
+            void this.pollMemoryStarUntilReady(id);
         } catch (e) {
             console.warn('[Memory] Save history conversation failed:', e);
             new Notice(t('notice.memorySaveFailed'));
@@ -1300,6 +1372,7 @@ export class AgentSidebarView extends ItemView {
                 mode,
                 model?.displayName ?? model?.name ?? modelKey,
             );
+            this.refreshMemoryStarButton();
         }
 
         // Track user UI message for history persistence (skip for hidden messages)
@@ -2420,6 +2493,7 @@ export class AgentSidebarView extends ItemView {
         this.plugin.sessionFlags.clear();
         this.onboarding?.reset();
         this.attachments.clear();
+        this.refreshMemoryStarButton();
         if (this.chatContainer) {
             this.chatContainer.empty();
         }
@@ -2669,6 +2743,7 @@ export class AgentSidebarView extends ItemView {
         this.activeConversationId = id;
         this.userDismissedContext = false;
         this.attachments.clear();
+        this.refreshMemoryStarButton();
 
         // Re-render chat
         if (this.chatContainer) {
