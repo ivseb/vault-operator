@@ -857,6 +857,16 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.syncCapabilitySnapshot().catch((e) =>
                 console.warn('[Plugin] Capability snapshot sync failed (non-fatal):', e),
             );
+
+            // FEATURE-0319 Phase 5: daily aging sweep. AgingService
+            // short-circuits when lastAgingRunAt is < 24h old, so this is
+            // safe to call on every plugin onload.
+            this.runAgingSweep().catch((e) =>
+                console.warn('[Plugin] Aging sweep failed (non-fatal):', e),
+            );
+
+            // FEATURE-0319 Phase 5: configure re-extraction throttle from settings.
+            this.extractionQueue.setThrottleMs(this.settings.memory.reExtractThrottleMs ?? 60_000);
         }
 
         // LLM provider (null if no API key configured)
@@ -914,6 +924,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             id: 'open-agent-sidebar',
             name: 'Open agent sidebar',
             callback: () => this.activateView()
+        });
+
+        // FEATURE-0319 Phase 5: Save active conversation to memory.
+        // No default hotkey -- user assigns via Settings -> Hotkeys.
+        this.addCommand({
+            id: 'save-conversation-to-memory',
+            name: 'Save conversation to memory',
+            callback: () => { void this.saveActiveConversationToMemory(); },
         });
 
         // Development: Test tool execution
@@ -1516,6 +1534,63 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (leaves.length === 0) return null;
         const view = leaves[0].view as AgentSidebarView;
         return view.snapshotForMemory?.() ?? null;
+    }
+
+    /**
+     * Command-palette / hotkey entry for the manual save-to-memory flow.
+     * Same pipeline as the Star button + chat input "..." menu, just
+     * reachable via Cmd+Shift+M (when the user binds it).
+     */
+    async saveActiveConversationToMemory(): Promise<void> {
+        if (!this.settings.memory.enabled) {
+            new Notice('Memory is disabled. Enable it in Settings.');
+            return;
+        }
+        const queue = this.extractionQueue;
+        const snapshot = this.snapshotActiveConversationForMemory();
+        if (!queue || !snapshot) {
+            new Notice('No active conversation to save.');
+            return;
+        }
+        try {
+            await queue.enqueueImmediate(snapshot);
+            new Notice('Conversation queued for memory extraction.');
+        } catch (e) {
+            console.warn('[Memory] Hotkey save failed:', e);
+            new Notice('Saving the conversation failed. See console for details.');
+        }
+    }
+
+    /**
+     * Daily aging sweep (FEATURE-0319 Phase 5). Idempotent within 24h
+     * via settings.memory.lastAgingRunAt. Records a telemetry event on
+     * each non-skipped run.
+     */
+    async runAgingSweep(force = false): Promise<void> {
+        if (!this.memoryDB?.isOpen()) return;
+        const { AgingService } = await import('./core/memory/AgingService');
+        const service = new AgingService(this.memoryDB);
+        const report = service.runAgingCycle({
+            force,
+            lastRunAt: this.settings.memory.lastAgingRunAt ?? null,
+        });
+        if (report.skipped) {
+            console.debug(`[Plugin] Aging skipped: ${report.skippedReason}`);
+            return;
+        }
+        this.settings.memory.lastAgingRunAt = report.timestamp;
+        await this.saveSettings();
+        await this.memoryDB.save().catch(() => undefined);
+        console.debug(
+            `[Plugin] Aging sweep: ${report.factsUpdated}/${report.factsProcessed} facts updated ` +
+            `(by kind: identity=${report.byKind.identity}, fact=${report.byKind.fact}, ` +
+            `event=${report.byKind.event}, preference=${report.byKind.preference})`,
+        );
+        await this.memoryV2Telemetry?.aging({
+            factsProcessed: report.factsProcessed,
+            factsUpdated: report.factsUpdated,
+            skipped: false,
+        });
     }
 
     /**

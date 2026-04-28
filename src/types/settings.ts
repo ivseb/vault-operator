@@ -488,6 +488,20 @@ export interface MemorySettings {
      * mismatch triggers a soul-snapshot rebuild (deprecate old, insert new).
      */
     lastCapabilityHash?: string | null;
+
+    /**
+     * ISO timestamp of the last AgingService run (FEATURE-0319 Phase 5).
+     * Aging short-circuits when called less than 24h after this stamp,
+     * so a flurry of plugin reloads doesn't repeatedly decay facts.
+     */
+    lastAgingRunAt?: string | null;
+
+    /**
+     * Throttle window between automatic re-extracts of the same
+     * conversation (FEATURE-0319 Phase 5). Manual saves (Star button,
+     * mark_for_memory tool) bypass the throttle. Default 60_000 ms.
+     */
+    reExtractThrottleMs?: number;
 }
 
 // ---------------------------------------------------------------------------

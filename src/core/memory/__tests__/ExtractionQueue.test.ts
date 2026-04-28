@@ -224,6 +224,59 @@ describe('ExtractionQueue', () => {
         });
     });
 
+    describe('re-extraction throttle (PLAN-009 / Phase 5)', () => {
+        it('blocks a second auto-enqueue within the throttle window', async () => {
+            const fs = createMockFs();
+            const q = new ExtractionQueue(fs);
+            q.setThrottleMs(60_000);
+            await q.enqueue(makeItem('chat-1'));
+            await q.enqueue(makeItem('chat-1'));
+            expect(q.size()).toBe(1);
+        });
+
+        it('lets the same conversation through after the window elapsed', async () => {
+            const fs = createMockFs();
+            const q = new ExtractionQueue(fs);
+            q.setThrottleMs(50);
+            await q.enqueue(makeItem('chat-1'));
+            await new Promise(r => setTimeout(r, 80));
+            await q.enqueue(makeItem('chat-1'));
+            expect(q.size()).toBe(2);
+        });
+
+        it('different conversations are independent', async () => {
+            const fs = createMockFs();
+            const q = new ExtractionQueue(fs);
+            q.setThrottleMs(60_000);
+            await q.enqueue(makeItem('chat-a'));
+            await q.enqueue(makeItem('chat-b'));
+            expect(q.size()).toBe(2);
+        });
+
+        it('bypassThrottle items are not throttled', async () => {
+            const fs = createMockFs();
+            const q = new ExtractionQueue(fs);
+            q.setThrottleMs(60_000);
+            await q.enqueue(makeItem('chat-1'));
+            await q.enqueueImmediate({
+                conversationId: 'chat-1',
+                messages: [{ role: 'user', text: 'force-save' }],
+                title: 'T',
+                queuedAt: new Date().toISOString(),
+            });
+            expect(q.size()).toBe(2);
+        });
+
+        it('setThrottleMs(0) disables the throttle entirely', async () => {
+            const fs = createMockFs();
+            const q = new ExtractionQueue(fs);
+            q.setThrottleMs(0);
+            await q.enqueue(makeItem('chat-1'));
+            await q.enqueue(makeItem('chat-1'));
+            expect(q.size()).toBe(2);
+        });
+    });
+
     describe('bypass flag (PLAN-007 task A.6)', () => {
         // Processors are not set in these tests so processQueue() is a no-op
         // (no processor configured) and we can inspect the queued item before

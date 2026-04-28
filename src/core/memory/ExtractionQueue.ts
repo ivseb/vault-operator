@@ -72,9 +72,21 @@ export class ExtractionQueue {
     private delayMs = 2000;
     /** BUG-016: once a permanent provider error hits, stop trying until plugin reload. */
     private sessionDisabledReason: string | null = null;
+    /**
+     * Re-extraction throttle (FEATURE-0319 Phase 5): per-conversationId
+     * timestamp of the last enqueue. Auto-extract paths skip if the
+     * window hasn't elapsed; bypassThrottle items always pass.
+     */
+    private lastEnqueuedAt: Map<string, number> = new Map();
+    private throttleMs = 60_000;
 
     constructor(private fs: FileAdapter) {
         this.filePath = 'pending-extractions.json';
+    }
+
+    /** Configure the throttle window between automatic re-extracts. */
+    setThrottleMs(ms: number): void {
+        this.throttleMs = Math.max(0, ms);
     }
 
     // -----------------------------------------------------------------------
@@ -91,6 +103,19 @@ export class ExtractionQueue {
     // -----------------------------------------------------------------------
 
     async enqueue(item: PendingExtraction): Promise<void> {
+        // Throttle gate: skip auto-enqueue when the same conversation
+        // was enqueued within the throttle window. bypassThrottle items
+        // (Star button, mark_for_memory tool) ignore the gate.
+        if (!item.bypassThrottle && this.throttleMs > 0) {
+            const last = this.lastEnqueuedAt.get(item.conversationId);
+            if (last !== undefined && Date.now() - last < this.throttleMs) {
+                console.debug(
+                    `[ExtractionQueue] throttle skip ${item.conversationId} (${Date.now() - last}ms < ${this.throttleMs}ms)`,
+                );
+                return;
+            }
+        }
+        this.lastEnqueuedAt.set(item.conversationId, Date.now());
         this.items.push(item);
         await this.save();
         // Kick off processing if not already running
