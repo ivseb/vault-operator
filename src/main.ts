@@ -1482,13 +1482,19 @@ export default class ObsidianAgentPlugin extends Plugin {
      * facts under profile_id='_obsilo'. Idempotent on identical runs.
      */
     async syncCapabilitySnapshot(): Promise<void> {
-        if (!this.memoryDB?.isOpen()) return;
+        if (!this.memoryDB?.isOpen()) {
+            console.debug('[Plugin] Capability snapshot sync skipped: memoryDB not open');
+            return;
+        }
         const { CAPABILITIES, manifestHash } = await import('./core/memory/CapabilityManifest');
         const { FactStore } = await import('./core/memory/FactStore');
         const { OBSILO_PROFILE } = await import('./core/memory/SoulView');
 
         const newHash = manifestHash();
-        if (this.settings.memory.lastCapabilityHash === newHash) return;
+        if (this.settings.memory.lastCapabilityHash === newHash) {
+            console.debug(`[Plugin] Capability snapshot up-to-date (hash=${newHash}, ${CAPABILITIES.length} entries)`);
+            return;
+        }
 
         const factStore = new FactStore(this.memoryDB);
         const existing = factStore.listLatest({ profileId: OBSILO_PROFILE, limit: 500 })
