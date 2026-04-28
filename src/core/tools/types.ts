@@ -84,6 +84,8 @@ export type ToolName =
     // Memory v2 (Phase 4.5 / FEATURE-0319b): agent-self layer.
     | 'update_soul'
     | 'inspect_self'
+    // Memory v2 (Phase 6 / FEATURE-0320): history search.
+    | 'search_history'
     // Memory v2 internal -- Engine-only tool schemas, never registered with
     // the agent ToolRegistry. Carried in ToolName so ApiHandler.createMessage
     // type-checks across the same ToolDefinition surface.

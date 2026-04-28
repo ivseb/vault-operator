@@ -108,6 +108,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     communityDetectionService: CommunityDetectionService | null = null;
     vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
+    historyDB: import('./core/knowledge/HistoryDB').HistoryDB | null = null;
+    historyIndexer: import('./core/memory/HistoryIndexer').HistoryIndexer | null = null;
     rerankerService: RerankerService | null = null;
     mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -709,6 +711,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
+        // History DB (FEATURE-0320 Phase 6): per-message keyword + future cosine
+        // search across all conversation transcripts.
+        try {
+            const { HistoryDB } = await import('./core/knowledge/HistoryDB');
+            this.historyDB = new HistoryDB(this.app.vault, pluginDir, this.globalFs.getRoot());
+            await this.historyDB.open();
+            if (!this.historyDB.isOpen()) {
+                console.warn('[Plugin] HistoryDB not available — history search degraded');
+                this.historyDB = null;
+            }
+        } catch (e) {
+            console.warn('[Plugin] HistoryDB open failed (non-fatal):', e);
+            this.historyDB = null;
+        }
+
         // Daily snapshots (FEATURE-0314, ADR-079): copy live DBs into
         // .bak/<name>/<YYYY-MM-DD>.db so a 7-day rolling Undo exists on top
         // of the per-write .bak rotation. Only fires for filesystem-backed
@@ -788,6 +805,23 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.conversationStore.initialize().catch((e) =>
                 console.warn('[Plugin] ConversationStore init failed (non-fatal):', e)
             );
+        }
+
+        // History indexer (FEATURE-0320 Phase 6): backfill on first run,
+        // incrementally re-index after every conversation save. Indexer
+        // is a no-op when historyDB or conversationStore is unavailable.
+        if (this.historyDB && this.conversationStore) {
+            const { HistoryIndexer } = await import('./core/memory/HistoryIndexer');
+            this.historyIndexer = new HistoryIndexer(this.historyDB, this.conversationStore);
+            const backfillCtl = new AbortController();
+            void this.historyIndexer.backfillAll(backfillCtl.signal).then((report) => {
+                if (report.chunksInserted > 0) {
+                    console.debug(
+                        `[HistoryIndex] backfill: ${report.chunksInserted} new chunks ` +
+                        `(skipped ${report.chunksSkipped}, ${report.conversationsScanned} conversations)`,
+                    );
+                }
+            }).catch((e) => console.warn('[HistoryIndex] backfill failed (non-fatal):', e));
         }
 
         // Memory service + extraction queue

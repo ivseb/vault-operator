@@ -34,6 +34,8 @@ type SqlJsDatabase = {
     prepare(sql: string): SqlJsStatement;
     export(): Uint8Array;
     close(): void;
+    /** Number of rows modified by the most recent INSERT/UPDATE/DELETE. */
+    getRowsModified(): number;
 };
 type SqlJsStatement = {
     bind(params?: unknown[]): boolean;

@@ -2492,9 +2492,12 @@ export class AgentSidebarView extends ItemView {
     private saveCurrentConversation(): void {
         const store = this.plugin.conversationStore;
         if (!store || !this.activeConversationId || this.uiMessages.length === 0) return;
-        store.save(this.activeConversationId, this.conversationHistory, this.uiMessages).catch((e) =>
-            console.warn('[History] Save failed:', e)
-        );
+        const convId = this.activeConversationId;
+        const messagesSnapshot = [...this.uiMessages];
+        store.save(convId, this.conversationHistory, this.uiMessages).then(() => {
+            // FEATURE-0320 Phase 6: re-index history_chunks after every save.
+            void this.plugin.historyIndexer?.onConversationSaved(convId, messagesSnapshot);
+        }).catch((e) => console.warn('[History] Save failed:', e));
     }
 
     /**
