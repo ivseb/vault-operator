@@ -36,6 +36,9 @@ import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
 import { ExtractionQueue } from './core/memory/ExtractionQueue';
 import { SingleCallProcessor } from './core/memory/SingleCallProcessor';
+import { MemoryV2Telemetry } from './core/memory/MemoryV2Telemetry';
+import { DriftEventBus } from './core/memory/DriftEventBus';
+import { TokenBudgetGuard } from './core/memory/TokenBudgetGuard';
 import { McpClient } from './core/mcp/McpClient';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
@@ -116,6 +119,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     conversationStore: ConversationStore | null = null;
     memoryService: MemoryService | null = null;
     extractionQueue: ExtractionQueue | null = null;
+    memoryV2Telemetry: MemoryV2Telemetry | null = null;
+    driftBus: DriftEventBus | null = null;
+    tokenBudget: TokenBudgetGuard | null = null;
     mcpClient: McpClient;
     vaultDNAScanner: VaultDNAScanner | null = null;
     skillRegistry: SkillRegistry | null = null;
@@ -751,6 +757,26 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] ExtractionQueue load failed (non-fatal):', e)
             );
 
+            // FEATURE-0318 / PLAN-007 task C.2: telemetry + drift + budget wiring.
+            this.memoryV2Telemetry = new MemoryV2Telemetry((path, line) => this.globalFs.append(path, line));
+            this.driftBus = new DriftEventBus();
+            this.driftBus.subscribe((event) => {
+                void this.memoryV2Telemetry?.drift({
+                    sessionId: event.sessionId,
+                    previousTopic: event.previousTopic ?? '',
+                    newTopic: event.newTopic,
+                    score: event.score,
+                });
+            });
+            this.tokenBudget = new TokenBudgetGuard({
+                loadState: () => this.settings.memory.tokenBudgetState ?? null,
+                saveState: async (state) => {
+                    this.settings.memory.tokenBudgetState = state;
+                    await this.saveSettings();
+                },
+                thresholds: { dailyInputCap: 1_000_000, dailyOutputCap: 200_000 },
+            });
+
             // FEATURE-0318 / PLAN-007 task C.1: Single-Call replaces both
             // SessionExtractor and LongTermExtractor. One tool-calling LLM
             // round produces session summary + atomic facts + mentions +
@@ -767,6 +793,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                     embeddingService: this.embeddingService,
                     getMemoryModel: () => this.getMemoryModel(),
                     getSemanticIndex: () => this.semanticIndex,
+                    tokenBudget: this.tokenBudget,
+                    telemetry: this.memoryV2Telemetry,
                 });
                 this.extractionQueue.setProcessor((item) => singleCallProcessor.process(item));
             }

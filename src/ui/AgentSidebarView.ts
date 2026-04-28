@@ -2168,7 +2168,9 @@ export class AgentSidebarView extends ItemView {
                 const { ContextComposer } = await import('../core/memory/ContextComposer');
                 const inference = new TopicInference(this.plugin.memoryDB);
                 const profileView = new UserProfileView(this.plugin.memoryDB);
-                const composer = new ContextComposer(this.plugin.memoryDB, inference, profileView);
+                const composer = new ContextComposer(
+                    this.plugin.memoryDB, inference, profileView, this.plugin.driftBus,
+                );
                 let userEmbedding: Float32Array | null = null;
                 if (text.trim()) {
                     const vectors = await this.plugin.embeddingService.embed([text]);

@@ -25,6 +25,8 @@ import { ThreadDeltaStore } from './ThreadDeltaStore';
 import { FactIntegrator } from './FactIntegrator';
 import { SingleCallExtractor, type SingleCallMessage } from './SingleCallExtractor';
 import type { PendingExtraction } from './ExtractionQueue';
+import type { TokenBudgetGuard } from './TokenBudgetGuard';
+import type { MemoryV2Telemetry } from './MemoryV2Telemetry';
 
 export interface SingleCallProcessorDeps {
     memoryService: MemoryService;
@@ -33,6 +35,10 @@ export interface SingleCallProcessorDeps {
     getMemoryModel: () => CustomModel | null;
     /** Optional -- session summaries get indexed when provided + initialized. */
     getSemanticIndex?: () => SemanticIndexService | null;
+    /** Optional -- pre-call budget check, post-call record. */
+    tokenBudget?: TokenBudgetGuard | null;
+    /** Optional -- per-run jsonl telemetry. */
+    telemetry?: MemoryV2Telemetry | null;
 }
 
 export class SingleCallProcessor {
@@ -54,6 +60,20 @@ export class SingleCallProcessor {
         }
 
         const threadId = item.conversationId;
+        const budget = this.deps.tokenBudget ?? null;
+        if (budget) {
+            const blocked = budget.blockReason();
+            if (blocked) {
+                console.warn(`[SingleCall] ${threadId}: token budget blocked -- ${blocked}`);
+                await this.deps.telemetry?.budget({
+                    reason: blocked,
+                    usedTokens: budget.snapshot().inputTokens + budget.snapshot().outputTokens,
+                    capTokens: 0,
+                });
+                return;
+            }
+        }
+
         const factStore = new FactStore(this.deps.memoryDB);
         const edgeStore = new EdgeStore(this.deps.memoryDB);
         const deltaStore = new ThreadDeltaStore(this.deps.memoryDB);
@@ -76,18 +96,43 @@ export class SingleCallProcessor {
 
         const api = buildApiHandlerForModel(model);
         const extractor = new SingleCallExtractor(api);
+        const startedAt = Date.now();
         const result = await extractor.extract({
             messages,
             startMessageIndex,
             conversationSoFar: delta?.deltaSummary ?? undefined,
         });
+        const durationMs = Date.now() - startedAt;
+
+        if (budget && result.usage) {
+            await budget.record(result.usage.inputTokens, result.usage.outputTokens);
+        }
+        await this.deps.telemetry?.singleCall({
+            threadId,
+            factsExtracted: result.facts.length,
+            factsRejected: result.rejected.length,
+            topicDriftDetected: result.topicDriftDetected,
+            inputTokens: result.usage?.inputTokens ?? null,
+            outputTokens: result.usage?.outputTokens ?? null,
+            durationMs,
+        });
 
         if (result.facts.length > 0) {
-            await integrator.integrate({
+            const integration = await integrator.integrate({
                 facts: result.facts,
                 mentions: result.mentions,
                 sessionId: threadId,
                 threadId,
+            });
+            await this.deps.telemetry?.integration({
+                threadId,
+                inserted: integration.stats.inserted,
+                superseded: integration.stats.superseded,
+                refines: integration.stats.refines,
+                derives: integration.stats.derives,
+                updateFallbacks: integration.stats.updateFallbacks,
+                edgeFallbacks: integration.stats.edgeFallbacks,
+                errors: integration.stats.errors.length,
             });
         }
 

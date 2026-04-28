@@ -245,6 +245,112 @@ describe('SingleCallProcessor (PLAN-007 task C.1)', () => {
         expect(memSvc.writeSessionSummary).not.toHaveBeenCalled();
     });
 
+    it('records single_call + integration telemetry + token budget on full run', async () => {
+        nextMockApi = mockApi({
+            session_summary: 'Summary here.',
+            episode_outcome: { success: true, result_summary: '' },
+            facts: [{
+                text: 'Sebastian uses Obsidian',
+                topics: ['tools'],
+                importance: 0.7,
+                kind: 'preference',
+                relation: 'new',
+            }],
+            mentions: [],
+            conversation_so_far: 'so far',
+            topic_drift_detected: false,
+        });
+        // Force the mock api to surface usage
+        const apiWithUsage: ApiHandler = {
+            createMessage: (): ApiStream => (async function*() {
+                yield { type: 'usage', inputTokens: 100, outputTokens: 30 } as ApiStreamChunk;
+                yield {
+                    type: 'tool_use', id: 'tu', name: '_memory_single_call',
+                    input: {
+                        session_summary: 'Summary',
+                        episode_outcome: { success: true, result_summary: '' },
+                        facts: [{
+                            text: 'Sebastian uses Obsidian', topics: ['tools'],
+                            importance: 0.7, kind: 'preference', relation: 'new',
+                        }],
+                        mentions: [], conversation_so_far: 'so far',
+                        topic_drift_detected: false,
+                    },
+                } as ApiStreamChunk;
+            })(),
+            getModel: () => ({ id: 'mock', info: { contextWindow: 100000, supportsTools: true, supportsStreaming: true } }),
+        };
+        nextMockApi = apiWithUsage;
+
+        const events: Array<{ kind: string; payload: Record<string, unknown> }> = [];
+        const telemetry = {
+            singleCall: (p: Record<string, unknown>) => { events.push({ kind: 'single_call', payload: p }); return Promise.resolve(); },
+            integration: (p: Record<string, unknown>) => { events.push({ kind: 'integration', payload: p }); return Promise.resolve(); },
+            budget: (p: Record<string, unknown>) => { events.push({ kind: 'budget', payload: p }); return Promise.resolve(); },
+        };
+
+        const budgetState: { day: string; inputTokens: number; outputTokens: number } = {
+            day: new Date().toISOString().slice(0, 10),
+            inputTokens: 0, outputTokens: 0,
+        };
+        const { TokenBudgetGuard } = await import('../TokenBudgetGuard');
+        const budget = new TokenBudgetGuard({
+            loadState: () => ({ ...budgetState }),
+            saveState: (s) => { Object.assign(budgetState, s); return Promise.resolve(); },
+            thresholds: { dailyInputCap: 1_000_000, dailyOutputCap: 200_000 },
+        });
+
+        const proc = new SingleCallProcessor({
+            memoryService: memSvc.service,
+            memoryDB,
+            embeddingService: embeddings,
+            getMemoryModel: () => ({} as never),
+            tokenBudget: budget,
+            telemetry: telemetry as never,
+        });
+        await proc.process(buildItem());
+
+        expect(events.find(e => e.kind === 'single_call')).toMatchObject({
+            kind: 'single_call',
+            payload: { factsExtracted: 1, factsRejected: 0, inputTokens: 100, outputTokens: 30 },
+        });
+        expect(events.find(e => e.kind === 'integration')).toMatchObject({
+            kind: 'integration',
+            payload: { inserted: 1 },
+        });
+        expect(budgetState.inputTokens).toBe(100);
+        expect(budgetState.outputTokens).toBe(30);
+    });
+
+    it('skips extraction when the token budget is exhausted', async () => {
+        const events: Array<{ kind: string }> = [];
+        const telemetry = {
+            singleCall: () => { events.push({ kind: 'single_call' }); return Promise.resolve(); },
+            integration: () => Promise.resolve(),
+            budget: () => { events.push({ kind: 'budget' }); return Promise.resolve(); },
+        };
+        const today = new Date().toISOString().slice(0, 10);
+        const { TokenBudgetGuard } = await import('../TokenBudgetGuard');
+        const budget = new TokenBudgetGuard({
+            loadState: () => ({ day: today, inputTokens: 5_000_000, outputTokens: 0 }),
+            saveState: () => Promise.resolve(),
+            thresholds: { dailyInputCap: 1_000_000, dailyOutputCap: 200_000 },
+        });
+
+        const proc = new SingleCallProcessor({
+            memoryService: memSvc.service,
+            memoryDB,
+            embeddingService: embeddings,
+            getMemoryModel: () => ({} as never),
+            tokenBudget: budget,
+            telemetry: telemetry as never,
+        });
+        await proc.process(buildItem());
+
+        expect(events.find(e => e.kind === 'budget')).toBeDefined();
+        expect(events.find(e => e.kind === 'single_call')).toBeUndefined();
+    });
+
     it('does not write a session summary when extractor returns empty summary', async () => {
         nextMockApi = mockApi({
             session_summary: '',

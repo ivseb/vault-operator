@@ -471,6 +471,16 @@ export interface MemorySettings {
         stylesInserted: number;
         backupFolder: string;
     } | null;
+    /**
+     * Persistent state for TokenBudgetGuard (FEATURE-0318). Holds the
+     * current day's running tally of input + output tokens consumed by
+     * the memory pipeline. Auto-resets at midnight via guard.snapshot().
+     */
+    tokenBudgetState?: {
+        day: string;
+        inputTokens: number;
+        outputTokens: number;
+    } | null;
 }
 
 // ---------------------------------------------------------------------------

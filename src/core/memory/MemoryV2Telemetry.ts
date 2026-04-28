@@ -1,11 +1,15 @@
 /**
  * MemoryV2Telemetry -- jsonl logger for the v2 hot-path.
  *
- * Logs four event categories that operators / Sebastian want visibility on:
+ * Logs the event categories that operators / Sebastian want visibility on:
  *   - cache       prompt-cache hit ratio per turn (Anthropic cache_read_tokens)
  *   - retrieval   p50/p95 latency of ContextComposer + recall_memory
  *   - drift       topic-drift events emitted by ContextComposer
  *   - recall      recall_memory tool calls (query, result count)
+ *   - single_call SingleCallExtractor token usage (FEATURE-0318)
+ *   - integration FactIntegrator stats per run (FEATURE-0318)
+ *   - aging       AgingService daily-decay report (FEATURE-0318)
+ *   - budget      TokenBudgetGuard over-budget event (FEATURE-0318)
  *
  * Output: append-only JSONL at `<plugin-data-dir>/logs/memory-v2/{YYYY-MM-DD}.jsonl`.
  * Reads via the existing `read_agent_logs` tool, so the agent can answer
@@ -15,10 +19,12 @@
  * append callback so tests can inject in-memory and the host wires the
  * actual filesystem.
  *
- * FEATURE-0317 / PLAN-006 task 13.
+ * FEATURE-0317 / PLAN-006 task 13. Phase-4 events (FEATURE-0318) added in PLAN-007 task C.2.
  */
 
-export type MemoryV2TelemetryKind = 'cache' | 'retrieval' | 'drift' | 'recall';
+export type MemoryV2TelemetryKind =
+    | 'cache' | 'retrieval' | 'drift' | 'recall'
+    | 'single_call' | 'integration' | 'aging' | 'budget';
 
 export interface MemoryV2TelemetryEvent {
     kind: MemoryV2TelemetryKind;
@@ -56,5 +62,39 @@ export class MemoryV2Telemetry {
     }
     async recall(payload: { query: string; topK: number; hits: number; multiHop: boolean }) {
         return this.record({ kind: 'recall', payload });
+    }
+    async singleCall(payload: {
+        threadId: string;
+        factsExtracted: number;
+        factsRejected: number;
+        topicDriftDetected: boolean;
+        inputTokens: number | null;
+        outputTokens: number | null;
+        durationMs: number;
+    }) {
+        return this.record({ kind: 'single_call', payload });
+    }
+    async integration(payload: {
+        threadId: string;
+        inserted: number;
+        superseded: number;
+        refines: number;
+        derives: number;
+        updateFallbacks: number;
+        edgeFallbacks: number;
+        errors: number;
+    }) {
+        return this.record({ kind: 'integration', payload });
+    }
+    async aging(payload: {
+        factsProcessed: number;
+        factsUpdated: number;
+        skipped: boolean;
+        skippedReason?: string;
+    }) {
+        return this.record({ kind: 'aging', payload });
+    }
+    async budget(payload: { reason: string; usedTokens: number; capTokens: number }) {
+        return this.record({ kind: 'budget', payload });
     }
 }

@@ -182,6 +182,39 @@ describe('ContextComposer (PLAN-006 task 6)', () => {
         expect(second.topicLock?.topic).toBe('cooking');
     });
 
+    it('emits to the injected DriftEventBus when drift is detected', async () => {
+        const { DriftEventBus } = await import('../DriftEventBus');
+        const bus = new DriftEventBus();
+        const captured: Array<unknown> = [];
+        bus.subscribe(e => captured.push(e));
+        const memDB = makeFakeMemoryDB(rawDb);
+        const composerWithBus = new ContextComposer(
+            memDB, new TopicInference(memDB), new UserProfileView(memDB), bus,
+        );
+
+        seedCentroid(rawDb, 'coding', Float32Array.from([1, 0, 0]));
+        seedCentroid(rawDb, 'cooking', Float32Array.from([0, 1, 0]));
+        factStore.insert({ text: 'a', topics: ['coding'], importance: 0.5 });
+
+        composerWithBus.compose({
+            sessionId: 'sx',
+            userMessageEmbedding: Float32Array.from([1, 0, 0]),
+            now: NOW,
+        });
+        composerWithBus.compose({
+            sessionId: 'sx',
+            userMessageEmbedding: Float32Array.from([0, 1, 0]),
+            now: NOW,
+        });
+        expect(captured).toHaveLength(1);
+        expect(captured[0]).toMatchObject({
+            sessionId: 'sx',
+            previousTopic: 'coding',
+            newTopic: 'cooking',
+            source: 'context-composer',
+        });
+    });
+
     it('drops the lock when no topic matches above threshold (drift to null)', () => {
         seedCentroid(rawDb, 'coding', Float32Array.from([1, 0, 0]));
         factStore.insert({ text: 'a', topics: ['coding'], importance: 0.5 });

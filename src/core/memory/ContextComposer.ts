@@ -29,6 +29,7 @@ import { UserProfileView, type UserProfile } from './UserProfileView';
 import { rerank } from './ContextRanker';
 import { isColdStart, type RecallHit } from './RecallHit';
 import type { MemoryDB } from '../knowledge/MemoryDB';
+import type { DriftEventBus } from './DriftEventBus';
 
 const DRIFT_THRESHOLD = 0.6;
 const COLD_START_THRESHOLD = 5;
@@ -84,6 +85,8 @@ export class ContextComposer {
         private readonly memoryDB: MemoryDB,
         private readonly topicInference: TopicInference,
         private readonly profileView: UserProfileView,
+        /** Optional drift bus -- emits when mid-conversation drift fires. */
+        private readonly driftBus: DriftEventBus | null = null,
     ) {
         this.factStore = new FactStore(memoryDB);
     }
@@ -94,6 +97,16 @@ export class ContextComposer {
 
         const { lock, drift } = this.resolveLock(input);
         const profile = this.profileView.getUserProfile();
+        if (drift && this.driftBus) {
+            this.driftBus.emit({
+                sessionId: input.sessionId,
+                previousTopic: drift.previousTopic,
+                newTopic: drift.newTopic,
+                score: drift.score,
+                source: 'context-composer',
+                timestamp: now.toISOString(),
+            });
+        }
 
         const candidates = this.gatherCandidates(lock, profile, input.profile);
         const factsForTopic = lock
