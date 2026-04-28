@@ -2967,6 +2967,33 @@
     color: var(--text-error);
     background: var(--background-modifier-hover);
 }
+.memory-viewer-footer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px dashed var(--background-modifier-border);
+}
+.memory-viewer-wipe {
+    background: var(--background-modifier-error);
+    color: var(--text-on-accent, #fff);
+    border: 1px solid var(--background-modifier-error);
+    padding: 6px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+}
+.memory-viewer-wipe:hover {
+    background: var(--text-error);
+    border-color: var(--text-error);
+}
+.memory-viewer-footer-hint {
+    font-size: 11px;
+    color: var(--text-faint);
+    flex: 1;
+}
 
 .agent-settings-soul-import {
     display: flex;
