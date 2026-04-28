@@ -34,6 +34,12 @@ export interface NewFactInput {
     /** Default 'obsilo'. */
     sourceInterface?: string;
     sourceUri?: string;
+    /**
+     * Multi-profile partitioning (UCM-readiness, schema v3). Default 'default'
+     * matches Obsilo's single-user reality; UCM hosts assign per-profile keys
+     * like 'work' / 'personal' / 'coding'. The column is indexed.
+     */
+    profileId?: string;
     metadata?: Record<string, unknown>;
 }
 
@@ -52,6 +58,8 @@ export interface Fact {
     sourceThreadId?: string;
     sourceInterface: string;
     sourceUri?: string;
+    /** Multi-profile partition key, default 'default' on existing rows. */
+    profileId: string;
     supersededBy?: number;
     isLatest: boolean;
     deprecatedAt?: string;
@@ -64,6 +72,12 @@ export interface ListOptions {
     onlyLatest?: boolean;
     /** Optional kind filter. */
     kind?: FactKind;
+    /**
+     * Multi-profile filter (UCM-readiness). Defaults to undefined =
+     * "no profile filter" so existing Obsilo callers see everything.
+     * UCM hosts pass `profileId: 'work'` to scope per partition.
+     */
+    profileId?: string;
     /** Default 100. */
     limit?: number;
     /** Default `'importance'`. */
@@ -90,8 +104,8 @@ export class FactStore {
             `INSERT INTO facts
                 (text, topics, importance, kind, created_at, last_confirmed_at,
                  confirmation_count, use_count, source_session_id, source_thread_id,
-                 source_interface, source_uri, is_latest, metadata)
-             VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, 1, ?)`,
+                 source_interface, source_uri, profile_id, is_latest, metadata)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, 1, ?)`,
             [
                 input.text,
                 JSON.stringify(input.topics),
@@ -103,6 +117,7 @@ export class FactStore {
                 input.sourceThreadId ?? null,
                 input.sourceInterface ?? 'obsilo',
                 input.sourceUri ?? null,
+                input.profileId ?? 'default',
                 input.metadata ? JSON.stringify(input.metadata) : null,
             ],
         );
@@ -138,6 +153,10 @@ export class FactStore {
             where.push('kind = ?');
             params.push(opts.kind);
         }
+        if (opts.profileId !== undefined) {
+            where.push('profile_id = ?');
+            params.push(opts.profileId);
+        }
         const whereClause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
         params.push(limit);
         const result = db.exec(
@@ -166,7 +185,13 @@ export class FactStore {
         const old = this.getById(oldId);
         if (!old) throw new Error(`FactStore.supersede: old fact ${oldId} not found`);
 
-        const newFact = this.insert(newInput);
+        // Inherit the old fact's profile by default so a supersede stays in
+        // the same partition. Caller can override by setting profileId on
+        // newInput explicitly.
+        const newFact = this.insert({
+            ...newInput,
+            profileId: newInput.profileId ?? old.profileId,
+        });
 
         const db = this.memoryDB.getDB();
         db.run(
@@ -266,6 +291,7 @@ function rowToFact(columns: string[], row: unknown[]): Fact {
         sourceThreadId: (at('source_thread_id') as string | null) ?? undefined,
         sourceInterface: at('source_interface') as string,
         sourceUri: (at('source_uri') as string | null) ?? undefined,
+        profileId: ((at('profile_id') as string | null) ?? 'default'),
         supersededBy: (at('superseded_by') as number | null) ?? undefined,
         isLatest: at('is_latest') === 1,
         deprecatedAt: (at('deprecated_at') as string | null) ?? undefined,

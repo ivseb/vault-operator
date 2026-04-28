@@ -24,6 +24,7 @@ CREATE TABLE facts (
     source_thread_id TEXT,
     source_interface TEXT NOT NULL DEFAULT 'obsilo',
     source_uri TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     superseded_by INTEGER REFERENCES facts(id),
     is_latest INTEGER NOT NULL DEFAULT 1,
     deprecated_at TEXT,
@@ -278,5 +279,36 @@ describe('ContextComposer (PLAN-006 task 6)', () => {
             now: NOW,
         });
         expect(after.topicLock).toBeNull();
+    });
+
+    it('profile filter only returns hits from the requested partition', () => {
+        seedCentroid(rawDb, 'work', Float32Array.from([1, 0]));
+        factStore.insert({ text: 'work fact', topics: ['work'], profileId: 'work' });
+        factStore.insert({ text: 'personal fact', topics: ['work'], profileId: 'personal' });
+
+        const out = composer.compose({
+            sessionId: 's1',
+            userMessageEmbedding: Float32Array.from([1, 0]),
+            profile: 'work',
+            now: NOW,
+        });
+        const texts = out.hits.map(h => h.text);
+        expect(texts).toContain('work fact');
+        expect(texts).not.toContain('personal fact');
+    });
+
+    it('without profile filter, all profiles are visible', () => {
+        seedCentroid(rawDb, 'work', Float32Array.from([1, 0]));
+        factStore.insert({ text: 'work fact', topics: ['work'], profileId: 'work' });
+        factStore.insert({ text: 'personal fact', topics: ['work'], profileId: 'personal' });
+
+        const out = composer.compose({
+            sessionId: 's1',
+            userMessageEmbedding: Float32Array.from([1, 0]),
+            now: NOW,
+        });
+        const texts = out.hits.map(h => h.text);
+        expect(texts).toContain('work fact');
+        expect(texts).toContain('personal fact');
     });
 });

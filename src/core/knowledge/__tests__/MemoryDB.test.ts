@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS facts (
     source_thread_id TEXT,
     source_interface TEXT NOT NULL DEFAULT 'obsilo',
     source_uri TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     superseded_by INTEGER REFERENCES facts(id),
     is_latest INTEGER NOT NULL DEFAULT 1,
     deprecated_at TEXT,
@@ -315,6 +316,77 @@ describe('MemoryDB schema v1 -> v2 additive migration (FEATURE-0315)', () => {
 
         const result = db.exec('SELECT to_external_ref FROM fact_edges');
         expect(result[0].values[0][0]).toBe('vault://Notes/X.md');
+        db.close();
+    });
+});
+
+// Phase 3.5 (UCM-readiness): facts.profile_id was added in schema v3.
+// Existing v2 DBs must pick up the column via ALTER TABLE without losing
+// rows; fresh v3 DBs must default the column to 'default'.
+describe('MemoryDB schema v2 -> v3 profile_id migration (Phase 3.5)', () => {
+    function applyV3(db: ReturnType<typeof SQL.Database.prototype.constructor>) {
+        // Mirrors MemoryDB.applyV3ProfileColumn -- defensive ADD COLUMN
+        // skipped when the column already exists.
+        const cols = db.exec('PRAGMA table_info(facts)');
+        const names = cols[0].values.map((r: unknown[]) => r[1] as string);
+        if (!names.includes('profile_id')) {
+            db.run(`ALTER TABLE facts ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`);
+        }
+        db.run(`CREATE INDEX IF NOT EXISTS idx_facts_profile ON facts(profile_id)`);
+    }
+
+    it('v2 DB upgrades to v3 without losing existing rows', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE.replace(
+            "    profile_id TEXT NOT NULL DEFAULT 'default',\n",
+            '',
+        ));
+        // Pretend we are a v2 user with one row already in place
+        db.run(`INSERT INTO facts (text, topics, created_at, last_confirmed_at)
+                VALUES (?, ?, ?, ?)`,
+            ['legacy fact', '[]', '2026-04-27', '2026-04-27']);
+
+        applyV3(db);
+
+        // Existing row preserved + auto-defaulted to 'default'
+        const result = db.exec('SELECT text, profile_id FROM facts');
+        expect(result[0].values).toHaveLength(1);
+        expect(result[0].values[0][0]).toBe('legacy fact');
+        expect(result[0].values[0][1]).toBe('default');
+        db.close();
+    });
+
+    it('v3 DB inserts new facts with custom profile_id', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE);
+        applyV3(db); // idempotent
+
+        db.run(`INSERT INTO facts (text, topics, created_at, last_confirmed_at, profile_id)
+                VALUES (?, ?, ?, ?, ?)`,
+            ['work fact', '[]', '2026-04-28', '2026-04-28', 'work']);
+        db.run(`INSERT INTO facts (text, topics, created_at, last_confirmed_at)
+                VALUES (?, ?, ?, ?)`,
+            ['default fact', '[]', '2026-04-28', '2026-04-28']);
+
+        const work = db.exec(`SELECT text FROM facts WHERE profile_id = 'work'`);
+        const def = db.exec(`SELECT text FROM facts WHERE profile_id = 'default'`);
+        expect(work[0].values[0][0]).toBe('work fact');
+        expect(def[0].values[0][0]).toBe('default fact');
+        db.close();
+    });
+
+    it('idempotent re-run: ALTER TABLE skipped when column exists', async () => {
+        const SQL = await getSQL();
+        const db = new SQL.Database();
+        execDDL(db, V1);
+        execDDL(db, V2_ADDITIVE);
+        applyV3(db);
+        // Second run must not throw
+        expect(() => applyV3(db)).not.toThrow();
         db.close();
     });
 });

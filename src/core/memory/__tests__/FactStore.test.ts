@@ -25,6 +25,7 @@ CREATE TABLE facts (
     source_thread_id TEXT,
     source_interface TEXT NOT NULL DEFAULT 'obsilo',
     source_uri TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     superseded_by INTEGER REFERENCES facts(id),
     is_latest INTEGER NOT NULL DEFAULT 1,
     deprecated_at TEXT,
@@ -227,6 +228,51 @@ describe('FactStore (PLAN-004 task 2)', () => {
 
             const ops = auditRows(rawDb);
             expect(ops.map(r => r.operation)).toEqual(['insert', 'deprecate']);
+        });
+    });
+
+    describe('profileId (UCM-readiness)', () => {
+        it('defaults to "default" when not specified', () => {
+            const f = store.insert({ text: 'x', topics: [] });
+            expect(f.profileId).toBe('default');
+        });
+
+        it('round-trips a custom profileId', () => {
+            const f = store.insert({ text: 'work fact', topics: [], profileId: 'work' });
+            expect(f.profileId).toBe('work');
+            const loaded = store.getById(f.id);
+            expect(loaded?.profileId).toBe('work');
+        });
+
+        it('listLatest filters by profileId when supplied', () => {
+            store.insert({ text: 'A', topics: [] }); // default
+            store.insert({ text: 'B', topics: [], profileId: 'work' });
+            store.insert({ text: 'C', topics: [], profileId: 'personal' });
+
+            expect(store.listLatest({ profileId: 'work' }).map(f => f.text)).toEqual(['B']);
+            expect(store.listLatest({ profileId: 'personal' }).map(f => f.text)).toEqual(['C']);
+            expect(store.listLatest({ profileId: 'default' }).map(f => f.text)).toEqual(['A']);
+        });
+
+        it('listLatest without profileId returns all profiles', () => {
+            store.insert({ text: 'A', topics: [] });
+            store.insert({ text: 'B', topics: [], profileId: 'work' });
+            const all = store.listLatest();
+            expect(all.map(f => f.text).sort()).toEqual(['A', 'B']);
+        });
+
+        it('supersede inherits the old fact profile by default', () => {
+            const old = store.insert({ text: 'old', topics: [], profileId: 'work' });
+            const { newFact } = store.supersede(old.id, { text: 'new', topics: [] });
+            expect(newFact.profileId).toBe('work');
+        });
+
+        it('supersede honours explicit profileId override', () => {
+            const old = store.insert({ text: 'old', topics: [], profileId: 'work' });
+            const { newFact } = store.supersede(old.id, {
+                text: 'new', topics: [], profileId: 'personal',
+            });
+            expect(newFact.profileId).toBe('personal');
         });
     });
 

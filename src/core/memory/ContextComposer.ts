@@ -48,6 +48,13 @@ export interface ComposeInput {
     now?: Date;
     /** Override the lock detection -- useful for power-users or recovery. */
     topicLockOverride?: string;
+    /**
+     * Multi-profile selector (UCM-readiness). When provided, retrieval
+     * filters facts to this profile only. Obsilo passes nothing today =
+     * "all profiles" (effectively just 'default'); UCM hosts pass
+     * 'work' / 'personal' / 'coding' to scope the hot-memory block.
+     */
+    profile?: string;
     /** Cap on the number of hits to render. Default 8. */
     maxHits?: number;
 }
@@ -88,7 +95,7 @@ export class ContextComposer {
         const { lock, drift } = this.resolveLock(input);
         const profile = this.profileView.getUserProfile();
 
-        const candidates = this.gatherCandidates(lock, profile);
+        const candidates = this.gatherCandidates(lock, profile, input.profile);
         const factsForTopic = lock
             ? candidates.filter(h => h.topics.includes(lock.topic)).length
             : 0;
@@ -165,23 +172,31 @@ export class ContextComposer {
         };
     }
 
-    private gatherCandidates(lock: TopicLock | null, profile: UserProfile): RecallHit[] {
+    private gatherCandidates(
+        lock: TopicLock | null,
+        profile: UserProfile,
+        profileFilter: string | undefined,
+    ): RecallHit[] {
         // Identity facts always matter; ContextRanker will boost them.
-        const identityHits = profile.identity.map(f => factToHit(f));
+        // Profile filter applies post-hoc so identity stays visible across
+        // partitions (the user's identity doesn't change per profile).
+        const identityHits = profile.identity
+            .filter(f => !profileFilter || f.profileId === profileFilter)
+            .map(f => factToHit(f));
 
         // Pick the topic-filtered facts (first pass) and a recency
         // fallback. We over-fetch by 3x the limit so the rerank step
         // has room to reorder.
         const topicHits: RecallHit[] = [];
         if (lock) {
-            const all = this.factStore.listLatest({ limit: 200 });
+            const all = this.factStore.listLatest({ limit: 200, profileId: profileFilter });
             for (const f of all) {
                 if (f.topics.includes(lock.topic)) topicHits.push(factToHit(f));
             }
         }
 
         const recentHits = this.factStore
-            .listLatest({ orderBy: 'last_confirmed_at', limit: 20 })
+            .listLatest({ orderBy: 'last_confirmed_at', limit: 20, profileId: profileFilter })
             .map(f => factToHit(f));
 
         // Dedup by uri keeping the highest score

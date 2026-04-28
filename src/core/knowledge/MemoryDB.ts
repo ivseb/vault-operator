@@ -23,7 +23,7 @@ import type { SqlJsDatabase } from './KnowledgeDB';
 // Schema versioning
 // ---------------------------------------------------------------------------
 
-export const MEMORY_SCHEMA_VERSION = 2;
+export const MEMORY_SCHEMA_VERSION = 3;
 
 // ---------------------------------------------------------------------------
 // v1 schema -- legacy memory pipeline (unchanged from FEATURE-1505)
@@ -288,8 +288,28 @@ export class MemoryDB {
         execDDL(db, MEMORY_SCHEMA_V1);
         // Phase 2: Memory-v2 additive tables + version tracker (FEATURE-0315)
         execDDL(db, MEMORY_SCHEMA_V2_ADDITIVE);
+        // Phase 3.5 (UCM-readiness): profile_id column for multi-profile facts.
+        // Default 'default' covers Obsilo's single-user reality; UCM later
+        // assigns per-profile values (work / personal / coding / ...).
+        this.applyV3ProfileColumn(db);
         this.bumpSchemaVersion(db);
         console.debug(`[MemoryDB] Schema initialized (version ${MEMORY_SCHEMA_VERSION})`);
+    }
+
+    /**
+     * Idempotent ADD COLUMN for facts.profile_id. Skips when the column
+     * already exists, so v2 upgraders and fresh installs both land at v3.
+     */
+    private applyV3ProfileColumn(db: SqlJsDatabase): void {
+        const cols = db.exec('PRAGMA table_info(facts)');
+        if (cols.length === 0) return;
+        const names = cols[0].values.map(r => r[1] as string);
+        if (!names.includes('profile_id')) {
+            db.run(`ALTER TABLE facts ADD COLUMN profile_id TEXT NOT NULL DEFAULT 'default'`);
+        }
+        // Index is wrapped in IF NOT EXISTS so a re-run on a partial migration
+        // (column exists but index missing) still completes.
+        db.run(`CREATE INDEX IF NOT EXISTS idx_facts_profile ON facts(profile_id)`);
     }
 
     /**

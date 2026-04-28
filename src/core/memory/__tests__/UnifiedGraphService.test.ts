@@ -25,6 +25,7 @@ CREATE TABLE facts (
     source_thread_id TEXT,
     source_interface TEXT NOT NULL DEFAULT 'obsilo',
     source_uri TEXT,
+    profile_id TEXT NOT NULL DEFAULT 'default',
     superseded_by INTEGER REFERENCES facts(id),
     is_latest INTEGER NOT NULL DEFAULT 1,
     deprecated_at TEXT,
