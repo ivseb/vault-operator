@@ -861,6 +861,7 @@ export const en: Translations = {
     'ui.history.renameTitle': 'Rename conversation',
     'ui.history.renameMessage': 'Set a new title for this conversation.',
     'ui.history.renameSubmit': 'Rename',
+    'ui.history.filterMemoryOnly': 'Show only conversations saved to memory',
     'ui.sidebar.stop': 'Stop',
     'ui.sidebar.send': 'Send message',
     'ui.sidebar.placeholder': 'Type your message here...',

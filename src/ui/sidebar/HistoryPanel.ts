@@ -53,6 +53,7 @@ export class HistoryPanel {
     private panelEl: HTMLElement | null = null;
     private isOpen = false;
     private filterText = '';
+    private memoryOnly = false;
 
     constructor(
         private store: ConversationStore,
@@ -82,6 +83,7 @@ export class HistoryPanel {
         if (!this.panelEl) return;
         this.isOpen = true;
         this.filterText = '';
+        this.memoryOnly = false;
         this.render();
         this.panelEl.classList.remove('agent-u-hidden');
         requestAnimationFrame(() => this.panelEl?.addClass('history-panel-open'));
@@ -135,6 +137,20 @@ export class HistoryPanel {
             this.renderList(listEl);
         });
 
+        // Memory-only toggle (FEATURE-0318): only meaningful when the
+        // host wired the isInMemory predicate through.
+        if (this.isInMemory) {
+            const memToggle = filterRow.createEl('button', {
+                cls: `history-panel-memory-toggle clickable-icon${this.memoryOnly ? ' history-panel-memory-toggle-active' : ''}`,
+                attr: { 'aria-label': t('ui.history.filterMemoryOnly') },
+            });
+            setIcon(memToggle, 'star');
+            memToggle.addEventListener('click', () => {
+                this.memoryOnly = !this.memoryOnly;
+                this.render();
+            });
+        }
+
         // List
         const listEl = this.panelEl.createDiv({ cls: 'history-panel-list' });
         this.renderList(listEl);
@@ -147,6 +163,9 @@ export class HistoryPanel {
         if (this.filterText) {
             const lower = this.filterText.toLowerCase();
             conversations = conversations.filter((c) => c.title.toLowerCase().includes(lower));
+        }
+        if (this.memoryOnly && this.isInMemory) {
+            conversations = conversations.filter((c) => this.isInMemory!(c.id));
         }
 
         if (conversations.length === 0) {

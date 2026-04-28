@@ -5257,11 +5257,32 @@
 
 .history-panel-filter {
     padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
 }
 
+.history-panel-memory-toggle {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 5px 8px;
+    cursor: pointer;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+.history-panel-memory-toggle:hover {
+    color: var(--text-normal);
+}
+.history-panel-memory-toggle-active {
+    color: var(--text-accent);
+    border-color: var(--text-accent);
+    background: var(--background-secondary);
+}
+
 .history-panel-filter-input {
-    width: 100%;
+    flex: 1 1 auto;
     padding: 6px 10px;
     font-size: 12px;
     border: 1px solid var(--background-modifier-border);
