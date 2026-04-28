@@ -224,4 +224,42 @@ describe('ExtractionQueue', () => {
             expect(calls).toBe(1);
         });
     });
+
+    describe('bypass flag (PLAN-007 task A.6)', () => {
+        // Processors are not set in these tests so processQueue() is a no-op
+        // (no processor configured) and we can inspect the queued item before
+        // it gets drained.
+        it('enqueueImmediate sets bypassThrottle=true on the persisted item', async () => {
+            const fs = createMockFs();
+            const queue = new ExtractionQueue(fs);
+            await queue.enqueueImmediate({
+                conversationId: 'a', transcript: 't', title: 'T',
+                queuedAt: new Date().toISOString(), type: 'single-call',
+            });
+            const peeked = queue.peek();
+            expect(peeked?.bypassThrottle).toBe(true);
+        });
+
+        it('regular enqueue leaves bypassThrottle undefined by default', async () => {
+            const fs = createMockFs();
+            const queue = new ExtractionQueue(fs);
+            await queue.enqueue({
+                conversationId: 'a', transcript: 't', title: 'T',
+                queuedAt: new Date().toISOString(), type: 'session',
+            });
+            expect(queue.peek()?.bypassThrottle).toBeUndefined();
+        });
+
+        it('bypassThrottle survives serialise -> load roundtrip', async () => {
+            const fs = createMockFs();
+            const queue1 = new ExtractionQueue(fs);
+            await queue1.enqueueImmediate({
+                conversationId: 'a', transcript: 't', title: 'T',
+                queuedAt: new Date().toISOString(), type: 'single-call',
+            });
+            const queue2 = new ExtractionQueue(fs);
+            await queue2.load();
+            expect(queue2.peek()?.bypassThrottle).toBe(true);
+        });
+    });
 });

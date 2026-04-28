@@ -19,7 +19,17 @@ export interface PendingExtraction {
     transcript: string;
     title: string;
     queuedAt: string;
-    type: 'session' | 'long-term';
+    type: 'session' | 'long-term' | 'single-call';
+    /**
+     * Bypass-Flag (FEATURE-0318 / PLAN-007 task A.6): set by explicit
+     * user-triggered saves (Star button, /save now command, mark_for_memory
+     * tool) and by mid-conversation drift detection. Consumers that
+     * implement min-message-count throttling check this and skip the
+     * throttle when true. The queue itself does not gate on it; the flag
+     * survives serialise/load so a queued bypass item keeps its
+     * status across plugin restarts.
+     */
+    bypassThrottle?: boolean;
 }
 
 export type ExtractionProcessor = (item: PendingExtraction) => Promise<void>;
@@ -80,6 +90,15 @@ export class ExtractionQueue {
         await this.save();
         // Kick off processing if not already running
         void this.processQueue();
+    }
+
+    /**
+     * Enqueue with bypassThrottle=true. Convenience wrapper for the
+     * Star button / "/save now" / mark_for_memory paths so callers
+     * cannot accidentally forget to set the flag.
+     */
+    async enqueueImmediate(item: Omit<PendingExtraction, 'bypassThrottle'>): Promise<void> {
+        await this.enqueue({ ...item, bypassThrottle: true });
     }
 
     dequeue(): PendingExtraction | undefined {

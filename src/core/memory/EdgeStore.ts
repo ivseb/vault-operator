@@ -97,6 +97,75 @@ export class EdgeStore {
     }
 
     /**
+     * Provisional edges (FEATURE-0318 / PLAN-007 task A.2).
+     *
+     * Phase-4 Single-Call extraction parses URI mentions out of every
+     * user message synchronously (no LLM round trip) and lands them as
+     * `_provisional`-suffixed edges so hybrid retrieval finds them
+     * within the same turn. The end-of-conversation Single-Call run
+     * later either confirms (`confirmProvisional`) or discards
+     * (`discardProvisional`) each one.
+     *
+     * Identical to addExternalEdge except the edgeType gets the
+     * `_provisional` suffix and metadata.confidence='parser' is set.
+     */
+    addProvisionalEdge(
+        fromFactId: number,
+        toExternalRef: string,
+        edgeType: string,
+        opts: EdgeOptions = {},
+    ): FactEdge {
+        const provisionalType = edgeType.endsWith('_provisional')
+            ? edgeType
+            : `${edgeType}_provisional`;
+        const metadata = { ...(opts.metadata ?? {}), confidence: 'parser' };
+        return this.addExternalEdge(fromFactId, toExternalRef, provisionalType, {
+            ...opts,
+            metadata,
+        });
+    }
+
+    /**
+     * Confirm a provisional edge -- strips the `_provisional` suffix
+     * from edgeType and clears the `confidence: 'parser'` metadata flag.
+     * Idempotent on already-confirmed edges (no-op).
+     */
+    confirmProvisional(edgeId: number): void {
+        const db = this.memoryDB.getDB();
+        const result = db.exec(
+            'SELECT edge_type, metadata FROM fact_edges WHERE id = ?',
+            [edgeId],
+        );
+        if (result.length === 0 || result[0].values.length === 0) return;
+        const currentType = result[0].values[0][0] as string;
+        if (!currentType.endsWith('_provisional')) return;
+        const newType = currentType.slice(0, -'_provisional'.length);
+
+        const rawMeta = result[0].values[0][1] as string | null;
+        let meta: Record<string, unknown> = {};
+        if (rawMeta) {
+            try { meta = JSON.parse(rawMeta) as Record<string, unknown>; } catch { /* keep empty */ }
+        }
+        delete meta.confidence;
+        const metaJson = Object.keys(meta).length > 0 ? JSON.stringify(meta) : null;
+
+        db.run(
+            'UPDATE fact_edges SET edge_type = ?, metadata = ? WHERE id = ?',
+            [newType, metaJson, edgeId],
+        );
+        this.memoryDB.markDirty();
+    }
+
+    /**
+     * Discard a provisional edge -- the Single-Call run decided the
+     * mention was noise. We mark it stale rather than delete so the
+     * audit trail keeps the parser's original guess.
+     */
+    discardProvisional(edgeId: number): void {
+        this.markStale(edgeId, 'discarded-by-single-call');
+    }
+
+    /**
      * Stale-Edge-Lazy-Detection (FEATURE-0317 / PLAN-006 task 7).
      *
      * Mark an edge as stale via `metadata.stale=true` instead of deleting

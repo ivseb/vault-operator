@@ -173,4 +173,42 @@ describe('EdgeStore (PLAN-004 task 3)', () => {
             expect(store.getEdgesFrom(1)).toHaveLength(0);
         });
     });
+
+    describe('provisional edges (PLAN-007 task A.2)', () => {
+        it('addProvisionalEdge appends _provisional suffix and confidence flag', () => {
+            const e = store.addProvisionalEdge(1, 'vault://Notes/X.md', 'mentions_note');
+            expect(e.edgeType).toBe('mentions_note_provisional');
+            expect(e.metadata).toEqual({ confidence: 'parser' });
+        });
+
+        it('addProvisionalEdge does not double-suffix already-suffixed types', () => {
+            const e = store.addProvisionalEdge(1, 'vault://X.md', 'mentions_note_provisional');
+            expect(e.edgeType).toBe('mentions_note_provisional');
+        });
+
+        it('confirmProvisional strips suffix + confidence metadata', () => {
+            const e = store.addProvisionalEdge(1, 'vault://X.md', 'mentions_note', {
+                metadata: { extra: 'info' },
+            });
+            store.confirmProvisional(e.id);
+            const fetched = store.getEdgesFrom(1)[0];
+            expect(fetched.edgeType).toBe('mentions_note');
+            expect(fetched.metadata).toEqual({ extra: 'info' });
+        });
+
+        it('confirmProvisional is no-op on already-confirmed edges', () => {
+            const e = store.addExternalEdge(1, 'vault://X.md', 'mentions_note');
+            store.confirmProvisional(e.id);
+            const fetched = store.getEdgesFrom(1)[0];
+            expect(fetched.edgeType).toBe('mentions_note');
+        });
+
+        it('discardProvisional marks the edge stale without deleting it', () => {
+            const e = store.addProvisionalEdge(1, 'vault://X.md', 'mentions_note');
+            store.discardProvisional(e.id);
+            const fetched = store.getEdgesFrom(1)[0];
+            expect(fetched.metadata?.stale).toBe(true);
+            expect(fetched.metadata?.staleReason).toBe('discarded-by-single-call');
+        });
+    });
 });
