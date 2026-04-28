@@ -38,6 +38,19 @@ import type { FactCandidate, FactRelation, MentionCandidate } from './SingleCall
 
 const COSINE_UPDATE_THRESHOLD = 0.9;
 const MAX_TOPIC_CANDIDATES = 200;
+/**
+ * Dedup thresholds for relation=new candidates. Catches the
+ * "User dislikes emojis" / "User prefers no emojis" duplicate-fact bug
+ * we observed live: the LLM tagged both as new even though they mean
+ * the same thing.
+ *
+ * - >= CONFIRM: treat as a re-confirmation of the existing fact (no
+ *   new insert, just bump confirmation_count via FactStore.confirm).
+ * - >= UPDATE_PROMOTE && < CONFIRM: promote to relation=update so the
+ *   newer wording supersedes the older one.
+ */
+const COSINE_DEDUP_CONFIRM_THRESHOLD = 0.95;
+const COSINE_DEDUP_UPDATE_THRESHOLD = 0.85;
 
 export interface IntegrationInput {
     facts: readonly FactCandidate[];
@@ -68,6 +81,13 @@ export interface IntegrationStats {
     updateFallbacks: number;
     /** Extend/derive runs that found no candidate to attach to. */
     edgeFallbacks: number;
+    /** new-relation candidates that matched an existing fact closely
+     *  enough that we treated them as a confirmation instead of an
+     *  insert (cosine >= 0.95 + same topic[0]). */
+    dedupedAsConfirm: number;
+    /** new-relation candidates close to an existing fact (0.85 <= cosine
+     *  < 0.95) that we promoted to update via supersede. */
+    dedupedAsUpdate: number;
     /** Per-candidate errors. The other candidates still complete. */
     errors: Array<{ text: string; error: string }>;
 }
@@ -88,7 +108,9 @@ export class FactIntegrator {
     async integrate(input: IntegrationInput): Promise<IntegrationResult> {
         const stats: IntegrationStats = {
             inserted: 0, superseded: 0, refines: 0, derives: 0,
-            updateFallbacks: 0, edgeFallbacks: 0, errors: [],
+            updateFallbacks: 0, edgeFallbacks: 0,
+            dedupedAsConfirm: 0, dedupedAsUpdate: 0,
+            errors: [],
         };
         const integrated: IntegratedFact[] = [];
 
@@ -138,10 +160,49 @@ export class FactIntegrator {
         input: IntegrationInput,
         stats: IntegrationStats,
     ): IntegratedFact {
+        // Dedup pre-check: even when the LLM tagged a candidate as
+        // relation=new, it may semantically duplicate an existing fact.
+        // We catch the high-cosine case here so duplicates don't pile
+        // up under topics like preferences/communication.
+        const dup = this.findDuplicate(cand, candEmb, input);
+        if (dup && dup.cosine >= COSINE_DEDUP_CONFIRM_THRESHOLD) {
+            this.factStore.confirm(dup.fact.id, input.sessionId);
+            stats.dedupedAsConfirm += 1;
+            return { fact: dup.fact, relation: 'new' };
+        }
+        if (dup && dup.cosine >= COSINE_DEDUP_UPDATE_THRESHOLD) {
+            const { newFact, supersededId } = this.factStore.supersede(
+                dup.fact.id,
+                this.toNewFactInput(cand, input),
+            );
+            this.writeEmbedding(newFact.id, candEmb);
+            stats.dedupedAsUpdate += 1;
+            return { fact: newFact, relation: 'update', supersededId };
+        }
         const fact = this.factStore.insert(this.toNewFactInput(cand, input));
         this.writeEmbedding(fact.id, candEmb);
         stats.inserted += 1;
         return { fact, relation: 'new' };
+    }
+
+    private findDuplicate(
+        cand: FactCandidate,
+        candEmb: Float32Array | null,
+        input: IntegrationInput,
+    ): { fact: Fact; cosine: number } | null {
+        if (!candEmb) return null;
+        const candidates = this.loadTopicCandidates(cand, input);
+        if (candidates.length === 0) return null;
+        const embeddings = this.loadEmbeddingsForFacts(candidates.map(c => c.id));
+        let best: { fact: Fact; cosine: number } | null = null;
+        for (const c of candidates) {
+            const emb = embeddings.get(c.id);
+            if (!emb) continue;
+            const cos = cosine(candEmb, emb);
+            if (!best || cos > best.cosine) best = { fact: c, cosine: cos };
+        }
+        if (!best || best.cosine < COSINE_DEDUP_UPDATE_THRESHOLD) return null;
+        return best;
     }
 
     private handleUpdate(

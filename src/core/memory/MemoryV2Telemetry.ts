@@ -82,6 +82,8 @@ export class MemoryV2Telemetry {
         derives: number;
         updateFallbacks: number;
         edgeFallbacks: number;
+        dedupedAsConfirm?: number;
+        dedupedAsUpdate?: number;
         errors: number;
     }) {
         return this.record({ kind: 'integration', payload });

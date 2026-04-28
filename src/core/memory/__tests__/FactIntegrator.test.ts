@@ -336,10 +336,53 @@ describe('FactIntegrator (PLAN-007 task B.2)', () => {
         });
     });
 
+    describe('dedup pre-check on relation=new', () => {
+        it('treats a near-identical new fact as a confirmation when cosine >= 0.95', async () => {
+            seedFactWithEmbedding(factStore, rawDb, 'User dislikes emojis', ['preferences'], [1, 0, 0, 0]);
+            provider.set('User prefers no emojis', [1, 0, 0, 0]);
+            const result = await integrator.integrate({
+                facts: [newCandidate({ text: 'User prefers no emojis', topics: ['preferences'], relation: 'new' })],
+                mentions: [],
+            });
+            expect(result.stats.dedupedAsConfirm).toBe(1);
+            expect(result.stats.inserted).toBe(0);
+            const rows = rawDb.exec('SELECT confirmation_count FROM facts WHERE is_latest = 1');
+            expect(rows[0].values[0][0]).toBe(2);
+        });
+
+        it('promotes a similar-but-not-identical new fact to update when cosine in [0.85, 0.95)', async () => {
+            seedFactWithEmbedding(factStore, rawDb, 'old phrasing', ['preferences'], [1, 0, 0, 0]);
+            provider.set('refined wording', [0.93, 0.37, 0, 0]); // cosine ~0.93
+            const result = await integrator.integrate({
+                facts: [newCandidate({ text: 'refined wording', topics: ['preferences'], relation: 'new' })],
+                mentions: [],
+            });
+            expect(result.stats.dedupedAsUpdate).toBe(1);
+            expect(result.stats.inserted).toBe(0);
+            const latest = rawDb.exec('SELECT text FROM facts WHERE is_latest = 1');
+            expect(latest[0].values[0][0]).toBe('refined wording');
+        });
+
+        it('inserts as new when no existing fact passes the 0.85 threshold', async () => {
+            seedFactWithEmbedding(factStore, rawDb, 'unrelated', ['preferences'], [0, 1, 0, 0]);
+            provider.set('completely different', [1, 0, 0, 0]); // cosine 0 with seed
+            const result = await integrator.integrate({
+                facts: [newCandidate({ text: 'completely different', topics: ['preferences'], relation: 'new' })],
+                mentions: [],
+            });
+            expect(result.stats.inserted).toBe(1);
+            expect(result.stats.dedupedAsConfirm).toBe(0);
+            expect(result.stats.dedupedAsUpdate).toBe(0);
+        });
+    });
+
     describe('error handling', () => {
         it('captures FactStore errors per candidate without aborting the run', async () => {
-            provider.set('valid', [1, 0, 0, 0]);
-            provider.set('bad', [1, 0, 0, 0]);
+            // Use orthogonal embeddings so the dedup pre-check doesn't
+            // collapse the two valid candidates into a confirm/update.
+            provider.set('valid one', [1, 0, 0, 0]);
+            provider.set('valid two', [0, 1, 0, 0]);
+            provider.set('bad one', [0, 0, 1, 0]);
             const result = await integrator.integrate({
                 // FactStore validates topics; bad candidate has non-string topic.
                 facts: [

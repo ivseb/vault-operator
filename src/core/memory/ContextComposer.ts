@@ -256,6 +256,10 @@ export class ContextComposer {
             if (coldStart) {
                 lines.push('');
                 lines.push('_Cold-start: showing the most recent facts; topic context still warming up._');
+                lines.push(
+                    '_Hint: less than 5 facts on this topic. If the user shares something durable, ' +
+                    'consider calling mark_for_memory or update_soul so it sticks for next time._',
+                );
             }
             lines.push('');
         }

@@ -132,6 +132,8 @@ export class SingleCallProcessor {
                 derives: integration.stats.derives,
                 updateFallbacks: integration.stats.updateFallbacks,
                 edgeFallbacks: integration.stats.edgeFallbacks,
+                dedupedAsConfirm: integration.stats.dedupedAsConfirm,
+                dedupedAsUpdate: integration.stats.dedupedAsUpdate,
                 errors: integration.stats.errors.length,
             });
         }

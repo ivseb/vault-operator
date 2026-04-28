@@ -2583,7 +2583,16 @@ export class AgentSidebarView extends ItemView {
         const mem = this.plugin.settings.memory;
         const queue = this.plugin.extractionQueue;
         if (!mem.enabled || !mem.autoExtractSessions || !queue) return;
-        if (!this.activeConversationId || this.uiMessages.length < mem.extractionThreshold) return;
+        if (!this.activeConversationId) return;
+
+        // Pinned conversations (already have facts in memory) get a
+        // lower threshold of 1 -- the user explicitly opted into memory
+        // for them, every new message is potentially relevant. Fresh
+        // conversations still wait for the configured threshold so
+        // smalltalk doesn't trigger an extraction.
+        const isPinned = this.plugin.countMemoryFactsForConversation(this.activeConversationId) > 0;
+        const threshold = isPinned ? 1 : mem.extractionThreshold;
+        if (this.uiMessages.length < threshold) return;
 
         const snapshot = this.snapshotForMemory();
         if (!snapshot) return;

@@ -14,6 +14,41 @@
 
 import type { SourceAdapter, ResolvedSource } from './SourceAdapter';
 
+// ----- ThreadAdapter ---------------------------------------------------------
+
+/**
+ * Reads a conversation thread by its id. The host wires the transport;
+ * the engine only knows the interface, so a future UCM host can wire
+ * cross-provider conversations under the same scheme.
+ */
+export interface ThreadTransport {
+    /** Returns title + a short summary for the thread, or null when missing. */
+    read(threadId: string): Promise<{ title: string; summary: string } | null>;
+}
+
+export class ThreadAdapter implements SourceAdapter {
+    public readonly scheme = 'thread';
+
+    constructor(private readonly transport: ThreadTransport) {}
+
+    canHandle(uri: string): boolean {
+        return uri.startsWith('thread://');
+    }
+
+    async resolve(uri: string): Promise<ResolvedSource | null> {
+        const id = uri.slice('thread://'.length);
+        if (!id) return null;
+        const data = await this.transport.read(id);
+        if (!data) return null;
+        return {
+            uri,
+            scheme: 'thread',
+            content: data.summary,
+            title: data.title || `Conversation ${id}`,
+        };
+    }
+}
+
 // ----- LocalFileAdapter ------------------------------------------------------
 
 export interface LocalFileTransport {
