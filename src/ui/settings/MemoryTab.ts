@@ -228,8 +228,8 @@ export class MemoryTab {
         });
 
         containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: 'See what Obsilo remembers about you and how it knows itself. To add an entry, just say it in chat ("merk dir, ich mag keine Emojis"). This view is for checking what is stored and removing entries you do not want.',
+            cls: 'agent-settings-paragraph',
+            text: 'See what Obsilo remembers about you and how it knows itself. To add an entry, just say it in chat ("remember, I don\'t like emojis"). This view is for checking what is stored and removing entries you do not want.',
         });
 
         new Setting(containerEl)
