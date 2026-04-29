@@ -1124,7 +1124,18 @@ export class ModelConfigModal extends Modal {
 
         try {
             const flow = await auth.startAuthFlow();
-            window.open(flow.authorizeUrl);
+            // Force the OS default browser. window.open() lands inside Obsidian's
+            // built-in webview, which breaks federated logins (Microsoft SSO,
+            // Google Workspace) because those identity providers refuse the
+            // embedded webview's user-agent. shell.openExternal hands the URL
+            // to the OS, which resolves it via the user's default browser.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron shell only loadable via dynamic require in the renderer
+            const electron = require('electron') as { shell?: { openExternal: (url: string) => Promise<void> } };
+            if (electron.shell?.openExternal) {
+                await electron.shell.openExternal(flow.authorizeUrl);
+            } else {
+                window.open(flow.authorizeUrl);
+            }
             new Notice(t('chatgpt.openedBrowser'), 5000);
             await flow.completion;
             new Notice(t('chatgpt.authSuccess'));

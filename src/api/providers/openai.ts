@@ -64,9 +64,9 @@ interface ToolCallAccumulator {
 /**
  * Creates a fetch-compatible function using Node.js https module.
  * Used for providers where Electron's CORS enforcement blocks globalThis.fetch
- * (e.g. Google's generativelanguage.googleapis.com).
+ * (e.g. Google's generativelanguage.googleapis.com, chatgpt.com/backend-api).
  */
-function createNodeFetch(): typeof globalThis.fetch {
+export function createNodeFetch(): typeof globalThis.fetch {
     return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         const parsed = new URL(url);

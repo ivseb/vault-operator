@@ -18,6 +18,8 @@ import { SafeStorageService } from '../security/SafeStorageService';
 import { startPkceLoopbackServer } from './PkceLoopbackServer';
 import { decodeJwtClaims, readStringClaim } from './jwt-decode';
 
+void SafeStorageService; // import retained for future direct use
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -91,7 +93,7 @@ export class ChatGptOAuthService {
     private planTier: 'plus' | 'pro' | 'unknown' | '' = '';
     private expiresAt = 0; // Unix ms
 
-    private safeStorage: SafeStorageService;
+    private platformReady: boolean;
 
     private refreshPromise: Promise<void> | null = null;
     private generation = 0;
@@ -99,7 +101,8 @@ export class ChatGptOAuthService {
     private saveCallback: (() => Promise<void>) | null = null;
 
     private constructor() {
-        this.safeStorage = new SafeStorageService();
+        const safeStorage = new SafeStorageService();
+        this.platformReady = safeStorage.isAvailable();
     }
 
     static getInstance(): ChatGptOAuthService {
@@ -113,20 +116,30 @@ export class ChatGptOAuthService {
     // Settings persistence
     // ---------------------------------------------------------------------------
 
+    /**
+     * Hydrate the service state from decrypted settings.
+     * The plugin's central decryptSettings() runs before this; tokens
+     * arrive in plaintext.
+     */
     loadFromSettings(settings: ObsidianAgentSettings): void {
-        this.accessToken = this.safeStorage.decrypt(settings.chatgptOAuthAccessToken ?? '');
-        this.refreshToken = this.safeStorage.decrypt(settings.chatgptOAuthRefreshToken ?? '');
-        this.idToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken ?? '');
+        this.accessToken = settings.chatgptOAuthAccessToken ?? '';
+        this.refreshToken = settings.chatgptOAuthRefreshToken ?? '';
+        this.idToken = settings.chatgptOAuthIdToken ?? '';
         this.accountId = settings.chatgptOAuthAccountId ?? '';
         this.email = settings.chatgptOAuthEmail ?? '';
         this.planTier = settings.chatgptOAuthPlanTier ?? '';
         this.expiresAt = settings.chatgptOAuthExpiresAt ?? 0;
     }
 
+    /**
+     * Mirror service state into settings as plaintext.
+     * The plugin's encryptSettingsForSave() runs before saveData() and
+     * applies safeStorage.encrypt to the three token fields.
+     */
     saveToSettings(settings: ObsidianAgentSettings): void {
-        settings.chatgptOAuthAccessToken = this.safeStorage.encrypt(this.accessToken);
-        settings.chatgptOAuthRefreshToken = this.safeStorage.encrypt(this.refreshToken);
-        settings.chatgptOAuthIdToken = this.safeStorage.encrypt(this.idToken);
+        settings.chatgptOAuthAccessToken = this.accessToken;
+        settings.chatgptOAuthRefreshToken = this.refreshToken;
+        settings.chatgptOAuthIdToken = this.idToken;
         settings.chatgptOAuthAccountId = this.accountId;
         settings.chatgptOAuthEmail = this.email;
         settings.chatgptOAuthPlanTier = this.planTier;
@@ -142,7 +155,7 @@ export class ChatGptOAuthService {
     }
 
     isPlatformSupported(): boolean {
-        return Platform.isDesktop && this.safeStorage.isAvailable();
+        return Platform.isDesktop && this.platformReady;
     }
 
     getAccountInfo(): AccountInfo {
@@ -175,7 +188,10 @@ export class ChatGptOAuthService {
         const state = randomUrlSafe(32);
 
         const loopback = await startPkceLoopbackServer(state);
-        const redirectUri = `http://127.0.0.1:${loopback.port}/auth/callback`;
+        // Codex-CLI uses `localhost`, not `127.0.0.1`. The OAuth client
+        // app_EMoamEEZ73f0CkXaXp7hrann is registered with localhost-based
+        // redirect URIs only. Verified against codex-rs/login/src/server.rs.
+        const redirectUri = `http://localhost:${loopback.port}/auth/callback`;
 
         const authorizeUrl = buildAuthorizeUrl({
             clientId: CLIENT_ID,
@@ -378,15 +394,20 @@ function buildAuthorizeUrl(args: {
     codeChallenge: string;
     state: string;
 }): string {
+    // Scopes and Codex-specific flags verified against codex-rs/login/src/server.rs:
+    // the OAuth client expects api.connectors.read and api.connectors.invoke
+    // beyond the standard four scopes, plus id_token_add_organizations and
+    // codex_cli_simplified_flow.
     const params = new URLSearchParams({
         response_type: 'code',
         client_id: args.clientId,
         redirect_uri: args.redirectUri,
-        scope: 'openid profile email offline_access',
+        scope: 'openid profile email offline_access api.connectors.read api.connectors.invoke',
         code_challenge: args.codeChallenge,
         code_challenge_method: 'S256',
         state: args.state,
-        prompt: 'login',
+        id_token_add_organizations: 'true',
+        codex_cli_simplified_flow: 'true',
     });
     return `${AUTH_AUTHORIZE_URL}?${params.toString()}`;
 }

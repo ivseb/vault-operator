@@ -126,6 +126,8 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'Amazon Nova',    id: 'us.amazon.nova-lite-v1:0',                    label: 'Nova Lite (US)' },
     ],
     'chatgpt-oauth': [
+        { group: 'GPT-5',  id: 'gpt-5.5',          label: 'GPT-5.5  (recommended for Pro)' },
+        { group: 'GPT-5',  id: 'gpt-5',            label: 'GPT-5' },
         { group: 'Codex',  id: 'gpt-5-codex',      label: 'GPT-5 Codex' },
         { group: 'Codex',  id: 'gpt-5-codex-mini', label: 'GPT-5 Codex mini' },
     ],
