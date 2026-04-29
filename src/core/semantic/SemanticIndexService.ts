@@ -150,6 +150,28 @@ export class SemanticIndexService {
         if (model) console.debug(`[SemanticIndex] Using embedding model: ${model.name} (${model.provider})`);
     }
 
+    /**
+     * Public adapter for the Memory v2 EmbeddingService thin-adapter pattern
+     * (FEATURE-0316 / PLAN-005 task 6). Other engine modules can route their
+     * embedding requests through ObsiloEmbeddingProvider, which delegates here
+     * so the entire batch + retry + provider-quirk stack stays in one place.
+     *
+     * Throws when no embedding model is configured -- callers must pre-check
+     * via `getEmbeddingModelInfo()` or wrap their own try/catch.
+     */
+    async embedTexts(texts: string[]): Promise<Float32Array[]> {
+        return this.embedBatch(texts);
+    }
+
+    /**
+     * Returns the active embedding model identity for callers that need to
+     * surface it (UI, EmbeddingService.ModelInfo). Null when unconfigured.
+     */
+    getEmbeddingModelInfo(): { model: string; provider: string } | null {
+        if (!this.embeddingModel) return null;
+        return { model: this.embeddingModel.name, provider: this.embeddingModel.provider };
+    }
+
     /** Stop an in-progress buildIndex(). Aborts pending API calls immediately. */
     cancelBuild(): void {
         this.cancelled = true;
@@ -629,6 +651,63 @@ export class SemanticIndexService {
     }
 
     /**
+     * Tag-match search: rank vault paths by how many query tokens overlap
+     * with the note's tags in the `tags` table. Used as a third RRF signal
+     * in `semantic_search` (FEATURE-0316 / PLAN-005 task 5) so notes that
+     * carry the right hashtag bubble up even when their text doesn't match
+     * the query verbatim.
+     *
+     * Returns SemanticResult shape (path, excerpt, score) with score
+     * normalised 0-1 across the result set. Excerpt is the first chunk of
+     * the file so the caller has something to render.
+     */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public API expects Promise for consistency
+    async tagMatchSearch(query: string, topK = 8): Promise<SemanticResult[]> {
+        if (!this.knowledgeDB.isOpen()) return [];
+        try {
+            const queryTokens = new Set(
+                [...SemanticIndexService.tokenize(query)]
+                    .filter(t => !SemanticIndexService.STOP_WORDS.has(t)),
+            );
+            if (queryTokens.size === 0) return [];
+
+            const db = this.knowledgeDB.getDB();
+            const result = db.exec('SELECT path, tag FROM tags');
+            if (result.length === 0) return [];
+
+            // Per-path hit count: how many distinct query tokens overlap with tags?
+            const hitsByPath = new Map<string, Set<string>>();
+            for (const row of result[0].values) {
+                const path = row[0] as string;
+                const tag = String(row[1] ?? '').toLowerCase();
+                if (!tag) continue;
+                const tagTokens = SemanticIndexService.tokenize(tag);
+                for (const tt of tagTokens) {
+                    if (queryTokens.has(tt)) {
+                        if (!hitsByPath.has(path)) hitsByPath.set(path, new Set());
+                        hitsByPath.get(path)!.add(tt);
+                    }
+                }
+            }
+            if (hitsByPath.size === 0) return [];
+
+            const maxHits = [...hitsByPath.values()].reduce((m, s) => Math.max(m, s.size), 1);
+            const ranked = [...hitsByPath.entries()]
+                .map(([path, hits]) => ({ path, score: hits.size / maxHits }))
+                .sort((a, b) => b.score - a.score)
+                .slice(0, topK);
+
+            // Hydrate with excerpts -- first chunk of each file
+            return ranked.map(({ path, score }) => {
+                const chunks = this.vectorStore.getChunkTextsByPath(path);
+                return { path, excerpt: chunks[0] ?? '', score };
+            });
+        } catch {
+            return [];
+        }
+    }
+
+    /**
      * Return all indexed chunks for a specific file, sorted by chunk order.
      * Used by graph-augmented RAG to load linked-note context.
      */
@@ -693,7 +772,7 @@ export class SemanticIndexService {
 
     /**
      * Index a session summary into the vector store.
-     * Called after SessionExtractor saves a summary file.
+     * Called after SingleCallProcessor saves a session summary.
      * Items are tagged with source='session' so they can be filtered separately.
      */
     async indexSessionSummary(sessionId: string, content: string): Promise<void> {

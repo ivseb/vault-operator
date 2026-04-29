@@ -16,6 +16,7 @@ import { handleWriteVault } from './writeVault';
 import { handleSyncSession } from './syncSession';
 import { handleUpdateMemory } from './updateMemory';
 import { handleExecuteVaultOp } from './executeVaultOp';
+import { handleGetVaultImplicitEdges, handleGetVaultNoteMetadata } from './getVaultGraph';
 import { buildPrompts } from '../prompts/systemContext';
 
 type McpHandler = (plugin: ObsidianAgentPlugin, args: Record<string, unknown>) => Promise<McpToolResult>;
@@ -28,6 +29,8 @@ const handlers = new Map<string, McpHandler>([
     ['execute_vault_op', handleExecuteVaultOp],
     ['sync_session', handleSyncSession],
     ['update_memory', handleUpdateMemory],
+    ['get_vault_implicit_edges', handleGetVaultImplicitEdges],
+    ['get_vault_note_metadata', handleGetVaultNoteMetadata],
 ]);
 
 // ---------------------------------------------------------------------------

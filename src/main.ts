@@ -1,4 +1,4 @@
-import { Plugin, WorkspaceLeaf, Notice, TFile, requestUrl } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, requestUrl } from 'obsidian';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
@@ -17,9 +17,13 @@ import { WorkflowLoader } from './core/context/WorkflowLoader';
 import { SkillsManager } from './core/context/SkillsManager';
 import { GitCheckpointService } from './core/checkpoints/GitCheckpointService';
 import { SemanticIndexService } from './core/semantic/SemanticIndexService';
-import { KnowledgeDB } from './core/knowledge/KnowledgeDB';
+import { EmbeddingService } from './core/memory/EmbeddingService';
+import { ObsiloEmbeddingProvider } from './core/memory/ObsiloEmbeddingProvider';
+import { KnowledgeDB, WriterLockHeldError } from './core/knowledge/KnowledgeDB';
 import { VectorStore } from './core/knowledge/VectorStore';
 import { GraphStore } from './core/knowledge/GraphStore';
+import { VaultRenameHandler } from './core/knowledge/VaultRenameHandler';
+import { SnapshotJob, type SnapshotTarget } from './core/persistence/SnapshotJob';
 import { OntologyStore } from './core/knowledge/OntologyStore';
 import { CommunityDetectionService } from './core/knowledge/CommunityDetectionService';
 import { VaultHealthService } from './core/knowledge/VaultHealthService';
@@ -31,8 +35,11 @@ import { ChatHistoryService } from './core/ChatHistoryService';
 import { ConversationStore } from './core/history/ConversationStore';
 import { MemoryService } from './core/memory/MemoryService';
 import { ExtractionQueue } from './core/memory/ExtractionQueue';
-import { SessionExtractor } from './core/memory/SessionExtractor';
-import { LongTermExtractor } from './core/memory/LongTermExtractor';
+import { SingleCallProcessor } from './core/memory/SingleCallProcessor';
+import { MemoryV2Telemetry } from './core/memory/MemoryV2Telemetry';
+import { DriftEventBus } from './core/memory/DriftEventBus';
+import { TokenBudgetGuard } from './core/memory/TokenBudgetGuard';
+import { generateSoakReport } from './core/memory/SoakReport';
 import { McpClient } from './core/mcp/McpClient';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
@@ -45,6 +52,7 @@ import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
 import { t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
+import { ChatGptOAuthService } from './core/auth/ChatGptOAuthService';
 import { KiloAuthService } from './core/security/KiloAuthService';
 import { setGlobalModeStoreFs } from './core/modes/GlobalModeStore';
 import { RecipeStore } from './core/mastery/RecipeStore';
@@ -89,15 +97,21 @@ export default class ObsidianAgentPlugin extends Plugin {
     workflowLoader: WorkflowLoader;
     skillsManager: SkillsManager;
     semanticIndex: SemanticIndexService | null = null;
+    embeddingService: EmbeddingService | null = null;
     knowledgeDB: KnowledgeDB | null = null;
     vectorStore: VectorStore | null = null;
     graphStore: GraphStore | null = null;
+    vaultRenameHandler: VaultRenameHandler | null = null;
+    snapshotJob: SnapshotJob | null = null;
+    snapshotTargets: SnapshotTarget[] = [];
     graphExtractor: GraphExtractor | null = null;
     implicitConnectionService: ImplicitConnectionService | null = null;
     ontologyStore: OntologyStore | null = null;
     communityDetectionService: CommunityDetectionService | null = null;
     vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
+    historyDB: import('./core/knowledge/HistoryDB').HistoryDB | null = null;
+    historyIndexer: import('./core/memory/HistoryIndexer').HistoryIndexer | null = null;
     rerankerService: RerankerService | null = null;
     mcpBridge: { start(): Promise<void>; stop(): void; running: boolean; tunnelUrl: string | null; remoteConnected: boolean; remoteConnecting: boolean; startTunnel(onUrl?: (url: string | null) => void): void; stopTunnel(): void; connectRelay(): void; disconnectRelay(): void; getToolsWithContext(): unknown[]; buildResourceList(): unknown[] } | null = null;
     private autoIndexDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -109,6 +123,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     conversationStore: ConversationStore | null = null;
     memoryService: MemoryService | null = null;
     extractionQueue: ExtractionQueue | null = null;
+    memoryV2Telemetry: MemoryV2Telemetry | null = null;
+    driftBus: DriftEventBus | null = null;
+    tokenBudget: TokenBudgetGuard | null = null;
     mcpClient: McpClient;
     vaultDNAScanner: VaultDNAScanner | null = null;
     skillRegistry: SkillRegistry | null = null;
@@ -244,8 +261,27 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 0a. Initialize SafeStorageService (must happen before loadSettings)
         this.safeStorage = new SafeStorageService();
 
-        // 0b. Global file service — shared storage at {vault-parent}/.obsidian-agent/ (FEATURE-1508)
+        // 0b. Pre-init folder rename: legacy `.obsidian-agent` -> `obsilo-vault`
+        //     (vault-local) and `.obsidian-agent` -> `obsilo-shared` (vault-parent).
+        //     Must run BEFORE GlobalFileService points at the new global path,
+        //     otherwise the service would create a fresh empty folder beside
+        //     the unrenamed legacy data.
         const vaultBasePath = (this.app.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
+        try {
+            const rawSaved = await this.loadData() as Record<string, unknown> | null;
+            const savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
+                ? rawSaved.agentFolderPath as string
+                : undefined;
+            const { migrateFolderRename } = await import('./core/utils/migrateFolderRename');
+            const renameReport = await migrateFolderRename(this.app, vaultBasePath, savedFolderPath);
+            if (renameReport.vaultLocalRenamed || renameReport.globalRenamed) {
+                console.debug('[Plugin] Folder rename migrated:', renameReport);
+            }
+        } catch (e) {
+            console.warn('[Plugin] Folder rename migration failed (non-fatal):', e);
+        }
+
+        // 0c. Global file service — shared storage at {vault-parent}/obsilo-shared/ (FEATURE-1508 + folder rename)
         this.globalFs = new GlobalFileService(vaultBasePath);
         this.globalSettingsService = new GlobalSettingsService(this.globalFs, this.safeStorage);
         // Share the GlobalFileService with GlobalModeStore (consolidates all global I/O)
@@ -253,6 +289,16 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // 1. Load settings (merges global + vault-local)
         await this.loadSettings();
+
+        // 1a. Settings consolidation after the folder rename: rewrite any
+        //     known legacy default to the current default so VaultTab and
+        //     consumers using getAgentFolderPath() pick it up. Custom paths
+        //     are untouched.
+        if (this.settings.agentFolderPath === '.obsidian-agent'
+            || this.settings.agentFolderPath === 'obsilo-vault') {
+            this.settings.agentFolderPath = '.obsilo-vault';
+            await this.saveSettings();
+        }
 
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
@@ -270,6 +316,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
             this.settings._parentDirMigrated = true;
             await this.saveData({ ...this.settings, _parentDirMigrated: true });
+        }
+
+        // Legacy in-vault folder cleanup. Pre-FEATURE-1508 the plugin
+        // experimented with .obsilo / .obsilo-sync / .obsidian/.obsilo
+        // names. cleanupLegacyVaultDirs() handled them but only ran via
+        // the migrateToParentDir branch when ~/.obsidian-agent had already
+        // disappeared. For users where the legacy ~/.obsidian-agent still
+        // exists alongside, that branch never fired. Run it directly,
+        // gated by an idempotent flag.
+        if (!this.settings._legacyVaultDirsCleaned) {
+            await this.cleanupLegacyVaultDirs().catch((e) =>
+                console.warn('[Plugin] Legacy vault dir cleanup failed (non-fatal):', e)
+            );
+            this.settings._legacyVaultDirsCleaned = true;
+            await this.saveSettings();
         }
 
         // Governance: ignore/protected path rules
@@ -407,9 +468,12 @@ export default class ObsidianAgentPlugin extends Plugin {
                 undefined, // globalRoot — not used in local mode
                 getAgentFolderPath(this),
             );
-            await this.knowledgeDB.open().catch((e) =>
-                console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e)
-            );
+            await this.knowledgeDB.open().catch((e) => {
+                if (e instanceof WriterLockHeldError) {
+                    new Notice(e.message, 10000);
+                }
+                console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e);
+            });
             // FIX-18: If open() failed, null out to prevent cascading "not opened" errors
             if (!this.knowledgeDB.isOpen()) {
                 console.warn('[Plugin] KnowledgeDB not available — semantic features disabled for this session');
@@ -422,6 +486,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.vectorStore = new VectorStore(this.knowledgeDB);
             this.graphStore = new GraphStore(this.knowledgeDB);
             this.ontologyStore = new OntologyStore(this.knowledgeDB);
+            this.vaultRenameHandler = new VaultRenameHandler(this.knowledgeDB);
             this.communityDetectionService = new CommunityDetectionService(
                 this.knowledgeDB, this.graphStore, this.ontologyStore,
             );
@@ -448,6 +513,16 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.semanticIndex.initialize().catch((e) =>
                 console.warn('[Plugin] Semantic index init failed (non-fatal):', e)
             );
+            // Memory v2 / FEATURE-0316 task 6: shared EmbeddingService backed by
+            // SemanticIndexService.embedTexts. Phase 2+ engine modules (FactStore
+            // embeddings, future history embeddings, Hybrid-Search Cosine signal)
+            // route through this single Service instead of growing parallel
+            // embed paths.
+            const semanticIndexRef = this.semanticIndex;
+            this.embeddingService = new EmbeddingService(new ObsiloEmbeddingProvider(
+                (texts) => semanticIndexRef.embedTexts(texts),
+                () => semanticIndexRef.getEmbeddingModelInfo(),
+            ));
             // Auto-index on startup if configured
             if (this.settings.semanticAutoIndex === 'startup') {
                 // buildIndex() auto-triggers enrichment after completion
@@ -555,16 +630,45 @@ export default class ObsidianAgentPlugin extends Plugin {
             } // end FIX-18 else (knowledgeDB available)
         }
 
-        // Auto-index: keep semantic index current as vault files change.
-        // Only enabled when semanticAutoIndexOnChange is explicitly set.
-        if (this.settings.enableSemanticIndex && this.semanticIndex && this.settings.semanticAutoIndexOnChange) {
+        // Vault file listeners. Two responsibilities are wired here:
+        //
+        //   (1) Path-cascade: rewrite path columns across knowledge.db on
+        //       rename/move so no orphan rows survive. ALWAYS active when
+        //       knowledge.db is open -- it just does UPDATEs, no embedding.
+        //   (2) Auto-reindex: re-embed and re-extract on modify/create/rename.
+        //       Gated on settings.semanticAutoIndexOnChange because users
+        //       opt out for cost reasons.
+        if (this.knowledgeDB && this.vaultRenameHandler) {
+            const autoIndex = !!(
+                this.settings.enableSemanticIndex
+                && this.semanticIndex
+                && this.settings.semanticAutoIndexOnChange
+            );
+
             const DOCUMENT_EXTENSIONS = new Set(['pdf', 'pptx', 'xlsx', 'docx']);
             const isIndexable = (f: TFile): boolean =>
                 f.extension === 'md' || (this.settings.semanticIndexPdfs && DOCUMENT_EXTENSIONS.has(f.extension));
+
+            const applyFileRename = (oldPath: string, file: TFile) => {
+                // Cascade always -- the 8 (table, column) pairs are content-
+                // independent, so this is safe regardless of auto-index.
+                this.vaultRenameHandler?.cascadeFileRename(oldPath, file.path);
+                if (autoIndex && isIndexable(file)) {
+                    void this.semanticIndex?.removeFile(oldPath);
+                    this.graphExtractor?.removeFile(oldPath);
+                    this.ontologyStore?.removeEntriesForPath(oldPath);
+                    if (file.extension === 'md') {
+                        this.graphExtractor?.extractFile(file);
+                        this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
+                        this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
+                    }
+                    this.scheduleFileIndex(file.path);
+                }
+            };
+
             this.registerEvent(this.app.vault.on('modify', (file) => {
-                if (!(file instanceof TFile) || !isIndexable(file)) return;
+                if (!autoIndex || !(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
-                // Graph + implicit + ontology: update edges/tags and recompute
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
@@ -572,7 +676,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }));
             this.registerEvent(this.app.vault.on('create', (file) => {
-                if (!(file instanceof TFile) || !isIndexable(file)) return;
+                if (!autoIndex || !(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
                 if (file.extension === 'md') {
                     this.graphExtractor?.extractFile(file);
@@ -581,22 +685,18 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }));
             this.registerEvent(this.app.vault.on('delete', (file) => {
-                if (!(file instanceof TFile) || !isIndexable(file)) return;
+                if (!autoIndex || !(file instanceof TFile)) return;
                 void this.semanticIndex?.removeFile(file.path);
                 this.graphExtractor?.removeFile(file.path);
                 this.ontologyStore?.removeEntriesForPath(file.path);
             }));
             this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
-                if (!(file instanceof TFile) || !isIndexable(file)) return;
-                void this.semanticIndex?.removeFile(oldPath);
-                this.graphExtractor?.removeFile(oldPath);
-                this.ontologyStore?.removeEntriesForPath(oldPath);
-                if (file instanceof TFile && file.extension === 'md') {
-                    this.graphExtractor?.extractFile(file);
-                    this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
-                    this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
+                if (file instanceof TFolder) {
+                    this.vaultRenameHandler?.cascadeFolderRename(oldPath, file.path);
+                    return;
                 }
-                this.scheduleFileIndex(file.path);
+                if (!(file instanceof TFile)) return;
+                applyFileRename(oldPath, file);
             }));
         }
 
@@ -611,6 +711,53 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] MemoryDB not available — memory features degraded');
                 this.memoryDB = null;
             }
+        }
+
+        // History DB (FEATURE-0320 Phase 6): per-message keyword + future cosine
+        // search across all conversation transcripts.
+        try {
+            const { HistoryDB } = await import('./core/knowledge/HistoryDB');
+            this.historyDB = new HistoryDB(this.app.vault, pluginDir, this.globalFs.getRoot());
+            await this.historyDB.open();
+            if (!this.historyDB.isOpen()) {
+                console.warn('[Plugin] HistoryDB not available — history search degraded');
+                this.historyDB = null;
+            }
+        } catch (e) {
+            console.warn('[Plugin] HistoryDB open failed (non-fatal):', e);
+            this.historyDB = null;
+        }
+
+        // Daily snapshots (FEATURE-0314, ADR-079): copy live DBs into
+        // .bak/<name>/<YYYY-MM-DD>.db so a 7-day rolling Undo exists on top
+        // of the per-write .bak rotation. Only fires for filesystem-backed
+        // storage modes; obsidian-sync DBs are excluded to avoid duplicating
+        // bytes through the same sync provider.
+        try {
+            this.snapshotJob = new SnapshotJob();
+            const targets: SnapshotTarget[] = [];
+            if (this.knowledgeDB && this.knowledgeDB.getStorageLocation() !== 'obsidian-sync') {
+                targets.push({ name: 'knowledge', sourcePath: this.knowledgeDB.getAbsolutePath() });
+            }
+            if (this.memoryDB && this.memoryDB.getStorageLocation() !== 'obsidian-sync') {
+                targets.push({ name: 'memory', sourcePath: this.memoryDB.getAbsolutePath() });
+            }
+            if (targets.length > 0) {
+                this.snapshotTargets = targets;
+                // Run in background; never block plugin startup on snapshot I/O.
+                void this.snapshotJob.runDailySnapshot(targets)
+                    .then((results) => {
+                        const created = results.filter((r) => r.action === 'created').length;
+                        if (created > 0) console.debug(`[SnapshotJob] Created ${created} snapshot(s)`);
+                    })
+                    .then(() => this.snapshotJob?.cleanupOldSnapshots(targets))
+                    .then((removed) => {
+                        if (removed && removed > 0) console.debug(`[SnapshotJob] Removed ${removed} expired snapshot(s)`);
+                    })
+                    .catch((e) => console.warn('[SnapshotJob] Daily snapshot failed (non-fatal):', e));
+            }
+        } catch (e) {
+            console.warn('[SnapshotJob] Setup failed (non-fatal):', e);
         }
 
         // Agent Skill Mastery — Procedural Recipes (ADR-017)
@@ -662,6 +809,23 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
         }
 
+        // History indexer (FEATURE-0320 Phase 6): backfill on first run,
+        // incrementally re-index after every conversation save. Indexer
+        // is a no-op when historyDB or conversationStore is unavailable.
+        if (this.historyDB && this.conversationStore) {
+            const { HistoryIndexer } = await import('./core/memory/HistoryIndexer');
+            this.historyIndexer = new HistoryIndexer(this.historyDB, this.conversationStore);
+            const backfillCtl = new AbortController();
+            void this.historyIndexer.backfillAll(backfillCtl.signal).then((report) => {
+                if (report.chunksInserted > 0) {
+                    console.debug(
+                        `[HistoryIndex] backfill: ${report.chunksInserted} new chunks ` +
+                        `(skipped ${report.chunksSkipped}, ${report.conversationsScanned} conversations)`,
+                    );
+                }
+            }).catch((e) => console.warn('[HistoryIndex] backfill failed (non-fatal):', e));
+        }
+
         // Memory service + extraction queue
         if (this.settings.memory.enabled) {
             this.memoryService = new MemoryService(this.globalFs, this.memoryDB);
@@ -673,25 +837,47 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] ExtractionQueue load failed (non-fatal):', e)
             );
 
-            // Wire SessionExtractor as the queue processor
-            const sessionExtractor = new SessionExtractor(
-                this.memoryService,
-                () => this.getMemoryModel(),
-                () => this.settings.memory.autoUpdateLongTerm,
-                this.extractionQueue,
-                () => this.semanticIndex,
-            );
-            const longTermExtractor = new LongTermExtractor(
-                this.memoryService,
-                () => this.getMemoryModel(),
-            );
-            this.extractionQueue.setProcessor(async (item) => {
-                if (item.type === 'session') {
-                    await sessionExtractor.process(item);
-                } else if (item.type === 'long-term') {
-                    await longTermExtractor.process(item);
-                }
+            // FEATURE-0318 / PLAN-007 task C.2: telemetry + drift + budget wiring.
+            this.memoryV2Telemetry = new MemoryV2Telemetry((path, line) => this.globalFs.append(path, line));
+            this.driftBus = new DriftEventBus();
+            this.driftBus.subscribe((event) => {
+                void this.memoryV2Telemetry?.drift({
+                    sessionId: event.sessionId,
+                    previousTopic: event.previousTopic ?? '',
+                    newTopic: event.newTopic,
+                    score: event.score,
+                });
             });
+            this.tokenBudget = new TokenBudgetGuard({
+                loadState: () => this.settings.memory.tokenBudgetState ?? null,
+                saveState: async (state) => {
+                    this.settings.memory.tokenBudgetState = state;
+                    await this.saveSettings();
+                },
+                thresholds: { dailyInputCap: 1_000_000, dailyOutputCap: 200_000 },
+            });
+
+            // FEATURE-0318 / PLAN-007 task C.1: Single-Call replaces both
+            // SessionExtractor and LongTermExtractor. One tool-calling LLM
+            // round produces session summary + atomic facts + mentions +
+            // delta-window summary in a single pass.
+            const memoryService = this.memoryService;
+            const memoryDB = this.memoryDB;
+            if (!memoryDB) {
+                console.warn('[Plugin] memoryDB unavailable -- extraction queue will skip items.');
+                this.extractionQueue.setProcessor(() => Promise.resolve());
+            } else {
+                const singleCallProcessor = new SingleCallProcessor({
+                    memoryService,
+                    memoryDB,
+                    embeddingService: this.embeddingService,
+                    getMemoryModel: () => this.getMemoryModel(),
+                    getSemanticIndex: () => this.semanticIndex,
+                    tokenBudget: this.tokenBudget,
+                    telemetry: this.memoryV2Telemetry,
+                });
+                this.extractionQueue.setProcessor((item) => singleCallProcessor.process(item));
+            }
 
             // Process any pending extractions from a previous session
             if (!this.extractionQueue.isEmpty()) {
@@ -700,6 +886,23 @@ export default class ObsidianAgentPlugin extends Plugin {
                     console.warn('[Plugin] Queue processing failed (non-fatal):', e)
                 );
             }
+
+            // FEATURE-0319b / PLAN-008 task C.7: sync CapabilityManifest into
+            // Memory v2 under profile_id='_obsilo'. Detects manifest changes
+            // via djb2 hash and replaces the snapshot atomically.
+            this.syncCapabilitySnapshot().catch((e) =>
+                console.warn('[Plugin] Capability snapshot sync failed (non-fatal):', e),
+            );
+
+            // FEATURE-0319 Phase 5: daily aging sweep. AgingService
+            // short-circuits when lastAgingRunAt is < 24h old, so this is
+            // safe to call on every plugin onload.
+            this.runAgingSweep().catch((e) =>
+                console.warn('[Plugin] Aging sweep failed (non-fatal):', e),
+            );
+
+            // FEATURE-0319 Phase 5: configure re-extraction throttle from settings.
+            this.extractionQueue.setThrottleMs(this.settings.memory.reExtractThrottleMs ?? 60_000);
         }
 
         // LLM provider (null if no API key configured)
@@ -743,6 +946,12 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (stale.length === 0) {
                     await this.activateView();
                 }
+                // Memory v2 upgrade prompt -- BUG-031 follow-up. Fires only
+                // when the detector finds legacy v1 MDs and no v2 facts yet.
+                // Fresh installs are silent.
+                this.detectAndPromptMemoryV2Upgrade().catch(e =>
+                    console.warn('[Plugin] Memory v2 upgrade detection failed (non-fatal):', e),
+                );
             })();
         });
 
@@ -751,6 +960,23 @@ export default class ObsidianAgentPlugin extends Plugin {
             id: 'open-agent-sidebar',
             name: 'Open agent sidebar',
             callback: () => this.activateView()
+        });
+
+        // FEATURE-0319 Phase 5: Save active conversation to memory.
+        // No default hotkey -- user assigns via Settings -> Hotkeys.
+        this.addCommand({
+            id: 'save-conversation-to-memory',
+            name: 'Save conversation to memory',
+            callback: () => { void this.saveActiveConversationToMemory(); },
+        });
+
+        // FEATURE-0319 Phase 6/7 soak: daily health snapshot. User runs once a
+        // day, copies JSON to chat for trend analysis. Plain navigator.clipboard
+        // -- Notice fallback if the API is unavailable (rare in Electron).
+        this.addCommand({
+            id: 'generate-memory-soak-report',
+            name: 'Generate memory soak report',
+            callback: () => { void this.generateAndCopySoakReport(); },
         });
 
         // Development: Test tool execution
@@ -894,6 +1120,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveData(this.encryptSettingsForSave(this.settings));
         });
 
+        // Initialize ChatGPT OAuth service with persisted tokens (ADR-088, ADR-089)
+        const chatgptAuth = ChatGptOAuthService.getInstance();
+        chatgptAuth.loadFromSettings(this.settings);
+        chatgptAuth.setSaveCallback(async () => {
+            chatgptAuth.saveToSettings(this.settings);
+            await this.saveData(this.encryptSettingsForSave(this.settings));
+        });
+
         // Migrate old mode slugs to new built-in mode slugs (Phase 3.1)
         const OLD_MODE_MAP: Record<string, string> = { librarian: 'ask', writer: 'agent', orchestrator: 'agent', researcher: 'ask', curator: 'agent', architect: 'agent' };
         if (OLD_MODE_MAP[this.settings.currentMode]) {
@@ -942,7 +1176,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settings.memory = this.settings.memory ?? memDefaults;
         this.settings.memory.enabled = this.settings.memory.enabled ?? memDefaults.enabled;
         this.settings.memory.autoExtractSessions = this.settings.memory.autoExtractSessions ?? memDefaults.autoExtractSessions;
-        this.settings.memory.autoUpdateLongTerm = this.settings.memory.autoUpdateLongTerm ?? memDefaults.autoUpdateLongTerm;
         this.settings.memory.memoryModelKey = this.settings.memory.memoryModelKey ?? memDefaults.memoryModelKey;
         this.settings.memory.extractionThreshold = this.settings.memory.extractionThreshold ?? memDefaults.extractionThreshold;
 
@@ -1145,6 +1378,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.kiloToken) {
             settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
         }
+        // ChatGPT OAuth tokens (ADR-088)
+        if (settings.chatgptOAuthAccessToken) {
+            settings.chatgptOAuthAccessToken = this.safeStorage.decrypt(settings.chatgptOAuthAccessToken);
+        }
+        if (settings.chatgptOAuthRefreshToken) {
+            settings.chatgptOAuthRefreshToken = this.safeStorage.decrypt(settings.chatgptOAuthRefreshToken);
+        }
+        if (settings.chatgptOAuthIdToken) {
+            settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken);
+        }
         // Remote relay tokens (AUDIT-005 M-2)
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
@@ -1197,6 +1440,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Kilo Gateway token (ADR-041)
         if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
             copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
+        }
+        // ChatGPT OAuth tokens (ADR-088)
+        if (copy.chatgptOAuthAccessToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccessToken)) {
+            copy.chatgptOAuthAccessToken = this.safeStorage.encrypt(copy.chatgptOAuthAccessToken);
+        }
+        if (copy.chatgptOAuthRefreshToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthRefreshToken)) {
+            copy.chatgptOAuthRefreshToken = this.safeStorage.encrypt(copy.chatgptOAuthRefreshToken);
+        }
+        if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken)) {
+            copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken);
         }
         // Remote relay tokens (AUDIT-005 M-2)
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {
@@ -1344,6 +1597,243 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /**
+     * Snapshot the active sidebar conversation for the memory pipeline.
+     * Manual extraction paths (mark_for_memory tool, Star button) call this
+     * to find out what to enqueue. Returns null when no sidebar leaf exists
+     * or the active conversation has no messages.
+     */
+    snapshotActiveConversationForMemory(): ReturnType<AgentSidebarView['snapshotForMemory']> | null {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+        if (leaves.length === 0) return null;
+        const view = leaves[0].view as AgentSidebarView;
+        return view.snapshotForMemory?.() ?? null;
+    }
+
+    /**
+     * Command-palette / hotkey entry for the manual save-to-memory flow.
+     * Same pipeline as the Star button + chat input "..." menu, just
+     * reachable via Cmd+Shift+M (when the user binds it).
+     */
+    async saveActiveConversationToMemory(): Promise<void> {
+        if (!this.settings.memory.enabled) {
+            new Notice('Memory is disabled. Enable it in Settings.');
+            return;
+        }
+        const queue = this.extractionQueue;
+        const snapshot = this.snapshotActiveConversationForMemory();
+        if (!queue || !snapshot) {
+            new Notice('No active conversation to save.');
+            return;
+        }
+        try {
+            await queue.enqueueImmediate(snapshot);
+            new Notice('Conversation queued for memory extraction.');
+        } catch (e) {
+            console.warn('[Memory] Hotkey save failed:', e);
+            new Notice('Saving the conversation failed. See console for details.');
+        }
+    }
+
+    /**
+     * Daily aging sweep (FEATURE-0319 Phase 5). Idempotent within 24h
+     * via settings.memory.lastAgingRunAt. Records a telemetry event on
+     * each non-skipped run.
+     */
+    async runAgingSweep(force = false): Promise<void> {
+        if (!this.memoryDB?.isOpen()) return;
+        const { AgingService } = await import('./core/memory/AgingService');
+        const service = new AgingService(this.memoryDB);
+        const report = service.runAgingCycle({
+            force,
+            lastRunAt: this.settings.memory.lastAgingRunAt ?? null,
+        });
+        if (report.skipped) {
+            console.debug(`[Plugin] Aging skipped: ${report.skippedReason}`);
+            return;
+        }
+        this.settings.memory.lastAgingRunAt = report.timestamp;
+        await this.saveSettings();
+        await this.memoryDB.save().catch(() => undefined);
+        console.debug(
+            `[Plugin] Aging sweep: ${report.factsUpdated}/${report.factsProcessed} facts updated ` +
+            `(by kind: identity=${report.byKind.identity}, fact=${report.byKind.fact}, ` +
+            `event=${report.byKind.event}, preference=${report.byKind.preference})`,
+        );
+        await this.memoryV2Telemetry?.aging({
+            factsProcessed: report.factsProcessed,
+            factsUpdated: report.factsUpdated,
+            skipped: false,
+        });
+    }
+
+    /**
+     * Phase 6 -> 7 soak: build a SoakReport and show it in a modal where
+     * the user can copy/save. The previous "copy on command" path failed
+     * silently when the active leaf wasn't focused (clipboard API rejects
+     * but we'd already shown the success Notice). Modal-based copy uses
+     * a real user gesture, with a save-to-vault fallback.
+     */
+    async generateAndCopySoakReport(): Promise<void> {
+        try {
+            const report = generateSoakReport({
+                memoryDB: this.memoryDB,
+                historyDB: this.historyDB,
+                conversationStore: this.conversationStore,
+                extractionQueue: this.extractionQueue,
+                settings: { memory: this.settings.memory },
+            });
+            const json = JSON.stringify(report, null, 2);
+            const { SoakReportModal } = await import('./ui/modals/SoakReportModal');
+            const modal = new SoakReportModal(this.app, json, async () => {
+                const day = new Date().toISOString().slice(0, 10);
+                const path = `${this.settings.agentFolderPath}/soak-reports/${day}.json`;
+                const adapter = this.app.vault.adapter;
+                const dir = `${this.settings.agentFolderPath}/soak-reports`;
+                if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+                await adapter.write(path, json);
+                return path;
+            });
+            modal.open();
+        } catch (e) {
+            console.warn('[Plugin] Soak report generation failed:', e);
+            new Notice('Soak report failed -- check console for details.');
+        }
+    }
+
+    /**
+     * Sync the curated CapabilityManifest into Memory v2 (FEATURE-0319b).
+     * On every plugin onload the live manifest is hashed (djb2 sync). If
+     * the hash differs from settings.memory.lastCapabilityHash, the old
+     * capability snapshot is deprecated and the new one is inserted as
+     * facts under profile_id='_obsilo'. Idempotent on identical runs.
+     */
+    async syncCapabilitySnapshot(): Promise<void> {
+        if (!this.memoryDB?.isOpen()) {
+            console.debug('[Plugin] Capability snapshot sync skipped: memoryDB not open');
+            return;
+        }
+        const { CAPABILITIES, manifestHash } = await import('./core/memory/CapabilityManifest');
+        const { FactStore } = await import('./core/memory/FactStore');
+        const { OBSILO_PROFILE } = await import('./core/memory/SoulView');
+
+        const newHash = manifestHash();
+        if (this.settings.memory.lastCapabilityHash === newHash) {
+            console.debug(`[Plugin] Capability snapshot up-to-date (hash=${newHash}, ${CAPABILITIES.length} entries)`);
+            return;
+        }
+
+        const factStore = new FactStore(this.memoryDB);
+        const existing = factStore.listLatest({ profileId: OBSILO_PROFILE, limit: 500 })
+            .filter(f => f.topics.includes('capability'));
+        for (const fact of existing) {
+            factStore.deprecate(fact.id, 'superseded by new capability snapshot');
+        }
+        for (const cap of CAPABILITIES) {
+            factStore.insert({
+                text: `${cap.summary}${cap.notes ? ' ' + cap.notes : ''}`,
+                topics: ['capability', cap.area, cap.key],
+                kind: 'identity',
+                importance: 0.6,
+                profileId: OBSILO_PROFILE,
+                sourceInterface: 'obsilo-self',
+                metadata: { area: cap.area, key: cap.key },
+            });
+        }
+        await this.memoryDB.save().catch(() => undefined);
+        this.settings.memory.lastCapabilityHash = newHash;
+        await this.saveSettings();
+        console.debug(`[Plugin] Capability snapshot synced: ${CAPABILITIES.length} entries (hash=${newHash}, replaced ${existing.length} stale)`);
+    }
+
+    /**
+     * Returns the count of latest, non-deprecated Memory v2 facts that
+     * came from this conversation. Used by the Star button in HistoryPanel
+     * to render the toggle state (filled = has facts, empty = doesn't).
+     */
+    countMemoryFactsForConversation(conversationId: string): number {
+        if (!this.memoryDB?.isOpen() || !conversationId) return 0;
+        try {
+            const result = this.memoryDB.getDB().exec(
+                `SELECT COUNT(*) FROM facts
+                  WHERE source_session_id = ?
+                    AND is_latest = 1
+                    AND deprecated_at IS NULL`,
+                [conversationId],
+            );
+            if (result.length === 0 || result[0].values.length === 0) return 0;
+            return Number(result[0].values[0][0]);
+        } catch (e) {
+            console.warn('[Memory] Fact count lookup failed:', e);
+            return 0;
+        }
+    }
+
+    /**
+     * Soft-delete all Memory v2 facts that came from this conversation
+     * and reset the thread-delta state so a future Save-to-Memory starts
+     * fresh. Returns the number of facts deprecated.
+     *
+     * Soft-delete (not hard-delete) per ADR-085: the audit trail keeps
+     * the original insert + the deprecate event so we can recover or
+     * inspect later.
+     */
+    /**
+     * Cascade delete: when a conversation is removed from history, also
+     * remove the derived memory artefacts (session summary, thread-delta
+     * state) and deprecate every fact that came from this conversation.
+     *
+     * Returns the number of facts deprecated. Audit trail of those facts
+     * stays in `memory_audit` so the user can see what was removed; a
+     * full nuke is reachable via "Delete all memory".
+     */
+    async deleteMemoryForConversationCascade(conversationId: string): Promise<number> {
+        if (!this.memoryDB?.isOpen() || !conversationId) return 0;
+        const deprecated = await this.unpinMemoryFactsForConversation(conversationId);
+        try {
+            const db = this.memoryDB.getDB();
+            db.run('DELETE FROM sessions WHERE id = ?', [conversationId]);
+            db.run('DELETE FROM conversation_threads WHERE thread_id = ?', [conversationId]);
+            await this.memoryDB.save().catch(() => undefined);
+        } catch (e) {
+            console.warn('[Memory] Cascade delete (sessions/threads) failed:', e);
+        }
+        return deprecated;
+    }
+
+    async unpinMemoryFactsForConversation(conversationId: string): Promise<number> {
+        if (!this.memoryDB?.isOpen() || !conversationId) return 0;
+        try {
+            const { FactStore } = await import('./core/memory/FactStore');
+            const { ThreadDeltaStore } = await import('./core/memory/ThreadDeltaStore');
+            const factStore = new FactStore(this.memoryDB);
+            const result = this.memoryDB.getDB().exec(
+                `SELECT id FROM facts
+                  WHERE source_session_id = ?
+                    AND is_latest = 1
+                    AND deprecated_at IS NULL`,
+                [conversationId],
+            );
+            const ids = result.length > 0
+                ? result[0].values.map(r => r[0] as number)
+                : [];
+            for (const id of ids) {
+                factStore.deprecate(id, 'unpinned by user', conversationId);
+            }
+            // Reset thread delta so a re-Star starts from message 0 again.
+            const deltas = new ThreadDeltaStore(this.memoryDB);
+            const existing = deltas.get(conversationId);
+            if (existing) {
+                deltas.save({ threadId: conversationId, lastExtractedMessageIndex: null, deltaSummary: null });
+            }
+            await this.memoryDB.save().catch(() => undefined);
+            return ids.length;
+        } catch (e) {
+            console.warn('[Memory] Unpin failed:', e);
+            return 0;
+        }
+    }
+
+    /**
      * Open a conversation by ID via deep-link (ADR-022, FEATURE-300).
      * Activates the sidebar and loads the conversation if it exists.
      */
@@ -1367,6 +1857,71 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Open Obsidian settings and navigate to a specific tab/subtab.
      * Used by protocol handler and agent deep-links.
      */
+    /**
+     * Memory v2 upgrade detection (FEATURE-0316 / BUG-031 follow-up).
+     *
+     * Fresh installs ship with `v2MigrationStatus = 'not-applicable'` so this
+     * method is a no-op for them (the v1 MD files never existed). Existing
+     * users from earlier obsilo releases land here on first plugin load
+     * after the update -- if they have the legacy memory MDs but no v2
+     * facts yet, status flips to 'pending' and the upgrade modal opens.
+     *
+     * Idempotent: status stays 'completed'/'skipped' once decided.
+     */
+    async detectAndPromptMemoryV2Upgrade(): Promise<void> {
+        if (!this.memoryDB?.isOpen() || !this.globalFs) return;
+        const mem = this.settings.memory;
+
+        // First detection pass: bump 'not-applicable' to a real verdict for
+        // existing users. Fresh installs without v1 MDs stay 'not-applicable'.
+        if (mem.v2MigrationStatus === 'not-applicable') {
+            const hasV1 = await this.hasLegacyMemoryFiles();
+            if (!hasV1) return; // truly fresh, nothing to migrate
+            const factsCount = this.countV2Facts();
+            mem.v2MigrationStatus = factsCount === 0 ? 'pending' : 'completed';
+            await this.saveSettings();
+        }
+
+        if (mem.v2MigrationStatus !== 'pending') return;
+
+        const { memoryV2UpgradeModal } = await import('./ui/modals/MemoryV2UpgradeModal');
+        const choice = await memoryV2UpgradeModal(this.app, { reason: 'auto-on-load' });
+        if (choice === 'migrate') {
+            this.openSettingsAt('agent', 'memory');
+        } else {
+            mem.v2MigrationStatus = 'skipped';
+            await this.saveSettings();
+        }
+    }
+
+    private async hasLegacyMemoryFiles(): Promise<boolean> {
+        if (!this.globalFs) return false;
+        const candidates = [
+            'memory/user-profile.md', 'memory/projects.md', 'memory/patterns.md',
+            'memory/errors.md', 'memory/custom-tools.md', 'memory/soul.md',
+        ];
+        for (const path of candidates) {
+            try {
+                if (await this.globalFs.exists(path)) {
+                    const content = await this.globalFs.read(path).catch(() => '');
+                    // Non-empty content = real legacy data, not just the auto-created template
+                    if (content.trim().length > 50) return true;
+                }
+            } catch { /* try next */ }
+        }
+        return false;
+    }
+
+    private countV2Facts(): number {
+        if (!this.memoryDB?.isOpen()) return 0;
+        try {
+            const result = this.memoryDB.getDB().exec('SELECT COUNT(*) FROM facts');
+            return (result[0]?.values?.[0]?.[0] as number) ?? 0;
+        } catch {
+            return 0;
+        }
+    }
+
     openSettingsAt(tab: string, subTab?: string): void {
         // Open the Obsidian settings modal
         const setting = this.app.setting;
@@ -1489,7 +2044,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         // Migrate knowledge.db to vault-local
         const oldKnowledgeDb = path.join(oldRoot, 'knowledge.db');
-        const newKnowledgeDb = path.join(vaultBasePath, '.obsidian-agent', 'knowledge.db');
+        const newKnowledgeDb = path.join(vaultBasePath, '.obsilo-vault', 'knowledge.db');
         try {
             await fs.promises.access(oldKnowledgeDb);
             await fs.promises.mkdir(path.dirname(newKnowledgeDb), { recursive: true });
@@ -1500,8 +2055,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         } catch { /* skip */ }
 
-        // Migrate memory.db to new global root
+        // Migrate memory.db to new global root (legacy vault-local name was '.obsidian-agent')
         const oldMemoryDb = path.join(vaultBasePath, '.obsidian-agent', 'memory.db');
+        // (Note: my pre-init migration may have already renamed this to 'obsilo-vault'.
+        //  We fall through with whichever path actually exists.)
         const newMemoryDb = path.join(newRoot, 'memory.db');
         try {
             await fs.promises.access(oldMemoryDb);

@@ -7,7 +7,7 @@
 // Adapted from Obsidian Copilot's CustomModel pattern
 // ---------------------------------------------------------------------------
 
-export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway' | 'bedrock';
+export type ProviderType = 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'lmstudio' | 'openrouter' | 'azure' | 'custom' | 'github-copilot' | 'kilo-gateway' | 'bedrock' | 'chatgpt-oauth';
 
 export interface CustomModel {
     /** Model identifier used in API calls (e.g. "claude-sonnet-4-5-20250929") */
@@ -452,12 +452,56 @@ export interface MemorySettings {
     enabled: boolean;
     /** Automatically extract session summaries when a conversation ends */
     autoExtractSessions: boolean;
-    /** Promote durable facts from session summaries to long-term memory files */
-    autoUpdateLongTerm: boolean;
     /** Model key for extraction LLM calls (picks from activeModels[]) */
     memoryModelKey: string;
     /** Minimum total messages (user + assistant) before extraction triggers */
     extractionThreshold: number;
+    /**
+     * Memory v2 migration state (FEATURE-0316).
+     * - `not-applicable`: fresh install, never had v1 memory MDs -> Memory v2 is the only path
+     * - `pending`: v1 user upgraded but has not yet decided
+     * - `completed`: migration ran successfully (timestamp + counts in v2MigrationReport)
+     * - `skipped`: user chose "Later" in the upgrade modal
+     */
+    v2MigrationStatus: 'not-applicable' | 'pending' | 'completed' | 'skipped';
+    /** ISO timestamp + counts of the last successful migration run (null if never). */
+    v2MigrationReport: {
+        completedAt: string;
+        factsInserted: number;
+        stylesInserted: number;
+        backupFolder: string;
+    } | null;
+    /**
+     * Persistent state for TokenBudgetGuard (FEATURE-0318). Holds the
+     * current day's running tally of input + output tokens consumed by
+     * the memory pipeline. Auto-resets at midnight via guard.snapshot().
+     */
+    tokenBudgetState?: {
+        day: string;
+        inputTokens: number;
+        outputTokens: number;
+    } | null;
+
+    /**
+     * Hash of the last-synced CapabilityManifest (FEATURE-0319b).
+     * On each plugin onload the live manifest is hashed and compared;
+     * mismatch triggers a soul-snapshot rebuild (deprecate old, insert new).
+     */
+    lastCapabilityHash?: string | null;
+
+    /**
+     * ISO timestamp of the last AgingService run (FEATURE-0319 Phase 5).
+     * Aging short-circuits when called less than 24h after this stamp,
+     * so a flurry of plugin reloads doesn't repeatedly decay facts.
+     */
+    lastAgingRunAt?: string | null;
+
+    /**
+     * Throttle window between automatic re-extracts of the same
+     * conversation (FEATURE-0319 Phase 5). Manual saves (Star button,
+     * mark_for_memory tool) bypass the throttle. Default 60_000 ms.
+     */
+    reExtractThrottleMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -681,6 +725,8 @@ export interface ObsidianAgentSettings {
     _syncDirMigrated?: boolean;
     /** Whether data has been migrated from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/ (FEATURE-1508) */
     _parentDirMigrated?: boolean;
+    /** Whether the legacy in-vault folders (.obsilo, .obsilo-sync, .obsidian/.obsilo) have been cleaned up. */
+    _legacyVaultDirsCleaned?: boolean;
 
     // Task Extraction (FEATURE-100, ADR-026/027/028)
     taskExtraction: import('../core/tasks/types').TaskExtractionSettings;
@@ -706,6 +752,26 @@ export interface ObsidianAgentSettings {
     kiloAccountLabel: string;
     /** Epoch seconds of last successful token validation */
     kiloLastValidatedAt: number;
+
+    // ChatGPT OAuth (EPIC-021, ADR-088, ADR-089)
+    /** OAuth access token, encrypted via SafeStorageService (enc:v1:<base64>) */
+    chatgptOAuthAccessToken: string;
+    /** OAuth refresh token, encrypted */
+    chatgptOAuthRefreshToken: string;
+    /** ID token (JWT) for account info, encrypted */
+    chatgptOAuthIdToken: string;
+    /** chatgpt-account-id from id_token claim, sent as request header. Not encrypted. */
+    chatgptOAuthAccountId: string;
+    /** Email address from id_token claim, shown in settings UI. Not encrypted. */
+    chatgptOAuthEmail: string;
+    /** Subscription plan tier. Not encrypted. */
+    chatgptOAuthPlanTier: 'plus' | 'pro' | 'unknown' | '';
+    /** Unix timestamp in milliseconds when access_token expires. Not encrypted. */
+    chatgptOAuthExpiresAt: number;
+    /** Active model id, default 'gpt-5-codex'. */
+    chatgptOAuthModel: string;
+    /** Unix milliseconds when user acknowledged the third-party-endpoint disclaimer. 0 = not yet. */
+    chatgptOAuthDisclaimerAcknowledgedAt: number;
 
     // Advanced
     debugMode: boolean;
@@ -900,9 +966,13 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     memory: {
         enabled: true,
         autoExtractSessions: true,
-        autoUpdateLongTerm: true,
         memoryModelKey: '',
         extractionThreshold: 6,
+        // Default for FRESH installs. Existing v1 users get bumped to 'pending'
+        // by the detector in main.ts when memory/{file}.md is found and no
+        // facts row exists yet. See `detectMemoryV2MigrationStatus`.
+        v2MigrationStatus: 'not-applicable',
+        v2MigrationReport: null,
     },
     chatLinking: {
         enabled: true,
@@ -960,6 +1030,15 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     kiloOrganizationId: '',
     kiloAccountLabel: '',
     kiloLastValidatedAt: 0,
+    chatgptOAuthAccessToken: '',
+    chatgptOAuthRefreshToken: '',
+    chatgptOAuthIdToken: '',
+    chatgptOAuthAccountId: '',
+    chatgptOAuthEmail: '',
+    chatgptOAuthPlanTier: '',
+    chatgptOAuthExpiresAt: 0,
+    chatgptOAuthModel: 'gpt-5.5',
+    chatgptOAuthDisclaimerAcknowledgedAt: 0,
     debugMode: false,
-    agentFolderPath: '.obsidian-agent',
+    agentFolderPath: '.obsilo-vault',
 };

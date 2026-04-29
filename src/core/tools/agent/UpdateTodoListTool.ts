@@ -79,10 +79,107 @@ export class UpdateTodoListTool extends BaseTool<'update_todo_list'> {
 
         const done = items.filter((i) => i.status === 'done').length;
         const total = items.length;
+
+        // FIX-H (ADR-080 follow-up): two-tier verification of done items.
+        // Wrapped in try/catch so a verification bug never blocks the tool.
+        const warnings: string[] = [];
+        let unreadCount = 0;
+        let quantViolCount = 0;
+        try {
+            const readFiles = context.getReadFiles?.() ?? new Set<string>();
+            const readBasenames = new Set<string>();
+            for (const p of readFiles) {
+                const fn = p.split('/').pop() ?? p;
+                const dot = fn.lastIndexOf('.');
+                readBasenames.add(dot > 0 ? fn.slice(0, dot) : fn);
+            }
+
+            // Tier 1: explicit file references in todo text -- must be read.
+            // Linear scan: split on [[ and ]] markers to avoid regex backtracking risk.
+            const unreadReferences: string[] = [];
+            const extractFileRefs = (text: string): string[] => {
+                const out: string[] = [];
+                let i = 0;
+                while (i < text.length) {
+                    const open = text.indexOf('[[', i);
+                    if (open === -1) break;
+                    const close = text.indexOf(']]', open + 2);
+                    if (close === -1) break;
+                    const inner = text.slice(open + 2, close);
+                    const pipe = inner.indexOf('|');
+                    out.push((pipe >= 0 ? inner.slice(0, pipe) : inner).trim());
+                    i = close + 2;
+                }
+                // Detect quoted ".md" mentions (e.g., "Inbox/Note.md")
+                const quotedRe = /"([^"\n]{1,200}\.md)"/g;
+                for (const m of text.matchAll(quotedRe)) out.push(m[1].trim());
+                return out;
+            };
+            for (const item of items) {
+                if (item.status !== 'done') continue;
+                for (const ref of extractFileRefs(item.text)) {
+                    if (!ref) continue;
+                    const dot = ref.lastIndexOf('.');
+                    const refBase = dot > 0 && /\.\w{1,5}$/.test(ref) ? ref.slice(0, dot) : ref;
+                    if (!readBasenames.has(refBase)) {
+                        unreadReferences.push(`"${ref}" in todo "${item.text.slice(0, 60)}…"`);
+                    }
+                }
+            }
+            unreadCount = unreadReferences.length;
+
+            // Tier 2: collective-coverage todos. Two flavours:
+            //   (a) Explicit quantifier: "alle / all / every / each / jede / sämtlich"
+            //   (b) Plural collective noun without an explicit count:
+            //       "Notes finden und lesen", "die Interviews durchgehen",
+            //       "alle Notizen sichten" -- when no number is given the agent
+            //       implicitly claims completeness.
+            // Skip if explicit file refs exist (tier 1 covers it).
+            const explicitQuantifierRe = /\b(alle|all|every|each|jede|s(ä|ae)mtlich|complete|vollst(ä|ae)ndig)\b/i;
+            // Plural collective nouns -- if ANY of these appears in a done todo
+            // with read count <2 and no explicit small count, treat as a
+            // quantifier violation. The pattern matches German + English.
+            const collectiveNounRe = /\b(notes?|files?|documents?|dokumente|notizen|interviews?|meetings?|berichte|reports?|use ?cases|use-?cases|protokolle|protocols)\b/i;
+            // If the todo names a small explicit count ("3 notes", "die ersten 5"),
+            // skip the plural-noun trigger (the user/agent quantified themselves).
+            const explicitCountRe = /\b(\d+|ein|eine|einen|eines|two|drei|vier|fünf|funf|sechs|sieben|acht|neun|zehn|few|zwei)\b/i;
+            const quantifierViolations: string[] = [];
+            for (const item of items) {
+                if (item.status !== 'done') continue;
+                if (extractFileRefs(item.text).length > 0) continue; // tier-1 territory
+                const hasExplicit = explicitQuantifierRe.test(item.text);
+                const hasPlural = collectiveNounRe.test(item.text);
+                const hasCount = explicitCountRe.test(item.text);
+                // Trigger if: explicit quantifier, OR plural collective without an explicit count.
+                const triggers = hasExplicit || (hasPlural && !hasCount);
+                if (!triggers) continue;
+                if (readFiles.size < 2) quantifierViolations.push(item.text.slice(0, 80));
+            }
+            quantViolCount = quantifierViolations.length;
+
+            if (unreadReferences.length > 0) {
+                warnings.push(
+                    `[VERIFICATION WARNING] You marked todos as done but the following file references have NOT been read in this task:\n  - ${unreadReferences.join('\n  - ')}\nEither read those files now (read_file) or rewrite the todo to reflect what you actually did. Do NOT write a synthesis claiming sources you have not read -- that is hallucination.`
+                );
+            }
+            if (quantifierViolations.length > 0) {
+                warnings.push(
+                    `[VERIFICATION WARNING] You marked done a todo with a quantifier ("alle / all / jede / every") but only ${readFiles.size} file(s) have been read in this task. That is implausible for a collective claim. Either:\n  1. Read more files now, OR\n  2. Rewrite the todo with the SPECIFIC files you actually processed (e.g. "Read X, Y, Z"), OR\n  3. Demote the todo back to "[~] in_progress" and finish the work.\nAffected todos:\n  - ${quantifierViolations.join('\n  - ')}`
+                );
+            }
+        } catch (e) {
+            console.warn('[TodoVerification] check failed (non-fatal, skipping):', e);
+        }
+        const warning = warnings.length > 0 ? '\n' + warnings.join('\n\n') : '';
+
         callbacks.pushToolResult(
-            `<todo_update items="${total}" done="${done}">Todo list updated (${done}/${total} complete)</todo_update>`
+            `<todo_update items="${total}" done="${done}">Todo list updated (${done}/${total} complete)</todo_update>${warning}`
         );
-        callbacks.log(`Todo list updated: ${done}/${total} done`);
+        const flagSummary = [
+            unreadCount > 0 ? `${unreadCount} unread refs` : null,
+            quantViolCount > 0 ? `${quantViolCount} quantifier violations` : null,
+        ].filter(Boolean).join(', ');
+        callbacks.log(`Todo list updated: ${done}/${total} done${flagSummary ? ` (${flagSummary})` : ''}`);
         return Promise.resolve();
     }
 

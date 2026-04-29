@@ -53,6 +53,7 @@ export class HistoryPanel {
     private panelEl: HTMLElement | null = null;
     private isOpen = false;
     private filterText = '';
+    private memoryOnly = false;
 
     constructor(
         private store: ConversationStore,
@@ -60,6 +61,10 @@ export class HistoryPanel {
         private onDelete: (id: string) => void,
         private onStampLink: (conversationId: string, title: string) => void,
         private activeConversationId: string | null,
+        private onSaveToMemory: ((id: string, title: string) => Promise<void> | void) | null = null,
+        private onRemoveFromMemory: ((id: string, title: string) => Promise<void> | void) | null = null,
+        private isInMemory: ((id: string) => boolean) | null = null,
+        private onRename: ((id: string, currentTitle: string) => Promise<void> | void) | null = null,
     ) {}
 
     /** Mount the panel inside a parent container. */
@@ -78,6 +83,7 @@ export class HistoryPanel {
         if (!this.panelEl) return;
         this.isOpen = true;
         this.filterText = '';
+        this.memoryOnly = false;
         this.render();
         this.panelEl.classList.remove('agent-u-hidden');
         requestAnimationFrame(() => this.panelEl?.addClass('history-panel-open'));
@@ -131,6 +137,20 @@ export class HistoryPanel {
             this.renderList(listEl);
         });
 
+        // Memory-only toggle (FEATURE-0318): only meaningful when the
+        // host wired the isInMemory predicate through.
+        if (this.isInMemory) {
+            const memToggle = filterRow.createEl('button', {
+                cls: `history-panel-memory-toggle clickable-icon${this.memoryOnly ? ' history-panel-memory-toggle-active' : ''}`,
+                attr: { 'aria-label': t('ui.history.filterMemoryOnly') },
+            });
+            setIcon(memToggle, 'star');
+            memToggle.addEventListener('click', () => {
+                this.memoryOnly = !this.memoryOnly;
+                this.render();
+            });
+        }
+
         // List
         const listEl = this.panelEl.createDiv({ cls: 'history-panel-list' });
         this.renderList(listEl);
@@ -143,6 +163,9 @@ export class HistoryPanel {
         if (this.filterText) {
             const lower = this.filterText.toLowerCase();
             conversations = conversations.filter((c) => c.title.toLowerCase().includes(lower));
+        }
+        if (this.memoryOnly && this.isInMemory) {
+            conversations = conversations.filter((c) => this.isInMemory!(c.id));
         }
 
         if (conversations.length === 0) {
@@ -196,6 +219,17 @@ export class HistoryPanel {
                     });
                 });
 
+                if (this.onRename) {
+                    const renameBtn = actions.createEl('button', { cls: 'history-row-action clickable-icon' });
+                    setIcon(renameBtn, 'pencil');
+                    renameBtn.setAttribute('aria-label', t('ui.history.rename'));
+                    renameBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const action = this.onRename!(conv.id, conv.title);
+                        Promise.resolve(action).then(() => this.render()).catch(() => undefined);
+                    });
+                }
+
                 const stampBtn = actions.createEl('button', { cls: 'history-row-action clickable-icon' });
                 setIcon(stampBtn, 'file-plus');
                 stampBtn.setAttribute('aria-label', t('ui.history.addToNote'));
@@ -205,6 +239,26 @@ export class HistoryPanel {
                     if (linkTitle.length > 60) linkTitle = linkTitle.slice(0, 57) + '...';
                     this.onStampLink(conv.id, linkTitle);
                 });
+
+                if (this.onSaveToMemory) {
+                    const inMem = this.isInMemory?.(conv.id) ?? false;
+                    const memBtn = actions.createEl('button', {
+                        cls: `history-row-action clickable-icon${inMem ? ' history-row-action-pinned' : ''}`,
+                    });
+                    setIcon(memBtn, 'star');
+                    memBtn.setAttribute('aria-label', inMem
+                        ? t('ui.history.removeFromMemory')
+                        : t('ui.history.saveToMemory'));
+                    memBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        let title = conv.title.replace(/\n.*/s, '').trim();
+                        if (title.length > 60) title = title.slice(0, 57) + '...';
+                        const action = inMem
+                            ? this.onRemoveFromMemory?.(conv.id, title)
+                            : this.onSaveToMemory!(conv.id, title);
+                        Promise.resolve(action).then(() => this.render()).catch(() => undefined);
+                    });
+                }
 
                 const delBtn = actions.createEl('button', { cls: 'history-row-action history-row-action-danger clickable-icon' });
                 setIcon(delBtn, 'trash-2');
