@@ -23,6 +23,7 @@ import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
 import { QUALITY_GATES } from './tools/qualityGates';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
+import { logInputBreakdown } from './utils/logInputBreakdown';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 
@@ -567,6 +568,7 @@ export class AgentTask {
                 // Anthropic returns 400 if any tool_use has no matching tool_result
                 // and Claude-via-Copilot inherits the same constraint.
                 const safeHistory = sanitizeAndLog(history, 'main-loop');
+                logInputBreakdown('main-loop', systemPrompt, safeHistory, tools.length);
                 for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
@@ -904,6 +906,7 @@ export class AgentTask {
                     try {
                         // BUG-017: same orphan-cleanup as the main loop.
                         const safeHistoryHardLimit = sanitizeAndLog(history, 'hard-limit-recovery');
+                        logInputBreakdown('hard-limit-recovery', cachedSystemPrompt, safeHistoryHardLimit, 0);
                         for await (const chunk of this.api.createMessage(cachedSystemPrompt, safeHistoryHardLimit, [], abortSignal)) {
                             if (chunk.type === 'text') {
                                 hasStreamedText = true;
@@ -1253,6 +1256,7 @@ export class AgentTask {
             // BUG-017: condensing has its own pairing-fix higher up, but apply
             // the generic sanitize as well so any new edge case is caught.
             const safeCondensingMessages = sanitizeAndLog(condensingMessages, 'condensing');
+            logInputBreakdown('condensing', systemPrompt, safeCondensingMessages, 0);
             for await (const chunk of this.api.createMessage(
                 systemPrompt,
                 safeCondensingMessages,
