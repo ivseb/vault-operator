@@ -85,6 +85,40 @@ describe('ResultExternalizer', () => {
             expect(result).toBeNull();
         });
 
+        it('should NOT externalize search_history -- output is curated, must reach agent verbatim', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('search_history', {}, 'x'.repeat(7000), false);
+            expect(result).toBeNull();
+        });
+
+        it('should NOT externalize recall_memory -- output is curated, must reach agent verbatim', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('recall_memory', {}, 'x'.repeat(7000), false);
+            expect(result).toBeNull();
+        });
+
+        it('should NOT externalize read_file when path points at the externalize tmp dir', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize(
+                'read_file',
+                { path: '.obsilo-vault/tmp/task-1234/search_history-1.md' },
+                'x'.repeat(7000),
+                false,
+            );
+            expect(result).toBeNull();
+        });
+
+        it('should still externalize read_file for normal vault paths', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize(
+                'read_file',
+                { path: 'Notes/SomeLargeNote.md' },
+                'x'.repeat(7000),
+                false,
+            );
+            expect(result).not.toBeNull();
+        });
+
         it('should return null when disabled', async () => {
             const ext = await createExternalizer(fs);
             ext.disable();

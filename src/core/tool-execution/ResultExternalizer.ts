@@ -32,6 +32,11 @@ const SKIP_EXTERNALIZATION = new Set([
     'manage_skill', 'manage_source', 'manage_mcp_server',
     'enable_plugin', 'new_task', 'evaluate_expression',
     'open_note', 'get_daily_note',
+    // Memory v2 retrieval (FEATURE-0317/0320): output is already curated
+    // (top-K hits with clickable links / citations) and must reach the
+    // agent verbatim. Externalizing forces a follow-up read_file that
+    // gets re-externalized and the model never sees the actual hits.
+    'search_history', 'recall_memory',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -136,6 +141,15 @@ export class ResultExternalizer {
         if (isError) return null;
         if (SKIP_EXTERNALIZATION.has(toolName)) return null;
         if (content.length <= EXTERNALIZE_THRESHOLD) return null;
+        // read_file on a previously-externalized tmp file must reach the agent
+        // verbatim -- otherwise we loop: tool -> externalize -> read_file ->
+        // re-externalize, and the agent never sees the original payload.
+        if (toolName === 'read_file') {
+            const path = (toolInput.path as string | undefined) ?? '';
+            if (path.includes('/tmp/task-') || path.includes('.obsilo-vault/tmp/')) {
+                return null;
+            }
+        }
 
         try {
             // E-4: Skip redundant exists check after first mkdir
