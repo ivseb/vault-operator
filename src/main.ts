@@ -1618,7 +1618,7 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     async saveActiveConversationToMemory(): Promise<void> {
         if (!this.settings.memory.enabled) {
-            new Notice('Memory is disabled. Enable it in Settings.');
+            new Notice('Memory is disabled. Enable it in settings.');
             return;
         }
         const queue = this.extractionQueue;
