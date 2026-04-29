@@ -765,6 +765,30 @@
     height: 16px;
 }
 
+/* Browser-style chat nav arrows: bare icons, no chrome, set apart from
+ * the rest of the header controls. Modifier-only, additive on top of
+ * .header-button so the existing layout stays untouched. */
+.header-button.header-button--nav {
+    padding: 0;
+    background: none;
+    border-radius: 0;
+}
+
+.header-button.header-button--nav:hover:not(:disabled) {
+    background: none;
+}
+
+.header-button.header-button--nav:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+/* Spacing: push the first non-nav header button to the right of the
+ * forward arrow so the arrows read as their own cluster. */
+.header-button--nav + .header-button:not(.header-button--nav) {
+    margin-left: 10px;
+}
+
 /* Tool call — borderless, subtle rows (Kilo Code style) */
 .tool-call-details {
     margin: 1px 0;

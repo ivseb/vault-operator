@@ -243,14 +243,14 @@ export class AgentSidebarView extends ItemView {
         // return to the chat that linked there. Hidden behind disabled state
         // when the stack only has one entry.
         this.navBackBtn = headerRight.createEl('button', {
-            cls: 'header-button',
+            cls: 'header-button header-button--nav',
             attr: { 'aria-label': 'Previous chat' },
         });
         setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'arrow-left');
         this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
 
         this.navForwardBtn = headerRight.createEl('button', {
-            cls: 'header-button',
+            cls: 'header-button header-button--nav',
             attr: { 'aria-label': 'Next chat' },
         });
         setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'arrow-right');
