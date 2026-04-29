@@ -783,9 +783,10 @@
     cursor: default;
 }
 
-/* Spacing: push the first non-nav header button to the right of the
- * forward arrow so the arrows read as their own cluster. */
-.header-button--nav + .header-button:not(.header-button--nav) {
+/* Spacing: separate the nav cluster (now sitting at the far right of
+ * the header) from the primary controls to its left. Targets the FIRST
+ * nav arrow that immediately follows a non-nav header button. */
+.header-button:not(.header-button--nav) + .header-button.header-button--nav {
     margin-left: 10px;
 }
 

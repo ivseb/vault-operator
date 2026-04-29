@@ -238,26 +238,6 @@ export class AgentSidebarView extends ItemView {
             setTimeout(() => this.app.setting?.openTabById('obsilo-agent'), 200);
         });
 
-        // Browser-style back/forward through recently opened chats. Useful
-        // after clicking a chat-link inside a conversation -- one tap to
-        // return to the chat that linked there. Hidden behind disabled state
-        // when the stack only has one entry.
-        this.navBackBtn = headerRight.createEl('button', {
-            cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Previous chat' },
-        });
-        setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'arrow-left');
-        this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
-
-        this.navForwardBtn = headerRight.createEl('button', {
-            cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Next chat' },
-        });
-        setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'arrow-right');
-        this.navForwardBtn.addEventListener('click', () => { void this.navForward(); });
-
-        this.updateNavButtons();
-
         // History button — opens conversation history panel
         const historyBtn = headerRight.createEl('button', {
             cls: 'header-button',
@@ -281,6 +261,26 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(newChatBtn.createSpan('toolbar-icon'), 'message-square-plus');
         newChatBtn.addEventListener('click', () => this.clearConversation());
+
+        // Browser-style back/forward through recently opened chats. Sit on
+        // the far right of the header so the arrow cluster doesn't compete
+        // with the primary controls. Triangles (chevron-left/right) read
+        // better than full arrows in the narrow sidebar.
+        this.navBackBtn = headerRight.createEl('button', {
+            cls: 'header-button header-button--nav',
+            attr: { 'aria-label': 'Previous chat' },
+        });
+        setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'chevron-left');
+        this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
+
+        this.navForwardBtn = headerRight.createEl('button', {
+            cls: 'header-button header-button--nav',
+            attr: { 'aria-label': 'Next chat' },
+        });
+        setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'chevron-right');
+        this.navForwardBtn.addEventListener('click', () => { void this.navForward(); });
+
+        this.updateNavButtons();
     }
 
     private buildChatContainer(container: HTMLElement): void {
