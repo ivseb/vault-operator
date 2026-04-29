@@ -10,6 +10,37 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import type { ToolName } from '../../core/tools/types';
+import { AGENT_INTERNAL_TOOLS } from '../McpBridge';
+
+/**
+ * AUDIT-013 C-1 + M-1 (interim hardening, 2026-04-29).
+ *
+ * `tool.execute()` is dispatched directly here, bypassing
+ * `ToolExecutionPipeline` (no IgnoreService check, no approval, no schema
+ * validation, no checkpoints, no operation log). Routing the call through
+ * the pipeline is the proper fix; until then this allow/deny list is the
+ * MCP boundary's last line of defence.
+ *
+ * Rule: any tool that mutates vault state, plugin state, or executes code
+ * is blocked at the MCP handler. The agent loop can still call them
+ * because that path goes through ToolExecutionPipeline. AGENT_INTERNAL_TOOLS
+ * is also denied here so that switch_mode / new_task / update_settings
+ * cannot be invoked by name even though the listing already filters them.
+ */
+const MCP_DENY_TOOLS: ReadonlySet<string> = new Set([
+    // Vault mutations
+    'write_file', 'edit_file', 'append_to_file', 'delete_file', 'move_file',
+    'update_frontmatter', 'create_folder',
+    // Office / canvas writers
+    'create_pptx', 'create_docx', 'create_xlsx', 'create_base', 'update_base',
+    'generate_canvas', 'create_excalidraw', 'plan_presentation',
+    // Plugin / system mutation
+    'update_settings', 'configure_model', 'manage_skill', 'manage_source',
+    'manage_mcp_server', 'enable_plugin', 'call_plugin_api',
+    // Code / recipe execution
+    'evaluate_expression', 'execute_recipe', 'execute_command',
+    'ingest_document',
+]);
 
 export async function handleExecuteVaultOp(
     plugin: ObsidianAgentPlugin,
@@ -21,6 +52,22 @@ export async function handleExecuteVaultOp(
     if (!operation) {
         return {
             content: [{ type: 'text', text: 'Error: operation parameter is required' }],
+            isError: true,
+        };
+    }
+
+    // AUDIT-013 C-1 + M-1: deny agent-internal and mutating tools at the
+    // MCP boundary. The proper fix routes execute_vault_op through
+    // ToolExecutionPipeline; this gate is the interim safety net.
+    if (AGENT_INTERNAL_TOOLS.has(operation)) {
+        return {
+            content: [{ type: 'text', text: `Operation "${operation}" is agent-internal and not callable via MCP.` }],
+            isError: true,
+        };
+    }
+    if (MCP_DENY_TOOLS.has(operation)) {
+        return {
+            content: [{ type: 'text', text: `Operation "${operation}" is not permitted via execute_vault_op. Use the dedicated MCP tools (read_notes, search_vault, write_vault) for vault changes.` }],
             isError: true,
         };
     }

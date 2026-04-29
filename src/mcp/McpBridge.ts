@@ -16,6 +16,7 @@ import type { McpToolDefinition } from './types';
 import { handleToolCall } from './tools/index';
 import { RelayClient } from './RelayClient';
 import { buildPrompts } from './prompts/systemContext';
+import { validateMcpVaultPath } from './tools/mcpPathValidation';
 
 const DEFAULT_PORT = 27182;
 
@@ -343,11 +344,16 @@ export class McpBridge {
             return;
         }
 
-        // AUDIT-006 H-1: Bearer token authentication
+        // AUDIT-006 H-1 + AUDIT-013 H-5: Bearer token authentication with
+        // timing-safe comparison. The previous `!==` comparison short-
+        // circuited on first mismatch, leaking the token byte-by-byte over
+        // many requests. Token is high-entropy (UUID v4) so the practical
+        // attack window is small, but the standard fix is one stdlib call.
         const expectedToken = this.plugin.settings.mcpServerToken;
         if (expectedToken) {
             const authHeader = req.headers['authorization'] ?? '';
-            if (!authHeader.startsWith('Bearer ') || authHeader.slice(7) !== expectedToken) {
+            const presentedRaw = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+            if (!timingSafeStringEqual(presentedRaw, expectedToken)) {
                 res.writeHead(401, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Unauthorized' } }));
                 return;
@@ -549,36 +555,88 @@ export class McpBridge {
     // -----------------------------------------------------------------------
 
     buildResourceList() {
+        // AUDIT-013 H-3: never expose ignored notes via the MCP resource list.
+        // Without this filter, the user's ignored notes show up in Claude
+        // Desktop's "Add from Obsilo" picker.
         const vault = this.plugin.app.vault;
+        const ignoreService = this.plugin.ignoreService;
         const files = vault.getMarkdownFiles();
-        // Return all markdown files as resources (Claude shows these in "Add from Obsilo")
-        return files.map(f => {
-            const name = f.path.split('/').pop()?.replace(/\.md$/, '') ?? f.path;
-            return {
-                uri: `vault://${f.path}`,
-                name,
-                description: f.path,
-                mimeType: 'text/markdown',
-            };
-        });
+        return files
+            .filter((f) => !ignoreService.isIgnored(f.path))
+            .map((f) => {
+                const name = f.path.split('/').pop()?.replace(/\.md$/, '') ?? f.path;
+                return {
+                    uri: `vault://${f.path}`,
+                    name,
+                    description: f.path,
+                    mimeType: 'text/markdown',
+                };
+            });
     }
 
     private async readResource(uri: string) {
-        // Decode URI components (Claude may encode spaces, special chars)
-        const path = decodeURIComponent(uri.replace(/^vault:\/\//, ''));
+        // AUDIT-013 H-3 + H-4: validate path through the standard MCP gate
+        // (traversal, ignore, protected) and wrap the returned content in a
+        // trust-boundary tag so a downstream agent treats it as data, not as
+        // instructions.
+        const MAX_URI_LEN = 2048;
+        if (uri.length > MAX_URI_LEN) return [];
+        const rawPath = decodeURIComponent(uri.replace(/^vault:\/\//, ''));
+        const validation = validateMcpVaultPath(this.plugin, rawPath, false);
+        if (!validation.allowed) return [];
+
         const vault = this.plugin.app.vault;
-        const file = vault.getFileByPath(path);
+        const file = vault.getFileByPath(rawPath);
         if (!file) return [];
+        // Restrict to markdown files; binary or sidecar files are out of
+        // scope for the resource picker.
+        if (!('extension' in file) || (file as { extension?: string }).extension !== 'md') return [];
 
         try {
-            const content = await vault.cachedRead(file);
+            const content = await vault.cachedRead(file as Parameters<typeof vault.cachedRead>[0]);
             return [{
                 uri,
                 mimeType: 'text/markdown',
-                text: content,
+                text: wrapVaultContentForMcp(rawPath, content),
             }];
         } catch {
             return [];
         }
     }
+}
+
+/**
+ * AUDIT-013 H-5: timing-safe string comparison for Bearer tokens.
+ * Wraps Node's `crypto.timingSafeEqual` with the length-equality guard it
+ * requires. Returns false for any length mismatch in constant-ish time
+ * (length comparison itself is fast and non-secret).
+ *
+ * Exported for testability.
+ */
+export function timingSafeStringEqual(presented: string, expected: string): boolean {
+    if (presented.length !== expected.length) return false;
+    if (expected.length === 0) return false; // empty expected = misconfig, deny
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- node:crypto in plugin runtime
+    const { timingSafeEqual } = require('node:crypto') as typeof import('node:crypto');
+    const a = Buffer.from(presented, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
+}
+
+/**
+ * AUDIT-013 H-4: wrap untrusted vault content in a boundary tag the
+ * downstream agent recognises as user data rather than as instructions.
+ * Mitigates indirect prompt injection through note bodies or frontmatter
+ * (e.g. "Ignore previous instructions" planted in a markdown file).
+ *
+ * Path is XML-escaped to prevent attribute injection.
+ */
+export function wrapVaultContentForMcp(path: string, content: string): string {
+    const safePath = path
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    return `<vault-content path="${safePath}" trust="user-data">\n${content}\n</vault-content>`;
 }

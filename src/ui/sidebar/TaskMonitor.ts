@@ -102,8 +102,12 @@ export class TaskMonitor {
     private async persist(data: TaskTelemetryData): Promise<void> {
         const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
         const telemetry = new TaskTelemetry(fs);
+        // AUDIT-013 M-2: promptPreview is opt-in. Vault sync may share the
+        // telemetry file, so user prompts only land on disk if the user
+        // explicitly enables the flag.
+        const recordPreview = this.opts.plugin.settings.advancedApi.telemetryRecordPromptPreview ?? false;
         await telemetry.record({
-            promptPreview: this.opts.promptPreview,
+            promptPreview: recordPreview ? this.opts.promptPreview : '',
             modelId: this.modelIdForCost(),
             mode: this.opts.mode,
             inputTokens: data.inputTokens,
