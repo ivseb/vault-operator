@@ -97,18 +97,7 @@ describe('ResultExternalizer', () => {
             expect(result).toBeNull();
         });
 
-        it('should NOT externalize read_file when path points at the externalize tmp dir', async () => {
-            const ext = await createExternalizer(fs);
-            const result = await ext.maybeExternalize(
-                'read_file',
-                { path: '.obsilo-vault/tmp/task-1234/search_history-1.md' },
-                'x'.repeat(7000),
-                false,
-            );
-            expect(result).toBeNull();
-        });
-
-        it('should still externalize read_file for normal vault paths', async () => {
+        it('should NEVER externalize read_file -- ADR-063 revised 2026-04-29', async () => {
             const ext = await createExternalizer(fs);
             const result = await ext.maybeExternalize(
                 'read_file',
@@ -116,7 +105,18 @@ describe('ResultExternalizer', () => {
                 'x'.repeat(7000),
                 false,
             );
-            expect(result).not.toBeNull();
+            expect(result).toBeNull();
+        });
+
+        it('should NEVER externalize read_document -- agent needs full content verbatim', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize(
+                'read_document',
+                { path: 'Notes/Some.pdf' },
+                'x'.repeat(7000),
+                false,
+            );
+            expect(result).toBeNull();
         });
 
         it('should return null when disabled', async () => {
@@ -166,14 +166,13 @@ describe('ResultExternalizer', () => {
             expect(ref).toContain('read_file');
         });
 
-        it('should format read_file reference with headings', async () => {
+        it('should format default reference with preview for unknown tools', async () => {
             const ext = await createExternalizer(fs);
-            const content = '# Main Title\n\n## Section 1\nSome content\n\n## Section 2\nMore content\n' + 'x'.repeat(3000);
-            const ref = await ext.maybeExternalize('read_file', { path: 'Notes/Test.md' }, content, false);
+            const content = 'x'.repeat(3000);
+            const ref = await ext.maybeExternalize('some_other_tool', {}, content, false);
 
-            expect(ref).toContain('read_file');
-            expect(ref).toContain('Notes/Test.md');
-            expect(ref).toContain('Main Title');
+            expect(ref).toContain('some_other_tool');
+            expect(ref).toContain('Preview:');
         });
     });
 
@@ -181,7 +180,7 @@ describe('ResultExternalizer', () => {
         it('should remove all temp files for the task', async () => {
             const ext = await createExternalizer(fs);
             await ext.maybeExternalize('search_files', {}, 'x'.repeat(3000), false);
-            await ext.maybeExternalize('read_file', { path: 'a.md' }, 'x'.repeat(3000), false);
+            await ext.maybeExternalize('semantic_search', {}, 'x'.repeat(3000), false);
 
             expect(fs.files.size).toBe(2);
 

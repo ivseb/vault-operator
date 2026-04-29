@@ -515,7 +515,13 @@ function* finalizeToolCall(state: ToolCallState): Generator<ApiStreamChunk> {
     try {
         input = state.argsJson.trim() ? JSON.parse(state.argsJson) as Record<string, unknown> : {};
     } catch (e) {
-        yield { type: 'text', text: `[Tool input parse error for "${state.name}": ${(e as Error).message}]` };
+        // BUG-031: tool_error so AgentTask records the failure and breaks the loop.
+        yield {
+            type: 'tool_error',
+            id: state.callId,
+            name: state.name,
+            error: `Tool input parse error: ${(e as Error).message}. The tool arguments were truncated or malformed -- try a smaller payload or split the work into multiple tool calls.`,
+        };
         return;
     }
     yield { type: 'tool_use', id: state.callId, name: state.name, input };
