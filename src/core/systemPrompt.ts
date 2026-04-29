@@ -203,7 +203,34 @@ export function buildSystemPromptForMode(
         getDateTimeSection(includeTime),
     ];
 
-    // Filter empty strings from conditional sections, then join
-    return sections.filter(Boolean).join('\n');
+    // Token-budget diagnostics: log a section-level char breakdown so the
+    // user can see WHICH section dominates the system prompt. ~4 chars
+    // per token is a usable rule of thumb (Anthropic / OpenAI tokenisers
+    // are close enough for ranking purposes). Disabled when the result
+    // is small to avoid noise on subtask prompts.
+    const labels = [
+        'mode', 'capabilities', 'obsidian-conv', 'tools', 'tool-routing',
+        'objective', 'response-format', 'security',
+        'plugin-skills', 'active-skills', 'memory', 'recipes',
+        'self-authored-skills', 'custom-instructions', 'rules',
+        'explicit-instructions', 'vault-context', 'datetime',
+    ];
+    const merged = sections.filter(Boolean).join('\n');
+    if (merged.length > 20_000) {
+        const breakdown: Array<{ section: string; chars: number; approxTokens: number }> = [];
+        for (let i = 0; i < sections.length; i++) {
+            const chars = sections[i]?.length ?? 0;
+            if (chars === 0) continue;
+            breakdown.push({ section: labels[i] ?? `s${i}`, chars, approxTokens: Math.round(chars / 4) });
+        }
+        breakdown.sort((a, b) => b.chars - a.chars);
+        const totalTok = Math.round(merged.length / 4);
+        const top = breakdown.slice(0, 8).map(b => `${b.section}=${b.approxTokens}`).join(' ');
+        console.debug(
+            `[SystemPrompt] ${merged.length} chars (~${totalTok} tokens). ` +
+            `Top sections: ${top}`,
+        );
+    }
+    return merged;
 }
 
