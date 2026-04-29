@@ -170,9 +170,29 @@ export class FastPathExecutor {
 
                     if (readCalls && readCalls.length > 0) {
                         // S-2: Hard allowlist for Stage 2
-                        const filteredRead = readCalls.filter((c) => STAGE2_ALLOWED.has(c.tool));
+                        let filteredRead = readCalls.filter((c) => STAGE2_ALLOWED.has(c.tool));
                         if (filteredRead.length !== readCalls.length) {
                             console.warn(`[FastPath] Stage 2: filtered ${readCalls.length - filteredRead.length} disallowed tool(s)`);
+                        }
+                        // Block re-reading of externalised stage-1 tmp files.
+                        // The planner already saw the full payload via
+                        // searchContentForPlanner; pulling it back in via
+                        // read_file just doubles the agent's input tokens.
+                        const beforeTmpFilter = filteredRead.length;
+                        filteredRead = filteredRead.filter((c) => {
+                            const path = (c.input?.path as string | undefined) ?? '';
+                            return !(path.includes('/tmp/task-') || path.includes('.obsilo-vault/tmp/'));
+                        });
+                        if (filteredRead.length !== beforeTmpFilter) {
+                            console.debug(`[FastPath] Stage 2: dropped ${beforeTmpFilter - filteredRead.length} read(s) targeting externalize tmp -- already in planner context`);
+                        }
+                        // Cap fanout: 3 reads is enough for a synthesis turn,
+                        // 5+ flood the agent with redundant content. The planner
+                        // tends to over-pick when the recipe says "5 steps".
+                        const FANOUT_CAP = 3;
+                        if (filteredRead.length > FANOUT_CAP) {
+                            console.debug(`[FastPath] Stage 2: capping fanout from ${filteredRead.length} to ${FANOUT_CAP}`);
+                            filteredRead = filteredRead.slice(0, FANOUT_CAP);
                         }
                         console.debug(`[FastPath] Stage 2: ${filteredRead.length} read calls`);
                         const readResults = await this.executeBatch(filteredRead, callbacks, abortSignal);
