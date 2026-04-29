@@ -790,6 +790,19 @@
     margin-left: 10px;
 }
 
+/* SoakReportModal: a wide read-only textarea shows the JSON snapshot
+ * so the user can manually copy or save to vault. Modal owns focus
+ * which makes clipboard.writeText reliable. */
+.obsilo-soak-report-modal .obsilo-soak-report-textarea {
+    width: 100%;
+    min-height: 360px;
+    font-family: var(--font-monospace);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre;
+    resize: vertical;
+}
+
 /* Tool call — borderless, subtle rows (Kilo Code style) */
 .tool-call-details {
     margin: 1px 0;

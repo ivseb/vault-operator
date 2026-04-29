@@ -1378,6 +1378,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.kiloToken) {
             settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken);
         }
+        // ChatGPT OAuth tokens (ADR-088)
+        if (settings.chatgptOAuthAccessToken) {
+            settings.chatgptOAuthAccessToken = this.safeStorage.decrypt(settings.chatgptOAuthAccessToken);
+        }
+        if (settings.chatgptOAuthRefreshToken) {
+            settings.chatgptOAuthRefreshToken = this.safeStorage.decrypt(settings.chatgptOAuthRefreshToken);
+        }
+        if (settings.chatgptOAuthIdToken) {
+            settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken);
+        }
         // Remote relay tokens (AUDIT-005 M-2)
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
@@ -1430,6 +1440,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Kilo Gateway token (ADR-041)
         if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken)) {
             copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken);
+        }
+        // ChatGPT OAuth tokens (ADR-088)
+        if (copy.chatgptOAuthAccessToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccessToken)) {
+            copy.chatgptOAuthAccessToken = this.safeStorage.encrypt(copy.chatgptOAuthAccessToken);
+        }
+        if (copy.chatgptOAuthRefreshToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthRefreshToken)) {
+            copy.chatgptOAuthRefreshToken = this.safeStorage.encrypt(copy.chatgptOAuthRefreshToken);
+        }
+        if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken)) {
+            copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken);
         }
         // Remote relay tokens (AUDIT-005 M-2)
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {
@@ -1647,10 +1667,11 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /**
-     * Phase 6 -> 7 soak: build a SoakReport, JSON-stringify, copy to clipboard,
-     * notify the user. Designed for once-a-day human-in-the-loop monitoring --
-     * the user pastes the JSON into chat and the agent compares against
-     * previous days to spot trends.
+     * Phase 6 -> 7 soak: build a SoakReport and show it in a modal where
+     * the user can copy/save. The previous "copy on command" path failed
+     * silently when the active leaf wasn't focused (clipboard API rejects
+     * but we'd already shown the success Notice). Modal-based copy uses
+     * a real user gesture, with a save-to-vault fallback.
      */
     async generateAndCopySoakReport(): Promise<void> {
         try {
@@ -1662,13 +1683,17 @@ export default class ObsidianAgentPlugin extends Plugin {
                 settings: { memory: this.settings.memory },
             });
             const json = JSON.stringify(report, null, 2);
-            try {
-                await navigator.clipboard.writeText(json);
-                new Notice('Memory soak report copied to clipboard. Paste into chat for analysis.');
-            } catch {
-                console.debug('[Plugin] Soak report (clipboard unavailable):\n' + json);
-                new Notice('Soak report logged to console (clipboard unavailable).');
-            }
+            const { SoakReportModal } = await import('./ui/modals/SoakReportModal');
+            const modal = new SoakReportModal(this.app, json, async () => {
+                const day = new Date().toISOString().slice(0, 10);
+                const path = `${this.settings.agentFolderPath}/soak-reports/${day}.json`;
+                const adapter = this.app.vault.adapter;
+                const dir = `${this.settings.agentFolderPath}/soak-reports`;
+                if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+                await adapter.write(path, json);
+                return path;
+            });
+            modal.open();
         } catch (e) {
             console.warn('[Plugin] Soak report generation failed:', e);
             new Notice('Soak report failed -- check console for details.');
