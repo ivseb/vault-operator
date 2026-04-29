@@ -84,6 +84,7 @@ export class AgentSidebarView extends ItemView {
     private navIndex = -1;
     private navBackBtn: HTMLButtonElement | null = null;
     private navForwardBtn: HTMLButtonElement | null = null;
+    private navGroup: HTMLElement | null = null;
     // Tool picker (pocket-knife button)
     private toolPickerButton: HTMLElement | null = null;
     // Web search toggle button (globe icon)
@@ -240,17 +241,18 @@ export class AgentSidebarView extends ItemView {
 
         // Browser-style back/forward through recently opened chats. Useful
         // after clicking a chat-link inside a conversation -- one tap to
-        // return to the chat that linked there. Hidden behind disabled state
-        // when the stack only has one entry.
-        this.navBackBtn = headerRight.createEl('button', {
-            cls: 'header-button',
+        // return to the chat that linked there. Sit in their own nav cluster
+        // (bare icons, no button chrome) left of the other header controls.
+        this.navGroup = headerRight.createDiv('agent-header-nav');
+        this.navBackBtn = this.navGroup.createEl('button', {
+            cls: 'header-nav-button',
             attr: { 'aria-label': 'Previous chat' },
         });
         setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'arrow-left');
         this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
 
-        this.navForwardBtn = headerRight.createEl('button', {
-            cls: 'header-button',
+        this.navForwardBtn = this.navGroup.createEl('button', {
+            cls: 'header-nav-button',
             attr: { 'aria-label': 'Next chat' },
         });
         setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'arrow-right');
@@ -2802,15 +2804,15 @@ export class AgentSidebarView extends ItemView {
     }
 
     private updateNavButtons(): void {
+        const showGroup = this.navStack.length >= 2;
+        if (this.navGroup) {
+            this.navGroup.classList.toggle('agent-u-hidden', !showGroup);
+        }
         if (this.navBackBtn) {
-            const canBack = this.navIndex > 0;
-            this.navBackBtn.disabled = !canBack;
-            this.navBackBtn.classList.toggle('agent-u-hidden', this.navStack.length < 2);
+            this.navBackBtn.disabled = this.navIndex <= 0;
         }
         if (this.navForwardBtn) {
-            const canForward = this.navIndex < this.navStack.length - 1;
-            this.navForwardBtn.disabled = !canForward;
-            this.navForwardBtn.classList.toggle('agent-u-hidden', this.navStack.length < 2);
+            this.navForwardBtn.disabled = this.navIndex >= this.navStack.length - 1;
         }
     }
 
