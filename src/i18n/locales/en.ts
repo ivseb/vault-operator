@@ -411,8 +411,8 @@ export const en: Translations = {
     'settings.memory.enableMemory': 'Enable memory',
     'settings.memory.enableMemoryDesc': 'Allow the agent to build long-term memory from conversations. Disable to stop all extraction.',
     'settings.memory.autoExtract': 'Auto-extract session summaries',
-    'settings.memory.autoExtractDesc': 'Automatically extract memory when a conversation ends. The Star button and the "remember this" agent prompt always work, regardless of this setting.',
-    'settings.memory.manualAlwaysHint': 'You can always save manually: ask the agent ("remember this") or click the Star button on a conversation.',
+    'settings.memory.autoExtractDesc': 'Automatically extract memory when a conversation ends. The star button and the "remember this" agent prompt always work, regardless of this setting.',
+    'settings.memory.manualAlwaysHint': 'You can always save manually: ask the agent ("remember this") or click the star button on a conversation.',
     'settings.memory.modelSelect': 'Model for memory extraction',
     'settings.memory.modelSelectDesc': 'Select a small, fast model (e.g., haiku) for cost-efficient background extraction.',
     'settings.memory.noModels': 'No models configured. Add and enable a model in providers first.',
@@ -1012,7 +1012,7 @@ export const en: Translations = {
     // Notices
     // =========================================================================
     'notice.webSearchEnabled': 'Web search enabled. Set a search provider in settings > web search.',
-    'notice.memoryDisabled': 'Memory is disabled. Enable it in Settings, then try again.',
+    'notice.memoryDisabled': 'Memory is disabled. Enable it in settings, then try again.',
     'notice.memoryNoActiveConversation': 'No active conversation to save.',
     'notice.memorySaveQueued': 'Conversation queued for memory extraction.',
     'notice.memorySaveFailed': 'Saving the conversation failed. See console for details.',
@@ -1408,17 +1408,26 @@ export const en: Translations = {
     'copilot.authFailed': 'Authentication failed: {error}',
     'copilot.signedOut': 'Signed out from GitHub copilot.',
 
-    // ChatGPT OAuth (EPIC-021)
+    // ChatGPT OAuth (EPIC-021). Brand names (ChatGPT, Plus, Pro) and acronyms
+    // (OS) appear inside several strings here. The obsidianmd sentence-case
+    // rule does not recognise these as proper nouns, so each flagged entry
+    // gets an eslint-disable with the brand-name justification.
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "ChatGPT" is a brand name
     'chatgpt.auth': 'ChatGPT account',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "ChatGPT", "Plus", "Pro" are brand and product names
     'chatgpt.authDesc': 'Use your ChatGPT Plus or Pro subscription. This uses unofficial codex endpoints; the schema can change without notice.',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "ChatGPT" is a brand name
     'chatgpt.signIn': 'Sign in with ChatGPT',
     'chatgpt.signOut': 'Disconnect',
     'chatgpt.notConnected': 'Not connected',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "OS" is an acronym
     'chatgpt.unsupportedPlatform': 'Desktop only (OS keychain required)',
     'chatgpt.polling': 'Waiting for browser...',
     'chatgpt.openedBrowser': 'Browser opened. Complete sign-in there, then return to Obsidian.',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "ChatGPT" is a brand name
     'chatgpt.authSuccess': 'Successfully connected to ChatGPT.',
     'chatgpt.authFailed': 'Sign-in failed: {error}',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- "ChatGPT" is a brand name
     'chatgpt.signedOut': 'Disconnected from ChatGPT.',
 
     // Kilo gateway

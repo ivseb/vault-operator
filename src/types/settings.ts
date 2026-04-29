@@ -433,14 +433,22 @@ export interface AdvancedApiSettings {
     rateLimitMs: number;
     /** Automatically summarize conversation when estimated tokens exceed threshold */
     condensingEnabled: boolean;
-    /** Percentage of model context window at which to trigger condensing (50–95) */
+    /** Percentage of model context window at which to trigger condensing (50-95) */
     condensingThreshold: number;
     /** Inject a mode-role reminder every N iterations to keep the model on track (0 = disabled) */
     powerSteeringFrequency: number;
-    /** Maximum iterations per message before the agent stops (5–50, default 25) */
+    /** Maximum iterations per message before the agent stops (5-50, default 25) */
     maxIterations: number;
     /** Maximum sub-agent nesting depth (1 = no grandchildren, 2 = one level of grandchildren) */
     maxSubtaskDepth: number;
+    /**
+     * Telemetry opt-in: persist a 200-char preview of the user's message
+     * with each task's telemetry entry (.obsidian-agent/telemetry/tasks.jsonl).
+     * AUDIT-013 M-2: defaults to false because the telemetry file lives
+     * inside the vault and may be synced or shared. Tokens, cost, model id
+     * and tool sequence are recorded regardless of this flag.
+     */
+    telemetryRecordPromptPreview?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -914,6 +922,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         powerSteeringFrequency: 0,
         maxIterations: 25,
         maxSubtaskDepth: 2,
+        telemetryRecordPromptPreview: false, // AUDIT-013 M-2: opt-in
     },
 
     enableSemanticIndex: false,
