@@ -120,6 +120,9 @@ export class FastPathExecutor {
         callbacks: ToolCallbacks,
         abortSignal?: AbortSignal,
         tools?: ToolDefinition[],
+        // FIX-H (ADR-080 follow-up): forward the parent task's readFiles set so
+        // FastPath stage-2 reads contribute to todo-verification.
+        readFiles?: Set<string>,
     ): Promise<FastPathResult> {
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
 
@@ -147,7 +150,7 @@ export class FastPathExecutor {
                     console.warn(`[FastPath] Stage 1: filtered ${searchCalls.length - filteredSearch.length} disallowed tool(s)`);
                 }
                 console.debug(`[FastPath] Stage 1: ${filteredSearch.length} search calls`);
-                const searchResults = await this.executeBatch(filteredSearch, callbacks, abortSignal);
+                const searchResults = await this.executeBatch(filteredSearch, callbacks, abortSignal, readFiles);
 
                 // Save full content for Read-Planner before it gets externalized in history
                 searchContentForPlanner = searchResults
@@ -186,16 +189,23 @@ export class FastPathExecutor {
                         if (filteredRead.length !== beforeTmpFilter) {
                             console.debug(`[FastPath] Stage 2: dropped ${beforeTmpFilter - filteredRead.length} read(s) targeting externalize tmp -- already in planner context`);
                         }
-                        // Cap fanout: 3 reads is enough for a synthesis turn,
-                        // 5+ flood the agent with redundant content. The planner
-                        // tends to over-pick when the recipe says "5 steps".
-                        const FANOUT_CAP = 3;
+                        // FIX-G (ADR-080 follow-up, 2026-04-29): dynamic cap.
+                        // Static cap=3 silently dropped the 4th and 5th read for tasks
+                        // that explicitly say "alle/all/jede/list of N notes" -- the
+                        // user's "konsolidierte Insights aus ALLEN GenAI-Notes" lost
+                        // 2 sources, leading to a halluzinated synthesis claiming 12
+                        // interviews from 3 actually-read files. Detect "wide scope"
+                        // intent in the user message and lift the cap to 8.
+                        const wideScope = /\b(alle|all|jede[rsn]?|every|each|complete|vollst(ä|ae)ndig|s(ä|ae)mtlich|liste|list of \d+|\d+\s*(meeting|interview|note))\b/i.test(userMessage);
+                        const FANOUT_CAP = wideScope ? 8 : 3;
                         if (filteredRead.length > FANOUT_CAP) {
-                            console.debug(`[FastPath] Stage 2: capping fanout from ${filteredRead.length} to ${FANOUT_CAP}`);
+                            console.debug(`[FastPath] Stage 2: capping fanout from ${filteredRead.length} to ${FANOUT_CAP} (wideScope=${wideScope})`);
                             filteredRead = filteredRead.slice(0, FANOUT_CAP);
+                        } else if (wideScope) {
+                            console.debug(`[FastPath] Stage 2: wideScope detected, keeping all ${filteredRead.length} reads`);
                         }
                         console.debug(`[FastPath] Stage 2: ${filteredRead.length} read calls`);
-                        const readResults = await this.executeBatch(filteredRead, callbacks, abortSignal);
+                        const readResults = await this.executeBatch(filteredRead, callbacks, abortSignal, readFiles);
                         allResults.push(...readResults);
                         toolCallsExecuted += readResults.length;
                     }
@@ -310,6 +320,7 @@ export class FastPathExecutor {
         calls: PlannedToolCall[],
         callbacks: ToolCallbacks,
         abortSignal?: AbortSignal,
+        readFiles?: Set<string>,
     ): Promise<Array<{ tool: string; input: Record<string, unknown>; content: string; isError: boolean }>> {
         const results: Array<{ tool: string; input: Record<string, unknown>; content: string; isError: boolean }> = [];
 
@@ -324,6 +335,7 @@ export class FastPathExecutor {
                     const result = await this.pipeline.executeTool(
                         { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                         callbacks,
+                        readFiles ? { readFiles } : undefined,
                     );
                     return {
                         tool: call.tool,
@@ -342,6 +354,7 @@ export class FastPathExecutor {
             const result = await this.pipeline.executeTool(
                 { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                 callbacks,
+                readFiles ? { readFiles } : undefined,
             );
             results.push({
                 tool: call.tool,

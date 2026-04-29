@@ -49,6 +49,7 @@ import {
     getSkillsSection,
     getRulesSection,
     getObsidianConventionsSection,
+    getCostAwareHeuristicsSection,
 } from './prompts/sections';
 
 /**
@@ -148,14 +149,21 @@ export function buildSystemPromptForMode(
         // 1. Mode role definition
         getModeDefinitionSection(mode),
 
+        // 1b. ADR-080: Cost-Aware Agent Heuristics (plan-first, tool tiers,
+        //     anti-overthinking, sub-agent gating, error recovery, stop
+        //     condition, budget awareness). Placed early so the agent reads
+        //     the cost rules BEFORE the tool catalogue.
+        getCostAwareHeuristicsSection(),
+
         // 2. Capabilities (compact summary)
         getCapabilitiesSection(webEnabled),
 
         // 3. Obsidian conventions (central, not mode-specific)
         getObsidianConventionsSection(),
 
-        // 4. Tools (filtered by mode — largest stable block, ~8k tokens)
-        getToolsSection(mode.toolGroups, mcpClient, allowedMcpServers, webEnabled, !isSubtask),
+        // 4. Tools (filtered by mode -- compact form by default, ~1.5k tokens.
+        //    Full docs via find_tool(name). ADR-080 Lever 8.
+        getToolsSection(mode.toolGroups, mcpClient, allowedMcpServers, webEnabled, false),
 
         // 5. Tool Routing (merged rules + guidelines)
         getToolRoutingSection(configDir!),
@@ -209,7 +217,7 @@ export function buildSystemPromptForMode(
     // are close enough for ranking purposes). Disabled when the result
     // is small to avoid noise on subtask prompts.
     const labels = [
-        'mode', 'capabilities', 'obsidian-conv', 'tools', 'tool-routing',
+        'mode', 'cost-heuristics', 'capabilities', 'obsidian-conv', 'tools', 'tool-routing',
         'objective', 'response-format', 'security',
         'plugin-skills', 'active-skills', 'memory', 'recipes',
         'self-authored-skills', 'custom-instructions', 'rules',

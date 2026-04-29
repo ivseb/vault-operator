@@ -64,6 +64,21 @@ export interface AgentTaskCallbacks {
     onPreCompactionFlush?: (history: MessageParam[]) => Promise<void>;
     /** Called when an unrecoverable error occurs */
     onError: (error: Error) => void;
+    /**
+     * ADR-080 Lever 10: Telemetry hook fired exactly once per task at the very
+     * end with all aggregated stats (tokens, tool sequence, outcome). The
+     * receiver decides where to persist (typically TaskTelemetry.record).
+     */
+    onTaskTelemetry?: (data: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+        toolSequence: string[];
+        iterations: number;
+        outcome: 'completed' | 'aborted' | 'error';
+        errorMessage?: string;
+    }) => void;
 }
 
 /**
@@ -185,6 +200,11 @@ export class AgentTask {
             this.api,
         );
 
+        // FIX-H/I (ADR-080 follow-up): set of files read during this task.
+        // Declared early so FastPath (which runs before the main loop) can
+        // contribute to it. Pipeline mutates on each successful read.
+        const readFiles = new Set<string>();
+
         // Add user message to the shared history
         history.push({ role: 'user', content: userMessage });
 
@@ -212,7 +232,11 @@ export class AgentTask {
                     console.debug(`[FastPath] Skipped (chat-source query): "${fpUserText.slice(0, 80)}"`);
                 }
 
-                if (bestMatch && !targetsChatHistory && bestMatch.score >= 0.3 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
+                // FIX-F (ADR-080 follow-up, 2026-04-29): Recipe-Threshold von 0.3 auf 0.5 angehoben.
+                // Bei score=0.33 matched "Metadata Tags Generation" auf eine reine Synthese-Aufgabe
+                // und triggerte FastPath in den falschen Workflow. Niedriger Score = unsicheres Match
+                // = lieber normalen Loop laufen lassen, der die Aufgabe sauber zerlegt.
+                if (bestMatch && !targetsChatHistory && bestMatch.score >= 0.5 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
                     console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
 
                     // Build system prompt for planner (same params as normal loop)
@@ -245,6 +269,7 @@ export class AgentTask {
                         fpCallbacks,
                         abortSignal,
                         fpTools,
+                        readFiles,
                     );
 
                     if (result.success && result.toolCallsExecuted > 0) {
@@ -300,6 +325,8 @@ export class AgentTask {
         // Phase B: consecutive error tracking
         let consecutiveMistakes = 0;
         const repetitionDetector = new ToolRepetitionDetector();
+        // ADR-080 Lever 10: count loop iterations for telemetry.
+        let telemetryIterations = 0;
 
         // Wire up context extensions for agent-control tools
         const askQuestion = this.taskCallbacks.onQuestion
@@ -506,6 +533,7 @@ export class AgentTask {
                     consecutiveMistakes = 0;
                 }
 
+                telemetryIterations++;
                 this.taskCallbacks.onIterationStart?.(iteration);
 
                 // Phase B: rate limiting — pause between iterations (skip on first)
@@ -745,6 +773,7 @@ export class AgentTask {
                         invalidateToolCache,
                         activateDeferredTool,
                         conversationId,
+                        readFiles,
                     });
                     // Record successful calls in the ledger (for condensing preservation)
                     if (!result.is_error) {
@@ -946,6 +975,17 @@ export class AgentTask {
             // ADR-063: Clean up externalized temp files after task completion
             await pipeline.cleanupExternalized();
 
+            // ADR-080 Lever 10: emit telemetry before completing
+            this.taskCallbacks.onTaskTelemetry?.({
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens,
+                cacheReadTokens: totalCacheReadTokens,
+                cacheCreationTokens: totalCacheCreationTokens,
+                toolSequence: repetitionDetector.getToolSequence(),
+                iterations: telemetryIterations,
+                outcome: 'completed',
+            });
+
             this.taskCallbacks.onComplete();
             return;  // Success — exit the emergency retry loop
         } catch (error) {
@@ -956,6 +996,15 @@ export class AgentTask {
             const isAbortedSignal = abortSignal?.aborted === true;
             if (isAbort || isAbortedSignal) {
                 console.debug('[AgentTask] Task cancelled by user');
+                this.taskCallbacks.onTaskTelemetry?.({
+                    inputTokens: totalInputTokens,
+                    outputTokens: totalOutputTokens,
+                    cacheReadTokens: totalCacheReadTokens,
+                    cacheCreationTokens: totalCacheCreationTokens,
+                    toolSequence: repetitionDetector.getToolSequence(),
+                    iterations: telemetryIterations,
+                    outcome: 'aborted',
+                });
                 this.taskCallbacks.onComplete();
                 return;
             }
@@ -1019,6 +1068,18 @@ export class AgentTask {
                 }
                 continue;  // Retry the agent loop
             }
+
+            // ADR-080 Lever 10: telemetry for error outcomes too
+            this.taskCallbacks.onTaskTelemetry?.({
+                inputTokens: totalInputTokens,
+                outputTokens: totalOutputTokens,
+                cacheReadTokens: totalCacheReadTokens,
+                cacheCreationTokens: totalCacheCreationTokens,
+                toolSequence: repetitionDetector.getToolSequence(),
+                iterations: telemetryIterations,
+                outcome: 'error',
+                errorMessage: err.message,
+            });
 
             // Network errors (e.g. "Failed to fetch") get a friendlier message
             const isNetworkError = err instanceof TypeError

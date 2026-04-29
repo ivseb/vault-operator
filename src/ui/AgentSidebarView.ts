@@ -18,6 +18,8 @@ import type { UiMessage } from '../core/history/ConversationStore';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
 import { OnboardingService } from '../core/memory/OnboardingService';
 import { ContextTracker } from '../core/context/ContextTracker';
+import { TaskTelemetry, formatTelemetryFooter } from '../core/telemetry/TaskTelemetry';
+import { computeCost } from '../core/pricing/ModelPricing';
 import { ContextDisplay } from './sidebar/ContextDisplay';
 import { CondensationFeedback } from './sidebar/CondensationFeedback';
 import { SuggestionBanner } from './sidebar/SuggestionBanner';
@@ -1951,12 +1953,29 @@ export class AgentSidebarView extends ItemView {
                     outputEl.createEl('pre').setText(content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
-                    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                    let text = `${time}  ·  ${inputTokens.toLocaleString()} in · ${outputTokens.toLocaleString()} out`;
-                    if (cacheReadTokens && cacheReadTokens > 0) {
-                        text += ` · ${cacheReadTokens.toLocaleString()} cached`;
-                    }
-                    footerEl.setText(text);
+                    // ADR-080 Lever 5: show EUR cost alongside tokens. Use the
+                    // ApiHandler's actual model id (not getEffectiveModelKey,
+                    // which can drift when the user toggles models mid-task).
+                    const modelId = resolvedApiHandler?.getModel().id ?? '';
+                    const provider = this.plugin.settings.activeModels.find(
+                        (m) => getModelKey(m) === this.getEffectiveModelKey(),
+                    )?.provider;
+                    const cost = computeCost(modelId, inputTokens, outputTokens, cacheReadTokens ?? 0, cacheCreationTokens ?? 0);
+                    // GitHub Copilot / ChatGPT-OAuth route through subscriptions:
+                    // direct billing is $0 for the user; show as "would-be cost".
+                    const isSubscription = provider === 'github-copilot' || provider === 'chatgpt-oauth';
+                    console.debug(
+                        `[Cost] model="${modelId}" provider=${provider ?? '?'} ` +
+                        `in=${inputTokens} out=${outputTokens} cacheR=${cacheReadTokens ?? 0} cacheW=${cacheCreationTokens ?? 0} ` +
+                        `usd=${cost.totalUsd.toFixed(4)} eur=${cost.totalEur.toFixed(4)} subscription=${isSubscription}`,
+                    );
+                    footerEl.setText(formatTelemetryFooter({
+                        inputTokens,
+                        outputTokens,
+                        cacheReadTokens: cacheReadTokens ?? 0,
+                        costEur: cost.totalEur,
+                        isSubscription,
+                    }));
                     footerEl.classList.remove('agent-u-hidden');
 
                     // Update context tracker for condensing
@@ -2272,6 +2291,32 @@ export class AgentSidebarView extends ItemView {
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
                     this.setRunningState(false);
+                },
+                onTaskTelemetry: (data) => {
+                    // ADR-080 Lever 10: persist per-task telemetry (best-effort)
+                    void (async () => {
+                        try {
+                            const { VaultDataFileAdapter } = await import('../core/storage/VaultDataFileAdapter');
+                            const fs = new VaultDataFileAdapter(this.app.vault.adapter);
+                            const telemetry = new TaskTelemetry(fs);
+                            const modelId = this.plugin.settings.activeModels.find(
+                                (m) => getModelKey(m) === this.getEffectiveModelKey(),
+                            )?.name ?? '';
+                            await telemetry.record({
+                                promptPreview: typeof messageToSend === 'string' ? messageToSend : '<multimodal>',
+                                modelId,
+                                mode: this.plugin.settings.currentMode,
+                                inputTokens: data.inputTokens,
+                                outputTokens: data.outputTokens,
+                                cacheReadTokens: data.cacheReadTokens,
+                                cacheCreationTokens: data.cacheCreationTokens,
+                                outcome: data.outcome,
+                                errorMessage: data.errorMessage,
+                            });
+                        } catch (e) {
+                            console.warn('[Telemetry] record failed (non-fatal):', e);
+                        }
+                    })();
                 },
             },
             this.modeService,

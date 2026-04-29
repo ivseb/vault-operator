@@ -207,6 +207,15 @@ export interface ToolExecutionContext {
     updateTodos?: (items: import('../tools/agent/UpdateTodoListTool').TodoItem[]) => void;
 
     /**
+     * FIX-H (ADR-080 follow-up): Return the set of file paths the agent has
+     * read in the current task (via read_file / read_document / FastPath stage 2).
+     * UpdateTodoListTool uses this to detect done items that reference unread
+     * files -- prevents the "I marked it done but never opened the file"
+     * hallucination pattern.
+     */
+    getReadFiles?: () => Set<string>;
+
+    /**
      * Switch the active mode. Used by switch_mode tool.
      * The new mode takes effect from the next AgentTask iteration.
      */
