@@ -37,6 +37,9 @@ interface PlannedToolCall {
 const STAGE1_ALLOWED = new Set([
     'semantic_search', 'search_files', 'search_by_tag', 'list_files',
     'get_vault_stats', 'web_search',
+    // FEATURE-0320: cross-source recall. Broad "what do I have about X"
+    // questions should fan out across vault notes AND past conversations.
+    'search_history', 'recall_memory',
 ]);
 
 /** Tools allowed in Stage 2 (read). Hard allowlist. */
@@ -71,12 +74,17 @@ USER REQUEST:
 {USER_MESSAGE}
 
 Output ONLY search/discovery tool calls as a JSON array. No markdown.
-Include ONLY: semantic_search, search_files, search_by_tag, list_files, web_search.
+Include ONLY: semantic_search, search_files, search_by_tag, list_files, web_search, search_history, recall_memory.
 Do NOT include read_file, write_file, or other tools — those come in stage 2.
+
+CROSS-SOURCE RECALL: For broad "what do I have / know about X" questions, run search_history in PARALLEL to the vault searches so past conversation context surfaces alongside notes. Vault and chats are equally valid sources.
 
 {TOOL_SCHEMAS}
 
-Example: [{"tool": "semantic_search", "input": {"query": "Kant ethics philosophy"}}]`;
+Example: [
+  {"tool": "semantic_search", "input": {"query": "Kant ethics philosophy"}},
+  {"tool": "search_history", "input": {"query": "Kant", "top_k": 10}}
+]`;
 
 const READ_PLANNER = `Stage 2: Based on the search results below, parametrize the READ steps.
 
