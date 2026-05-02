@@ -5,6 +5,7 @@ import { AgentFolderService, readStoredAgentFolder } from '../../core/utils/agen
 import { pickAgentFolder } from './AgentFolderPickerModal';
 import { promptModal, confirmModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
+import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE } from '../../types/settings';
 
 
 export class VaultTab {
@@ -156,6 +157,184 @@ export class VaultTab {
                     .setButtonText(t('settings.vault.agentFolderMigrateButton'))
                     .setIcon('arrow-right-left')
                     .onClick(() => { void this.handleMigrateClick(service); }),
+            );
+
+        // ── BA-25 Karpathy-Wiki-Pattern (Vault-Ingest) ────────────────────
+        this.buildVaultIngestSection(containerEl);
+    }
+
+    /**
+     * BA-25 PLAN-10..14 Vault-Ingest-Settings:
+     *   - Standard-Prompt fuer Auto-Summary (Sebastians Wortlaut Default)
+     *   - Auto-Summary-Toggle (Default off)
+     *   - Frontmatter-Write-Toggle (Default off, Variante B aus BA-25)
+     *   - Auto-Trigger via Frontmatter-Property (FEAT-19-27)
+     *   - PDF-Strategie (Page-Refs vs Markdown-Mirror)
+     *
+     * Plugin-Reload-Notiz: Aenderungen an Auto-Trigger-Property erfordern
+     * Plugin-Reload damit der vault.on-Listener neu registriert.
+     */
+    private buildVaultIngestSection(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'VAULT-INGEST (BA-25)' });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text:
+                'Karpathy-Wiki-Pattern: zentrale Note-Summary-Pflege, Frontmatter-Mirror, Auto-Trigger '
+                + 'via konfigurierbarer Property. Alle Toggles sind defaultmaessig deaktiviert. '
+                + 'Aenderungen am Auto-Trigger erfordern Plugin-Reload.',
+        });
+
+        const cfg = this.plugin.settings.vaultIngest ?? { ...DEFAULT_VAULT_INGEST_SETTINGS };
+        // Sicherstellen dass Setting-Objekt existiert (Migration aus aelteren Settings-Versionen)
+        if (!this.plugin.settings.vaultIngest) {
+            this.plugin.settings.vaultIngest = cfg;
+        }
+
+        // Auto-Summary-Toggle
+        new Setting(containerEl)
+            .setName('Auto-Summary beim Indexing')
+            .setDesc(
+                'Wenn aktiviert: SemanticIndexService generiert pro Note eine Summary, falls keine '
+                + 'im Frontmatter vorhanden. Bestehende Frontmatter-Summaries werden ueberommen, niemals '
+                + 'ueberschrieben. LLM-Call pro Note (Default-Modell, ggf. konfigurierbar).',
+            )
+            .addToggle((toggle) =>
+                toggle.setValue(cfg.autoSummary.enabled).onChange(async (v) => {
+                    cfg.autoSummary.enabled = v;
+                    this.plugin.settings.vaultIngest = cfg;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        // Frontmatter-Write-Toggle
+        new Setting(containerEl)
+            .setName('Auto-Summary in Frontmatter schreiben')
+            .setDesc(
+                'Wenn aktiviert: generierte Summary wird zusaetzlich als Frontmatter-Property "Zusammenfassung" '
+                + 'in die Vault-Note geschrieben (struktur-erhaltend, ueberschreibt nichts). '
+                + 'Default OFF (User-Trust). Bei Aktivierung sollte ein einmaliger Backfill-Job laufen.',
+            )
+            .addToggle((toggle) =>
+                toggle.setValue(cfg.autoSummary.writeFrontmatter).onChange(async (v) => {
+                    cfg.autoSummary.writeFrontmatter = v;
+                    this.plugin.settings.vaultIngest = cfg;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        // Standard-Prompt-Editor
+        new Setting(containerEl)
+            .setName('Standard-Prompt fuer Summary-Generierung')
+            .setDesc(
+                'Multi-Line-Template (Sebastians Default aus BA-25). Editierbar pro Vault. '
+                + '"Zuruecksetzen" stellt den Default wieder her.',
+            )
+            .addButton((btn) =>
+                btn
+                    .setButtonText('Bearbeiten')
+                    .setIcon('pencil')
+                    .onClick(async () => {
+                        const next = await promptModal(this.app, {
+                            title: 'Standard-Prompt fuer Summary',
+                            defaultValue: cfg.summaryPrompt.template,
+                            placeholder: 'Multi-Line Prompt-Template...',
+                            submitLabel: 'Speichern',
+                        });
+                        if (next === null) return;
+                        cfg.summaryPrompt.template = next || DEFAULT_SUMMARY_PROMPT_TEMPLATE;
+                        this.plugin.settings.vaultIngest = cfg;
+                        await this.plugin.saveSettings();
+                        this.rerender();
+                    }),
+            )
+            .addButton((btn) =>
+                btn
+                    .setButtonText('Zuruecksetzen')
+                    .onClick(async () => {
+                        cfg.summaryPrompt.template = DEFAULT_SUMMARY_PROMPT_TEMPLATE;
+                        this.plugin.settings.vaultIngest = cfg;
+                        await this.plugin.saveSettings();
+                        this.rerender();
+                    }),
+            );
+
+        // Auto-Trigger
+        containerEl.createEl('h4', { text: 'Auto-Trigger (FEAT-19-27)' });
+
+        new Setting(containerEl)
+            .setName('Auto-Trigger aktiv')
+            .setDesc('Triage startet automatisch wenn eine Note die unten konfigurierte Property traegt. Default OFF.')
+            .addToggle((toggle) =>
+                toggle.setValue(cfg.autoTrigger.enabled).onChange(async (v) => {
+                    cfg.autoTrigger.enabled = v;
+                    this.plugin.settings.vaultIngest = cfg;
+                    await this.plugin.saveSettings();
+                    if (v) {
+                        new Notice('Auto-Trigger aktiviert. Plugin-Reload erforderlich, damit der Listener registriert.', 8000);
+                    }
+                }),
+            );
+
+        new Setting(containerEl)
+            .setName('Property-Name')
+            .setDesc('Frontmatter-Property die geprueft wird (z.B. "Kategorie").')
+            .addText((text) =>
+                text
+                    .setValue(cfg.autoTrigger.propertyName)
+                    .setPlaceholder('Kategorie')
+                    .onChange(async (v) => {
+                        cfg.autoTrigger.propertyName = v.trim();
+                        this.plugin.settings.vaultIngest = cfg;
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
+        new Setting(containerEl)
+            .setName('Property-Wert')
+            .setDesc('Wert der Match ausloest (z.B. "Quelle"). Mehrere Werte mit Komma trennen.')
+            .addText((text) =>
+                text
+                    .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
+                    .setPlaceholder('Quelle')
+                    .onChange(async (v) => {
+                        const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
+                        cfg.autoTrigger.propertyValue = parts.length > 1 ? parts : (parts[0] ?? '');
+                        this.plugin.settings.vaultIngest = cfg;
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
+        new Setting(containerEl)
+            .setName('Auto-Trigger-Notification')
+            .setDesc('Toast anzeigen wenn Auto-Trigger feuert. Default OFF (Tab im Health-Modal reicht).')
+            .addToggle((toggle) =>
+                toggle.setValue(cfg.autoTrigger.notification).onChange(async (v) => {
+                    cfg.autoTrigger.notification = v;
+                    this.plugin.settings.vaultIngest = cfg;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        // PDF-Strategie
+        containerEl.createEl('h4', { text: 'PDF-Strategie (FEAT-19-29)' });
+
+        new Setting(containerEl)
+            .setName('PDF-Strategie')
+            .setDesc(
+                'page-refs (Default): PDF bleibt im Vault, Source-Position-Marker als '
+                + '[[file.pdf#page=N]]. markdown-mirror (opt-in): zusaetzlicher Markdown-Mirror '
+                + 'fuer Block-Level-Granularitaet bei text-lastigen PDFs.',
+            )
+            .addDropdown((dd) =>
+                dd
+                    .addOption('page-refs', 'Page-Refs (Default)')
+                    .addOption('markdown-mirror', 'Markdown-Mirror (opt-in)')
+                    .setValue(cfg.pdfStrategy)
+                    .onChange(async (v) => {
+                        cfg.pdfStrategy = v as 'page-refs' | 'markdown-mirror';
+                        this.plugin.settings.vaultIngest = cfg;
+                        await this.plugin.saveSettings();
+                    }),
             );
     }
 

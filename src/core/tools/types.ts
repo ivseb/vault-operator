@@ -44,6 +44,8 @@ export type ToolName =
     | 'create_xlsx'
     // Vault: document ingest
     | 'ingest_document'
+    // Vault: BA-25 Karpathy-Wiki-Pattern (FEAT-19-12, ADR-98)
+    | 'ingest_triage'
     // Web
     | 'web_fetch'
     | 'web_search'

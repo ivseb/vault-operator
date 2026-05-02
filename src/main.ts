@@ -27,6 +27,17 @@ import { SnapshotJob, type SnapshotTarget } from './core/persistence/SnapshotJob
 import { OntologyStore } from './core/knowledge/OntologyStore';
 import { CommunityDetectionService } from './core/knowledge/CommunityDetectionService';
 import { VaultHealthService } from './core/knowledge/VaultHealthService';
+// BA-25 Karpathy-Wiki-Pattern (PLAN-10..14)
+import { NoteSummaryStore } from './core/knowledge/NoteSummaryStore';
+import { FrontmatterPropertyStore } from './core/knowledge/FrontmatterPropertyStore';
+import { ClusterMetadataStore } from './core/knowledge/ClusterMetadataStore';
+import { ClusterSourceStatsStore } from './core/knowledge/ClusterSourceStatsStore';
+import { IngestSessionStore } from './core/ingest/IngestSessionStore';
+import { IngestTriageLogStore } from './core/ingest/IngestTriageLogStore';
+import { FrontmatterIndexer } from './core/ingest/FrontmatterIndexer';
+import { AutoTriggerObserver } from './core/ingest/AutoTriggerObserver';
+import { TopHubBlockGenerator } from './core/memory/TopHubBlockGenerator';
+import { DEFAULT_VAULT_INGEST_SETTINGS } from './types/settings';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
 import { MemoryDB } from './core/knowledge/MemoryDB';
@@ -110,6 +121,16 @@ export default class ObsidianAgentPlugin extends Plugin {
     communityDetectionService: CommunityDetectionService | null = null;
     vaultHealthService: VaultHealthService | null = null;
     memoryDB: MemoryDB | null = null;
+    // BA-25 Karpathy-Wiki-Pattern stores and services
+    noteSummaryStore: NoteSummaryStore | null = null;
+    frontmatterPropertyStore: FrontmatterPropertyStore | null = null;
+    clusterMetadataStore: ClusterMetadataStore | null = null;
+    clusterSourceStatsStore: ClusterSourceStatsStore | null = null;
+    ingestSessionStore: IngestSessionStore | null = null;
+    ingestTriageLogStore: IngestTriageLogStore | null = null;
+    frontmatterIndexer: FrontmatterIndexer | null = null;
+    autoTriggerObserver: AutoTriggerObserver | null = null;
+    topHubBlockGenerator: TopHubBlockGenerator | null = null;
     historyDB: import('./core/knowledge/HistoryDB').HistoryDB | null = null;
     historyIndexer: import('./core/memory/HistoryIndexer').HistoryIndexer | null = null;
     rerankerService: RerankerService | null = null;
@@ -487,6 +508,30 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.graphStore = new GraphStore(this.knowledgeDB);
             this.ontologyStore = new OntologyStore(this.knowledgeDB);
             this.vaultRenameHandler = new VaultRenameHandler(this.knowledgeDB);
+            // BA-25 Stores (knowledge.db v10 tables)
+            this.noteSummaryStore = new NoteSummaryStore(this.knowledgeDB);
+            this.frontmatterPropertyStore = new FrontmatterPropertyStore(this.knowledgeDB);
+            this.clusterMetadataStore = new ClusterMetadataStore(this.knowledgeDB);
+            this.clusterSourceStatsStore = new ClusterSourceStatsStore(this.knowledgeDB);
+            this.ingestSessionStore = new IngestSessionStore(this.knowledgeDB);
+            this.ingestTriageLogStore = new IngestTriageLogStore(this.knowledgeDB);
+            // FrontmatterIndexer wires the per-note read-and-mirror hook (FEAT-15-09/10, FEAT-19-09).
+            // SummaryGeneratorFn stays null until autoSummary feature is enabled in settings; the
+            // indexer then only mirrors properties from frontmatter and adopts existing summaries.
+            this.frontmatterIndexer = new FrontmatterIndexer(
+                this.app,
+                this.noteSummaryStore,
+                this.frontmatterPropertyStore,
+                {
+                    autoSummaryEnabled: this.settings.vaultIngest?.autoSummary?.enabled ?? false,
+                },
+            );
+            // TopHubBlockGenerator (FEAT-03-26) ist als Read-Only-Helper verfuegbar.
+            // ContextComposer-Wiring kommt mit explizitem Setting-Toggle.
+            this.topHubBlockGenerator = new TopHubBlockGenerator(
+                this.knowledgeDB,
+                this.noteSummaryStore,
+            );
             this.communityDetectionService = new CommunityDetectionService(
                 this.knowledgeDB, this.graphStore, this.ontologyStore,
             );
@@ -582,6 +627,35 @@ export default class ObsidianAgentPlugin extends Plugin {
                         console.debug(`[Ontology] Bootstrap: ${result.clusters} clusters, ${result.entries} entries`);
                     }
                 });
+            }
+
+            // BA-25 AutoTriggerObserver (FEAT-19-27, ADR-102): listen on vault create/modify
+            // and trigger ingest_triage when a note carries the configured frontmatter property.
+            const autoTriggerCfg = this.settings.vaultIngest?.autoTrigger;
+            if (
+                autoTriggerCfg?.enabled
+                && autoTriggerCfg.propertyName
+                && this.ingestTriageLogStore
+            ) {
+                this.autoTriggerObserver = new AutoTriggerObserver(
+                    this.app,
+                    this.ingestTriageLogStore,
+                    async (file) => {
+                        // Triage-Action wird von ingest_triage Tool oder UI uebernommen.
+                        // Hier nur Hint-Notice als Default-Verhalten, bis Tool-Aufruf
+                        // vom Plugin via Agent-Trigger gewired ist.
+                        if (autoTriggerCfg.notification) {
+                            new Notice(`Auto-Triage candidate: ${file.path}`, 4000);
+                        }
+                        console.debug(`[BA-25] auto-trigger fired for ${file.path}`);
+                    },
+                    {
+                        enabled: autoTriggerCfg.enabled,
+                        propertyName: autoTriggerCfg.propertyName,
+                        propertyValue: autoTriggerCfg.propertyValue,
+                    },
+                );
+                this.autoTriggerObserver.start();
             }
 
             // Vault Health Check (FEATURE-1901): background lint on startup
@@ -1040,6 +1114,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
             this.vaultHealthService?.cancel();
+            // BA-25 listener cleanup
+            this.autoTriggerObserver?.stop();
             this.rerankerService?.unload();
             this.mcpBridge?.stop();
             // Close databases (final save + cleanup)

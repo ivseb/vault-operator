@@ -265,11 +265,28 @@ export class VaultHealthService {
                 case 'category_mismatch':
                     lines.push(`- Category Mismatch [${severity}]: ${checkFindings.length} notes referenced in wrong property`);
                     break;
+                case 'god_nodes':
+                    lines.push(`- God Nodes [${severity}]: ${checkFindings.length} notes with too many incoming links`);
+                    break;
+                // BA-25 PLAN-11 Lint-Foundation
+                case 'cluster_freshness':
+                    lines.push(`- Cluster Freshness [${severity}]: ${checkFindings.length} cluster(s) ueber Halbwertszeit (Karpathy-Lint)`);
+                    for (const cf of checkFindings.slice(0, 3)) {
+                        lines.push(`    - ${cf.description}`);
+                    }
+                    break;
+                case 'source_concentration':
+                    lines.push(`- Source Concentration [${severity}]: ${checkFindings.length} cluster(s) mit dominanter Source-Domain (Bias-Warnung)`);
+                    for (const cf of checkFindings.slice(0, 3)) {
+                        lines.push(`    - ${cf.description}`);
+                    }
+                    break;
             }
         }
 
         lines.push('');
         lines.push('Use EXISTING entities. In batch: fix autonomously. In interactive: ask first. All reversible via Undo.');
+        lines.push('BA-25-Findings (cluster_freshness, source_concentration): nutze Stufe-2-Web-Search via web_search-Tool fuer Update-Recherche oder Anti-Echo-Suche.');
 
         return lines.join('\n');
     }
