@@ -791,7 +791,80 @@ export interface ObsidianAgentSettings {
      * FEATURE-0507 / Issue #26.
      */
     agentFolderPath?: string;
+
+    /** BA-25: Vault-Ingest-Pflege (Note-Summary, Frontmatter, Auto-Trigger, PDF). */
+    vaultIngest: VaultIngestSettings;
 }
+
+// ---------------------------------------------------------------------------
+// Vault Ingest Settings (BA-25, PLAN-10 ff)
+// ---------------------------------------------------------------------------
+
+/**
+ * Settings fuer den Karpathy-Wiki-Pattern (BA-25): Note-Summary-
+ * Generierung, Frontmatter-Pflege, optionaler Auto-Trigger,
+ * PDF-Strategie. Alle Toggles default OFF (User-Trust per
+ * ADR-95). Standard-Prompt aus BA-25 Anhang B (Sebastians Wortlaut).
+ */
+export interface VaultIngestSettings {
+    /** FEAT-19-08: konfigurierbarer Standard-Prompt fuer Auto-Summary. */
+    summaryPrompt: {
+        /** Multi-Line String. Default = Sebastians Standard-Prompt-Wortlaut. */
+        template: string;
+        /** Optional: anderes Modell als der Default-LLM (zB Haiku statt Sonnet). */
+        modelOverride?: string;
+    };
+    /** FEAT-19-09: Auto-Generierung beim Indexing. */
+    autoSummary: {
+        enabled: boolean;
+        /**
+         * Wenn true und Frontmatter "Zusammenfassung" fehlt: System
+         * darf Property in der Vault-Note ergaenzen (FEAT-19-10,
+         * ADR-95). Default false. Bei Aktivierung steht ein einmaliger
+         * Backfill-Job an.
+         */
+        writeFrontmatter: boolean;
+    };
+    /** FEAT-19-27 (PLAN-12, Schema additiv vorbereitet). */
+    autoTrigger: {
+        enabled: boolean;
+        propertyName: string;
+        propertyValue: string | string[];
+        notification: boolean;
+    };
+    /** FEAT-19-29 (PLAN-13). */
+    pdfStrategy: 'page-refs' | 'markdown-mirror';
+}
+
+/**
+ * BA-25 Anhang B: Sebastians vorgegebener Standard-Prompt-Wortlaut.
+ * Bleibt 1:1 als Default in Settings hinterlegt, vom User editierbar.
+ */
+export const DEFAULT_SUMMARY_PROMPT_TEMPLATE = `Erstelle eine einzige Zusammenfassung in genau einem Satz in deutscher Sprache fuer die aktive Note.
+
+Die Ausgabe darf nicht mehr als 25 Woerter enthalten. Gib nur den Satz aus, keine Erklaerungen.
+Wenn die Zusammenfassung laenger waere, kuerze sie radikal.
+
+Erzeuge zusaetzlich 5-10 Keywords in deutscher und englischer Sprache (Bindestrich-Schreibweise wie "Wort1-Wort2", max 2 verbundene Woerter). Wenn Fachbegriffe eher in Englisch gebraeuchlich sind, verwende die englische Variante (z.B. "AI-Agent" statt "KI-Agent").
+
+Erstelle 2-3 Vorschlaege fuer "Themen" und 2-3 Vorschlaege fuer "Konzepte" passend zum Inhalt der Note. Suche zuerst im Vault nach passenden vorhandenen Themen und Konzepten. Erstelle nur dann ein neues Thema oder Konzept, wenn kein passendes existiert.`;
+
+export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
+    summaryPrompt: {
+        template: DEFAULT_SUMMARY_PROMPT_TEMPLATE,
+    },
+    autoSummary: {
+        enabled: false,
+        writeFrontmatter: false,
+    },
+    autoTrigger: {
+        enabled: false,
+        propertyName: '',
+        propertyValue: '',
+        notification: false,
+    },
+    pdfStrategy: 'page-refs',
+};
 
 // ---------------------------------------------------------------------------
 // Plugin API Settings (PAS-1.5, ADR-108)
@@ -1050,4 +1123,5 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     chatgptOAuthDisclaimerAcknowledgedAt: 0,
     debugMode: false,
     agentFolderPath: '.obsilo-vault',
+    vaultIngest: DEFAULT_VAULT_INGEST_SETTINGS,
 };
