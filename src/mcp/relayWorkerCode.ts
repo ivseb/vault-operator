@@ -155,9 +155,51 @@ export default {
         const id = env.RELAY_DO.idFromName('default');
         const relay = env.RELAY_DO.get(id);
         const resp = await relay.fetch(request);
-        const newResp = new Response(resp.body, resp);
-        for (const [k, v] of Object.entries(mcpCorsHeaders)) newResp.headers.set(k, v);
-        return newResp;
+
+        // FIX-23-04-01 Pass 2: Streamable-HTTP Accept-Header-Negotiation.
+        // Spec verlangt: wenn Client \`Accept: text/event-stream\` (only)
+        // schickt, MUSS Server SSE-formatted antworten ('data: <json>\\n\\n').
+        // Plugin antwortet immer JSON; Worker wraps das in SSE wenn noetig.
+        // Plus: Mcp-Session-Id-Header bei initialize-Response setzen
+        // (Spec-strikte Clients wie Perplexity erwarten ihn).
+        const acceptHeader = (request.headers.get('Accept') || '').toLowerCase();
+        const wantsSSE = acceptHeader.includes('text/event-stream');
+        const wantsJSON = acceptHeader.includes('application/json') || acceptHeader.includes('*/*');
+        const sseOnly = wantsSSE && !wantsJSON;
+
+        // Try to parse the original POST body to detect initialize requests.
+        // Best-effort: failures fall through to no-op session-id handling.
+        let isInitialize = false;
+        try {
+            const bodyText = await request.clone().text();
+            const parsed = JSON.parse(bodyText);
+            isInitialize = parsed?.method === 'initialize';
+        } catch { /* not JSON or no body -- ignore */ }
+
+        // Read the upstream response body so we can wrap or augment it.
+        const upstreamBody = await resp.text();
+
+        const finalHeaders = new Headers();
+        for (const [k, v] of Object.entries(mcpCorsHeaders)) finalHeaders.set(k, v);
+        // Preserve upstream-relevant headers we want to keep
+        const upstreamCT = resp.headers.get('content-type');
+        if (upstreamCT) finalHeaders.set('Content-Type', upstreamCT);
+
+        // Set Mcp-Session-Id on initialize response (random per session).
+        if (isInitialize && !finalHeaders.get('Mcp-Session-Id')) {
+            finalHeaders.set('Mcp-Session-Id', crypto.randomUUID());
+        }
+
+        if (sseOnly && upstreamBody && upstreamBody.trim().startsWith('{')) {
+            // Wrap JSON-RPC body as a single SSE event so spec-strict
+            // clients can parse it.
+            finalHeaders.set('Content-Type', 'text/event-stream');
+            finalHeaders.set('Cache-Control', 'no-store');
+            const sseFrame = \`data: \${upstreamBody.trim()}\\n\\n\`;
+            return new Response(sseFrame, { status: resp.status, headers: finalHeaders });
+        }
+
+        return new Response(upstreamBody, { status: resp.status, headers: finalHeaders });
     },
 };
 
