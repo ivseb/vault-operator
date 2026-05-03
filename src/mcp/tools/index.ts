@@ -253,8 +253,23 @@ export async function handleToolCall(
         } catch { /* non-fatal */ }
     }
 
-    // Log to history only for non-sync tools (sync_session writes its own full transcript)
-    if (tool !== 'sync_session' && tool !== 'get_context') {
+    // Log to history only for tools that don't write their own full
+    // transcript. Pass 8 (FIX-23-01-03): EPIC-23 Cross-Surface tools
+    // (save_conversation, save_to_memory, close_conversation, recall_*,
+    // search_history, update_memory) write into ConversationStore /
+    // FactStore directly. Auto-tracking would create a duplicate
+    // 'unknown'-tab entry, so we skip them here.
+    const SKIP_AUTO_TRACK = new Set([
+        'sync_session',
+        'get_context',
+        'save_conversation',
+        'save_to_memory',
+        'close_conversation',
+        'recall_memory',
+        'search_history',
+        'update_memory', // legacy, also routes to v2
+    ]);
+    if (!SKIP_AUTO_TRACK.has(tool)) {
         await logToolCallToHistory(plugin, tool, args, result);
     }
     void updateSessionTitle(plugin, tool);
