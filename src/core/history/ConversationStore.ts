@@ -12,6 +12,7 @@
 
 import type { FileAdapter } from '../../core/storage/types';
 import type { MessageParam } from '../../api/types';
+import type { SourceInterface } from '../memory/SourceInterface';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +28,20 @@ export interface ConversationMeta {
     model: string;
     inputTokens: number;
     outputTokens: number;
+    /**
+     * BA-26 / FEAT-23-04: chat surface this conversation came from.
+     * Optional for backward-compat with conversations created before
+     * Cross-Surface MCP. Reads default to 'obsilo' when missing.
+     */
+    sourceInterface?: SourceInterface;
+    /**
+     * BA-26 / FEAT-23-04: gating state for Manual-Sync-Mode.
+     * 'pending' conversations are visible in the History sidebar but
+     * not picked up by the ExtractionQueue until they get confirmed
+     * (Star-click, mark_for_memory, save_to_memory parallel call).
+     * Default 'confirmed' for backward-compat.
+     */
+    syncState?: 'pending' | 'confirmed' | 'rejected';
 }
 
 export interface UiMessage {
@@ -92,8 +107,18 @@ export class ConversationStore {
     // CRUD
     // -----------------------------------------------------------------------
 
-    /** Create a new conversation and return its id. */
-    async create(mode: string, model: string): Promise<string> {
+    /**
+     * Create a new conversation and return its id.
+     *
+     * BA-26 / FEAT-23-04: optional source-tagging + sync-state for
+     * Cross-Surface MCP. Default values keep backward-compat with
+     * Obsilo-internal call sites that pass only mode + model.
+     */
+    async create(
+        mode: string,
+        model: string,
+        opts?: { sourceInterface?: SourceInterface; syncState?: 'pending' | 'confirmed' | 'rejected' },
+    ): Promise<string> {
         const id = generateId();
         const now = new Date().toISOString();
         const meta: ConversationMeta = {
@@ -106,10 +131,38 @@ export class ConversationStore {
             model,
             inputTokens: 0,
             outputTokens: 0,
+            sourceInterface: opts?.sourceInterface,
+            syncState: opts?.syncState,
         };
         this.index.conversations.unshift(meta);
         await this.saveIndex();
         return id;
+    }
+
+    /**
+     * BA-26 / FEAT-23-03: list conversations filtered by source.
+     * Pass `undefined` to get the full list. Conversations without an
+     * explicit sourceInterface tag are treated as 'obsilo'.
+     */
+    listBySource(source: SourceInterface | undefined): ConversationMeta[] {
+        if (!source) return this.list();
+        return this.index.conversations.filter((c) =>
+            (c.sourceInterface ?? 'obsilo') === source
+        );
+    }
+
+    /**
+     * BA-26 / FEAT-23-04: confirm a pending conversation. Idempotent.
+     * Returns true on a state change (pending -> confirmed), false
+     * if the row was already confirmed or unknown.
+     */
+    async confirm(id: string): Promise<boolean> {
+        const meta = this.getMeta(id);
+        if (!meta) return false;
+        if ((meta.syncState ?? 'confirmed') === 'confirmed') return false;
+        meta.syncState = 'confirmed';
+        await this.saveIndex();
+        return true;
     }
 
     /** Save (overwrite) full conversation data. */

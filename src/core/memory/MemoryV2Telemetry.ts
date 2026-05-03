@@ -24,7 +24,8 @@
 
 export type MemoryV2TelemetryKind =
     | 'cache' | 'retrieval' | 'drift' | 'recall'
-    | 'single_call' | 'integration' | 'aging' | 'budget';
+    | 'single_call' | 'integration' | 'aging' | 'budget'
+    | 'legacy_update_memory_called';
 
 export interface MemoryV2TelemetryEvent {
     kind: MemoryV2TelemetryKind;
@@ -98,5 +99,13 @@ export class MemoryV2Telemetry {
     }
     async budget(payload: { reason: string; usedTokens: number; capTokens: number }) {
         return this.record({ kind: 'budget', payload });
+    }
+    /**
+     * BA-26 / FEAT-23-05: telemetry-counter for the legacy
+     * update_memory MCP tool. Lets Sebastian see when no client uses
+     * it any more and the tool can be removed entirely.
+     */
+    async legacyUpdateMemory(payload: { category: string; sourceInterface: string }) {
+        return this.record({ kind: 'legacy_update_memory_called', payload });
     }
 }

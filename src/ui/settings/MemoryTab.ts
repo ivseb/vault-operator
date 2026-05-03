@@ -23,6 +23,14 @@ import {
     type UpgradeReport,
 } from '../../core/memory/MemoryV2UpgradeOrchestrator';
 import type { MigrationReport } from '../../core/memory/MemoryMigrationJob';
+import {
+    DEFAULT_CROSS_SURFACE_SETTINGS,
+    SOURCE_INTERFACES,
+    type SyncMode,
+    type PerProviderSyncOverride,
+    type SourceInterface,
+    type CrossSurfaceSettings,
+} from '../../core/memory/SourceInterface';
 
 export class MemoryTab {
     /**
@@ -154,6 +162,9 @@ export class MemoryTab {
                 });
             });
 
+            // ─── Cross-Surface Sync (BA-26 / FEAT-23-04) ──────────────
+            this.buildCrossSurfaceSection(containerEl);
+
             // ─── Obsilo's Soul (FEATURE-0319b L2 + L3) ─────────────────
             this.buildSoulSection(containerEl);
 
@@ -217,6 +228,73 @@ export class MemoryTab {
         const v2Status = this.plugin.settings.memory.v2MigrationStatus;
         if (v2Status === 'pending' || v2Status === 'skipped') {
             this.buildMemoryV2MigrationSection(containerEl);
+        }
+    }
+
+    /**
+     * BA-26 / FEAT-23-04: Cross-Surface Sync settings (global default
+     * + per-provider override). Privacy-sichere Defaults: chatgpt +
+     * perplexity + unknown auf manual.
+     */
+    private buildCrossSurfaceSection(containerEl: HTMLElement): void {
+        containerEl.createEl('h3', {
+            cls: 'agent-settings-section',
+            text: 'Cross-surface sync (MCP)',
+        });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text:
+                'External chat tools (ChatGPT, Claude.ai, Claude Code, Perplexity) can save '
+                + 'conversations and facts into Obsilo via the Remote MCP. Auto-sync triggers '
+                + 'memory extraction immediately with the same thresholds as Obsilo-internal '
+                + 'conversations. Manual-sync parks conversations as pending until you confirm '
+                + 'them in the History sidebar. ChatGPT and Perplexity default to manual to '
+                + 'keep family-shared accounts out of personal memory.',
+        });
+
+        // Ensure settings block exists
+        if (!this.plugin.settings.memory.crossSurface) {
+            this.plugin.settings.memory.crossSurface = { ...DEFAULT_CROSS_SURFACE_SETTINGS };
+        }
+        const cs = this.plugin.settings.memory.crossSurface as CrossSurfaceSettings;
+
+        // Default sync-mode
+        new Setting(containerEl)
+            .setName('Default sync-mode')
+            .setDesc('Used by providers whose per-provider override is set to "global".')
+            .addDropdown((d) => {
+                d.addOption('auto', 'Auto-sync');
+                d.addOption('manual', 'Manual-sync');
+                d.setValue(cs.defaultSyncMode);
+                d.onChange(async (v) => {
+                    cs.defaultSyncMode = v as SyncMode;
+                    await this.plugin.saveSettings();
+                });
+            });
+
+        // Per-provider overrides
+        const PROVIDER_LABELS: Record<SourceInterface, string> = {
+            'obsilo': 'Obsilo (internal)',
+            'claude-ai': 'Claude.ai',
+            'claude-code': 'Claude Code',
+            'chatgpt': 'ChatGPT',
+            'perplexity': 'Perplexity',
+            'unknown': 'Unknown source',
+        };
+        for (const provider of SOURCE_INTERFACES) {
+            new Setting(containerEl)
+                .setName(PROVIDER_LABELS[provider])
+                .addDropdown((d) => {
+                    d.addOption('global', 'Use default');
+                    d.addOption('auto', 'Auto-sync');
+                    d.addOption('manual', 'Manual-sync');
+                    const current = cs.perProvider[provider] ?? 'global';
+                    d.setValue(current);
+                    d.onChange(async (v) => {
+                        cs.perProvider[provider] = v as PerProviderSyncOverride;
+                        await this.plugin.saveSettings();
+                    });
+                });
         }
     }
 

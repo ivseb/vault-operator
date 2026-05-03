@@ -123,14 +123,144 @@ const TOOLS: McpToolDefinition[] = [
     },
     {
         name: 'update_memory',
-        description: 'Update persistent memory: user profile, behavioral patterns, known errors, or active projects.',
+        description:
+            '[deprecated, use save_to_memory] Update persistent memory: user profile, behavioral patterns, known errors, or active projects. ' +
+            'This call is now routed to save_to_memory (Memory v2); the legacy memory/{category}.md V1 files are no longer written.',
         inputSchema: {
             type: 'object',
             properties: {
                 category: { type: 'string', enum: ['profile', 'patterns', 'errors', 'projects'] },
                 content: { type: 'string', description: 'Content to append' },
+                source_interface: {
+                    type: 'string',
+                    enum: ['obsilo', 'claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'],
+                    description: 'Optional source tag (BA-26). Default: unknown.',
+                },
             },
             required: ['category', 'content'],
+        },
+    },
+    // BA-26 / EPIC-23 -- Cross-Surface MCP Tools (FEAT-23-01, -02, -05)
+    {
+        name: 'save_to_memory',
+        description:
+            'Persist a single fact or insight in Obsilo Memory v2. Each call produces one fact entry. ' +
+            'Use for things you want available across all of Sebastian\'s chat tools (Obsilo, ChatGPT, ' +
+            'Claude.ai, Claude Code, Perplexity). Tags are optional. The configured source_interface ' +
+            'tag (per connector config) labels the entry so it stays filterable later.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                content: { type: 'string', description: 'The fact text. Single statement, max 4000 chars.' },
+                tags: {
+                    type: 'array', items: { type: 'string' },
+                    description: 'Optional 1-5 short lowercase tags (e.g. ["coding", "preferences"]).',
+                },
+                kind: {
+                    type: 'string',
+                    enum: ['fact', 'preference', 'identity', 'event'],
+                    description: 'Default "fact".',
+                },
+                importance: {
+                    type: 'number',
+                    description: '0..1 (default 0.5). 0.9 = identity-level, 0.7 = stable preference.',
+                },
+                source_interface: {
+                    type: 'string',
+                    enum: ['obsilo', 'claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'],
+                    description: 'Source tag. Configure as a connector constant. Default "unknown".',
+                },
+                source_uri: {
+                    type: 'string',
+                    description: 'Optional URI of origin (chat link, vault path, web URL).',
+                },
+            },
+            required: ['content'],
+        },
+    },
+    {
+        name: 'save_conversation',
+        description:
+            'Copy a conversation from an external chat tool into Obsilo\'s shared History sidebar. ' +
+            'Conversations appear in the matching source-tab. Memory-extraction follows the user\'s ' +
+            'per-provider sync-mode setting: auto-sync triggers extraction immediately with the same ' +
+            'thresholds as Obsilo-internal conversations; manual-sync parks the conversation as ' +
+            'pending until the user confirms. ChatGPT and Perplexity default to manual to keep ' +
+            'family-shared accounts out of personal memory.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                messages: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            role: { type: 'string', enum: ['user', 'assistant'] },
+                            text: { type: 'string' },
+                            ts: { type: 'string', description: 'Optional ISO timestamp.' },
+                        },
+                        required: ['role', 'text'],
+                    },
+                    description: 'Up to 500 messages.',
+                },
+                title: { type: 'string', description: 'Optional title (max 200 chars).' },
+                source_interface: {
+                    type: 'string',
+                    enum: ['claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'],
+                    description: 'Source tag (required, "obsilo" reserved for the plugin).',
+                },
+            },
+            required: ['messages', 'source_interface'],
+        },
+    },
+    {
+        name: 'recall_memory',
+        description:
+            'Search Obsilo Memory v2 facts by meaning. Returns top-K hits ranked by cosine over ' +
+            'fact_embeddings (with token-overlap fallback). Optional source_interface filter to ' +
+            'restrict to facts from a specific tool.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Natural-language search query.' },
+                top_k: { type: 'number', description: '1-30, default 10.' },
+                kind: {
+                    type: 'string',
+                    enum: ['fact', 'preference', 'identity', 'event'],
+                    description: 'Optional kind filter.',
+                },
+                source_interface: {
+                    type: 'string',
+                    enum: ['obsilo', 'claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'],
+                    description: 'Optional: restrict to facts from this surface only.',
+                },
+            },
+            required: ['query'],
+        },
+    },
+    {
+        name: 'search_history',
+        description:
+            'Keyword-search across past conversations from any source (Obsilo, ChatGPT, Claude.ai, ' +
+            'Claude Code, Perplexity). Returns matching messages with clickable obsidian://obsilo-chat ' +
+            'links to the source conversation. Optional source_interface filter.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                query: { type: 'string', description: 'Keyword or short phrase, case-insensitive.' },
+                top_k: { type: 'number', description: '1-30, default 10.' },
+                role: {
+                    type: 'string',
+                    enum: ['user', 'assistant', 'system', 'tool'],
+                    description: 'Optional role filter.',
+                },
+                source_interface: {
+                    type: 'string',
+                    enum: ['obsilo', 'claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'],
+                    description: 'Optional: restrict to one chat surface.',
+                },
+            },
+            required: ['query'],
         },
     },
     // Memory v2 Phase 3 (FEATURE-0317 / PLAN-006 task 10): expose

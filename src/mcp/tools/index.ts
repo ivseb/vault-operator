@@ -17,6 +17,10 @@ import { handleSyncSession } from './syncSession';
 import { handleUpdateMemory } from './updateMemory';
 import { handleExecuteVaultOp } from './executeVaultOp';
 import { handleGetVaultImplicitEdges, handleGetVaultNoteMetadata } from './getVaultGraph';
+import { handleSaveToMemory } from './saveToMemory';
+import { handleSaveConversation } from './saveConversation';
+import { handleRecallMemory } from './recallMemory';
+import { handleSearchHistory } from './searchHistory';
 import { buildPrompts } from '../prompts/systemContext';
 
 type McpHandler = (plugin: ObsidianAgentPlugin, args: Record<string, unknown>) => Promise<McpToolResult>;
@@ -31,6 +35,11 @@ const handlers = new Map<string, McpHandler>([
     ['update_memory', handleUpdateMemory],
     ['get_vault_implicit_edges', handleGetVaultImplicitEdges],
     ['get_vault_note_metadata', handleGetVaultNoteMetadata],
+    // BA-26 / EPIC-23 -- Cross-Surface MCP Tools (FEAT-23-01, -02, -05)
+    ['save_to_memory', handleSaveToMemory],
+    ['save_conversation', handleSaveConversation],
+    ['recall_memory', handleRecallMemory],
+    ['search_history', handleSearchHistory],
 ]);
 
 // ---------------------------------------------------------------------------

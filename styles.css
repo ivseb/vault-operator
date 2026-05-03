@@ -5519,6 +5519,80 @@
     flex-shrink: 0;
 }
 
+/* BA-26 / FEAT-23-03: Source-Tabs */
+.history-panel-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 16px 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+}
+.history-panel-tab {
+    background: none;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.78em;
+    line-height: 1.4;
+}
+.history-panel-tab:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+.history-panel-tab-active {
+    color: var(--text-on-accent);
+    background: var(--interactive-accent);
+    border-color: var(--interactive-accent);
+}
+
+/* BA-26 / FEAT-23-03: Source-Pill on conversation rows */
+.history-row-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.history-row-source-pill {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: 500;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+    line-height: 1.4;
+    white-space: nowrap;
+}
+.history-row-source-pill-claude-ai,
+.history-row-source-pill-claude-code {
+    background: rgba(204, 120, 92, 0.18);
+    color: rgb(204, 120, 92);
+}
+.history-row-source-pill-chatgpt {
+    background: rgba(16, 163, 127, 0.18);
+    color: rgb(16, 163, 127);
+}
+.history-row-source-pill-perplexity {
+    background: rgba(82, 82, 199, 0.18);
+    color: rgb(82, 82, 199);
+}
+
+/* BA-26 / FEAT-23-04: Pending-Marker */
+.history-row-pending-marker {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.7em;
+    font-weight: 500;
+    background: rgba(217, 161, 32, 0.18);
+    color: rgb(217, 161, 32);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
 .history-panel-memory-toggle {
     background: none;
     border: 1px solid var(--background-modifier-border);
