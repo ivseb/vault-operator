@@ -89,6 +89,19 @@ export class ExtractionQueue {
         this.throttleMs = Math.max(0, ms);
     }
 
+    /**
+     * IMP-03-18-02: clear the per-conversation throttle marker so the
+     * next auto-enqueue passes the throttle gate immediately. Used by
+     * the DriftEventBus subscriber: when a topic drifts, we want the
+     * fresh extraction to happen now even if the conversation was
+     * just enqueued. We do not enqueue here directly because the
+     * drift event carries no message payload -- the next normal
+     * enqueue trigger (AgentSidebarView push) will produce the work.
+     */
+    clearThrottle(conversationId: string): void {
+        this.lastEnqueuedAt.delete(conversationId);
+    }
+
     // -----------------------------------------------------------------------
     // Setup
     // -----------------------------------------------------------------------

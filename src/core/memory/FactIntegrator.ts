@@ -35,6 +35,7 @@ import type { EdgeStore } from './EdgeStore';
 import type { EmbeddingService } from './EmbeddingService';
 import type { MemoryDB } from '../knowledge/MemoryDB';
 import type { FactCandidate, FactRelation, MentionCandidate } from './SingleCallExtractor';
+import { cosine } from './cosine';
 
 const COSINE_UPDATE_THRESHOLD = 0.9;
 const MAX_TOPIC_CANDIDATES = 200;
@@ -379,14 +380,3 @@ export class FactIntegrator {
     }
 }
 
-function cosine(a: Float32Array, b: Float32Array): number {
-    if (a.length !== b.length) return 0;
-    let dot = 0, na = 0, nb = 0;
-    for (let i = 0; i < a.length; i++) {
-        dot += a[i] * b[i];
-        na += a[i] * a[i];
-        nb += b[i] * b[i];
-    }
-    const denom = Math.sqrt(na) * Math.sqrt(nb);
-    return denom === 0 ? 0 : dot / denom;
-}

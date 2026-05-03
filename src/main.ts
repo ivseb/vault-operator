@@ -124,6 +124,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     memoryService: MemoryService | null = null;
     extractionQueue: ExtractionQueue | null = null;
     memoryV2Telemetry: MemoryV2Telemetry | null = null;
+    /** IMP-03-18-01: Daily-Scheduler-Tick fuer AgingService. setInterval handle. */
+    private agingSchedulerHandle: ReturnType<typeof setInterval> | null = null;
     driftBus: DriftEventBus | null = null;
     tokenBudget: TokenBudgetGuard | null = null;
     mcpClient: McpClient;
@@ -850,6 +852,15 @@ export default class ObsidianAgentPlugin extends Plugin {
                     score: event.score,
                 });
             });
+            // IMP-03-18-02: bei Drift den 60s-Throttle fuer diese
+            // conversationId zuruecksetzen, damit die naechste
+            // Auto-Extraction direkt durchgeht statt im Throttle-Window
+            // zu sterben. Wir enqueuen nicht direkt, weil das DriftEvent
+            // keine messages traegt; das naechste normale enqueue laeuft
+            // dann ohne Throttle-Skip.
+            this.driftBus.subscribe((event) => {
+                this.extractionQueue?.clearThrottle(event.sessionId);
+            });
             this.tokenBudget = new TokenBudgetGuard({
                 loadState: () => this.settings.memory.tokenBudgetState ?? null,
                 saveState: async (state) => {
@@ -896,12 +907,20 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] Capability snapshot sync failed (non-fatal):', e),
             );
 
-            // FEATURE-0319 Phase 5: daily aging sweep. AgingService
-            // short-circuits when lastAgingRunAt is < 24h old, so this is
-            // safe to call on every plugin onload.
+            // FEATURE-0319 Phase 5: aging sweep on plugin onload.
+            // AgingService short-circuits when lastAgingRunAt is < 24h old.
             this.runAgingSweep().catch((e) =>
                 console.warn('[Plugin] Aging sweep failed (non-fatal):', e),
             );
+
+            // IMP-03-18-01: 6h-Tick damit Aging auch laufen kann, wenn Obsidian
+            // tagelang nicht neu gestartet wird. AgingService 24h-Cooldown
+            // bleibt aktiv, der Tick prueft nur ob gerade etwas zu tun ist.
+            this.agingSchedulerHandle = setInterval(() => {
+                this.runAgingSweep().catch((e) =>
+                    console.debug('[Plugin] Aging tick failed:', e),
+                );
+            }, 6 * 60 * 60 * 1000);
 
             // FEATURE-0319 Phase 5: configure re-extraction throttle from settings.
             this.extractionQueue.setThrottleMs(this.settings.memory.reExtractThrottleMs ?? 60_000);
@@ -1055,6 +1074,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.vaultDNAScanner?.destroy();
         for (const timer of this.autoIndexDebounceTimers.values()) clearTimeout(timer);
         this.autoIndexDebounceTimers.clear();
+        if (this.agingSchedulerHandle) {
+            clearInterval(this.agingSchedulerHandle);
+            this.agingSchedulerHandle = null;
+        }
         this.sandboxExecutor?.destroy();
         this.ringBuffer?.uninstall();
         console.debug('Obsilo Agent plugin unloaded');
