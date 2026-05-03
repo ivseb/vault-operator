@@ -20,6 +20,7 @@ import type ObsidianAgentPlugin from '../../../main';
 import { FactStore } from '../../memory/FactStore';
 import type { Fact, FactKind } from '../../memory/FactStore';
 import type { RecallHit } from '../../memory/RecallHit';
+import { cosine } from '../../memory/cosine';
 
 export class RecallMemoryTool extends BaseTool<'recall_memory'> {
     readonly name = 'recall_memory' as const;
@@ -105,12 +106,11 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
     }
 
     /**
-     * Phase-3 placeholder retrieval. EmbeddingService is wired in main.ts
-     * but routing fact-text through it for cosine on `fact_embeddings`
-     * is Phase-4 / FEATURE-0318 work. For now we use a simple
-     * keyword-overlap rank against the fact text + topics; that is
-     * sufficient as a Phase-3 deliverable and the API surface is stable
-     * so the upgrade is local.
+     * IMP-03-17-01: Cosine over fact_embeddings as primary path. When the
+     * EmbeddingService is wired and at least one fact carries an
+     * embedding, we score by cosine(query, fact). Token-overlap is
+     * preserved as a fallback for offline use, missing API key, or
+     * facts inserted before EmbeddingService was wired.
      */
     private async queryFacts(
         store: FactStore,
@@ -118,9 +118,52 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
         topK: number,
         kindFilter: FactKind | undefined,
     ): Promise<RecallHit[]> {
+        const candidates = store.listLatest({ kind: kindFilter, limit: 500 });
+        if (candidates.length === 0) return [];
+
+        const cosineHits = await this.queryFactsCosine(candidates, query, topK);
+        if (cosineHits) return cosineHits;
+        return this.queryFactsTokenOverlap(candidates, query, topK);
+    }
+
+    /** Cosine path. Returns null if EmbeddingService is unavailable or no fact has an embedding. */
+    private async queryFactsCosine(
+        candidates: Fact[],
+        query: string,
+        topK: number,
+    ): Promise<RecallHit[] | null> {
+        const embeddings = this.plugin.embeddingService;
+        if (!embeddings?.isReady()) return null;
+
+        const factIds = candidates.map(f => f.id);
+        const embeddingMap = this.loadEmbeddingsForFacts(factIds);
+        if (embeddingMap.size === 0) return null;
+
+        let queryVec: Float32Array;
+        try {
+            const result = await embeddings.embed([query]);
+            queryVec = result[0];
+        } catch (e) {
+            console.debug('[recall_memory] embed failed, fallback to token-overlap:', e);
+            return null;
+        }
+
+        const scored: Array<{ fact: Fact; score: number }> = [];
+        for (const fact of candidates) {
+            const factVec = embeddingMap.get(fact.id);
+            if (!factVec) continue;
+            const sim = cosine(queryVec, factVec);
+            if (sim <= 0) continue;
+            scored.push({ fact, score: sim + fact.importance * 0.1 });
+        }
+        scored.sort((a, b) => b.score - a.score);
+        return scored.slice(0, topK).map(({ fact, score }) => factToHit(fact, score));
+    }
+
+    /** Token-overlap fallback (legacy path, retained for offline use). */
+    private queryFactsTokenOverlap(candidates: Fact[], query: string, topK: number): RecallHit[] {
         const queryTokens = tokenise(query);
         if (queryTokens.length === 0) return [];
-        const candidates = store.listLatest({ kind: kindFilter, limit: 500 });
         const scored: Array<{ fact: Fact; score: number }> = [];
         for (const fact of candidates) {
             const haystack = `${fact.text.toLowerCase()} ${fact.topics.join(' ').toLowerCase()}`;
@@ -133,6 +176,28 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
         }
         scored.sort((a, b) => b.score - a.score);
         return scored.slice(0, topK).map(({ fact, score }) => factToHit(fact, score));
+    }
+
+    private loadEmbeddingsForFacts(factIds: readonly number[]): Map<number, Float32Array> {
+        const out = new Map<number, Float32Array>();
+        if (factIds.length === 0) return out;
+        const memDB = this.plugin.memoryDB;
+        if (!memDB?.isOpen()) return out;
+        const placeholders = factIds.map(() => '?').join(',');
+        const result = memDB.getDB().exec(
+            `SELECT fact_id, embedding FROM fact_embeddings WHERE fact_id IN (${placeholders})`,
+            [...factIds],
+        );
+        if (result.length === 0 || result[0].values.length === 0) return out;
+        for (const row of result[0].values) {
+            const id = row[0] as number;
+            const blob = row[1] as Uint8Array;
+            out.set(id, new Float32Array(blob.buffer.slice(
+                blob.byteOffset,
+                blob.byteOffset + blob.byteLength,
+            )));
+        }
+        return out;
     }
 
     private expandOneHop(store: FactStore, seeds: RecallHit[], topK: number): RecallHit[] {

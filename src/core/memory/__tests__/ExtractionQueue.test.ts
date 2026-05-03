@@ -343,4 +343,25 @@ describe('ExtractionQueue', () => {
             expect(queue2.peek()?.bypassThrottle).toBe(true);
         });
     });
+
+    describe('IMP-03-18-02: clearThrottle', () => {
+        it('after clearThrottle the next enqueue passes the throttle gate', async () => {
+            queue.setThrottleMs(60_000);
+            await queue.enqueue(makeItem('conv-x'));
+            expect(queue.size()).toBe(1);
+
+            // Second enqueue within throttle window is dropped
+            await queue.enqueue(makeItem('conv-x'));
+            expect(queue.size()).toBe(1);
+
+            // Drift fires -> clearThrottle -> next enqueue passes
+            queue.clearThrottle('conv-x');
+            await queue.enqueue(makeItem('conv-x'));
+            expect(queue.size()).toBe(2);
+        });
+
+        it('clearThrottle on unknown id is a no-op', () => {
+            expect(() => queue.clearThrottle('does-not-exist')).not.toThrow();
+        });
+    });
 });
