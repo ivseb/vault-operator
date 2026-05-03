@@ -953,7 +953,7 @@ export interface RecipeSettings {
 // Onboarding Settings
 // ---------------------------------------------------------------------------
 
-export type OnboardingStep = 'backup' | 'profile' | 'model' | 'permissions' | 'done';
+export type OnboardingStep = 'backup' | 'profile' | 'model' | 'permissions' | 'memory' | 'done';
 
 export interface OnboardingSettings {
     /** true when setup has been fully completed */
