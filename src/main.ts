@@ -36,7 +36,10 @@ import { IngestSessionStore } from './core/ingest/IngestSessionStore';
 import { IngestTriageLogStore } from './core/ingest/IngestTriageLogStore';
 import { FrontmatterIndexer } from './core/ingest/FrontmatterIndexer';
 import { AutoTriggerObserver } from './core/ingest/AutoTriggerObserver';
-import { TopHubBlockGenerator } from './core/memory/TopHubBlockGenerator';
+import { TopHubBlockGenerator, type TopHubBlockState } from './core/memory/TopHubBlockGenerator';
+import { Stufe3PeriodicJob, ClusterMetadataStatePersistence } from './core/health/Stufe3PeriodicJob';
+import { FrontmatterBackfillJob } from './core/ingest/FrontmatterBackfillJob';
+import { buildSummaryGenerator } from './core/ingest/SummaryGenerator';
 import { DEFAULT_VAULT_INGEST_SETTINGS } from './types/settings';
 import { GraphExtractor } from './core/knowledge/GraphExtractor';
 import { ImplicitConnectionService } from './core/knowledge/ImplicitConnectionService';
@@ -55,7 +58,7 @@ import { McpClient } from './core/mcp/McpClient';
 import { VaultDNAScanner } from './core/skills/VaultDNAScanner';
 import { SkillRegistry } from './core/skills/SkillRegistry';
 import { CapabilityGapResolver } from './core/skills/CapabilityGapResolver';
-import { buildApiHandler } from './api/index';
+import { buildApiHandler, buildApiHandlerForModel } from './api/index';
 import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
@@ -131,6 +134,13 @@ export default class ObsidianAgentPlugin extends Plugin {
     frontmatterIndexer: FrontmatterIndexer | null = null;
     autoTriggerObserver: AutoTriggerObserver | null = null;
     topHubBlockGenerator: TopHubBlockGenerator | null = null;
+    stufe3PeriodicJob: Stufe3PeriodicJob | null = null;
+    private stufe3IntervalHandle: ReturnType<typeof setInterval> | null = null;
+    /** FEAT-03-26: cached state for cooldown-decision and ContextComposer-Hook. */
+    topHubBlockState: TopHubBlockState | null = null;
+    topHubBlockMarkdown: string = '';
+    /** FEAT-19-09 wiring: indexer-event listener cleanup callbacks. */
+    private frontmatterIndexerListeners: Array<() => void> = [];
     historyDB: import('./core/knowledge/HistoryDB').HistoryDB | null = null;
     historyIndexer: import('./core/memory/HistoryIndexer').HistoryIndexer | null = null;
     rerankerService: RerankerService | null = null;
@@ -518,13 +528,50 @@ export default class ObsidianAgentPlugin extends Plugin {
             // FrontmatterIndexer wires the per-note read-and-mirror hook (FEAT-15-09/10, FEAT-19-09).
             // SummaryGeneratorFn stays null until autoSummary feature is enabled in settings; the
             // indexer then only mirrors properties from frontmatter and adopts existing summaries.
+            // FEAT-19-09: Auto-Summary-Generator-Hook (LLM via Memory-Model).
+            // SummaryGenerator wird nur registriert wenn autoSummary.enabled.
+            const ingestCfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
+            const summaryGenerator = ingestCfg.autoSummary.enabled
+                ? buildSummaryGenerator({
+                    promptTemplate: ingestCfg.summaryPrompt.template,
+                    apiHandlerFactory: () => {
+                        const model = this.getMemoryModel();
+                        if (!model) return null;
+                        try {
+                            return buildApiHandlerForModel(model);
+                        } catch (e) {
+                            console.warn('[Plugin] SummaryGenerator API handler failed:', e);
+                            return null;
+                        }
+                    },
+                })
+                : undefined;
             this.frontmatterIndexer = new FrontmatterIndexer(
                 this.app,
                 this.noteSummaryStore,
                 this.frontmatterPropertyStore,
                 {
-                    autoSummaryEnabled: this.settings.vaultIngest?.autoSummary?.enabled ?? false,
+                    autoSummaryEnabled: ingestCfg.autoSummary.enabled,
+                    summaryGenerator,
                 },
+            );
+
+            // FEAT-19-09 / FEAT-15-09 / FEAT-15-10: vault-event-Hooks fuer
+            // FrontmatterIndexer (per-note Spiegel von Frontmatter und
+            // optional Auto-Summary). Idempotent ueber mtime im Indexer.
+            const indexerOnCreate = this.app.vault.on('create', (file) => {
+                if (file instanceof TFile && file.extension === 'md' && this.frontmatterIndexer) {
+                    void this.frontmatterIndexer.indexNote(file).catch(() => {});
+                }
+            });
+            const indexerOnModify = this.app.vault.on('modify', (file) => {
+                if (file instanceof TFile && file.extension === 'md' && this.frontmatterIndexer) {
+                    void this.frontmatterIndexer.indexNote(file).catch(() => {});
+                }
+            });
+            this.frontmatterIndexerListeners.push(
+                () => this.app.vault.offref(indexerOnCreate),
+                () => this.app.vault.offref(indexerOnModify),
             );
             // TopHubBlockGenerator (FEAT-03-26) ist als Read-Only-Helper verfuegbar.
             // ContextComposer-Wiring kommt mit explizitem Setting-Toggle.
@@ -656,6 +703,51 @@ export default class ObsidianAgentPlugin extends Plugin {
                     },
                 );
                 this.autoTriggerObserver.start();
+            }
+
+            // FEAT-19-20 / IMP-19-20-01: Stufe-3 Periodischer Job mit
+            // Persistenz und setInterval-Wrapper. Default OFF; Wrapper
+            // checkt internal weeklyBudget plus 7d-Cooldown selbst.
+            // Hooks bleiben hier null bis Web-Search-Provider in einem
+            // spaeteren Wiring konkret eingebunden wird; preFilter/webPass
+            // melden dann no-op damit ein dummy-Run die State-Persistierung
+            // nicht zerstoert.
+            const stufe3Cfg = ingestCfg.autoTrigger; // share enabled-flag conservatively; UI separates topic later
+            if (this.knowledgeDB && this.clusterMetadataStore) {
+                const persistence = new ClusterMetadataStatePersistence(this.knowledgeDB);
+                this.stufe3PeriodicJob = new Stufe3PeriodicJob(
+                    this.clusterMetadataStore,
+                    async () => ({ decision: 'no', tokensUsed: 0 }),
+                    async () => ({ findings: [], tokensUsed: 0 }),
+                    () => {},
+                    { weeklyBudgetUsd: 2.0, notificationThreshold: 0.8 },
+                    undefined,
+                    undefined,
+                    persistence,
+                );
+                // Wrapper: stuendlich check, run weekly via job's internal
+                // rolloverIfNewWeek + lastRun-Logik (vereinfacht via ClusterMeta-State).
+                this.stufe3IntervalHandle = setInterval(() => {
+                    if (!this.stufe3PeriodicJob) return;
+                    this.stufe3PeriodicJob.rolloverIfNewWeek();
+                    // Run heute nur wenn user explicitly enabled; aktuell
+                    // gating nur ueber suppressRun-Flag aus Settings (no-op
+                    // hooks oben verhindern Tokenverbrauch sowieso).
+                    if (this.settings.vaultIngest?.autoTrigger?.enabled) {
+                        void this.stufe3PeriodicJob.run().catch((e) => {
+                            console.debug('[Stufe3] periodic run failed:', e);
+                        });
+                    }
+                }, 3_600_000);
+            }
+
+            // FEAT-03-26: Top-Hub-Block initialer Build (cache-stabil).
+            if (this.topHubBlockGenerator && ingestCfg.topHubBlock?.enabled) {
+                const result = this.topHubBlockGenerator.generateIfNeeded(this.topHubBlockState);
+                if (result) {
+                    this.topHubBlockState = result.state;
+                    this.topHubBlockMarkdown = result.block;
+                }
             }
 
             // Vault Health Check (FEATURE-1901): background lint on startup
@@ -1062,6 +1154,40 @@ export default class ObsidianAgentPlugin extends Plugin {
             callback: () => this.testToolExecution()
         });
 
+        // BA-25 FEAT-19-10: Frontmatter-Backfill-Job Command
+        this.addCommand({
+            id: 'ba25-run-frontmatter-backfill',
+            name: 'BA-25: Frontmatter-Backfill-Job ausfuehren',
+            callback: () => { void this.runFrontmatterBackfill(); },
+        });
+
+        // BA-25 FEAT-19-15: Inbox-Workflow Triage-Pass
+        this.addCommand({
+            id: 'ba25-run-inbox-triage',
+            name: 'BA-25: Inbox-Triage ausfuehren (auf konfigurierte Auto-Trigger-Property)',
+            callback: () => { void this.runInboxTriage(); },
+        });
+
+        // BA-25 FEAT-19-11: MOC-Auto-Pflege manuell triggern
+        this.addCommand({
+            id: 'ba25-refresh-moc-pages',
+            name: 'BA-25: MOC-Pflege jetzt aktualisieren (Marker-Block)',
+            callback: () => { void this.refreshAllMOCs(); },
+        });
+
+        // BA-25 FEAT-03-26: Top-Hub-Block manueller Refresh
+        this.addCommand({
+            id: 'ba25-refresh-top-hub-block',
+            name: 'BA-25: Top-Hub-Block jetzt regenerieren',
+            callback: () => {
+                if (!this.topHubBlockGenerator) { new Notice('Top-Hub-Generator nicht verfuegbar.'); return; }
+                const r = this.topHubBlockGenerator.generate();
+                this.topHubBlockState = r.state;
+                this.topHubBlockMarkdown = r.block;
+                new Notice(`Top-Hub-Block regeneriert: ${r.hubs.length} Hubs.`);
+            },
+        });
+
         // 5. Register settings tab
         this.settingsTab = new AgentSettingsTab(this.app, this);
         this.addSettingTab(this.settingsTab);
@@ -1116,6 +1242,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.vaultHealthService?.cancel();
             // BA-25 listener cleanup
             this.autoTriggerObserver?.stop();
+            for (const off of this.frontmatterIndexerListeners) {
+                try { off(); } catch { /* noop */ }
+            }
+            this.frontmatterIndexerListeners = [];
+            if (this.stufe3IntervalHandle) {
+                clearInterval(this.stufe3IntervalHandle);
+                this.stufe3IntervalHandle = null;
+            }
             this.rerankerService?.unload();
             this.mcpBridge?.stop();
             // Close databases (final save + cleanup)
@@ -1751,6 +1885,130 @@ export default class ObsidianAgentPlugin extends Plugin {
      * but we'd already shown the success Notice). Modal-based copy uses
      * a real user gesture, with a save-to-vault fallback.
      */
+    /**
+     * FEAT-19-10: One-Shot Backfill-Job ueber den Vault. Default folder
+     * = ganzer Vault, optional via Settings.vaultIngest.autoTrigger.propertyName
+     * begrenzbar. Progress als Notice alle 50 Notes.
+     */
+    async runFrontmatterBackfill(): Promise<void> {
+        if (!this.noteSummaryStore || !this.frontmatterPropertyStore) {
+            new Notice('BA-25: Stores nicht initialisiert. Plugin reload?');
+            return;
+        }
+        const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
+        const summaryGenerator = cfg.autoSummary.enabled
+            ? buildSummaryGenerator({
+                promptTemplate: cfg.summaryPrompt.template,
+                apiHandlerFactory: () => {
+                    const m = this.getMemoryModel();
+                    return m ? buildApiHandlerForModel(m) : null;
+                },
+            })
+            : null;
+        // semanticStorageLocation ist die kanonische Storage-Mode-Setting fuer
+        // knowledge.db (siehe FEATURE-1508). Map fuer FrontmatterWriter.
+        const storageMode = (this.settings.semanticStorageLocation ?? 'global') as 'global' | 'local' | 'obsidian-sync';
+        const job = new FrontmatterBackfillJob(
+            this.app,
+            this.noteSummaryStore,
+            this.frontmatterPropertyStore,
+            { storageMode },
+            summaryGenerator,
+        );
+        new Notice('BA-25: Backfill gestartet. Fortschritt in der Konsole.', 5000);
+        const result = await job.run({}, (progress) => {
+            if (progress.processed % 50 === 0 && progress.processed > 0) {
+                new Notice(`Backfill: ${progress.processed}/${progress.total} (${progress.summariesWritten} Summaries, ${progress.errors} Fehler)`, 4000);
+            }
+        });
+        new Notice(`Backfill fertig: ${result.processed} Notes, ${result.summariesWritten} Summaries, ${result.propertiesWritten} Property-Mirrors, ${result.errors} Fehler.`, 10000);
+    }
+
+    /**
+     * FEAT-19-15: Inbox-Workflow. Iteriert ueber alle Markdown-Dateien
+     * mit konfigurierter Auto-Trigger-Property und ruft das ingest_triage-Tool
+     * fuer jede neu (idempotent ueber Triage-Log).
+     */
+    async runInboxTriage(): Promise<void> {
+        const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
+        if (!cfg.autoTrigger.propertyName) {
+            new Notice('BA-25 Inbox-Triage: bitte Auto-Trigger-Property in Settings konfigurieren.');
+            return;
+        }
+        const expectedValues = Array.isArray(cfg.autoTrigger.propertyValue)
+            ? cfg.autoTrigger.propertyValue
+            : [cfg.autoTrigger.propertyValue];
+
+        const candidates: TFile[] = [];
+        for (const f of this.app.vault.getMarkdownFiles()) {
+            const cache = this.app.metadataCache.getFileCache(f);
+            const v = cache?.frontmatter?.[cfg.autoTrigger.propertyName];
+            if (v === null || v === undefined) continue;
+            const valueStrs = Array.isArray(v) ? v.map(String) : [String(v)];
+            if (valueStrs.some((vs) => expectedValues.includes(vs))) {
+                candidates.push(f);
+            }
+        }
+        if (candidates.length === 0) {
+            new Notice(`Inbox-Triage: keine Notes mit ${cfg.autoTrigger.propertyName}=${cfg.autoTrigger.propertyValue} gefunden.`);
+            return;
+        }
+        new Notice(`Inbox-Triage: ${candidates.length} Kandidaten, log via Konsole.`, 6000);
+        let triaged = 0;
+        for (const file of candidates) {
+            const sourceUri = `vault://${file.path}`;
+            if (this.ingestTriageLogStore?.exists(sourceUri)) continue;
+            this.ingestTriageLogStore?.record(sourceUri, 'pending');
+            triaged++;
+            console.debug(`[BA-25 Inbox-Triage] queued ${file.path}`);
+        }
+        new Notice(`Inbox-Triage: ${triaged} neue Pending-Eintraege erfasst.`);
+    }
+
+    /**
+     * FEAT-19-11: MOC-Auto-Pflege manuell triggern. Ueber alle Notes mit
+     * dem Marker-Block iterieren und Body neu generieren (Hub-Status,
+     * Implicit-Connection-Vorschlaege, Cluster-Statistik). Helper-API
+     * via MOCMaintainer.findAutoBlock/replaceOrInsertAutoBlock.
+     */
+    async refreshAllMOCs(): Promise<void> {
+        const { findAutoBlock, replaceOrInsertAutoBlock } = await import('./core/ingest/MOCMaintainer');
+        const allFiles = this.app.vault.getMarkdownFiles();
+        let touched = 0;
+        let skippedUserModified = 0;
+        for (const file of allFiles) {
+            const content = await this.app.vault.read(file);
+            const block = findAutoBlock(content, 'moc-header');
+            if (!block) continue; // No marker = not a MOC under management
+            const newBody = await this.buildMOCAutoBody(file.path);
+            const result = replaceOrInsertAutoBlock(content, newBody, { blockId: 'moc-header' });
+            if (result.skippedReason === 'user-modified') { skippedUserModified++; continue; }
+            if (result.written && result.newContent) {
+                await this.app.vault.modify(file, result.newContent);
+                touched++;
+            }
+        }
+        new Notice(`MOC-Pflege: ${touched} aktualisiert, ${skippedUserModified} wegen User-Edit uebersprungen.`);
+    }
+
+    /** Hilfs-Renderer fuer MOC-Auto-Body (Hub-Status + Cluster-Statistik). */
+    private async buildMOCAutoBody(mocPath: string): Promise<string> {
+        const lines: string[] = [];
+        const meta = this.clusterMetadataStore;
+        const cluster = mocPath.replace(/\.md$/, '').split('/').pop() ?? mocPath;
+        const halfLife = meta?.get(cluster)?.halfLifeDays;
+        const stats = this.clusterSourceStatsStore?.getStatsForCluster(cluster) ?? [];
+        const conc = this.clusterSourceStatsStore?.concentrationScore(cluster) ?? 0;
+        lines.push(`_BA-25 MOC-Pflege ${new Date().toISOString().split('T')[0]}_`);
+        lines.push('');
+        if (halfLife !== undefined && halfLife > 0) lines.push(`- Halbwertszeit: ${halfLife} Tage`);
+        if (stats.length > 0) {
+            lines.push(`- Source-Domains: ${stats.length} distinct, top: ${stats[0].sourceDomain} (${stats[0].noteCount}x)`);
+            lines.push(`- Concentration-Score: ${(conc * 100).toFixed(0)}%${conc >= 0.7 ? ' Bias-Warnung' : ''}`);
+        }
+        return lines.join('\n');
+    }
+
     async generateAndCopySoakReport(): Promise<void> {
         try {
             const report = generateSoakReport({

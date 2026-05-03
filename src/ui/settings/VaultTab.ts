@@ -385,6 +385,68 @@ export class VaultTab {
             enabledSetting.descEl.createEl('br');
             enabledSetting.descEl.createEl('em', { text: '(deaktiviert bis Privacy-Hinweis akzeptiert)' });
         }
+
+        // ── Hot-Cluster-Konfiguration (FEAT-19-21) ─────────────────────
+        containerEl.createEl('h4', { text: 'Hot-Cluster fuer Stufe-3-Periodischen-Lint (FEAT-19-21)' });
+
+        const hotDesc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
+        hotDesc.appendText(
+            'Stufe-3 (wochentlicher Job) prueft externe Aktualitaet nur fuer Hot-Cluster. '
+            + 'Markiere unten welche deiner Cluster periodisch ueberprueft werden sollen. '
+            + 'Default: keiner. Token-Budget begrenzt zusaetzlich (siehe AUDIT-014).',
+        );
+
+        const store = this.plugin.clusterMetadataStore;
+        if (!store) {
+            containerEl.createEl('p', { cls: 'agent-settings-desc', text: '(Cluster-Metadata-Store nicht geladen.)' });
+        } else {
+            const all = store.getAll();
+            if (all.length === 0) {
+                containerEl.createEl('p', {
+                    cls: 'agent-settings-desc',
+                    text: '(Keine Cluster in der Ontologie. Erst Vault-Indexing laufen lassen.)',
+                });
+            } else {
+                for (const cluster of all) {
+                    new Setting(containerEl)
+                        .setName(cluster.cluster)
+                        .setDesc(`Halbwertszeit: ${cluster.halfLifeDays}d ${cluster.lastExternalCheck ? '. Letzter Check: ' + cluster.lastExternalCheck.split('T')[0] : ''}`)
+                        .addToggle((toggle) =>
+                            toggle
+                                .setValue(cluster.hotCluster)
+                                .onChange(async (v) => {
+                                    store.setHotCluster(cluster.cluster, v);
+                                    await this.plugin.knowledgeDB?.save();
+                                }),
+                        );
+                }
+            }
+        }
+
+        // ── Aktionen (Backfill, Inbox-Triage, MOC-Refresh) ──────────────
+        containerEl.createEl('h4', { text: 'BA-25 Aktionen' });
+        new Setting(containerEl)
+            .setName('Frontmatter-Backfill jetzt ausfuehren')
+            .setDesc('Iteriert ueber alle Markdown-Notes, ergaenzt fehlende Frontmatter (Setting writeFrontmatter muss aktiv sein). Kann lang dauern.')
+            .addButton((btn) => btn.setButtonText('Backfill starten').onClick(() => { void this.plugin.runFrontmatterBackfill(); }));
+        new Setting(containerEl)
+            .setName('Inbox-Triage jetzt ausfuehren')
+            .setDesc('Erfasst alle Notes mit Auto-Trigger-Property als pending im Triage-Log.')
+            .addButton((btn) => btn.setButtonText('Inbox triagen').onClick(() => { void this.plugin.runInboxTriage(); }));
+        new Setting(containerEl)
+            .setName('MOC-Pflege jetzt aktualisieren')
+            .setDesc('Aktualisiert auto-generierte Marker-Bloecke in MOC-Pages. User-modifizierte Bloecke werden uebersprungen.')
+            .addButton((btn) => btn.setButtonText('MOCs aktualisieren').onClick(() => { void this.plugin.refreshAllMOCs(); }));
+        new Setting(containerEl)
+            .setName('Top-Hub-Block jetzt regenerieren')
+            .setDesc('Manueller Refresh des KV-Cache-Blocks (sonst nur bei Hub-Membership-Aenderung mit 24h-Cooldown).')
+            .addButton((btn) => btn.setButtonText('Top-Hub regenerieren').onClick(() => {
+                if (!this.plugin.topHubBlockGenerator) { new Notice('Top-Hub-Generator nicht verfuegbar.'); return; }
+                const r = this.plugin.topHubBlockGenerator.generate();
+                this.plugin.topHubBlockState = r.state;
+                this.plugin.topHubBlockMarkdown = r.block;
+                new Notice(`Top-Hub-Block regeneriert: ${r.hubs.length} Hubs.`);
+            }));
     }
 
     /**
