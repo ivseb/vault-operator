@@ -67,6 +67,10 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     ingest_deep: 'note-edit',
     // anti_echo_search nutzt nur Web-Search-API (read-only)
     anti_echo_search: 'web',
+    // FEAT-03-25 / ADR-109 Vault-zu-Memory-Bruecke
+    mark_note_as_memory_source: 'note-edit',
+    unmark_note_as_memory_source: 'note-edit',
+    list_memory_source_notes: 'read',
     generate_canvas: 'vault-change',
     create_base: 'vault-change',
     update_base: 'vault-change',

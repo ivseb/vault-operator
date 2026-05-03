@@ -17,6 +17,21 @@
 import { TFile, type App } from 'obsidian';
 import type { NoteSummaryStore } from '../knowledge/NoteSummaryStore';
 import type { FrontmatterPropertyStore } from '../knowledge/FrontmatterPropertyStore';
+import type { MemorySourceStore } from '../knowledge/MemorySourceStore';
+
+/**
+ * FEAT-03-25 / ADR-109: Bridge-Hook fuer Vault-zu-Memory-Pfad.
+ * Plugin uebergibt diesen Callback. Wird aufgerufen bei jeder
+ * indexierten Note die `memory-source: true` im Frontmatter traegt
+ * ODER bereits in MemorySourceStore registriert ist. Der Hook
+ * triggert die SingleCallProcessor-basierte Fact-Extraction.
+ * Best-Effort: Hook-Fehler blockieren niemals den Indexer-Pfad.
+ */
+export type MemorySourceHookFn = (input: {
+    file: TFile;
+    /** True wenn Frontmatter den Marker hat. False wenn nur via Tool/Settings registriert. */
+    fromFrontmatter: boolean;
+}) => Promise<void> | void;
 
 /**
  * Optional callback fuer Auto-Summary-Generation. Wird vom Plugin
@@ -38,6 +53,16 @@ export interface FrontmatterIndexerOptions {
     autoSummaryEnabled?: boolean;
     /** Optional Summary-Generator-Hook. Wenn null: kein Generate. */
     summaryGenerator?: SummaryGeneratorFn;
+    /**
+     * FEAT-03-25 / ADR-109: optional MemorySourceStore + Hook fuer
+     * Vault-zu-Memory-Bruecke. Wenn beide gesetzt: Indexer
+     * a) erkennt `memory-source: true`-Frontmatter-Marker,
+     *    upserted in MemorySourceStore (markerSource='frontmatter');
+     * b) ruft den memorySourceHook fuer markierte Notes -- das Plugin
+     *    leitet den Aufruf an SingleCallProcessor weiter.
+     */
+    memorySourceStore?: MemorySourceStore;
+    memorySourceHook?: MemorySourceHookFn;
 }
 
 export interface IndexingResult {
@@ -86,6 +111,11 @@ export class FrontmatterIndexer {
                 this.mirrorProperties(file.path, fm);
                 propsWritten = true;
             }
+
+            // FEAT-03-25 / ADR-109: Memory-Source-Bridge. Best-effort,
+            // separater try/catch -- Hook-Fehler blockieren den Indexer
+            // niemals (Vault-Indexing bleibt synchron-stabil).
+            this.maybeRouteMemorySource(file, fm);
 
             // Summary-Logik: Frontmatter "Zusammenfassung" hat Vorrang.
             const fmSummary = readFrontmatterSummary(fm);
@@ -173,6 +203,38 @@ export class FrontmatterIndexer {
         return allow.some((folder) => path.startsWith(folder));
     }
 
+    /**
+     * FEAT-03-25: Best-effort Bridge-Hook. Drei Faelle:
+     *  - Note hat memory-source Marker UND ist NICHT registriert -> upsert + Hook
+     *  - Note hat memory-source Marker UND ist registriert (markDirty bei modify)
+     *  - Note ist registriert (via Tool/Settings) aber Frontmatter-Marker fehlt
+     *    -> Hook trotzdem feuern (markerSource bleibt 'agent-tool'/'settings-list')
+     */
+    private maybeRouteMemorySource(file: TFile, fm: Record<string, unknown>): void {
+        const memStore = this.options.memorySourceStore;
+        const hook = this.options.memorySourceHook;
+        if (!memStore && !hook) return;
+
+        const fromFrontmatter = readMemorySourceMarker(fm);
+        try {
+            const isRegistered = memStore?.isMemorySource(file.path) ?? false;
+
+            if (fromFrontmatter && memStore && !isRegistered) {
+                memStore.upsert(file.path, 'frontmatter');
+            } else if (fromFrontmatter && memStore && isRegistered) {
+                memStore.markDirty(file.path);
+            }
+
+            if ((fromFrontmatter || isRegistered) && hook) {
+                void Promise.resolve(hook({ file, fromFrontmatter })).catch((err) => {
+                    console.warn(`[FrontmatterIndexer] memory-source hook failed for ${file.path}:`, err);
+                });
+            }
+        } catch (err) {
+            console.warn(`[FrontmatterIndexer] memory-source bridge failed for ${file.path}:`, err);
+        }
+    }
+
     private mirrorProperties(notePath: string, fm: Record<string, unknown>): void {
         const out: Record<string, string | string[]> = {};
         for (const [name, value] of Object.entries(fm)) {
@@ -202,4 +264,18 @@ export function readFrontmatterSummary(fm: Record<string, unknown>): string | nu
         }
     }
     return null;
+}
+
+/**
+ * FEAT-03-25: liest den `memory-source: true` Frontmatter-Marker.
+ * Akzeptiert true, "true", "yes", 1 als wahr.
+ */
+export function readMemorySourceMarker(fm: Record<string, unknown>): boolean {
+    const candidates = ['memory-source', 'memory_source', 'memorySource'];
+    for (const key of candidates) {
+        const value = fm[key];
+        if (value === true || value === 1) return true;
+        if (typeof value === 'string' && (value === 'true' || value === 'yes')) return true;
+    }
+    return false;
 }
