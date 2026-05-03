@@ -175,13 +175,13 @@ export class VaultTab {
      * Plugin-Reload damit der vault.on-Listener neu registriert.
      */
     private buildVaultIngestSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault-Ingest' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault ingest' });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
             text:
-                'Karpathy-Wiki-Pattern: zentrale Note-Summary-Pflege, Frontmatter-Mirror, Auto-Trigger '
-                + 'via konfigurierbarer Property. Alle Toggles sind defaultmaessig deaktiviert. '
-                + 'Aenderungen am Auto-Trigger erfordern Plugin-Reload.',
+                'Builds a wiki-like layer over your vault: per-note summaries, optional frontmatter '
+                + 'mirroring, and automatic triage of inbox notes via a configurable frontmatter property. '
+                + 'All toggles are off by default. Auto-trigger changes require a plugin reload to take effect.',
         });
 
         const cfg = this.plugin.settings.vaultIngest ?? { ...DEFAULT_VAULT_INGEST_SETTINGS };
@@ -192,11 +192,11 @@ export class VaultTab {
 
         // Auto-Summary-Toggle
         new Setting(containerEl)
-            .setName('Auto-Summary beim Indexing')
+            .setName('Auto-summary on indexing')
             .setDesc(
-                'Wenn aktiviert: SemanticIndexService generiert pro Note eine Summary, falls keine '
-                + 'im Frontmatter vorhanden. Bestehende Frontmatter-Summaries werden ueberommen, niemals '
-                + 'ueberschrieben. LLM-Call pro Note (Default-Modell, ggf. konfigurierbar).',
+                'When enabled, the semantic index generates a short summary for each note that does '
+                + 'not already have one in its frontmatter. Existing summaries are reused and never '
+                + 'overwritten. Costs one LLM call per note (uses your default model).',
             )
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoSummary.enabled).onChange(async (v) => {
@@ -208,11 +208,12 @@ export class VaultTab {
 
         // Frontmatter-Write-Toggle
         new Setting(containerEl)
-            .setName('Auto-Summary in Frontmatter schreiben')
+            .setName('Write auto-summary into frontmatter')
             .setDesc(
-                'Wenn aktiviert: generierte Summary wird zusaetzlich als Frontmatter-Property "Zusammenfassung" '
-                + 'in die Vault-Note geschrieben (struktur-erhaltend, ueberschreibt nichts). '
-                + 'Default OFF (User-Trust). Bei Aktivierung sollte ein einmaliger Backfill-Job laufen.',
+                'When enabled, the generated summary is also written into the note\'s frontmatter as '
+                + 'a "Zusammenfassung" property (structure-preserving, never overwrites existing values). '
+                + 'Default OFF so the agent never modifies your notes without consent. After enabling, '
+                + 'run the backfill action below to summarize existing notes.',
             )
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoSummary.writeFrontmatter).onChange(async (v) => {
@@ -224,21 +225,21 @@ export class VaultTab {
 
         // Standard-Prompt-Editor
         new Setting(containerEl)
-            .setName('Standard-Prompt fuer Summary-Generierung')
+            .setName('Default summary prompt')
             .setDesc(
-                'Multi-Line-Template (Sebastians Default aus BA-25). Editierbar pro Vault. '
-                + '"Zuruecksetzen" stellt den Default wieder her.',
+                'Prompt template used to generate note summaries. Editable per vault. '
+                + '"Reset" restores the built-in default.',
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText('Bearbeiten')
+                    .setButtonText('Edit')
                     .setIcon('pencil')
                     .onClick(async () => {
                         const next = await promptModal(this.app, {
-                            title: 'Standard-Prompt fuer Summary',
+                            title: 'Default summary prompt',
                             defaultValue: cfg.summaryPrompt.template,
-                            placeholder: 'Multi-Line Prompt-Template...',
-                            submitLabel: 'Speichern',
+                            placeholder: 'Multi-line prompt template...',
+                            submitLabel: 'Save',
                         });
                         if (next === null) return;
                         cfg.summaryPrompt.template = next || DEFAULT_SUMMARY_PROMPT_TEMPLATE;
@@ -249,7 +250,7 @@ export class VaultTab {
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText('Zuruecksetzen')
+                    .setButtonText('Reset')
                     .onClick(async () => {
                         cfg.summaryPrompt.template = DEFAULT_SUMMARY_PROMPT_TEMPLATE;
                         this.plugin.settings.vaultIngest = cfg;
@@ -259,25 +260,34 @@ export class VaultTab {
             );
 
         // Auto-Trigger
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Auto-Trigger' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Auto-trigger for inbox triage' });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text:
+                'Watches your vault for notes that carry a specific frontmatter property and value. '
+                + 'When a match is detected (e.g. you save a note with "Kategorie: Quelle"), the agent '
+                + 'automatically queues it for triage and processes it in the background. Useful for '
+                + 'inbox-style workflows where new sources should be summarized and filed without manual '
+                + 'invocation. Toggling this requires a plugin reload to (de)register the file watcher.',
+        });
 
         new Setting(containerEl)
-            .setName('Auto-Trigger aktiv')
-            .setDesc('Triage startet automatisch wenn eine Note die unten konfigurierte Property traegt. Default OFF.')
+            .setName('Enable auto-trigger')
+            .setDesc('Triage starts automatically when a note carries the property and value configured below. Default OFF.')
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoTrigger.enabled).onChange(async (v) => {
                     cfg.autoTrigger.enabled = v;
                     this.plugin.settings.vaultIngest = cfg;
                     await this.plugin.saveSettings();
                     if (v) {
-                        new Notice('Auto-Trigger aktiviert. Plugin-Reload erforderlich, damit der Listener registriert.', 8000);
+                        new Notice('Auto-trigger enabled. Reload the plugin so the file watcher registers.', 8000);
                     }
                 }),
             );
 
         new Setting(containerEl)
-            .setName('Property-Name')
-            .setDesc('Frontmatter-Property die geprueft wird (z.B. "Kategorie").')
+            .setName('Property name')
+            .setDesc('Name of the frontmatter property to watch (e.g. "Kategorie").')
             .addText((text) =>
                 text
                     .setValue(cfg.autoTrigger.propertyName)
@@ -290,8 +300,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Property-Wert')
-            .setDesc('Wert der Match ausloest (z.B. "Quelle"). Mehrere Werte mit Komma trennen.')
+            .setName('Property value')
+            .setDesc('Value that triggers a match (e.g. "Quelle"). Separate multiple values with commas.')
             .addText((text) =>
                 text
                     .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
@@ -305,8 +315,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Auto-Trigger-Notification')
-            .setDesc('Toast anzeigen wenn Auto-Trigger feuert. Default OFF (Tab im Health-Modal reicht).')
+            .setName('Show notification on trigger')
+            .setDesc('Display a toast when auto-trigger fires. Default OFF (the vault health modal already lists triggered notes).')
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoTrigger.notification).onChange(async (v) => {
                     cfg.autoTrigger.notification = v;
@@ -316,19 +326,26 @@ export class VaultTab {
             );
 
         // PDF-Strategie
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'PDF-Strategie' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'PDF handling' });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text:
+                'Controls how PDFs are referenced when the agent cites them. Page-refs keeps the PDF '
+                + 'untouched and links to specific pages. Markdown-mirror additionally extracts the text '
+                + 'into a parallel markdown file, which lets the agent quote and link at block level.',
+        });
 
         new Setting(containerEl)
-            .setName('PDF-Strategie')
+            .setName('PDF strategy')
             .setDesc(
-                'page-refs (Default): PDF bleibt im Vault, Source-Position-Marker als '
-                + '[[file.pdf#page=N]]. markdown-mirror (opt-in): zusaetzlicher Markdown-Mirror '
-                + 'fuer Block-Level-Granularitaet bei text-lastigen PDFs.',
+                'Page-refs (default): PDF stays in the vault, citations use [[file.pdf#page=N]]. '
+                + 'Markdown-mirror (opt-in): an additional markdown copy is created for block-level '
+                + 'granularity. Useful for text-heavy PDFs where you want quote-level references.',
             )
             .addDropdown((dd) =>
                 dd
-                    .addOption('page-refs', 'Page-Refs (Default)')
-                    .addOption('markdown-mirror', 'Markdown-Mirror (opt-in)')
+                    .addOption('page-refs', 'Page-refs (default)')
+                    .addOption('markdown-mirror', 'Markdown-mirror (opt-in)')
                     .setValue(cfg.pdfStrategy)
                     .onChange(async (v) => {
                         cfg.pdfStrategy = v as 'page-refs' | 'markdown-mirror';
@@ -338,21 +355,29 @@ export class VaultTab {
             );
 
         // ── Top-Hub-Block (FEAT-03-26 + FIX-03-26-01 Privacy-Hint, AUDIT-014 M-2) ──
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Top-Hub-Block im System-Prompt' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Top-hub block in system prompt' });
+        containerEl.createEl('p', {
+            cls: 'agent-settings-desc',
+            text:
+                'Hubs are the most-linked notes in your vault, the structural backbone of your knowledge '
+                + 'graph (e.g. central index notes, MOCs, key topic pages). When enabled, summaries of '
+                + 'your top 30 hubs are injected into every conversation\'s system prompt so the agent '
+                + 'always has a high-level map of your vault. Improves grounding for general questions, '
+                + 'but increases token cost on every call.',
+        });
 
         const privacyWarn = containerEl.createEl('div', { cls: 'agent-settings-desc' });
-        privacyWarn.createEl('strong', { text: 'Privacy-Hinweis: ' });
+        privacyWarn.createEl('strong', { text: 'Privacy notice: ' });
         privacyWarn.appendText(
-            'Bei Aktivierung werden Note-Summaries der Top-30 Hub-Notes deines Vaults '
-            + 'bei JEDER LLM-Conversation als System-Prompt-Block an den LLM-Provider gesendet. '
-            + 'Pruefe vor Aktivierung welche deiner Hub-Notes vertrauliche Daten enthalten '
-            + '(Tagebuch, Patient-Notes, Geschaeftsinfos). Setting kann jederzeit zurueckgenommen werden, '
-            + 'aber bereits gesendete Daten bleiben beim Provider.',
+            'When enabled, the summaries of your top 30 hub notes are sent to the LLM provider on '
+            + 'EVERY conversation. Before enabling, check whether any of your hub notes contain '
+            + 'sensitive data (journal entries, patient notes, business information). The setting '
+            + 'can be revoked at any time, but data already sent to the provider remains with them.',
         );
 
         new Setting(containerEl)
-            .setName('Privacy-Hinweis gelesen und akzeptiert')
-            .setDesc('Erst nach Bestaetigung kann der Top-Hub-Block aktiviert werden.')
+            .setName('Privacy notice read and accepted')
+            .setDesc('The top-hub block can only be enabled after this confirmation.')
             .addToggle((toggle) =>
                 toggle.setValue(cfg.topHubBlock.privacyAcknowledged).onChange(async (v) => {
                     cfg.topHubBlock.privacyAcknowledged = v;
@@ -364,15 +389,15 @@ export class VaultTab {
             );
 
         const enabledSetting = new Setting(containerEl)
-            .setName('Top-Hub-Block aktivieren')
-            .setDesc('Default OFF. Erfordert vorherige Privacy-Bestaetigung.')
+            .setName('Enable top-hub block')
+            .setDesc('Default OFF. Requires the privacy notice to be accepted first.')
             .addToggle((toggle) =>
                 toggle
                     .setValue(cfg.topHubBlock.enabled)
                     .setDisabled(!cfg.topHubBlock.privacyAcknowledged)
                     .onChange(async (v) => {
                         if (v && !cfg.topHubBlock.privacyAcknowledged) {
-                            new Notice('Bitte zuerst den Privacy-Hinweis bestaetigen.', 6000);
+                            new Notice('Please accept the privacy notice first.', 6000);
                             toggle.setValue(false);
                             return;
                         }
@@ -383,34 +408,36 @@ export class VaultTab {
             );
         if (!cfg.topHubBlock.privacyAcknowledged) {
             enabledSetting.descEl.createEl('br');
-            enabledSetting.descEl.createEl('em', { text: '(deaktiviert bis Privacy-Hinweis akzeptiert)' });
+            enabledSetting.descEl.createEl('em', { text: '(disabled until privacy notice is accepted)' });
         }
 
         // ── Hot-Cluster-Konfiguration (FEAT-19-21) ─────────────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Hot-Cluster (Stufe-3 periodischer Lint)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Hot clusters (periodic freshness lint)' });
 
         const hotDesc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         hotDesc.appendText(
-            'Stufe-3 (wochentlicher Job) prueft externe Aktualitaet nur fuer Hot-Cluster. '
-            + 'Markiere unten welche deiner Cluster periodisch ueberprueft werden sollen. '
-            + 'Default: keiner. Token-Budget begrenzt zusaetzlich (siehe AUDIT-014).',
+            'A "cluster" is a topic group derived from your vault\'s ontology (e.g. "AI", "Cooking"). '
+            + 'A weekly background job checks whether the external world has moved on since your notes '
+            + 'were last updated, but only for clusters you mark as "hot" below. Mark topics where '
+            + 'currency matters (fast-moving fields, active projects). Default: none selected. A token '
+            + 'budget caps the cost of each run.',
         );
 
         const store = this.plugin.clusterMetadataStore;
         if (!store) {
-            containerEl.createEl('p', { cls: 'agent-settings-desc', text: '(Cluster-Metadata-Store nicht geladen.)' });
+            containerEl.createEl('p', { cls: 'agent-settings-desc', text: '(Cluster metadata store not loaded.)' });
         } else {
             const all = store.getAll();
             if (all.length === 0) {
                 containerEl.createEl('p', {
                     cls: 'agent-settings-desc',
-                    text: '(Keine Cluster in der Ontologie. Erst Vault-Indexing laufen lassen.)',
+                    text: '(No clusters in the ontology yet. Run vault indexing first.)',
                 });
             } else {
                 for (const cluster of all) {
                     new Setting(containerEl)
                         .setName(cluster.cluster)
-                        .setDesc(`Halbwertszeit: ${cluster.halfLifeDays}d ${cluster.lastExternalCheck ? '. Letzter Check: ' + cluster.lastExternalCheck.split('T')[0] : ''}`)
+                        .setDesc(`Half-life: ${cluster.halfLifeDays}d${cluster.lastExternalCheck ? '. Last check: ' + cluster.lastExternalCheck.split('T')[0] : ''}`)
                         .addToggle((toggle) =>
                             toggle
                                 .setValue(cluster.hotCluster)
@@ -424,16 +451,17 @@ export class VaultTab {
         }
 
         // ── Stufe-2 Activity-Hint (FEAT-19-19) ─────────────────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Stufe-2 Activity-Hint' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Activity hint on stale clusters' });
         const stufe2Desc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         stufe2Desc.appendText(
-            'Bei Note-Open/Modify in einem Cluster mit niedrigem Freshness-Score zeigt das Plugin '
-            + 'eine dezente Notice mit Klick-Trigger fuer Anti-Echo-Suche. Default OFF damit kein '
-            + 'Notice-Spam entsteht. Cooldowns verhindern Wiederholung pro Cluster.',
+            'When you open or edit a note in a cluster whose knowledge looks stale (low freshness score), '
+            + 'the plugin shows a subtle notice offering to run an "anti-echo" search against external '
+            + 'sources to surface what may have changed. Default OFF to avoid notice spam. Per-cluster '
+            + 'cooldowns and a daily cap prevent repeated nagging.',
         );
         new Setting(containerEl)
-            .setName('Stufe-2 Activity-Hint aktivieren')
-            .setDesc('Loest dezente Notices aus, wenn Du eine Note in einem reifen Cluster oeffnest oder editierst.')
+            .setName('Enable activity hint')
+            .setDesc('Shows subtle notices when you open or edit a note in a cluster that has not been refreshed in a while.')
             .addToggle((toggle) => {
                 toggle.setValue(cfg.stufe2Hint.enabled).onChange(async (v) => {
                     cfg.stufe2Hint.enabled = v;
@@ -441,8 +469,8 @@ export class VaultTab {
                 });
             });
         new Setting(containerEl)
-            .setName('Score-Schwelle')
-            .setDesc('Hint feuert wenn Cluster-Freshness-Score unter diesem Wert liegt (0..100). Default 70.')
+            .setName('Freshness score threshold')
+            .setDesc('Hint fires when the cluster\'s freshness score drops below this value (0..100). Default 70.')
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.hintThresholdScore))
                     .onChange(async (v) => {
@@ -454,8 +482,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Min. Tage seit letztem externen Check')
-            .setDesc('Default 30. Verhindert Hint kurz nach einem Stufe-3-Pass.')
+            .setName('Min. days since last external check')
+            .setDesc('Default 30. Prevents hints right after the periodic freshness lint already ran.')
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.minDaysSinceCheck))
                     .onChange(async (v) => {
@@ -467,8 +495,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Cooldown pro Cluster (Tage)')
-            .setDesc('Default 7. Pro Cluster max ein Hint in diesem Zeitraum.')
+            .setName('Cooldown per cluster (days)')
+            .setDesc('Default 7. At most one hint per cluster within this period.')
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.perClusterCooldownDays))
                     .onChange(async (v) => {
@@ -480,8 +508,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Max Hints pro Tag (global)')
-            .setDesc('Default 5. Schuetzt vor Notice-Spam an aktiven Tagen.')
+            .setName('Max hints per day (global)')
+            .setDesc('Default 5. Caps total hints on busy days to avoid notice spam.')
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.maxHintsPerDay))
                     .onChange(async (v) => {
@@ -494,32 +522,32 @@ export class VaultTab {
             });
 
         // ── Aktionen (Backfill, Inbox-Triage, MOC-Refresh) ──────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Aktionen' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Manual actions' });
         new Setting(containerEl)
-            .setName('Frontmatter-Backfill jetzt ausfuehren')
-            .setDesc('Iteriert ueber alle Markdown-Notes, ergaenzt fehlende Frontmatter (Setting writeFrontmatter muss aktiv sein). Kann lang dauern.')
-            .addButton((btn) => btn.setButtonText('Backfill starten').onClick(() => { void this.plugin.runFrontmatterBackfill(); }));
+            .setName('Run frontmatter backfill')
+            .setDesc('Iterates over all markdown notes and adds missing frontmatter summaries. Requires "Write auto-summary into frontmatter" to be enabled. Can take a while on large vaults.')
+            .addButton((btn) => btn.setButtonText('Run backfill').onClick(() => { void this.plugin.runFrontmatterBackfill(); }));
         new Setting(containerEl)
-            .setName('Inbox-Triage jetzt ausfuehren')
-            .setDesc('Erfasst alle Notes mit Auto-Trigger-Property als pending im Triage-Log.')
-            .addButton((btn) => btn.setButtonText('Inbox triagen').onClick(() => { void this.plugin.runInboxTriage(); }));
+            .setName('Run inbox triage now')
+            .setDesc('Scans all notes that match the auto-trigger property and queues them as pending in the triage log.')
+            .addButton((btn) => btn.setButtonText('Triage inbox').onClick(() => { void this.plugin.runInboxTriage(); }));
         new Setting(containerEl)
-            .setName('MOC-Marker initial einfuegen')
-            .setDesc('Fuegt den auto-Marker-Block in alle MOC-Kandidaten ein, deren Basename als Cluster bekannt ist. Idempotent.')
-            .addButton((btn) => btn.setButtonText('Marker injizieren').onClick(() => { void this.plugin.injectInitialMOCMarkers(); }));
+            .setName('Insert MOC markers')
+            .setDesc('A "MOC" (Map of Content) is a hub note that lists related notes. This action inserts the auto-generated marker block into all MOC candidate notes whose name matches a known cluster. Idempotent (safe to re-run).')
+            .addButton((btn) => btn.setButtonText('Insert markers').onClick(() => { void this.plugin.injectInitialMOCMarkers(); }));
         new Setting(containerEl)
-            .setName('MOC-Pflege jetzt aktualisieren')
-            .setDesc('Aktualisiert auto-generierte Marker-Bloecke in MOC-Pages. User-modifizierte Bloecke werden uebersprungen.')
-            .addButton((btn) => btn.setButtonText('MOCs aktualisieren').onClick(() => { void this.plugin.refreshAllMOCs(); }));
+            .setName('Refresh MOC pages')
+            .setDesc('Updates the auto-generated marker blocks inside MOC pages. User-edited blocks are skipped.')
+            .addButton((btn) => btn.setButtonText('Refresh MOCs').onClick(() => { void this.plugin.refreshAllMOCs(); }));
         new Setting(containerEl)
-            .setName('Top-Hub-Block jetzt regenerieren')
-            .setDesc('Manueller Refresh des KV-Cache-Blocks (sonst nur bei Hub-Membership-Aenderung mit 24h-Cooldown).')
-            .addButton((btn) => btn.setButtonText('Top-Hub regenerieren').onClick(() => {
-                if (!this.plugin.topHubBlockGenerator) { new Notice('Top-Hub-Generator nicht verfuegbar.'); return; }
+            .setName('Regenerate top-hub block')
+            .setDesc('Manually rebuild the cached system-prompt block listing your top hubs. Otherwise it only refreshes when hub membership changes (with a 24h cooldown).')
+            .addButton((btn) => btn.setButtonText('Regenerate').onClick(() => {
+                if (!this.plugin.topHubBlockGenerator) { new Notice('Top-hub generator not available.'); return; }
                 const r = this.plugin.topHubBlockGenerator.generate();
                 this.plugin.topHubBlockState = r.state;
                 this.plugin.topHubBlockMarkdown = r.block;
-                new Notice(`Top-Hub-Block regeneriert: ${r.hubs.length} Hubs.`);
+                new Notice(`Top-hub block regenerated: ${r.hubs.length} hubs.`);
             }));
     }
 

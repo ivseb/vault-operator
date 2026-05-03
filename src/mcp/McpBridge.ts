@@ -593,9 +593,17 @@ export class McpBridge {
 
     private async handleJsonRpc(request: { method: string; params?: Record<string, unknown> }): Promise<unknown> {
         switch (request.method) {
-            case 'initialize':
+            case 'initialize': {
+                // FIX-23-04-01 Pass 6: echo the client's protocolVersion when
+                // we recognise it, so spec-strict clients (Perplexity) accept
+                // the connection. Fallback to our highest known version.
+                const SUPPORTED_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
+                const requested = typeof request.params?.protocolVersion === 'string'
+                    ? request.params.protocolVersion
+                    : '';
+                const negotiated = SUPPORTED_VERSIONS.includes(requested) ? requested : '2025-03-26';
                 return {
-                    protocolVersion: '2025-03-26',
+                    protocolVersion: negotiated,
                     capabilities: { tools: {}, prompts: {}, resources: {} },
                     serverInfo: { name: 'Obsilo', version: '1.0.0' },
                     instructions: 'You are connected to Obsilo, an intelligence backend for an Obsidian vault. '
@@ -605,6 +613,7 @@ export class McpBridge {
                         + '2. Use search_vault, read_notes, write_vault, execute_vault_op as needed.\n'
                         + '3. ALWAYS call sync_session as your LAST action to save the conversation to Obsidian.',
                 };
+            }
 
             case 'tools/list':
                 return {
