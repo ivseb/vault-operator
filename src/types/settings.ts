@@ -510,6 +510,15 @@ export interface MemorySettings {
      * mark_for_memory tool) bypass the throttle. Default 60_000 ms.
      */
     reExtractThrottleMs?: number;
+
+    /**
+     * BA-26 / FEAT-23-04: Cross-Surface AI Workflow settings.
+     * Controls Auto-Sync vs Manual-Sync per provider for MCP-saved
+     * conversations. Privacy-sichere Defaults: chatgpt + perplexity
+     * + unknown auf manual (Familien-Account-Use-Case Sebastian).
+     * Optional: missing block reads as DEFAULT_CROSS_SURFACE_SETTINGS.
+     */
+    crossSurface?: import('../core/memory/SourceInterface').CrossSurfaceSettings;
 }
 
 // ---------------------------------------------------------------------------
@@ -982,6 +991,20 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         // facts row exists yet. See `detectMemoryV2MigrationStatus`.
         v2MigrationStatus: 'not-applicable',
         v2MigrationReport: null,
+        // BA-26 / FEAT-23-04: privacy-sichere Defaults fuer Cross-Surface MCP.
+        // chatgpt + perplexity stehen auf manual, weil sie haeufig in
+        // Familien-Accounts genutzt werden (Sebastian-Use-Case).
+        crossSurface: {
+            defaultSyncMode: 'auto',
+            perProvider: {
+                'obsilo': 'global',
+                'claude-ai': 'global',
+                'claude-code': 'global',
+                'chatgpt': 'manual',
+                'perplexity': 'manual',
+                'unknown': 'manual',
+            },
+        },
     },
     chatLinking: {
         enabled: true,

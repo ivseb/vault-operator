@@ -49,11 +49,24 @@ function formatDate(isoDate: string): string {
 // HistoryPanel
 // ---------------------------------------------------------------------------
 
+type SourceTab = 'all' | 'obsilo' | 'claude-ai' | 'claude-code' | 'chatgpt' | 'perplexity' | 'unknown';
+const SOURCE_TAB_LABELS: Record<SourceTab, string> = {
+    'all': 'All',
+    'obsilo': 'Obsilo',
+    'claude-ai': 'Claude.ai',
+    'claude-code': 'Claude Code',
+    'chatgpt': 'ChatGPT',
+    'perplexity': 'Perplexity',
+    'unknown': 'Unknown',
+};
+
 export class HistoryPanel {
     private panelEl: HTMLElement | null = null;
     private isOpen = false;
     private filterText = '';
     private memoryOnly = false;
+    /** BA-26 / FEAT-23-03: active Source-Tab. 'all' shows everything. */
+    private sourceTab: SourceTab = 'all';
 
     constructor(
         private store: ConversationStore,
@@ -65,6 +78,8 @@ export class HistoryPanel {
         private onRemoveFromMemory: ((id: string, title: string) => Promise<void> | void) | null = null,
         private isInMemory: ((id: string) => boolean) | null = null,
         private onRename: ((id: string, currentTitle: string) => Promise<void> | void) | null = null,
+        /** BA-26 / FEAT-23-04: confirm a pending external conversation (Manual-Sync). */
+        private onConfirmPending: ((id: string, title: string) => Promise<void> | void) | null = null,
     ) {}
 
     /** Mount the panel inside a parent container. */
@@ -124,6 +139,34 @@ export class HistoryPanel {
         setIcon(closeBtn, 'x');
         closeBtn.addEventListener('click', () => this.close());
 
+        // BA-26 / FEAT-23-03: Source-Tabs. Tab erscheint nur wenn min. eine
+        // Conversation der jeweiligen Source existiert. Klick filtert die
+        // Liste vollstaendig -- keine Vermischung.
+        const allConvs = this.store.list();
+        const sourceCounts = new Map<SourceTab, number>();
+        for (const c of allConvs) {
+            const s = (c.sourceInterface ?? 'obsilo') as SourceTab;
+            sourceCounts.set(s, (sourceCounts.get(s) ?? 0) + 1);
+        }
+        const visibleTabs: SourceTab[] = ['all'];
+        for (const k of ['obsilo', 'claude-ai', 'claude-code', 'chatgpt', 'perplexity', 'unknown'] as SourceTab[]) {
+            if ((sourceCounts.get(k) ?? 0) > 0) visibleTabs.push(k);
+        }
+        if (visibleTabs.length > 1) {
+            const tabRow = this.panelEl.createDiv({ cls: 'history-panel-tabs' });
+            for (const tab of visibleTabs) {
+                const count = tab === 'all' ? allConvs.length : (sourceCounts.get(tab) ?? 0);
+                const btn = tabRow.createEl('button', {
+                    text: `${SOURCE_TAB_LABELS[tab]} (${count})`,
+                    cls: `history-panel-tab${this.sourceTab === tab ? ' history-panel-tab-active' : ''}`,
+                });
+                btn.addEventListener('click', () => {
+                    this.sourceTab = tab;
+                    this.render();
+                });
+            }
+        }
+
         // Filter
         const filterRow = this.panelEl.createDiv({ cls: 'history-panel-filter' });
         const filterInput = filterRow.createEl('input', {
@@ -160,6 +203,13 @@ export class HistoryPanel {
         container.empty();
 
         let conversations = this.store.list();
+        // BA-26 / FEAT-23-03: Source-Tab-Filter, vollstaendige Trennung pro
+        // Provider. Conversations ohne Tag gelten als 'obsilo'.
+        if (this.sourceTab !== 'all') {
+            conversations = conversations.filter((c) =>
+                ((c.sourceInterface ?? 'obsilo') as SourceTab) === this.sourceTab
+            );
+        }
         if (this.filterText) {
             const lower = this.filterText.toLowerCase();
             conversations = conversations.filter((c) => c.title.toLowerCase().includes(lower));
@@ -194,7 +244,23 @@ export class HistoryPanel {
                 });
 
                 const info = row.createDiv({ cls: 'history-row-info' });
-                info.createDiv({ cls: 'history-row-title', text: conv.title });
+                const titleRow = info.createDiv({ cls: 'history-row-title-row' });
+                titleRow.createDiv({ cls: 'history-row-title', text: conv.title });
+                // BA-26 / FEAT-23-03: Source-Pill (nur fuer non-obsilo + non-default).
+                const source = conv.sourceInterface ?? 'obsilo';
+                if (source !== 'obsilo') {
+                    titleRow.createSpan({
+                        cls: `history-row-source-pill history-row-source-pill-${source}`,
+                        text: SOURCE_TAB_LABELS[source as SourceTab] ?? source,
+                    });
+                }
+                // BA-26 / FEAT-23-04: Pending-Marker fuer Manual-Sync Conversations.
+                if (conv.syncState === 'pending') {
+                    titleRow.createSpan({
+                        cls: 'history-row-pending-marker',
+                        text: 'pending',
+                    });
+                }
                 const meta = info.createDiv({ cls: 'history-row-meta' });
                 const timeStr = groupName === 'today' || groupName === 'yesterday'
                     ? formatTime(conv.updated)
@@ -204,6 +270,18 @@ export class HistoryPanel {
 
                 // Action buttons (visible on hover)
                 const actions = row.createDiv({ cls: 'history-row-actions' });
+
+                // BA-26 / FEAT-23-04: Confirm-Button fuer Pending-Conversations.
+                if (conv.syncState === 'pending' && this.onConfirmPending) {
+                    const confirmBtn = actions.createEl('button', { cls: 'history-row-action clickable-icon' });
+                    setIcon(confirmBtn, 'check');
+                    confirmBtn.setAttribute('aria-label', 'Confirm and add to memory');
+                    confirmBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const action = this.onConfirmPending!(conv.id, conv.title);
+                        Promise.resolve(action).then(() => this.render()).catch(() => undefined);
+                    });
+                }
 
                 const copyBtn = actions.createEl('button', { cls: 'history-row-action clickable-icon' });
                 setIcon(copyBtn, 'link');

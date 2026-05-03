@@ -303,6 +303,7 @@ export class AgentSidebarView extends ItemView {
                 (id, title) => this.removeHistoryConversationFromMemory(id, title),
                 (id) => this.plugin.countMemoryFactsForConversation(id) > 0,
                 (id, currentTitle) => this.renameHistoryConversation(id, currentTitle),
+                (id, title) => this.confirmPendingConversation(id, title),
             );
             this.historyPanel.mount(chatWrapper);
         }
@@ -903,6 +904,44 @@ export class AgentSidebarView extends ItemView {
             void this.pollMemoryStarUntilReady(id);
         } catch (e) {
             console.warn('[Memory] Save history conversation failed:', e);
+            new Notice(t('notice.memorySaveFailed'));
+        }
+    }
+
+    /**
+     * BA-26 / FEAT-23-04: confirm a pending external conversation.
+     * Flips syncState 'pending' -> 'confirmed' and enqueues the
+     * conversation for memory extraction with shared thresholds.
+     */
+    private async confirmPendingConversation(id: string, title: string): Promise<void> {
+        const store = this.plugin.conversationStore;
+        const queue = this.plugin.extractionQueue;
+        if (!store) {
+            new Notice(t('notice.memoryNoActiveConversation'));
+            return;
+        }
+        try {
+            const flipped = await store.confirm(id);
+            if (!flipped) {
+                new Notice('Conversation already confirmed.');
+                return;
+            }
+            // Trigger memory extraction (auto-sync would have done this on save).
+            if (this.plugin.settings.memory.enabled && queue) {
+                const data = await store.load(id);
+                if (data && data.uiMessages.length > 0) {
+                    const messages = data.uiMessages.map((m) => ({ role: m.role, text: m.text }));
+                    await queue.enqueueImmediate({
+                        conversationId: id,
+                        messages,
+                        title,
+                        queuedAt: new Date().toISOString(),
+                    });
+                }
+            }
+            new Notice(`Confirmed: ${title}`);
+        } catch (e) {
+            console.warn('[Memory] Confirm pending failed:', e);
             new Notice(t('notice.memorySaveFailed'));
         }
     }
