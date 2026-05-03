@@ -18,7 +18,7 @@ export class VaultTab {
         });
 
         // ── Checkpoints ─────────────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'CHECKPOINTS' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Checkpoints' });
 
         new Setting(containerEl)
             .setName(t('settings.vault.enableCheckpoints'))
@@ -175,7 +175,7 @@ export class VaultTab {
      * Plugin-Reload damit der vault.on-Listener neu registriert.
      */
     private buildVaultIngestSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'VAULT-INGEST (BA-25)' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault-Ingest' });
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',
             text:
@@ -259,7 +259,7 @@ export class VaultTab {
             );
 
         // Auto-Trigger
-        containerEl.createEl('h4', { text: 'Auto-Trigger (FEAT-19-27)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Auto-Trigger' });
 
         new Setting(containerEl)
             .setName('Auto-Trigger aktiv')
@@ -316,7 +316,7 @@ export class VaultTab {
             );
 
         // PDF-Strategie
-        containerEl.createEl('h4', { text: 'PDF-Strategie (FEAT-19-29)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'PDF-Strategie' });
 
         new Setting(containerEl)
             .setName('PDF-Strategie')
@@ -338,7 +338,7 @@ export class VaultTab {
             );
 
         // ── Top-Hub-Block (FEAT-03-26 + FIX-03-26-01 Privacy-Hint, AUDIT-014 M-2) ──
-        containerEl.createEl('h4', { text: 'Top-Hub-Block im System-Prompt (FEAT-03-26)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Top-Hub-Block im System-Prompt' });
 
         const privacyWarn = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         privacyWarn.createEl('strong', { text: 'Privacy-Hinweis: ' });
@@ -387,7 +387,7 @@ export class VaultTab {
         }
 
         // ── Hot-Cluster-Konfiguration (FEAT-19-21) ─────────────────────
-        containerEl.createEl('h4', { text: 'Hot-Cluster fuer Stufe-3-Periodischen-Lint (FEAT-19-21)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Hot-Cluster (Stufe-3 periodischer Lint)' });
 
         const hotDesc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         hotDesc.appendText(
@@ -424,7 +424,7 @@ export class VaultTab {
         }
 
         // ── Stufe-2 Activity-Hint (FEAT-19-19) ─────────────────────────
-        containerEl.createEl('h4', { text: 'Stufe-2 Activity-Hint (FEAT-19-19)' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Stufe-2 Activity-Hint' });
         const stufe2Desc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         stufe2Desc.appendText(
             'Bei Note-Open/Modify in einem Cluster mit niedrigem Freshness-Score zeigt das Plugin '
@@ -494,7 +494,7 @@ export class VaultTab {
             });
 
         // ── Aktionen (Backfill, Inbox-Triage, MOC-Refresh) ──────────────
-        containerEl.createEl('h4', { text: 'BA-25 Aktionen' });
+        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Aktionen' });
         new Setting(containerEl)
             .setName('Frontmatter-Backfill jetzt ausfuehren')
             .setDesc('Iteriert ueber alle Markdown-Notes, ergaenzt fehlende Frontmatter (Setting writeFrontmatter muss aktiv sein). Kann lang dauern.')

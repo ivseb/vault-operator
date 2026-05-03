@@ -289,10 +289,17 @@ export class RelayDO {
             let parsed;
             try { parsed = JSON.parse(body); } catch { return new Response('Invalid JSON', { status: 400 }); }
 
-            // Notification (no id) -- fire and forget
+            // Notification (no id) -- fire and forget. FIX-23-04-01 Pass 4:
+            // Spec-strikte Clients (Perplexity) versuchen jeden Body zu
+            // parsen, auch bei 204 wenn Content-Type=application/json ist.
+            // 200 + body 'null' ist gueltiges JSON, semantisch identisch
+            // zu "no response" und kompatibel mit allen Clients.
             if (parsed.id === undefined || parsed.id === null) {
                 this.enqueueForPlugin(body);
-                return new Response(null, { status: 204 });
+                return new Response('null', {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                });
             }
 
             // M-7: Use random correlation ID instead of client-provided sequential ID
