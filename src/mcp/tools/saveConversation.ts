@@ -41,11 +41,17 @@ interface InputMessage {
     ts?: string;
 }
 
+/** AUDIT-015 H-1: per-message text-cap. 100k chars per message ist
+ *  grosszuegig (Kapazitaet eines mittleren Buch-Kapitels) und schliesst
+ *  den DoS-Vektor "500 messages * beliebige Groesse" zuverlaessig. */
+const MAX_MESSAGE_TEXT_LENGTH = 100_000;
+
 function isInputMessage(m: unknown): m is InputMessage {
     return typeof m === 'object' && m !== null
         && typeof (m as { role?: unknown }).role === 'string'
         && ((m as { role?: string }).role === 'user' || (m as { role?: string }).role === 'assistant')
-        && typeof (m as { text?: unknown }).text === 'string';
+        && typeof (m as { text?: unknown }).text === 'string'
+        && (m as { text: string }).text.length <= MAX_MESSAGE_TEXT_LENGTH;
 }
 
 export async function handleSaveConversation(
@@ -58,10 +64,22 @@ export async function handleSaveConversation(
     }
     const messages: InputMessage[] = messagesRaw.filter(isInputMessage);
     if (messages.length === 0) {
-        return errorResult('messages had no valid {role, text} entries');
+        return errorResult(
+            `messages had no valid {role, text} entries. Note: each message text is capped `
+            + `at ${MAX_MESSAGE_TEXT_LENGTH} characters; longer messages are rejected.`,
+        );
     }
     if (messages.length > 500) {
         return errorResult('too many messages (max 500); split into multiple conversations');
+    }
+    // Reject the call if ANY message of the original raw array was
+    // dropped by isInputMessage -- silent truncation would lose data.
+    if (messages.length !== messagesRaw.length) {
+        return errorResult(
+            `${messagesRaw.length - messages.length} of ${messagesRaw.length} messages were `
+            + `rejected (invalid shape, role not user/assistant, or text > ${MAX_MESSAGE_TEXT_LENGTH} chars). `
+            + `Fix the input or split long messages.`,
+        );
     }
 
     const sourceInterface = validateSourceInterface(args.source_interface);

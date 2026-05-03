@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import initSqlJs from 'sql.js';
-import { FrontmatterIndexer, readFrontmatterSummary } from '../FrontmatterIndexer';
+import { FrontmatterIndexer, readFrontmatterSummary, readMemorySourceMarker } from '../FrontmatterIndexer';
 import { NoteSummaryStore } from '../../knowledge/NoteSummaryStore';
 import { FrontmatterPropertyStore } from '../../knowledge/FrontmatterPropertyStore';
+import { MemorySourceStore } from '../../knowledge/MemorySourceStore';
 import type { KnowledgeDB } from '../../knowledge/KnowledgeDB';
+import type { MemoryDB } from '../../knowledge/MemoryDB';
 
 type SqlJsDb = {
     run(sql: string, params?: unknown[]): unknown;
@@ -162,5 +164,134 @@ describe('FrontmatterIndexer', () => {
         expect(result.noteIndexed).toBe(2);
         expect(result.summariesUpdated).toBe(2);
         expect(result.errors).toBe(0);
+    });
+});
+
+// ----------------------------------------------------------------------
+// AUDIT-015 Eval-Coverage: maybeRouteMemorySource Bridge-Hook
+// (FEAT-03-25 / ADR-109)
+// ----------------------------------------------------------------------
+
+const MEMORY_SCHEMA = `
+CREATE TABLE memory_source_notes (
+    note_path TEXT PRIMARY KEY,
+    last_extracted_at TEXT,
+    dirty INTEGER NOT NULL DEFAULT 0,
+    fact_count INTEGER NOT NULL DEFAULT 0,
+    marker_source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    CHECK (dirty IN (0, 1)),
+    CHECK (marker_source IN ('agent-tool', 'frontmatter', 'settings-list'))
+);
+`;
+
+async function freshMemoryStore() {
+    const SQL = await initSqlJs();
+    const db = new SQL.Database();
+    db.exec(MEMORY_SCHEMA);
+    const memDB = {
+        isOpen: () => true,
+        getDB: () => db,
+        markDirty: () => undefined,
+    } as unknown as MemoryDB;
+    return new MemorySourceStore(memDB);
+}
+
+describe('readMemorySourceMarker (FEAT-03-25)', () => {
+    it('accepts true / "true" / "yes" / 1', () => {
+        expect(readMemorySourceMarker({ 'memory-source': true })).toBe(true);
+        expect(readMemorySourceMarker({ 'memory-source': 'true' })).toBe(true);
+        expect(readMemorySourceMarker({ 'memory-source': 'yes' })).toBe(true);
+        expect(readMemorySourceMarker({ 'memory-source': 1 })).toBe(true);
+        expect(readMemorySourceMarker({ memory_source: true })).toBe(true);
+        expect(readMemorySourceMarker({ memorySource: true })).toBe(true);
+    });
+    it('rejects false / missing / other values', () => {
+        expect(readMemorySourceMarker({})).toBe(false);
+        expect(readMemorySourceMarker({ 'memory-source': false })).toBe(false);
+        expect(readMemorySourceMarker({ 'memory-source': 'no' })).toBe(false);
+        expect(readMemorySourceMarker({ 'memory-source': 0 })).toBe(false);
+    });
+});
+
+describe('FrontmatterIndexer.maybeRouteMemorySource (Bridge-Hook)', () => {
+    let stores: Awaited<ReturnType<typeof freshStores>>;
+    beforeEach(async () => { stores = await freshStores(); });
+
+    it('triggers hook when frontmatter has memory-source: true', async () => {
+        const app = makeMockApp({ 'X.md': { frontmatter: { 'memory-source': true } } });
+        const memStore = await freshMemoryStore();
+        const hook = vi.fn(async () => undefined);
+        const indexer = new FrontmatterIndexer(app, stores.noteSummaryStore, stores.frontmatterPropertyStore, {
+            memorySourceStore: memStore,
+            memorySourceHook: hook,
+        });
+        await indexer.indexNote(makeFile('X.md', 100));
+        // give microtask queue a chance
+        await new Promise(r => setTimeout(r, 0));
+        expect(memStore.isMemorySource('X.md')).toBe(true);
+        expect(memStore.get('X.md')?.markerSource).toBe('frontmatter');
+        expect(hook).toHaveBeenCalled();
+    });
+
+    it('does NOT trigger hook when frontmatter is missing the marker', async () => {
+        const app = makeMockApp({ 'X.md': { frontmatter: {} } });
+        const memStore = await freshMemoryStore();
+        const hook = vi.fn();
+        const indexer = new FrontmatterIndexer(app, stores.noteSummaryStore, stores.frontmatterPropertyStore, {
+            memorySourceStore: memStore,
+            memorySourceHook: hook,
+        });
+        await indexer.indexNote(makeFile('X.md', 100));
+        expect(memStore.isMemorySource('X.md')).toBe(false);
+        expect(hook).not.toHaveBeenCalled();
+    });
+
+    it('triggers hook when note is registered via tool/settings (no frontmatter marker)', async () => {
+        const app = makeMockApp({ 'X.md': { frontmatter: {} } });
+        const memStore = await freshMemoryStore();
+        memStore.upsert('X.md', 'agent-tool');
+        const hook = vi.fn(async () => undefined);
+        const indexer = new FrontmatterIndexer(app, stores.noteSummaryStore, stores.frontmatterPropertyStore, {
+            memorySourceStore: memStore,
+            memorySourceHook: hook,
+        });
+        await indexer.indexNote(makeFile('X.md', 100));
+        await new Promise(r => setTimeout(r, 0));
+        expect(hook).toHaveBeenCalled();
+        // markerSource bleibt 'agent-tool', wird nicht ueberschrieben
+        expect(memStore.get('X.md')?.markerSource).toBe('agent-tool');
+    });
+
+    it('hook errors do not break the indexer pass (best-effort)', async () => {
+        const app = makeMockApp({ 'X.md': { frontmatter: { 'memory-source': true } } });
+        const memStore = await freshMemoryStore();
+        const hook = vi.fn(async () => { throw new Error('boom'); });
+        const indexer = new FrontmatterIndexer(app, stores.noteSummaryStore, stores.frontmatterPropertyStore, {
+            memorySourceStore: memStore,
+            memorySourceHook: hook,
+        });
+        // Indexer-Aufruf darf nicht throw'en
+        const r = await indexer.indexNote(makeFile('X.md', 100));
+        expect(r.error).toBeUndefined();  // indexer didn't fail
+        await new Promise(r => setTimeout(r, 0));
+        expect(memStore.isMemorySource('X.md')).toBe(true);  // upsert lief vor hook
+    });
+
+    it('marks dirty on second indexNote of an already-registered note', async () => {
+        const app = makeMockApp({ 'X.md': { frontmatter: { 'memory-source': true } } });
+        const memStore = await freshMemoryStore();
+        const hook = vi.fn(async () => undefined);
+        const indexer = new FrontmatterIndexer(app, stores.noteSummaryStore, stores.frontmatterPropertyStore, {
+            memorySourceStore: memStore,
+            memorySourceHook: hook,
+        });
+        await indexer.indexNote(makeFile('X.md', 100));
+        memStore.recordExtraction('X.md', 5);  // simulate a successful extraction
+        expect(memStore.get('X.md')?.dirty).toBe(false);
+
+        // Re-index after a modify
+        await indexer.indexNote(makeFile('X.md', 200));
+        expect(memStore.get('X.md')?.dirty).toBe(true);
     });
 });
