@@ -17,6 +17,12 @@ import { WriterLock } from '../persistence/WriterLock';
 import * as path from 'path';
 
 /**
+ * AUDIT-014 M-1: prototype-chain property names that must never be set
+ * via Frontmatter-Patch (CWE-1321 Prototype Pollution).
+ */
+const FORBIDDEN_PROPERTY_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
  * Patch-Anweisung:
  * - `fields`: pro Property-Name ein Wert. Default-Verhalten: nur
  *   ergaenzen wenn nicht vorhanden. `replace=true` ueberschreibt
@@ -84,6 +90,13 @@ export class FrontmatterWriter {
         try {
             await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
                 for (const [name, field] of Object.entries(patch)) {
+                    // AUDIT-014 M-1 (CWE-1321): reject prototype-chain property
+                    // names from agent-generated patches. Frontmatter properties
+                    // never legitimately use these reserved keys.
+                    if (FORBIDDEN_PROPERTY_NAMES.has(name)) {
+                        console.warn(`[FrontmatterWriter] Skipping forbidden property name: ${name}`);
+                        continue;
+                    }
                     const exists = name in fm && fm[name] !== null && fm[name] !== undefined;
                     if (!exists) {
                         fm[name] = field.value as never;

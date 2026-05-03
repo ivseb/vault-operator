@@ -160,6 +160,45 @@ describe('IngestTriageTool', () => {
         expect(results[0]).toContain('Cluster-Match**: (kein Match');
     });
 
+    it('AUDIT-014 H-1: rejects vault-path with parent-traversal', async () => {
+        const plugin = makeMockPlugin(stores);
+        tool = new IngestTriageTool(plugin);
+        const { ctx, results } = makeMockCtx();
+
+        await tool.execute({ source_uri: 'vault://../../etc/passwd' }, ctx);
+        expect(results[0]).toContain('ungueltiger vault-path');
+        expect(stores.triageStore.exists('vault://../../etc/passwd')).toBe(false);
+    });
+
+    it('AUDIT-014 H-1: rejects vault-path with NUL char', async () => {
+        const plugin = makeMockPlugin(stores);
+        tool = new IngestTriageTool(plugin);
+        const { ctx, results } = makeMockCtx();
+
+        await tool.execute({ source_uri: 'vault://valid/path\0/with-nul.md' }, ctx);
+        expect(results[0]).toContain('ungueltiger vault-path');
+    });
+
+    it('AUDIT-014 H-1: rejects URL-encoded path traversal', async () => {
+        const plugin = makeMockPlugin(stores);
+        tool = new IngestTriageTool(plugin);
+        const { ctx, results } = makeMockCtx();
+
+        await tool.execute({ source_uri: 'vault://%2e%2e/secret' }, ctx);
+        expect(results[0]).toContain('ungueltiger vault-path');
+    });
+
+    it('AUDIT-014 H-1: accepts normal vault-path', async () => {
+        const plugin = makeMockPlugin(stores);
+        tool = new IngestTriageTool(plugin);
+        const { ctx, results } = makeMockCtx();
+
+        await tool.execute({ source_uri: 'vault://Notes/Article.md', cluster_hint: 'Tech' }, ctx);
+        // Sollte normal triagen, nicht rejecten
+        expect(results[0]).toContain('Triage-Karte');
+        expect(results[0]).not.toContain('ungueltiger vault-path');
+    });
+
     it('returns error when knowledgeDB unavailable', async () => {
         const plugin = {
             knowledgeDB: null,

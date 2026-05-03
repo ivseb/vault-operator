@@ -81,6 +81,31 @@ describe('FrontmatterWriter', () => {
         expect(result.error).toBe('synthetic-error');
     });
 
+    it('AUDIT-014 M-1: rejects __proto__ property name', async () => {
+        const mock = makeMockApp({});
+        const writer = new FrontmatterWriter(mock.app, { storageMode: 'global' });
+
+        const result = await writer.write({} as never, {
+            __proto__: { value: { polluted: true } } as never,
+            normalProp: { value: 'ok' },
+        });
+        expect(result.fieldsAdded).toEqual(['normalProp']);
+        // proto-Pollution-Check: bestaetigt dass globaler Object.prototype nicht polluted
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    });
+
+    it('AUDIT-014 M-1: rejects constructor and prototype property names', async () => {
+        const mock = makeMockApp({});
+        const writer = new FrontmatterWriter(mock.app, { storageMode: 'global' });
+
+        const result = await writer.write({} as never, {
+            constructor: { value: 'evil' },
+            prototype: { value: 'evil' },
+            allowed: { value: 'safe' },
+        });
+        expect(result.fieldsAdded).toEqual(['allowed']);
+    });
+
     it('preserves null and undefined as missing (overrides)', async () => {
         const mock = makeMockApp({ summary: null, tags: undefined });
         const writer = new FrontmatterWriter(mock.app, { storageMode: 'global' });

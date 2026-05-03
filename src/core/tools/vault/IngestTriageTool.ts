@@ -18,6 +18,29 @@ import type ObsidianAgentPlugin from '../../../main';
 import type { TriageDecision } from '../../ingest/IngestTriageLogStore';
 import { normalizeDomain } from '../../knowledge/ClusterSourceStatsStore';
 
+/**
+ * AUDIT-014 H-1 (CWE-22 Path Traversal):
+ * Validate vault-relative paths from Tool-Input. Reject any string with
+ * `..` segments, NUL chars, or absolute-path markers. Returns null when
+ * path is unsafe, the caller must abort the operation.
+ *
+ * Note: this guards against agent-supplied input. Obsidian's
+ * getAbstractFileByPath is vault-rooted, but raw `..`-strings persist in
+ * triage-log entries and downstream UI; rejecting at the boundary is
+ * the right place.
+ */
+function validateVaultPath(rawPath: string): string | null {
+    if (!rawPath || typeof rawPath !== 'string') return null;
+    // Normalize Windows path separators, strip leading slashes
+    const normalized = rawPath.replace(/\\/g, '/').replace(/^\/+/, '');
+    // Reject parent-traversal segments and NUL chars
+    if (normalized.split('/').some((seg) => seg === '..' || seg === '.')) return null;
+    if (normalized.includes('\0')) return null;
+    // Reject double-encoded escapes
+    if (/%2e%2e|%2f%2f/i.test(normalized)) return null;
+    return normalized;
+}
+
 interface IngestTriageInput {
     /** Source URI: 'vault://path', 'https://...', or 'file://...'. */
     source_uri: string;
@@ -88,7 +111,15 @@ export class IngestTriageTool extends BaseTool<'ingest_triage'> {
         let clusterMatch = cluster_hint ?? null;
         let domain: string | null = null;
         if (source_uri.startsWith('vault://')) {
-            const path = source_uri.slice('vault://'.length);
+            const rawPath = source_uri.slice('vault://'.length);
+            // AUDIT-014 H-1: validate before any FS / DB lookup
+            const path = validateVaultPath(rawPath);
+            if (!path) {
+                ctx.callbacks.pushToolResult(
+                    this.formatError(`IngestTriage: ungueltiger vault-path "${rawPath}". Path-Traversal-Marker oder NUL-Char enthalten.`),
+                );
+                return;
+            }
             if (!clusterMatch) {
                 clusterMatch = lookupPrimaryCluster(knowledgeDB.getDB(), path);
             }
