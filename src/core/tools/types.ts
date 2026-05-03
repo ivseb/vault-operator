@@ -50,6 +50,10 @@ export type ToolName =
     | 'ingest_deep'
     // Vault: BA-25 Anti-Echo Web-Search-Suche (FEAT-19-14)
     | 'anti_echo_search'
+    // Vault: FEAT-03-25 / ADR-109 Vault-zu-Memory-Bruecke
+    | 'mark_note_as_memory_source'
+    | 'unmark_note_as_memory_source'
+    | 'list_memory_source_notes'
     // Web
     | 'web_fetch'
     | 'web_search'

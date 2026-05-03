@@ -139,6 +139,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     clusterSourceStatsStore: ClusterSourceStatsStore | null = null;
     ingestSessionStore: IngestSessionStore | null = null;
     ingestTriageLogStore: IngestTriageLogStore | null = null;
+    /** FEAT-03-25 / ADR-109: Vault-zu-Memory-Bruecke-Tabellenzugriff. */
+    memorySourceStore: import('./core/knowledge/MemorySourceStore').MemorySourceStore | null = null;
     frontmatterIndexer: FrontmatterIndexer | null = null;
     autoTriggerObserver: AutoTriggerObserver | null = null;
     topHubBlockGenerator: TopHubBlockGenerator | null = null;
@@ -563,6 +565,39 @@ export default class ObsidianAgentPlugin extends Plugin {
                     },
                 })
                 : undefined;
+            // FEAT-03-25 / ADR-109: MemorySourceStore + Bridge-Hook
+            // initialisieren. Der Hook liest die Note und triggert
+            // ExtractionQueue.enqueueImmediate, damit der bereits
+            // existierende SingleCallProcessor die Facts extrahiert.
+            // Best-effort: alles in eigenem try/catch -- Hook-Fehler
+            // blockieren den Vault-Indexer niemals.
+            if (this.memoryDB?.isOpen()) {
+                const { MemorySourceStore } = await import('./core/knowledge/MemorySourceStore');
+                this.memorySourceStore = new MemorySourceStore(this.memoryDB);
+            }
+            const memorySourceStore = this.memorySourceStore;
+            const memorySourceHook = memorySourceStore
+                ? async (input: { file: TFile; fromFrontmatter: boolean }) => {
+                    if (!this.extractionQueue) return;
+                    try {
+                        const content = await this.app.vault.cachedRead(input.file);
+                        // Repackage als pseudo-conversation: ein 'user'-Turn
+                        // mit dem Note-Inhalt, ConversationId = vault://path.
+                        // SingleCallProcessor extrahiert wie bei einem Chat.
+                        const conversationId = `vault://${input.file.path}`;
+                        await this.extractionQueue.enqueueImmediate({
+                            conversationId,
+                            messages: [{ role: 'user', text: content }],
+                            title: `Vault note: ${input.file.basename}`,
+                            queuedAt: new Date().toISOString(),
+                        });
+                        memorySourceStore.markDirty(input.file.path);
+                    } catch (e) {
+                        console.debug(`[memory-source-hook] failed for ${input.file.path}:`, e);
+                    }
+                }
+                : undefined;
+
             this.frontmatterIndexer = new FrontmatterIndexer(
                 this.app,
                 this.noteSummaryStore,
@@ -570,6 +605,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 {
                     autoSummaryEnabled: ingestCfg.autoSummary.enabled,
                     summaryGenerator,
+                    memorySourceStore: memorySourceStore ?? undefined,
+                    memorySourceHook,
                 },
             );
 
@@ -1011,6 +1048,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.graphExtractor?.removeFile(file.path);
                 this.ontologyStore?.removeEntriesForPath(file.path);
                 this.scheduleTopHubBlockRegen();
+                // FEAT-03-25 / ADR-109: Cascade -- entferne MemorySourceStore-
+                // Eintrag, abgeleitete Facts bleiben (FEAT-03-22 Forget-Right
+                // ist separater Pfad, kein automatisches Hard-Delete).
+                this.memorySourceStore?.remove(file.path);
             }));
             this.registerEvent(this.app.vault.on('rename', (file, oldPath) => {
                 if (file instanceof TFolder) {
@@ -1019,6 +1060,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
                 if (!(file instanceof TFile)) return;
                 applyFileRename(oldPath, file);
+                // FEAT-03-25: MemorySourceStore mitziehen.
+                this.memorySourceStore?.rename(oldPath, file.path);
             }));
         }
 

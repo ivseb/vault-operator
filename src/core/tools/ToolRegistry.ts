@@ -28,6 +28,9 @@ import { IngestDocumentTool } from './vault/IngestDocumentTool';
 import { IngestTriageTool } from './vault/IngestTriageTool';
 import { IngestDeepTool } from './vault/IngestDeepTool';
 import { AntiEchoSearchTool } from './vault/AntiEchoSearchTool';
+import { MarkNoteAsMemorySourceTool } from './vault/MarkNoteAsMemorySourceTool';
+import { UnmarkNoteAsMemorySourceTool } from './vault/UnmarkNoteAsMemorySourceTool';
+import { ListMemorySourceNotesTool } from './vault/ListMemorySourceNotesTool';
 // Import tools — vault: intelligence (Phase 1.2)
 import { GetFrontmatterTool } from './vault/GetFrontmatterTool';
 import { UpdateFrontmatterTool } from './vault/UpdateFrontmatterTool';
@@ -153,6 +156,9 @@ export class ToolRegistry {
         this.register(new IngestTriageTool(this.plugin));
         this.register(new IngestDeepTool(this.plugin));
         this.register(new AntiEchoSearchTool(this.plugin));
+        this.register(new MarkNoteAsMemorySourceTool(this.plugin));
+        this.register(new UnmarkNoteAsMemorySourceTool(this.plugin));
+        this.register(new ListMemorySourceNotesTool(this.plugin));
         this.register(new CreateFolderTool(this.plugin));
         this.register(new DeleteFileTool(this.plugin));
         this.register(new MoveFileTool(this.plugin));
