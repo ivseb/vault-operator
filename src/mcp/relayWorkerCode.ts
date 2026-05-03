@@ -184,13 +184,17 @@ export default {
         const finalHeaders = new Headers();
         for (const [k, v] of Object.entries(mcpCorsHeaders)) finalHeaders.set(k, v);
 
-        // FIX-23-04-01 Pass 3: Default Content-Type fuer Notification-
-        // Responses (204 ohne Body). Spec-strikte Clients wie Perplexity
-        // werfen "Unexpected content type:" wenn Header leer ist.
+        // Content-Type-Handling: passthrough was upstream lieferte.
+        // FIX-23-04-01 Pass 5: kein Default-CT mehr aufzwingen --
+        // Notifications kommen jetzt mit 202 + leerem Body + kein CT
+        // (Spec-konform "no body to parse"); 200/JSON-Responses tragen
+        // den CT bereits selbst. Default 'application/json' nur dann,
+        // wenn der Status weder 202 noch 204 ist UND ein nicht-leerer
+        // Body vorhanden ist (defensiv).
         const upstreamCT = resp.headers.get('content-type');
         if (upstreamCT) {
             finalHeaders.set('Content-Type', upstreamCT);
-        } else {
+        } else if (resp.status !== 202 && resp.status !== 204 && upstreamBody.length > 0) {
             finalHeaders.set('Content-Type', 'application/json');
         }
 
@@ -289,16 +293,17 @@ export class RelayDO {
             let parsed;
             try { parsed = JSON.parse(body); } catch { return new Response('Invalid JSON', { status: 400 }); }
 
-            // Notification (no id) -- fire and forget. FIX-23-04-01 Pass 4:
-            // Spec-strikte Clients (Perplexity) versuchen jeden Body zu
-            // parsen, auch bei 204 wenn Content-Type=application/json ist.
-            // 200 + body 'null' ist gueltiges JSON, semantisch identisch
-            // zu "no response" und kompatibel mit allen Clients.
+            // Notification (no id) -- fire and forget. FIX-23-04-01 Pass 5:
+            // MCP Streamable HTTP Spec verlangt: "Server MUST respond with
+            // HTTP status code 202 Accepted with no body". Pydantic von
+            // Perplexity lehnt 'null' als Body ab, weil JSON-RPC schemas
+            // einen Object erwarten. 202 + leer + kein Content-Type ist
+            // spec-konform: Status 202 signalisiert "no body to parse".
             if (parsed.id === undefined || parsed.id === null) {
                 this.enqueueForPlugin(body);
-                return new Response('null', {
-                    status: 200,
-                    headers: { 'Content-Type': 'application/json' },
+                return new Response(null, {
+                    status: 202,
+                    headers: { 'Content-Length': '0' },
                 });
             }
 
