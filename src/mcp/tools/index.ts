@@ -54,37 +54,53 @@ let sessionLastActivity = 0;
 let systemContextInjected = false;
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 min inactivity = new session
 
+/**
+ * FIX-23-01-04 (Pass 9): ensureSession ist jetzt LAZY -- es markiert
+ * nur die Session-Grenze (Timeout-Reset), legt aber KEINE
+ * ConversationStore-Row mehr an. Die Conversation wird beim ERSTEN
+ * Aufruf von logToolCallToHistory tatsaechlich erzeugt
+ * (createSessionIfNeeded). Das verhindert, dass jeder MCP-Tool-Call
+ * (auch save_conversation, das seinen eigenen Storage-Pfad hat)
+ * eine leere "Claude (MCP)"-Conversation im Unknown-Tab hinterlaesst.
+ */
 async function ensureSession(plugin: ObsidianAgentPlugin): Promise<void> {
     const now = Date.now();
 
-    // Start a new session if none exists or if timed out
-    if (!currentSessionId || (now - sessionLastActivity > SESSION_TIMEOUT_MS)) {
+    if (sessionLastActivity === 0 || (now - sessionLastActivity > SESSION_TIMEOUT_MS)) {
         sessionToolCalls = [];
         sessionMessages = [];
         sessionUiMessages = [];
         systemContextInjected = false;
-        if (plugin.conversationStore) {
-            try {
-                // FIX-23-01-02: tag auto-tracked MCP sessions as 'unknown'
-                // source by default. sync_session can refine this with an
-                // explicit source_interface argument, save_conversation
-                // already passes the right tag through.
-                currentSessionId = await plugin.conversationStore.create('mcp', 'Claude (MCP)', {
-                    sourceInterface: 'unknown',
-                });
-                console.debug(`[MCP] New session: ${currentSessionId}`);
-            } catch { /* non-fatal */ }
-        } else {
-            currentSessionId = `mcp-${now}`;
-        }
+        currentSessionId = null;  // lazy: wird beim ersten Log-Call erzeugt
     }
 
     sessionLastActivity = now;
 }
 
+/**
+ * Lazy create the auto-tracked Conversation. Called by
+ * logToolCallToHistory and updateSessionTitle on demand. No-op if
+ * already created.
+ */
+async function createSessionIfNeeded(plugin: ObsidianAgentPlugin): Promise<void> {
+    if (currentSessionId) return;
+    if (!plugin.conversationStore) {
+        currentSessionId = `mcp-${Date.now()}`;
+        return;
+    }
+    try {
+        currentSessionId = await plugin.conversationStore.create('mcp', 'Claude (MCP)', {
+            sourceInterface: 'unknown',
+        });
+        console.debug(`[MCP] New auto-tracked session: ${currentSessionId}`);
+    } catch { /* non-fatal */ }
+}
+
 async function updateSessionTitle(plugin: ObsidianAgentPlugin, tool: string): Promise<void> {
     sessionToolCalls.push(tool);
 
+    // Lazy: only update title when an auto-tracked session was already created.
+    // Skip-pure tools (save_conversation et al.) leave currentSessionId null.
     if (!plugin.conversationStore || !currentSessionId) return;
 
     // Generate a title from the tools used
@@ -108,7 +124,13 @@ async function logToolCallToHistory(
     args: Record<string, unknown>,
     result: McpToolResult,
 ): Promise<void> {
-    if (!plugin.conversationStore || !currentSessionId) return;
+    if (!plugin.conversationStore) return;
+    // Lazy: erzeuge die auto-tracked Conversation hier, nicht in
+    // ensureSession. Damit entstehen keine leeren ConversationStore-
+    // Rows mehr, wenn ausschliesslich SKIP_AUTO_TRACK-Tools gerufen
+    // wurden (save_conversation etc.).
+    await createSessionIfNeeded(plugin);
+    if (!currentSessionId) return;
 
     try {
         const now = new Date().toISOString();
