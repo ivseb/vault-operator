@@ -124,9 +124,24 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
             } else if (attachment_index !== undefined && attachment_index >= 0) {
                 // Get from chat attachment
                 if (attachment_index >= this.attachmentTexts.length) {
+                    // Attachments are populated only on the turn the user uploaded them;
+                    // a Multi-Turn-Dialog skill that calls ingest_document on a later
+                    // turn will see attachmentTexts === [] (FIX-19-28-02 follow-up).
+                    // Give the agent an actionable error instead of a number.
+                    if (this.attachmentTexts.length === 0) {
+                        throw new Error(
+                            'No chat attachments available on this turn. The chat-attachment lifetime is one turn -- ' +
+                            'the PDF/Office document the user uploaded earlier is no longer accessible via attachment_index. ' +
+                            'Action: ask the user to save the file to the vault (e.g. drag into Attachments/), then re-run with source_path. ' +
+                            'Alternative: if the parsed document text is still visible in your context as <attached_document> block, ' +
+                            'extract the page-structured text from there and call write_file directly with the full Markdown body ' +
+                            '(including the ## Page N headings and ## Originaltext section) and add the [[basename#Page N|↗]] markers ' +
+                            'to your Kernaussagen manually.'
+                        );
+                    }
                     throw new Error(
                         `Attachment index ${attachment_index} out of range. ` +
-                        `${this.attachmentTexts.length} attachment(s) available.`
+                        `${this.attachmentTexts.length} attachment(s) available (use index 0..${this.attachmentTexts.length - 1}).`
                     );
                 }
                 documentText = this.attachmentTexts[attachment_index];

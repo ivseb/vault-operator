@@ -3,99 +3,140 @@ name: ingest-deep
 description: Deep ingest of a source (PDF/Markdown/URL/DOCX/PPTX/XLSX) in Karpathy multi-turn pattern. Forced Markdown conversion, block-refs to the source rendered as a discreet ↗ symbol. Mandatory step 1 is triage (cluster match, source diversity, tension hint).
 trigger: ingest.deep|deep.ingest|karpathy|sense.?making|multi.?turn.*ingest|tiefe.*ingest|deep.?dive.*quelle
 source: bundled
-requiredTools: [ingest_triage, ingest_deep, read_file, read_document]
+requiredTools: [ingest_triage, ingest_deep, ingest_document, read_file]
 ---
 
 # /ingest-deep -- Karpathy Multi-Turn Deep-Ingest
 
 ## Wann nutzen
 
-Fuer Quellen die echtes Sense-Making rechtfertigen: Forschungs-PDFs,
-lange Webclips, fachliche DOCX/PPTX, Notes fuer den Zettelkasten.
-Erwartung: 5-15 Minuten Dialog, persistente Vault-Aenderungen,
-Block-genaue Provenance.
+Tiefe Sense-Making-Notes fuer Forschungs-PDFs, lange Webclips,
+fachliche DOCX/PPTX, Zettelkasten-Material. Erwartung: 5-15 Minuten
+Dialog, persistente Vault-Aenderungen, Block-genaue Provenance.
 
 Nicht fuer schnelle Inbox-Aufnahme (-> /ingest), nicht fuer
 Meeting-Transkripte (-> /meeting-summary).
 
-## Pflicht-Schritte
+## Kosten-Disziplin (vor jedem Tool-Call lesen)
 
-### 1. Triage (10 Sekunden Pre-Pass)
+Karpathy-Multi-Turn ist teuer. Halte den Token-Verbrauch klein:
 
-Ruf das Tool `ingest_triage` mit `source_uri="vault://<path>"`. Das
-liefert eine Triage-Karte mit:
+- **Maximal 2 Tool-Calls vor dem User-Approval, maximal 1 Tool-Call
+  beim eigentlichen Schreiben.** Bei 32 Messages und einem 410-Seiten-PDF
+  im Kontext kostet ein einziger Run > 10 EUR.
+- **STOP-on-Error.** Wenn ein Tool fehlschlaegt, brich ab und sag dem
+  User was er tun soll. Nicht in Retry-Loops verfallen.
+- **Keine Erkundungs-`read_document`-Calls.** Quelle wurde dem Agent
+  schon als `<attached_document>` oder Vault-File gegeben.
+- **Kein `list_files` als Workaround.** Wenn der Pfad unklar ist,
+  frag den User.
+
+## Step 0: Source-Typ erkennen (Pflicht, vor allem anderen)
+
+Quelle kommt entweder als **Chat-Attachment** (User hat eine Datei in
+den Chat gezogen) oder als **Vault-File** (Datei liegt schon im Vault).
+Das macht einen riesigen Unterschied fuer die naechsten Schritte.
+
+| Indikator | Source-Typ |
+|---|---|
+| `<attached_document name="..." format="pdf" pages="N">` ohne `vault_path`-Attribute | **Chat-Attachment** |
+| `<attached_document ... vault_path="...">` | **Vault-File** (mit attachment-Hint) |
+| User hat einen vault-relativen Pfad genannt (z.B. `Attachements/Foo.pdf`) | **Vault-File** |
+| Keine der obigen Indikatoren | Nachfragen |
+
+### Step 0a (Chat-Attachment): erst in Vault speichern
+
+Chat-Attachments leben **nur einen Turn**. Der `attachment_index` ist
+ab Turn 2 nicht mehr gueltig. Fuer Karpathy-Multi-Turn brauchst du
+also einen Vault-Pfad VOR dem Dialog.
+
+Vorgehen:
+
+1. Schlage dem User vor, die Datei nach `Attachements/<dateiname>` zu
+   speichern.
+2. Bitte ihn, die Datei manuell in den Attachements-Folder zu
+   ziehen, **oder** rufe `ingest_document` SOFORT auf Turn 1 mit
+   `attachment_index: 0` und einem minimalen `header_content` (nur
+   Frontmatter + Title). Das Tool appended den Originaltext mit
+   `## Page N`-Headings -- die Note kann danach im naechsten Turn
+   weitergepflegt werden.
+3. Nach erfolgreichem Save: weiter mit Step 1 auf Vault-Basis.
+
+**Kein Versuch**, im naechsten Turn nochmal `attachment_index 0` zu
+nutzen. Es wird fehlschlagen.
+
+### Step 0b (Vault-File): direkt weiter
+
+Continue mit Step 1.
+
+## Step 1: Triage (vault://-Pfad, 10 Sekunden, billig)
+
+Tool: `ingest_triage`
+
+```
+ingest_triage source_uri="vault://<path>"
+```
+
+**Voraussetzung:** Source ist ein Vault-File. Bei Chat-Attachments
+hat Step 0a die Datei bereits in den Vault gespeichert.
+
+Output ist eine Triage-Karte:
 
 - Cluster-Match aus der Ontologie
-- Source-Domain-Diversity-Hint (wird der Cluster zu einseitig?)
-- Tension-Empfehlung (Widersprueche zu existierenden Notes?)
+- Source-Domain-Diversity-Hint
+- Tension-Empfehlung
 - Empfehlung: Ingest / Spaeter / Verwerfen
 
 Zeig die Karte dem User. Decision:
 
-- **Verwerfen** -> Skill-Abbruch, Decision wird im triage_log persistiert.
-- **Spaeter** -> Skill-Abbruch, Note bleibt in Inbox.
-- **Ingest** -> weiter zu Schritt 2.
+- **Verwerfen** -> Skill-Abbruch.
+- **Spaeter** -> Skill-Abbruch.
+- **Ingest** -> Step 2.
 
-### 2. Source-Konversion zu Markdown (Pflicht)
+**Wenn `ingest_triage` einen Fehler zurueckgibt** (KnowledgeDB nicht
+offen, Pfad ungueltig, etc.): nicht retryen. Skip Triage, weiter mit
+Step 2 mit dem User informiert.
 
-Quellentyp-abhaengige Vorverarbeitung:
+## Step 2: User-Approval
 
-| Source-Typ | Vorverarbeitung |
-|---|---|
-| Markdown / Webclip | direkt nutzbar |
-| URL (nur Link) | requestUrl + Reader-Mode-Konversion in eine Markdown-Note unter `Sources/` |
-| PDF | Markdown-Mirror erzwingen: setze Tool-Setting-Override `pdfStrategy: 'markdown-mirror'` fuer diesen Aufruf. Mirror landet als Sibling-`.md` neben der PDF. Original-PDF bleibt unangetastet. |
-| DOCX / PPTX / XLSX | parseDocument-Pipeline -> Markdown-Mirror-Note unter `Sources/`. Original bleibt im Attachments-Folder. |
+Frage den User in der Chat:
 
-Bei gescannten / image-only PDFs: pdfjs-Textlayer leer -> warne den
-User "OCR fehlt, Block-Refs werden nur auf Page-Level gesetzt" und
-fall zurueck auf page-refs fuer diese eine PDF.
+- "Welche Schwerpunkte sollen ingestet werden?"
+- "Output-Modus: source-plus-summary (1 Sense-Making-Note) oder
+  source-plus-multi-zettel (1 Bibliografie + N Zettel)?"
 
-### 3. Take-Aways extrahieren mit Position-Map
+Eine Runde reicht. Der User antwortet, dann weiter mit Step 3.
 
-Lies die Markdown-Source komplett. Identifiziere 5-15 Kernaussagen
-(eine pro Strategie/Punkt, nicht pro Satz). Pro Take-Away halte fest:
-
-- Aussage-Text (max 200 Zeichen, knapp)
-- Anker-Text aus dem Source-Body (eindeutiger Substring, an dem der
-  Block-ID-Anker gesetzt werden soll)
-- Position-Kind: 'block-anchor' fuer Markdown/Mirror, 'page' fuer
-  PDF im page-refs-Modus, 'url-anchor' wenn die URL Section-IDs hat.
-
-### 4. Multi-Turn-Dialog mit User
-
-Zeig die Take-Aways im Chat. Frage:
-
-- "Welche dieser Take-Aways sind fuer dich wichtig?"
-- "Was soll betont werden?"
-- "Gibt es Aspekte die du anders einschaetzt?"
-
-User korrigiert/ergaenzt. Mindestens **eine** Bestaetigungsrunde,
-maximal drei. Erfasse die User-Betonung pro Take-Away.
-
-### 5. Output-Modus waehlen
-
-Frage den User (oder lies Default aus Settings):
-
-- **Modus 2 (Source + Sense-Making-Note)** -- Karpathys Default
-- **Modus 3 (Source + Multi-Zettel + Bibliografie-Note)** -- Zettelkasten-Praxis
-
-Bei Modus 3: pro Take-Away ein Zettel, plus eine bibliographische
-Summary-Note mit `base`-Codeblock.
-
-### 6. ingest_deep aufrufen
+## Step 3: ingest_deep aufrufen (EIN Tool-Call)
 
 ```
 ingest_deep
-  source_path="<konvertierter Markdown-Pfad>"
+  source_path="<vault-relativer Pfad zur Markdown-Source oder zur PDF>"
   mode="dialog"
   output_mode="source-plus-summary"   // oder "source-plus-multi-zettel"
   cluster="<aus Triage>"
 ```
 
-### 7. Output-Konvention enforcen (Marker-Form ↗)
+Bei PDFs erzwinge Mirror-Konvertierung VOR diesem Aufruf, indem du
+sicherstellst, dass `vaultIngest.pdfStrategy = 'markdown-mirror'` im
+Settings ist. Sonst bleibt die PDF page-refs und Block-Granularitaet
+ist nur Page-Level.
 
-Pro Take-Away in der Sense-Making-Note (oder pro Zettel in Modus 3)
+**Wenn ingest_deep fehlschlaegt:** nicht retryen, dem User Fehler
+zeigen, Skill-Ende.
+
+## Step 4: Output-Konvention pruefen
+
+Nach erfolgreichem `ingest_deep`-Run:
+
+- Sense-Making-Note enthaelt pro Take-Away eine `[[source#^block-N|↗]]`-
+  oder `[[source.pdf#page=N|↗]]`-Ref am Satzende? -> ok.
+- Falls nicht: lese die Note via `read_file`, ergaenze fehlende Marker
+  via Edit (kein Re-Write der ganzen Note).
+
+## Output-Konvention (verbindlich)
+
+Pro Aussage in der Sense-Making-Note (oder pro Zettel in Multi-Modus)
 muss am Satzende ein dezenter Block-Ref-Link stehen:
 
 ```markdown
@@ -107,26 +148,29 @@ Pflicht-Form:
 - Display-Text immer **nur** `↗`. Kein "Quelle:", kein "[1]".
 - Inline am Satzende, ein Leerzeichen vor dem Link.
 - Eine Block-Ref pro Kernaussage.
-- Bei PDF mit Mirror: `[[Mirror#^block-N|↗]]`.
-- Bei Markdown-Source: `[[source#^block-N|↗]]`.
-- Bei URL-Source mit Section-ID: `[[source#section-id|↗]]`.
-
-### 8. MOC-Update + Source-Diversity-Counter
-
-Laeuft automatisch im `ingest_deep`-Tool (FEAT-19-26 + FEAT-19-14).
-Skill-seitig nichts tun.
-
-## Source-Note-Konstanz
-
-Block-IDs werden im Source-Markdown gesetzt und sind danach **stabil**.
-Nicht umbenennen, sonst brechen alle Block-Refs in Sense-Making-Notes
-und Zettel.
 
 ## Verbote
 
 - Keine `[1]`-Marker im Perplexity-Stil.
-- Kein `pdfStrategy: 'page-refs'` (das ist `/ingest`-Default, nicht
-  `/ingest-deep`).
-- Keine Take-Aways ohne Position-Anker.
+- Keine `pdfStrategy: 'page-refs'` in `/ingest-deep` (das ist /ingest-Default).
 - Keine Halluzinationen: jede Aussage muss aus der Source belegt sein.
+- **Keine Retry-Loops.** Bei Tool-Fehler: STOP, User informieren.
+- **Kein `read_document` als Erkundungs-Pre-Pass.** Source-Text liegt
+  bereits als `<attached_document>` oder Vault-File vor.
+- **Kein `list_files` zur Pfad-Suche.** User fragen ist billiger.
 - Bestehende User-Edits in MOC-Files nicht ueberschreiben.
+
+## Notfall-Pfad: write_file
+
+Wenn `ingest_document` und `ingest_deep` beide fehlschlagen (z.B.
+Attachment weg, KnowledgeDB nicht initialisiert, Provider-Quota voll):
+
+1. Extrahiere die Page-Struktur aus dem `<attached_document>`-Block in
+   deinem Kontext (sucht nach `## Page N`-Headings).
+2. Schreibe via `write_file` eine Single-Note mit:
+   - Frontmatter (source, year, etc.)
+   - `## Overview`
+   - `## Kernaussagen` mit pro Aussage `[[<basename>#Page <N>|↗]]`-Marker
+     -- Page-Number aus dem geparsten Text ableiten
+   - `## Originaltext` mit dem vollstaendigen geparsten Text
+3. Tu das in EINEM `write_file`-Call. Kein Edit-Loop.
