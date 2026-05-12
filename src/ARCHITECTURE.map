@@ -58,6 +58,7 @@ github-copilot            | src/api/providers/github-copilot.ts                 
 bedrock                   | src/api/providers/bedrock.ts                          | ADR-11, ADR-111 | extend region or model resolver; set cachePoint ContentBlock when cache-capability says bedrock-cachepoint
 openrouter                | src/api/providers/openrouter.ts                       | ADR-11          | extend route fallback or pricing
 cache-capability          | src/api/capabilities.ts                               | ADR-111         | new provider/model entry: extend table; UI and provider read via getCacheCapability()
+kv-cache-prompt           | src/core/systemPrompt.ts                              | ADR-62          | stable sections before CACHE_BREAKPOINT_MARKER, volatile tail after; providers split via splitSystemPromptAtCacheBreakpoint and mark only the prefix
 
 # AUTH
 chatgpt-oauth-auth        | src/core/auth/ChatGptOAuthService.ts                  | ADR-88, ADR-89 | extend PKCE or token-refresh flow

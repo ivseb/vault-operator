@@ -707,7 +707,11 @@ export interface ObsidianAgentSettings {
     autoAddActiveFileContext: boolean;
     /** Press Enter to send (Shift+Enter for newline). When false, Ctrl/Cmd+Enter sends. */
     sendWithEnter: boolean;
-    /** Inject current date and time into the system prompt */
+    /**
+     * Add the current time-of-day to the system prompt. The calendar date is
+     * always included (daily granularity, KV-cache-safe); this opt-in adds the
+     * exact time, which changes every call and defeats prompt caching. Default false.
+     */
     includeCurrentTimeInContext: boolean;
     /** Display context window usage progress bar in sidebar (restart sidebar to apply) */
     showContextProgress: boolean;
@@ -1167,7 +1171,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
 
     autoAddActiveFileContext: true,
     sendWithEnter: true,
-    includeCurrentTimeInContext: true,
+    includeCurrentTimeInContext: false, // ADR-62 amendment: date is always present; time-of-day is opt-in (defeats caching)
     showContextProgress: false,
     rulesToggles: {},
     workflowToggles: {},

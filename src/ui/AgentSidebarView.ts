@@ -2503,7 +2503,7 @@ export class AgentSidebarView extends ItemView {
             history: this.conversationHistory,
             abortSignal: this.currentAbortController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
-            includeTime: this.plugin.settings.includeCurrentTimeInContext ?? true,
+            includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
             rulesContent: rulesContent || undefined,
             skillsSection: skillsSection || undefined,
             mcpClient: this.plugin.mcpClient,

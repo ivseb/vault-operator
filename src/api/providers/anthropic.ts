@@ -14,7 +14,47 @@ import type { ApiHandler, ApiStream, ApiStreamChunk, ContentBlock, MessageParam,
 import { truncatedToolInputError } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens } from '../../types/model-registry';
+import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
+
+/** Put an ephemeral cache_control marker on the last content block of a message. */
+function markLastBlock(msg: Anthropic.MessageParam): void {
+    if (typeof msg.content === 'string') {
+        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
+        return;
+    }
+    if (Array.isArray(msg.content) && msg.content.length > 0) {
+        const blocks = msg.content as Anthropic.Messages.ContentBlockParam[];
+        const last = blocks[blocks.length - 1] as Anthropic.Messages.ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
+        // text and tool_result blocks accept cache_control; for anything else, append a tiny text block.
+        if ('type' in last && (last.type === 'text' || last.type === 'tool_result')) {
+            last.cache_control = { type: 'ephemeral' };
+        } else {
+            blocks.push({ type: 'text', text: '​', cache_control: { type: 'ephemeral' } });
+        }
+    }
+}
+
+/**
+ * FEAT-24-01: place two rolling cache breakpoints in the message history — one on
+ * the last user message (advances each turn) and one a few turns earlier (stays a
+ * stable cache prefix across turns). Keeps the conversation part of long sessions
+ * mostly cache reads instead of full re-sends.
+ */
+function markRollingHistoryBreakpoints(messages: Anthropic.MessageParam[]): void {
+    let lastUser = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'user') { lastUser = i; break; }
+    }
+    if (lastUser < 0) return;
+    markLastBlock(messages[lastUser]);
+    // Second marker at least ~6 messages further back, so it stays a stable cache
+    // prefix across several turns instead of advancing with the conversation.
+    const STABLE_BACKOFF = 6;
+    for (let i = lastUser - STABLE_BACKOFF; i >= 0; i--) {
+        if (messages[i].role === 'user') { markLastBlock(messages[i]); break; }
+    }
+}
 
 export class AnthropicProvider implements ApiHandler {
     private client: Anthropic;
@@ -59,37 +99,34 @@ export class AnthropicProvider implements ApiHandler {
             input_schema: tool.input_schema,
         }));
 
-        // Prompt caching: mark the last user message with cache_control
-        if (this.config.promptCachingEnabled && anthropicMessages.length > 0) {
-            for (let i = anthropicMessages.length - 1; i >= 0; i--) {
-                if (anthropicMessages[i].role === 'user') {
-                    const lastUser = anthropicMessages[i];
-                    if (typeof lastUser.content === 'string') {
-                        anthropicMessages[i] = {
-                            role: 'user',
-                            content: [{
-                                type: 'text' as const,
-                                text: lastUser.content,
-                                cache_control: { type: 'ephemeral' as const },
-                            }],
-                        };
-                    } else if (Array.isArray(lastUser.content) && lastUser.content.length > 0) {
-                        const blocks = [...lastUser.content] as Anthropic.Messages.ContentBlockParam[];
-                        const lastBlock = blocks[blocks.length - 1];
-                        if ('type' in lastBlock && lastBlock.type === 'text') {
-                            blocks[blocks.length - 1] = { ...lastBlock, cache_control: { type: 'ephemeral' as const } };
-                            anthropicMessages[i] = { role: 'user', content: blocks };
-                        }
-                    }
-                    break;
-                }
+        // Prompt caching (ADR-62 amendment / FEAT-24-01):
+        //  1) split the system prompt at the cache breakpoint — only the stable
+        //     prefix gets cache_control, the volatile tail (date/memory/skills/
+        //     vault context) gets none, so the prefix stays a cache hit per turn;
+        //  2) one cache_control on the last tool entry (~30k tokens, stable);
+        //  3) two rolling markers in the message history — one on the last user
+        //     message (moves each turn), one a few turns back (stays warm). That
+        //     is 1 + 1 + 2 = 4 breakpoints, the Anthropic maximum.
+        if (this.config.promptCachingEnabled) {
+            markRollingHistoryBreakpoints(anthropicMessages);
+            if (anthropicTools.length > 0) {
+                const last = anthropicTools[anthropicTools.length - 1] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
+                last.cache_control = { type: 'ephemeral' };
             }
         }
 
-        // Build system prompt: use array form with cache_control when caching is enabled
-        const systemParam: string | Anthropic.Messages.TextBlockParam[] = this.config.promptCachingEnabled
-            ? [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }]
-            : systemPrompt;
+        let systemParam: string | Anthropic.Messages.TextBlockParam[];
+        if (this.config.promptCachingEnabled) {
+            const { stable, volatile } = splitSystemPromptAtCacheBreakpoint(systemPrompt);
+            systemParam = volatile.trim().length > 0
+                ? [
+                    { type: 'text' as const, text: stable, cache_control: { type: 'ephemeral' as const } },
+                    { type: 'text' as const, text: volatile },
+                  ]
+                : [{ type: 'text' as const, text: stable, cache_control: { type: 'ephemeral' as const } }];
+        } else {
+            systemParam = systemPrompt;
+        }
 
         // Extended thinking: when enabled, temperature MUST be 1.
         // resolveOutputBudget adds the thinking budget on top of the visible-output
