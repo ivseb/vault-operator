@@ -24,7 +24,7 @@ export function markLastBlock(msg: Anthropic.MessageParam): void {
         return;
     }
     if (Array.isArray(msg.content) && msg.content.length > 0) {
-        const blocks = msg.content as Anthropic.Messages.ContentBlockParam[];
+        const blocks = msg.content;
         const last = blocks[blocks.length - 1] as Anthropic.Messages.ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
         // text and tool_result blocks accept cache_control; for anything else, append a tiny text block.
         if ('type' in last && (last.type === 'text' || last.type === 'tool_result')) {

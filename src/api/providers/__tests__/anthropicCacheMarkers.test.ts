@@ -55,7 +55,7 @@ describe('markLastBlock', () => {
 
 describe('markRollingHistoryBreakpoints', () => {
     function userBlocks(m: Msg): Anthropic.Messages.ContentBlockParam[] {
-        return Array.isArray(m.content) ? (m.content as Anthropic.Messages.ContentBlockParam[]) : [];
+        return Array.isArray(m.content) ? m.content : [];
     }
 
     it('does nothing on an empty history', () => {

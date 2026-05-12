@@ -152,7 +152,7 @@ export class BedrockProvider implements ApiHandler {
             for (let i = bedrockMessages.length - 1; i >= 0; i--) {
                 const m = bedrockMessages[i];
                 if (m.role === 'user' && Array.isArray(m.content)) {
-                    m.content.push({ cachePoint: { type: 'default' } } as BedrockContentBlock);
+                    m.content.push({ cachePoint: { type: 'default' } });
                     break;
                 }
             }
