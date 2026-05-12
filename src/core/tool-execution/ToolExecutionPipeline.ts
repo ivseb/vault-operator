@@ -169,6 +169,17 @@ export class ToolExecutionPipeline {
         'semantic_search', 'query_base',
     ]);
 
+    /**
+     * FEAT-24-03 (ADR-63 amendment): hard ceiling on the characters of any single
+     * tool result that reaches the conversation history. The externalizer is the
+     * primary mechanism (large results -> tmp file + reference); this cap is the
+     * floor for results the externalizer skips (read_file/read_document,
+     * search_history, recall_memory, MCP tools) or where externalization failed.
+     * Generous enough that normal results pass untouched (read_file is already
+     * capped at 50000 chars by ReadFileTool).
+     */
+    private static readonly HARD_OUTPUT_CAP_CHARS = 60_000;
+
     constructor(
         plugin: ObsidianAgentPlugin,
         toolRegistry: ToolRegistry,
@@ -392,6 +403,22 @@ export class ToolExecutionPipeline {
                 if (ref !== null) {
                     finalContent = ref;
                 }
+            }
+
+            // 6c. FEAT-24-03 (ADR-63 amendment): hard per-tool output cap — the
+            // floor that catches anything the externalizer skipped or that slipped
+            // through (e.g. an MCP tool with a huge response). Errors are left
+            // intact (usually short and the message matters).
+            if (!executionHadError && typeof finalContent === 'string'
+                && finalContent.length > ToolExecutionPipeline.HARD_OUTPUT_CAP_CHARS) {
+                const orig = finalContent.length;
+                const head = finalContent.slice(0, ToolExecutionPipeline.HARD_OUTPUT_CAP_CHARS);
+                const cut = head.lastIndexOf('\n');
+                const kept = cut > ToolExecutionPipeline.HARD_OUTPUT_CAP_CHARS / 2 ? head.slice(0, cut) : head;
+                finalContent = kept +
+                    `\n\n[Output truncated: ${kept.length} of ${orig} chars shown. ` +
+                    `Narrow the request (a more specific query, a page/line range, fewer results) to see the rest — do not assume the omitted part is empty.]`;
+                console.debug(`[Pipeline] Capped ${toolCall.name} output ${orig} -> ${kept.length} chars`);
             }
 
             // 7. Chat-Linking: track written .md paths for deferred frontmatter stamping (ADR-022)
