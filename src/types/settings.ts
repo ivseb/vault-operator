@@ -451,6 +451,12 @@ export interface AdvancedApiSettings {
      */
     rollingSummaryThreshold?: number;
     /**
+     * FEAT-24-05: when a running task's (would-be) API cost reaches this many
+     * EUR, the cost footer in the sidebar gets a visible warning style. 0
+     * disables the warning. Default 0.5.
+     */
+    costWarnThresholdEur?: number;
+    /**
      * Telemetry opt-in: persist a 200-char preview of the user's message
      * with each task's telemetry entry (.obsidian-agent/telemetry/tasks.jsonl).
      * AUDIT-013 M-2: defaults to false because the telemetry file lives
@@ -1082,6 +1088,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         maxSubtaskDepth: 2,
         microcompactionEnabled: true,       // FEAT-24-02
         rollingSummaryThreshold: 50,        // FEAT-24-02
+        costWarnThresholdEur: 0.5,          // FEAT-24-05
         telemetryRecordPromptPreview: false, // AUDIT-013 M-2: opt-in
     },
 
