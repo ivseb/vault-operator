@@ -121,7 +121,7 @@ Connect MCP servers via stdio, SSE, or streamable-HTTP. Tools are dynamically di
 1. Clone the repository:
    ```bash
    git clone https://github.com/pssah4/vault-operator.git
-   cd obsilo
+   cd vault-operator
    npm install
    npm run build
    ```

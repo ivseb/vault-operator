@@ -56,7 +56,7 @@ All notable changes to Vault Operator are documented here. Format follows
 ### Added
 
 - **Cross-Surface AI Workflow (EPIC-23, BA-26).** Externe Surfaces wie
-  Claude Desktop, ChatGPT und Perplexity koennen Obsilos Memory- und
+  Claude Desktop, ChatGPT und Perplexity koennen Vault Operators Memory- und
   History-Layer ueber MCP ansprechen. Neue Remote-MCP-Tools:
   - `save_to_memory` -- Fact-Persistierung mit Source-Tagging
   - `save_conversation` -- Konversation als Living Document
@@ -195,7 +195,7 @@ All notable changes to Vault Operator are documented here. Format follows
 
 Wave-4 Community-Feedback Release. Detailliert im git-Log
 (`ae7d041 chore: release v2.6.0`) und unter
-[obsilo Releases](https://github.com/pssah4/vault-operator/releases).
+[Vault Operator Releases](https://github.com/pssah4/vault-operator/releases).
 
 Highlights:
 - BUG-019..022 fixes (drag-and-drop, OpenAI tool-call flush, BUG-020
