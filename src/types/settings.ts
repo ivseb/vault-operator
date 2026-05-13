@@ -767,6 +767,9 @@ export interface ObsidianAgentSettings {
     // Onboarding
     onboarding: OnboardingSettings;
 
+    // Optional assets (Phase 2)
+    optionalAssets?: OptionalAssetsSettings;
+
     // Security
     /** Sandbox execution backend: auto (Desktop=process, Mobile=iframe), process, iframe (ADR-021) */
     sandboxMode: 'auto' | 'process' | 'iframe';
@@ -1021,6 +1024,40 @@ export interface OnboardingSettings {
     skippedSteps: OnboardingStep[];
     /** ISO timestamp when setup was started */
     startedAt: string;
+    /** Phase 2: how many times the first-run modal has been auto-opened
+     *  (capped at 3 by the auto-open logic). Default 0. */
+    firstRunModalShownCount?: number;
+    /** Phase 2: user clicked "Don't show again" -- modal will not auto-open. */
+    dontShowFirstRunAgain?: boolean;
+    /** Phase 2: true after the wizard's final step finished. Distinct from
+     *  `completed`, which is reserved for the post-modal Memory + Soul fill. */
+    modalCompleted?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Optional Asset Settings (Phase 2 -- main.js diet)
+// ---------------------------------------------------------------------------
+
+/**
+ * Status of each optional asset the user can choose to install. Assets
+ * live in `<vault>/.vault-operator/assets/`; the plugin never writes to
+ * its own pluginDir. Each entry tracks installed version + SHA256 so the
+ * plugin can detect when a newer release ships a fresh binary.
+ */
+export interface OptionalAssetState {
+    /** Version stamp of the installed asset (matches the plugin release tag). */
+    installedVersion?: string;
+    /** SHA256 of the installed asset, verified at install time. */
+    sha256?: string;
+    /** ISO timestamp of last successful install. */
+    installedAt?: string;
+}
+
+export interface OptionalAssetsSettings {
+    /** Semantic Reranker -- ONNX cross-encoder model (~12 MB). */
+    reranker: OptionalAssetState;
+    /** Self-Development source bundle (~5 MB) -- enables manage_source tool. */
+    selfDevelopmentSource: OptionalAssetState;
 }
 
 // ---------------------------------------------------------------------------
@@ -1228,6 +1265,13 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         currentStep: 'backup',
         skippedSteps: [],
         startedAt: '',
+        firstRunModalShownCount: 0,
+        dontShowFirstRunAgain: false,
+        modalCompleted: false,
+    },
+    optionalAssets: {
+        reranker: {},
+        selfDevelopmentSource: {},
     },
     sandboxMode: 'auto',
     taskExtraction: {
@@ -1255,6 +1299,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     chatgptOAuthModel: 'gpt-5.5',
     chatgptOAuthDisclaimerAcknowledgedAt: 0,
     debugMode: false,
-    agentFolderPath: '.obsilo-vault',
+    agentFolderPath: '.vault-operator',
     vaultIngest: DEFAULT_VAULT_INGEST_SETTINGS,
 };

@@ -15,102 +15,137 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = (process.argv[2] === "production");
 
+
 /**
- * FIX-19: Generate embedded assets JSON for BRAT self-provisioning.
- * Scans the same sources as vault-deploy: workers, bundled-skills, templates.
- * Assets are extracted at runtime by AssetProvisioner if missing from plugin dir.
+ * Phase 1: Replacement for generateEmbeddedAssets that emits separate
+ * TypeScript const files instead of a single JSON blob. Readers import
+ * the specific const they need, esbuild tree-shakes the rest.
+ *
+ * Emits four files under src/_generated/:
+ *   - bundled-workers.ts        worker source as strings
+ *   - bundled-skills.ts         skill markdown as nested Record
+ *   - bundled-templates.ts      PPTX (base64) + note templates (text)
+ *   - bundled-wasm.ts           sql.js + ONNX WASM as base64
+ *
+ * Runs alongside generateEmbeddedAssets during migration. Both stay in
+ * sync until all readers have been switched off the AssetProvisioner.
  */
-function generateEmbeddedAssets() {
-    const assets = {};
-    let workerCount = 0, skillCount = 0, templateCount = 0, wasmCount = 0;
+function generateInlineAssets() {
+    const outDir = join(__dirname, "src/_generated");
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
-    // Workers (built by previous esbuild steps)
-    for (const worker of ["sandbox-worker.js", "mcp-server-worker.js"]) {
-        if (existsSync(worker)) {
-            assets[worker] = readFileSync(worker, "utf-8");
-            workerCount++;
-        }
+    // ---- Workers --------------------------------------------------------
+    const workers = {};
+    for (const w of ["sandbox-worker.js", "mcp-server-worker.js"]) {
+        if (existsSync(w)) workers[w] = readFileSync(w, "utf-8");
     }
+    if (Object.keys(workers).length === 0) {
+        throw new Error("[inline-assets] FATAL: No worker files found. Build workers before main.");
+    }
+    const workerLines = [
+        "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
+        "/* eslint-disable */",
+        "",
+    ];
+    for (const [name, src] of Object.entries(workers)) {
+        const constName = name === "sandbox-worker.js" ? "SANDBOX_WORKER_CODE" : "MCP_WORKER_CODE";
+        workerLines.push(`export const ${constName} = ${JSON.stringify(src)};`);
+    }
+    writeFileSync(join(outDir, "bundled-workers.ts"), workerLines.join("\n") + "\n");
 
-    // Bundled skills (scan directory -- new skills are picked up automatically)
+    // ---- Skills ---------------------------------------------------------
+    const skills = {};
+    let skillCount = 0;
     const bundledSkillsDir = join(__dirname, "bundled-skills");
     if (existsSync(bundledSkillsDir)) {
         for (const skillDir of readdirSync(bundledSkillsDir)) {
             const srcDir = join(bundledSkillsDir, skillDir);
             if (!statSync(srcDir).isDirectory()) continue;
+            const files = {};
             for (const file of readdirSync(srcDir)) {
-                if (file.startsWith('.')) continue; // AUDIT-010 L-1: skip dotfiles (.DS_Store etc.)
+                if (file.startsWith('.')) continue;
                 const filePath = join(srcDir, file);
                 if (statSync(filePath).isDirectory()) continue;
-                assets[`skills/${skillDir}/${file}`] = readFileSync(filePath, "utf-8");
+                files[file] = readFileSync(filePath, "utf-8");
                 skillCount++;
             }
+            if (Object.keys(files).length > 0) skills[skillDir] = files;
         }
     }
+    writeFileSync(
+        join(outDir, "bundled-skills.ts"),
+        [
+            "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
+            "/* eslint-disable */",
+            "",
+            "export const BUNDLED_SKILLS: Record<string, Record<string, string>> = " + JSON.stringify(skills, null, 2) + ";",
+            "",
+        ].join("\n"),
+    );
 
-    // PPTX templates (binary -- base64 encoded with prefix)
+    // ---- Templates ------------------------------------------------------
+    const pptxTemplates = {};
+    let pptxCount = 0;
     const templatesSrc = join(__dirname, "assets/templates");
     if (existsSync(templatesSrc)) {
         for (const f of readdirSync(templatesSrc).filter(f => f.endsWith(".pptx"))) {
-            assets[`templates/${f}`] = "base64:" + readFileSync(join(templatesSrc, f)).toString("base64");
-            templateCount++;
+            // strip the .pptx extension and the "default-" prefix so keys match TemplateCatalog themeNames
+            const themeKey = f.replace(/^default-/, "").replace(/\.pptx$/, "");
+            pptxTemplates[themeKey] = readFileSync(join(templatesSrc, f)).toString("base64");
+            pptxCount++;
         }
     }
-
-    // Note templates (text -- IMP-19-31-01) used by /ingest, /ingest-deep, /meeting-summary
+    const noteTemplates = {};
+    let noteCount = 0;
     const noteTemplatesSrc = join(__dirname, "bundled-templates/notes");
-    let noteTemplateCount = 0;
     if (existsSync(noteTemplatesSrc)) {
         for (const f of readdirSync(noteTemplatesSrc).filter(f => f.endsWith(".md"))) {
-            assets[`note-templates/${f}`] = readFileSync(join(noteTemplatesSrc, f), "utf-8");
-            noteTemplateCount++;
+            noteTemplates[f] = readFileSync(join(noteTemplatesSrc, f), "utf-8");
+            noteCount++;
         }
     }
+    writeFileSync(
+        join(outDir, "bundled-templates.ts"),
+        [
+            "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
+            "/* eslint-disable */",
+            "",
+            "/** Themed PPTX templates, base64 encoded. Keys are themeName (e.g. 'minimal', 'modern'). */",
+            "export const PPTX_TEMPLATES_BASE64: Record<string, string> = " + JSON.stringify(pptxTemplates, null, 2) + ";",
+            "",
+            "/** Note templates (markdown) used by /ingest, /ingest-deep, /meeting-summary. */",
+            "export const NOTE_TEMPLATES: Record<string, string> = " + JSON.stringify(noteTemplates, null, 2) + ";",
+            "",
+        ].join("\n"),
+    );
 
-    // WASM runtime binaries -- FIX-22: full self-contained install for BRAT.
-    // Without these, BRAT users hit ENOENT on KnowledgeDB.open() and reranker
-    // falls through to unreliable HF CDN (cas-bridge.xethub.hf.co ERR_CONTENT_LENGTH_MISMATCH).
-    // Total footprint: ~13 MB raw, ~17 MB base64.
-    const wasmSources = [
-        { src: "node_modules/sql.js/dist/sql-wasm.wasm", dest: "sql-wasm.wasm" },
-        { src: "node_modules/sql.js/dist/sql-wasm-browser.wasm", dest: "sql-wasm-browser.wasm" },
-        { src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm", dest: "ort-wasm-simd-threaded.wasm" },
-        { src: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs", dest: "ort-wasm-simd-threaded.mjs" },
+    // ---- WASM ----------------------------------------------------------
+    // ONNX (12 MB) is NOT inlined anymore -- it ships as an optional
+    // download from the plugin's GitHub release, see OptionalAssetManager.
+    const wasmBlobs = {
+        SQL_WASM_BASE64:          { src: "node_modules/sql.js/dist/sql-wasm.wasm",         kind: "binary" },
+        SQL_WASM_BROWSER_BASE64:  { src: "node_modules/sql.js/dist/sql-wasm-browser.wasm", kind: "binary" },
+    };
+    const wasmLines = [
+        "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
+        "/* eslint-disable */",
+        "",
     ];
-    for (const { src, dest } of wasmSources) {
+    for (const [constName, { src, kind }] of Object.entries(wasmBlobs)) {
         const abs = join(__dirname, src);
         if (!existsSync(abs)) {
-            throw new Error(`[embed-assets] FATAL: Required WASM asset not found: ${src}. Run npm install.`);
+            throw new Error(`[inline-assets] FATAL: Required asset not found: ${src}. Run npm install.`);
         }
-        if (dest.endsWith(".wasm")) {
-            assets[dest] = "base64:" + readFileSync(abs).toString("base64");
-        } else {
-            // .mjs is text
-            assets[dest] = readFileSync(abs, "utf-8");
-        }
-        wasmCount++;
+        const value = kind === "binary"
+            ? readFileSync(abs).toString("base64")
+            : readFileSync(abs, "utf-8");
+        wasmLines.push(`export const ${constName} = ${JSON.stringify(value)};`);
     }
+    writeFileSync(join(outDir, "bundled-wasm.ts"), wasmLines.join("\n") + "\n");
 
-    // Validate: workers are mandatory
-    if (workerCount === 0) {
-        throw new Error("[embed-assets] FATAL: No worker files found. Build workers before main.");
-    }
-
-    // Write generated file
-    const outDir = join(__dirname, "src/_generated");
-    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
-    const json = JSON.stringify(assets);
-
-    // Safety: abort if generated file is suspiciously large.
-    // Current footprint (FIX-22): ~17 MB with WASM. Limit at 25 MB gives headroom
-    // for additional bundled skills/templates without hiding genuine bloat.
-    const MAX_EMBED_BYTES = 25 * 1024 * 1024;
-    if (json.length > MAX_EMBED_BYTES) {
-        throw new Error(`[embed-assets] FATAL: Generated assets too large (${(json.length / 1024 / 1024).toFixed(1)}MB, limit ${MAX_EMBED_BYTES / 1024 / 1024}MB). Review wasmSources or raise the limit deliberately.`);
-    }
-
-    writeFileSync(join(outDir, "embedded-assets.json"), json);
-    console.log(`[embed-assets] Embedded ${workerCount} workers, ${skillCount} skills, ${templateCount} PPTX templates, ${noteTemplateCount} note templates, ${wasmCount} WASM (${(json.length / 1024 / 1024).toFixed(1)}MB)`);
+    const workersN = Object.keys(workers).length;
+    const wasmN = Object.keys(wasmBlobs).length;
+    console.log(`[inline-assets] Emitted ${workersN} workers, ${skillCount} skills, ${pptxCount} PPTX templates, ${noteCount} note templates, ${wasmN} WASM as TS consts`);
 }
 
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
@@ -193,17 +228,24 @@ const context = await esbuild.context({
             }
         },
         {
-            // Embed TypeScript source into the bundle for core self-modification (Phase 4).
-            // Only active for production builds. Source files are base64-encoded and injected
-            // as a global constant `EMBEDDED_SOURCE` that EmbeddedSourceManager reads at runtime.
-            name: "embed-source",
+            // Phase 2.2: emit plugin-source.json as a SEPARATE file (no
+            // longer injected into main.js as a global constant). The
+            // EmbeddedSourceManager loads it lazily from the user's
+            // vault, and only when the Self-Development feature has
+            // been explicitly installed via Settings.
+            //
+            // Also emits src/_generated/source-hash.ts containing the
+            // SHA256 of the JSON, so the plugin can verify the
+            // downloaded file at install time.
+            name: "emit-source-bundle",
             setup(build) {
-                if (!prod) return; // Only embed source in production builds
+                if (!prod) return; // Only emit source bundle in production builds
 
-                build.onEnd((result) => {
+                build.onEnd(async (result) => {
                     if (result.errors.length > 0) return; // Skip on build errors
 
                     try {
+                        const { createHash } = await import("crypto");
                         const srcDir = join(__dirname, "src");
                         const files = {};
 
@@ -213,13 +255,12 @@ const context = await esbuild.context({
                                 const fullPath = join(dir, entry);
                                 const stat = statSync(fullPath);
                                 if (stat.isDirectory()) {
-                                    // Skip test directories and node_modules
-                                    if (entry === "node_modules" || entry === "__tests__" || entry === "test") continue;
+                                    // Skip test dirs, node_modules, and auto-generated bundles
+                                    if (entry === "node_modules" || entry === "__tests__" || entry === "test" || entry === "_generated") continue;
                                     walkDir(fullPath);
                                 } else if (entry.endsWith(".ts") || entry.endsWith(".tsx")) {
                                     const relPath = "src/" + relative(srcDir, fullPath).replace(/\\/g, "/");
                                     const content = readFileSync(fullPath, "utf-8");
-                                    // Base64-encode to avoid escaping issues
                                     files[relPath] = Buffer.from(content).toString("base64");
                                 }
                             }
@@ -227,8 +268,9 @@ const context = await esbuild.context({
                         walkDir(srcDir);
 
                         const pkg = JSON.parse(readFileSync(join(__dirname, "package.json"), "utf-8"));
-                        const embedded = {
-                            version: pkg.version || "0.0.0",
+                        const manifest = JSON.parse(readFileSync(join(__dirname, "manifest.json"), "utf-8"));
+                        const bundle = {
+                            version: manifest.version || pkg.version || "0.0.0",
                             files,
                             buildConfig: {
                                 format: "cjs",
@@ -244,26 +286,23 @@ const context = await esbuild.context({
                             },
                         };
 
-                        // Read the generated main.js and prepend the embedded source constant
-                        const outfile = "main.js";
-                        if (existsSync(outfile)) {
-                            const mainJs = readFileSync(outfile, "utf-8");
-                            const injection = `\nvar EMBEDDED_SOURCE = ${JSON.stringify(embedded)};\n`;
-                            // Insert after the banner comment
-                            const bannerEnd = mainJs.indexOf("*/");
-                            if (bannerEnd !== -1) {
-                                const patched = mainJs.slice(0, bannerEnd + 2) + injection + mainJs.slice(bannerEnd + 2);
-                                writeFileSync(outfile, patched);
-                            } else {
-                                writeFileSync(outfile, injection + mainJs);
-                            }
+                        const json = JSON.stringify(bundle);
+                        writeFileSync(join(__dirname, "plugin-source.json"), json);
 
-                            const fileCount = Object.keys(files).length;
-                            const sizeKB = Math.round(JSON.stringify(embedded).length / 1024);
-                            console.log(`[embed-source] Embedded ${fileCount} source files (~${sizeKB}KB)`);
-                        }
+                        const sha = createHash("sha256").update(json).digest("hex");
+                        const hashFile = join(__dirname, "src/_generated/source-hash.ts");
+                        writeFileSync(
+                            hashFile,
+                            "// AUTO-GENERATED -- do not edit. Source: esbuild emit-source-bundle.\n" +
+                            "/* eslint-disable */\n\n" +
+                            `export const SELF_DEV_SOURCE_SHA256 = "${sha}";\n`,
+                        );
+
+                        const fileCount = Object.keys(files).length;
+                        const sizeKB = Math.round(json.length / 1024);
+                        console.log(`[emit-source-bundle] plugin-source.json: ${fileCount} files, ${sizeKB} KB, sha=${sha.slice(0, 16)}...`);
                     } catch (e) {
-                        console.warn("[embed-source] Failed to embed source:", e.message);
+                        console.warn("[emit-source-bundle] Failed:", e.message);
                     }
                 });
             }
@@ -274,76 +313,13 @@ const context = await esbuild.context({
                 build.onEnd(() => {
                     if (existsSync(VAULT_PLUGIN_DIR)) {
                         try {
+                            // Only the three files Obsidian itself supports.
+                            // All other assets (workers, WASM, skills, templates)
+                            // are inlined into main.js by generateInlineAssets()
+                            // and live in <vault>/.vault-operator/ at runtime.
                             copyFileSync("main.js", `${VAULT_PLUGIN_DIR}/main.js`);
                             copyFileSync("styles.css", `${VAULT_PLUGIN_DIR}/styles.css`);
-                            const logoSrc = join(__dirname, "src/assets/logo.png");
-                            if (existsSync(logoSrc)) {
-                                copyFileSync(logoSrc, `${VAULT_PLUGIN_DIR}/logo.png`);
-                            }
-                            if (existsSync("sandbox-worker.js")) {
-                                copyFileSync("sandbox-worker.js", `${VAULT_PLUGIN_DIR}/sandbox-worker.js`);
-                            }
-                            if (existsSync("mcp-server-worker.js")) {
-                                copyFileSync("mcp-server-worker.js", `${VAULT_PLUGIN_DIR}/mcp-server-worker.js`);
-                            }
-                            // Copy sql.js WASM binaries for Knowledge DB
-                            // sql.js may request either sql-wasm.wasm or sql-wasm-browser.wasm
-                            // depending on which variant esbuild resolves
-                            for (const wasmName of ["sql-wasm.wasm", "sql-wasm-browser.wasm"]) {
-                                const wasmSrc = join(__dirname, "node_modules/sql.js/dist", wasmName);
-                                if (existsSync(wasmSrc)) {
-                                    copyFileSync(wasmSrc, `${VAULT_PLUGIN_DIR}/${wasmName}`);
-                                }
-                            }
-                            // Copy ONNX Runtime WASM binaries for Reranker (transformers.js)
-                            for (const ortFile of ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"]) {
-                                const ortSrc = join(__dirname, "node_modules/onnxruntime-web/dist", ortFile);
-                                if (existsSync(ortSrc)) {
-                                    copyFileSync(ortSrc, `${VAULT_PLUGIN_DIR}/${ortFile}`);
-                                }
-                            }
-                            // Copy bundled skills to plugin skills directory
-                            const bundledSkillsDir = join(__dirname, "bundled-skills");
-                            if (existsSync(bundledSkillsDir)) {
-                                const skillDirs = readdirSync(bundledSkillsDir);
-                                for (const skillDir of skillDirs) {
-                                    const srcDir = join(bundledSkillsDir, skillDir);
-                                    if (!statSync(srcDir).isDirectory()) continue;
-                                    const destDir = `${VAULT_PLUGIN_DIR}/skills/${skillDir}`;
-                                    if (!existsSync(destDir)) mkdirSync(destDir, { recursive: true });
-                                    const files = readdirSync(srcDir);
-                                    for (const file of files) {
-                                        copyFileSync(join(srcDir, file), join(destDir, file));
-                                    }
-                                }
-                                console.log(`[vault-deploy] Copied ${skillDirs.length} bundled skill(s)`);
-                            }
-                            // Copy default PPTX templates
-                            const templatesSrc = join(__dirname, "assets/templates");
-                            if (existsSync(templatesSrc)) {
-                                const templatesDir = `${VAULT_PLUGIN_DIR}/templates`;
-                                if (!existsSync(templatesDir)) mkdirSync(templatesDir, { recursive: true });
-                                const templateFiles = readdirSync(templatesSrc).filter(f => f.endsWith('.pptx'));
-                                for (const f of templateFiles) {
-                                    copyFileSync(join(templatesSrc, f), join(templatesDir, f));
-                                }
-                                if (templateFiles.length > 0) {
-                                    console.log(`[vault-deploy] Copied ${templateFiles.length} PPTX template(s)`);
-                                }
-                            }
-                            // Copy default note templates (IMP-19-31-01)
-                            const noteTemplatesSrc = join(__dirname, "bundled-templates/notes");
-                            if (existsSync(noteTemplatesSrc)) {
-                                const noteTemplatesDir = `${VAULT_PLUGIN_DIR}/note-templates`;
-                                if (!existsSync(noteTemplatesDir)) mkdirSync(noteTemplatesDir, { recursive: true });
-                                const noteTemplateFiles = readdirSync(noteTemplatesSrc).filter(f => f.endsWith('.md'));
-                                for (const f of noteTemplateFiles) {
-                                    copyFileSync(join(noteTemplatesSrc, f), join(noteTemplatesDir, f));
-                                }
-                                if (noteTemplateFiles.length > 0) {
-                                    console.log(`[vault-deploy] Copied ${noteTemplateFiles.length} note template(s)`);
-                                }
-                            }
+                            copyFileSync("manifest.json", `${VAULT_PLUGIN_DIR}/manifest.json`);
                             console.log(`[vault-deploy] → ${VAULT_PLUGIN_DIR}`);
                         } catch (e) {
                             console.warn("[vault-deploy] Copy failed:", e.message);
@@ -384,16 +360,15 @@ const mcpWorkerContext = await esbuild.context({
 });
 
 if (prod) {
-    // Workers first — vault-deploy (main's onEnd) copies worker files
+    // Workers first — they get inlined into main.js via generateInlineAssets
     await workerContext.rebuild();
     await mcpWorkerContext.rebuild();
-    // FIX-19: Embed runtime assets into main.js for BRAT self-provisioning
-    generateEmbeddedAssets();
+    // Emit src/_generated/bundled-*.ts files which the readers import.
+    generateInlineAssets();
     await context.rebuild();
     process.exit(0);
 } else {
-    // FIX-19: Generate initial embedded assets for watch mode (workers may not exist yet)
-    try { generateEmbeddedAssets(); } catch { /* workers not yet built — will be generated on first rebuild */ }
+    try { generateInlineAssets(); } catch { /* workers not yet built — will be generated on first rebuild */ }
     await context.watch();
     await workerContext.watch();
     await mcpWorkerContext.watch();

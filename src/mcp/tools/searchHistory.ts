@@ -3,7 +3,7 @@
  *
  * MCP exposure of the agent-internal SearchHistoryTool. Wraps SQL
  * LIKE-search against history_chunks. Optional source_interface and
- * role filters; returns clickable obsidian://obsilo-chat links so
+ * role filters; returns clickable obsidian://vault-operator-chat links so
  * the user can re-enter the source conversation.
  */
 
@@ -95,7 +95,7 @@ export async function handleSearchHistory(
 
         const lines: string[] = [`History matches for "${query}" (${hits.length} hits):`, ''];
         for (const h of hits) {
-            const link = `obsidian://obsilo-chat?id=${encodeURIComponent(h.sessionId)}`;
+            const link = `obsidian://vault-operator-chat?id=${encodeURIComponent(h.sessionId)}`;
             lines.push(`- [${h.title}](<${link}>) -- ${h.role} (${h.source}, ${h.created.slice(0, 10)})`);
             lines.push(`  > ${h.text.replace(/\n/g, ' ')}`);
         }

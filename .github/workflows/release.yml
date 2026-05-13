@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
@@ -35,58 +37,41 @@ jobs:
 
       - name: Collect release assets
         run: |
-          mkdir -p release-assets/skills release-assets/templates
-
-          # Core files
+          mkdir -p release-assets
           cp main.js manifest.json styles.css release-assets/
 
-          # Worker scripts (built by esbuild entrypoints)
-          [ -f sandbox-worker.js ] && cp sandbox-worker.js release-assets/
-          [ -f mcp-server-worker.js ] && cp mcp-server-worker.js release-assets/
-
-          # sql.js WASM binaries for KnowledgeDB (FIX-16)
-          for wasm in sql-wasm.wasm sql-wasm-browser.wasm; do
-            [ -f "node_modules/sql.js/dist/$wasm" ] && cp "node_modules/sql.js/dist/$wasm" release-assets/
-          done
-
-          # ONNX Runtime WASM binaries for Reranker
-          for ort in ort-wasm-simd-threaded.wasm ort-wasm-simd-threaded.mjs; do
-            [ -f "node_modules/onnxruntime-web/dist/$ort" ] && cp "node_modules/onnxruntime-web/dist/$ort" release-assets/
-          done
-
-          # Bundled skills
-          if [ -d "bundled-skills" ]; then
-            for skill_dir in bundled-skills/*/; do
-              skill_name=$(basename "$skill_dir")
-              mkdir -p "release-assets/skills/$skill_name"
-              cp "$skill_dir"* "release-assets/skills/$skill_name/" 2>/dev/null || true
-            done
+          # Optional assets (Phase 2) -- downloaded on demand by users
+          # via Settings, never auto-installed. Shipped here so the
+          # OptionalAssetManager has a stable per-version URL to pull.
+          if [ -f "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm" ]; then
+            cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm release-assets/
           fi
-
-          # PPTX templates
-          if [ -d "assets/templates" ]; then
-            cp assets/templates/*.pptx release-assets/templates/ 2>/dev/null || true
+          if [ -f "plugin-source.json" ]; then
+            cp plugin-source.json release-assets/
           fi
-
-          # Logo
-          [ -f src/assets/logo.png ] && cp src/assets/logo.png release-assets/
-
-          # Create tarball of extras (skills + templates have directory structure)
-          cd release-assets
-          tar czf ../vault-operator-assets.tar.gz --exclude='main.js' --exclude='manifest.json' --exclude='styles.css' .
-          cd ..
 
           echo "=== Release assets ==="
-          find release-assets -type f | sort
+          ls -lh release-assets/
 
       - name: Verify build output
         run: |
           ls -lh release-assets/main.js release-assets/manifest.json release-assets/styles.css
           echo "manifest version: $(jq -r .version release-assets/manifest.json)"
-          echo "WASM files:"
-          ls -lh release-assets/*.wasm 2>/dev/null || echo "  (none)"
-          echo "Workers:"
-          ls -lh release-assets/*-worker.js 2>/dev/null || echo "  (none)"
+          echo "Optional assets:"
+          for f in ort-wasm-simd-threaded.wasm plugin-source.json; do
+            if [ -f "release-assets/$f" ]; then
+              echo "  $f  $(ls -lh release-assets/$f | awk '{print $5}')  sha256=$(shasum -a 256 release-assets/$f | cut -d' ' -f1)"
+            fi
+          done
+
+      - name: Generate build provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            release-assets/main.js
+            release-assets/styles.css
+            release-assets/ort-wasm-simd-threaded.wasm
+            release-assets/plugin-source.json
 
       - name: Create GitHub Release with assets
         uses: softprops/action-gh-release@v2
@@ -102,11 +87,12 @@ jobs:
 
             Or install manually:
             1. Download `main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/vault-operator/`
-            2. Download and extract `vault-operator-assets.tar.gz` into the same folder
+            2. Reload Obsidian
           files: |
             release-assets/main.js
             release-assets/manifest.json
             release-assets/styles.css
-            vault-operator-assets.tar.gz
+            release-assets/ort-wasm-simd-threaded.wasm
+            release-assets/plugin-source.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

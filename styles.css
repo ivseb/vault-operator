@@ -470,6 +470,17 @@
     font-family: var(--font-monospace);
 }
 
+/* AI Disclaimer (sits below the input area as a single small centred line) */
+.chat-ai-disclaimer {
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 9px;
+    line-height: 1.2;
+    color: var(--text-faint);
+    padding: 2px 12px 3px 12px;
+    background: var(--background-primary);
+}
+
 /* Chat Input Container (Kilo Code pattern) */
 .chat-input-container {
     flex-shrink: 0;

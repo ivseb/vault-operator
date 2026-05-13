@@ -170,6 +170,7 @@ export class AgentSidebarView extends ItemView {
         this.buildChatContainer(container);
         this.buildSuggestionBanner(container);
         this.buildChatInput(container);
+        this.buildAiDisclaimer(container);
 
         // Feature 4: Update context badge when user switches files; reset dismiss on new file
         // Also track last active MarkdownView so "Insert at cursor" works from sidebar
@@ -339,6 +340,11 @@ export class AgentSidebarView extends ItemView {
     private buildSuggestionBanner(container: HTMLElement): void {
         this.suggestionBanner = new SuggestionBanner(this.plugin, this.app);
         this.suggestionBanner.mount(container, (fn) => this.register(fn));
+    }
+
+    private buildAiDisclaimer(container: HTMLElement): void {
+        const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
+        disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
     }
 
     private buildChatInput(container: HTMLElement): void {
@@ -1112,9 +1118,56 @@ export class AgentSidebarView extends ItemView {
      */
     /** Show the welcome message (delegates to OnboardingFlow module). */
     private showWelcomeMessage(): void {
-        if (!this.chatContainer) return;
+        if (!this.chatContainer) {
+            console.debug('[Wizard] showWelcomeMessage skipped: no chatContainer');
+            return;
+        }
+        const ob = this.plugin.settings.onboarding;
+
+        // Phase 2.3: if the FirstRun wizard is still owed to the user
+        // (not completed, not dismissed, not yet shown three times),
+        // open the wizard instead of the legacy in-chat provider-picker.
+        const shown = ob?.firstRunModalShownCount ?? 0;
+        const wizardPending = ob && !ob.modalCompleted && !ob.dontShowFirstRunAgain && shown < 3;
+        console.debug('[Wizard] showWelcomeMessage decision:', {
+            hasOnboarding: !!ob,
+            modalCompleted: ob?.modalCompleted,
+            dontShowAgain: ob?.dontShowFirstRunAgain,
+            shown,
+            wizardPending,
+            completed: ob?.completed,
+        });
+        if (wizardPending) {
+            void this.openFirstRunWizard();
+            return;
+        }
+
+        // Modal already finished: skip the legacy provider-picker and
+        // jump straight into the Memory + Soul chat.
+        if (ob?.modalCompleted && !ob.completed) {
+            this.startOnboardingChat();
+            return;
+        }
+
+        // Fallback for users who reset their onboarding state and have
+        // already dismissed the wizard.
         this.onboarding = new OnboardingFlow(this.plugin, this.app);
         this.onboarding.showWelcomeMessage(this.chatContainer, this, this.getOnboardingCallbacks());
+    }
+
+    private async openFirstRunWizard(): Promise<void> {
+        try {
+            console.debug('[Wizard] openFirstRunWizard called');
+            const ob = this.plugin.settings.onboarding;
+            ob.firstRunModalShownCount = (ob.firstRunModalShownCount ?? 0) + 1;
+            await this.plugin.saveSettings();
+            const { FirstRunWizardModal } = await import('./modals/FirstRunWizardModal');
+            console.debug('[Wizard] Module loaded, opening modal');
+            new FirstRunWizardModal(this.app, this.plugin).open();
+            console.debug('[Wizard] Modal.open() returned');
+        } catch (e) {
+            console.error('[Wizard] Failed to open FirstRunWizardModal:', e);
+        }
     }
 
     /** Show setup message when no model is configured (delegates to OnboardingFlow). */
@@ -2586,7 +2639,7 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('ui.history.noActiveNote'));
             return;
         }
-        const uri = `obsidian://obsilo-chat?id=${encodeURIComponent(conversationId)}`;
+        const uri = `obsidian://vault-operator-chat?id=${encodeURIComponent(conversationId)}`;
         const link = `[${title}](${uri})`;
         try {
             await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -3167,7 +3220,7 @@ export class AgentSidebarView extends ItemView {
     private wireInternalLinks(contentEl: HTMLElement): void {
         contentEl.querySelectorAll('a').forEach((anchor) => {
             const href = anchor.getAttribute('href') ?? '';
-            if (href.startsWith('obsidian://obsilo-chat')) {
+            if (href.startsWith('obsidian://vault-operator-chat') || href.startsWith('obsidian://obsilo-chat')) {
                 anchor.addEventListener('click', (e) => {
                     e.preventDefault();
                     const match = /[?&]id=([^&]+)/.exec(href);

@@ -52,6 +52,7 @@ jspm_packages/
 dist/
 build/
 src/_generated/
+plugin-source.json
 
 # Environment variables
 .env

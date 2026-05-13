@@ -7,7 +7,7 @@
  * save. Matches use SQL LIKE for now -- FTS5 / cosine ranking can be
  * layered on later without changing the tool surface.
  *
- * Renders results as Markdown with clickable obsidian://obsilo-chat
+ * Renders results as Markdown with clickable obsidian://vault-operator-chat
  * links so the user can jump to the source conversation.
  */
 
@@ -27,8 +27,8 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
         return {
             name: 'search_history',
             description:
-                'Keyword-search past conversations for messages that match the query. Use when the user references "we talked about X earlier", "find that chat where I mentioned Y", or asks "what did I say about X in my chats" -- much narrower than recall_memory (which searches extracted facts). Returns up to top_k matching messages with their source conversation, role, timestamp, and a clickable obsidian://obsilo-chat link. ' +
-                'IMPORTANT: when you synthesise the final answer, cite each referenced chat by including its obsidian://obsilo-chat link inline (e.g. "[Chat title](<obsidian://obsilo-chat?id=...>)") so the user can re-enter the source conversation. Do not replace these chat links with note links from other tools -- both kinds of sources can co-exist.',
+                'Keyword-search past conversations for messages that match the query. Use when the user references "we talked about X earlier", "find that chat where I mentioned Y", or asks "what did I say about X in my chats" -- much narrower than recall_memory (which searches extracted facts). Returns up to top_k matching messages with their source conversation, role, timestamp, and a clickable obsidian://vault-operator-chat link. ' +
+                'IMPORTANT: when you synthesise the final answer, cite each referenced chat by including its obsidian://vault-operator-chat link inline (e.g. "[Chat title](<obsidian://vault-operator-chat?id=...>)") so the user can re-enter the source conversation. Do not replace these chat links with note links from other tools -- both kinds of sources can co-exist.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -114,7 +114,7 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
             const createdAt = row[4] as string;
             const meta = this.plugin.conversationStore?.list().find(m => m.id === sessionId);
             const title = meta?.title?.trim() || `Conversation ${sessionId}`;
-            const link = `obsidian://obsilo-chat?id=${encodeURIComponent(sessionId)}`;
+            const link = `obsidian://vault-operator-chat?id=${encodeURIComponent(sessionId)}`;
             const snippet = text.length > 220 ? text.slice(0, 217) + '...' : text;
             const date = shortDate(createdAt);
             // Auto-link bracket <...> tells the CommonMark parser this is
@@ -127,7 +127,7 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
         lines.push('');
         lines.push(
             '_When you reference any of these messages in your reply, include the ' +
-            'obsidian://obsilo-chat link inline so the user can re-open the source chat._',
+            'obsidian://vault-operator-chat link inline so the user can re-open the source chat._',
         );
         return lines.join('\n');
     }

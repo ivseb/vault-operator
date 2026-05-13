@@ -330,7 +330,7 @@ export class HistoryPanel {
                 copyBtn.setAttribute('aria-label', t('ui.history.copyLink'));
                 copyBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    const uri = `obsidian://obsilo-chat?id=${encodeURIComponent(conv.id)}`;
+                    const uri = `obsidian://vault-operator-chat?id=${encodeURIComponent(conv.id)}`;
                     let linkTitle = conv.title.replace(/\n.*/s, '').trim();
                     if (linkTitle.length > 60) linkTitle = linkTitle.slice(0, 57) + '...';
                     const mdLink = `[${linkTitle}](${uri})`;

@@ -6,6 +6,7 @@ import { PROVIDER_LABELS, PROVIDER_COLORS } from './constants';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey } from '../../types/settings';
 import type { SemanticIndexService } from '../../core/semantic/SemanticIndexService';
+import { renderSkipHintIfSkipped } from './skipHints';
 import { t } from '../../i18n';
 
 export class EmbeddingsTab {
@@ -21,6 +22,7 @@ export class EmbeddingsTab {
     }
 
     build(containerEl: HTMLElement): void {
+        renderSkipHintIfSkipped(containerEl, this.plugin, 'embedding-model');
         this.buildIntroSection(containerEl);
         containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingModels') });
 
@@ -629,14 +631,14 @@ export class EmbeddingsTab {
                     await this.plugin.saveSettings();
                     if (v && !this.plugin.rerankerService) {
                         const { RerankerService } = await import('../../core/knowledge/RerankerService');
-                        const adapter = this.plugin.app.vault.adapter as unknown as { getBasePath?(): string };
-                        const basePath = adapter.getBasePath?.() ?? '';
-                        const dir = `${basePath}/${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
-                        this.plugin.rerankerService = new RerankerService(dir);
+                        this.plugin.rerankerService = new RerankerService(this.plugin);
                         void this.plugin.rerankerService.loadModel();
                     }
                 }),
             );
+
+        // Reranker model asset (Phase 2: optional download instead of inline)
+        void this.renderRerankerAssetBlock(containerEl);
 
         new Setting(containerEl)
             .setName(t('settings.embeddings.rerankCandidates'))
@@ -651,6 +653,100 @@ export class EmbeddingsTab {
                     }),
             );
 
+    }
+
+    /**
+     * Phase 2: Install/Remove block for the optional ONNX reranker model.
+     * The asset lives in the user's vault, not in pluginDir, so the
+     * plugin never patches its own folder. Install is explicit (button)
+     * and verified by SHA256.
+     */
+    private async renderRerankerAssetBlock(containerEl: HTMLElement): Promise<void> {
+        const { OptionalAssetManager, buildRerankerSpec } = await import('../../core/assets/OptionalAssetManager');
+        const { RERANKER_WASM_SHA256 } = await import('../../core/assets/assetHashes');
+        const manager = new OptionalAssetManager(this.plugin);
+        const spec = buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256);
+
+        const setting = new Setting(containerEl)
+            .setName(`Reranker model (${spec.sizeMb} MB)`)
+            .setDesc(
+                spec.description +
+                ' Stored in <vault>/.vault-operator/assets/. Downloaded once from this plugin\'s GitHub release, verified by SHA256.',
+            );
+
+        const statusEl = setting.descEl.createDiv({ cls: 'reranker-asset-status' });
+        statusEl.style.marginTop = '6px';
+        statusEl.style.fontSize = '0.85em';
+        statusEl.style.opacity = '0.8';
+
+        const renderStatus = async (): Promise<void> => {
+            const snap = await manager.snapshot(spec);
+            statusEl.empty();
+            if (snap.status === 'installed') {
+                statusEl.setText('Status: Installed');
+                statusEl.style.color = 'var(--text-success)';
+            } else if (snap.status === 'outdated') {
+                statusEl.setText('Status: Installed (hash mismatch -- re-install recommended)');
+                statusEl.style.color = 'var(--text-warning)';
+            } else if (snap.status === 'error') {
+                statusEl.setText(`Status: Error - ${snap.errorMessage ?? 'unknown'}`);
+                statusEl.style.color = 'var(--text-error)';
+            } else {
+                statusEl.setText('Status: Not installed - reranker stays disabled');
+                statusEl.style.color = 'var(--text-muted)';
+            }
+        };
+
+        await renderStatus();
+
+        setting.addButton((btn) => {
+            btn.setButtonText('Install')
+                .setCta()
+                .onClick(async () => {
+                    btn.setDisabled(true);
+                    btn.setButtonText('Downloading...');
+                    try {
+                        await manager.install(spec);
+                        new Notice(`${spec.label} installed.`);
+                        // Reload the model so the running plugin picks it up
+                        if (this.plugin.rerankerService) {
+                            const { RerankerService } = await import('../../core/knowledge/RerankerService');
+                            this.plugin.rerankerService = new RerankerService(this.plugin);
+                            void this.plugin.rerankerService.loadModel();
+                        }
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        new Notice(`Install failed: ${msg}`);
+                    } finally {
+                        btn.setDisabled(false);
+                        btn.setButtonText('Install');
+                        await renderStatus();
+                    }
+                });
+        });
+
+        setting.addButton((btn) => {
+            btn.setButtonText('Remove')
+                .setWarning()
+                .onClick(async () => {
+                    const ok = await this.confirmDestructive(
+                        'Remove reranker model?',
+                        `Deletes <vault>/.vault-operator/assets/${spec.filename}. You can re-install later. Reranker will stop until then.`,
+                    );
+                    if (!ok) return;
+                    try {
+                        await manager.remove(spec);
+                        new Notice('Reranker model removed.');
+                        // Reset service so semantic search skips reranking on next call
+                        this.plugin.rerankerService = null;
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        new Notice(`Remove failed: ${msg}`);
+                    } finally {
+                        await renderStatus();
+                    }
+                });
+        });
     }
 
     /** Start background enrichment if all prerequisites are met. */

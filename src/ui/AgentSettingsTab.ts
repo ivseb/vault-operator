@@ -28,7 +28,9 @@ export { ContentEditorModal } from './settings/ContentEditorModal';
 
 // ---------------------------------------------------------------------------
 
-export type TabId = 'providers' | 'agent-behaviour' | 'vault' | 'advanced';
+export type TabId = 'providers' | 'agent-behaviour' | 'vault' | 'advanced' | 'help';
+
+const HELP_URL = 'https://pssah4.github.io/vault-operator/';
 
 export class AgentSettingsTab extends PluginSettingTab {
     plugin: ObsidianAgentPlugin;
@@ -76,6 +78,7 @@ export class AgentSettingsTab extends PluginSettingTab {
             { id: 'agent-behaviour', label: t('settings.group.agentBehaviour'), icon: 'users-round'  },
             { id: 'vault',           label: t('settings.group.vault'),           icon: 'server'       },
             { id: 'advanced',        label: t('settings.group.advanced'),        icon: 'settings-2'   },
+            { id: 'help',            label: t('settings.group.help'),            icon: 'help-circle'  },
         ];
         tabs.forEach(({ id, label, icon }) => {
             const btn = nav.createEl('button', {
@@ -85,6 +88,10 @@ export class AgentSettingsTab extends PluginSettingTab {
             setIcon(iconEl, icon);
             btn.createSpan({ cls: 'agent-settings-tab-label', text: label });
             btn.addEventListener('click', () => {
+                if (id === 'help') {
+                    openHelpUrl();
+                    return;
+                }
                 this.activeTab = id;
                 this.display();
             });
@@ -234,4 +241,15 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeAdvancedSubTab === 'debug')     new DebugTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'backup')    new BackupTab(this.plugin, this.app, rerender).build(content);
     }
+}
+
+function openHelpUrl(): void {
+    const electron = (window as unknown as {
+        require?: (m: string) => { shell?: { openExternal(u: string): unknown } };
+    }).require?.('electron');
+    if (electron?.shell?.openExternal) {
+        void electron.shell.openExternal(HELP_URL);
+        return;
+    }
+    window.open(HELP_URL, '_blank', 'noopener,noreferrer');
 }
