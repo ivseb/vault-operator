@@ -140,6 +140,24 @@ export class DebugTab {
                 });
         });
 
+        // File-picker fallback: useful when the GitHub release does not
+        // ship the asset yet (e.g. local plugin-dev workflow).
+        setting.addExtraButton((btn) => {
+            btn.setIcon('upload')
+                .setTooltip('Install from local file (fallback if download fails)')
+                .onClick(async () => {
+                    const { pickAndInstallAsset } = await import('./installFromFile');
+                    pickAndInstallAsset(manager, spec, async () => {
+                        if (this.plugin.embeddedSourceManager) {
+                            const { EmbeddedSourceManager } = await import('../../core/self-development/EmbeddedSourceManager');
+                            this.plugin.embeddedSourceManager = new EmbeddedSourceManager(this.plugin);
+                            void this.plugin.embeddedSourceManager.load();
+                        }
+                        await renderStatus();
+                    });
+                });
+        });
+
         await renderStatus();
     }
 }

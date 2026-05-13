@@ -615,6 +615,8 @@ export class FirstRunWizardModal extends Modal {
             const statusEl = card.createDiv({ cls: 'wizard-asset-status' });
             const actions = card.createDiv({ cls: 'wizard-asset-actions' });
             const installBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Install' });
+            const fileBtn = actions.createEl('button', { text: 'Install from file' });
+            fileBtn.setAttr('title', 'Pick a local copy if the GitHub release does not ship this asset yet');
             const removeBtn = actions.createEl('button', { text: 'Remove' });
 
             const refreshStatus = async () => {
@@ -683,6 +685,11 @@ export class FirstRunWizardModal extends Modal {
                 } finally {
                     await refreshStatus();
                 }
+            });
+
+            fileBtn.addEventListener('click', async () => {
+                const { pickAndInstallAsset } = await import('../settings/installFromFile');
+                pickAndInstallAsset(manager, item.spec, refreshStatus);
             });
         }
     }

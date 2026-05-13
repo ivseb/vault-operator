@@ -191,6 +191,34 @@ export class OptionalAssetManager {
         return buffer;
     }
 
+    /**
+     * Install from a buffer that the caller already has (file picker,
+     * drag-and-drop). Same hash check as install(), no network. Used as
+     * a fallback when the GitHub release does not (yet) ship the asset.
+     */
+    async installFromBuffer(spec: AssetSpec, buffer: ArrayBuffer): Promise<void> {
+        const adapter = this.plugin.app.vault.adapter;
+
+        if (!await adapter.exists(ASSET_DIR)) {
+            await adapter.mkdir(ASSET_DIR);
+        }
+
+        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+        const sha = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+        if (sha !== spec.expectedSha256) {
+            throw new Error(
+                `Hash mismatch for ${spec.id}: expected ${spec.expectedSha256.slice(0, 16)}..., ` +
+                `got ${sha.slice(0, 16)}... ` +
+                `Make sure you selected the file matching this plugin version (${this.plugin.manifest.version}).`,
+            );
+        }
+
+        await adapter.writeBinary(this.filePath(spec), buffer);
+        await adapter.write(this.shaSidecarPath(spec), sha);
+    }
+
     /** Remove the installed asset and its SHA sidecar. Idempotent. */
     async remove(spec: AssetSpec): Promise<void> {
         const adapter = this.plugin.app.vault.adapter;

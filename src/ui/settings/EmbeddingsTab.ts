@@ -756,6 +756,24 @@ export class EmbeddingsTab {
                 });
         });
 
+        // File-picker fallback: useful when the GitHub release does not
+        // ship the asset yet (e.g. local plugin-dev workflow).
+        setting.addExtraButton((btn) => {
+            btn.setIcon('upload')
+                .setTooltip('Install from local file (fallback if download fails)')
+                .onClick(async () => {
+                    const { pickAndInstallAsset } = await import('./installFromFile');
+                    pickAndInstallAsset(manager, spec, async () => {
+                        if (this.plugin.rerankerService) {
+                            const { RerankerService } = await import('../../core/knowledge/RerankerService');
+                            this.plugin.rerankerService = new RerankerService(this.plugin);
+                            void this.plugin.rerankerService.loadModel();
+                        }
+                        await renderStatus();
+                    });
+                });
+        });
+
         await renderStatus();
     }
 
