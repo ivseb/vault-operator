@@ -17,6 +17,7 @@ import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
 import { OnboardingService } from '../core/memory/OnboardingService';
+import { isActiveOnboardingFlow } from '../core/onboarding-status';
 import { ContextTracker } from '../core/context/ContextTracker';
 import { TaskMonitor } from './sidebar/TaskMonitor';
 import { ContextDisplay } from './sidebar/ContextDisplay';
@@ -2194,8 +2195,9 @@ export class AgentSidebarView extends ItemView {
         // FEAT-24-09 / ADR-116: build the stable SKILLS directory for the
         // cached system-prompt prefix. The model loads a skill body on demand
         // via the read_skill tool -- no per-message LLM classifier any more.
-        // Skip during onboarding (the onboarding prompt is self-contained).
-        const isOnboarding = !this.plugin.settings.onboarding.completed;
+        // Skip only during the active first-time onboarding wizard, not for
+        // users who abandoned it but use the plugin productively (FIX-24-09-01).
+        const isOnboarding = isActiveOnboardingFlow(this.plugin.settings);
         let skillDirectorySection: string | undefined;
         if (!isOnboarding) {
             const modeAllowed = this.plugin.settings.modeSkillAllowList?.[activeMode.slug];
