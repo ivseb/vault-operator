@@ -135010,26 +135010,24 @@ var init_OptionalAssetManager = __esm({
 // src/core/assets/assetHashes.ts
 var assetHashes_exports = {};
 __export(assetHashes_exports, {
-  RERANKER_WASM_SHA256: () => RERANKER_WASM_SHA256,
-  SELF_DEV_SOURCE_SHA256: () => SELF_DEV_SOURCE_SHA256
+  RERANKER_WASM_SHA256: () => RERANKER_WASM_SHA256
 });
-var RERANKER_WASM_SHA256, SELF_DEV_SOURCE_SHA256;
+var RERANKER_WASM_SHA256;
 var init_assetHashes = __esm({
   "src/core/assets/assetHashes.ts"() {
     RERANKER_WASM_SHA256 = "f4f290847a4df02d0b93cdbf39b4b0e71acefbe80573e7e6b9342a7abd7b290a";
-    SELF_DEV_SOURCE_SHA256 = "";
   }
 });
 
 // src/_generated/source-hash.ts
 var source_hash_exports = {};
 __export(source_hash_exports, {
-  SELF_DEV_SOURCE_SHA256: () => SELF_DEV_SOURCE_SHA2562
+  SELF_DEV_SOURCE_SHA256: () => SELF_DEV_SOURCE_SHA256
 });
-var SELF_DEV_SOURCE_SHA2562;
+var SELF_DEV_SOURCE_SHA256;
 var init_source_hash = __esm({
   "src/_generated/source-hash.ts"() {
-    SELF_DEV_SOURCE_SHA2562 = "0591981726a4de291ba785541a6c5879592a96244e7f5b7f1e10f306d4d43d5b";
+    SELF_DEV_SOURCE_SHA256 = "40ebf032406d8b37f2ef87d45b45c4cd6cc72c8d065d01db3b401c2b543c59c7";
   }
 });
 
@@ -135526,7 +135524,7 @@ var init_FirstRunWizardModal = __esm({
         );
         const { OptionalAssetManager: OptionalAssetManager2, buildRerankerSpec: buildRerankerSpec2, buildSelfDevSourceSpec: buildSelfDevSourceSpec2 } = await Promise.resolve().then(() => (init_OptionalAssetManager(), OptionalAssetManager_exports));
         const { RERANKER_WASM_SHA256: RERANKER_WASM_SHA2562 } = await Promise.resolve().then(() => (init_assetHashes(), assetHashes_exports));
-        const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2563 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
+        const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2562 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
         const manager = new OptionalAssetManager2(this.plugin);
         const items = [
           {
@@ -135542,8 +135540,8 @@ var init_FirstRunWizardModal = __esm({
             recommended: false,
             what: "Lets the agent read its own source code. Useful if you want the agent to help with extending the plugin itself. Most users do not need this.",
             size: "5 MB",
-            sha: SELF_DEV_SOURCE_SHA2563,
-            spec: buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2563)
+            sha: SELF_DEV_SOURCE_SHA2562,
+            spec: buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2562)
           }
         ];
         for (const item of items) {
@@ -184569,13 +184567,13 @@ var init_EmbeddedSourceManager = __esm({
         if (this.loaded) return true;
         try {
           const { OptionalAssetManager: OptionalAssetManager2, buildSelfDevSourceSpec: buildSelfDevSourceSpec2 } = await Promise.resolve().then(() => (init_OptionalAssetManager(), OptionalAssetManager_exports));
-          const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2563 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
-          if (!SELF_DEV_SOURCE_SHA2563) {
+          const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2562 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
+          if (!SELF_DEV_SOURCE_SHA2562) {
             console.debug("[EmbeddedSourceManager] No source hash compiled in -- dev build, skipping");
             return false;
           }
           const manager = new OptionalAssetManager2(this.plugin);
-          const spec = buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2563);
+          const spec = buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2562);
           const buffer2 = await manager.load(spec);
           if (!buffer2) {
             console.debug("[EmbeddedSourceManager] Source bundle not installed -- run Settings > Advanced > Self-Development > Install");
@@ -250568,13 +250566,13 @@ var DebugTab = class {
   }
   async renderSourceAssetBlock(containerEl) {
     const { OptionalAssetManager: OptionalAssetManager2, buildSelfDevSourceSpec: buildSelfDevSourceSpec2 } = await Promise.resolve().then(() => (init_OptionalAssetManager(), OptionalAssetManager_exports));
-    const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2563 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
-    if (!SELF_DEV_SOURCE_SHA2563) {
+    const { SELF_DEV_SOURCE_SHA256: SELF_DEV_SOURCE_SHA2562 } = await Promise.resolve().then(() => (init_source_hash(), source_hash_exports));
+    if (!SELF_DEV_SOURCE_SHA2562) {
       new import_obsidian56.Setting(containerEl).setName("Self-Development source bundle").setDesc("Not available in this development build (no SHA compiled in). Will be available in the next release.");
       return;
     }
     const manager = new OptionalAssetManager2(this.plugin);
-    const spec = buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2563);
+    const spec = buildSelfDevSourceSpec2(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA2562);
     const setting = new import_obsidian56.Setting(containerEl).setName(`${spec.label} (~${spec.sizeMb} MB)`).setDesc(
       spec.description + " Stored in <vault>/.vault-operator/assets/. Downloaded from this plugin's GitHub release, verified by SHA256."
     );
