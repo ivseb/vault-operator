@@ -46,7 +46,6 @@ const MUST_BE_REACHABLE: ToolName[] = [
 // Tools intentionally NOT in any group -- listed here so an ad-hoc
 // reviewer can see the intent instead of grepping.
 const INTENTIONALLY_NOT_REACHABLE: ToolName[] = [
-    'create_canvas',   // superseded by generate_canvas in recent releases
     'create_drawio',   // accessed via plugin routing, not via mode groups
     'find_tool',       // meta-tool for deferred loading, not user-facing
 ];

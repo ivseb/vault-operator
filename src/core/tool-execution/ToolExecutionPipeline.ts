@@ -88,7 +88,6 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     query_base: 'read',
     semantic_search: 'read',
     render_presentation: 'read',
-    check_presentation_quality: 'read',
     // Note content edits (write_file, edit_file, append_to_file, update_frontmatter)
     write_file: 'note-edit',
     edit_file: 'note-edit',

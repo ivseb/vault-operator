@@ -294,15 +294,6 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         commonMistakes: 'Creating a new base when you should update an existing one — check if it exists first.',
     },
 
-    check_presentation_quality: {
-        group: 'skill', label: 'Quality Check', icon: 'check-circle',
-        signature: 'check_presentation_quality(file)',
-        description: 'Render a PPTX and perform automated visual quality check using Claude Vision. Returns a structured QA report with pass/warn/fail per slide and fix suggestions.',
-        example: 'check_presentation_quality("Presentations/quarterly.pptx")',
-        whenToUse: 'After creating a presentation with create_pptx -- automated quality gate before delivery.',
-        commonMistakes: 'Not having Visual Intelligence enabled or no active model configured.',
-    },
-
     // ── Office Document Creation ────────────────────────────────────────
     plan_presentation: {
         group: 'edit', label: 'Plan Presentation', icon: 'layout-list',
@@ -523,10 +514,96 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
     execute_recipe: {
         group: 'skill', label: 'Recipe', icon: 'chef-hat',
         signature: 'execute_recipe(recipe_id, params)',
-        description: 'Execute a pre-defined recipe for external tools (Pandoc PDF/DOCX export). No arbitrary shell — only validated recipes.',
+        description: 'Execute a pre-defined recipe for external tools (Pandoc PDF/DOCX export). No arbitrary shell -- only validated recipes.',
         example: 'execute_recipe("pandoc-pdf", {"input": "note.md", "output": "note.pdf"})',
         whenToUse: 'For CLI tool integrations (Pandoc, LaTeX). Check dependency availability first.',
         commonMistakes: 'Writing fake .pdf/.docx content instead of using the proper export recipe.',
+    },
+
+    // IMP-24-06-01: drift-closing entries for tools that were in the ToolName
+    // union but had no TOOL_METADATA entry. Without a metadata entry they are
+    // not described in the system-prompt TOOLS section, and find_tool cannot
+    // rank them either. Discovered by AUDIT-020 F-1.
+    anti_echo_search: {
+        group: 'web', label: 'Anti-Echo Search', icon: 'search-x',
+        signature: 'anti_echo_search(cluster, source_domain)',
+        description: 'Active web search for counter-positions to a cluster dominated by one source domain. Returns findings that contradict or qualify the dominant view.',
+        whenToUse: 'When a knowledge cluster looks one-sided and the user asked for balance. Used by the periodic knowledge-maintenance job.',
+    },
+    configure_model: {
+        group: 'agent', label: 'Configure Model', icon: 'cpu',
+        signature: 'configure_model(action, ...)',
+        description: 'Add, select, or test an LLM model. Manages the activeModels list and activeModelKey from the agent loop.',
+        whenToUse: 'During onboarding or when the user asks to switch to a different LLM. Prefer update_settings for non-model toggles.',
+    },
+    ingest_deep: {
+        group: 'edit', label: 'Ingest Deep', icon: 'layers',
+        signature: 'ingest_deep(source_path, ...)',
+        description: 'Deep-Ingest of a source note (BA-25 Karpathy pattern): creates a source note plus structured downstream notes (concepts, claims, evidence). Heavy operation, writes multiple notes.',
+        whenToUse: 'After ingest_triage decided that a source warrants deep ingestion.',
+        commonMistakes: 'Running deep on every read source. Use triage first; deep is for sources you will reference repeatedly.',
+    },
+    ingest_triage: {
+        group: 'edit', label: 'Ingest Triage', icon: 'filter',
+        signature: 'ingest_triage(source_path, ...)',
+        description: 'Quick triage of a source (article, PDF, vault note). Decides keep/skim/skip and writes a one-line decision into the triage log.',
+        whenToUse: 'Before deciding whether to call ingest_deep on a new source.',
+    },
+    list_memory_source_notes: {
+        group: 'read', label: 'List Memory Sources', icon: 'list',
+        signature: 'list_memory_source_notes(only_pending?)',
+        description: 'List vault notes registered as memory-source. Read-only. Returns path, registration timestamp, last extraction.',
+        whenToUse: 'When the user asks which notes feed long-term memory, or to find notes awaiting re-extraction.',
+    },
+    mark_for_memory: {
+        group: 'agent', label: 'Mark for Memory', icon: 'bookmark',
+        signature: 'mark_for_memory(scope?)',
+        description: 'Save the current sidebar conversation (or the named scope) to long-term memory immediately. Triggers extraction now instead of at session end.',
+        whenToUse: 'When the conversation contained a fact, decision, or preference the user wants persisted right away.',
+    },
+    mark_note_as_memory_source: {
+        group: 'edit', label: 'Mark Note as Memory', icon: 'bookmark-plus',
+        signature: 'mark_note_as_memory_source(note_path)',
+        description: 'Mark a vault note as memory-source. The note content gets extracted into the long-term memory store on the next maintenance pass.',
+        whenToUse: 'For notes that contain durable facts (project briefs, glossaries, policy notes) you want the agent to remember beyond the current chat.',
+    },
+    read_agent_logs: {
+        group: 'agent', label: 'Read Agent Logs', icon: 'scroll',
+        signature: 'read_agent_logs(action?, level?, since?, pattern?)',
+        description: 'Read the agent\'s own console logs (debug, warn, error) from the ring buffer. Supports filtering by level, time, and pattern.',
+        whenToUse: 'For self-debugging when something looks off and the user wants the agent to introspect what happened.',
+    },
+    recall_memory: {
+        group: 'agent', label: 'Recall Memory', icon: 'brain',
+        signature: 'recall_memory(query, top_k?)',
+        description: 'Search the user memory store (Memory v2 facts + edges) by cosine + keyword. Returns ranked facts with sources.',
+        whenToUse: 'When the user references something likely stored in long-term memory ("what did we decide about X?") and the conversation history alone is not enough.',
+        commonMistakes: 'Confusing recall_memory (facts) with search_history (raw past messages). recall_memory is narrower and faster.',
+    },
+    search_history: {
+        group: 'read', label: 'Search History', icon: 'history',
+        signature: 'search_history(query, top_k?)',
+        description: 'Keyword-search past conversations for messages that match the query. Returns matching messages with source conversation, role, timestamp, and a clickable obsidian:// link.',
+        whenToUse: 'When the user references "we talked about X earlier" or "find that chat where I mentioned Y". Much wider than recall_memory.',
+    },
+    switch_mode: {
+        group: 'agent', label: 'Switch Mode', icon: 'shuffle',
+        signature: 'switch_mode(mode_slug, reason?)',
+        description: 'Switch to a different agent mode when the current task is better handled by another mode (e.g. switch to ask-mode for read-only research mid-task).',
+        whenToUse: 'When the task profile changes during a conversation and a different toolset / role would help.',
+    },
+    unmark_note_as_memory_source: {
+        group: 'edit', label: 'Unmark Memory Source', icon: 'bookmark-minus',
+        signature: 'unmark_note_as_memory_source(note_path)',
+        description: 'Remove the memory-source marker from a vault note. The note stays in the vault; only the extraction binding is removed.',
+        whenToUse: 'When a previously useful source has become noise or stale and should stop feeding long-term memory.',
+    },
+    update_soul: {
+        group: 'agent', label: 'Update Soul', icon: 'user-circle',
+        signature: 'update_soul(action, key?, value?)',
+        description: 'Add, update, or replace an entry in the curated Soul (L2): values, principles, lessons, working preferences.',
+        whenToUse: 'When the user shares a durable principle ("I always X") or lesson learned that should shape future agent behaviour.',
+        commonMistakes: 'Storing transient context as Soul. Soul is for stable identity / values; use mark_for_memory for situational facts.',
     },
 };
 
@@ -557,7 +634,6 @@ export const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
     'create_base',
     'update_base',
     // Office / presentation pipeline
-    'check_presentation_quality',
     'plan_presentation',
     'create_pptx',
     'create_docx',

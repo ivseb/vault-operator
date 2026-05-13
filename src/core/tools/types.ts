@@ -21,7 +21,6 @@ export type ToolName =
     | 'delete_file'
     | 'move_file'
     // Vault: structured
-    | 'create_canvas'
     | 'create_base'
     | 'update_base'
     | 'query_base'
