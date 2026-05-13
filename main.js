@@ -135029,7 +135029,7 @@ __export(source_hash_exports, {
 var SELF_DEV_SOURCE_SHA2562;
 var init_source_hash = __esm({
   "src/_generated/source-hash.ts"() {
-    SELF_DEV_SOURCE_SHA2562 = "e4d2278209ddb6502a52e9bb619085bf0487204374e38d159e1594ff9008c4a0";
+    SELF_DEV_SOURCE_SHA2562 = "0591981726a4de291ba785541a6c5879592a96244e7f5b7f1e10f306d4d43d5b";
   }
 });
 
@@ -208815,6 +208815,139 @@ var init_bundled_templates = __esm({
   }
 });
 
+// src/ui/modals/PluginPatchModal.ts
+var PluginPatchModal_exports = {};
+__export(PluginPatchModal_exports, {
+  PluginPatchModal: () => PluginPatchModal
+});
+var import_obsidian88, PluginPatchModal;
+var init_PluginPatchModal = __esm({
+  "src/ui/modals/PluginPatchModal.ts"() {
+    import_obsidian88 = require("obsidian");
+    PluginPatchModal = class extends import_obsidian88.Modal {
+      constructor(app, plugin, compiledJs, summary) {
+        super(app);
+        this.plugin = plugin;
+        this.compiledJs = compiledJs;
+        this.summary = summary;
+      }
+      plugin;
+      compiledJs;
+      summary;
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass("vault-operator-wizard");
+        this.modalEl.style.maxWidth = "680px";
+        const header = contentEl.createDiv({ cls: "wizard-header" });
+        header.createEl("h2", { text: "Apply self-development patch" });
+        header.createDiv({
+          cls: "wizard-step-counter",
+          text: `${Math.round(this.compiledJs.length / 1024)} KB compiled`
+        });
+        const banner = contentEl.createDiv({ cls: "wizard-info-banner" });
+        const iconWrap = banner.createDiv({ cls: "wizard-info-banner-icon" });
+        (0, import_obsidian88.setIcon)(iconWrap, "wrench");
+        const text2 = banner.createDiv({ cls: "wizard-info-banner-text" });
+        text2.createEl("strong", { text: "You replace main.js manually" });
+        text2.createDiv({
+          text: "Obsidian plugins are not allowed to overwrite their own main.js at runtime. Download the new build below, drop it into your plugin folder, then reload."
+        });
+        if (this.summary) {
+          const sec = contentEl.createEl("h3", { cls: "wizard-section", text: "Patch summary" });
+          sec.setText("What changed");
+          const pre = contentEl.createEl("pre");
+          pre.style.background = "var(--background-secondary)";
+          pre.style.padding = "10px 12px";
+          pre.style.borderRadius = "4px";
+          pre.style.maxHeight = "180px";
+          pre.style.overflow = "auto";
+          pre.style.fontSize = "12px";
+          pre.style.whiteSpace = "pre-wrap";
+          pre.setText(this.summary);
+        }
+        contentEl.createEl("h3", { cls: "wizard-section", text: "Apply the patch" });
+        const steps = contentEl.createEl("ol");
+        steps.style.paddingLeft = "20px";
+        steps.style.lineHeight = "1.7";
+        steps.style.margin = "4px 0 16px 0";
+        const pluginPath = this.getPluginFolderPath();
+        steps.createEl("li", { text: 'Click "Download main.js" below.' });
+        const li2 = steps.createEl("li");
+        li2.appendText("Replace the file at ");
+        const code = li2.createEl("code", { text: pluginPath });
+        code.style.fontSize = "12px";
+        li2.appendText(" with the downloaded file.");
+        steps.createEl("li", { text: 'Click "Reload plugin" to restart Vault Operator with the new code.' });
+        const cautionWrap = contentEl.createDiv({ cls: "wizard-skip-list" });
+        cautionWrap.createEl("strong", { text: "Safety net: " });
+        cautionWrap.createSpan({
+          text: "before you replace main.js, copy your current main.js to main.js.bak somewhere safe. If the patch breaks Vault Operator, restore that backup or reinstall via BRAT or the Community Plugins directory."
+        });
+        const footer = contentEl.createDiv({ cls: "wizard-footer" });
+        const left = footer.createDiv({ cls: "wizard-footer-left" });
+        const right = footer.createDiv({ cls: "wizard-footer-right" });
+        const copyPathBtn = left.createEl("button", { text: "Copy plugin folder path" });
+        copyPathBtn.addEventListener("click", () => {
+          void navigator.clipboard.writeText(this.getPluginFolderAbsolute()).then(() => {
+            new import_obsidian88.Notice("Path copied to clipboard.");
+          });
+        });
+        const downloadBtn = right.createEl("button", { cls: "mod-cta", text: "Download main.js" });
+        downloadBtn.addEventListener("click", () => this.triggerDownload());
+        const reloadBtn = right.createEl("button", { text: "Reload plugin" });
+        reloadBtn.addEventListener("click", () => {
+          void this.reloadPlugin();
+        });
+        const closeBtn = right.createEl("button", { text: "Close" });
+        closeBtn.addEventListener("click", () => this.close());
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+      triggerDownload() {
+        const blob = new Blob([this.compiledJs], { type: "application/javascript" });
+        const url2 = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url2;
+        link.download = "main.js";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url2), 1e3);
+        new import_obsidian88.Notice('Downloaded. Replace main.js in the plugin folder, then click "Reload plugin".');
+      }
+      getPluginFolderPath() {
+        const configDir = this.plugin.app.vault.configDir;
+        return `${configDir}/plugins/${this.plugin.manifest.id}/main.js`;
+      }
+      getPluginFolderAbsolute() {
+        const adapter = this.plugin.app.vault.adapter;
+        const base = adapter.getBasePath?.() ?? "";
+        return `${base}/${this.getPluginFolderPath()}`;
+      }
+      async reloadPlugin() {
+        const id = this.plugin.manifest.id;
+        const plugins = this.plugin.app.plugins;
+        if (!plugins) {
+          new import_obsidian88.Notice("Cannot access plugin manager. Reload Obsidian manually.");
+          return;
+        }
+        try {
+          await plugins.disablePlugin(id);
+          await new Promise((resolve3) => setTimeout(resolve3, 400));
+          await plugins.enablePlugin(id);
+          new import_obsidian88.Notice("Plugin reloaded.");
+          this.close();
+        } catch (e3) {
+          const msg = e3 instanceof Error ? e3.message : String(e3);
+          new import_obsidian88.Notice(`Reload failed: ${msg}`);
+        }
+      }
+    };
+  }
+});
+
 // node_modules/async-lock/lib/index.js
 var require_lib = __commonJS({
   "node_modules/async-lock/lib/index.js"(exports, module2) {
@@ -243206,10 +243339,10 @@ function normaliseVaultPath(raw) {
   if (raw === "/" || raw === "." || raw === "./") return "";
   return raw.replace(/\/+$/, "");
 }
-var import_obsidian94, SandboxBridge;
+var import_obsidian95, SandboxBridge;
 var init_SandboxBridge = __esm({
   "src/core/sandbox/SandboxBridge.ts"() {
-    import_obsidian94 = require("obsidian");
+    import_obsidian95 = require("obsidian");
     SandboxBridge = class _SandboxBridge {
       constructor(plugin) {
         this.plugin = plugin;
@@ -243243,7 +243376,7 @@ var init_SandboxBridge = __esm({
           this.validateVaultPath(normalised);
           this.logBridgeOp("vault-read", normalised);
           const file = this.plugin.app.vault.getAbstractFileByPath(normalised);
-          if (!(file instanceof import_obsidian94.TFile)) throw new Error(`Not a file: ${path12}`);
+          if (!(file instanceof import_obsidian95.TFile)) throw new Error(`Not a file: ${path12}`);
           const result = await this.plugin.app.vault.read(file);
           this.recordSuccess();
           return result;
@@ -243259,7 +243392,7 @@ var init_SandboxBridge = __esm({
           this.validateVaultPath(normalised);
           this.logBridgeOp("vault-read-binary", normalised);
           const file = this.plugin.app.vault.getAbstractFileByPath(normalised);
-          if (!(file instanceof import_obsidian94.TFile)) throw new Error(`Not a file: ${path12}`);
+          if (!(file instanceof import_obsidian95.TFile)) throw new Error(`Not a file: ${path12}`);
           const result = await this.plugin.app.vault.readBinary(file);
           this.recordSuccess();
           return result;
@@ -243275,7 +243408,7 @@ var init_SandboxBridge = __esm({
           this.validateVaultPath(normalised);
           this.logBridgeOp("vault-list", normalised);
           const folder = normalised === "" ? this.plugin.app.vault.getRoot() : this.plugin.app.vault.getAbstractFileByPath(normalised);
-          if (!(folder instanceof import_obsidian94.TFolder)) throw new Error(`Not a folder: ${path12}`);
+          if (!(folder instanceof import_obsidian95.TFolder)) throw new Error(`Not a folder: ${path12}`);
           const result = folder.children.map((c3) => c3.path);
           this.recordSuccess();
           return result;
@@ -243293,7 +243426,7 @@ var init_SandboxBridge = __esm({
         this.checkWriteRateLimit();
         this.logBridgeOp("vault-write", `${path12} (${content.length} chars)`);
         const file = this.plugin.app.vault.getAbstractFileByPath(path12);
-        if (file instanceof import_obsidian94.TFile) {
+        if (file instanceof import_obsidian95.TFile) {
           await this.plugin.app.vault.modify(file, content);
         } else {
           await this.plugin.app.vault.create(path12, content);
@@ -243309,7 +243442,7 @@ var init_SandboxBridge = __esm({
         this.checkWriteRateLimit();
         this.logBridgeOp("vault-write-binary", `${path12} (${content.byteLength} bytes)`);
         const file = this.plugin.app.vault.getAbstractFileByPath(path12);
-        if (file instanceof import_obsidian94.TFile) {
+        if (file instanceof import_obsidian95.TFile) {
           await this.plugin.app.vault.modifyBinary(file, content);
         } else {
           await this.plugin.app.vault.createBinary(path12, content);
@@ -243328,7 +243461,7 @@ var init_SandboxBridge = __esm({
           throw new Error("Rejected: payload contains prototype pollution keys");
         }
         this.logBridgeOp("request-url", url2);
-        const response = await (0, import_obsidian94.requestUrl)({
+        const response = await (0, import_obsidian95.requestUrl)({
           url: url2,
           method: options?.method,
           body: options?.body
@@ -244283,11 +244416,11 @@ var SoakReportModal_exports = {};
 __export(SoakReportModal_exports, {
   SoakReportModal: () => SoakReportModal
 });
-var import_obsidian98, SoakReportModal;
+var import_obsidian99, SoakReportModal;
 var init_SoakReportModal = __esm({
   "src/ui/modals/SoakReportModal.ts"() {
-    import_obsidian98 = require("obsidian");
-    SoakReportModal = class extends import_obsidian98.Modal {
+    import_obsidian99 = require("obsidian");
+    SoakReportModal = class extends import_obsidian99.Modal {
       constructor(app, json, saveToVault) {
         super(app);
         this.json = json;
@@ -244312,21 +244445,21 @@ var init_SoakReportModal = __esm({
         ta.spellcheck = false;
         ta.rows = 18;
         ta.addEventListener("focus", () => ta.select());
-        new import_obsidian98.Setting(contentEl).addButton((btn) => btn.setButtonText("Copy to clipboard").setCta().onClick(async () => {
+        new import_obsidian99.Setting(contentEl).addButton((btn) => btn.setButtonText("Copy to clipboard").setCta().onClick(async () => {
           try {
             await navigator.clipboard.writeText(this.json);
-            new import_obsidian98.Notice("Soak report copied. Paste into chat.");
+            new import_obsidian99.Notice("Soak report copied. Paste into chat.");
           } catch {
             ta.focus();
-            new import_obsidian98.Notice("Copy blocked -- select the text and press Cmd/Ctrl+C, or use Save to vault.");
+            new import_obsidian99.Notice("Copy blocked -- select the text and press Cmd/Ctrl+C, or use Save to vault.");
           }
         })).addButton((btn) => btn.setButtonText("Save to vault").onClick(async () => {
           try {
             const path12 = await this.saveToVault();
-            new import_obsidian98.Notice(`Soak report saved: ${path12}`);
+            new import_obsidian99.Notice(`Soak report saved: ${path12}`);
           } catch (e3) {
             console.warn("[SoakReportModal] Save to vault failed:", e3);
-            new import_obsidian98.Notice("Save to vault failed -- see console.");
+            new import_obsidian99.Notice("Save to vault failed -- see console.");
           }
         })).addButton((btn) => btn.setButtonText("Close").onClick(() => this.close()));
       }
@@ -244434,11 +244567,11 @@ __export(MemoryV2UpgradeModal_exports, {
 function memoryV2UpgradeModal(app, opts = {}) {
   return new Promise((resolve3) => new MemoryV2UpgradeModalImpl(app, opts, resolve3).open());
 }
-var import_obsidian99, MemoryV2UpgradeModalImpl;
+var import_obsidian100, MemoryV2UpgradeModalImpl;
 var init_MemoryV2UpgradeModal = __esm({
   "src/ui/modals/MemoryV2UpgradeModal.ts"() {
-    import_obsidian99 = require("obsidian");
-    MemoryV2UpgradeModalImpl = class extends import_obsidian99.Modal {
+    import_obsidian100 = require("obsidian");
+    MemoryV2UpgradeModalImpl = class extends import_obsidian100.Modal {
       constructor(app, opts, resolve3) {
         super(app);
         this.opts = opts;
@@ -244476,7 +244609,7 @@ var init_MemoryV2UpgradeModal = __esm({
         later.appendText("You can run this upgrade later from ");
         later.createEl("em", { text: "Settings \u2192 memory \u2192 run upgrade" });
         later.appendText(". The dialog only appears once per release.");
-        new import_obsidian99.Setting(contentEl).addButton((btn) => btn.setButtonText("Later").onClick(() => this.decide("later"))).addButton((btn) => btn.setButtonText("Upgrade now").setCta().onClick(() => this.decide("migrate")));
+        new import_obsidian100.Setting(contentEl).addButton((btn) => btn.setButtonText("Later").onClick(() => this.decide("later"))).addButton((btn) => btn.setButtonText("Upgrade now").setCta().onClick(() => this.decide("migrate")));
       }
       decide(choice) {
         this.decided = true;
@@ -244497,7 +244630,7 @@ __export(main_exports, {
   default: () => ObsidianAgentPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian100 = require("obsidian");
+var import_obsidian101 = require("obsidian");
 init_settings();
 init_AgentSidebarView();
 
@@ -287921,37 +288054,26 @@ Fix the error in the source and try again.`
       )));
       return;
     }
-    const result = await this.pluginReloader.deployAndReload(this.lastBuildResult);
-    if (result.success) {
-      this.lastBuildResult = null;
-      callbacks.pushToolResult(this.formatSuccess(
-        "Plugin deployed and reloaded successfully. The new code is now active. Verify that the fix works as expected."
-      ));
-      callbacks.log("manage_source: reload succeeded");
-    } else {
-      callbacks.pushToolResult(this.formatError(new Error(
-        result.error ?? "Reload failed for unknown reason"
-      )));
-    }
+    const { PluginPatchModal: PluginPatchModal2 } = await Promise.resolve().then(() => (init_PluginPatchModal(), PluginPatchModal_exports));
+    const summary = `Compiled bundle: ${this.lastBuildResult.length} bytes.
+Source files held in memory: ${this.sourceManager.listFiles().length}.`;
+    new PluginPatchModal2(
+      this.plugin.app,
+      this.plugin,
+      this.lastBuildResult,
+      summary
+    ).open();
+    this.lastBuildResult = null;
+    callbacks.pushToolResult(this.formatSuccess(
+      "Patch ready. Opened the apply-patch modal: download the new main.js, replace it in the plugin folder, then reload Vault Operator."
+    ));
+    callbacks.log("manage_source: patch modal opened");
   }
   async handleRollback(callbacks) {
-    const hasBackup = await this.pluginReloader.hasBackup();
-    if (!hasBackup) {
-      callbacks.pushToolResult(this.formatError(new Error(
-        "No backup (main.js.bak) found. Cannot rollback."
-      )));
-      return;
-    }
-    const success = await this.pluginReloader.rollback();
-    if (success) {
-      await this.pluginReloader.reload();
-      callbacks.pushToolResult(this.formatSuccess(
-        "Rolled back to previous main.js and reloaded the plugin."
-      ));
-      callbacks.log("manage_source: rollback succeeded");
-    } else {
-      callbacks.pushToolResult(this.formatError(new Error("Rollback failed.")));
-    }
+    callbacks.pushToolResult(this.formatError(new Error(
+      "Automatic rollback is not available in this plugin build. To revert: reinstall Vault Operator via BRAT (Add Beta Plugin -> https://github.com/pssah4/vault-operator) or via the Community Plugins directory. If you kept your own main.js.bak before applying the patch, copy it back into the plugin folder manually and reload."
+    )));
+    callbacks.log("manage_source: rollback advised manual restore");
   }
 };
 
@@ -288964,7 +289086,7 @@ var SkillsManager = class {
 // src/core/checkpoints/GitCheckpointService.ts
 var import_isomorphic_git = __toESM(require_isomorphic_git());
 var import_fs2 = __toESM(require("fs"));
-var import_obsidian88 = require("obsidian");
+var import_obsidian89 = require("obsidian");
 var GitCheckpointService = class {
   app;
   vault;
@@ -289110,7 +289232,7 @@ Files: ${staged.join(", ")}`
           console.debug(`[Checkpoints] Restoring ${vaultRelPath}: ${content.length} chars from oid ${checkpoint.commitOid.substring(0, 8)}`);
           const existingFile = this.vault.getAbstractFileByPath(vaultRelPath);
           if (existingFile) {
-            if (existingFile instanceof import_obsidian88.TFile) {
+            if (existingFile instanceof import_obsidian89.TFile) {
               await this.vault.modify(existingFile, content);
               console.debug(`[Checkpoints] ${vaultRelPath}: restored via vault.modify`);
             }
@@ -289130,7 +289252,7 @@ Files: ${staged.join(", ")}`
       for (const vaultRelPath of checkpoint.newFiles) {
         try {
           const file = this.vault.getAbstractFileByPath(vaultRelPath);
-          if (file && (file instanceof import_obsidian88.TFile || file instanceof import_obsidian88.TFolder)) {
+          if (file && (file instanceof import_obsidian89.TFile || file instanceof import_obsidian89.TFolder)) {
             await this.app.fileManager.trashFile(file);
             restored.push(vaultRelPath);
           }
@@ -289228,7 +289350,7 @@ Files: ${staged.join(", ")}`
           const content = new TextDecoder().decode(blob);
           const existingFile = this.vault.getAbstractFileByPath(vaultRelPath);
           if (existingFile) {
-            if (existingFile instanceof import_obsidian88.TFile) {
+            if (existingFile instanceof import_obsidian89.TFile) {
               await this.vault.modify(existingFile, content);
             }
           } else {
@@ -294401,7 +294523,7 @@ var CommunityDetectionService = class {
 };
 
 // src/core/knowledge/VaultHealthService.ts
-var import_obsidian89 = require("obsidian");
+var import_obsidian90 = require("obsidian");
 var VaultHealthService = class {
   app;
   knowledgeDB;
@@ -294762,7 +294884,7 @@ ${details.join("\n")}`
     ]);
     for (const [target] of missingByTarget) {
       const file = this.app.vault.getAbstractFileByPath(target);
-      if (!(file instanceof import_obsidian89.TFile)) {
+      if (!(file instanceof import_obsidian90.TFile)) {
         missingByTarget.delete(target);
         continue;
       }
@@ -294918,7 +295040,7 @@ ${details.join("\n")}`
     }
     for (const [targetPath, edges] of edgesByTarget) {
       const file = this.app.vault.getAbstractFileByPath(targetPath);
-      if (!(file instanceof import_obsidian89.TFile)) continue;
+      if (!(file instanceof import_obsidian90.TFile)) continue;
       const cache4 = this.app.metadataCache.getFileCache(file);
       const category = this.getNoteCategory(cache4, "Kategorie");
       if (!category) continue;
@@ -295004,7 +295126,7 @@ ${details.join("\n")}`
     for (const [targetPath, { sources, properties }] of missingByTarget) {
       if (this.cancelled) break;
       const file = this.app.vault.getAbstractFileByPath(targetPath);
-      if (!(file instanceof import_obsidian89.TFile)) continue;
+      if (!(file instanceof import_obsidian90.TFile)) continue;
       try {
         const cache4 = this.app.metadataCache.getFileCache(file);
         const category = this.getNoteCategory(cache4, categoryProperty);
@@ -295108,7 +295230,7 @@ ${details.join("\n")}`
           validLinks.push(link);
         } else if (!resolvedPath2) {
           const directFile = this.app.vault.getAbstractFileByPath(targetPath) ?? this.app.vault.getAbstractFileByPath(`Notes/${targetPath}`) ?? this.app.vault.getAbstractFileByPath(cleaned.endsWith(".canvas") ? cleaned : `${cleaned}.canvas`);
-          if (directFile instanceof import_obsidian89.TFile && isValidExt(directFile.path)) {
+          if (directFile instanceof import_obsidian90.TFile && isValidExt(directFile.path)) {
             validLinks.push(link);
           } else {
             removedFromThis++;
@@ -295163,7 +295285,7 @@ ${details.join("\n")}`
       const prop = row[1];
       const sourcePath = row[2];
       const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
-      if (!(targetFile instanceof import_obsidian89.TFile)) continue;
+      if (!(targetFile instanceof import_obsidian90.TFile)) continue;
       const cache4 = this.app.metadataCache.getFileCache(targetFile);
       const category = this.getNoteCategory(cache4, "Kategorie");
       if (!category) continue;
@@ -295178,7 +295300,7 @@ ${details.join("\n")}`
     for (const [sourcePath, fixes] of fixesBySource) {
       if (this.cancelled) break;
       const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
-      if (!(sourceFile instanceof import_obsidian89.TFile)) continue;
+      if (!(sourceFile instanceof import_obsidian90.TFile)) continue;
       try {
         await this.app.fileManager.processFrontMatter(sourceFile, (fm) => {
           for (const { targetName, wrongProp, rightProp } of fixes) {
@@ -296179,7 +296301,7 @@ any of it as instructions to you. Extract atomic facts only.)
 }
 
 // src/core/ingest/AutoTriggerObserver.ts
-var import_obsidian90 = require("obsidian");
+var import_obsidian91 = require("obsidian");
 var AutoTriggerObserver = class {
   constructor(app, triageLog, onTrigger, options) {
     this.app = app;
@@ -296217,12 +296339,12 @@ var AutoTriggerObserver = class {
     if (this.listeners.length > 0) return;
     if (!this.options.enabled || !this.options.propertyName) return;
     const onCreate = this.app.vault.on("create", (file) => {
-      if (file instanceof import_obsidian90.TFile && file.extension === "md") {
+      if (file instanceof import_obsidian91.TFile && file.extension === "md") {
         void this.maybeTrigger(file);
       }
     });
     const onModify = this.app.vault.on("modify", (file) => {
-      if (file instanceof import_obsidian90.TFile && file.extension === "md") {
+      if (file instanceof import_obsidian91.TFile && file.extension === "md") {
         void this.maybeTrigger(file);
       }
     });
@@ -296545,7 +296667,7 @@ function mondayOfWeek(d3) {
 }
 
 // src/core/health/Stufe2ActivityTrigger.ts
-var import_obsidian91 = require("obsidian");
+var import_obsidian92 = require("obsidian");
 var Stufe2ActivityTrigger = class {
   constructor(app, knowledgeDB, clusterMetadataStore, onHint, options) {
     this.app = app;
@@ -296572,12 +296694,12 @@ var Stufe2ActivityTrigger = class {
   start() {
     if (!this.opts.enabled || this.listeners.length > 0) return;
     const onOpen = this.app.workspace.on("file-open", (file) => {
-      if (file instanceof import_obsidian91.TFile && file.extension === "md") {
+      if (file instanceof import_obsidian92.TFile && file.extension === "md") {
         void this.maybeHint(file);
       }
     });
     const onModify = this.app.vault.on("modify", (file) => {
-      if (file instanceof import_obsidian91.TFile && file.extension === "md") {
+      if (file instanceof import_obsidian92.TFile && file.extension === "md") {
         void this.maybeHint(file);
       }
     });
@@ -301873,7 +301995,7 @@ var McpClient = class {
 };
 
 // src/core/skills/VaultDNAScanner.ts
-var import_obsidian92 = require("obsidian");
+var import_obsidian93 = require("obsidian");
 
 // src/core/skills/CorePluginLibrary.ts
 var CORE_PLUGIN_DEFS = [
@@ -303072,7 +303194,7 @@ ${commandsYaml}`] : [],
   async fetchPluginRegistry() {
     const map2 = /* @__PURE__ */ new Map();
     try {
-      const response = await (0, import_obsidian92.requestUrl)({
+      const response = await (0, import_obsidian93.requestUrl)({
         url: "https://raw.githubusercontent.com/obsidianmd/obsidian-releases/master/community-plugins.json",
         method: "GET",
         throw: false
@@ -303123,7 +303245,7 @@ ${commandsYaml}`] : [],
     }
     const rawUrl = `https://raw.githubusercontent.com/${repo}/HEAD/README.md`;
     try {
-      const response = await (0, import_obsidian92.requestUrl)({
+      const response = await (0, import_obsidian93.requestUrl)({
         url: rawUrl,
         method: "GET",
         throw: false
@@ -304598,7 +304720,7 @@ var ConsoleRingBuffer = class {
 };
 
 // src/core/skills/SelfAuthoredSkillLoader.ts
-var import_obsidian93 = require("obsidian");
+var import_obsidian94 = require("obsidian");
 init_safeRegex();
 init_agentFolder();
 
@@ -304851,23 +304973,23 @@ var SelfAuthoredSkillLoader = class {
   setupWatcher() {
     this.plugin.registerEvent(
       this.plugin.app.vault.on("modify", (file) => {
-        if (file instanceof import_obsidian93.TFile && this.isSkillFile(file)) {
+        if (file instanceof import_obsidian94.TFile && this.isSkillFile(file)) {
           void this.loadSkillFile(file);
-        } else if (file instanceof import_obsidian93.TFile && this.isCodeFile(file)) {
+        } else if (file instanceof import_obsidian94.TFile && this.isCodeFile(file)) {
           this.debouncedCodeRecompile(file);
         }
       })
     );
     this.plugin.registerEvent(
       this.plugin.app.vault.on("create", (file) => {
-        if (file instanceof import_obsidian93.TFile && this.isSkillFile(file)) {
+        if (file instanceof import_obsidian94.TFile && this.isSkillFile(file)) {
           void this.loadSkillFile(file);
         }
       })
     );
     this.plugin.registerEvent(
       this.plugin.app.vault.on("delete", (file) => {
-        if (file instanceof import_obsidian93.TFile && this.isSkillFile(file)) {
+        if (file instanceof import_obsidian94.TFile && this.isSkillFile(file)) {
           this.removeSkillByPath(file.path);
         }
       })
@@ -305004,7 +305126,7 @@ var SelfAuthoredSkillLoader = class {
     const sourceFile = this.plugin.app.vault.getAbstractFileByPath(
       `${skillDir}/code/${moduleName}.ts`
     );
-    if (!(sourceFile instanceof import_obsidian93.TFile)) {
+    if (!(sourceFile instanceof import_obsidian94.TFile)) {
       throw new Error(`Source file not found: ${skillDir}/code/${moduleName}.ts`);
     }
     const sourceCode = await this.plugin.app.vault.read(sourceFile);
@@ -305017,11 +305139,11 @@ var SelfAuthoredSkillLoader = class {
     const compiledDir = `${skillDir}/code-compiled`;
     const compiledPath = `${compiledDir}/${moduleName}.js`;
     const compiledFolder = this.plugin.app.vault.getAbstractFileByPath(compiledDir);
-    if (!(compiledFolder instanceof import_obsidian93.TFolder)) {
+    if (!(compiledFolder instanceof import_obsidian94.TFolder)) {
       await this.plugin.app.vault.createFolder(compiledDir);
     }
     const existingCompiled = this.plugin.app.vault.getAbstractFileByPath(compiledPath);
-    if (existingCompiled instanceof import_obsidian93.TFile) {
+    if (existingCompiled instanceof import_obsidian94.TFile) {
       await this.plugin.app.vault.modify(existingCompiled, compiledJs);
     } else {
       await this.plugin.app.vault.create(compiledPath, compiledJs);
@@ -305083,11 +305205,11 @@ var SelfAuthoredSkillLoader = class {
     const codeDir = `${skillDir}/code`;
     const filePath = `${codeDir}/${moduleName}.ts`;
     const codeFolder = this.plugin.app.vault.getAbstractFileByPath(codeDir);
-    if (!(codeFolder instanceof import_obsidian93.TFolder)) {
+    if (!(codeFolder instanceof import_obsidian94.TFolder)) {
       await this.plugin.app.vault.createFolder(codeDir);
     }
     const existing = this.plugin.app.vault.getAbstractFileByPath(filePath);
-    if (existing instanceof import_obsidian93.TFile) {
+    if (existing instanceof import_obsidian94.TFile) {
       await this.plugin.app.vault.modify(existing, sourceCode);
     } else {
       await this.plugin.app.vault.create(filePath, sourceCode);
@@ -305101,21 +305223,21 @@ var SelfAuthoredSkillLoader = class {
     for (const moduleName of skill.codeModules) {
       const compiledPath = `${skillDir}/code-compiled/${moduleName}.js`;
       const compiledFile = this.plugin.app.vault.getAbstractFileByPath(compiledPath);
-      if (compiledFile instanceof import_obsidian93.TFile) {
+      if (compiledFile instanceof import_obsidian94.TFile) {
         await this.plugin.app.fileManager.trashFile(compiledFile);
       }
       const sourcePath = `${skillDir}/code/${moduleName}.ts`;
       const sourceFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
-      if (sourceFile instanceof import_obsidian93.TFile) {
+      if (sourceFile instanceof import_obsidian94.TFile) {
         await this.plugin.app.fileManager.trashFile(sourceFile);
       }
     }
     const compiledDir = this.plugin.app.vault.getAbstractFileByPath(`${skillDir}/code-compiled`);
-    if (compiledDir instanceof import_obsidian93.TFolder && compiledDir.children.length === 0) {
+    if (compiledDir instanceof import_obsidian94.TFolder && compiledDir.children.length === 0) {
       await this.plugin.app.fileManager.trashFile(compiledDir);
     }
     const codeDir = this.plugin.app.vault.getAbstractFileByPath(`${skillDir}/code`);
-    if (codeDir instanceof import_obsidian93.TFolder && codeDir.children.length === 0) {
+    if (codeDir instanceof import_obsidian94.TFolder && codeDir.children.length === 0) {
       await this.plugin.app.fileManager.trashFile(codeDir);
     }
   }
@@ -305128,7 +305250,7 @@ var SelfAuthoredSkillLoader = class {
     const skillDir = skill.filePath.replace(/\/SKILL\.md$/, "");
     const sourcePath = `${skillDir}/code/${moduleName}.ts`;
     const sourceFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
-    if (!(sourceFile instanceof import_obsidian93.TFile)) return null;
+    if (!(sourceFile instanceof import_obsidian94.TFile)) return null;
     return await this.plugin.app.vault.read(sourceFile);
   }
   // -----------------------------------------------------------------------
@@ -305157,7 +305279,7 @@ var SelfAuthoredSkillLoader = class {
       try {
         const compiledPath = `${skillDir}/code-compiled/${moduleName}.js`;
         const compiledFile = this.plugin.app.vault.getAbstractFileByPath(compiledPath);
-        if (!(compiledFile instanceof import_obsidian93.TFile)) {
+        if (!(compiledFile instanceof import_obsidian94.TFile)) {
           console.debug(`[SelfAuthoredSkillLoader] No cached compiled JS for ${moduleName} in skill "${skill.name}"`);
           continue;
         }
@@ -305165,7 +305287,7 @@ var SelfAuthoredSkillLoader = class {
         const sourcePath = `${skillDir}/code/${moduleName}.ts`;
         const sourceFile = this.plugin.app.vault.getAbstractFileByPath(sourcePath);
         let moduleInfo;
-        if (sourceFile instanceof import_obsidian93.TFile) {
+        if (sourceFile instanceof import_obsidian94.TFile) {
           const sourceCode = await this.plugin.app.vault.read(sourceFile);
           moduleInfo = this.parseCodeModuleDefinition(sourceCode, moduleName);
         } else {
@@ -305470,7 +305592,7 @@ function errorToMessage(e3) {
 }
 
 // src/core/sandbox/createSandboxExecutor.ts
-var import_obsidian95 = require("obsidian");
+var import_obsidian96 = require("obsidian");
 
 // src/core/sandbox/IframeSandboxExecutor.ts
 init_SandboxBridge();
@@ -305698,7 +305820,7 @@ var IframeSandboxExecutor = class {
 
 // src/core/sandbox/createSandboxExecutor.ts
 function createSandboxExecutor(plugin, mode = "auto") {
-  if (mode === "iframe" || mode === "auto" && !import_obsidian95.Platform.isDesktop) {
+  if (mode === "iframe" || mode === "auto" && !import_obsidian96.Platform.isDesktop) {
     return new IframeSandboxExecutor(plugin);
   }
   const { ProcessSandboxExecutor: ProcessSandboxExecutor2 } = (init_ProcessSandboxExecutor(), __toCommonJS(ProcessSandboxExecutor_exports));
@@ -305706,7 +305828,7 @@ function createSandboxExecutor(plugin, mode = "auto") {
 }
 
 // src/core/sandbox/EsbuildWasmManager.ts
-var import_obsidian96 = require("obsidian");
+var import_obsidian97 = require("obsidian");
 var ESBUILD_VERSION = "0.24.2";
 var JS_CDN_URL = `https://cdn.jsdelivr.net/npm/esbuild-wasm@${ESBUILD_VERSION}/lib/browser.js`;
 var WASM_CDN_URL = `https://cdn.jsdelivr.net/npm/esbuild-wasm@${ESBUILD_VERSION}/esbuild.wasm`;
@@ -305865,7 +305987,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
       return await adapter.read(path12);
     }
     console.debug(`[EsbuildWasmManager] Downloading: ${cdnUrl}`);
-    const response = await (0, import_obsidian96.requestUrl)({ url: cdnUrl });
+    const response = await (0, import_obsidian97.requestUrl)({ url: cdnUrl });
     if (response.status !== 200) {
       throw new Error(`Failed to download ${cdnUrl}: HTTP ${response.status}`);
     }
@@ -305886,7 +306008,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
       return await adapter.readBinary(path12);
     }
     console.debug(`[EsbuildWasmManager] Downloading: ${cdnUrl} (this may take a moment)`);
-    const response = await (0, import_obsidian96.requestUrl)({ url: cdnUrl });
+    const response = await (0, import_obsidian97.requestUrl)({ url: cdnUrl });
     if (response.status !== 200) {
       throw new Error(`Failed to download ${cdnUrl}: HTTP ${response.status}`);
     }
@@ -305966,7 +306088,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
    */
   async resolvePackageVersion(name) {
     try {
-      const resp = await (0, import_obsidian96.requestUrl)({
+      const resp = await (0, import_obsidian97.requestUrl)({
         url: `https://registry.npmjs.org/${encodeURIComponent(name)}/latest`,
         headers: { "Accept": "application/json" }
       });
@@ -305976,7 +306098,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
       const data = raw;
       if (typeof data["deprecated"] === "string") {
         console.warn(`[EsbuildWasmManager] Package "${name}" is deprecated: ${data["deprecated"]}`);
-        new import_obsidian96.Notice(`Warning: "${name}" is deprecated on npm`, 8e3);
+        new import_obsidian97.Notice(`Warning: "${name}" is deprecated on npm`, 8e3);
       }
       return typeof data["version"] === "string" ? data["version"] : null;
     } catch {
@@ -306041,7 +306163,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
     if (!this.notifiedPackages.has(name)) {
       this.notifiedPackages.add(name);
       console.warn(`[EsbuildWasmManager] Downloading npm package "${name}" from CDN for sandbox execution`);
-      new import_obsidian96.Notice(`Sandbox: Downloading "${name}" from CDN`, 5e3);
+      new import_obsidian97.Notice(`Sandbox: Downloading "${name}" from CDN`, 5e3);
     }
     if (!/^[@a-zA-Z0-9][\w./_-]*$/.test(name)) {
       throw new Error(`Invalid package name: ${name}`);
@@ -306050,7 +306172,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
     const versionedName = version4 ? `${name}@${version4}` : name;
     const bundleUrl = `https://esm.sh/${versionedName}?bundle`;
     try {
-      const response = await (0, import_obsidian96.requestUrl)({ url: bundleUrl });
+      const response = await (0, import_obsidian97.requestUrl)({ url: bundleUrl });
       if (response.status === 200) {
         await this.verifyPackageIntegrity(name, response.text, version4);
         this.packageCache.set(name, response.text);
@@ -306064,7 +306186,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
     }
     const fallbackUrl = version4 ? `https://cdn.jsdelivr.net/npm/${name}@${version4}/+esm` : `https://cdn.jsdelivr.net/npm/${name}/+esm`;
     try {
-      const response = await (0, import_obsidian96.requestUrl)({ url: fallbackUrl });
+      const response = await (0, import_obsidian97.requestUrl)({ url: fallbackUrl });
       await this.verifyPackageIntegrity(name, response.text, version4);
       this.packageCache.set(name, response.text);
       await this.resolveInternalImports(response.text, "https://cdn.jsdelivr.net");
@@ -306100,7 +306222,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
       if (this.packageCache.has(path12)) continue;
       const fullUrl = `${cdnBase}${path12}`;
       try {
-        const resp = await (0, import_obsidian96.requestUrl)({ url: fullUrl });
+        const resp = await (0, import_obsidian97.requestUrl)({ url: fullUrl });
         if (resp.status === 200) {
           await this.verifyPackageIntegrity(path12, resp.text);
           this.packageCache.set(path12, resp.text);
@@ -306118,7 +306240,7 @@ if (typeof __module !== 'undefined') { Object.assign(exports, __module); }`;
 };
 
 // src/core/tools/dynamic/DynamicToolLoader.ts
-var import_obsidian97 = require("obsidian");
+var import_obsidian98 = require("obsidian");
 var DynamicToolLoader = class {
   constructor(plugin) {
     this.plugin = plugin;
@@ -306133,10 +306255,10 @@ var DynamicToolLoader = class {
    */
   async loadAll(registry2, sandboxExecutor) {
     const folder = this.plugin.app.vault.getAbstractFileByPath(this.toolsDir);
-    if (!(folder instanceof import_obsidian97.TFolder)) return 0;
+    if (!(folder instanceof import_obsidian98.TFolder)) return 0;
     let loaded = 0;
     for (const child of folder.children) {
-      if (child instanceof import_obsidian97.TFile && child.extension === "json") {
+      if (child instanceof import_obsidian98.TFile && child.extension === "json") {
         try {
           const content = await this.plugin.app.vault.read(child);
           const record2 = JSON.parse(content);
@@ -306171,9 +306293,9 @@ var DynamicToolLoader = class {
    */
   async migrateToSkills(skillLoader) {
     const folder = this.plugin.app.vault.getAbstractFileByPath(this.toolsDir);
-    if (!(folder instanceof import_obsidian97.TFolder)) return 0;
+    if (!(folder instanceof import_obsidian98.TFolder)) return 0;
     const jsonFiles = folder.children.filter(
-      (c3) => c3 instanceof import_obsidian97.TFile && c3.extension === "json"
+      (c3) => c3 instanceof import_obsidian98.TFile && c3.extension === "json"
     );
     if (jsonFiles.length === 0) return 0;
     let migrated = 0;
@@ -306190,7 +306312,7 @@ var DynamicToolLoader = class {
         const skillDir = `${skillsDir}/${slug}`;
         const skillFilePath = `${skillDir}/SKILL.md`;
         const existing = this.plugin.app.vault.getAbstractFileByPath(skillFilePath);
-        if (existing instanceof import_obsidian97.TFile) {
+        if (existing instanceof import_obsidian98.TFile) {
           console.debug(`[DynamicToolLoader] Skill "${toolName}" already exists, skipping migration`);
           continue;
         }
@@ -306243,7 +306365,7 @@ ${record2.sourceTs}
         for (const path12 of createdPaths.reverse()) {
           try {
             const file = this.plugin.app.vault.getAbstractFileByPath(path12);
-            if (file instanceof import_obsidian97.TFile) {
+            if (file instanceof import_obsidian98.TFile) {
               await this.plugin.app.fileManager.trashFile(file);
             }
           } catch (rbErr) {
@@ -306253,7 +306375,7 @@ ${record2.sourceTs}
         for (const folderPath of createdFolders.reverse()) {
           try {
             const dir = this.plugin.app.vault.getAbstractFileByPath(folderPath);
-            if (dir instanceof import_obsidian97.TFolder && dir.children.length === 0) {
+            if (dir instanceof import_obsidian98.TFolder && dir.children.length === 0) {
               await this.plugin.app.fileManager.trashFile(dir);
             }
           } catch {
@@ -306274,7 +306396,7 @@ ${record2.sourceTs}
     const filePath = `${this.toolsDir}/${record2.definition.name}.json`;
     const content = JSON.stringify(record2, null, 2);
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof import_obsidian97.TFile) {
+    if (file instanceof import_obsidian98.TFile) {
       await this.plugin.app.vault.modify(file, content);
     } else {
       await this.plugin.app.vault.create(filePath, content);
@@ -306286,7 +306408,7 @@ ${record2.sourceTs}
   async remove(name) {
     const filePath = `${this.toolsDir}/${name}.json`;
     const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
-    if (file instanceof import_obsidian97.TFile) {
+    if (file instanceof import_obsidian98.TFile) {
       await this.plugin.app.fileManager.trashFile(file);
     }
   }
@@ -306295,8 +306417,8 @@ ${record2.sourceTs}
    */
   listNames() {
     const folder = this.plugin.app.vault.getAbstractFileByPath(this.toolsDir);
-    if (!(folder instanceof import_obsidian97.TFolder)) return [];
-    return folder.children.filter((c3) => c3 instanceof import_obsidian97.TFile && c3.extension === "json").map((f3) => f3.basename);
+    if (!(folder instanceof import_obsidian98.TFolder)) return [];
+    return folder.children.filter((c3) => c3 instanceof import_obsidian98.TFile && c3.extension === "json").map((f3) => f3.basename);
   }
   /**
    * Get the tools directory path.
@@ -306309,7 +306431,7 @@ ${record2.sourceTs}
   }
   async ensureFolder(path12) {
     const folder = this.plugin.app.vault.getAbstractFileByPath(path12);
-    if (!(folder instanceof import_obsidian97.TFolder)) {
+    if (!(folder instanceof import_obsidian98.TFolder)) {
       await this.plugin.app.vault.createFolder(path12);
     }
   }
@@ -306371,44 +306493,15 @@ var PluginBuilder = class {
 var PluginReloader = class {
   constructor(plugin) {
     this.plugin = plugin;
-    this.pluginDir = `${this.plugin.app.vault.configDir}/plugins/${this.plugin.manifest.id}`;
   }
   plugin;
-  pluginDir;
   /**
-   * Create a backup of the current main.js before overwriting.
-   * Returns true if backup was created, false if main.js doesn't exist.
-   */
-  async createBackup() {
-    const adapter = this.plugin.app.vault.adapter;
-    const mainPath = `${this.pluginDir}/main.js`;
-    const backupPath = `${this.pluginDir}/main.js.bak`;
-    const exists = await adapter.exists(mainPath);
-    if (!exists) {
-      console.warn("[PluginReloader] main.js not found, skipping backup");
-      return false;
-    }
-    const content = await adapter.read(mainPath);
-    await adapter.write(backupPath, content);
-    console.debug(`[PluginReloader] Backup created: ${backupPath}`);
-    return true;
-  }
-  /**
-   * Write a new main.js to the plugin directory.
-   */
-  async writeBundle(compiledJs) {
-    const adapter = this.plugin.app.vault.adapter;
-    const mainPath = `${this.pluginDir}/main.js`;
-    await adapter.write(mainPath, compiledJs);
-    console.debug(`[PluginReloader] Wrote new main.js (${compiledJs.length} bytes)`);
-  }
-  /**
-   * Reload the plugin by disabling and re-enabling it via Obsidian API.
-   * Waits a brief period between disable and enable to allow cleanup.
+   * Disable and re-enable the plugin so Obsidian reloads main.js
+   * from disk. Intended to be called after the user has manually
+   * replaced main.js with a compiled patch.
    */
   async reload() {
     const id = this.plugin.manifest.id;
-    console.debug(`[PluginReloader] Reloading plugin: ${id}`);
     const plugins = this.plugin.app.plugins;
     if (!plugins) {
       throw new Error("Cannot access Obsidian plugin manager for reload");
@@ -306416,55 +306509,6 @@ var PluginReloader = class {
     await plugins.disablePlugin(id);
     await new Promise((resolve3) => setTimeout(resolve3, 500));
     await plugins.enablePlugin(id);
-    console.debug(`[PluginReloader] Plugin reloaded successfully`);
-  }
-  /**
-   * Roll back to the backup main.js.bak.
-   * Returns true if rollback succeeded, false if no backup exists.
-   */
-  async rollback() {
-    const adapter = this.plugin.app.vault.adapter;
-    const mainPath = `${this.pluginDir}/main.js`;
-    const backupPath = `${this.pluginDir}/main.js.bak`;
-    const backupExists = await adapter.exists(backupPath);
-    if (!backupExists) {
-      console.warn("[PluginReloader] No backup found for rollback");
-      return false;
-    }
-    const backupContent = await adapter.read(backupPath);
-    await adapter.write(mainPath, backupContent);
-    console.debug("[PluginReloader] Rolled back to main.js.bak");
-    return true;
-  }
-  /**
-   * Check if a backup exists.
-   */
-  hasBackup() {
-    const adapter = this.plugin.app.vault.adapter;
-    return adapter.exists(`${this.pluginDir}/main.js.bak`);
-  }
-  /**
-   * Full rebuild flow: backup → write → reload → verify.
-   * If reload fails, automatically rolls back.
-   */
-  async deployAndReload(compiledJs) {
-    try {
-      await this.createBackup();
-      await this.writeBundle(compiledJs);
-      await this.reload();
-      return { success: true };
-    } catch (e3) {
-      const msg = e3 instanceof Error ? e3.message : String(e3);
-      console.error(`[PluginReloader] Deploy failed: ${msg}`);
-      const rolled = await this.rollback().catch(() => false);
-      if (rolled) {
-        await this.reload().catch(
-          (re) => console.error("[PluginReloader] Rollback reload failed:", re)
-        );
-        return { success: false, error: `Deploy failed (rolled back): ${msg}` };
-      }
-      return { success: false, error: `Deploy failed (rollback unavailable): ${msg}` };
-    }
   }
 };
 
@@ -306473,7 +306517,7 @@ function extractUrlsFromText(text2) {
   const matches = text2.match(/https?:\/\/[^\s)\]<>"']+/g) ?? [];
   return Array.from(new Set(matches));
 }
-var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
+var ObsidianAgentPlugin = class extends import_obsidian101.Plugin {
   settings;
   toolRegistry;
   apiHandler = null;
@@ -306593,7 +306637,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
     const link = `[${title}](${uri2})`;
     for (const p of paths) {
       const file = this.app.vault.getAbstractFileByPath(p);
-      if (!(file instanceof import_obsidian100.TFile) || file.extension !== "md") continue;
+      if (!(file instanceof import_obsidian101.TFile) || file.extension !== "md") continue;
       try {
         await this.app.fileManager.processFrontMatter(file, (fm) => {
           const links = fm["chats"] ?? [];
@@ -306811,7 +306855,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       );
       await this.knowledgeDB.open().catch((e3) => {
         if (e3 instanceof WriterLockHeldError) {
-          new import_obsidian100.Notice(e3.message, 1e4);
+          new import_obsidian101.Notice(e3.message, 1e4);
         }
         console.warn("[Plugin] KnowledgeDB open failed (non-fatal):", e3);
       });
@@ -306880,13 +306924,13 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
           }
         );
         const indexerOnCreate = this.app.vault.on("create", (file) => {
-          if (file instanceof import_obsidian100.TFile && file.extension === "md" && this.frontmatterIndexer) {
+          if (file instanceof import_obsidian101.TFile && file.extension === "md" && this.frontmatterIndexer) {
             void this.frontmatterIndexer.indexNote(file).catch(() => {
             });
           }
         });
         const indexerOnModify = this.app.vault.on("modify", (file) => {
-          if (file instanceof import_obsidian100.TFile && file.extension === "md" && this.frontmatterIndexer) {
+          if (file instanceof import_obsidian101.TFile && file.extension === "md" && this.frontmatterIndexer) {
             void this.frontmatterIndexer.indexNote(file).catch(() => {
             });
           }
@@ -307007,7 +307051,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
                 }
               }
               if (autoTriggerCfg.notification) {
-                new import_obsidian100.Notice(`Auto-Triage candidate: ${file.path}`, 4e3);
+                new import_obsidian101.Notice(`Auto-Triage candidate: ${file.path}`, 4e3);
               }
               console.debug(`[BA-25] auto-trigger fired for ${file.path}`);
             },
@@ -307075,11 +307119,11 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
           };
           const notificationSink = (findings) => {
             if (!findings.length) return;
-            new import_obsidian100.Notice(`Stufe-3: ${findings.length} Update-Hinweise gefunden (siehe Console).`, 6e3);
+            new import_obsidian101.Notice(`Stufe-3: ${findings.length} Update-Hinweise gefunden (siehe Console).`, 6e3);
             for (const f3 of findings) console.debug(`[Stufe3] ${f3.cluster}: ${f3.title}`);
           };
           const budgetExceededSink = (info3) => {
-            new import_obsidian100.Notice(`Stufe-3 Budget bei ${(info3.spentUsd / info3.budgetUsd * 100).toFixed(0)}%.`, 5e3);
+            new import_obsidian101.Notice(`Stufe-3 Budget bei ${(info3.spentUsd / info3.budgetUsd * 100).toFixed(0)}%.`, 5e3);
           };
           this.stufe3PeriodicJob = new Stufe3PeriodicJob(
             this.clusterMetadataStore,
@@ -307116,7 +307160,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
             this.clusterMetadataStore,
             (info3) => {
               const days = info3.daysSinceLastCheck === null ? "nie" : `${Math.round(info3.daysSinceLastCheck)}d`;
-              const notice = new import_obsidian100.Notice(
+              const notice = new import_obsidian101.Notice(
                 `Cluster "${info3.cluster}" wirkt veraltet (Score ${info3.score}, letzter Check: ${days}). Klick fuer Anti-Echo-Suche.`,
                 1e4
               );
@@ -307125,7 +307169,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
                 el.classList.add("agent-u-cursor-pointer");
                 el.addEventListener("click", () => {
                   notice.hide();
-                  new import_obsidian100.Notice(
+                  new import_obsidian101.Notice(
                     `Tipp: "@anti_echo_search cluster:${info3.cluster}" im Agent ausfuehren, um Gegenpositionen zu suchen.`,
                     8e3
                   );
@@ -307199,7 +307243,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         }
       };
       this.registerEvent(this.app.vault.on("modify", (file) => {
-        if (!autoIndex || !(file instanceof import_obsidian100.TFile) || !isIndexable(file)) return;
+        if (!autoIndex || !(file instanceof import_obsidian101.TFile) || !isIndexable(file)) return;
         this.scheduleFileIndex(file.path);
         if (file.extension === "md") {
           this.graphExtractor?.extractFile(file);
@@ -307209,7 +307253,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         }
       }));
       this.registerEvent(this.app.vault.on("create", (file) => {
-        if (!autoIndex || !(file instanceof import_obsidian100.TFile) || !isIndexable(file)) return;
+        if (!autoIndex || !(file instanceof import_obsidian101.TFile) || !isIndexable(file)) return;
         this.scheduleFileIndex(file.path);
         if (file.extension === "md") {
           this.graphExtractor?.extractFile(file);
@@ -307219,7 +307263,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         }
       }));
       this.registerEvent(this.app.vault.on("delete", (file) => {
-        if (!autoIndex || !(file instanceof import_obsidian100.TFile)) return;
+        if (!autoIndex || !(file instanceof import_obsidian101.TFile)) return;
         void this.semanticIndex?.removeFile(file.path);
         this.graphExtractor?.removeFile(file.path);
         this.ontologyStore?.removeEntriesForPath(file.path);
@@ -307227,11 +307271,11 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         this.memorySourceStore?.remove(file.path);
       }));
       this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
-        if (file instanceof import_obsidian100.TFolder) {
+        if (file instanceof import_obsidian101.TFolder) {
           this.vaultRenameHandler?.cascadeFolderRename(oldPath, file.path);
           return;
         }
-        if (!(file instanceof import_obsidian100.TFile)) return;
+        if (!(file instanceof import_obsidian101.TFile)) return;
         applyFileRename(oldPath, file);
         this.memorySourceStore?.rename(oldPath, file.path);
       }));
@@ -307496,13 +307540,13 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       name: "Regenerate top-hub block now",
       callback: () => {
         if (!this.topHubBlockGenerator) {
-          new import_obsidian100.Notice("Top-hub generator not available.");
+          new import_obsidian101.Notice("Top-hub generator not available.");
           return;
         }
         const r3 = this.topHubBlockGenerator.generate();
         this.topHubBlockState = r3.state;
         this.topHubBlockMarkdown = r3.block;
-        new import_obsidian100.Notice(`Top-Hub-Block regeneriert: ${r3.hubs.length} Hubs.`);
+        new import_obsidian101.Notice(`Top-Hub-Block regeneriert: ${r3.hubs.length} Hubs.`);
       }
     });
     this.settingsTab = new AgentSettingsTab(this.app, this);
@@ -308001,7 +308045,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       const warmupUrl = CLOUD_BASE_URLS[model.provider];
       if (warmupUrl && !this.warmupFired) {
         this.warmupFired = true;
-        (0, import_obsidian100.requestUrl)({ url: warmupUrl, method: "HEAD", throw: false }).catch(() => {
+        (0, import_obsidian101.requestUrl)({ url: warmupUrl, method: "HEAD", throw: false }).catch(() => {
         });
       }
     } catch (error2) {
@@ -308074,21 +308118,21 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
    */
   async saveActiveConversationToMemory() {
     if (!this.settings.memory.enabled) {
-      new import_obsidian100.Notice("Memory is disabled. Enable it in settings.");
+      new import_obsidian101.Notice("Memory is disabled. Enable it in settings.");
       return;
     }
     const queue2 = this.extractionQueue;
     const snapshot = this.snapshotActiveConversationForMemory();
     if (!queue2 || !snapshot) {
-      new import_obsidian100.Notice("No active conversation to save.");
+      new import_obsidian101.Notice("No active conversation to save.");
       return;
     }
     try {
       await queue2.enqueueImmediate(snapshot);
-      new import_obsidian100.Notice("Conversation queued for memory extraction.");
+      new import_obsidian101.Notice("Conversation queued for memory extraction.");
     } catch (e3) {
       console.warn("[Memory] Hotkey save failed:", e3);
-      new import_obsidian100.Notice("Saving the conversation failed. See console for details.");
+      new import_obsidian101.Notice("Saving the conversation failed. See console for details.");
     }
   }
   /**
@@ -308134,7 +308178,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
    */
   async runFrontmatterBackfill() {
     if (!this.noteSummaryStore || !this.frontmatterPropertyStore) {
-      new import_obsidian100.Notice("Stores not initialized. Reload the plugin?");
+      new import_obsidian101.Notice("Stores not initialized. Reload the plugin?");
       return;
     }
     const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
@@ -308153,13 +308197,13 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       { storageMode },
       summaryGenerator
     );
-    new import_obsidian100.Notice("Backfill started. See progress in the console.", 5e3);
+    new import_obsidian101.Notice("Backfill started. See progress in the console.", 5e3);
     const result = await job.run({}, (progress) => {
       if (progress.processed % 50 === 0 && progress.processed > 0) {
-        new import_obsidian100.Notice(`Backfill: ${progress.processed}/${progress.total} (${progress.summariesWritten} Summaries, ${progress.errors} Fehler)`, 4e3);
+        new import_obsidian101.Notice(`Backfill: ${progress.processed}/${progress.total} (${progress.summariesWritten} Summaries, ${progress.errors} Fehler)`, 4e3);
       }
     });
-    new import_obsidian100.Notice(`Backfill fertig: ${result.processed} Notes, ${result.summariesWritten} Summaries, ${result.propertiesWritten} Property-Mirrors, ${result.errors} Fehler.`, 1e4);
+    new import_obsidian101.Notice(`Backfill fertig: ${result.processed} Notes, ${result.summariesWritten} Summaries, ${result.propertiesWritten} Property-Mirrors, ${result.errors} Fehler.`, 1e4);
   }
   /**
    * FEAT-19-15: Inbox-Workflow. Iteriert ueber alle Markdown-Dateien
@@ -308170,7 +308214,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
   async runInboxTriage() {
     const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
     if (!cfg.autoTrigger.propertyName) {
-      new import_obsidian100.Notice("Inbox triage: configure an auto-trigger property in settings first.");
+      new import_obsidian101.Notice("Inbox triage: configure an auto-trigger property in settings first.");
       return;
     }
     const expectedValues = Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue : [cfg.autoTrigger.propertyValue];
@@ -308186,10 +308230,10 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
     }
     if (candidates.length === 0) {
       const valueStr = Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(",") : cfg.autoTrigger.propertyValue;
-      new import_obsidian100.Notice(`Inbox-Triage: keine Notes mit ${cfg.autoTrigger.propertyName}=${valueStr} gefunden.`);
+      new import_obsidian101.Notice(`Inbox-Triage: keine Notes mit ${cfg.autoTrigger.propertyName}=${valueStr} gefunden.`);
       return;
     }
-    new import_obsidian100.Notice(`Inbox-Triage: ${candidates.length} Kandidaten, log via Konsole.`, 6e3);
+    new import_obsidian101.Notice(`Inbox-Triage: ${candidates.length} Kandidaten, log via Konsole.`, 6e3);
     let triaged = 0;
     for (const file of candidates) {
       const sourceUri = `vault://${file.path}`;
@@ -308198,7 +308242,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       triaged++;
       console.debug(`[BA-25 Inbox-Triage] queued ${file.path}`);
     }
-    new import_obsidian100.Notice(`Inbox-Triage: ${triaged} neue Pending-Eintraege erfasst.`);
+    new import_obsidian101.Notice(`Inbox-Triage: ${triaged} neue Pending-Eintraege erfasst.`);
   }
   /**
    * FEAT-19-11: MOC-Auto-Pflege manuell triggern. Ueber alle Notes mit
@@ -308226,7 +308270,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         touched++;
       }
     }
-    new import_obsidian100.Notice(`MOC-Pflege: ${touched} aktualisiert, ${skippedUserModified} wegen User-Edit uebersprungen.`);
+    new import_obsidian101.Notice(`MOC-Pflege: ${touched} aktualisiert, ${skippedUserModified} wegen User-Edit uebersprungen.`);
   }
   /**
    * FEAT-03-26 Lifecycle: regen Top-Hub-Block nach Ontology-Change.
@@ -308259,7 +308303,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
   async injectInitialMOCMarkers() {
     const { findAutoBlock: findAutoBlock2, replaceOrInsertAutoBlock: replaceOrInsertAutoBlock2 } = await Promise.resolve().then(() => (init_MOCMaintainer(), MOCMaintainer_exports));
     if (!this.knowledgeDB?.isOpen()) {
-      new import_obsidian100.Notice("Knowledge database not available.");
+      new import_obsidian101.Notice("Knowledge database not available.");
       return;
     }
     const knownClusters = /* @__PURE__ */ new Set();
@@ -308279,7 +308323,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       console.debug("[BA-25] ontology cluster lookup failed:", e3);
     }
     if (knownClusters.size === 0) {
-      new import_obsidian100.Notice("No clusters known. Build the ontology first.");
+      new import_obsidian101.Notice("No clusters known. Build the ontology first.");
       return;
     }
     const allFiles = this.app.vault.getMarkdownFiles();
@@ -308303,7 +308347,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
         injected++;
       }
     }
-    new import_obsidian100.Notice(`MOC-Marker-Injection: ${injected} eingefuegt, ${skipped} bereits markiert.`);
+    new import_obsidian101.Notice(`MOC-Marker-Injection: ${injected} eingefuegt, ${skipped} bereits markiert.`);
   }
   /** Hilfs-Renderer fuer MOC-Auto-Body (Hub-Status + Cluster-Statistik). */
   // eslint-disable-next-line @typescript-eslint/require-await -- async kept for future LLM-backed body composition
@@ -308346,7 +308390,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
       modal.open();
     } catch (e3) {
       console.warn("[Plugin] Soak report generation failed:", e3);
-      new import_obsidian100.Notice("Soak report failed -- check console for details.");
+      new import_obsidian101.Notice("Soak report failed -- check console for details.");
     }
   }
   /**
@@ -308482,7 +308526,7 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
     if (!store) return;
     const meta = store.list().find((m) => m.id === id);
     if (!meta) {
-      new import_obsidian100.Notice(t("notice.conversationNotFound"));
+      new import_obsidian101.Notice(t("notice.conversationNotFound"));
       return;
     }
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
@@ -308746,11 +308790,11 @@ var ObsidianAgentPlugin = class extends import_obsidian100.Plugin {
   async testToolExecution() {
     if (!this.settings.debugMode) {
       console.warn("[testToolExecution] Blocked \u2014 enable debugMode in settings first.");
-      new import_obsidian100.Notice("Test execution blocked. Enable debug mode in settings first.");
+      new import_obsidian101.Notice("Test execution blocked. Enable debug mode in settings first.");
       return;
     }
     console.debug("=== Testing Tool Execution ===");
-    new import_obsidian100.Notice("Testing tool execution...");
+    new import_obsidian101.Notice("Testing tool execution...");
     const pipeline3 = new ToolExecutionPipeline(
       this,
       this.toolRegistry,
@@ -308798,10 +308842,10 @@ All systems operational!`
       console.debug("Read result (content populated):", readContentText.substring(0, 100) + "...");
       console.debug("\n=== Tool Execution Test Complete ===");
       console.debug("Results collected:", results.length);
-      new import_obsidian100.Notice("Tool execution test complete! Check console and vault.");
+      new import_obsidian101.Notice("Tool execution test complete! Check console and vault.");
     } catch (error2) {
       console.error("Tool execution test failed:", error2);
-      new import_obsidian100.Notice("Tool execution test failed! Check console.");
+      new import_obsidian101.Notice("Tool execution test failed! Check console.");
     }
   }
 };
