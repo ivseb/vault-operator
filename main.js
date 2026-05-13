@@ -3840,13 +3840,13 @@ var uuid4;
 var init_uuid = __esm({
   "node_modules/@anthropic-ai/sdk/internal/utils/uuid.mjs"() {
     uuid4 = function() {
-      const { crypto: crypto4 } = globalThis;
-      if (crypto4?.randomUUID) {
-        uuid4 = crypto4.randomUUID.bind(crypto4);
-        return crypto4.randomUUID();
+      const { crypto: crypto5 } = globalThis;
+      if (crypto5?.randomUUID) {
+        uuid4 = crypto5.randomUUID.bind(crypto5);
+        return crypto5.randomUUID();
       }
       const u8 = new Uint8Array(1);
-      const randomByte = crypto4 ? () => crypto4.getRandomValues(u8)[0] : () => Math.random() * 255 & 255;
+      const randomByte = crypto5 ? () => crypto5.getRandomValues(u8)[0] : () => Math.random() * 255 & 255;
       return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c3) => (+c3 ^ randomByte() & 15 >> +c3 / 4).toString(16));
     };
   }
@@ -34043,12 +34043,12 @@ function buildAuthorizeUrl(args) {
   return `${AUTH_AUTHORIZE_URL}?${params.toString()}`;
 }
 function randomUrlSafe(numBytes) {
-  const crypto4 = require("crypto");
-  return crypto4.randomBytes(numBytes).toString("base64url");
+  const crypto5 = require("crypto");
+  return crypto5.randomBytes(numBytes).toString("base64url");
 }
 async function sha256Base64Url(input) {
-  const crypto4 = require("crypto");
-  return crypto4.createHash("sha256").update(input).digest("base64url");
+  const crypto5 = require("crypto");
+  return crypto5.createHash("sha256").update(input).digest("base64url");
 }
 function safeJsonString(text2) {
   if (!text2) return "<empty>";
@@ -134872,6 +134872,11 @@ __export(OptionalAssetManager_exports, {
   buildRerankerSpec: () => buildRerankerSpec,
   buildSelfDevSourceSpec: () => buildSelfDevSourceSpec
 });
+function assertSafeFilename(filename) {
+  if (filename.length === 0 || filename.includes("/") || filename.includes("\\") || filename.includes("..") || filename.startsWith(".")) {
+    throw new Error(`OptionalAssetManager: unsafe asset filename ${JSON.stringify(filename)}`);
+  }
+}
 function buildRerankerSpec(pluginVersion, expectedSha256) {
   return {
     id: "reranker-onnx",
@@ -134894,11 +134899,12 @@ function buildSelfDevSourceSpec(pluginVersion, expectedSha256) {
     downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}/plugin-source.json`
   };
 }
-var import_obsidian22, ASSET_DIR, OptionalAssetManager;
+var import_obsidian22, ASSET_DIR, MAX_ASSET_BYTES, OptionalAssetManager;
 var init_OptionalAssetManager = __esm({
   "src/core/assets/OptionalAssetManager.ts"() {
     import_obsidian22 = require("obsidian");
     ASSET_DIR = ".vault-operator/assets";
+    MAX_ASSET_BYTES = 50 * 1024 * 1024;
     OptionalAssetManager = class {
       constructor(plugin) {
         this.plugin = plugin;
@@ -134906,9 +134912,11 @@ var init_OptionalAssetManager = __esm({
       plugin;
       /** Resolve the absolute vault-adapter path for a given asset id. */
       filePath(spec) {
+        assertSafeFilename(spec.filename);
         return `${ASSET_DIR}/${spec.filename}`;
       }
       shaSidecarPath(spec) {
+        assertSafeFilename(spec.filename);
         return `${ASSET_DIR}/${spec.filename}.sha256`;
       }
       /**
@@ -134998,6 +135006,11 @@ var init_OptionalAssetManager = __esm({
         }
         const buffer2 = response.arrayBuffer;
         onProgress?.(buffer2.byteLength);
+        if (buffer2.byteLength > MAX_ASSET_BYTES) {
+          throw new Error(
+            `Downloaded asset is ${Math.round(buffer2.byteLength / 1024 / 1024)} MB, over the ${MAX_ASSET_BYTES / 1024 / 1024} MB cap. Refusing to install.`
+          );
+        }
         const hashBuffer = await crypto.subtle.digest("SHA-256", buffer2);
         const sha2 = Array.from(new Uint8Array(hashBuffer)).map((b3) => b3.toString(16).padStart(2, "0")).join("");
         if (sha2 !== spec.expectedSha256) {
@@ -135017,6 +135030,11 @@ var init_OptionalAssetManager = __esm({
        */
       async installFromBuffer(spec, buffer2) {
         const adapter = this.plugin.app.vault.adapter;
+        if (buffer2.byteLength > MAX_ASSET_BYTES) {
+          throw new Error(
+            `Selected file is ${Math.round(buffer2.byteLength / 1024 / 1024)} MB, over the ${MAX_ASSET_BYTES / 1024 / 1024} MB cap. Make sure you picked the right file for ${spec.label}.`
+          );
+        }
         if (!await adapter.exists(ASSET_DIR)) {
           await adapter.mkdir(ASSET_DIR);
         }
@@ -135063,7 +135081,7 @@ __export(source_hash_exports, {
 var SELF_DEV_SOURCE_SHA256;
 var init_source_hash = __esm({
   "src/_generated/source-hash.ts"() {
-    SELF_DEV_SOURCE_SHA256 = "a89166c5b15ded4a5d7785931a6b1f586a0a974cad0fd9cb0aadaf9b7ed60660";
+    SELF_DEV_SOURCE_SHA256 = "ee7587c67941a8413606198a4efcb145d875e918eb8d586615950e05df642d14";
   }
 });
 
@@ -140257,8 +140275,8 @@ Active file in editor: ${activeFile.path}
                     ev.stopPropagation();
                     ev.preventDefault();
                     if (this.textarea) {
-                      const sep3 = this.textarea.value.trim() ? "\n" : "";
-                      this.textarea.value = this.textarea.value + sep3 + displayText;
+                      const sep4 = this.textarea.value.trim() ? "\n" : "";
+                      this.textarea.value = this.textarea.value + sep4 + displayText;
                       this.textarea.focus();
                       this.textarea.dispatchEvent(new Event("input"));
                     }
@@ -160391,8 +160409,8 @@ var init_transformers_web = __esm({
           // follows Python's `str.split(sep=None, maxsplit=-1)` function behavior
           // https://docs.python.org/3.13/library/stdtypes.html#str.split
           new FunctionValue((args) => {
-            const sep3 = args[0] ?? new NullValue();
-            if (!(sep3 instanceof StringValue || sep3 instanceof NullValue)) {
+            const sep4 = args[0] ?? new NullValue();
+            if (!(sep4 instanceof StringValue || sep4 instanceof NullValue)) {
               throw new Error("sep argument must be a string or null");
             }
             const maxsplit = args[1] ?? new IntegerValue(-1);
@@ -160400,7 +160418,7 @@ var init_transformers_web = __esm({
               throw new Error("maxsplit argument must be a number");
             }
             let result = [];
-            if (sep3 instanceof NullValue) {
+            if (sep4 instanceof NullValue) {
               const text2 = this.value.trimStart();
               for (const { 0: match, index } of text2.matchAll(/\S+/g)) {
                 if (maxsplit.value !== -1 && result.length >= maxsplit.value && index !== void 0) {
@@ -160410,12 +160428,12 @@ var init_transformers_web = __esm({
                 result.push(match);
               }
             } else {
-              if (sep3.value === "") {
+              if (sep4.value === "") {
                 throw new Error("empty separator");
               }
-              result = this.value.split(sep3.value);
+              result = this.value.split(sep4.value);
               if (maxsplit.value !== -1 && result.length > maxsplit.value) {
-                result.push(result.splice(maxsplit.value).join(sep3.value));
+                result.push(result.splice(maxsplit.value).join(sep4.value));
               }
             }
             return new ArrayValue(result.map((part) => new StringValue(part)));
@@ -184494,6 +184512,12 @@ __export(runtimeWorker_exports, {
   ensureRuntimeWorker: () => ensureRuntimeWorker
 });
 function ensureRuntimeWorker(plugin, name, code) {
+  if (!ALLOWED_WORKER_NAMES.has(name)) {
+    throw new Error(`ensureRuntimeWorker: unknown worker name ${JSON.stringify(name)}`);
+  }
+  if (name.includes("/") || name.includes("\\") || name.includes("..")) {
+    throw new Error(`ensureRuntimeWorker: path traversal rejected for ${JSON.stringify(name)}`);
+  }
   const adapter = plugin.app.vault.adapter;
   if (!adapter.getBasePath) {
     throw new Error("ensureRuntimeWorker requires a FileSystemAdapter (Desktop only)");
@@ -184501,23 +184525,31 @@ function ensureRuntimeWorker(plugin, name, code) {
   const basePath = adapter.getBasePath();
   const dirAbs = path5.join(basePath, RUNTIME_DIR);
   const fileAbs = path5.join(dirAbs, name);
+  const sidecarAbs = fileAbs + ".sha256";
+  if (!fileAbs.startsWith(dirAbs + path5.sep)) {
+    throw new Error(`ensureRuntimeWorker: path escapes runtime dir: ${fileAbs}`);
+  }
+  const expectedSha = crypto2.createHash("sha256").update(code, "utf-8").digest("hex");
   try {
-    const stat = fs6.statSync(fileAbs);
-    if (stat.size === Buffer.byteLength(code, "utf-8")) {
+    const installedSha = fs6.readFileSync(sidecarAbs, "utf-8").trim();
+    if (installedSha === expectedSha && fs6.existsSync(fileAbs)) {
       return fileAbs;
     }
   } catch {
   }
   fs6.mkdirSync(dirAbs, { recursive: true });
   fs6.writeFileSync(fileAbs, code, "utf-8");
+  fs6.writeFileSync(sidecarAbs, expectedSha, "utf-8");
   return fileAbs;
 }
-var fs6, path5, RUNTIME_DIR;
+var fs6, path5, crypto2, RUNTIME_DIR, ALLOWED_WORKER_NAMES;
 var init_runtimeWorker = __esm({
   "src/core/utils/runtimeWorker.ts"() {
     fs6 = __toESM(require("fs"));
     path5 = __toESM(require("path"));
+    crypto2 = __toESM(require("crypto"));
     RUNTIME_DIR = ".vault-operator/runtime";
+    ALLOWED_WORKER_NAMES = /* @__PURE__ */ new Set(["sandbox-worker.js", "mcp-server-worker.js"]);
   }
 });
 
@@ -222508,8 +222540,8 @@ ${obj.gpgsig ? obj.gpgsig : ""}`;
       }
       return { protocolVersion: 1, capabilities, refs, symrefs };
     }
-    function splitAndAssert(line, sep3, expected) {
-      const split2 = line.trim().split(sep3);
+    function splitAndAssert(line, sep4, expected) {
+      const split2 = line.trim().split(sep4);
       if (split2.length !== 2) {
         throw new ParseError2(
           `Two strings separated by '${expected}'`,
@@ -241640,7 +241672,7 @@ var init_transport = __esm({
 
 // node_modules/pkce-challenge/dist/index.browser.js
 async function getRandomValues(size) {
-  return (await crypto3).getRandomValues(new Uint8Array(size));
+  return (await crypto4).getRandomValues(new Uint8Array(size));
 }
 async function random2(size) {
   const mask = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
@@ -241660,7 +241692,7 @@ async function generateVerifier(length) {
   return await random2(length);
 }
 async function generateChallenge(code_verifier) {
-  const buffer2 = await (await crypto3).subtle.digest("SHA-256", new TextEncoder().encode(code_verifier));
+  const buffer2 = await (await crypto4).subtle.digest("SHA-256", new TextEncoder().encode(code_verifier));
   return btoa(String.fromCharCode(...new Uint8Array(buffer2))).replace(/\//g, "_").replace(/\+/g, "-").replace(/=/g, "");
 }
 async function pkceChallenge(length) {
@@ -241676,10 +241708,10 @@ async function pkceChallenge(length) {
     code_challenge: challenge
   };
 }
-var crypto3;
+var crypto4;
 var init_index_browser6 = __esm({
   "node_modules/pkce-challenge/dist/index.browser.js"() {
-    crypto3 = globalThis.crypto;
+    crypto4 = globalThis.crypto;
   }
 });
 
@@ -283470,7 +283502,7 @@ Download or open the file to view the spreadsheet.`
 var import_obsidian86 = require("obsidian");
 
 // src/core/office/pptx/TemplateCatalog.ts
-var crypto2 = __toESM(require("crypto"));
+var crypto3 = __toESM(require("crypto"));
 var THEME_BASE_DIR = ".obsilo/themes";
 var DEFAULT_THEMES = ["executive", "modern", "minimal"];
 var TemplateCatalogLoader = class {
@@ -283519,7 +283551,7 @@ var TemplateCatalogLoader = class {
         );
       }
       if (catalog.template_hash) {
-        const currentHash = crypto2.createHash("sha256").update(Buffer.from(buffer2)).digest("hex");
+        const currentHash = crypto3.createHash("sha256").update(Buffer.from(buffer2)).digest("hex");
         if (currentHash !== catalog.template_hash) {
           warnings.push(
             `Template file has changed since ingestion. Run ingest_template again to update the catalog.`
