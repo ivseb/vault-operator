@@ -2,23 +2,21 @@
  * FirstRunWizardModal -- Phase 2.3.
  *
  * One-shot setup wizard that walks new users through the seven
- * choices that the plugin can't sensibly default to: LLM model,
- * embedding model, role models (titling/internal calls/memory/
- * contextual), search provider, and the two optional asset downloads
- * (reranker, self-development source).
+ * choices the plugin can't sensibly default to: LLM model, embedding
+ * model, role models (titling/internal calls/memory/contextual),
+ * search provider, and the two optional asset downloads (reranker,
+ * self-development source).
  *
  * Auto-opens on plugin load for the first three sessions unless the
- * user has dismissed it or completed it. Can also be triggered
- * manually from a Settings button. Each step is skippable; skipped
- * steps appear as inline banners in their respective settings tabs so
- * the user can pick them up later.
+ * user has dismissed it or completed it. Also triggerable from the
+ * command palette. Every step is skippable; skipped steps appear as
+ * inline banners in their respective settings tabs.
  *
  * After the final step closes the modal, the existing OnboardingFlow
- * is started in the sidebar to fill the user's Memory + Soul through
- * a conversational chat.
+ * starts in the sidebar to fill Memory + Soul via chat.
  */
 
-import { App, Modal, Notice, Setting } from 'obsidian';
+import { App, Modal, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { ModelConfigModal } from '../settings/ModelConfigModal';
 import type { CustomModel } from '../../types/settings';
@@ -58,23 +56,12 @@ export class FirstRunWizardModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('vault-operator-wizard');
-        // The modal is wide enough to hold the configuration steps comfortably
         this.modalEl.style.maxWidth = '720px';
 
         this.headerEl   = contentEl.createDiv({ cls: 'wizard-header' });
         this.progressEl = contentEl.createDiv({ cls: 'wizard-progress' });
         this.bodyEl     = contentEl.createDiv({ cls: 'wizard-body' });
         this.footerEl   = contentEl.createDiv({ cls: 'wizard-footer' });
-
-        // Minimal inline styling -- avoids touching styles.css for the first cut
-        this.progressEl.style.display = 'flex';
-        this.progressEl.style.gap = '4px';
-        this.progressEl.style.margin = '8px 0 16px 0';
-        this.bodyEl.style.minHeight = '300px';
-        this.bodyEl.style.padding = '8px 0';
-        this.footerEl.style.display = 'flex';
-        this.footerEl.style.justifyContent = 'space-between';
-        this.footerEl.style.marginTop = '16px';
 
         void this.renderStep();
     }
@@ -83,17 +70,15 @@ export class FirstRunWizardModal extends Modal {
         this.contentEl.empty();
     }
 
-    /** Render the current step + chrome. */
     private async renderStep(): Promise<void> {
         const step = STEPS[this.stepIndex];
 
         this.headerEl.empty();
-        const title = this.headerEl.createEl('h2');
-        title.setText(`Vault Operator Setup: ${step.title}`);
-        const subtitle = this.headerEl.createDiv();
-        subtitle.style.fontSize = '0.85em';
-        subtitle.style.opacity = '0.7';
-        subtitle.setText(`Step ${this.stepIndex + 1} of ${STEPS.length}`);
+        this.headerEl.createEl('h2', { text: step.title });
+        this.headerEl.createDiv({
+            cls: 'wizard-step-counter',
+            text: `Step ${this.stepIndex + 1} of ${STEPS.length}`,
+        });
 
         this.renderProgress();
         this.bodyEl.empty();
@@ -106,24 +91,18 @@ export class FirstRunWizardModal extends Modal {
     private renderProgress(): void {
         this.progressEl.empty();
         STEPS.forEach((_step, idx) => {
-            const dot = this.progressEl.createDiv();
-            dot.style.flex = '1';
-            dot.style.height = '4px';
-            dot.style.borderRadius = '2px';
-            dot.style.background = idx <= this.stepIndex
-                ? 'var(--interactive-accent)'
-                : 'var(--background-modifier-border)';
+            this.progressEl.createDiv({
+                cls: `wizard-progress-segment${idx <= this.stepIndex ? ' active' : ''}`,
+            });
         });
     }
 
     private renderFooter(step: { id: StepId; canSkip: boolean }): void {
-        // Left-side controls: Back / Don't show again
-        const leftGroup = this.footerEl.createDiv();
-        leftGroup.style.display = 'flex';
-        leftGroup.style.gap = '8px';
+        const left = this.footerEl.createDiv({ cls: 'wizard-footer-left' });
+        const right = this.footerEl.createDiv({ cls: 'wizard-footer-right' });
 
         if (this.stepIndex > 0 && step.id !== 'done') {
-            const backBtn = leftGroup.createEl('button', { text: '< Back' });
+            const backBtn = left.createEl('button', { text: 'Back' });
             backBtn.addEventListener('click', () => {
                 this.stepIndex = Math.max(0, this.stepIndex - 1);
                 void this.renderStep();
@@ -131,7 +110,7 @@ export class FirstRunWizardModal extends Modal {
         }
 
         if (step.id === 'welcome') {
-            const dismissBtn = leftGroup.createEl('button', { text: "Don't show again" });
+            const dismissBtn = left.createEl('button', { text: "Don't show again" });
             dismissBtn.addEventListener('click', async () => {
                 this.plugin.settings.onboarding.dontShowFirstRunAgain = true;
                 await this.plugin.saveSettings();
@@ -139,32 +118,30 @@ export class FirstRunWizardModal extends Modal {
             });
         }
 
-        // Right-side controls: Skip / Next / Finish
-        const rightGroup = this.footerEl.createDiv();
-        rightGroup.style.display = 'flex';
-        rightGroup.style.gap = '8px';
-
         if (step.canSkip) {
-            const skipBtn = rightGroup.createEl('button', { text: 'Skip' });
+            const skipBtn = right.createEl('button', { text: 'Skip this step' });
             skipBtn.addEventListener('click', () => { void this.skipStep(); });
         }
 
         if (step.id === 'done') {
-            const finishBtn = rightGroup.createEl('button', { cls: 'mod-cta', text: 'Start chat to set up memory' });
+            const finishBtn = right.createEl('button', { cls: 'mod-cta', text: 'Start chat to set up memory' });
             finishBtn.addEventListener('click', () => { void this.finishAndStartChat(); });
-            const closeBtn = rightGroup.createEl('button', { text: 'Close' });
+            const closeBtn = right.createEl('button', { text: 'Close' });
             closeBtn.addEventListener('click', () => { void this.finishWithoutChat(); });
         } else {
-            const nextBtn = rightGroup.createEl('button', { cls: 'mod-cta', text: this.stepIndex === 0 ? 'Get started' : 'Next >' });
+            const nextBtn = right.createEl('button', {
+                cls: 'mod-cta',
+                text: this.stepIndex === 0 ? 'Get started' : 'Next',
+            });
             nextBtn.addEventListener('click', () => { void this.advance(); });
         }
     }
 
     private async skipStep(): Promise<void> {
         const step = STEPS[this.stepIndex];
-        const skipped = this.plugin.settings.onboarding.skippedSteps;
-        if (!skipped.includes(step.id as never)) {
-            (skipped as string[]).push(step.id);
+        const skipped = this.plugin.settings.onboarding.skippedSteps as string[];
+        if (!skipped.includes(step.id)) {
+            skipped.push(step.id);
             await this.plugin.saveSettings();
         }
         await this.advance();
@@ -196,6 +173,57 @@ export class FirstRunWizardModal extends Modal {
     }
 
     // -----------------------------------------------------------------------
+    // Reusable building blocks (Settings-look)
+    // -----------------------------------------------------------------------
+
+    private addInfoBanner(parent: HTMLElement, icon: string, headline: string, body: string): HTMLElement {
+        const banner = parent.createDiv({ cls: 'wizard-info-banner' });
+        const iconWrap = banner.createDiv({ cls: 'wizard-info-banner-icon' });
+        setIcon(iconWrap, icon);
+        const text = banner.createDiv({ cls: 'wizard-info-banner-text' });
+        text.createEl('strong', { text: headline });
+        text.createDiv({ text: body });
+        return banner;
+    }
+
+    private addSection(parent: HTMLElement, title: string): void {
+        parent.createEl('h3', { cls: 'wizard-section', text: title });
+    }
+
+    private addStatusLine(parent: HTMLElement, count: number, label: string): HTMLElement {
+        const cls = count > 0 ? 'wizard-status is-ok' : 'wizard-status is-empty';
+        const status = parent.createDiv({ cls });
+        const iconWrap = status.createDiv({ cls: 'wizard-status-icon' });
+        setIcon(iconWrap, count > 0 ? 'check-circle-2' : 'circle');
+        const text = status.createDiv();
+        if (count > 0) {
+            text.createEl('strong', { text: `${count} ${label}${count === 1 ? '' : 's'} configured.` });
+            text.createSpan({ text: ' You can skip this step.' });
+        } else {
+            text.createEl('strong', { text: `No ${label} configured yet.` });
+            text.createSpan({ text: ' Pick an option below.' });
+        }
+        return status;
+    }
+
+    private addProviderCard(
+        parent: HTMLElement,
+        opts: { name: string; tier: 'free' | 'paid' | 'recommended'; tierLabel: string; url: string; note: string },
+    ): void {
+        const card = parent.createDiv({ cls: 'wizard-provider-card' });
+        const header = card.createDiv({ cls: 'wizard-provider-header' });
+        header.createDiv({ cls: 'wizard-provider-name', text: opts.name });
+        const badge = header.createEl('span', { cls: `wizard-provider-badge is-${opts.tier}`, text: opts.tierLabel });
+        badge.setAttr('title', opts.tierLabel);
+        card.createDiv({ cls: 'wizard-provider-note', text: opts.note });
+        if (opts.url) {
+            const link = card.createEl('a', { cls: 'wizard-provider-link', text: 'Get an API key', href: opts.url });
+            link.setAttr('target', '_blank');
+            link.setAttr('rel', 'noopener noreferrer');
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Step bodies
     // -----------------------------------------------------------------------
 
@@ -212,108 +240,90 @@ export class FirstRunWizardModal extends Modal {
     }
 
     private renderWelcome(): void {
-        const p = (text: string): HTMLElement => {
-            const el = this.bodyEl.createEl('p');
-            el.setText(text);
-            return el;
-        };
-        p('Vault Operator is an AI agent for this vault. A few quick choices to get going.');
-        p('Every step is skippable. You can configure anything later in Settings.');
-        p('Nothing leaves your machine until you set up a provider. Then only the messages you send to that provider are transmitted to it.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'sparkles',
+            'Welcome to Vault Operator',
+            'A handful of choices set the plugin up for you. Each step takes a few seconds. You can skip anything and come back to it later in Settings.',
+        );
+
+        this.addSection(this.bodyEl, 'What this wizard does');
+
+        const list = this.bodyEl.createEl('ul');
+        list.style.paddingLeft = '20px';
+        list.style.margin = '4px 0 8px 0';
+        list.style.lineHeight = '1.7';
+        const items = [
+            'Connects an LLM provider so the agent can answer messages.',
+            'Picks an embedding model for semantic search and memory.',
+            'Splits cheap background tasks from your main model.',
+            'Sets up a search provider for web research.',
+            'Offers two optional downloads that improve quality.',
+        ];
+        for (const item of items) {
+            list.createEl('li', { text: item });
+        }
+
+        const note = this.bodyEl.createDiv();
+        note.style.fontSize = '12px';
+        note.style.color = 'var(--text-muted)';
+        note.style.marginTop = '16px';
+        note.setText('Privacy: nothing leaves your machine until you configure a provider. Then only the messages you send to that provider are transmitted.');
     }
 
     private async renderLlmStep(): Promise<void> {
-        const intro = this.bodyEl.createEl('p');
-        intro.setText('Vault Operator talks to a large language model. Pick a provider, grab a free or paid API key, paste it here.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'brain',
+            'Why an LLM is required',
+            'The agent uses a large language model for every reply. Pick a provider, grab a free or paid API key, paste it once.',
+        );
 
-        // Status block: how many enabled models the user already has.
-        const status = this.bodyEl.createDiv();
-        status.style.padding = '8px 12px';
-        status.style.margin = '12px 0';
-        status.style.borderRadius = '4px';
-        status.style.background = 'var(--background-secondary)';
-        const renderStatus = () => {
-            status.empty();
+        this.addSection(this.bodyEl, 'Current status');
+        const renderStatus = (parent: HTMLElement): HTMLElement => {
             const count = this.plugin.settings.activeModels.filter(m => m.enabled).length;
-            if (count === 0) {
-                const txt = status.createEl('strong');
-                txt.setText('No model configured yet.');
-                const hint = status.createDiv();
-                hint.style.fontSize = '0.85em';
-                hint.style.marginTop = '4px';
-                hint.setText('Pick one of the options below, click "Add model", paste your API key.');
-            } else {
-                const txt = status.createEl('strong');
-                txt.setText(`You have ${count} model${count === 1 ? '' : 's'} configured. You can skip this step.`);
-            }
+            return this.addStatusLine(parent, count, 'LLM model');
         };
-        renderStatus();
+        const statusWrap = this.bodyEl.createDiv();
+        let statusEl = renderStatus(statusWrap);
+        const refresh = () => {
+            statusEl.remove();
+            statusEl = renderStatus(statusWrap);
+        };
 
-        // Provider recommendations with where to get the API key.
-        const heading = this.bodyEl.createEl('h4');
-        heading.setText('Where to get an API key');
-        heading.style.marginTop = '16px';
-        heading.style.marginBottom = '6px';
+        this.addSection(this.bodyEl, 'Where to get an API key');
 
-        const providers: { name: string; tier: string; url: string; note: string }[] = [
-            {
-                name: 'Google Gemini',
-                tier: 'Free tier, no credit card',
-                url: 'https://aistudio.google.com/app/apikey',
-                note: 'Easiest start. Click the link, sign in with Google, create an API key.',
-            },
-            {
-                name: 'Anthropic Claude',
-                tier: 'Paid, best for tool use',
-                url: 'https://console.anthropic.com/settings/keys',
-                note: 'Highest quality for agent tasks. $5 starting credit on new accounts.',
-            },
-            {
-                name: 'OpenAI',
-                tier: 'Paid',
-                url: 'https://platform.openai.com/api-keys',
-                note: 'Good general purpose. GPT-5 and GPT-4o.',
-            },
-            {
-                name: 'Ollama (local)',
-                tier: 'Free, fully local',
-                url: 'https://ollama.com',
-                note: 'Installs models on your machine. Privacy by default, no data leaves your computer.',
-            },
-        ];
+        this.addProviderCard(this.bodyEl, {
+            name: 'Google Gemini',
+            tier: 'free',
+            tierLabel: 'Free tier',
+            url: 'https://aistudio.google.com/app/apikey',
+            note: 'Easiest start. Sign in with Google, create an API key, no credit card needed. Good general-purpose quality.',
+        });
+        this.addProviderCard(this.bodyEl, {
+            name: 'Anthropic Claude',
+            tier: 'paid',
+            tierLabel: 'Paid',
+            url: 'https://console.anthropic.com/settings/keys',
+            note: 'Best quality for agentic tool use. New accounts get $5 starting credit.',
+        });
+        this.addProviderCard(this.bodyEl, {
+            name: 'OpenAI',
+            tier: 'paid',
+            tierLabel: 'Paid',
+            url: 'https://platform.openai.com/api-keys',
+            note: 'Solid all-rounder. GPT-5, GPT-4o and o-series models.',
+        });
+        this.addProviderCard(this.bodyEl, {
+            name: 'Ollama (local)',
+            tier: 'free',
+            tierLabel: 'Free / local',
+            url: 'https://ollama.com',
+            note: 'Runs models on your own machine. No data ever leaves your computer. Install Ollama, pull a model like llama3.2 or qwen2.5.',
+        });
 
-        for (const p of providers) {
-            const row = this.bodyEl.createDiv();
-            row.style.padding = '8px 0';
-            row.style.borderBottom = '1px solid var(--background-modifier-border)';
-
-            const top = row.createDiv();
-            top.style.display = 'flex';
-            top.style.justifyContent = 'space-between';
-            top.style.alignItems = 'center';
-            const name = top.createEl('strong');
-            name.setText(p.name);
-            const tier = top.createEl('span');
-            tier.setText(p.tier);
-            tier.style.fontSize = '0.8em';
-            tier.style.opacity = '0.7';
-
-            const link = row.createEl('a', { text: p.url, href: p.url });
-            link.style.fontSize = '0.85em';
-            link.setAttr('target', '_blank');
-            link.setAttr('rel', 'noopener noreferrer');
-
-            const note = row.createDiv();
-            note.style.fontSize = '0.85em';
-            note.style.opacity = '0.8';
-            note.style.marginTop = '4px';
-            note.setText(p.note);
-        }
-
-        // Add Model button
-        const addRow = this.bodyEl.createDiv();
-        addRow.style.marginTop = '16px';
-        const addBtn = addRow.createEl('button', { cls: 'mod-cta', text: '+ Add model' });
+        const actionRow = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
+        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: '+ Add model' });
         addBtn.addEventListener('click', () => {
             new ModelConfigModal(this.app, null, async (newModel: CustomModel) => {
                 this.plugin.settings.activeModels.push(newModel);
@@ -321,91 +331,57 @@ export class FirstRunWizardModal extends Modal {
                     this.plugin.settings.activeModelKey = getModelKey(newModel);
                 }
                 await this.plugin.saveSettings();
-                renderStatus();
+                refresh();
             }, false).open();
         });
     }
 
     private async renderEmbeddingStep(): Promise<void> {
-        const intro = this.bodyEl.createEl('p');
-        intro.setText('Embeddings turn your notes into numbers so the agent can find them by meaning, not just by exact words. Needed for semantic search and memory retrieval. You can skip this step. The agent still works without it, just with less powerful search.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'search',
+            'Why embeddings help',
+            'Embeddings turn your notes into numbers so the agent can find them by meaning, not just exact words. Needed for semantic search and memory retrieval. You can skip this step. The agent still works without it, just with less powerful search.',
+        );
 
-        // Status block
-        const status = this.bodyEl.createDiv();
-        status.style.padding = '8px 12px';
-        status.style.margin = '12px 0';
-        status.style.borderRadius = '4px';
-        status.style.background = 'var(--background-secondary)';
-        const renderStatus = () => {
-            status.empty();
+        this.addSection(this.bodyEl, 'Current status');
+        const renderStatus = (parent: HTMLElement): HTMLElement => {
             const count = (this.plugin.settings.embeddingModels ?? []).filter(m => m.enabled).length;
-            if (count === 0) {
-                const txt = status.createEl('strong');
-                txt.setText('No embedding model configured yet.');
-            } else {
-                const txt = status.createEl('strong');
-                txt.setText(`You have ${count} embedding model${count === 1 ? '' : 's'} configured. You can skip this step.`);
-            }
+            return this.addStatusLine(parent, count, 'embedding model');
         };
-        renderStatus();
+        const statusWrap = this.bodyEl.createDiv();
+        let statusEl = renderStatus(statusWrap);
+        const refresh = () => {
+            statusEl.remove();
+            statusEl = renderStatus(statusWrap);
+        };
 
-        const heading = this.bodyEl.createEl('h4');
-        heading.setText('Recommended providers');
-        heading.style.marginTop = '16px';
-        heading.style.marginBottom = '6px';
+        this.addSection(this.bodyEl, 'Recommended providers');
 
-        const providers: { name: string; tier: string; url: string; note: string }[] = [
-            {
-                name: 'OpenAI text-embedding-3-small',
-                tier: 'Paid, cheap',
-                url: 'https://platform.openai.com/api-keys',
-                note: 'About $0.02 per million tokens. Solid quality, runs on OpenAI servers.',
-            },
-            {
-                name: 'Google text-embedding-004',
-                tier: 'Free tier',
-                url: 'https://aistudio.google.com/app/apikey',
-                note: 'Free for moderate usage. Same key as Google Gemini if you set that up in the previous step.',
-            },
-            {
-                name: 'Ollama (local)',
-                tier: 'Free, fully local',
-                url: 'https://ollama.com',
-                note: 'No API key. Install Ollama, pull "nomic-embed-text" or similar. Privacy by default.',
-            },
-        ];
+        this.addProviderCard(this.bodyEl, {
+            name: 'OpenAI text-embedding-3-small',
+            tier: 'paid',
+            tierLabel: 'Cheap',
+            url: 'https://platform.openai.com/api-keys',
+            note: 'About $0.02 per million tokens. Reliable, runs on OpenAI servers.',
+        });
+        this.addProviderCard(this.bodyEl, {
+            name: 'Google text-embedding-004',
+            tier: 'free',
+            tierLabel: 'Free tier',
+            url: 'https://aistudio.google.com/app/apikey',
+            note: 'Free for moderate usage. Same Google key works for both this and Google Gemini.',
+        });
+        this.addProviderCard(this.bodyEl, {
+            name: 'Ollama (local)',
+            tier: 'free',
+            tierLabel: 'Free / local',
+            url: 'https://ollama.com',
+            note: 'No API key. Install Ollama, pull nomic-embed-text or similar. Privacy by default.',
+        });
 
-        for (const p of providers) {
-            const row = this.bodyEl.createDiv();
-            row.style.padding = '8px 0';
-            row.style.borderBottom = '1px solid var(--background-modifier-border)';
-
-            const top = row.createDiv();
-            top.style.display = 'flex';
-            top.style.justifyContent = 'space-between';
-            top.style.alignItems = 'center';
-            const name = top.createEl('strong');
-            name.setText(p.name);
-            const tier = top.createEl('span');
-            tier.setText(p.tier);
-            tier.style.fontSize = '0.8em';
-            tier.style.opacity = '0.7';
-
-            const link = row.createEl('a', { text: p.url, href: p.url });
-            link.style.fontSize = '0.85em';
-            link.setAttr('target', '_blank');
-            link.setAttr('rel', 'noopener noreferrer');
-
-            const note = row.createDiv();
-            note.style.fontSize = '0.85em';
-            note.style.opacity = '0.8';
-            note.style.marginTop = '4px';
-            note.setText(p.note);
-        }
-
-        const addRow = this.bodyEl.createDiv();
-        addRow.style.marginTop = '16px';
-        const addBtn = addRow.createEl('button', { cls: 'mod-cta', text: '+ Add embedding model' });
+        const actionRow = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
+        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: '+ Add embedding model' });
         addBtn.addEventListener('click', () => {
             new ModelConfigModal(this.app, null, async (newModel: CustomModel) => {
                 if (!this.plugin.settings.embeddingModels) this.plugin.settings.embeddingModels = [];
@@ -414,23 +390,25 @@ export class FirstRunWizardModal extends Modal {
                     this.plugin.settings.activeEmbeddingModelKey = getModelKey(newModel);
                 }
                 await this.plugin.saveSettings();
-                renderStatus();
+                refresh();
             }, true).open();
         });
     }
 
     private renderRoleModelsStep(): void {
-        const hint = this.bodyEl.createEl('p');
-        hint.setText('Background tasks (titling, internal classification, memory extraction, contextual retrieval) can run on a smaller cheaper model. Leave on "Use main LLM" if you do not care about the cost split.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'split',
+            'Save cost with role-specific models',
+            'Background tasks (titling, internal classification, memory extraction, contextual retrieval) can run on a smaller, cheaper model. Leave on "Use main LLM" if you do not care about the cost split.',
+        );
 
         const llmModels = this.plugin.settings.activeModels.filter(m => m.enabled);
         if (llmModels.length === 0) {
-            const empty = this.bodyEl.createDiv();
-            empty.style.padding = '12px';
-            empty.style.background = 'var(--background-secondary)';
-            empty.style.borderRadius = '4px';
-            empty.style.marginTop = '12px';
-            empty.setText('Go back to step 2 and add at least one LLM model. Then this step can offer you choices.');
+            const empty = this.bodyEl.createDiv({ cls: 'wizard-status is-empty' });
+            const iconWrap = empty.createDiv({ cls: 'wizard-status-icon' });
+            setIcon(iconWrap, 'circle-alert');
+            empty.createDiv({ text: 'Go back to the LLM step and add at least one model. Then this step can offer you choices.' });
             return;
         }
 
@@ -438,6 +416,8 @@ export class FirstRunWizardModal extends Modal {
         for (const m of llmModels) {
             options[getModelKey(m)] = `${m.displayName ?? m.name} (${m.provider})`;
         }
+
+        this.addSection(this.bodyEl, 'Role assignments');
 
         new Setting(this.bodyEl)
             .setName('Titling')
@@ -467,7 +447,7 @@ export class FirstRunWizardModal extends Modal {
 
         new Setting(this.bodyEl)
             .setName('Memory extraction')
-            .setDesc('Extracts long-term facts from conversation history.')
+            .setDesc('Extracts long-term facts from your conversation history.')
             .addDropdown((d) => {
                 Object.entries(options).forEach(([k, label]) => d.addOption(k, label));
                 d.setValue(this.plugin.settings.memory?.memoryModelKey ?? '');
@@ -493,71 +473,79 @@ export class FirstRunWizardModal extends Modal {
     }
 
     private renderSearchProviderStep(): void {
-        const intro = this.bodyEl.createEl('p');
-        intro.setText('A search provider lets the agent look things up on the web. The agent uses this when you ask it to research a topic, check facts, or pull in recent information that is not in your vault.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'globe',
+            'Why web search is useful',
+            'A search provider lets the agent fetch and read web pages. Without it, the agent can only work with what is in your vault. Both providers below have generous free tiers.',
+        );
 
-        const why = this.bodyEl.createDiv();
-        why.style.padding = '8px 12px';
-        why.style.margin = '8px 0 16px 0';
-        why.style.borderRadius = '4px';
-        why.style.background = 'var(--background-secondary)';
-        why.style.fontSize = '0.9em';
-        const whyTitle = why.createEl('strong');
-        whyTitle.setText('Why this is useful');
-        why.createDiv({ text: 'Without a search provider the agent can only work with what is in your vault. With one, you can say "look up the latest on X" or "summarize three recent articles about Y" and the agent will fetch and read them for you.' });
-        why.createDiv({ text: 'You can skip this step. Web search stays off until you configure a key.' }).style.marginTop = '4px';
+        this.addSection(this.bodyEl, 'Pick a provider');
 
-        const heading = this.bodyEl.createEl('h4');
-        heading.setText('Pick a provider');
-        heading.style.marginTop = '8px';
-        heading.style.marginBottom = '6px';
-
-        const providers: { id: 'tavily' | 'brave' | 'none'; label: string; tier: string; url: string; note: string }[] = [
-            { id: 'tavily', label: 'Tavily',  tier: '1000 free searches per month', url: 'https://app.tavily.com',           note: 'Built for AI agents. Returns clean, summarised results. Easiest to get started.' },
-            { id: 'brave',  label: 'Brave',   tier: '2000 free searches per month', url: 'https://api.search.brave.com/app/keys', note: 'Higher free tier, broader index. A bit noisier results.' },
-            { id: 'none',   label: 'None',    tier: 'No web search',                 url: '',                                  note: 'The agent will only use vault content. Pick this if you do not want any web access.' },
+        const providers: { id: 'tavily' | 'brave' | 'none'; label: string; tier: 'free' | 'paid' | 'recommended'; tierLabel: string; url: string; note: string }[] = [
+            {
+                id: 'tavily',
+                label: 'Tavily',
+                tier: 'free',
+                tierLabel: '1000 free / month',
+                url: 'https://app.tavily.com',
+                note: 'Built for AI agents. Clean summarised results. Easiest to start with.',
+            },
+            {
+                id: 'brave',
+                label: 'Brave',
+                tier: 'free',
+                tierLabel: '2000 free / month',
+                url: 'https://api.search.brave.com/app/keys',
+                note: 'Higher free tier, broader index. Results are a bit noisier.',
+            },
+            {
+                id: 'none',
+                label: 'None',
+                tier: 'paid',
+                tierLabel: 'Disabled',
+                url: '',
+                note: 'Agent works only with vault content. Pick if you do not want any web access.',
+            },
         ];
 
         const wt = this.plugin.settings.webTools;
         let currentProvider: 'tavily' | 'brave' | 'none' = wt.provider ?? 'none';
-
-        const apiKeyRowsByProvider: Record<string, HTMLElement> = {};
+        const keyRowsByProvider: Record<string, HTMLElement> = {};
 
         for (const p of providers) {
-            const card = this.bodyEl.createDiv();
-            card.style.border = '1px solid var(--background-modifier-border)';
-            card.style.borderRadius = '6px';
-            card.style.padding = '10px 12px';
-            card.style.margin = '6px 0';
+            const card = this.bodyEl.createDiv({ cls: 'wizard-provider-card' });
 
-            const header = card.createDiv();
-            header.style.display = 'flex';
-            header.style.gap = '10px';
-            header.style.alignItems = 'center';
-
-            const radio = header.createEl('input', { type: 'radio' });
+            const radioRow = card.createDiv({ cls: 'wizard-radio-row' });
+            const radio = radioRow.createEl('input', { type: 'radio' });
             radio.name = 'search-provider';
             radio.value = p.id;
             radio.checked = currentProvider === p.id;
+            const label = radioRow.createEl('label');
 
-            const label = header.createEl('label');
-            label.style.flex = '1';
-            label.style.cursor = 'pointer';
-            const labelTop = label.createDiv();
-            labelTop.style.display = 'flex';
-            labelTop.style.justifyContent = 'space-between';
-            const name = labelTop.createEl('strong');
-            name.setText(p.label);
-            const tier = labelTop.createEl('span');
-            tier.setText(p.tier);
-            tier.style.fontSize = '0.8em';
-            tier.style.opacity = '0.7';
-            const note = label.createDiv();
-            note.style.fontSize = '0.85em';
-            note.style.opacity = '0.85';
-            note.style.marginTop = '4px';
-            note.setText(p.note);
+            const header = label.createDiv({ cls: 'wizard-provider-header' });
+            header.createDiv({ cls: 'wizard-provider-name', text: p.label });
+            header.createEl('span', { cls: `wizard-provider-badge is-${p.tier}`, text: p.tierLabel });
+
+            label.createDiv({ cls: 'wizard-provider-note', text: p.note });
             label.addEventListener('click', () => { radio.checked = true; radio.dispatchEvent(new Event('change')); });
+
+            if (p.id !== 'none') {
+                const link = card.createEl('a', { cls: 'wizard-provider-link', text: `Get a ${p.label} API key`, href: p.url });
+                link.setAttr('target', '_blank');
+                link.setAttr('rel', 'noopener noreferrer');
+
+                const keyRow = card.createDiv({ cls: 'wizard-keyrow' });
+                const input = keyRow.createEl('input', { type: 'password', placeholder: `${p.label} API key` });
+                input.value = p.id === 'tavily' ? (wt.tavilyApiKey ?? '') : (wt.braveApiKey ?? '');
+                input.addEventListener('input', async () => {
+                    if (p.id === 'tavily') wt.tavilyApiKey = input.value.trim();
+                    else if (p.id === 'brave') wt.braveApiKey = input.value.trim();
+                    await this.plugin.saveSettings();
+                });
+                keyRow.style.display = currentProvider === p.id ? '' : 'none';
+                keyRowsByProvider[p.id] = keyRow;
+            }
 
             radio.addEventListener('change', async () => {
                 if (!radio.checked) return;
@@ -565,56 +553,38 @@ export class FirstRunWizardModal extends Modal {
                 wt.provider = p.id;
                 wt.enabled = p.id !== 'none';
                 await this.plugin.saveSettings();
-                for (const [pid, row] of Object.entries(apiKeyRowsByProvider)) {
-                    row.style.display = (pid === currentProvider && pid !== 'none') ? '' : 'none';
+                for (const [pid, row] of Object.entries(keyRowsByProvider)) {
+                    row.style.display = (pid === currentProvider) ? '' : 'none';
                 }
             });
-
-            if (p.id !== 'none') {
-                const keyRow = card.createDiv();
-                keyRow.style.display = currentProvider === p.id ? '' : 'none';
-                keyRow.style.marginTop = '8px';
-                keyRow.style.display = 'flex';
-                keyRow.style.gap = '8px';
-                keyRow.style.alignItems = 'center';
-
-                const linkRow = card.createDiv();
-                linkRow.style.fontSize = '0.85em';
-                linkRow.style.marginTop = '4px';
-                const link = linkRow.createEl('a', { text: `Get a ${p.label} API key`, href: p.url });
-                link.setAttr('target', '_blank');
-                link.setAttr('rel', 'noopener noreferrer');
-
-                const input = keyRow.createEl('input', { type: 'password', placeholder: `${p.label} API key` });
-                input.style.flex = '1';
-                input.value = p.id === 'tavily' ? (wt.tavilyApiKey ?? '') : (wt.braveApiKey ?? '');
-                input.addEventListener('input', async () => {
-                    if (p.id === 'tavily') wt.tavilyApiKey = input.value.trim();
-                    else if (p.id === 'brave') wt.braveApiKey = input.value.trim();
-                    await this.plugin.saveSettings();
-                });
-
-                apiKeyRowsByProvider[p.id] = keyRow;
-                // hide non-current provider key rows
-                if (currentProvider !== p.id) keyRow.style.display = 'none';
-            }
         }
     }
 
     private async renderOptionalDownloadsStep(): Promise<void> {
-        const intro = this.bodyEl.createEl('p');
-        intro.setText('Two features need a one-time download from this plugin\'s GitHub release page. Files land in your vault under .vault-operator/assets/ and are verified by SHA256 before they are used.');
+        this.addInfoBanner(
+            this.bodyEl,
+            'download',
+            'Two optional one-time downloads',
+            'Files land in your vault under .vault-operator/assets/ and are SHA256-verified before they are used. Both run locally, no API calls, no subscription.',
+        );
 
         const { OptionalAssetManager, buildRerankerSpec, buildSelfDevSourceSpec } = await import('../../core/assets/OptionalAssetManager');
         const { RERANKER_WASM_SHA256 } = await import('../../core/assets/assetHashes');
         const { SELF_DEV_SOURCE_SHA256 } = await import('../../_generated/source-hash');
 
         const manager = new OptionalAssetManager(this.plugin);
-        const items: { label: string; recommended: boolean; what: string; size: string; sha: string; spec: ReturnType<typeof buildRerankerSpec> }[] = [
+        const items: {
+            label: string;
+            recommended: boolean;
+            what: string;
+            size: string;
+            sha: string;
+            spec: ReturnType<typeof buildRerankerSpec>;
+        }[] = [
             {
                 label: 'Semantic Reranker',
                 recommended: true,
-                what: 'Reorders semantic-search results by how relevant they actually are to your question. The agent finds your notes much more accurately, especially for long or vague queries. Without it, semantic search still works but matches are noisier.',
+                what: 'Reorders semantic-search results by how relevant they actually are. The agent finds your notes much more accurately, especially for long or vague queries. Without it semantic search still works but matches are noisier.',
                 size: '12 MB',
                 sha: RERANKER_WASM_SHA256,
                 spec: buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256),
@@ -622,7 +592,7 @@ export class FirstRunWizardModal extends Modal {
             {
                 label: 'Self-Development Source',
                 recommended: false,
-                what: 'Lets the agent read its own source code. Useful if you want to ask "how does feature X work?" or have the agent help with extending the plugin itself. Most users do not need this.',
+                what: 'Lets the agent read its own source code. Useful if you want the agent to help with extending the plugin itself. Most users do not need this.',
                 size: '5 MB',
                 sha: SELF_DEV_SOURCE_SHA256,
                 spec: buildSelfDevSourceSpec(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA256),
@@ -630,67 +600,51 @@ export class FirstRunWizardModal extends Modal {
         ];
 
         for (const item of items) {
-            const card = this.bodyEl.createDiv();
-            card.style.border = item.recommended
-                ? '2px solid var(--interactive-accent)'
-                : '1px solid var(--background-modifier-border)';
-            card.style.borderRadius = '6px';
-            card.style.padding = '12px';
-            card.style.margin = '10px 0';
+            const card = this.bodyEl.createDiv({
+                cls: item.recommended ? 'wizard-provider-card is-recommended' : 'wizard-provider-card',
+            });
 
-            const titleRow = card.createDiv();
-            titleRow.style.display = 'flex';
-            titleRow.style.justifyContent = 'space-between';
-            titleRow.style.alignItems = 'center';
-
-            const titleGroup = titleRow.createDiv();
-            const title = titleGroup.createEl('strong');
-            title.setText(`${item.label} (${item.size})`);
+            const header = card.createDiv({ cls: 'wizard-provider-header' });
+            header.createDiv({ cls: 'wizard-provider-name', text: `${item.label} (${item.size})` });
             if (item.recommended) {
-                const badge = titleGroup.createEl('span');
-                badge.setText('Recommended');
-                badge.style.marginLeft = '8px';
-                badge.style.padding = '2px 8px';
-                badge.style.fontSize = '0.75em';
-                badge.style.background = 'var(--interactive-accent)';
-                badge.style.color = 'var(--text-on-accent)';
-                badge.style.borderRadius = '10px';
+                header.createEl('span', { cls: 'wizard-provider-badge is-recommended', text: 'Recommended' });
             }
-            const installBtn = titleRow.createEl('button', { cls: 'mod-cta' });
-            installBtn.setText('Install');
 
-            const what = card.createDiv();
-            what.style.fontSize = '0.9em';
-            what.style.marginTop = '8px';
-            what.setText(item.what);
+            card.createDiv({ cls: 'wizard-provider-note', text: item.what });
 
-            const safety = card.createDiv();
-            safety.style.fontSize = '0.8em';
-            safety.style.opacity = '0.7';
-            safety.style.marginTop = '6px';
-            safety.setText('Open source, runs locally on your machine, no API calls, no subscription. One-time download, verified by SHA256.');
+            const statusEl = card.createDiv({ cls: 'wizard-asset-status' });
 
-            const statusEl = card.createDiv();
-            statusEl.style.fontSize = '0.8em';
-            statusEl.style.marginTop = '6px';
+            const actions = card.createDiv({ cls: 'wizard-asset-actions' });
+            const installBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Install' });
+
             const refreshStatus = async () => {
+                statusEl.empty();
+                statusEl.className = 'wizard-asset-status';
                 if (!item.sha) {
-                    statusEl.setText('Status: not available in this dev build');
-                    statusEl.style.color = 'var(--text-muted)';
+                    statusEl.classList.add('is-missing');
+                    const icon = statusEl.createDiv();
+                    setIcon(icon, 'circle');
+                    statusEl.createSpan({ text: 'Not available in this development build' });
                     installBtn.disabled = true;
                     return;
                 }
                 const snap = await manager.snapshot(item.spec);
                 if (snap.status === 'installed') {
-                    statusEl.setText('Status: Installed');
-                    statusEl.style.color = 'var(--text-success)';
+                    statusEl.classList.add('is-installed');
+                    const icon = statusEl.createDiv();
+                    setIcon(icon, 'check-circle-2');
+                    statusEl.createSpan({ text: 'Installed' });
                     installBtn.setText('Re-install');
                 } else if (snap.status === 'outdated') {
-                    statusEl.setText('Status: Installed but hash differs, re-install to be safe');
-                    statusEl.style.color = 'var(--text-warning)';
+                    statusEl.classList.add('is-outdated');
+                    const icon = statusEl.createDiv();
+                    setIcon(icon, 'circle-alert');
+                    statusEl.createSpan({ text: 'Installed but hash differs, re-install to be safe' });
                 } else {
-                    statusEl.setText('Status: Not installed');
-                    statusEl.style.color = 'var(--text-muted)';
+                    statusEl.classList.add('is-missing');
+                    const icon = statusEl.createDiv();
+                    setIcon(icon, 'circle');
+                    statusEl.createSpan({ text: 'Not installed' });
                 }
             };
             await refreshStatus();
@@ -713,22 +667,29 @@ export class FirstRunWizardModal extends Modal {
     }
 
     private renderDoneStep(): void {
+        this.addInfoBanner(
+            this.bodyEl,
+            'check-circle-2',
+            'Setup complete',
+            'Next the agent opens a chat in the sidebar and asks a few questions to fill your personal memory and identity profile. Everything you tell it stays inside this vault.',
+        );
+
         const p = (text: string): HTMLElement => {
             const el = this.bodyEl.createEl('p');
             el.setText(text);
             return el;
         };
-        p('Setup is complete.');
-        p('Next the agent opens a chat in the sidebar and asks a few questions to fill your personal memory and identity profile: your role, the projects you work on, the way you like things done. Everything you tell it stays inside this vault.');
-        p('You can skip the chat too. Just close the modal and start chatting whenever you like.');
+        p('You can skip this chat too. Just press "Close" and start chatting whenever you like.');
 
         const skipped = this.plugin.settings.onboarding.skippedSteps;
         if (skipped && skipped.length > 0) {
-            const note = this.bodyEl.createDiv();
-            note.style.marginTop = '12px';
-            note.style.fontSize = '0.85em';
-            note.style.opacity = '0.8';
-            note.setText('You skipped: ' + skipped.join(', ') + '. The relevant settings tabs show an inline hint so you can revisit them later.');
+            const note = this.bodyEl.createDiv({ cls: 'wizard-skip-list' });
+            const label = skipped.map(id => {
+                const step = STEPS.find(s => s.id === id);
+                return step?.title ?? id;
+            }).join(', ');
+            note.createEl('strong', { text: 'You skipped: ' });
+            note.createSpan({ text: label + '. The matching settings tabs show an inline hint so you can revisit them later.' });
         }
     }
 }

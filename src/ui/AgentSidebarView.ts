@@ -1118,10 +1118,7 @@ export class AgentSidebarView extends ItemView {
      */
     /** Show the welcome message (delegates to OnboardingFlow module). */
     private showWelcomeMessage(): void {
-        if (!this.chatContainer) {
-            console.debug('[Wizard] showWelcomeMessage skipped: no chatContainer');
-            return;
-        }
+        if (!this.chatContainer) return;
         const ob = this.plugin.settings.onboarding;
 
         // Phase 2.3: if the FirstRun wizard is still owed to the user
@@ -1129,44 +1126,36 @@ export class AgentSidebarView extends ItemView {
         // open the wizard instead of the legacy in-chat provider-picker.
         const shown = ob?.firstRunModalShownCount ?? 0;
         const wizardPending = ob && !ob.modalCompleted && !ob.dontShowFirstRunAgain && shown < 3;
-        console.debug('[Wizard] showWelcomeMessage decision:', {
-            hasOnboarding: !!ob,
-            modalCompleted: ob?.modalCompleted,
-            dontShowAgain: ob?.dontShowFirstRunAgain,
-            shown,
-            wizardPending,
-            completed: ob?.completed,
-        });
         if (wizardPending) {
             void this.openFirstRunWizard();
             return;
         }
 
-        // Modal already finished: skip the legacy provider-picker and
-        // jump straight into the Memory + Soul chat.
-        if (ob?.modalCompleted && !ob.completed) {
+        // Memory + Soul chat: auto-start once after the modal has been
+        // completed, never again. `startedAt` is set the first time
+        // startOnboardingChat runs, so a subsequent sidebar restore
+        // does not re-trigger the conversation.
+        if (ob?.modalCompleted && !ob.completed && !ob.startedAt) {
             this.startOnboardingChat();
             return;
         }
 
         // Fallback for users who reset their onboarding state and have
-        // already dismissed the wizard.
+        // already dismissed the wizard. OnboardingFlow.showWelcomeMessage
+        // self-guards against re-running, so this is safe to call.
         this.onboarding = new OnboardingFlow(this.plugin, this.app);
         this.onboarding.showWelcomeMessage(this.chatContainer, this, this.getOnboardingCallbacks());
     }
 
     private async openFirstRunWizard(): Promise<void> {
         try {
-            console.debug('[Wizard] openFirstRunWizard called');
             const ob = this.plugin.settings.onboarding;
             ob.firstRunModalShownCount = (ob.firstRunModalShownCount ?? 0) + 1;
             await this.plugin.saveSettings();
             const { FirstRunWizardModal } = await import('./modals/FirstRunWizardModal');
-            console.debug('[Wizard] Module loaded, opening modal');
             new FirstRunWizardModal(this.app, this.plugin).open();
-            console.debug('[Wizard] Modal.open() returned');
         } catch (e) {
-            console.error('[Wizard] Failed to open FirstRunWizardModal:', e);
+            console.error('[Plugin] Failed to open FirstRunWizardModal:', e);
         }
     }
 
