@@ -135063,7 +135063,7 @@ __export(source_hash_exports, {
 var SELF_DEV_SOURCE_SHA256;
 var init_source_hash = __esm({
   "src/_generated/source-hash.ts"() {
-    SELF_DEV_SOURCE_SHA256 = "ec07e960190fb597de0c0f3645c34c1c187b52bf6999e6b504cfb924d024b4b0";
+    SELF_DEV_SOURCE_SHA256 = "a89166c5b15ded4a5d7785931a6b1f586a0a974cad0fd9cb0aadaf9b7ed60660";
   }
 });
 
