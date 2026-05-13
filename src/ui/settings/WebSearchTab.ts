@@ -1,5 +1,6 @@
 import { App, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { renderSkipHintIfSkipped } from './skipHints';
 import { t } from '../../i18n';
 
 
@@ -16,6 +17,7 @@ export class WebSearchTab {
     }
 
     build(containerEl: HTMLElement): void {
+        renderSkipHintIfSkipped(containerEl, this.plugin, 'search-provider');
         this.buildIntroSection(containerEl);
         containerEl.createEl('p', {
             cls: 'agent-settings-desc',

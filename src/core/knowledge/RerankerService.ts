@@ -44,10 +44,10 @@ export class RerankerService {
     private _loading = false;
     private _loaded = false;
     private _failed = false;
-    private pluginAbsDir: string;
+    private readonly plugin: import('obsidian').Plugin;
 
-    constructor(pluginAbsDir: string) {
-        this.pluginAbsDir = pluginAbsDir;
+    constructor(plugin: import('obsidian').Plugin) {
+        this.plugin = plugin;
     }
 
     /** Whether the model is loaded and ready for inference. */
@@ -68,29 +68,31 @@ export class RerankerService {
         try {
             const { AutoModelForSequenceClassification, AutoTokenizer, env } = await import('@huggingface/transformers');
 
-            // Pre-load WASM binary from disk to avoid CDN fetch.
-            // The esbuild plugin patches transformers.js to use the web backend,
-            // which needs the WASM binary. Loading from disk is reliable in Electron.
-            // FIX-22: WASM is now embedded in main.js and extracted by AssetProvisioner,
-            // so wasmPath must exist. If it doesn't, we bail out instead of letting
-            // transformers.js fall through to an unreliable HF CDN fetch.
+            // ONNX WASM is an optional download. Settings > Knowledge >
+            // Reranker has an Install button that fetches the binary
+            // from the plugin's GitHub release into the vault. If the
+            // user hasn't installed it, the reranker stays disabled --
+            // semantic search still works without the rerank step.
             const onnxWasm = env.backends?.onnx?.wasm;
             if (!onnxWasm) {
                 console.warn('[Reranker] ONNX WASM backend not available in this transformers.js build');
                 this._failed = true;
                 return;
             }
-            const path = require('path'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
-            const fs = require('fs'); // eslint-disable-line @typescript-eslint/no-require-imports -- Electron built-in, externalized by esbuild
-            const wasmPath = path.join(this.pluginAbsDir, 'ort-wasm-simd-threaded.wasm');
-            if (!fs.existsSync(wasmPath)) {
-                console.warn(`[Reranker] WASM binary missing at ${wasmPath} -- reranker disabled. Reinstall the plugin via BRAT to restore assets.`);
+
+            const { OptionalAssetManager, buildRerankerSpec } = await import('../assets/OptionalAssetManager');
+            const { RERANKER_WASM_SHA256 } = await import('../assets/assetHashes');
+            const manager = new OptionalAssetManager(this.plugin);
+            const spec = buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256);
+            const wasmBinary = await manager.load(spec);
+            if (!wasmBinary) {
+                console.warn('[Reranker] ONNX asset not installed -- run Settings > Knowledge > Reranker > Install (12 MB)');
                 this._failed = true;
                 return;
             }
-            onnxWasm.wasmBinary = fs.readFileSync(wasmPath).buffer;
+            onnxWasm.wasmBinary = wasmBinary;
             onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
-            console.debug(`[Reranker] Loaded WASM binary from ${wasmPath} (${Math.round(fs.statSync(wasmPath).size / 1024 / 1024)}MB)`);
+            console.debug(`[Reranker] Loaded ONNX WASM from vault asset (${Math.round(wasmBinary.byteLength / 1024 / 1024)} MB)`);
 
             console.debug(`[Reranker] Loading model ${MODEL_ID}...`);
             const startTime = Date.now();

@@ -288,7 +288,7 @@ const TOOLS: McpToolDefinition[] = [
         name: 'search_history',
         description:
             'Keyword-search across past conversations from any source (Vault Operator, ChatGPT, Claude.ai, ' +
-            'Claude Code, Perplexity). Returns matching messages with clickable obsidian://obsilo-chat ' +
+            'Claude Code, Perplexity). Returns matching messages with clickable obsidian://vault-operator-chat ' +
             'links to the source conversation. Optional source_interface filter.',
         inputSchema: {
             type: 'object',

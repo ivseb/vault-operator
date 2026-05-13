@@ -10,6 +10,7 @@
 
 import { Modal, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
 
@@ -742,7 +743,7 @@ export class VaultHealthRepairModal extends Modal {
     }
 
     private updateBadge(findings: HealthFinding[]): void {
-        const leaves = this.app.workspace.getLeavesOfType('obsilo-agent-sidebar');
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
         if (leaves.length > 0) {
             const view = leaves[0].view as unknown as { updateHealthBadge(count: number, severity: string | null): void };
             const highCount = findings.filter(f => f.severity === 'high').length;

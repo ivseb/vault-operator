@@ -229,7 +229,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         const store = this.conversationStore;
         const meta = store?.list().find((m: { id: string }) => m.id === conversationId);
         const title = meta?.title || 'Chat';
-        const uri = `obsidian://obsilo-chat?id=${encodeURIComponent(conversationId)}`;
+        const uri = `obsidian://vault-operator-chat?id=${encodeURIComponent(conversationId)}`;
         const link = `[${title}](${uri})`;
 
         for (const p of paths) {
@@ -379,12 +379,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
 
-        // FIX-19: Ensure runtime assets exist on disk (BRAT self-provisioning)
-        const { ensureRuntimeAssets } = await import('./core/AssetProvisioner');
-        await ensureRuntimeAssets(this).catch((e) =>
-            console.warn('[Plugin] Asset provisioning failed (non-fatal):', e)
-        );
-
         // FEATURE-1508: One-time migration from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/
         if (!this.settings._parentDirMigrated) {
             await this.migrateToParentDir(vaultBasePath).catch((e) =>
@@ -482,9 +476,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             this, this.esbuildWasmManager, this.sandboxExecutor,
         );
 
-        // Core Self-Modification (Phase 4) — load embedded source if available
-        this.embeddedSourceManager = new EmbeddedSourceManager();
-        this.embeddedSourceManager.load(); // Non-fatal if not available (dev builds)
+        // Core Self-Modification (Phase 4) -- source bundle is an
+        // optional download (Phase 2.2). load() is fire-and-forget:
+        // first manage_source call awaits it via ensureLoaded.
+        this.embeddedSourceManager = new EmbeddedSourceManager(this);
+        void this.embeddedSourceManager.load().catch((e) =>
+            console.debug('[Plugin] Source bundle load deferred:', e),
+        );
         this.pluginBuilder = new PluginBuilder(this.esbuildWasmManager, this.embeddedSourceManager);
         this.pluginReloader = new PluginReloader(this);
 
@@ -1006,9 +1004,11 @@ export default class ObsidianAgentPlugin extends Plugin {
 
             // Local Reranking (FEATURE-1504): cross-encoder via transformers.js (WASM)
             if (this.settings.enableReranking) {
-                const pluginAbsDir = `${vaultBasePath}/${pluginDir}`;
-                this.rerankerService = new RerankerService(pluginAbsDir);
-                // Pre-load model at startup so first search is fast
+                this.rerankerService = new RerankerService(this);
+                // Pre-load model at startup so first search is fast.
+                // If the ONNX asset isn't installed, loadModel marks the
+                // service failed and returns -- semantic search keeps working
+                // without the rerank step.
                 this.app.workspace.onLayoutReady(() => {
                     void this.rerankerService?.loadModel();
                 });
@@ -1351,11 +1351,16 @@ export default class ObsidianAgentPlugin extends Plugin {
         });
 
         // Protocol handler: deep-link into a specific conversation (ADR-022)
-        this.registerObsidianProtocolHandler('obsilo-chat', (params) => {
+        // New canonical name is 'vault-operator-chat'. The legacy
+        // 'obsilo-chat' protocol stays registered as an alias so that
+        // existing frontmatter links keep working.
+        const openChatFromParams = (params: Record<string, string>) => {
             const id = params.id;
-            if (!id || typeof id !== 'string') return;
+            if (!id) return;
             void this.openChatById(id);
-        });
+        };
+        this.registerObsidianProtocolHandler('vault-operator-chat', openChatFromParams);
+        this.registerObsidianProtocolHandler('obsilo-chat', openChatFromParams);
 
         // Register 'Chats' property as list type so Properties view shows individual items
         this.app.metadataTypeManager.setType('chats', 'multitext');
@@ -1466,12 +1471,33 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.settingsTab = new AgentSettingsTab(this.app, this);
         this.addSettingTab(this.settingsTab);
 
-        // 6. Register deep-link protocol handler: obsidian://obsilo-settings?tab=advanced&sub=backup
-        this.registerObsidianProtocolHandler('obsilo-settings', (params) => {
+        // 6. Register deep-link protocol handlers:
+        //    obsidian://vault-operator-settings?tab=advanced&sub=backup (new canonical)
+        //    obsidian://obsilo-settings?...                              (legacy alias)
+        const openSettingsFromParams = (params: Record<string, string>) => {
             const tab = params.tab;
             const sub = params.sub;
             if (tab) this.openSettingsAt(tab, sub);
+        };
+        this.registerObsidianProtocolHandler('vault-operator-settings', openSettingsFromParams);
+        this.registerObsidianProtocolHandler('obsilo-settings', openSettingsFromParams);
+
+        // Phase 2.3: command to open the setup wizard manually
+        this.addCommand({
+            id: 'open-setup-wizard',
+            name: 'Open Setup Wizard',
+            callback: async () => {
+                const { FirstRunWizardModal } = await import('./ui/modals/FirstRunWizardModal');
+                new FirstRunWizardModal(this.app, this).open();
+            },
         });
+
+        // Phase 2.3: the FirstRun wizard is opened by the sidebar's
+        // showWelcomeMessage when no chat is active. That guarantees the
+        // wizard appears once the sidebar is visible, never double-fires
+        // with the legacy welcome card, and gives the user a deterministic
+        // single entry point. The maybeAutoOpenSetupWizard helper remains
+        // available for the command-palette trigger and as a future hook.
 
         // MCP Server (EPIC-014): Expose Vault Operator as MCP Server for Claude Desktop/Code
         if (this.settings.enableMcpServer) {
@@ -2705,6 +2731,26 @@ export default class ObsidianAgentPlugin extends Plugin {
                 view.sendProgrammaticMessage(text, hidden);
             }
         }, 200);
+    }
+
+    /**
+     * Phase 2.3: open the FirstRunWizard the first three times the
+     * plugin starts unless the user has finished it or said "don't show
+     * again". The shown-count is incremented up-front so the user gets
+     * a deterministic three exposures.
+     */
+    async maybeAutoOpenSetupWizard(): Promise<void> {
+        const ob = this.settings.onboarding;
+        if (ob.modalCompleted) return;
+        if (ob.dontShowFirstRunAgain) return;
+        const shown = ob.firstRunModalShownCount ?? 0;
+        if (shown >= 3) return;
+
+        ob.firstRunModalShownCount = shown + 1;
+        await this.saveSettings();
+
+        const { FirstRunWizardModal } = await import('./ui/modals/FirstRunWizardModal');
+        new FirstRunWizardModal(this.app, this).open();
     }
 
     /**
