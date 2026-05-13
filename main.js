@@ -134976,8 +134976,24 @@ var init_OptionalAssetManager = __esm({
         if (!await adapter.exists(ASSET_DIR)) {
           await adapter.mkdir(ASSET_DIR);
         }
-        const response = await (0, import_obsidian22.requestUrl)({ url: spec.downloadUrl });
+        let response;
+        try {
+          response = await (0, import_obsidian22.requestUrl)({ url: spec.downloadUrl });
+        } catch (e3) {
+          const msg = e3 instanceof Error ? e3.message : String(e3);
+          if (/\b404\b/.test(msg)) {
+            throw new Error(
+              `Asset is not published in the ${this.plugin.manifest.version} release yet. If you already have this asset installed locally it keeps working. Otherwise wait for the next plugin release that ships ${spec.filename}.`
+            );
+          }
+          throw e3;
+        }
         if (response.status >= 400) {
+          if (response.status === 404) {
+            throw new Error(
+              `Asset is not published in the ${this.plugin.manifest.version} release yet. If you already have this asset installed locally it keeps working. Otherwise wait for the next plugin release that ships ${spec.filename}.`
+            );
+          }
           throw new Error(`Download failed: HTTP ${response.status}`);
         }
         const buffer2 = response.arrayBuffer;
@@ -135027,7 +135043,7 @@ __export(source_hash_exports, {
 var SELF_DEV_SOURCE_SHA256;
 var init_source_hash = __esm({
   "src/_generated/source-hash.ts"() {
-    SELF_DEV_SOURCE_SHA256 = "40ebf032406d8b37f2ef87d45b45c4cd6cc72c8d065d01db3b401c2b543c59c7";
+    SELF_DEV_SOURCE_SHA256 = "2990a4a82f464d45e30936b0be56030dc32b656da47c1400239baa70a335ef74";
   }
 });
 
@@ -135557,34 +135573,40 @@ var init_FirstRunWizardModal = __esm({
           const statusEl = card.createDiv({ cls: "wizard-asset-status" });
           const actions = card.createDiv({ cls: "wizard-asset-actions" });
           const installBtn = actions.createEl("button", { cls: "mod-cta", text: "Install" });
+          const removeBtn = actions.createEl("button", { text: "Remove" });
           const refreshStatus = async () => {
             statusEl.empty();
             statusEl.className = "wizard-asset-status";
             if (!item.sha) {
               statusEl.classList.add("is-missing");
-              const icon = statusEl.createDiv();
-              (0, import_obsidian23.setIcon)(icon, "circle");
+              (0, import_obsidian23.setIcon)(statusEl.createDiv(), "circle");
               statusEl.createSpan({ text: "Not available in this development build" });
               installBtn.disabled = true;
+              installBtn.style.display = "";
+              removeBtn.style.display = "none";
               return;
             }
             const snap = await manager.snapshot(item.spec);
             if (snap.status === "installed") {
               statusEl.classList.add("is-installed");
-              const icon = statusEl.createDiv();
-              (0, import_obsidian23.setIcon)(icon, "check-circle-2");
+              (0, import_obsidian23.setIcon)(statusEl.createDiv(), "check-circle-2");
               statusEl.createSpan({ text: "Installed" });
-              installBtn.setText("Re-install");
+              installBtn.style.display = "none";
+              removeBtn.style.display = "";
             } else if (snap.status === "outdated") {
               statusEl.classList.add("is-outdated");
-              const icon = statusEl.createDiv();
-              (0, import_obsidian23.setIcon)(icon, "circle-alert");
-              statusEl.createSpan({ text: "Installed but hash differs, re-install to be safe" });
+              (0, import_obsidian23.setIcon)(statusEl.createDiv(), "circle-alert");
+              statusEl.createSpan({ text: "Installed but hash differs, re-install to update" });
+              installBtn.setText("Re-install");
+              installBtn.style.display = "";
+              removeBtn.style.display = "";
             } else {
               statusEl.classList.add("is-missing");
-              const icon = statusEl.createDiv();
-              (0, import_obsidian23.setIcon)(icon, "circle");
+              (0, import_obsidian23.setIcon)(statusEl.createDiv(), "circle");
               statusEl.createSpan({ text: "Not installed" });
+              installBtn.setText("Install");
+              installBtn.style.display = "";
+              removeBtn.style.display = "none";
             }
           };
           await refreshStatus();
@@ -135596,9 +135618,20 @@ var init_FirstRunWizardModal = __esm({
               new import_obsidian23.Notice(`${item.label} installed.`);
             } catch (e3) {
               const msg = e3 instanceof Error ? e3.message : String(e3);
-              new import_obsidian23.Notice(`Install failed: ${msg}`);
+              new import_obsidian23.Notice(`Install failed: ${msg}`, 1e4);
             } finally {
               installBtn.disabled = false;
+              await refreshStatus();
+            }
+          });
+          removeBtn.addEventListener("click", async () => {
+            try {
+              await manager.remove(item.spec);
+              new import_obsidian23.Notice(`${item.label} removed.`);
+            } catch (e3) {
+              const msg = e3 instanceof Error ? e3.message : String(e3);
+              new import_obsidian23.Notice(`Remove failed: ${msg}`);
+            } finally {
               await refreshStatus();
             }
           });
@@ -246080,25 +246113,41 @@ var EmbeddingsTab = class {
     statusEl.style.marginTop = "6px";
     statusEl.style.fontSize = "0.85em";
     statusEl.style.opacity = "0.8";
+    let installBtn = null;
+    let removeBtn = null;
     const renderStatus = async () => {
       const snap = await manager.snapshot(spec);
       statusEl.empty();
       if (snap.status === "installed") {
         statusEl.setText("Status: Installed");
         statusEl.style.color = "var(--text-success)";
+        if (installBtn) installBtn.style.display = "none";
+        if (removeBtn) removeBtn.style.display = "";
       } else if (snap.status === "outdated") {
-        statusEl.setText("Status: Installed (hash mismatch -- re-install recommended)");
+        statusEl.setText("Status: Installed but hash differs, re-install to update");
         statusEl.style.color = "var(--text-warning)";
+        if (installBtn) {
+          installBtn.style.display = "";
+          installBtn.setText("Re-install");
+        }
+        if (removeBtn) removeBtn.style.display = "";
       } else if (snap.status === "error") {
         statusEl.setText(`Status: Error - ${snap.errorMessage ?? "unknown"}`);
         statusEl.style.color = "var(--text-error)";
+        if (installBtn) installBtn.style.display = "";
+        if (removeBtn) removeBtn.style.display = "none";
       } else {
         statusEl.setText("Status: Not installed - reranker stays disabled");
         statusEl.style.color = "var(--text-muted)";
+        if (installBtn) {
+          installBtn.style.display = "";
+          installBtn.setText("Install");
+        }
+        if (removeBtn) removeBtn.style.display = "none";
       }
     };
-    await renderStatus();
     setting.addButton((btn) => {
+      installBtn = btn.buttonEl;
       btn.setButtonText("Install").setCta().onClick(async () => {
         btn.setDisabled(true);
         btn.setButtonText("Downloading...");
@@ -246112,15 +246161,15 @@ var EmbeddingsTab = class {
           }
         } catch (e3) {
           const msg = e3 instanceof Error ? e3.message : String(e3);
-          new import_obsidian31.Notice(`Install failed: ${msg}`);
+          new import_obsidian31.Notice(`Install failed: ${msg}`, 1e4);
         } finally {
           btn.setDisabled(false);
-          btn.setButtonText("Install");
           await renderStatus();
         }
       });
     });
     setting.addButton((btn) => {
+      removeBtn = btn.buttonEl;
       btn.setButtonText("Remove").setWarning().onClick(async () => {
         const ok = await this.confirmDestructive(
           "Remove reranker model?",
@@ -246139,6 +246188,7 @@ var EmbeddingsTab = class {
         }
       });
     });
+    await renderStatus();
   }
   /** Start background enrichment if all prerequisites are met. */
   async triggerEnrichmentIfReady() {
@@ -250579,25 +250629,41 @@ var DebugTab = class {
     const statusEl = setting.descEl.createDiv({ cls: "selfdev-asset-status" });
     statusEl.style.marginTop = "6px";
     statusEl.style.fontSize = "0.85em";
+    let installBtn = null;
+    let removeBtn = null;
     const renderStatus = async () => {
       const snap = await manager.snapshot(spec);
       statusEl.empty();
       if (snap.status === "installed") {
         statusEl.setText("Status: Installed");
         statusEl.style.color = "var(--text-success)";
+        if (installBtn) installBtn.style.display = "none";
+        if (removeBtn) removeBtn.style.display = "";
       } else if (snap.status === "outdated") {
-        statusEl.setText("Status: Installed (hash mismatch -- re-install recommended)");
+        statusEl.setText("Status: Installed but hash differs, re-install to update");
         statusEl.style.color = "var(--text-warning)";
+        if (installBtn) {
+          installBtn.style.display = "";
+          installBtn.setText("Re-install");
+        }
+        if (removeBtn) removeBtn.style.display = "";
       } else if (snap.status === "error") {
         statusEl.setText(`Status: Error - ${snap.errorMessage ?? "unknown"}`);
         statusEl.style.color = "var(--text-error)";
+        if (installBtn) installBtn.style.display = "";
+        if (removeBtn) removeBtn.style.display = "none";
       } else {
         statusEl.setText("Status: Not installed - manage_source tool stays disabled");
         statusEl.style.color = "var(--text-muted)";
+        if (installBtn) {
+          installBtn.style.display = "";
+          installBtn.setText("Install");
+        }
+        if (removeBtn) removeBtn.style.display = "none";
       }
     };
-    await renderStatus();
     setting.addButton((btn) => {
+      installBtn = btn.buttonEl;
       btn.setButtonText("Install").setCta().onClick(async () => {
         btn.setDisabled(true);
         btn.setButtonText("Downloading...");
@@ -250611,15 +250677,15 @@ var DebugTab = class {
           }
         } catch (e3) {
           const msg = e3 instanceof Error ? e3.message : String(e3);
-          new import_obsidian56.Notice(`Install failed: ${msg}`);
+          new import_obsidian56.Notice(`Install failed: ${msg}`, 1e4);
         } finally {
           btn.setDisabled(false);
-          btn.setButtonText("Install");
           await renderStatus();
         }
       });
     });
     setting.addButton((btn) => {
+      removeBtn = btn.buttonEl;
       btn.setButtonText("Remove").setWarning().onClick(async () => {
         try {
           await manager.remove(spec);
@@ -250632,6 +250698,7 @@ var DebugTab = class {
         }
       });
     });
+    await renderStatus();
   }
 };
 

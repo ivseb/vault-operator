@@ -142,8 +142,31 @@ export class OptionalAssetManager {
             await adapter.mkdir(ASSET_DIR);
         }
 
-        const response = await requestUrl({ url: spec.downloadUrl });
+        let response;
+        try {
+            response = await requestUrl({ url: spec.downloadUrl });
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // requestUrl throws on non-2xx by default. Detect 404 specifically
+            // so we can give the user a clear message instead of a stack-trace
+            // style "Request failed, status 404".
+            if (/\b404\b/.test(msg)) {
+                throw new Error(
+                    `Asset is not published in the ${this.plugin.manifest.version} release yet. ` +
+                    `If you already have this asset installed locally it keeps working. ` +
+                    `Otherwise wait for the next plugin release that ships ${spec.filename}.`,
+                );
+            }
+            throw e;
+        }
         if (response.status >= 400) {
+            if (response.status === 404) {
+                throw new Error(
+                    `Asset is not published in the ${this.plugin.manifest.version} release yet. ` +
+                    `If you already have this asset installed locally it keeps working. ` +
+                    `Otherwise wait for the next plugin release that ships ${spec.filename}.`,
+                );
+            }
             throw new Error(`Download failed: HTTP ${response.status}`);
         }
         const buffer = response.arrayBuffer;

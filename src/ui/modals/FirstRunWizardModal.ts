@@ -613,38 +613,47 @@ export class FirstRunWizardModal extends Modal {
             card.createDiv({ cls: 'wizard-provider-note', text: item.what });
 
             const statusEl = card.createDiv({ cls: 'wizard-asset-status' });
-
             const actions = card.createDiv({ cls: 'wizard-asset-actions' });
             const installBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Install' });
+            const removeBtn = actions.createEl('button', { text: 'Remove' });
 
             const refreshStatus = async () => {
                 statusEl.empty();
                 statusEl.className = 'wizard-asset-status';
                 if (!item.sha) {
                     statusEl.classList.add('is-missing');
-                    const icon = statusEl.createDiv();
-                    setIcon(icon, 'circle');
+                    setIcon(statusEl.createDiv(), 'circle');
                     statusEl.createSpan({ text: 'Not available in this development build' });
                     installBtn.disabled = true;
+                    installBtn.style.display = '';
+                    removeBtn.style.display = 'none';
                     return;
                 }
                 const snap = await manager.snapshot(item.spec);
                 if (snap.status === 'installed') {
                     statusEl.classList.add('is-installed');
-                    const icon = statusEl.createDiv();
-                    setIcon(icon, 'check-circle-2');
+                    setIcon(statusEl.createDiv(), 'check-circle-2');
                     statusEl.createSpan({ text: 'Installed' });
-                    installBtn.setText('Re-install');
+                    // Hide the Install button when the asset is healthy --
+                    // clicking it would attempt a fresh download that just
+                    // burns bandwidth or hits 404 on releases that do not
+                    // ship this asset yet.
+                    installBtn.style.display = 'none';
+                    removeBtn.style.display = '';
                 } else if (snap.status === 'outdated') {
                     statusEl.classList.add('is-outdated');
-                    const icon = statusEl.createDiv();
-                    setIcon(icon, 'circle-alert');
-                    statusEl.createSpan({ text: 'Installed but hash differs, re-install to be safe' });
+                    setIcon(statusEl.createDiv(), 'circle-alert');
+                    statusEl.createSpan({ text: 'Installed but hash differs, re-install to update' });
+                    installBtn.setText('Re-install');
+                    installBtn.style.display = '';
+                    removeBtn.style.display = '';
                 } else {
                     statusEl.classList.add('is-missing');
-                    const icon = statusEl.createDiv();
-                    setIcon(icon, 'circle');
+                    setIcon(statusEl.createDiv(), 'circle');
                     statusEl.createSpan({ text: 'Not installed' });
+                    installBtn.setText('Install');
+                    installBtn.style.display = '';
+                    removeBtn.style.display = 'none';
                 }
             };
             await refreshStatus();
@@ -657,9 +666,21 @@ export class FirstRunWizardModal extends Modal {
                     new Notice(`${item.label} installed.`);
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    new Notice(`Install failed: ${msg}`);
+                    new Notice(`Install failed: ${msg}`, 10_000);
                 } finally {
                     installBtn.disabled = false;
+                    await refreshStatus();
+                }
+            });
+
+            removeBtn.addEventListener('click', async () => {
+                try {
+                    await manager.remove(item.spec);
+                    new Notice(`${item.label} removed.`);
+                } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    new Notice(`Remove failed: ${msg}`);
+                } finally {
                     await refreshStatus();
                 }
             });

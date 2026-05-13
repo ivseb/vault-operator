@@ -69,27 +69,37 @@ export class DebugTab {
         statusEl.style.marginTop = '6px';
         statusEl.style.fontSize = '0.85em';
 
+        let installBtn: HTMLButtonElement | null = null;
+        let removeBtn: HTMLButtonElement | null = null;
+
         const renderStatus = async (): Promise<void> => {
             const snap = await manager.snapshot(spec);
             statusEl.empty();
             if (snap.status === 'installed') {
                 statusEl.setText('Status: Installed');
                 statusEl.style.color = 'var(--text-success)';
+                if (installBtn) installBtn.style.display = 'none';
+                if (removeBtn) removeBtn.style.display = '';
             } else if (snap.status === 'outdated') {
-                statusEl.setText('Status: Installed (hash mismatch -- re-install recommended)');
+                statusEl.setText('Status: Installed but hash differs, re-install to update');
                 statusEl.style.color = 'var(--text-warning)';
+                if (installBtn) { installBtn.style.display = ''; installBtn.setText('Re-install'); }
+                if (removeBtn) removeBtn.style.display = '';
             } else if (snap.status === 'error') {
                 statusEl.setText(`Status: Error - ${snap.errorMessage ?? 'unknown'}`);
                 statusEl.style.color = 'var(--text-error)';
+                if (installBtn) installBtn.style.display = '';
+                if (removeBtn) removeBtn.style.display = 'none';
             } else {
                 statusEl.setText('Status: Not installed - manage_source tool stays disabled');
                 statusEl.style.color = 'var(--text-muted)';
+                if (installBtn) { installBtn.style.display = ''; installBtn.setText('Install'); }
+                if (removeBtn) removeBtn.style.display = 'none';
             }
         };
 
-        await renderStatus();
-
         setting.addButton((btn) => {
+            installBtn = btn.buttonEl;
             btn.setButtonText('Install')
                 .setCta()
                 .onClick(async () => {
@@ -98,7 +108,6 @@ export class DebugTab {
                     try {
                         await manager.install(spec);
                         new Notice(`${spec.label} installed.`);
-                        // Reset the manager so the next manage_source call re-reads from disk
                         if (this.plugin.embeddedSourceManager) {
                             const { EmbeddedSourceManager } = await import('../../core/self-development/EmbeddedSourceManager');
                             this.plugin.embeddedSourceManager = new EmbeddedSourceManager(this.plugin);
@@ -106,16 +115,16 @@ export class DebugTab {
                         }
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
-                        new Notice(`Install failed: ${msg}`);
+                        new Notice(`Install failed: ${msg}`, 10_000);
                     } finally {
                         btn.setDisabled(false);
-                        btn.setButtonText('Install');
                         await renderStatus();
                     }
                 });
         });
 
         setting.addButton((btn) => {
+            removeBtn = btn.buttonEl;
             btn.setButtonText('Remove')
                 .setWarning()
                 .onClick(async () => {
@@ -130,5 +139,7 @@ export class DebugTab {
                     }
                 });
         });
+
+        await renderStatus();
     }
 }
