@@ -470,6 +470,294 @@
     font-family: var(--font-monospace);
 }
 
+/* =============================================================== */
+/* First-Run Wizard Modal (Phase 2.3)                              */
+/* =============================================================== */
+
+.vault-operator-wizard .wizard-header {
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 12px;
+    margin-bottom: 16px;
+}
+
+.vault-operator-wizard .wizard-header h2 {
+    margin: 0 0 4px 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.vault-operator-wizard .wizard-header .wizard-step-counter {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.vault-operator-wizard .wizard-progress {
+    display: flex;
+    gap: 4px;
+    margin: 0 0 20px 0;
+}
+
+.vault-operator-wizard .wizard-progress-segment {
+    flex: 1;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--background-modifier-border);
+    transition: background-color 0.15s ease;
+}
+
+.vault-operator-wizard .wizard-progress-segment.active {
+    background: var(--interactive-accent);
+}
+
+.vault-operator-wizard .wizard-body {
+    min-height: 320px;
+    padding: 0 0 8px 0;
+}
+
+.vault-operator-wizard .wizard-body p {
+    margin: 0 0 12px 0;
+    line-height: 1.5;
+}
+
+.vault-operator-wizard .wizard-info-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--color-blue) 8%, var(--background-primary));
+    border-left: 3px solid var(--color-blue);
+    border-radius: 4px;
+}
+
+.vault-operator-wizard .wizard-info-banner-icon {
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: var(--color-blue);
+    display: flex;
+}
+
+.vault-operator-wizard .wizard-info-banner-text {
+    flex: 1;
+    color: var(--text-normal);
+}
+
+.vault-operator-wizard .wizard-info-banner-text strong {
+    font-weight: 600;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.vault-operator-wizard .wizard-section {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 20px 0 8px;
+    padding: 0 0 4px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-operator-wizard .wizard-section:first-child {
+    margin-top: 0;
+}
+
+.vault-operator-wizard .wizard-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    margin: 0 0 16px 0;
+    border-radius: 4px;
+    background: var(--background-secondary);
+    font-size: 13px;
+}
+
+.vault-operator-wizard .wizard-status-icon {
+    flex-shrink: 0;
+    display: flex;
+    color: var(--text-muted);
+}
+
+.vault-operator-wizard .wizard-status.is-ok .wizard-status-icon {
+    color: var(--color-green);
+}
+
+.vault-operator-wizard .wizard-status.is-empty .wizard-status-icon {
+    color: var(--text-muted);
+}
+
+.vault-operator-wizard .wizard-status strong {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.vault-operator-wizard .wizard-provider-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    margin: 8px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+}
+
+.vault-operator-wizard .wizard-provider-card.is-recommended {
+    border-color: var(--interactive-accent);
+    border-width: 2px;
+    padding: 11px 13px;
+}
+
+.vault-operator-wizard .wizard-provider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.vault-operator-wizard .wizard-provider-name {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.vault-operator-wizard .wizard-provider-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 10px;
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
+.vault-operator-wizard .wizard-provider-badge.is-free {
+    background: color-mix(in srgb, var(--color-green) 15%, transparent);
+    color: var(--color-green);
+}
+
+.vault-operator-wizard .wizard-provider-badge.is-paid {
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
+
+.vault-operator-wizard .wizard-provider-badge.is-recommended {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.vault-operator-wizard .wizard-provider-link {
+    font-size: 12px;
+    color: var(--interactive-accent);
+    text-decoration: none;
+}
+
+.vault-operator-wizard .wizard-provider-link:hover {
+    text-decoration: underline;
+}
+
+.vault-operator-wizard .wizard-provider-note {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.vault-operator-wizard .wizard-action-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.vault-operator-wizard .wizard-radio-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.vault-operator-wizard .wizard-radio-row input[type="radio"] {
+    margin-top: 4px;
+}
+
+.vault-operator-wizard .wizard-radio-row label {
+    flex: 1;
+    cursor: pointer;
+}
+
+.vault-operator-wizard .wizard-keyrow {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.vault-operator-wizard .wizard-keyrow input {
+    flex: 1;
+}
+
+.vault-operator-wizard .wizard-asset-status {
+    font-size: 12px;
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.vault-operator-wizard .wizard-asset-status.is-installed { color: var(--color-green); }
+.vault-operator-wizard .wizard-asset-status.is-outdated  { color: var(--color-orange); }
+.vault-operator-wizard .wizard-asset-status.is-missing   { color: var(--text-muted); }
+.vault-operator-wizard .wizard-asset-status.is-error     { color: var(--color-red); }
+
+.vault-operator-wizard .wizard-asset-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.vault-operator-wizard .wizard-skip-list {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--color-orange) 8%, var(--background-primary));
+    border-left: 3px solid var(--color-orange);
+    font-size: 12px;
+}
+
+.vault-operator-wizard .wizard-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.vault-operator-wizard .wizard-footer-left,
+.vault-operator-wizard .wizard-footer-right {
+    display: flex;
+    gap: 6px;
+}
+
+/* AI Disclaimer (sits below the input area as a single small centred line) */
+.chat-ai-disclaimer {
+    flex-shrink: 0;
+    text-align: center;
+    font-size: 9px;
+    line-height: 1.2;
+    color: var(--text-faint);
+    padding: 2px 12px 3px 12px;
+    background: var(--background-primary);
+}
+
 /* Chat Input Container (Kilo Code pattern) */
 .chat-input-container {
     flex-shrink: 0;

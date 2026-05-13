@@ -17,10 +17,13 @@ import fsModule from 'fs';
 import osModule from 'os';
 import pathModule from 'path';
 
-/** Cross-vault data directory next to the vault. Renamed from
- *  ".obsidian-agent" to "obsilo-shared" for distribution clarity.
- *  The legacy name is migrated automatically on plugin onload. */
-const GLOBAL_DIR_NAME = 'obsilo-shared';
+/** Cross-vault data directory next to the vault. Fresh installs get
+ *  "vault-operator-shared". Existing installs may still be on the
+ *  legacy names; the constructor below detects them and stays put,
+ *  so no migration is required for current users. */
+const GLOBAL_DIR_NAME = 'vault-operator-shared';
+/** Legacy names. Looked up in order; the first existing one wins. */
+const LEGACY_GLOBAL_DIR_NAMES = ['obsilo-shared', '.obsidian-agent'] as const;
 /** Legacy name. Used by onload migration to detect old installs. */
 export const LEGACY_GLOBAL_DIR_NAME = '.obsidian-agent';
 
@@ -29,13 +32,25 @@ export class GlobalFileService implements FileAdapter {
 
     /**
      * @param vaultBasePath - Absolute path to the vault root (from vault.adapter.getBasePath()).
-     *   Global data is stored at {vault-parent}/.obsidian-agent/.
-     *   Falls back to ~/.obsidian-agent/ if no vaultBasePath is provided.
+     *   Fresh installs land in {vault-parent}/vault-operator-shared/.
+     *   If an existing user already has a legacy folder
+     *   ({vault-parent}/obsilo-shared/ or {vault-parent}/.obsidian-agent/),
+     *   that path is used instead so their data is never abandoned.
+     *   Falls back to ~/vault-operator-shared/ if no vaultBasePath.
      */
     constructor(vaultBasePath?: string) {
-        this.root = vaultBasePath
-            ? pathModule.join(pathModule.dirname(vaultBasePath), GLOBAL_DIR_NAME)
-            : pathModule.join(osModule.homedir(), GLOBAL_DIR_NAME);
+        const baseDir = vaultBasePath ? pathModule.dirname(vaultBasePath) : osModule.homedir();
+
+        // Prefer existing legacy folders if they exist (preserves user data).
+        for (const legacy of LEGACY_GLOBAL_DIR_NAMES) {
+            const candidate = pathModule.join(baseDir, legacy);
+            if (fsModule.existsSync(candidate)) {
+                this.root = candidate;
+                return;
+            }
+        }
+
+        this.root = pathModule.join(baseDir, GLOBAL_DIR_NAME);
     }
 
     /** Return the legacy root path (~/.obsidian-agent/) for migration purposes. */

@@ -17,7 +17,7 @@
  * FEATURE-1500: SQLite Knowledge DB
  */
 
-import { type Vault, requestUrl } from 'obsidian';
+import type { Vault } from 'obsidian';
 import * as path from 'path';
 import * as fs from 'fs';
 import { WriterLock, WriterLockHeldError } from '../persistence/WriterLock';
@@ -294,15 +294,10 @@ export class KnowledgeDB {
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- sql.js WASM init needs require for Electron compatibility
         const initSqlJs = require('sql.js') as (config?: { wasmBinary?: ArrayBuffer }) => Promise<SqlJsStatic>;
 
-        // Obsidian's app:// protocol can't serve WASM files via fetch().
-        // Load the binary directly from disk and pass it to sql.js. Use the
-        // plugin dir that was passed in (e.g. `.obsidian/plugins/vault-operator`)
-        // rather than a hardcoded plugin id, so a plugin rename never breaks this.
-        const pluginBasePath = (this.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
-        const pluginMainDir = path.join(pluginBasePath, this.pluginDir);
-
-        const wasmBinary = await this.loadWasmBinary(pluginMainDir);
-        this.SQL = await initSqlJs({ wasmBinary: wasmBinary.buffer });
+        // sql.js WASM is bundled inline at build time (Phase 1: no
+        // runtime download, no pluginDir read, no CDN fallback).
+        const wasmBinary = await this.loadWasmBinary();
+        this.SQL = await initSqlJs({ wasmBinary });
 
         // Clean up stale .tmp files from interrupted writes
         await this.cleanupTmp();
@@ -335,53 +330,17 @@ export class KnowledgeDB {
         return this.db;
     }
 
-    // AUDIT-010 M-2: SHA-256 hash of sql.js@1.14.1 sql-wasm.wasm for CDN integrity check
-    private static readonly SQL_WASM_SHA256 = '438c88f666dc054ce4e9395f80fe9db4218b1a3c379960454880f048a7898aed';
-
     /**
-     * Load sql-wasm.wasm binary: try local disk first, download from CDN as fallback (FIX-16).
-     * BRAT installs only main.js/manifest/styles -- WASM files are missing for those users.
+     * Decode the inlined sql.js WASM binary. Phase 1: WASM ships inside
+     * main.js as base64, no disk read and no CDN fetch. Obsidian's
+     * Developer Policy does not allow downloading code at runtime, and
+     * extracting bundled WASM into pluginDir is the "self-update"
+     * pattern the review bot rejects.
      */
-    private async loadWasmBinary(pluginMainDir: string): Promise<Buffer> {
-        const candidates = [
-            path.join(pluginMainDir, 'sql-wasm-browser.wasm'),
-            path.join(pluginMainDir, 'sql-wasm.wasm'),
-        ];
-
-        // Try reading from disk (existing behavior)
-        for (const candidate of candidates) {
-            try {
-                return fs.readFileSync(candidate);
-            } catch {
-                // try next
-            }
-        }
-
-        // Fallback: download from CDN via Obsidian's requestUrl (FIX-16)
-        const cdnUrl = 'https://cdn.jsdelivr.net/npm/sql.js@1.14.1/dist/sql-wasm.wasm';
-        console.debug('[KnowledgeDB] WASM not found on disk, downloading from CDN...');
-        const response = await requestUrl({ url: cdnUrl });
-
-        // AUDIT-010 M-2/M-3: Verify integrity before trusting CDN content
-        const hashBuffer = await crypto.subtle.digest('SHA-256', response.arrayBuffer);
-        const hashHex = Array.from(new Uint8Array(hashBuffer))
-            .map(b => b.toString(16).padStart(2, '0')).join('');
-        if (hashHex !== KnowledgeDB.SQL_WASM_SHA256) {
-            throw new Error(`[KnowledgeDB] WASM integrity check failed (expected ${KnowledgeDB.SQL_WASM_SHA256.slice(0, 16)}..., got ${hashHex.slice(0, 16)}...)`);
-        }
-
-        const buffer = Buffer.from(response.arrayBuffer);
-
-        // Cache to disk for next startup
-        const cachePath = candidates[1]; // sql-wasm.wasm
-        try {
-            fs.writeFileSync(cachePath, buffer);
-            console.debug('[KnowledgeDB] WASM cached to', cachePath);
-        } catch {
-            console.debug('[KnowledgeDB] Could not cache WASM to disk (non-fatal)');
-        }
-
-        return buffer;
+    private async loadWasmBinary(): Promise<ArrayBuffer> {
+        const { SQL_WASM_BASE64 } = await import('../../_generated/bundled-wasm');
+        const bytes = Uint8Array.from(atob(SQL_WASM_BASE64), c => c.charCodeAt(0));
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     }
 
     /** Check if the DB is open and ready. */

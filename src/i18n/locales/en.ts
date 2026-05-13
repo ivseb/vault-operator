@@ -8,6 +8,7 @@ export const en: Translations = {
     'settings.group.agentBehaviour': 'Agent behaviour',
     'settings.group.vault': 'Vault',
     'settings.group.advanced': 'Advanced',
+    'settings.group.help': 'Help',
 
     // =========================================================================
     // Settings — Sub-Tab Labels

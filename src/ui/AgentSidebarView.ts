@@ -170,6 +170,7 @@ export class AgentSidebarView extends ItemView {
         this.buildChatContainer(container);
         this.buildSuggestionBanner(container);
         this.buildChatInput(container);
+        this.buildAiDisclaimer(container);
 
         // Feature 4: Update context badge when user switches files; reset dismiss on new file
         // Also track last active MarkdownView so "Insert at cursor" works from sidebar
@@ -339,6 +340,11 @@ export class AgentSidebarView extends ItemView {
     private buildSuggestionBanner(container: HTMLElement): void {
         this.suggestionBanner = new SuggestionBanner(this.plugin, this.app);
         this.suggestionBanner.mount(container, (fn) => this.register(fn));
+    }
+
+    private buildAiDisclaimer(container: HTMLElement): void {
+        const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
+        disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
     }
 
     private buildChatInput(container: HTMLElement): void {
@@ -1113,8 +1119,44 @@ export class AgentSidebarView extends ItemView {
     /** Show the welcome message (delegates to OnboardingFlow module). */
     private showWelcomeMessage(): void {
         if (!this.chatContainer) return;
+        const ob = this.plugin.settings.onboarding;
+
+        // Phase 2.3: if the FirstRun wizard is still owed to the user
+        // (not completed, not dismissed, not yet shown three times),
+        // open the wizard instead of the legacy in-chat provider-picker.
+        const shown = ob?.firstRunModalShownCount ?? 0;
+        const wizardPending = ob && !ob.modalCompleted && !ob.dontShowFirstRunAgain && shown < 3;
+        if (wizardPending) {
+            void this.openFirstRunWizard();
+            return;
+        }
+
+        // Memory + Soul chat: auto-start once after the modal has been
+        // completed, never again. `startedAt` is set the first time
+        // startOnboardingChat runs, so a subsequent sidebar restore
+        // does not re-trigger the conversation.
+        if (ob?.modalCompleted && !ob.completed && !ob.startedAt) {
+            this.startOnboardingChat();
+            return;
+        }
+
+        // Fallback for users who reset their onboarding state and have
+        // already dismissed the wizard. OnboardingFlow.showWelcomeMessage
+        // self-guards against re-running, so this is safe to call.
         this.onboarding = new OnboardingFlow(this.plugin, this.app);
         this.onboarding.showWelcomeMessage(this.chatContainer, this, this.getOnboardingCallbacks());
+    }
+
+    private async openFirstRunWizard(): Promise<void> {
+        try {
+            const ob = this.plugin.settings.onboarding;
+            ob.firstRunModalShownCount = (ob.firstRunModalShownCount ?? 0) + 1;
+            await this.plugin.saveSettings();
+            const { FirstRunWizardModal } = await import('./modals/FirstRunWizardModal');
+            new FirstRunWizardModal(this.app, this.plugin).open();
+        } catch (e) {
+            console.error('[Plugin] Failed to open FirstRunWizardModal:', e);
+        }
     }
 
     /** Show setup message when no model is configured (delegates to OnboardingFlow). */
@@ -2586,7 +2628,7 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('ui.history.noActiveNote'));
             return;
         }
-        const uri = `obsidian://obsilo-chat?id=${encodeURIComponent(conversationId)}`;
+        const uri = `obsidian://vault-operator-chat?id=${encodeURIComponent(conversationId)}`;
         const link = `[${title}](${uri})`;
         try {
             await this.app.fileManager.processFrontMatter(file, (fm) => {
@@ -3167,7 +3209,7 @@ export class AgentSidebarView extends ItemView {
     private wireInternalLinks(contentEl: HTMLElement): void {
         contentEl.querySelectorAll('a').forEach((anchor) => {
             const href = anchor.getAttribute('href') ?? '';
-            if (href.startsWith('obsidian://obsilo-chat')) {
+            if (href.startsWith('obsidian://vault-operator-chat') || href.startsWith('obsidian://obsilo-chat')) {
                 anchor.addEventListener('click', (e) => {
                     e.preventDefault();
                     const match = /[?&]id=([^&]+)/.exec(href);

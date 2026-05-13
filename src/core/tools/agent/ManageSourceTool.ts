@@ -80,16 +80,16 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         try {
             switch (action) {
                 case 'list':
-                    this.handleList(callbacks);
+                    await this.handleList(callbacks);
                     break;
                 case 'read':
-                    this.handleRead(input, callbacks);
+                    await this.handleRead(input, callbacks);
                     break;
                 case 'search':
-                    this.handleSearch(input, callbacks);
+                    await this.handleSearch(input, callbacks);
                     break;
                 case 'edit':
-                    this.handleEdit(input, callbacks);
+                    await this.handleEdit(input, callbacks);
                     break;
                 case 'build':
                     await this.handleBuild(callbacks);
@@ -111,14 +111,13 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         }
     }
 
-    private ensureLoaded(callbacks: ToolCallbacks): boolean {
+    private async ensureLoaded(callbacks: ToolCallbacks): Promise<boolean> {
         if (!this.sourceManager.isLoaded) {
-            // Try loading first
-            const loaded = this.sourceManager.load();
+            const loaded = await this.sourceManager.load();
             if (!loaded) {
                 callbacks.pushToolResult(this.formatError(new Error(
-                    'Embedded source not available. This plugin build does not include embedded TypeScript source. ' +
-                    'Core self-modification requires a build with the embed-source plugin.'
+                    'Self-Development source bundle not installed. ' +
+                    'Install it from Settings > Advanced > Self-Development (one-time download from this plugin\'s GitHub release).'
                 )));
                 return false;
             }
@@ -126,8 +125,8 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         return true;
     }
 
-    private handleList(callbacks: ToolCallbacks): void {
-        if (!this.ensureLoaded(callbacks)) return;
+    private async handleList(callbacks: ToolCallbacks): Promise<void> {
+        if (!await this.ensureLoaded(callbacks)) return;
 
         const files = this.sourceManager.listFiles();
         const version = this.sourceManager.getVersion();
@@ -139,8 +138,8 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         callbacks.log(`manage_source: listed ${files.length} files`);
     }
 
-    private handleRead(input: Record<string, unknown>, callbacks: ToolCallbacks): void {
-        if (!this.ensureLoaded(callbacks)) return;
+    private async handleRead(input: Record<string, unknown>, callbacks: ToolCallbacks): Promise<void> {
+        if (!await this.ensureLoaded(callbacks)) return;
 
         const path = (input.path as string ?? '').trim();
         if (!path) {
@@ -167,8 +166,8 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         callbacks.log(`manage_source: read ${path}`);
     }
 
-    private handleSearch(input: Record<string, unknown>, callbacks: ToolCallbacks): void {
-        if (!this.ensureLoaded(callbacks)) return;
+    private async handleSearch(input: Record<string, unknown>, callbacks: ToolCallbacks): Promise<void> {
+        if (!await this.ensureLoaded(callbacks)) return;
 
         const pattern = (input.pattern as string ?? '').trim();
         if (!pattern) {
@@ -197,8 +196,8 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
         callbacks.log(`manage_source: search "${pattern}" → ${results.length} matches`);
     }
 
-    private handleEdit(input: Record<string, unknown>, callbacks: ToolCallbacks): void {
-        if (!this.ensureLoaded(callbacks)) return;
+    private async handleEdit(input: Record<string, unknown>, callbacks: ToolCallbacks): Promise<void> {
+        if (!await this.ensureLoaded(callbacks)) return;
 
         const path = (input.path as string ?? '').trim();
         const content = input.content as string | undefined;
@@ -234,7 +233,7 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
     private lastBuildResult: string | null = null;
 
     private async handleBuild(callbacks: ToolCallbacks): Promise<void> {
-        if (!this.ensureLoaded(callbacks)) return;
+        if (!await this.ensureLoaded(callbacks)) return;
 
         callbacks.pushToolResult(this.formatSuccess('Building modified source... This may take 20-30 seconds.'));
 
@@ -263,39 +262,37 @@ export class ManageSourceTool extends BaseTool<'manage_source'> {
             return;
         }
 
-        const result = await this.pluginReloader.deployAndReload(this.lastBuildResult);
-        if (result.success) {
-            this.lastBuildResult = null;
-            callbacks.pushToolResult(this.formatSuccess(
-                'Plugin deployed and reloaded successfully. ' +
-                'The new code is now active. Verify that the fix works as expected.'
-            ));
-            callbacks.log('manage_source: reload succeeded');
-        } else {
-            callbacks.pushToolResult(this.formatError(new Error(
-                result.error ?? 'Reload failed for unknown reason'
-            )));
-        }
+        // Obsidian's review policy forbids the plugin from overwriting
+        // its own main.js. Instead, hand the compiled bundle to the user
+        // via a modal with a download button + step-by-step apply
+        // instructions. Phase 3 of the community-plugin-readiness work.
+        const { PluginPatchModal } = await import('../../../ui/modals/PluginPatchModal');
+        const summary = `Compiled bundle: ${this.lastBuildResult.length} bytes.\n` +
+            `Source files held in memory: ${this.sourceManager.listFiles().length}.`;
+        new PluginPatchModal(
+            this.plugin.app,
+            this.plugin,
+            this.lastBuildResult,
+            summary,
+        ).open();
+        this.lastBuildResult = null;
+
+        callbacks.pushToolResult(this.formatSuccess(
+            'Patch ready. Opened the apply-patch modal: download the new main.js, replace it in the plugin folder, then reload Vault Operator.'
+        ));
+        callbacks.log('manage_source: patch modal opened');
     }
 
     private async handleRollback(callbacks: ToolCallbacks): Promise<void> {
-        const hasBackup = await this.pluginReloader.hasBackup();
-        if (!hasBackup) {
-            callbacks.pushToolResult(this.formatError(new Error(
-                'No backup (main.js.bak) found. Cannot rollback.'
-            )));
-            return;
-        }
-
-        const success = await this.pluginReloader.rollback();
-        if (success) {
-            await this.pluginReloader.reload();
-            callbacks.pushToolResult(this.formatSuccess(
-                'Rolled back to previous main.js and reloaded the plugin.'
-            ));
-            callbacks.log('manage_source: rollback succeeded');
-        } else {
-            callbacks.pushToolResult(this.formatError(new Error('Rollback failed.')));
-        }
+        // Phase 3: rollback used to restore a plugin-written main.js.bak.
+        // The plugin no longer writes into its own folder, so there is no
+        // automatic backup to restore from. Surface a clear guidance
+        // message instead of pretending to rollback.
+        callbacks.pushToolResult(this.formatError(new Error(
+            'Automatic rollback is not available in this plugin build. ' +
+            'To revert: reinstall Vault Operator via BRAT (Add Beta Plugin -> https://github.com/pssah4/vault-operator) ' +
+            'or via the Community Plugins directory. If you kept your own main.js.bak before applying the patch, copy it back into the plugin folder manually and reload.'
+        )));
+        callbacks.log('manage_source: rollback advised manual restore');
     }
 }

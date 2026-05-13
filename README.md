@@ -141,18 +141,25 @@ Vault Operator can act as a remote MCP server for ChatGPT, Claude Desktop, Perpl
 
 ### Manual installation
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/pssah4/vault-operator.git
-   cd vault-operator
-   npm install
-   npm run build
-   ```
-2. Copy `main.js`, `styles.css`, and `manifest.json` to your vault:
-   ```
-   <vault>/.obsidian/plugins/vault-operator/
-   ```
-3. Enable the plugin in Obsidian: Settings > Community Plugins > Enable "Vault Operator"
+Download the three release assets and drop them into your plugin folder:
+
+1. Open the [latest GitHub release](https://github.com/pssah4/vault-operator/releases/latest)
+2. Download `main.js`, `manifest.json`, and `styles.css`
+3. Move them into `<vault>/.obsidian/plugins/vault-operator/` (create the folder if it does not exist)
+4. Reload Obsidian, then enable the plugin in Settings > Community Plugins
+
+The three files are everything you need. Workers, WASM, bundled skills and templates are bundled into `main.js`. Optional features that need a one-time download (Semantic Reranker, Self-Development) prompt for installation from inside the plugin's Settings page.
+
+### Building from source
+
+```bash
+git clone https://github.com/pssah4/vault-operator.git
+cd vault-operator
+npm install
+npm run build
+```
+
+Then copy `main.js`, `manifest.json`, and `styles.css` from the repo root into `<vault>/.obsidian/plugins/vault-operator/`.
 
 ### Requirements
 - Obsidian 1.4.0 or later (1.8+ for Bases features)

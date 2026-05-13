@@ -184,7 +184,7 @@ function getCategories(plugin: ObsidianAgentPlugin): BackupCategory[] {
  * via JSZip so SQLite databases survive a roundtrip.
  */
 interface BackupManifest {
-    format: 'obsilo-backup';
+    format: 'vault-operator-backup' | 'obsilo-backup';
     version: number;
     exportedAt: string;
     categories: Record<string, { files: Array<{ path: string; size: number }> }>;
@@ -393,7 +393,7 @@ export class BackupTab {
         try {
             const zip = new JSZip();
             const manifest: BackupManifest = {
-                format: 'obsilo-backup',
+                format: 'vault-operator-backup',
                 version: BACKUP_VERSION,
                 exportedAt: new Date().toISOString(),
                 categories: {},
@@ -549,7 +549,7 @@ export class BackupTab {
                     return;
                 }
                 const obj = parsed as Record<string, unknown>;
-                if (obj.format !== 'obsilo-backup' || typeof obj.version !== 'number') {
+                if ((obj.format !== 'vault-operator-backup' && obj.format !== 'obsilo-backup') || typeof obj.version !== 'number') {
                     new Notice(t('settings.backup.invalidFile'));
                     return;
                 }

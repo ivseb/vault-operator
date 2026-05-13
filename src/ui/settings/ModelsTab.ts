@@ -5,6 +5,7 @@ import { CodeImportModal } from './CodeImportModal';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey, getFirstEnabledModelKey } from '../../types/settings';
 import { PROVIDER_LABELS, PROVIDER_COLORS } from './constants';
+import { renderSkipHintIfSkipped } from './skipHints';
 import { t } from '../../i18n';
 
 export class ModelsTab {
@@ -20,6 +21,8 @@ export class ModelsTab {
     }
 
     build(containerEl: HTMLElement): void {
+        renderSkipHintIfSkipped(containerEl, this.plugin, 'llm-model');
+        renderSkipHintIfSkipped(containerEl, this.plugin, 'role-models');
         this.buildIntroSection(containerEl);
 
         // Performance note banner

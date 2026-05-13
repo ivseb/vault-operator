@@ -32,9 +32,15 @@ import type { ObsidianAgentSettings } from '../../types/settings';
 /** Built-in default for the vault-local agent folder. Hidden (dot-prefix)
  *  so it doesn't clutter the Obsidian File Explorer. Migrated automatically
  *  from older defaults on plugin onload. */
-export const DEFAULT_AGENT_FOLDER = '.obsilo-vault';
-/** Legacy defaults the migration knows about. Order matters: most recent first. */
-export const LEGACY_AGENT_FOLDERS = ['obsilo-vault', '.obsidian-agent'] as const;
+export const DEFAULT_AGENT_FOLDER = '.vault-operator';
+
+/**
+ * Legacy folder names still used by existing installations. The plugin
+ * never auto-migrates: if any of these exists in the user's vault, the
+ * resolver below returns it instead of DEFAULT_AGENT_FOLDER so the user
+ * keeps their data without renaming anything.
+ */
+export const LEGACY_AGENT_FOLDERS = ['.obsilo-vault', 'obsilo-vault', '.obsidian-agent'] as const;
 /** Backwards-compatible alias for code that still references the old constant. */
 export const LEGACY_AGENT_FOLDER = '.obsidian-agent';
 
