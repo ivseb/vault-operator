@@ -154,6 +154,30 @@ export class LoopTab {
                 await this.plugin.saveSettings();
             });
         });
+
+        // v2.10.0: TaskRouter toggle. When enabled (and a helper model is set
+        // above), simple tool tasks like "create xlsx" or "read note.md" go
+        // to the helper model instead of the main model. Research and multi-
+        // step prompts stay on the main model. The router escalates back to
+        // main on >= 2 consecutive tool errors so a weaker model never gets
+        // stuck.
+        new Setting(containerEl)
+            .setName('Auto-route simple tasks to helper model')
+            .setDesc(
+                'When on, the agent routes single-step prompts (create xlsx/docx/pptx, ' +
+                'read or write one file) to the helper model selected above. Research ' +
+                'and multi-step prompts stay on the main model. The router escalates ' +
+                'back to the main model after 2 consecutive tool errors. ' +
+                'Has no effect when no helper model is selected.',
+            )
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.autoTaskRouter?.enabled ?? true)
+                    .onChange(async (v) => {
+                        this.plugin.settings.autoTaskRouter = { enabled: v };
+                        await this.plugin.saveSettings();
+                    }),
+            );
     }
 
 }

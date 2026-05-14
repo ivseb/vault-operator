@@ -640,10 +640,14 @@ export const DEFERRED_TOOL_NAMES: ReadonlySet<string> = new Set([
     'create_base',
     'update_base',
     // Office / presentation pipeline
+    // Note v2.10.0: create_xlsx, create_docx, create_pptx removed from the
+    // deferred set. Even though their schemas add ~150 tokens to every
+    // prompt, the find_tool round-trip they used to require invalidated
+    // the prompt cache on every Office tool call (40k+ cache-write tokens
+    // = ~75 cents at Opus). For users who create Office files even
+    // occasionally, the always-loaded schemas pay for themselves. The
+    // less-frequent plan_presentation and ingest_document stay deferred.
     'plan_presentation',
-    'create_pptx',
-    'create_docx',
-    'create_xlsx',
     'ingest_document',
     // Self-development + niche agent utilities
     'evaluate_expression',

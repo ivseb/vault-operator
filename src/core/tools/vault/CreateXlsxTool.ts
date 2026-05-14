@@ -11,6 +11,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
+import { resolveOutputPath } from './resolveOutputPath';
 
 /* ------------------------------------------------------------------ */
 /*  Input interfaces                                                  */
@@ -101,7 +102,7 @@ export class CreateXlsxTool extends BaseTool<'create_xlsx'> {
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
-        const outputPath = ((input.output_path as string) ?? '').trim();
+        const outputPath = resolveOutputPath(this.plugin, ((input.output_path as string) ?? ''));
         // Handle sheets as array or as JSON string (LLMs sometimes stringify the array)
         let rawSheets: SheetInput[] = [];
         if (Array.isArray(input.sheets)) {

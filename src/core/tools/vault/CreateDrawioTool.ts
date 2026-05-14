@@ -20,6 +20,7 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+import { resolveOutputPath } from './resolveOutputPath';
 
 /* ------------------------------------------------------------------ */
 /*  Input schema                                                      */
@@ -292,7 +293,7 @@ export class CreateDrawioTool extends BaseTool<'create_drawio'> {
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
-        const outputPath = ((input.output_path as string) ?? '').trim();
+        const outputPath = resolveOutputPath(this.plugin, ((input.output_path as string) ?? ''));
         const nodesRaw = Array.isArray(input.nodes) ? (input.nodes as DrawioNodeInput[]) : [];
         const edgesRaw = Array.isArray(input.edges) ? (input.edges as DrawioEdgeInput[]) : [];
         const layout: 'column' | 'row' = input.layout === 'row' ? 'row' : 'column';

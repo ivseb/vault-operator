@@ -1552,6 +1552,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         void ResultExternalizer.cleanupOrphaned(vaultFs, getTmpRoot(this));
 
         console.debug('Vault Operator plugin loaded successfully');
+
+        // v2.10.0: surface a one-shot warning if the pricing table has not
+        // been verified for > 90 days. Manual reminder; provider rate
+        // cards are not machine-readable so a scraper would be brittle.
+        const { getPricingAgeWarning } = await import('./core/pricing/ModelPricing');
+        const pricingWarn = getPricingAgeWarning();
+        if (pricingWarn) console.warn(pricingWarn);
     }
 
     /**
