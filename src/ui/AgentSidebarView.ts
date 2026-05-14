@@ -1573,6 +1573,7 @@ export class AgentSidebarView extends ItemView {
             if (!loadingRemoved) {
                 loadingRemoved = true;
                 contentEl.querySelector('.message-loading')?.remove();
+                contentEl.classList.remove('has-loading');
             }
             // Also remove any "analyzing" row between iterations (lives inside stepsBodyEl)
             (stepsBodyEl ?? toolsEl).querySelector('.tool-computing-row')?.remove();
@@ -2870,6 +2871,10 @@ export class AgentSidebarView extends ItemView {
         const toolsEl = messageEl.createDiv('message-tools');
         // Text response (streamed directly for Q&A, rendered on complete for agentic)
         const contentEl = messageEl.createDiv('message-content');
+        // v2.10.4: also flag the content element so CSS can suppress the
+        // streaming-cursor ::after without using :has(.message-loading)
+        // (review-bot warns about :has() invalidation cost).
+        contentEl.classList.add('has-loading');
         // Show a loading indicator immediately so the user sees something right away
         const loadingEl = contentEl.createDiv('message-loading');
         setIcon(loadingEl.createSpan('message-loading-icon'), 'loader');

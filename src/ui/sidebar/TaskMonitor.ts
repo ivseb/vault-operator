@@ -146,6 +146,12 @@ export class TaskMonitor {
      * rather than via getEffectiveModelKey(). When TaskRouter has routed
      * to the helper model, the model id we see at usage-report time
      * belongs to the helper, not to the user-selected main model.
+     *
+     * v2.10.4 (AUDIT-026 L-1): prefer exact match, then by descending name
+     * length, so an entry called "claude" cannot shadow "claude-haiku-4.5"
+     * for the lookup of `"claude-haiku-4.5"`. Without this ordering the
+     * first overlapping substring match wins, which mislabels the
+     * provider and breaks the isSubscription flag.
      */
     private providerFor(modelId: string): string | undefined {
         if (!modelId) {
@@ -154,17 +160,22 @@ export class TaskMonitor {
             )?.provider;
         }
         const idLower = modelId.toLowerCase();
-        const match = this.opts.plugin.settings.activeModels.find((m) => {
-            // Match if the provider's runtime id equals or substring-matches
-            // the configured model name (provider id strings differ across
-            // vendors, e.g. bedrock prefixes with "eu.anthropic.").
+
+        // Exact match wins.
+        const exact = this.opts.plugin.settings.activeModels.find(
+            (m) => (m.name || '').toLowerCase() === idLower,
+        );
+        if (exact) return exact.provider;
+
+        // Then by descending name-length so the most specific overlap wins.
+        const candidates = [...this.opts.plugin.settings.activeModels]
+            .filter((m) => (m.name || '').length > 0)
+            .sort((a, b) => (b.name || '').length - (a.name || '').length);
+        const match = candidates.find((m) => {
             const candidate = (m.name || '').toLowerCase();
-            return candidate.length > 0 && (
-                idLower === candidate ||
-                idLower.endsWith(candidate) ||
+            return idLower.endsWith(candidate) ||
                 candidate.endsWith(idLower) ||
-                idLower.includes(candidate)
-            );
+                idLower.includes(candidate);
         });
         return match?.provider;
     }
