@@ -24,7 +24,11 @@ describe('formatTelemetryFooter (FEAT-24-05)', () => {
         const s = formatTelemetryFooter({ inputTokens: 12340, outputTokens: 2100, cacheReadTokens: 0, costEur: 0.042 });
         expect(s).toContain('12,340 in');
         expect(s).toContain('2,100 out');
-        expect(s).toContain('4.2¢');
+        // v2.10.0: formatEur switched to Intl.NumberFormat('de-DE', currency: EUR);
+        // 0.042 with min 2 / max 4 fraction digits renders as "0,042 €"
+        // (the German locale uses non-breaking space U+00A0 between amount
+        // and currency symbol).
+        expect(s).toContain('0,042 €');
         expect(s).not.toContain('hit');
         expect(s).not.toContain('cached');
     });

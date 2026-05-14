@@ -34,6 +34,10 @@ export class MemoryViewerModal extends Modal {
         this.titleEl.setText('Memory contents');
         this.contentEl.empty();
         this.contentEl.addClass('memory-viewer-modal');
+        // v2.10.4: also flag the outer modal element so CSS can size it
+        // without using :has() (which the review-bot warns about as
+        // having broad selector-invalidation cost).
+        this.modalEl.addClass('memory-viewer-modal-container');
         this.render();
     }
 
