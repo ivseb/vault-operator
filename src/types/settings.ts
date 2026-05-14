@@ -840,6 +840,34 @@ export interface ObsidianAgentSettings {
      */
     agentFolderPath?: string;
 
+    /**
+     * v2.10.0: Default folder for files the agent creates (xlsx, docx, pptx,
+     * drawio, excalidraw). When a tool's output_path is just a filename
+     * (no slash), the helper resolveOutputPath() prepends this folder.
+     * When the model provides a path with a slash, it's used as-is.
+     * Default: "Inbox/" so generated files land in a known place.
+     */
+    defaultOutputFolder: string;
+
+    /**
+     * v2.10.0: Auto-route simple tool tasks to the helper model.
+     *
+     * When enabled (and a helperModel is configured), the TaskRouter
+     * classifies the first user prompt of each task via regex heuristic;
+     * "simple" tasks (office-file creation, single-file read/write) run
+     * on the helper model. "Complex" tasks (research, multi-step
+     * synthesis) and unclassifiable prompts stay on the main model.
+     *
+     * The router escalates back to the main model after two consecutive
+     * tool errors so a weaker model never gets stuck.
+     *
+     * Default: true. When the user has no helperModel set, the router
+     * silently does nothing.
+     */
+    autoTaskRouter: {
+        enabled: boolean;
+    };
+
     /** BA-25: Vault-Ingest-Pflege (Note-Summary, Frontmatter, Auto-Trigger, PDF). */
     vaultIngest: VaultIngestSettings;
 }
@@ -1300,5 +1328,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     chatgptOAuthDisclaimerAcknowledgedAt: 0,
     debugMode: false,
     agentFolderPath: '.vault-operator',
+    defaultOutputFolder: 'Inbox/',
+    autoTaskRouter: { enabled: true },
     vaultIngest: DEFAULT_VAULT_INGEST_SETTINGS,
 };

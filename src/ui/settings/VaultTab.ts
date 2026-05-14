@@ -98,6 +98,21 @@ export class VaultTab {
                 }),
             );
 
+        // ── Default output folder (v2.10.0) ────────────────────────────────────
+        new Setting(containerEl)
+            .setName('Default output folder')
+            .setDesc('Folder where generated files (xlsx, docx, pptx, drawio, excalidraw) land when the agent provides only a filename without a path. Use a trailing slash, e.g. "Inbox/".')
+            .addText((text) =>
+                text
+                    .setPlaceholder('Inbox/')
+                    .setValue(this.plugin.settings.defaultOutputFolder ?? 'Inbox/')
+                    .onChange(async (v) => {
+                        const trimmed = v.trim();
+                        this.plugin.settings.defaultOutputFolder = trimmed.length > 0 ? trimmed : 'Inbox/';
+                        await this.plugin.saveSettings();
+                    }),
+            );
+
         // ── Agent Folder (FEATURE-0507 / Issue #26) ────────────────────────────
         containerEl.createEl('h3', {
             cls: 'agent-settings-section',

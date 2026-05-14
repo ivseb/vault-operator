@@ -32,6 +32,31 @@ export interface CostBreakdown {
 const USD_TO_EUR = 0.93;
 
 /**
+ * Manual pricing-table maintenance marker. Bump this string when you have
+ * just verified the PRICING table below against the live Anthropic /
+ * OpenAI / Google rate cards. ISO date.
+ *
+ * Why this is manual rather than scraped: the three vendors publish prices
+ * on HTML pages with no stable machine-readable contract. A reminder is
+ * pragmatic; a scraper would break with every redesign.
+ */
+export const PRICING_LAST_UPDATED = '2026-05-14';
+const PRICING_STALE_DAYS = 90;
+
+/**
+ * Return a maintenance warning string when the pricing table has not been
+ * touched for more than PRICING_STALE_DAYS, otherwise null. Called once
+ * from plugin onload so the warning shows up exactly once per session.
+ */
+export function getPricingAgeWarning(today: Date = new Date()): string | null {
+    const last = new Date(PRICING_LAST_UPDATED);
+    const days = Math.floor((today.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+    if (days <= PRICING_STALE_DAYS) return null;
+    return `[ModelPricing] Pricing table is ${days} days old (last updated ${PRICING_LAST_UPDATED}). ` +
+        'Verify Anthropic / OpenAI / Google rate cards and bump PRICING_LAST_UPDATED.';
+}
+
+/**
  * Pricing table. Keys are matched by:
  *   1. Exact model id (case-insensitive)
  *   2. Substring fallback (e.g. "claude-sonnet" matches any sonnet variant)
@@ -109,13 +134,24 @@ export function computeCost(
 }
 
 /**
- * Format an EUR amount for compact display in the UI footer.
- *  < 1¢   -> "<1¢"
- *  < 1€   -> "4.2¢"
- *  >= 1€  -> "1.23€"
+ * Format an EUR amount for compact display in the UI footer using the
+ * locale-aware German currency format. Uses up to 4 fraction digits so
+ * sub-cent values stay legible (a Haiku query is often 0,0005 EUR).
+ *
+ *   0.0005 -> "0,0005 €"
+ *   0.02   -> "0,02 €"
+ *   1.23   -> "1,23 €"
+ *
+ * (Plan v2.10.0 user request: replace mixed ¢/€ format with a single
+ * locale-correct currency representation.)
  */
+const EUR_FORMATTER = new Intl.NumberFormat('de-DE', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+});
+
 export function formatEur(eur: number): string {
-    if (eur < 0.01) return '<1¢';
-    if (eur < 1) return `${(eur * 100).toFixed(1)}¢`;
-    return `${eur.toFixed(2)}€`;
+    return EUR_FORMATTER.format(eur);
 }
