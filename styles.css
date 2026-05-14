@@ -256,8 +256,6 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    user-select: text !important;
-    -webkit-user-select: text !important;
 }
 
 .message-content {
@@ -265,9 +263,22 @@
     border-radius: 8px;
     max-width: 100%;
     line-height: 1.5;
-    user-select: text !important;
-    -webkit-user-select: text !important;
     transition: opacity 150ms ease-out;
+}
+
+/* v2.10.4: text selection in chat consolidated into one ruleset.
+   The view container already declares `user-select: text` (line 24);
+   the chat-specific selectors only need to keep that on through the
+   message subtree. Specificity is high enough to win over Obsidian's
+   default `.sidebar-view * { user-select: none }` without !important. */
+.obsidian-agent-sidebar .message,
+.obsidian-agent-sidebar .message-content,
+.obsidian-agent-sidebar .user-message .message-content,
+.obsidian-agent-sidebar .user-message .message-content *,
+.obsidian-agent-sidebar .assistant-message .message-content,
+.obsidian-agent-sidebar .assistant-message .message-content * {
+    user-select: text;
+    -webkit-user-select: text;
 }
 
 .message-content h1 {
@@ -1507,10 +1518,16 @@
 }
 
 /* ── Info button (settings UX) ──────────────────────────────────────── */
+/* v2.10.4: replaced `all: unset` (review-bot flagged "Unexpected property
+   'all'") with explicit resets of the button-element defaults the original
+   `all: unset` was clearing. Same visual result, no shorthand. */
 .setting-info-btn {
-    all: unset;
-    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
     color: var(--text-faint);
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
     vertical-align: middle;
@@ -2290,8 +2307,6 @@
 /* User message: right-aligned pill, compact */
 .user-message {
     align-items: flex-end;
-    user-select: text !important;
-    -webkit-user-select: text !important;
 }
 
 .user-message .message-content {
@@ -2301,16 +2316,12 @@
     border-radius: 12px 12px 4px 12px;
     padding: 6px 11px;
     font-size: 13px;
-    user-select: text !important;
-    -webkit-user-select: text !important;
     cursor: text;
 }
 
-/* All child elements of user messages must also allow selection */
-.user-message .message-content * {
-    user-select: text !important;
-    -webkit-user-select: text !important;
-}
+/* user-select is granted by the consolidated rule on
+   .obsidian-agent-sidebar .user-message .message-content (line 260
+   area); no duplication needed here. */
 
 /* Visible selection highlighting for user messages (white background on blue) */
 .user-message .message-content::selection,
@@ -2346,17 +2357,13 @@
     padding: 2px 0 4px;
     font-size: 13px;
     color: var(--text-normal);
-    /* Override Obsidian's sidebar user-select: none */
-    user-select: text !important;
-    -webkit-user-select: text !important;
     cursor: text;
+    /* user-select is granted by the consolidated rule on
+       .obsidian-agent-sidebar .assistant-message .message-content. */
 }
 
-/* All child elements of assistant messages must also allow selection */
-.assistant-message .message-content * {
-    user-select: text !important;
-    -webkit-user-select: text !important;
-}
+/* user-select on .assistant-message .message-content * is covered by the
+   consolidated rule at the top of this file (line 260 area). */
 
 /* Visible selection highlighting for assistant messages */
 .assistant-message .message-content::selection,
@@ -3176,8 +3183,11 @@
 .agent-settings-soul-remove:hover {
     color: var(--text-error);
 }
-/* Memory viewer modal (FEATURE-0319b) */
-.modal:has(.memory-viewer-modal) {
+/* Memory viewer modal (FEATURE-0319b).
+   v2.10.4: switched from :has() to an explicit container class set by
+   MemoryViewerModal.onOpen() to avoid the :has() warning from the
+   review-bot. Visual behaviour identical. */
+.memory-viewer-modal-container {
     width: min(900px, 92vw);
     max-width: none;
 }
@@ -3711,8 +3721,12 @@
     color: var(--text-faint);
 }
 
-/* Hide the blinking cursor when the loading indicator is present */
-.message-streaming .message-content:has(.message-loading)::after {
+/* Hide the blinking cursor when the loading indicator is present.
+   v2.10.4: switched from :has(.message-loading) to an explicit
+   has-loading flag class set in createMessageEl() and removed in
+   removeLoading(). Avoids the :has() invalidation cost the
+   review-bot warns about. */
+.message-streaming .message-content.has-loading::after {
     display: none;
 }
 
