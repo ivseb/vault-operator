@@ -9,6 +9,7 @@
 
 import type * as DocxNs from 'docx';
 import { BaseTool } from '../BaseTool';
+import { resolveOutputPath } from './resolveOutputPath';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
@@ -165,7 +166,7 @@ export class CreateDocxTool extends BaseTool<'create_docx'> {
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
-        const outputPath = ((input.output_path as string) ?? '').trim();
+        const outputPath = resolveOutputPath(this.plugin, ((input.output_path as string) ?? ''));
         // Handle sections as array or as JSON string (LLMs sometimes stringify the array)
         let rawSections: SectionInput[] = [];
         if (Array.isArray(input.sections)) {

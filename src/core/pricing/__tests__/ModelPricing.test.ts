@@ -34,19 +34,30 @@ describe('ModelPricing', () => {
         expect(cost.totalEur).toBeCloseTo(0.432, 2);
     });
 
-    it('formats sub-cent amounts', () => {
-        expect(formatEur(0.005)).toBe('<1¢');
+    // v2.10.0: formatEur uses Intl.NumberFormat('de-DE', currency: EUR)
+    // with min 2 / max 4 fraction digits. The Euro sign is separated from
+    // the amount by a non-breaking space (U+00A0), per German locale.
+    it('formats sub-cent amounts with up to 4 digits', () => {
+        // 0,005 rendered with min 2, max 4 -> "0,005"
+        expect(formatEur(0.005)).toBe('0,005 €');
     });
 
-    it('formats cents with one decimal', () => {
-        expect(formatEur(0.042)).toBe('4.2¢');
+    it('formats cent amounts with locale comma', () => {
+        // 0,042 rendered with min 2, max 4 -> "0,042"
+        expect(formatEur(0.042)).toBe('0,042 €');
     });
 
-    it('formats euros above one with two decimals', () => {
-        expect(formatEur(1.234)).toBe('1.23€');
+    it('formats euros above one with up to 4 digits', () => {
+        // 1,234 rendered with min 2, max 4 -> "1,234"
+        expect(formatEur(1.234)).toBe('1,234 €');
     });
 
-    it('does not show free for zero', () => {
-        expect(formatEur(0)).toBe('<1¢');
+    it('formats zero as 0,00 EUR', () => {
+        expect(formatEur(0)).toBe('0,00 €');
+    });
+
+    it('formats common amounts correctly', () => {
+        expect(formatEur(0.02)).toBe('0,02 €');
+        expect(formatEur(0.84)).toBe('0,84 €');
     });
 });

@@ -27,6 +27,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { writeBinaryToVault } from './writeBinaryToVault';
+import { resolveOutputPath } from './resolveOutputPath';
 
 /* ------------------------------------------------------------------ */
 /*  Layout constants (16:9 widescreen)                                 */
@@ -151,7 +152,7 @@ export class CreatePptxTool extends BaseTool<'create_pptx'> {
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
-        const outputPath = ((input.output_path as string) ?? '').trim();
+        const outputPath = resolveOutputPath(this.plugin, ((input.output_path as string) ?? ''));
         const rawSlides = Array.isArray(input.slides) ? (input.slides as SlideInput[]) : [];
         const presTitle = ((input.title as string) ?? '').trim();
         const theme = (input.theme as ThemeInput) ?? {};
