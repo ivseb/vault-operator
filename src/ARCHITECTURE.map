@@ -215,3 +215,7 @@ ADR-88 | chatgpt-oauth          | ChatGPT OAuth Provider Architecture
 ADR-89 | chatgpt-oauth          | ChatGPT PKCE Loopback OAuth Flow
 ADR-90 | cost                   | Cost-Aware Agent Heuristics
 ADR-91 | mcp                    | MCP Pipeline Routing und IgnoreService at Index Build
+ADR-120 | modell-routing        | Advisor-Pattern als Loop-Default (consult_flagship-Tool + mid-Tier-Hauptloop)
+ADR-121 | modell-routing        | Tier-Klassifikator-Strategie (Pattern + Capability + OpenRouter-Pricing)
+ADR-122 | provider-config       | Provider-only Settings-Schema (providers[]-Liste mit tierMapping)
+ADR-123 | settings-migration    | Settings-Schema-Migration und Recovery-Pfad
