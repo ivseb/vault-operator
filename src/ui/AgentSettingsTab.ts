@@ -4,6 +4,7 @@ import { t } from '../i18n';
 
 // ─── Extracted modules ────────────────────────────────────────────────────────
 import { ModelsTab }      from './settings/ModelsTab';
+import { ProvidersTab }   from './settings/ProvidersTab';
 import { EmbeddingsTab }  from './settings/EmbeddingsTab';
 import { WebSearchTab }   from './settings/WebSearchTab';
 import { ModesTab }       from './settings/ModesTab';
@@ -170,6 +171,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         this.buildSubTabNav(
             container,
             [
+                { id: 'providers',   label: t('settings.tab.providers') },
                 { id: 'models',      label: t('settings.tab.models')     },
                 { id: 'embeddings',  label: t('settings.tab.embeddings') },
                 { id: 'web-search',  label: t('settings.tab.webSearch') },
@@ -180,6 +182,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         );
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.display();
+        if (this.activeProvidersSubTab === 'providers')   new ProvidersTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'models')      new ModelsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'embeddings')  new EmbeddingsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'web-search')  new WebSearchTab(this.plugin, this.app, rerender).build(content);

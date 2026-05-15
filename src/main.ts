@@ -5,6 +5,9 @@ import { scheduleRecurring } from './util/scheduleRecurring';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
 import type { CustomModel, ModelTier, ProviderConfig } from './types/settings';
 import { resolveActiveProvider, resolveAdvisorModel, resolveTierModel } from './core/routing/tierResolution';
+import { migrateActiveModelsToProviders, type MigrationSummary } from './core/settings/migrations/activeModelsToProviders';
+import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
+import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
@@ -117,6 +120,17 @@ export default class ObsidianAgentPlugin extends Plugin {
     settings: ObsidianAgentSettings;
     toolRegistry: ToolRegistry;
     apiHandler: ApiHandler | null = null;
+    /**
+     * EPIC-26 / FEAT-26-04: when a one-shot migration ran during onload
+     * its summary lives here until the sidebar consumes it for the
+     * notification modal. Cleared after first display.
+     */
+    pendingMigrationSummary: MigrationSummary | null = null;
+    /**
+     * EPIC-26 / FEAT-26-02: discovery service for provider model lists.
+     * Wired in onload after settings load. ProvidersTab consumes it.
+     */
+    modelDiscovery: ModelDiscoveryService | null = null;
     ignoreService: IgnoreService;
     operationLogger: OperationLogger;
     checkpointService: GitCheckpointService;
@@ -386,6 +400,72 @@ export default class ObsidianAgentPlugin extends Plugin {
             || this.settings.agentFolderPath === 'obsilo-vault') {
             this.settings.agentFolderPath = '.obsilo-vault';
             await this.saveSettings();
+        }
+
+        // 1b. EPIC-26 / FEAT-26-04 / ADR-123 -- one-shot migration from
+        //     legacy activeModels[] to providerConfigs[]. Idempotent (no-op
+        //     when schemaVersion is already set or providerConfigs is non-empty).
+        //     Anomalies are stashed for the MigrationNotificationModal which
+        //     the sidebar opens on first display.
+        try {
+            const migration = migrateActiveModelsToProviders(this.settings);
+            if (migration.didMigrate) {
+                this.settings.providerConfigs = migration.providerConfigs;
+                this.settings.activeProviderId = migration.activeProviderId;
+                this.settings.legacy_active_models_backup = migration.legacyBackup;
+                this.settings.schemaVersion = migration.schemaVersion;
+                await this.saveSettings();
+                this.pendingMigrationSummary = migration.summary;
+                console.debug(
+                    `[Plugin] EPIC-26 migration: ${migration.summary.providersCreated} providers, `
+                    + `${migration.summary.modelsClassified} models, `
+                    + `${migration.summary.anomalies.length} anomalies`,
+                );
+            }
+        } catch (e) {
+            // Non-fatal: keep legacy setup functional, log the failure.
+            console.warn('[Plugin] EPIC-26 migration failed (non-fatal):', e);
+        }
+
+        // 1c. EPIC-26 / FEAT-26-02 -- ModelDiscoveryService for the new
+        //     provider-only settings. Wraps fetchProviderModels with the
+        //     classifier + 24h cache.
+        this.modelDiscovery = new ModelDiscoveryService(
+            {
+                getProviderConfigs: () => this.settings.providerConfigs ?? [],
+                saveProviderConfigs: async (next) => {
+                    this.settings.providerConfigs = next;
+                    await this.saveSettings();
+                },
+            },
+            async (provider) => {
+                // Build the bedrock-credentials object only for bedrock.
+                const bedrockCreds = provider.type === 'bedrock' ? {
+                    authMode: provider.awsAuthMode,
+                    apiKey: provider.awsApiKey,
+                    accessKey: provider.awsAccessKey,
+                    secretKey: provider.awsSecretKey,
+                    sessionToken: provider.awsSessionToken,
+                    region: provider.awsRegion,
+                } : undefined;
+                const raw = await fetchProviderModels(
+                    provider.type,
+                    provider.apiKey ?? '',
+                    provider.baseUrl,
+                    provider.apiVersion,
+                    bedrockCreds,
+                );
+                return raw.map((r): RawDiscoveredModel => ({
+                    id: r.id,
+                    displayName: r.label,
+                }));
+            },
+        );
+        // Refresh stale provider lists in the background -- non-blocking.
+        if ((this.settings.providerConfigs ?? []).length > 0) {
+            void this.modelDiscovery.refreshOnStartup().catch((e) =>
+                console.warn('[Plugin] EPIC-26 startup discovery failed:', e),
+            );
         }
 
         // 2. Initialize core services
@@ -1560,6 +1640,31 @@ export default class ObsidianAgentPlugin extends Plugin {
         const { getPricingAgeWarning } = await import('./core/pricing/ModelPricing');
         const pricingWarn = getPricingAgeWarning();
         if (pricingWarn) console.warn(pricingWarn);
+
+        // EPIC-26 / FEAT-26-04: open the one-shot migration notification
+        // modal after the workspace is ready. Cleared from
+        // pendingMigrationSummary on first display so it never re-opens.
+        if (this.pendingMigrationSummary) {
+            this.app.workspace.onLayoutReady(() => {
+                void this.showPendingMigrationModal();
+            });
+        }
+    }
+
+    /**
+     * EPIC-26 / FEAT-26-04: show the migration notification modal once
+     * after a successful migration. No-op when no summary is pending.
+     */
+    private async showPendingMigrationModal(): Promise<void> {
+        const summary = this.pendingMigrationSummary;
+        if (!summary) return;
+        // Clear immediately so re-entrancy never opens a second modal.
+        this.pendingMigrationSummary = null;
+        const { MigrationNotificationModal } = await import('./ui/settings/MigrationNotificationModal');
+        new MigrationNotificationModal(this.app, summary, {
+            onOpenSettings: () => this.openSettingsAt('agent', 'providers'),
+            onDismiss: () => { /* nothing to do */ },
+        }).open();
     }
 
     /**
