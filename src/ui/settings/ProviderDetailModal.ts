@@ -1,11 +1,19 @@
 /**
- * EPIC-26 / FEAT-26-03 -- per-provider configuration modal.
+ * EPIC-26 / FEAT-26-03 -- provider configuration modal (new + existing).
  *
- * Same `.mcm-form` row layout as ModelConfigModal so the two modals feel
- * identical visually. Sections live under `<h4 class="mcm-section">`
- * headers; rows are `.mcm-row` with `.mcm-label` + `.mcm-input` /
- * `.mcm-select` / native toggle. Actions go in `.mcm-actions` at the
- * bottom (Close button only -- changes save on each field-change).
+ * Mirrors the legacy ModelConfigModal pattern:
+ *  - Draft state held in `form*` fields; nothing persists until the user
+ *    clicks Save.
+ *  - Provider-type dropdown at the top (changeable both for new entries
+ *    and when fixing an existing provider's type).
+ *  - Auth fields swap based on provider type.
+ *  - Discovery + Tier-mapping sections only show for already-saved
+ *    providers (you can't refresh credentials that don't exist yet).
+ *  - Save / Cancel buttons in the `.mcm-actions` footer.
+ *
+ * Constructor takes either an existing `ProviderConfig` or `null` for a
+ * fresh entry. Saving a new entry assigns a unique id and appends to
+ * `providerConfigs[]`.
  */
 
 import { App, Modal, Notice, setIcon } from 'obsidian';
@@ -16,21 +24,90 @@ import type {
     ProviderConfig,
     ProviderType,
 } from '../../types/settings';
-import { getDefaultBaseUrlForProvider, getProviderBrandLabel } from '../../types/settings';
+import {
+    getDefaultBaseUrlForProvider,
+    getProviderBrandLabel,
+    getTierBadgeLabel,
+} from '../../types/settings';
 import { t } from '../../i18n';
 
 const TIER_ORDER: ModelTier[] = ['fast', 'mid', 'flagship'];
 
+const CLOUD_PROVIDER_TYPES: ProviderType[] = [
+    'anthropic', 'openai', 'gemini', 'openrouter', 'azure', 'bedrock',
+];
 const OAUTH_PROVIDER_TYPES: ProviderType[] = ['github-copilot', 'chatgpt-oauth'];
+const LOCAL_PROVIDER_TYPES: ProviderType[] = ['ollama', 'lmstudio', 'custom'];
+const ALL_PROVIDER_TYPES: ProviderType[] = [
+    ...CLOUD_PROVIDER_TYPES,
+    ...OAUTH_PROVIDER_TYPES,
+    ...LOCAL_PROVIDER_TYPES,
+    'kilo-gateway',
+];
 
 export class ProviderDetailModal extends Modal {
+    private isNew: boolean;
+    private originalId: string | null;
+
+    // Draft state (mirrors ModelConfigModal form* pattern)
+    private formType: ProviderType;
+    private formDisplayName: string;
+    private formEnabled: boolean;
+    private formApiKey: string;
+    private formBaseUrl: string;
+    private formApiVersion: string;
+    private formAwsRegion: string;
+    private formAwsAuthMode: 'api-key' | 'access-key';
+    private formAwsApiKey: string;
+    private formAwsAccessKey: string;
+    private formAwsSecretKey: string;
+    private formAwsSessionToken: string;
+
+    // Snapshots that don't get edited via the form (only via Refresh / tier dropdown)
+    private discoveredModels: DiscoveredModel[];
+    private lastRefreshAt: number;
+    private tierMapping: ProviderConfig['tierMapping'];
+    private tierOverrides: ProviderConfig['tierOverrides'];
+
     constructor(
         app: App,
         private readonly plugin: ObsidianAgentPlugin,
-        private readonly providerId: string,
+        provider: ProviderConfig | null,
         private readonly onAfterChange: () => void,
     ) {
         super(app);
+        this.isNew = provider === null;
+        this.originalId = provider?.id ?? null;
+        const seed = provider ?? this.defaultDraftProvider();
+        this.formType = seed.type;
+        this.formDisplayName = seed.displayName ?? '';
+        this.formEnabled = seed.enabled;
+        this.formApiKey = seed.apiKey ?? '';
+        this.formBaseUrl = seed.baseUrl ?? '';
+        this.formApiVersion = seed.apiVersion ?? '';
+        this.formAwsRegion = seed.awsRegion ?? '';
+        this.formAwsAuthMode = seed.awsAuthMode ?? 'api-key';
+        this.formAwsApiKey = seed.awsApiKey ?? '';
+        this.formAwsAccessKey = seed.awsAccessKey ?? '';
+        this.formAwsSecretKey = seed.awsSecretKey ?? '';
+        this.formAwsSessionToken = seed.awsSessionToken ?? '';
+        this.discoveredModels = seed.discoveredModels ?? [];
+        this.lastRefreshAt = seed.lastRefreshAt ?? 0;
+        this.tierMapping = { ...(seed.tierMapping ?? {}) };
+        this.tierOverrides = { ...(seed.tierOverrides ?? {}) };
+    }
+
+    private defaultDraftProvider(): ProviderConfig {
+        return {
+            id: '',
+            type: 'anthropic',
+            displayName: '',
+            enabled: true,
+            discoveredModels: [],
+            lastRefreshAt: 0,
+            tierMapping: {},
+            tierOverrides: {},
+        };
     }
 
     onOpen(): void {
@@ -41,55 +118,45 @@ export class ProviderDetailModal extends Modal {
         this.contentEl.empty();
     }
 
-    private currentProvider(): ProviderConfig | null {
-        return (this.plugin.settings.providerConfigs ?? []).find((p) => p.id === this.providerId) ?? null;
-    }
-
-    private async patch(mutator: (p: ProviderConfig) => void): Promise<void> {
-        const list = this.plugin.settings.providerConfigs ?? [];
-        const idx = list.findIndex((p) => p.id === this.providerId);
-        if (idx < 0) return;
-        mutator(list[idx]);
-        await this.plugin.saveSettings();
-        this.onAfterChange();
-    }
-
-    // ── Row + section helpers (match ModelConfigModal `.mcm-form` pattern) ─
-
-    private mkRow(form: HTMLElement, label: string, desc?: string): HTMLElement {
-        const row = form.createDiv('mcm-row');
-        const labelEl = row.createDiv('mcm-label');
-        labelEl.createSpan({ text: label });
-        if (desc) labelEl.createSpan({ text: desc, cls: 'mcm-desc' });
-        return row;
-    }
-
-    private mkSection(parent: HTMLElement, title: string): void {
-        parent.createEl('h4', { cls: 'mcm-section', text: title });
-    }
+    // ── Render ─────────────────────────────────────────────────────────
 
     private render(): void {
-        const provider = this.currentProvider();
-        if (!provider) {
-            this.contentEl.empty();
-            this.contentEl.createEl('p', { text: 'Provider not found.' });
-            return;
-        }
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('model-config-modal');
 
         contentEl.createEl('h3', {
             cls: 'modal-title',
-            text: t('settings.providers.modal.title', {
-                name: provider.displayName ?? getProviderBrandLabel(provider.type),
-            }),
+            text: this.isNew
+                ? t('settings.providers.modal.titleNew')
+                : t('settings.providers.modal.title', {
+                    name: this.formDisplayName || getProviderBrandLabel(this.formType),
+                }),
         });
 
         const form = contentEl.createDiv('mcm-form');
 
         // ── Identity section ─────────────────────────────────────────────
         this.mkSection(form, t('settings.providers.modal.section.identity'));
+
+        // Provider type dropdown (always shown -- legacy parity).
+        const provRow = this.mkRow(form, t('settings.providers.modal.providerType'));
+        const provSelect = provRow.createEl('select', { cls: 'mcm-select' });
+        for (const type of ALL_PROVIDER_TYPES) {
+            provSelect.createEl('option', { value: type, text: getProviderBrandLabel(type) });
+        }
+        provSelect.value = this.formType;
+        provSelect.addEventListener('change', () => {
+            const previous = this.formType;
+            this.formType = provSelect.value as ProviderType;
+            // Carry the user's overridden baseUrl across if they had set one;
+            // otherwise let it default to the new type's recommended URL.
+            const prevDefault = getDefaultBaseUrlForProvider(previous) ?? '';
+            if (!this.formBaseUrl || this.formBaseUrl === prevDefault) {
+                this.formBaseUrl = '';
+            }
+            this.render();
+        });
 
         const dnRow = this.mkRow(
             form,
@@ -98,84 +165,177 @@ export class ProviderDetailModal extends Modal {
         );
         const dnInput = dnRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: getProviderBrandLabel(provider.type) },
+            attr: { type: 'text', placeholder: getProviderBrandLabel(this.formType) },
         });
-        dnInput.value = provider.displayName ?? '';
-        dnInput.addEventListener('change', () => { void this.patch((p) => {
-            p.displayName = dnInput.value.trim() || getProviderBrandLabel(p.type);
-        }); });
+        dnInput.value = this.formDisplayName;
+        dnInput.addEventListener('input', () => { this.formDisplayName = dnInput.value; });
 
         const enabledRow = this.mkRow(form, t('settings.providers.enabled'));
         const enabledLabel = enabledRow.createEl('label', { cls: 'mc-toggle' });
         const enabledInput = enabledLabel.createEl('input', { attr: { type: 'checkbox' } });
         enabledLabel.createSpan({ cls: 'mc-toggle-track' });
-        enabledInput.checked = provider.enabled;
-        enabledInput.addEventListener('change', () => { void this.patch((p) => { p.enabled = enabledInput.checked; }); });
+        enabledInput.checked = this.formEnabled;
+        enabledInput.addEventListener('change', () => { this.formEnabled = enabledInput.checked; });
 
         // ── Authentication section ──────────────────────────────────────
         this.mkSection(form, t('settings.providers.modal.section.auth'));
-        this.renderAuthSection(form, provider);
+        this.renderAuthSection(form);
 
-        // ── Discovery section ───────────────────────────────────────────
-        this.mkSection(form, t('settings.providers.modal.section.discovery'));
-        this.renderDiscoverySection(form, provider);
+        // Discovery + Tier mapping only when the provider already exists
+        // (you can't refresh a draft and tier-mapping needs discovered models).
+        if (!this.isNew) {
+            this.mkSection(form, t('settings.providers.modal.section.discovery'));
+            this.renderDiscoverySection(form);
 
-        // ── Tier mapping section ────────────────────────────────────────
-        this.mkSection(form, t('settings.providers.modal.section.tiers'));
-        for (const tier of TIER_ORDER) {
-            this.renderTierRow(form, provider, tier);
-        }
-        if (!this.resolveTierSlot(provider, 'flagship')) {
-            const warn = form.createDiv({ cls: 'mcm-row mcm-warn' });
-            const icon = warn.createSpan({ cls: 'mcm-warn-icon' });
-            setIcon(icon, 'alert-triangle');
-            warn.createSpan({ text: ' ' + t('settings.providers.advisorDisabled') });
-        }
-
-        // ── Danger zone ─────────────────────────────────────────────────
-        this.mkSection(form, t('settings.providers.modal.section.danger'));
-        const dangerRow = this.mkRow(
-            form,
-            t('settings.providers.removeProvider'),
-            t('settings.providers.removeDesc'),
-        );
-        const removeBtn = dangerRow.createEl('button', {
-            cls: 'mcm-btn-danger',
-            text: t('settings.providers.removeProvider'),
-        });
-        removeBtn.addEventListener('click', () => { void (async () => {
-            const ok = window.confirm(t('settings.providers.removeConfirm', {
-                name: provider.displayName ?? getProviderBrandLabel(provider.type),
-            }));
-            if (!ok) return;
-            const list = this.plugin.settings.providerConfigs ?? [];
-            this.plugin.settings.providerConfigs = list.filter((p) => p.id !== provider.id);
-            if (this.plugin.settings.activeProviderId === provider.id) {
-                this.plugin.settings.activeProviderId = null;
+            this.mkSection(form, t('settings.providers.modal.section.tiers'));
+            for (const tier of TIER_ORDER) {
+                this.renderTierRow(form, tier);
             }
-            await this.plugin.saveSettings();
-            this.onAfterChange();
-            this.close();
-        })(); });
+            if (!this.resolveDraftTierSlot('flagship')) {
+                const warn = form.createDiv({ cls: 'mcm-row mcm-warn' });
+                const icon = warn.createSpan({ cls: 'mcm-warn-icon' });
+                setIcon(icon, 'alert-triangle');
+                warn.createSpan({ text: ' ' + t('settings.providers.advisorDisabled') });
+            }
+
+            this.mkSection(form, t('settings.providers.modal.section.danger'));
+            const dangerRow = this.mkRow(
+                form,
+                t('settings.providers.removeProvider'),
+                t('settings.providers.removeDesc'),
+            );
+            const removeBtn = dangerRow.createEl('button', {
+                cls: 'mcm-btn-danger',
+                text: t('settings.providers.removeProvider'),
+            });
+            removeBtn.addEventListener('click', () => { void this.handleRemove(); });
+        } else {
+            // For a draft: hint that discovery + tiers come after Save.
+            this.mkSection(form, t('settings.providers.modal.section.discovery'));
+            form.createDiv({
+                cls: 'mcm-row mcm-hint',
+                text: t('settings.providers.modal.discoveryAfterSave'),
+            });
+        }
 
         // ── Footer actions ─────────────────────────────────────────────
         const actions = contentEl.createDiv('mcm-actions');
-        const closeBtn = actions.createEl('button', {
-            cls: 'mod-cta',
-            text: t('settings.providers.modal.close'),
+        const cancelBtn = actions.createEl('button', {
+            text: t('settings.providers.modal.cancel'),
         });
-        closeBtn.addEventListener('click', () => this.close());
+        cancelBtn.addEventListener('click', () => this.close());
+        const saveBtn = actions.createEl('button', {
+            cls: 'mod-cta',
+            text: this.isNew
+                ? t('settings.providers.modal.addProvider')
+                : t('settings.providers.modal.save'),
+        });
+        saveBtn.addEventListener('click', () => { void this.handleSave(); });
+    }
+
+    // ── Save / Remove ─────────────────────────────────────────────────
+
+    private async handleSave(): Promise<void> {
+        const trimmedDisplayName = this.formDisplayName.trim() || getProviderBrandLabel(this.formType);
+        const list = [...(this.plugin.settings.providerConfigs ?? [])];
+
+        if (this.isNew) {
+            const id = this.allocateInstanceId(this.formType);
+            const provider: ProviderConfig = {
+                id,
+                type: this.formType,
+                displayName: trimmedDisplayName,
+                enabled: this.formEnabled,
+                apiKey: this.formApiKey.trim() || undefined,
+                baseUrl: this.formBaseUrl.trim() || undefined,
+                apiVersion: this.formApiVersion.trim() || undefined,
+                awsRegion: this.formAwsRegion.trim() || undefined,
+                awsAuthMode: this.formAwsAuthMode,
+                awsApiKey: this.formAwsApiKey.trim() || undefined,
+                awsAccessKey: this.formAwsAccessKey.trim() || undefined,
+                awsSecretKey: this.formAwsSecretKey.trim() || undefined,
+                awsSessionToken: this.formAwsSessionToken.trim() || undefined,
+                discoveredModels: [],
+                lastRefreshAt: 0,
+                tierMapping: {},
+                tierOverrides: {},
+            };
+            list.push(provider);
+            this.plugin.settings.providerConfigs = list;
+            // First provider becomes active automatically.
+            if (this.plugin.settings.activeProviderId === null) {
+                this.plugin.settings.activeProviderId = id;
+            }
+            await this.plugin.saveSettings();
+            this.onAfterChange();
+            new Notice(t('settings.providers.modal.addedNotice', { name: trimmedDisplayName }));
+            this.close();
+            return;
+        }
+
+        // Existing -- update in-place by originalId.
+        const idx = list.findIndex((p) => p.id === this.originalId);
+        if (idx < 0) {
+            new Notice(t('settings.providers.modal.notFound'));
+            this.close();
+            return;
+        }
+        list[idx] = {
+            ...list[idx],
+            type: this.formType,
+            displayName: trimmedDisplayName,
+            enabled: this.formEnabled,
+            apiKey: this.formApiKey.trim() || undefined,
+            baseUrl: this.formBaseUrl.trim() || undefined,
+            apiVersion: this.formApiVersion.trim() || undefined,
+            awsRegion: this.formAwsRegion.trim() || undefined,
+            awsAuthMode: this.formAwsAuthMode,
+            awsApiKey: this.formAwsApiKey.trim() || undefined,
+            awsAccessKey: this.formAwsAccessKey.trim() || undefined,
+            awsSecretKey: this.formAwsSecretKey.trim() || undefined,
+            awsSessionToken: this.formAwsSessionToken.trim() || undefined,
+            tierMapping: this.tierMapping,
+            tierOverrides: this.tierOverrides,
+        };
+        this.plugin.settings.providerConfigs = list;
+        await this.plugin.saveSettings();
+        this.onAfterChange();
+        this.close();
+    }
+
+    private async handleRemove(): Promise<void> {
+        const ok = window.confirm(t('settings.providers.removeConfirm', {
+            name: this.formDisplayName || getProviderBrandLabel(this.formType),
+        }));
+        if (!ok) return;
+        const list = this.plugin.settings.providerConfigs ?? [];
+        this.plugin.settings.providerConfigs = list.filter((p) => p.id !== this.originalId);
+        if (this.plugin.settings.activeProviderId === this.originalId) {
+            this.plugin.settings.activeProviderId = null;
+        }
+        await this.plugin.saveSettings();
+        this.onAfterChange();
+        this.close();
+    }
+
+    private allocateInstanceId(type: ProviderType): string {
+        const existing = new Set((this.plugin.settings.providerConfigs ?? []).map((p) => p.id));
+        const base = `${type}-main`;
+        if (!existing.has(base)) return base;
+        let n = 2;
+        while (existing.has(`${type}-${n}`)) n++;
+        return `${type}-${n}`;
     }
 
     // ── Auth rendering ─────────────────────────────────────────────────
 
-    private renderAuthSection(form: HTMLElement, provider: ProviderConfig): void {
-        if (OAUTH_PROVIDER_TYPES.includes(provider.type)) {
-            this.renderOAuthAuth(form, provider);
+    private renderAuthSection(form: HTMLElement): void {
+        if (OAUTH_PROVIDER_TYPES.includes(this.formType)) {
+            this.renderOAuthAuth(form);
             return;
         }
-        if (provider.type === 'bedrock') {
-            this.renderBedrockAuth(form, provider);
+        if (this.formType === 'bedrock') {
+            this.renderBedrockAuth(form);
             return;
         }
 
@@ -188,12 +348,10 @@ export class ProviderDetailModal extends Modal {
             cls: 'mcm-input',
             attr: { type: 'password', placeholder: '••••••' },
         });
-        akInput.value = provider.apiKey ?? '';
-        akInput.addEventListener('change', () => { void this.patch((p) => {
-            p.apiKey = akInput.value.trim() || undefined;
-        }); });
+        akInput.value = this.formApiKey;
+        akInput.addEventListener('input', () => { this.formApiKey = akInput.value; });
 
-        const defaultBaseUrl = getDefaultBaseUrlForProvider(provider.type) ?? '';
+        const defaultBaseUrl = getDefaultBaseUrlForProvider(this.formType) ?? '';
         const buRow = this.mkRow(
             form,
             t('settings.providers.baseUrl'),
@@ -206,12 +364,10 @@ export class ProviderDetailModal extends Modal {
                 placeholder: defaultBaseUrl || t('settings.providers.baseUrlSdkDefault'),
             },
         });
-        buInput.value = provider.baseUrl ?? '';
-        buInput.addEventListener('change', () => { void this.patch((p) => {
-            p.baseUrl = buInput.value.trim() || undefined;
-        }); });
+        buInput.value = this.formBaseUrl;
+        buInput.addEventListener('input', () => { this.formBaseUrl = buInput.value; });
 
-        if (provider.type === 'azure') {
+        if (this.formType === 'azure') {
             const avRow = this.mkRow(
                 form,
                 t('settings.providers.apiVersion'),
@@ -221,18 +377,14 @@ export class ProviderDetailModal extends Modal {
                 cls: 'mcm-input',
                 attr: { type: 'text', placeholder: '2024-10-21' },
             });
-            avInput.value = provider.apiVersion ?? '';
-            avInput.addEventListener('change', () => { void this.patch((p) => {
-                p.apiVersion = avInput.value.trim() || undefined;
-            }); });
+            avInput.value = this.formApiVersion;
+            avInput.addEventListener('input', () => { this.formApiVersion = avInput.value; });
         }
     }
 
-    private renderOAuthAuth(form: HTMLElement, provider: ProviderConfig): void {
-        const isAuthed = !!provider.oauthToken
-            || (provider.type === 'github-copilot' && !!this.plugin.settings.githubCopilotAccessToken)
-            || (provider.type === 'chatgpt-oauth' && !!this.plugin.settings.chatgptOAuthAccessToken);
-
+    private renderOAuthAuth(form: HTMLElement): void {
+        const isAuthed = (this.formType === 'github-copilot' && !!this.plugin.settings.githubCopilotAccessToken)
+            || (this.formType === 'chatgpt-oauth' && !!this.plugin.settings.chatgptOAuthAccessToken);
         const row = this.mkRow(
             form,
             t('settings.providers.oauthStatus'),
@@ -247,13 +399,16 @@ export class ProviderDetailModal extends Modal {
                 : t('settings.providers.oauthSignIn'),
         });
         btn.addEventListener('click', () => {
+            // OAuth flow still lives in the legacy ModelConfigModal; redirect
+            // there for now. Tokens persist at the plugin-settings level so
+            // they're picked up by isAuthed on next render.
             new Notice(t('settings.providers.oauthSignInRedirect'));
             this.plugin.openSettingsAt('agent', 'models');
             this.close();
         });
     }
 
-    private renderBedrockAuth(form: HTMLElement, provider: ProviderConfig): void {
+    private renderBedrockAuth(form: HTMLElement): void {
         const regRow = this.mkRow(
             form,
             t('settings.providers.bedrockRegion'),
@@ -263,10 +418,8 @@ export class ProviderDetailModal extends Modal {
             cls: 'mcm-input',
             attr: { type: 'text', placeholder: 'eu-central-1' },
         });
-        regInput.value = provider.awsRegion ?? '';
-        regInput.addEventListener('change', () => { void this.patch((p) => {
-            p.awsRegion = regInput.value.trim() || undefined;
-        }); });
+        regInput.value = this.formAwsRegion;
+        regInput.addEventListener('input', () => { this.formAwsRegion = regInput.value; });
 
         const modeRow = this.mkRow(
             form,
@@ -276,51 +429,45 @@ export class ProviderDetailModal extends Modal {
         const modeSelect = modeRow.createEl('select', { cls: 'mcm-select' });
         modeSelect.createEl('option', { value: 'api-key', text: 'API key (bearer)' });
         modeSelect.createEl('option', { value: 'access-key', text: 'Access key + secret' });
-        modeSelect.value = provider.awsAuthMode ?? 'api-key';
-        modeSelect.addEventListener('change', () => { void (async () => {
-            await this.patch((p) => { p.awsAuthMode = modeSelect.value as 'api-key' | 'access-key'; });
+        modeSelect.value = this.formAwsAuthMode;
+        modeSelect.addEventListener('change', () => {
+            this.formAwsAuthMode = modeSelect.value as 'api-key' | 'access-key';
             this.render();
-        })(); });
+        });
 
-        if ((provider.awsAuthMode ?? 'api-key') === 'api-key') {
+        if (this.formAwsAuthMode === 'api-key') {
             const akRow = this.mkRow(form, t('settings.providers.bedrockApiKey'));
             const akInput = akRow.createEl('input', {
                 cls: 'mcm-input',
                 attr: { type: 'password' },
             });
-            akInput.value = provider.awsApiKey ?? '';
-            akInput.addEventListener('change', () => { void this.patch((p) => {
-                p.awsApiKey = akInput.value.trim() || undefined;
-            }); });
+            akInput.value = this.formAwsApiKey;
+            akInput.addEventListener('input', () => { this.formAwsApiKey = akInput.value; });
         } else {
             const akRow = this.mkRow(form, t('settings.providers.bedrockAccessKey'));
             const akInput = akRow.createEl('input', {
                 cls: 'mcm-input',
                 attr: { type: 'password' },
             });
-            akInput.value = provider.awsAccessKey ?? '';
-            akInput.addEventListener('change', () => { void this.patch((p) => {
-                p.awsAccessKey = akInput.value.trim() || undefined;
-            }); });
+            akInput.value = this.formAwsAccessKey;
+            akInput.addEventListener('input', () => { this.formAwsAccessKey = akInput.value; });
 
             const skRow = this.mkRow(form, t('settings.providers.bedrockSecretKey'));
             const skInput = skRow.createEl('input', {
                 cls: 'mcm-input',
                 attr: { type: 'password' },
             });
-            skInput.value = provider.awsSecretKey ?? '';
-            skInput.addEventListener('change', () => { void this.patch((p) => {
-                p.awsSecretKey = skInput.value.trim() || undefined;
-            }); });
+            skInput.value = this.formAwsSecretKey;
+            skInput.addEventListener('input', () => { this.formAwsSecretKey = skInput.value; });
         }
     }
 
-    // ── Discovery row (count + refresh) ────────────────────────────────
+    // ── Discovery (existing providers only) ────────────────────────────
 
-    private renderDiscoverySection(form: HTMLElement, provider: ProviderConfig): void {
-        const count = provider.discoveredModels?.length ?? 0;
-        const stamp = provider.lastRefreshAt
-            ? new Date(provider.lastRefreshAt).toLocaleString()
+    private renderDiscoverySection(form: HTMLElement): void {
+        const count = this.discoveredModels.length;
+        const stamp = this.lastRefreshAt
+            ? new Date(this.lastRefreshAt).toLocaleString()
             : '—';
         const desc = count > 0
             ? t('settings.providers.discoveryDesc', { count, stamp })
@@ -331,6 +478,15 @@ export class ProviderDetailModal extends Modal {
             text: t('settings.providers.refresh'),
         });
         refreshBtn.addEventListener('click', () => { void (async () => {
+            // Refresh persists immediately on the SAVED provider entry; the
+            // user's unsaved auth edits in this draft are NOT sent because
+            // we must call refresh against the committed credentials. Warn
+            // when the draft drifts from the persisted state.
+            if (!this.originalId) return;
+            if (this.hasUnsavedAuthChanges()) {
+                const ok = window.confirm(t('settings.providers.modal.refreshDirtyConfirm'));
+                if (!ok) return;
+            }
             const discovery = this.plugin.modelDiscovery;
             if (!discovery) {
                 new Notice(t('settings.providers.refreshUnavailable'));
@@ -339,7 +495,11 @@ export class ProviderDetailModal extends Modal {
             refreshBtn.disabled = true;
             refreshBtn.setText(t('settings.providers.refreshing'));
             try {
-                await discovery.refreshProvider(provider.id);
+                const result = await discovery.refreshProvider(this.originalId);
+                this.discoveredModels = result;
+                const persisted = (this.plugin.settings.providerConfigs ?? []).find((p) => p.id === this.originalId);
+                this.lastRefreshAt = persisted?.lastRefreshAt ?? Date.now();
+                this.tierMapping = { ...(persisted?.tierMapping ?? {}) };
                 new Notice(t('settings.providers.refreshDone'));
             } catch (e) {
                 console.warn('[ProviderDetailModal] refresh failed:', e);
@@ -350,11 +510,22 @@ export class ProviderDetailModal extends Modal {
         })(); });
     }
 
-    // ── Tier mapping rows ──────────────────────────────────────────────
+    private hasUnsavedAuthChanges(): boolean {
+        const persisted = (this.plugin.settings.providerConfigs ?? []).find((p) => p.id === this.originalId);
+        if (!persisted) return false;
+        return (persisted.apiKey ?? '') !== this.formApiKey.trim()
+            || (persisted.baseUrl ?? '') !== this.formBaseUrl.trim()
+            || (persisted.apiVersion ?? '') !== this.formApiVersion.trim()
+            || (persisted.awsApiKey ?? '') !== this.formAwsApiKey.trim()
+            || (persisted.awsAccessKey ?? '') !== this.formAwsAccessKey.trim()
+            || (persisted.awsSecretKey ?? '') !== this.formAwsSecretKey.trim();
+    }
 
-    private renderTierRow(form: HTMLElement, provider: ProviderConfig, tier: ModelTier): void {
-        const resolvedId = this.resolveTierSlot(provider, tier);
-        const isOverride = provider.tierOverrides?.[tier] !== undefined;
+    // ── Tier mapping (existing providers only) ─────────────────────────
+
+    private renderTierRow(form: HTMLElement, tier: ModelTier): void {
+        const resolvedId = this.resolveDraftTierSlot(tier);
+        const isOverride = this.tierOverrides?.[tier] !== undefined;
         const hint = !resolvedId
             ? t('settings.providers.tier.empty')
             : isOverride
@@ -362,56 +533,79 @@ export class ProviderDetailModal extends Modal {
                 : t('settings.providers.tier.autoDetected');
         const descLines = [
             t(`settings.providers.tier.${tier}Desc`),
-            resolvedId ? `${hint} · ${this.displayNameFor(provider, resolvedId)}` : hint,
+            resolvedId ? `${hint} · ${this.displayNameForId(resolvedId)}` : hint,
         ].join(' — ');
 
-        const row = this.mkRow(form, t(`settings.providers.tier.${tier}`), descLines);
+        const row = form.createDiv('mcm-row');
+        const labelEl = row.createDiv('mcm-label');
+        const labelLine = labelEl.createSpan({ cls: 'mcm-label-line' });
+        labelLine.createSpan({ text: t(`settings.providers.tier.${tier}`) });
+        const badge = labelLine.createSpan({
+            cls: `chat-model-picker-tier chat-model-picker-tier-${tier}`,
+            text: getTierBadgeLabel(tier),
+        });
+        badge.setAttr('aria-label', `tier: ${getTierBadgeLabel(tier)}`);
+        labelEl.createSpan({ text: descLines, cls: 'mcm-desc' });
+
         const select = row.createEl('select', { cls: 'mcm-select' });
 
-        const autoSuggested = provider.tierMapping?.[tier];
+        const autoSuggested = this.tierMapping?.[tier];
         const autoLabel = autoSuggested
             ? t('settings.providers.tier.autoLabel', {
-                name: this.displayNameFor(provider, autoSuggested),
+                name: this.displayNameForId(autoSuggested),
             })
             : t('settings.providers.tier.autoEmpty');
         select.createEl('option', { value: '', text: autoLabel });
 
-        const models = this.sortedModelsForTier(provider, tier);
+        const models = this.sortedModelsForTier(tier);
         for (const m of models) {
             select.createEl('option', { value: m.id, text: this.modelOptionLabel(m, tier) });
         }
-        select.value = provider.tierOverrides?.[tier] ?? '';
-        select.addEventListener('change', () => { void (async () => {
-            await this.patch((p) => {
-                p.tierOverrides = p.tierOverrides ?? {};
-                if (!select.value) delete p.tierOverrides[tier];
-                else p.tierOverrides[tier] = select.value;
-            });
+        select.value = this.tierOverrides?.[tier] ?? '';
+        select.addEventListener('change', () => {
+            this.tierOverrides = { ...this.tierOverrides };
+            if (!select.value) delete this.tierOverrides[tier];
+            else this.tierOverrides[tier] = select.value;
             this.render();
-        })(); });
+        });
     }
 
-    // ── Pure helpers ───────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────
 
-    private resolveTierSlot(provider: ProviderConfig, tier: ModelTier): string | undefined {
-        return provider.tierOverrides?.[tier] ?? provider.tierMapping?.[tier];
+    private resolveDraftTierSlot(tier: ModelTier): string | undefined {
+        return this.tierOverrides?.[tier] ?? this.tierMapping?.[tier];
     }
 
-    private displayNameFor(provider: ProviderConfig, modelId: string): string {
-        const m = (provider.discoveredModels ?? []).find((x) => x.id === modelId);
+    private displayNameForId(modelId: string): string {
+        const m = this.discoveredModels.find((x) => x.id === modelId);
         return m?.displayName ?? modelId;
     }
 
-    private sortedModelsForTier(provider: ProviderConfig, tier: ModelTier): DiscoveredModel[] {
-        const all = provider.discoveredModels ?? [];
-        const inTier = all.filter((m) => m.autoTier === tier);
-        const otherTiers = all.filter((m) => m.autoTier !== tier);
+    private sortedModelsForTier(tier: ModelTier): DiscoveredModel[] {
+        const inTier = this.discoveredModels.filter((m) => m.autoTier === tier);
+        const otherTiers = this.discoveredModels.filter((m) => m.autoTier !== tier);
         return [...inTier, ...otherTiers];
     }
 
     private modelOptionLabel(m: DiscoveredModel, expectedTier: ModelTier): string {
         const base = m.displayName ?? m.id;
-        if (!m.autoTier || m.autoTier === expectedTier) return base;
-        return `${base}  (${t('settings.providers.tier.differentTier')})`;
+        if (!m.autoTier) return base;
+        const badge = getTierBadgeLabel(m.autoTier);
+        if (m.autoTier === expectedTier) return `[${badge}]  ${base}`;
+        return `[${badge}]  ${base}  (${t('settings.providers.tier.differentTier')})`;
+    }
+
+    // ── Layout primitives (mirror ModelConfigModal mkRow / mkSection) ─
+
+    private mkRow(form: HTMLElement, label: string, desc?: string): HTMLElement {
+        const row = form.createDiv('mcm-row');
+        const labelEl = row.createDiv('mcm-label');
+        labelEl.createSpan({ text: label });
+        if (desc) labelEl.createSpan({ text: desc, cls: 'mcm-desc' });
+        return row;
+    }
+
+    private mkSection(parent: HTMLElement, title: string): void {
+        parent.createEl('h4', { cls: 'mcm-section', text: title });
     }
 }

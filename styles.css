@@ -2089,6 +2089,15 @@
     border-top: 1px solid var(--background-modifier-border);
 }
 
+/* EPIC-26 / FEAT-26-03 -- inline label-line so a tier badge sits next
+   to the row label without breaking the .mcm-label vertical stack. */
+.mcm-label .mcm-label-line {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
 /* EPIC-26 / FEAT-26-03 -- section header inside .mcm-form */
 .mcm-section {
     font-size: 12px;
@@ -2113,6 +2122,15 @@
 }
 .mcm-warn-icon { display: inline-flex; align-items: center; vertical-align: middle; }
 .mcm-warn-icon svg { width: 14px; height: 14px; }
+
+/* Inline hint row (faint italic) e.g. "Save first, then refresh" */
+.mcm-hint {
+    grid-template-columns: 1fr !important;
+    font-size: 11px;
+    color: var(--text-faint);
+    font-style: italic;
+    padding: 4px 8px;
+}
 
 /* Danger-style button (matches mod-warning convention) */
 .mcm-btn-danger {

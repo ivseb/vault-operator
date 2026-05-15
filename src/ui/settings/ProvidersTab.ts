@@ -19,17 +19,8 @@ import { getProviderBrandLabel } from '../../types/settings';
 import { ProviderDetailModal } from './ProviderDetailModal';
 import { t } from '../../i18n';
 
-const CLOUD_PROVIDER_TYPES: ProviderType[] = [
-    'anthropic', 'openai', 'gemini', 'openrouter', 'azure', 'bedrock',
-];
 const OAUTH_PROVIDER_TYPES: ProviderType[] = ['github-copilot', 'chatgpt-oauth'];
 const LOCAL_PROVIDER_TYPES: ProviderType[] = ['ollama', 'lmstudio', 'custom'];
-const ALL_PROVIDER_TYPES: ProviderType[] = [
-    ...CLOUD_PROVIDER_TYPES,
-    ...OAUTH_PROVIDER_TYPES,
-    ...LOCAL_PROVIDER_TYPES,
-    'kilo-gateway',
-];
 
 export class ProvidersTab {
     constructor(
@@ -141,7 +132,7 @@ export class ProvidersTab {
             new ProviderDetailModal(
                 this.app,
                 this.plugin,
-                provider.id,
+                provider,
                 () => this.rerender(),
             ).open();
         });
@@ -202,61 +193,24 @@ export class ProvidersTab {
     }
 
     private renderAddProviderFooter(containerEl: HTMLElement): void {
+        // EPIC-26 / FEAT-26-03 -- simple "+ Add provider" button (matches
+        // EmbeddingsTab "+ Add embedding model" pattern). The provider-type
+        // picker lives INSIDE the detail modal (mirrors ModelConfigModal
+        // legacy where "+ Add model" opens a modal with a Provider dropdown
+        // at the top).
         const footer = containerEl.createDiv('model-table-footer');
-
-        const pickerWrap = footer.createDiv({ cls: 'provider-add-wrap' });
-        const select = pickerWrap.createEl('select', { cls: 'dropdown' });
-        select.createEl('option', { text: t('settings.providers.choosePicker'), value: '' });
-        for (const type of ALL_PROVIDER_TYPES) {
-            select.createEl('option', { text: this.providerLabel(type), value: type });
-        }
-
-        const addBtn = pickerWrap.createEl('button', {
+        const addBtn = footer.createEl('button', {
             cls: 'mod-cta model-add-btn',
             text: t('settings.providers.addProvider'),
         });
-        addBtn.addEventListener('click', () => { void (async () => {
-            const type = select.value as ProviderType | '';
-            if (!type) return;
-            const id = this.allocateInstanceId(type);
-            const provider: ProviderConfig = {
-                id,
-                type,
-                displayName: this.providerLabel(type),
-                enabled: true,
-                discoveredModels: [],
-                lastRefreshAt: 0,
-                tierMapping: {},
-                tierOverrides: {},
-            };
-            this.plugin.settings.providerConfigs = [
-                ...(this.plugin.settings.providerConfigs ?? []),
-                provider,
-            ];
-            if (this.plugin.settings.activeProviderId === null) {
-                this.plugin.settings.activeProviderId = id;
-            }
-            await this.plugin.saveSettings();
-            this.rerender();
-            // Reset picker
-            select.value = '';
-            // Open the modal so the user can immediately add credentials.
+        addBtn.addEventListener('click', () => {
             new ProviderDetailModal(
                 this.app,
                 this.plugin,
-                id,
+                null,                 // null = new-provider draft mode
                 () => this.rerender(),
             ).open();
-        })(); });
-    }
-
-    private allocateInstanceId(type: ProviderType): string {
-        const existing = new Set((this.plugin.settings.providerConfigs ?? []).map((p) => p.id));
-        const base = `${type}-main`;
-        if (!existing.has(base)) return base;
-        let n = 2;
-        while (existing.has(`${type}-${n}`)) n++;
-        return `${type}-${n}`;
+        });
     }
 
     private providerLabel(type: ProviderType): string {
