@@ -3,7 +3,7 @@ import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder } from 'obsidian';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
-import type { CustomModel } from './types/settings';
+import type { CustomModel, ModelTier, ProviderConfig } from './types/settings';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
@@ -1918,17 +1918,108 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /**
-     * FEAT-24-07 / ADR-115: return the helper-model CustomModel for
-     * agent-internal LLM calls (condensing, fast-path planner/presenter,
-     * plan_presentation, recipe-promotion), or null if none configured
-     * or disabled. Consumed via getHelperApi() in src/core/helper-api.ts.
+     * FEAT-24-07 / ADR-115 (extended by EPIC-26 / ADR-120):
+     * return the helper-model CustomModel for agent-internal LLM
+     * calls (condensing, fast-path planner/presenter, plan_presentation,
+     * recipe-promotion), or null if none.
+     *
+     * Resolution order:
+     *  1. Explicit `helperModelKey` setting (legacy, wins for backwards
+     *     compatibility).
+     *  2. Active provider's `tierMapping.fast` slot (EPIC-26 path).
+     *  3. null (caller falls back to main model).
      */
     getHelperModel(): CustomModel | null {
         const key = this.settings.helperModelKey;
-        if (!key) return null;
-        const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
-        if (!model || !model.enabled) return null;
-        return model;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        // EPIC-26 fallback: active provider's fast tier.
+        return this.getTierModel('fast');
+    }
+
+    /**
+     * EPIC-26 / ADR-122: return the currently active provider config,
+     * or null when no provider was selected yet (pre-migration / fresh
+     * install).
+     */
+    getActiveProvider(): ProviderConfig | null {
+        const id = this.settings.activeProviderId;
+        if (!id) return null;
+        const provider = (this.settings.providerConfigs ?? []).find((p) => p.id === id);
+        return provider && provider.enabled ? provider : null;
+    }
+
+    /**
+     * EPIC-26 / ADR-120: resolve a tier slot (fast / mid / flagship) on
+     * the active provider into a concrete CustomModel ready to feed the
+     * API handler layer. Resolution order:
+     *  1. tierOverrides[tier]  (user-pinned, wins)
+     *  2. tierMapping[tier]    (auto-classified)
+     *  3. cascade upward: missing flagship -> mid -> fast
+     * Returns null when no provider is active or no model fills the
+     * tier chain.
+     */
+    getTierModel(tier: ModelTier): CustomModel | null {
+        const provider = this.getActiveProvider();
+        if (!provider) return null;
+
+        const cascade: ModelTier[] =
+            tier === 'flagship' ? ['flagship', 'mid', 'fast']
+            : tier === 'mid' ? ['mid', 'fast']
+            : ['fast'];
+
+        for (const t of cascade) {
+            const modelId = provider.tierOverrides?.[t] ?? provider.tierMapping?.[t];
+            if (!modelId) continue;
+            const discovered = (provider.discoveredModels ?? []).find((m) => m.id === modelId);
+            return this.providerConfigToCustomModel(provider, modelId, discovered);
+        }
+        return null;
+    }
+
+    /**
+     * EPIC-26 / ADR-120: convenience wrapper for the consult_flagship
+     * tool. Returns the flagship-tier model on the active provider, or
+     * null when no flagship slot is filled.
+     */
+    getAdvisorModel(): CustomModel | null {
+        const provider = this.getActiveProvider();
+        if (!provider) return null;
+        const modelId = provider.tierOverrides?.flagship ?? provider.tierMapping?.flagship;
+        if (!modelId) return null;
+        const discovered = (provider.discoveredModels ?? []).find((m) => m.id === modelId);
+        return this.providerConfigToCustomModel(provider, modelId, discovered);
+    }
+
+    /**
+     * EPIC-26: build a CustomModel from a ProviderConfig + model id,
+     * pulling auth credentials from the provider entry. Keeps the rest
+     * of the plugin on the existing CustomModel-shaped API surface so
+     * Welle 1 stays minimally invasive.
+     */
+    private providerConfigToCustomModel(
+        provider: ProviderConfig,
+        modelId: string,
+        discovered?: import('./types/settings').DiscoveredModel,
+    ): CustomModel {
+        return {
+            name: modelId,
+            provider: provider.type,
+            displayName: discovered?.displayName ?? modelId,
+            apiKey: provider.apiKey,
+            baseUrl: provider.baseUrl,
+            apiVersion: provider.apiVersion,
+            enabled: true,
+            maxTokens: discovered?.maxOutputTokens,
+            awsRegion: provider.awsRegion,
+            awsAuthMode: provider.awsAuthMode,
+            awsApiKey: provider.awsApiKey,
+            awsAccessKey: provider.awsAccessKey,
+            awsSecretKey: provider.awsSecretKey,
+            awsSessionToken: provider.awsSessionToken,
+        };
     }
 
     /** Return the active embedding CustomModel, or null if none configured or disabled */
@@ -2084,7 +2175,15 @@ export default class ObsidianAgentPlugin extends Plugin {
      * Called on load and whenever settings change.
      */
     initApiHandler(): void {
-        const model = this.getActiveModel();
+        // EPIC-26 / ADR-115 amendment / ADR-120: try the active provider's
+        // configured tier slot first. The default tier is `mid` (Advisor-
+        // Pattern Hauptloop), with `flagship` as the rollback escape hatch
+        // for H-01 validation. Pre-migration installs (`activeProviderId`
+        // null or no provider config) fall back to the legacy
+        // `getActiveModel()` path so nothing breaks before Welle 2 runs.
+        const defaultTier = this.settings.defaultMainModelTier ?? 'mid';
+        const tierModel = this.getTierModel(defaultTier);
+        const model = tierModel ?? this.getActiveModel();
 
         if (!model) {
             if (this.settings.debugMode) {

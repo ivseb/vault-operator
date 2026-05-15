@@ -49,6 +49,13 @@ vector-store              | src/core/knowledge/VectorStore.ts                   
 semantic-index            | src/core/semantic/SemanticIndexService.ts             | ADR-79          | new index target: extend index lifecycle hooks
 embedding-service         | src/core/memory/EmbeddingService.ts                   | ADR-77          | new provider: implement EmbeddingProvider interface
 
+# MODEL ROUTING (EPIC-26 / Advisor-Pattern)
+model-tier-classifier     | src/core/routing/ModelTierClassifier.ts               | ADR-121         | new model family: extend FLAGSHIP/MID/FAST_PATTERNS regex tables
+model-discovery           | src/core/routing/ModelDiscoveryService.ts             | ADR-121, ADR-122 | new provider type: ensure RawDiscoveredModel covers its fields and a fetcher wires it in main.ts
+advisor-pattern           | src/core/tools/agent/ConsultFlagshipTool.ts           | ADR-120         | adjust per-task budget or schema field-limits in this file; profile lives in src/core/agent/subagent-profiles.ts
+subagent-profiles         | src/core/agent/subagent-profiles.ts                   | ADR-113, ADR-120 | add new profile: append SubagentProfile to PROFILES; set tierOverride for tier pinning, maxOutputTokens for hard cap
+tier-resolution           | src/main.ts                                           | ADR-115, ADR-120, ADR-122 | extend getTierModel / getAdvisorModel resolution chain; tierOverrides wins over tierMapping
+
 # AI PROVIDERS
 api-handler               | src/api/index.ts                                      | ADR-11          | new provider: implement ApiHandler, register in resolveProvider()
 anthropic                 | src/api/providers/anthropic.ts                        | ADR-11, ADR-62, ADR-111 | extend cache_control or model preset

@@ -556,6 +556,96 @@ export interface ChatLinkingSettings {
 }
 
 // ---------------------------------------------------------------------------
+// EPIC-26 / ADR-122: Provider-only settings schema
+// ---------------------------------------------------------------------------
+
+/** Tier slot a model is assigned to. */
+export type ModelTier = 'fast' | 'mid' | 'flagship';
+
+/** Source flag for an auto-classified DiscoveredModel.autoTier. */
+export type AutoTierSource = 'pattern' | 'capability' | 'pricing' | 'manual';
+
+/**
+ * One model returned by a provider's discovery endpoint, enriched with
+ * an auto-classified tier. Read-only for the user except when they
+ * manually pin it to a slot via tierOverrides.
+ */
+export interface DiscoveredModel {
+    /** Model id as returned by the provider API. */
+    id: string;
+    /** Optional human-readable label (provider-supplied or derived). */
+    displayName?: string;
+    /** Context window in tokens (if known from the provider response). */
+    contextWindow?: number;
+    /** Max output tokens (if known). */
+    maxOutputTokens?: number;
+    /** USD per 1M prompt tokens (OpenRouter pricing sonderpfad). */
+    pricingPromptUsd?: number;
+    /** USD per 1M completion tokens. */
+    pricingCompletionUsd?: number;
+    /** Auto-classified tier (set by ModelTierClassifier on refresh). */
+    autoTier?: ModelTier;
+    /** How the autoTier was derived (pattern / capability / pricing). */
+    autoTierSource?: AutoTierSource;
+}
+
+/**
+ * One configured provider instance. Different from the legacy
+ * `LLMProvider` record because this is per-instance (a user can have
+ * two openrouter accounts side by side), and it owns the tier
+ * mapping plus the discovered-model cache.
+ */
+export interface ProviderConfig {
+    /** Stable instance id (uuid or slug, e.g. "anthropic-main"). */
+    id: string;
+    /** Underlying provider type. */
+    type: ProviderType;
+    /** Human-readable label for the settings UI (optional). */
+    displayName?: string;
+    /** Master switch for the entire provider instance. */
+    enabled: boolean;
+
+    /** Auth: api-key based providers. */
+    apiKey?: string;
+    /** Auth: custom base URL (azure, custom, ollama, lmstudio). */
+    baseUrl?: string;
+    /** Auth: Azure / enterprise gateway api-version. */
+    apiVersion?: string;
+    /** Auth: AWS Bedrock auth mode + credentials. */
+    awsAuthMode?: 'api-key' | 'access-key';
+    awsRegion?: string;
+    awsApiKey?: string;
+    awsAccessKey?: string;
+    awsSecretKey?: string;
+    awsSessionToken?: string;
+    /** Auth: OAuth bearer token (chatgpt-oauth, github-copilot). */
+    oauthToken?: string;
+
+    /** Discovered models from the last refresh. Empty until first refresh. */
+    discoveredModels: DiscoveredModel[];
+    /** Epoch ms of the last successful refresh. 0 = never. */
+    lastRefreshAt: number;
+
+    /**
+     * Auto-tier slot assignment: maps tier to a discovered-model id.
+     * Filled by the DiscoveryService when classifying; user-readable.
+     */
+    tierMapping: {
+        fast?: string;
+        mid?: string;
+        flagship?: string;
+    };
+    /**
+     * Manual user override per tier. Wins over tierMapping.
+     */
+    tierOverrides: {
+        fast?: string;
+        mid?: string;
+        flagship?: string;
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Main plugin settings
 // ---------------------------------------------------------------------------
 
@@ -870,6 +960,56 @@ export interface ObsidianAgentSettings {
 
     /** BA-25: Vault-Ingest-Pflege (Note-Summary, Frontmatter, Auto-Trigger, PDF). */
     vaultIngest: VaultIngestSettings;
+
+    // ----------------------------------------------------------------------
+    // EPIC-26: Advisor-Pattern + Provider-only setup (ADR-120 .. ADR-123)
+    // ----------------------------------------------------------------------
+
+    /**
+     * EPIC-26 / ADR-122: configured providers in the new provider-only
+     * schema. Each entry is a per-instance ProviderConfig with discovered
+     * models and tier mapping. PLAN-25 fills this via auto-migration from
+     * `activeModels[]`. Until the migration runs (or for fresh installs
+     * pre-Welle-2), the array stays empty and tier-resolution falls back
+     * to `getActiveModel()`.
+     *
+     * Naming note: this is `providerConfigs[]` (not `providers[]`) because
+     * the legacy field `providers: Record<string, LLMProvider>` already
+     * owns the key (PLAN-24 F-4).
+     */
+    providerConfigs: ProviderConfig[];
+
+    /**
+     * EPIC-26 / ADR-122: id of the currently selected provider for the
+     * main chat. null = no provider chosen yet (pre-migration state or
+     * fresh install).
+     */
+    activeProviderId: string | null;
+
+    /**
+     * EPIC-26 / ADR-122: schema version for the provider-only settings
+     * shape. Once a user's data.json has this version, the plugin reads
+     * tier-resolution exclusively from `providerConfigs[]`. Missing or
+     * older versions stay on the legacy `activeModels[]` path until the
+     * Welle-2 migration runs.
+     */
+    schemaVersion?: string;
+
+    /**
+     * EPIC-26 / ADR-115 amendment / ADR-120: default tier for the main
+     * agent loop. `'mid'` is the cost-efficient default; setting this to
+     * `'flagship'` is the rollback escape hatch when the Advisor-Pattern
+     * regresses real-world tasks (H-01 validation).
+     */
+    defaultMainModelTier?: ModelTier;
+
+    /**
+     * EPIC-26 / ADR-123: pre-migration backup of `activeModels[]` so the
+     * Welle-2 auto-migration is reversible. Populated by the migration
+     * step in PLAN-25; the schema only reserves the field shape here so
+     * data.json stays type-stable across the upgrade window.
+     */
+    legacy_active_models_backup?: CustomModel[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,4 +1471,11 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     defaultOutputFolder: 'Inbox/',
     autoTaskRouter: { enabled: true },
     vaultIngest: DEFAULT_VAULT_INGEST_SETTINGS,
+
+    // EPIC-26 / ADR-122: provider-only setup. Pre-migration defaults
+    // (PLAN-25 will fill providerConfigs + flip schemaVersion).
+    providerConfigs: [],
+    activeProviderId: null,
+    defaultMainModelTier: 'mid',
+    // schemaVersion intentionally undefined — only the Welle-2 migration sets it.
 };

@@ -114,6 +114,52 @@ describe('systemPrompt section ordering (ADR-062)', () => {
         expect(prompt).toContain('PROCEDURAL RECIPES');
         expect(prompt).toContain('Test Recipe');
     });
+
+    // EPIC-26 / FEAT-26-01 / ADR-120: advisor reminder
+    it('omits the advisor hint when reminder is inactive', async () => {
+        const prompt = await buildTestPrompt({
+            consultFlagshipReminderActive: false,
+            consultFlagshipAvailable: true,
+        });
+        expect(prompt).not.toContain('Advisor Hint');
+    });
+
+    it('omits the advisor hint when consult_flagship is not available', async () => {
+        const prompt = await buildTestPrompt({
+            consultFlagshipReminderActive: true,
+            consultFlagshipAvailable: false,
+        });
+        expect(prompt).not.toContain('Advisor Hint');
+    });
+
+    it('emits the advisor hint when reminder is active and consult_flagship is available', async () => {
+        const prompt = await buildTestPrompt({
+            consultFlagshipReminderActive: true,
+            consultFlagshipAvailable: true,
+        });
+        expect(prompt).toContain('Advisor Hint');
+        expect(prompt).toContain('consult_flagship');
+    });
+
+    it('places the advisor hint AFTER the cache breakpoint', async () => {
+        const { CACHE_BREAKPOINT_MARKER } = await import('../systemPrompt');
+        const prompt = await buildTestPrompt({
+            consultFlagshipReminderActive: true,
+            consultFlagshipAvailable: true,
+        });
+        const hintIndex = prompt.indexOf('Advisor Hint');
+        const breakpointIndex = prompt.indexOf(CACHE_BREAKPOINT_MARKER);
+        expect(hintIndex).toBeGreaterThan(breakpointIndex);
+    });
+
+    it('omits the advisor hint for subtasks even when conditions are met', async () => {
+        const prompt = await buildTestPrompt({
+            isSubtask: true,
+            consultFlagshipReminderActive: true,
+            consultFlagshipAvailable: true,
+        });
+        expect(prompt).not.toContain('Advisor Hint');
+    });
 });
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
 import { buildSystemPromptForMode } from './systemPrompt';
 import type { ModeService } from './modes/ModeService';
-import type { ModeConfig } from '../types/settings';
+import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
 import { QUALITY_GATES } from './tools/qualityGates';
@@ -29,6 +29,7 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile } from './agent/subagent-profiles';
 import { getHelperApi } from './helper-api';
+import { buildApiHandlerForModel } from '../api';
 
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
@@ -43,8 +44,24 @@ export interface AgentTaskCallbacks {
     onToolResult: (name: string, content: string, isError: boolean) => void;
     /** Called with intermediate progress messages from long-running tools (e.g. ingest_template phase banners) */
     onToolProgress?: (name: string, content: string) => void;
-    /** Called with cumulative token usage just before onComplete (Feature 6) */
-    onUsage?: (inputTokens: number, outputTokens: number, cacheReadTokens?: number, cacheCreationTokens?: number, modelId?: string) => void;
+    /**
+     * Called with cumulative token usage just before onComplete (Feature 6).
+     *
+     * EPIC-26 / FEAT-26-01 / ADR-120: optional `routingMode` tags WHY this
+     * call ran on the reported `modelId`:
+     *  - `auto`     (default): main loop on the resolved tier
+     *  - `override` (Welle 2): user-pinned per-turn model
+     *  - `advisor`           : consult_flagship escalation subagent
+     *  - `subagent`          : research / other profile-spawned subagent
+     */
+    onUsage?: (
+        inputTokens: number,
+        outputTokens: number,
+        cacheReadTokens?: number,
+        cacheCreationTokens?: number,
+        modelId?: string,
+        routingMode?: 'auto' | 'override' | 'advisor' | 'subagent',
+    ) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
     onComplete: () => void;
     /** Called when attempt_completion fires — triggers todo auto-complete */
@@ -494,8 +511,28 @@ export class AgentTask {
             // dropped (the profile is the explicit scope).
             const profile = profileName ? getSubagentProfile(profileName) : undefined;
 
+            // EPIC-26 / ADR-120: tier override + output cap. When the profile
+            // pins a tier (research=fast, advisor=flagship), build a fresh
+            // api handler from the active provider's tier slot. When the
+            // active provider has no model for that tier (or no provider is
+            // configured yet), fall back to the parent's api handler so the
+            // pre-migration code path keeps working unchanged.
+            let childApi: ApiHandler = this.api;
+            if (profile?.tierOverride) {
+                const pluginAny = this.toolRegistry.plugin as unknown as {
+                    getTierModel?: (t: 'fast' | 'mid' | 'flagship') => CustomModel | null;
+                };
+                const tierModel = pluginAny.getTierModel?.(profile.tierOverride) ?? null;
+                if (tierModel) {
+                    const capped = profile.maxOutputTokens !== undefined
+                        ? { ...tierModel, maxTokens: profile.maxOutputTokens }
+                        : tierModel;
+                    childApi = buildApiHandlerForModel(capped);
+                }
+            }
+
             const childTask = new AgentTask(
-                this.api,
+                childApi,
                 this.toolRegistry,
                 {
                     onText: (chunk) => { childText += chunk; },
@@ -513,10 +550,18 @@ export class AgentTask {
                         totalOutputTokens += o;
                         totalCacheReadTokens += cr ?? 0;
                         totalCacheCreationTokens += cc ?? 0;
-                        // Forward für UI-Update (wird später vom Parent-Final-Call überschrieben).
-                        // Subtask inherits parent api so its modelId reflects whatever the
-                        // task is actually running on (main or routed-to-helper).
-                        this.taskCallbacks.onUsage?.(i, o, cr, cc, mid);
+                        // EPIC-26: tag the forwarded usage so the parent's
+                        // cost log shows WHY this call ran on the reported
+                        // model. `advisor` for the consult_flagship profile,
+                        // `subagent` for everything else profile-driven (eg
+                        // research). Non-profile new_task spawns inherit the
+                        // parent api and are accounted as part of the main
+                        // loop's `auto` mode.
+                        const routingMode: 'advisor' | 'subagent' | undefined =
+                            profile?.name === 'advisor' ? 'advisor'
+                            : profile ? 'subagent'
+                            : undefined;
+                        this.taskCallbacks.onUsage?.(i, o, cr, cc, mid, routingMode);
                     },
                     // K-1: Forward parent approval callback so subtask write ops are not
                     // auto-rejected by the fail-closed fallback in ToolExecutionPipeline.
@@ -567,8 +612,15 @@ export class AgentTask {
         // until the task ends.
         const activatedDeferredTools = new Set<string>();
 
+        // EPIC-26 / FEAT-26-01 / ADR-120: reminder is rebuilt as part of the
+        // prompt cache. The closure captures the current value of
+        // `consecutiveMistakes` (defined above) so a transition into
+        // mistakes>=2 produces the hint, and a reset drops it again.
         const rebuildPromptCache = () => {
             const webEnabled = this.modeService?.isWebEnabled() ?? false;
+            const advisorAvailable = !!(this.toolRegistry.plugin as unknown as {
+                getAdvisorModel?: () => unknown;
+            }).getAdvisorModel?.();
             cachedSystemPrompt = buildSystemPromptForMode({
                 mode: activeMode,
                 globalCustomInstructions,
@@ -586,6 +638,8 @@ export class AgentTask {
                 // FEAT-24-04 / ADR-113: profile-spawn overrides; undefined on non-profile spawns.
                 subagentRoleOverride,
                 subagentAllowedTools,
+                consultFlagshipReminderActive: consecutiveMistakes >= 2,
+                consultFlagshipAvailable: advisorAvailable,
             });
             let baseTools = this.modeService
                 ? this.modeService.getToolDefinitions(activeMode)
@@ -621,6 +675,18 @@ export class AgentTask {
                 plugins?: { enabledPlugins?: Set<string> };
             }).plugins?.enabledPlugins ?? new Set<string>();
             cachedTools = filterShadowedBuiltins(cachedTools, enabledPluginIds);
+
+            // EPIC-26 / FEAT-26-01 / ADR-120: hide `consult_flagship` from the
+            // schema when no flagship-tier model is configured on the active
+            // provider. The tool itself defends against this too (Task 7), but
+            // dropping it here keeps the prompt clean and stops the model from
+            // even considering it on pre-migration installs.
+            const pluginAny = this.toolRegistry.plugin as unknown as {
+                getAdvisorModel?: () => unknown;
+            };
+            if (!pluginAny.getAdvisorModel?.()) {
+                cachedTools = cachedTools.filter((t) => t.name !== 'consult_flagship');
+            }
 
             cachedPromptMode = activeMode.slug;
             cacheInvalidated = false;
@@ -658,6 +724,22 @@ export class AgentTask {
         };
 
         let emergencyRetried = false;
+
+        // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
+        // of 3 consult_flagship calls; the 4th gets a tool_error so the
+        // loop falls back to the current tier instead of stacking advisor
+        // costs. Counter resets per task (each spawn of AgentTask runs its
+        // own loop).
+        const ADVISOR_LIMIT = 3;
+        let advisorCallsUsed = 0;
+        let lastReminderState = false;
+        const consumeAdvisorSlot = () => {
+            if (advisorCallsUsed >= ADVISOR_LIMIT) {
+                return { ok: false, used: advisorCallsUsed, limit: ADVISOR_LIMIT };
+            }
+            advisorCallsUsed++;
+            return { ok: true, used: advisorCallsUsed, limit: ADVISOR_LIMIT };
+        };
 
         // Rate limit retry: auto-retry on 429 errors with exponential backoff.
         // Max 3 retries with 30s, 60s, 120s waits.
@@ -724,6 +806,16 @@ export class AgentTask {
                         content: '[System] You have used ' + iteration + ' of ' + MAX_ITERATIONS +
                             ' iterations. Wrap up now: deliver your final answer or call attempt_completion.',
                     });
+                }
+
+                // EPIC-26 / FEAT-26-01 / ADR-120: re-render when the
+                // mistakes counter crosses the reminder threshold. The
+                // section lives below the cache marker so the stable
+                // prefix stays cached even on transitions.
+                const reminderShouldBeActive = consecutiveMistakes >= 2;
+                if (reminderShouldBeActive !== lastReminderState) {
+                    cacheInvalidated = true;
+                    lastReminderState = reminderShouldBeActive;
                 }
 
                 // Rebuild system prompt + tool list when mode or tool availability changed
@@ -950,6 +1042,7 @@ export class AgentTask {
                         switchMode,
                         // Depth-guard: only wire spawnSubtask if this child is allowed to spawn
                         spawnSubtask: childCanSpawn ? spawnSubtask : undefined,
+                        consumeAdvisorSlot,
                         onApprovalRequired: this.taskCallbacks.onApprovalRequired,
                         updateTodos: this.taskCallbacks.onTodoUpdate,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,

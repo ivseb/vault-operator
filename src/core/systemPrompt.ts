@@ -117,6 +117,20 @@ export interface SystemPromptConfig {
      * subagent's tool surface as small as the profile demands.
      */
     subagentAllowedTools?: string[];
+    /**
+     * EPIC-26 / FEAT-26-01 / ADR-120: when true AND `consult_flagship` is
+     * available, injects a single-line reminder AFTER the cache breakpoint
+     * marker. Triggered by the AgentTask when consecutiveMistakes >= 2 so
+     * the agent considers escalating instead of looping on the same
+     * mistake.
+     */
+    consultFlagshipReminderActive?: boolean;
+    /**
+     * EPIC-26 / FEAT-26-01: marks that the active tool schema contains
+     * `consult_flagship`. Used together with `consultFlagshipReminderActive`
+     * so the reminder is silent on installs that have no flagship slot.
+     */
+    consultFlagshipAvailable?: boolean;
 }
 
 /**
@@ -164,6 +178,8 @@ export function buildSystemPromptForMode(
     let mode: ModeConfig;
     let subagentRoleOverride: string | undefined;
     let subagentAllowedTools: string[] | undefined;
+    let consultFlagshipReminderActive = false;
+    let consultFlagshipAvailable = false;
     if ('mode' in configOrMode && 'slug' in configOrMode.mode) {
         // Config object form
         const cfg = configOrMode;
@@ -182,6 +198,8 @@ export function buildSystemPromptForMode(
         configDir = cfg.configDir;
         subagentRoleOverride = cfg.subagentRoleOverride;
         subagentAllowedTools = cfg.subagentAllowedTools;
+        consultFlagshipReminderActive = cfg.consultFlagshipReminderActive ?? false;
+        consultFlagshipAvailable = cfg.consultFlagshipAvailable ?? false;
     } else {
         // Legacy positional form
         mode = configOrMode as ModeConfig;
@@ -239,6 +257,12 @@ export function buildSystemPromptForMode(
         // volatile tail below gets no marker. The line is stripped before send.
         CACHE_BREAKPOINT_MARKER,
 
+        // 8c. EPIC-26 / ADR-120: advisor reminder. Below the cache marker so
+        // toggling it on/off does not invalidate the stable prefix.
+        (consultFlagshipReminderActive && consultFlagshipAvailable && !isSubtask)
+            ? '[Advisor Hint] You have had repeated failures. If this problem needs deeper synthesis (architecture / subtle bug / ambiguous spec), consider one consult_flagship call. Budget: 3 per task.'
+            : '',
+
         // 9. Plugin Skills (can change when plugins are enabled/disabled)
         getPluginSkillsSection(pluginSkillsSection),
 
@@ -270,7 +294,7 @@ export function buildSystemPromptForMode(
     const labels = [
         'mode', 'cost-heuristics', 'capabilities', 'obsidian-conv', 'tools', 'tool-routing',
         'objective', 'response-format', 'security', 'skill-directory', 'cache-breakpoint',
-        'plugin-skills', 'memory', 'recipes',
+        'advisor-hint', 'plugin-skills', 'memory', 'recipes',
         'custom-instructions', 'rules',
         'explicit-instructions', 'vault-context', 'datetime',
     ];
