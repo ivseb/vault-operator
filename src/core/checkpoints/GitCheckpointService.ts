@@ -14,7 +14,7 @@
  */
 
 import git from 'isomorphic-git';
-import fs from 'fs';
+import * as safeFs from '../security/safeFs';
 import { TFile, TFolder, type App, type FileSystemAdapter, type Vault } from 'obsidian';
 
 export interface CheckpointInfo {
@@ -405,9 +405,14 @@ export class GitCheckpointService {
         if (!this.initialized) await this.initialize();
     }
 
-    /** isomorphic-git fs plugin using Node's built-in fs (available in Electron) */
+    /**
+     * isomorphic-git fs plugin. We pass safeFs (the wrapper around Node's fs)
+     * so every read/write inside the shadow git repo goes through the
+     * allowlist. repoPath lives under `<vaultRoot>/<pluginDataDir>/checkpoints`,
+     * which is inside the allowlist by construction.
+     */
     private getFs() {
-        return fs;
+        return safeFs;
     }
 
     private async withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
