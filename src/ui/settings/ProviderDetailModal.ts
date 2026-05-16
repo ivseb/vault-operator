@@ -29,6 +29,8 @@ import {
     getTierBadgeLabel,
 } from '../../types/settings';
 import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
+import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
+import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
 import { t } from '../../i18n';
 
 const TIER_ORDER: ModelTier[] = ['fast', 'mid', 'flagship'];
@@ -506,22 +508,117 @@ export class ProviderDetailModal extends Modal {
     private renderOAuthAuth(parent: HTMLElement): void {
         const isAuthed = (this.formType === 'github-copilot' && !!this.plugin.settings.githubCopilotAccessToken)
             || (this.formType === 'chatgpt-oauth' && !!this.plugin.settings.chatgptOAuthAccessToken);
-        new Setting(parent)
+        const setting = new Setting(parent)
             .setName(t('settings.providers.oauthStatus'))
             .setDesc(isAuthed
                 ? t('settings.providers.oauthAuthed')
-                : t('settings.providers.oauthNotAuthed'))
-            .addButton((btn) => {
-                btn.setButtonText(isAuthed
-                        ? t('settings.providers.oauthReauth')
-                        : t('settings.providers.oauthSignIn'))
+                : t('settings.providers.oauthNotAuthed'));
+        if (!isAuthed) {
+            setting.addButton((btn) => {
+                btn.setButtonText(t('settings.providers.oauthSignIn'))
                     .setCta()
-                    .onClick(() => {
-                        new Notice(t('settings.providers.oauthSignInRedirect'));
-                        this.plugin.openSettingsAt('agent', 'models');
-                        this.close();
-                    });
+                    .onClick(() => { void this.handleOAuthSignIn(btn.buttonEl); });
             });
+        } else {
+            setting.addButton((btn) => {
+                btn.setButtonText(t('settings.providers.oauthSignOut'))
+                    .setWarning()
+                    .onClick(() => { void this.handleOAuthSignOut(); });
+            });
+        }
+        if (this.formType === 'github-copilot') {
+            new Setting(parent)
+                .setName(t('settings.providers.copilotClientId'))
+                .setDesc(t('settings.providers.copilotClientIdDesc'))
+                .addText((text) => {
+                    text.setPlaceholder(t('settings.providers.copilotClientIdPlaceholder'))
+                        .setValue(this.plugin.settings.githubCopilotCustomClientId ?? '')
+                        .onChange((v) => { void (async () => {
+                            this.plugin.settings.githubCopilotCustomClientId = v.trim();
+                            await this.plugin.saveSettings();
+                        })(); });
+                });
+        }
+        this.renderTestConnectionRow(parent);
+    }
+
+    private async handleOAuthSignIn(btn: HTMLButtonElement): Promise<void> {
+        btn.disabled = true;
+        const originalLabel = btn.getText();
+        try {
+            if (this.formType === 'github-copilot') {
+                await this.runCopilotSignIn(btn);
+            } else if (this.formType === 'chatgpt-oauth') {
+                await this.runChatGptSignIn(btn);
+            }
+        } catch (e) {
+            console.warn('[ProviderDetailModal] OAuth sign-in failed:', e);
+            new Notice(t('settings.providers.oauthSignInFailed', {
+                msg: (e as Error).message,
+            }));
+        } finally {
+            btn.disabled = false;
+            btn.setText(originalLabel);
+            this.render();
+        }
+    }
+
+    private async runCopilotSignIn(btn: HTMLButtonElement): Promise<void> {
+        const authService = GitHubCopilotAuthService.getInstance();
+        btn.setText(t('settings.providers.oauthRequestingCode'));
+        const flow = await authService.startDeviceFlow();
+        new Notice(
+            t('settings.providers.oauthDeviceCode', {
+                code: flow.userCode,
+                url: flow.verificationUri,
+            }),
+            0,
+        );
+        window.open(flow.verificationUri);
+        btn.setText(t('settings.providers.oauthPolling'));
+        await authService.pollForAccessToken(flow.deviceCode, flow.interval);
+        new Notice(t('settings.providers.oauthSignedIn'));
+    }
+
+    private async runChatGptSignIn(btn: HTMLButtonElement): Promise<void> {
+        const auth = ChatGptOAuthService.getInstance();
+        if (!auth.isPlatformSupported()) {
+            new Notice(t('settings.providers.chatgptUnsupported'));
+            return;
+        }
+        btn.setText(t('settings.providers.oauthRequestingCode'));
+        const flow = await auth.startAuthFlow();
+        // Force the OS default browser. Obsidian's built-in webview breaks
+        // federated logins (Microsoft SSO, Google Workspace); shell.openExternal
+        // hands the URL to the OS so it opens in the user's default browser.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- Electron shell is only loadable via dynamic require in the renderer
+        const electron = require('electron') as { shell?: { openExternal: (url: string) => Promise<void> } };
+        if (electron.shell?.openExternal) {
+            await electron.shell.openExternal(flow.authorizeUrl);
+        } else {
+            window.open(flow.authorizeUrl);
+        }
+        btn.setText(t('settings.providers.oauthPolling'));
+        await flow.completion;
+        new Notice(t('settings.providers.oauthSignedIn'));
+    }
+
+    private async handleOAuthSignOut(): Promise<void> {
+        try {
+            if (this.formType === 'github-copilot') {
+                await GitHubCopilotAuthService.getInstance().logout();
+            } else if (this.formType === 'chatgpt-oauth') {
+                await ChatGptOAuthService.getInstance().logout();
+            }
+            new Notice(t('settings.providers.oauthSignedOut'));
+        } catch (e) {
+            console.warn('[ProviderDetailModal] OAuth sign-out failed:', e);
+            new Notice(t('settings.providers.oauthSignOutFailed', {
+                msg: (e as Error).message,
+            }));
+        } finally {
+            this.render();
+        }
     }
 
     private renderBedrockAuth(parent: HTMLElement): void {
@@ -667,38 +764,45 @@ export class ProviderDetailModal extends Modal {
             resolvedId ? `${hint} · ${this.displayNameForId(resolvedId)}` : hint,
         ].join(' — ');
 
-        // Name fragment carries the colored tier badge inline next to the tier label.
-        const nameFrag = document.createDocumentFragment();
-        nameFrag.createSpan({ text: t(`settings.providers.tier.${tier}`) });
-        const badge = nameFrag.createSpan({
-            cls: `chat-model-picker-tier chat-model-picker-tier-${tier} mcm-tier-badge`,
+        // EPIC-26 follow-up #3: badge sits right-aligned ABOVE the dropdown
+        // (not inline with the tier label) so it never overlaps the
+        // description text on narrow widths.
+        const row = parent.createDiv({ cls: 'mcm-tier-row' });
+        const labelCol = row.createDiv({ cls: 'mcm-tier-label-col' });
+        labelCol.createDiv({
+            cls: 'mcm-tier-label',
+            text: t(`settings.providers.tier.${tier}`),
+        });
+        labelCol.createDiv({ cls: 'mcm-tier-desc', text: descLines });
+
+        const controlCol = row.createDiv({ cls: 'mcm-tier-control-col' });
+        const badge = controlCol.createSpan({
+            cls: `chat-model-picker-tier chat-model-picker-tier-${tier} mcm-tier-badge-top`,
             text: getTierBadgeLabel(tier),
         });
         badge.setAttr('aria-label', `tier: ${getTierBadgeLabel(tier)}`);
 
-        new Setting(parent)
-            .setName(nameFrag)
-            .setDesc(descLines)
-            .addDropdown((dd) => {
-                const autoSuggested = this.tierMapping?.[tier];
-                const autoLabel = autoSuggested
-                    ? t('settings.providers.tier.autoLabel', {
-                        name: this.displayNameForId(autoSuggested),
-                    })
-                    : t('settings.providers.tier.autoEmpty');
-                dd.addOption('', autoLabel);
-                const models = this.sortedModelsForTier(tier);
-                for (const m of models) {
-                    dd.addOption(m.id, this.modelOptionLabel(m, tier));
-                }
-                dd.setValue(this.tierOverrides?.[tier] ?? '');
-                dd.onChange((v) => {
-                    this.tierOverrides = { ...this.tierOverrides };
-                    if (!v) delete this.tierOverrides[tier];
-                    else this.tierOverrides[tier] = v;
-                    this.render();
-                });
-            });
+        const select = controlCol.createEl('select', { cls: 'dropdown mcm-tier-dropdown' });
+        const autoSuggested = this.tierMapping?.[tier];
+        const autoLabel = autoSuggested
+            ? t('settings.providers.tier.autoLabel', {
+                name: this.displayNameForId(autoSuggested),
+            })
+            : t('settings.providers.tier.autoEmpty');
+        const autoOpt = select.createEl('option', { text: autoLabel });
+        autoOpt.value = '';
+        for (const m of this.sortedModelsForTier(tier)) {
+            const opt = select.createEl('option', { text: this.modelOptionLabel(m, tier) });
+            opt.value = m.id;
+        }
+        select.value = this.tierOverrides?.[tier] ?? '';
+        select.addEventListener('change', () => {
+            const v = select.value;
+            this.tierOverrides = { ...this.tierOverrides };
+            if (!v) delete this.tierOverrides[tier];
+            else this.tierOverrides[tier] = v;
+            this.render();
+        });
     }
 
     private resolveDraftTierSlot(tier: ModelTier): string | undefined {

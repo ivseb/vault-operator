@@ -2098,6 +2098,50 @@
     flex-wrap: wrap;
 }
 
+/* EPIC-26 follow-up #3 -- tier row in ProviderDetailModal.
+ * Custom grid (label left, control right) so the colored tier badge
+ * sits right-aligned ABOVE the dropdown instead of inline with the
+ * tier label (where it overlapped the description text). */
+.provider-detail-modal .mcm-tier-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+    column-gap: 18px;
+    align-items: start;
+    padding: 10px 0;
+    border-top: 1px solid var(--background-modifier-border);
+}
+.provider-detail-modal .mcm-tier-row:first-of-type { border-top: none; }
+.provider-detail-modal .mcm-tier-label-col { min-width: 0; }
+.provider-detail-modal .mcm-tier-label {
+    font-weight: 600;
+    color: var(--text-normal);
+    margin-bottom: 2px;
+}
+.provider-detail-modal .mcm-tier-desc {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.4;
+}
+.provider-detail-modal .mcm-tier-control-col {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+.provider-detail-modal .mcm-tier-badge-top {
+    align-self: flex-end;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+.provider-detail-modal .mcm-tier-dropdown {
+    width: 100%;
+    max-width: 320px;
+}
+
 /* EPIC-26 / FEAT-26-03 -- section header inside .mcm-form */
 .mcm-section {
     font-size: 12px;

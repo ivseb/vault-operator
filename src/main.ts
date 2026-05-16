@@ -462,6 +462,59 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (changed) await this.saveSettings();
         }
 
+        // 1b-orphan-purge. EPIC-26 follow-up #2: users who migrated under
+        // earlier code and then removed an OAuth/gateway provider in the
+        // new tab had no purge step, so their plugin-level OAuth tokens
+        // lingered with no matching ProviderConfig. The next "Add
+        // provider" flow then reported "Signed in" against the
+        // orphan token. Idempotent: clears tokens whose provider type
+        // is no longer represented in providerConfigs[]. Also clears
+        // any leftover activeModels[] / activeModelKey / modeModelKeys
+        // / helperModelKey if providerConfigs[] is already populated,
+        // covering the case where migration ran under earlier code
+        // that did not clear them.
+        {
+            const { purgeProviderLegacyState } = await import(
+                './core/security/providerLegacyPurge'
+            );
+            const types: Array<'github-copilot' | 'chatgpt-oauth' | 'kilo-gateway'> = [
+                'github-copilot', 'chatgpt-oauth', 'kilo-gateway',
+            ];
+            const before = JSON.stringify({
+                gh: this.settings.githubCopilotAccessToken ?? '',
+                cgpt: this.settings.chatgptOAuthAccessToken ?? '',
+                kilo: this.settings.kiloToken ?? '',
+                am: this.settings.activeModels?.length ?? 0,
+            });
+            for (const t of types) {
+                purgeProviderLegacyState(this.settings, t);
+            }
+            if ((this.settings.providerConfigs ?? []).length > 0) {
+                if ((this.settings.activeModels?.length ?? 0) > 0) {
+                    this.settings.activeModels = [];
+                }
+                if (this.settings.activeModelKey) {
+                    this.settings.activeModelKey = '';
+                }
+                if (Object.keys(this.settings.modeModelKeys ?? {}).length > 0) {
+                    this.settings.modeModelKeys = {};
+                }
+                if (this.settings.helperModelKey) {
+                    this.settings.helperModelKey = '';
+                }
+            }
+            const after = JSON.stringify({
+                gh: this.settings.githubCopilotAccessToken ?? '',
+                cgpt: this.settings.chatgptOAuthAccessToken ?? '',
+                kilo: this.settings.kiloToken ?? '',
+                am: this.settings.activeModels?.length ?? 0,
+            });
+            if (before !== after) {
+                await this.saveSettings();
+                console.debug('[Plugin] EPIC-26 orphan-purge: cleared stale legacy state');
+            }
+        }
+
         // 1c. EPIC-26 / FEAT-26-02 -- ModelDiscoveryService for the new
         //     provider-only settings. Wraps fetchProviderModels with the
         //     classifier + 24h cache.
