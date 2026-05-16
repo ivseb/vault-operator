@@ -11,10 +11,15 @@
 # Exits 0 if clean, 1 if violations found.
 #
 # Allowed exceptions (require justification):
-#   - src/core/security/safeFs.ts           (owns the fs wrapper)
-#   - src/core/security/spawnAllowlist.ts   (owns the child_process wrapper)
-#   - src/mcp/mcp-server-worker.ts          (standalone Node worker, not bundled)
-#   - src/__test-stubs__/safeFsSetup.ts     (test setup)
+#   - src/core/security/safeFs.ts                  (owns the fs wrapper)
+#   - src/core/security/spawnAllowlist.ts           (owns the child_process wrapper)
+#   - src/mcp/mcp-server-worker.ts                  (standalone Node worker, not bundled)
+#   - src/__test-stubs__/safeFsSetup.ts             (test setup)
+#   - src/core/checkpoints/GitCheckpointService.ts  (isomorphic-git fs plugin; safeFs
+#                                                    causes an indefinite hang on
+#                                                    iCloud-backed vaults; repo scope
+#                                                    is confined to <vault>/.obsidian/
+#                                                    plugins/<id>/checkpoints)
 #
 # Tests under src/**/__tests__/ are not part of the production bundle and
 # are not checked.
@@ -29,6 +34,7 @@ ALLOW=(
     "src/core/security/spawnAllowlist.ts"
     "src/mcp/mcp-server-worker.ts"
     "src/__test-stubs__/safeFsSetup.ts"
+    "src/core/checkpoints/GitCheckpointService.ts"
 )
 
 is_allowed() {
