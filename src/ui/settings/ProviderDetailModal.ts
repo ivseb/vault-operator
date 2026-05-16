@@ -28,6 +28,7 @@ import {
     getProviderBrandLabel,
     getTierBadgeLabel,
 } from '../../types/settings';
+import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
 import { t } from '../../i18n';
 
 const TIER_ORDER: ModelTier[] = ['fast', 'mid', 'flagship'];
@@ -420,10 +421,17 @@ export class ProviderDetailModal extends Modal {
         });
         if (!ok) return;
         const list = this.plugin.settings.providerConfigs ?? [];
+        const removedType = this.formType;
         this.plugin.settings.providerConfigs = list.filter((p) => p.id !== this.originalId);
         if (this.plugin.settings.activeProviderId === this.originalId) {
             this.plugin.settings.activeProviderId = null;
         }
+        // EPIC-26 follow-up: when the LAST instance of an OAuth / gateway
+        // provider type is removed, clear the plugin-level tokens too so
+        // the next "Add provider" flow starts fresh. API-key-based
+        // providers carry their credentials inside the ProviderConfig
+        // entry and are already purged by the filter above.
+        purgeProviderLegacyState(this.plugin.settings, removedType);
         await this.plugin.saveSettings();
         this.onAfterChange();
         this.close();

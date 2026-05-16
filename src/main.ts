@@ -418,12 +418,27 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.settings.activeProviderId = migration.activeProviderId;
                 this.settings.legacy_active_models_backup = migration.legacyBackup;
                 this.settings.schemaVersion = migration.schemaVersion;
+                // EPIC-26 follow-up: after a successful migration, clear the
+                // legacy `activeModels[]` and the per-mode model key map. The
+                // new path reads from `providerConfigs[]` exclusively; leaving
+                // the old arrays populated created duplicate state that the
+                // user could not delete (delete a provider in the new tab,
+                // legacy entry stayed, OAuth tokens stayed). Backup in
+                // `legacy_active_models_backup` is the 30-day safety net.
+                this.settings.activeModels = [];
+                this.settings.activeModelKey = '';
+                this.settings.modeModelKeys = {};
+                // `helperModelKey` is now derived from the active provider's
+                // fast tier (Stage 2 in getHelperModel). The legacy explicit
+                // key would mask that fallback indefinitely.
+                this.settings.helperModelKey = '';
                 await this.saveSettings();
                 this.pendingMigrationSummary = migration.summary;
                 console.debug(
                     `[Plugin] EPIC-26 migration: ${migration.summary.providersCreated} providers, `
                     + `${migration.summary.modelsClassified} models, `
-                    + `${migration.summary.anomalies.length} anomalies`,
+                    + `${migration.summary.anomalies.length} anomalies; `
+                    + 'legacy activeModels + activeModelKey + modeModelKeys + helperModelKey cleared',
                 );
             }
         } catch (e) {

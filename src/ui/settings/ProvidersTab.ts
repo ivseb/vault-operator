@@ -18,6 +18,7 @@ import type { ModelTier, ProviderConfig, ProviderType } from '../../types/settin
 import { getProviderBrandLabel } from '../../types/settings';
 import { ProviderDetailModal } from './ProviderDetailModal';
 import { confirmModal } from '../modals/PromptModal';
+import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
 import { t } from '../../i18n';
 
 const OAUTH_PROVIDER_TYPES: ProviderType[] = ['github-copilot', 'chatgpt-oauth'];
@@ -158,6 +159,9 @@ export class ProvidersTab {
             if (this.plugin.settings.activeProviderId === provider.id) {
                 this.plugin.settings.activeProviderId = null;
             }
+            // EPIC-26 follow-up: purge plugin-level legacy state for this
+            // provider type when no other instance remains.
+            purgeProviderLegacyState(this.plugin.settings, provider.type);
             await this.plugin.saveSettings();
             this.rerender();
         })(); });
