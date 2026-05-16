@@ -2105,7 +2105,7 @@
 .provider-detail-modal .mcm-tier-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
-    column-gap: 18px;
+    gap: 18px;
     align-items: start;
     padding: 10px 0;
     border-top: 1px solid var(--background-modifier-border);
@@ -2155,9 +2155,10 @@
 }
 .mcm-form > .mcm-section:first-child { margin-top: 4px; }
 
-/* Inline warning row inside the form (e.g. "Advisor disabled") */
+/* Inline warning row inside the form (e.g. "Advisor disabled"). Rendered as a
+   plain block child of contentEl, no grid context above, so no grid override
+   needed. */
 .mcm-warn {
-    grid-template-columns: 1fr !important;
     color: var(--text-warning, var(--text-accent));
     font-size: 12px;
     padding: 6px 8px;
@@ -2167,9 +2168,9 @@
 .mcm-warn-icon { display: inline-flex; align-items: center; vertical-align: middle; }
 .mcm-warn-icon svg { width: 14px; height: 14px; }
 
-/* Inline hint row (faint italic) e.g. "Save first, then refresh" */
+/* Inline hint row (faint italic) e.g. "Save first, then refresh". Plain block,
+   no grid parent. */
 .mcm-hint {
-    grid-template-columns: 1fr !important;
     font-size: 11px;
     color: var(--text-faint);
     font-style: italic;
