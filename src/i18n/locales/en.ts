@@ -1539,7 +1539,11 @@ export const en: Translations = {
     'settings.providers.modal.displayName': 'Display name',
     'settings.providers.modal.displayNameDesc': 'Friendly label shown in the providers list. Defaults to the provider type.',
     'settings.providers.modal.discoveryAfterSave': 'Save the provider first, then refresh to discover its models.',
+    'settings.providers.modal.tiersAfterRefresh': 'Refresh to discover models and auto-populate the tier slots.',
     'settings.providers.modal.refreshDirtyConfirm': 'You have unsaved credential changes. Refresh uses the SAVED credentials. Continue anyway?',
+    'settings.providers.modal.autoFetching': 'Discovering models for {{name}}…',
+    'settings.providers.modal.autoFetched': 'Discovered {{count}} models for {{name}}.',
+    'settings.providers.modal.autoFetchFailed': 'Auto-discovery failed: {{msg}}. Use the Refresh button to retry.',
 
     // EPIC-26 / FEAT-26-05 -- chat-header model dropdown
     'ui.sidebar.modelAuto': 'Auto',

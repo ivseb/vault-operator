@@ -191,7 +191,16 @@ export class ProviderDetailModal extends Modal {
             for (const tier of TIER_ORDER) {
                 this.renderTierRow(form, tier);
             }
-            if (!this.resolveDraftTierSlot('flagship')) {
+            // Surface the advisor-pattern warning ONLY when the provider has
+            // actually discovered models (i.e. Refresh ran). Without models
+            // every tier is naturally empty and the warning is misleading --
+            // a "Refresh to populate tiers" hint is shown instead.
+            if (this.discoveredModels.length === 0) {
+                form.createDiv({
+                    cls: 'mcm-row mcm-hint',
+                    text: t('settings.providers.modal.tiersAfterRefresh'),
+                });
+            } else if (!this.resolveDraftTierSlot('flagship')) {
                 const warn = form.createDiv({ cls: 'mcm-row mcm-warn' });
                 const icon = warn.createSpan({ cls: 'mcm-warn-icon' });
                 setIcon(icon, 'alert-triangle');
@@ -238,6 +247,8 @@ export class ProviderDetailModal extends Modal {
     private async handleSave(): Promise<void> {
         const trimmedDisplayName = this.formDisplayName.trim() || getProviderBrandLabel(this.formType);
         const list = [...(this.plugin.settings.providerConfigs ?? [])];
+        // Capture whether credentials moved so we know to auto-refresh after Save.
+        const credsChanged = this.isNew || this.hasUnsavedAuthChanges();
 
         if (this.isNew) {
             const id = this.allocateInstanceId(this.formType);
@@ -268,8 +279,12 @@ export class ProviderDetailModal extends Modal {
             }
             await this.plugin.saveSettings();
             this.onAfterChange();
-            new Notice(t('settings.providers.modal.addedNotice', { name: trimmedDisplayName }));
-            this.close();
+            // Flip to existing-mode so the modal now shows Discovery + Tiers
+            // and the user can verify auto-discovery before closing.
+            this.isNew = false;
+            this.originalId = id;
+            this.render();
+            await this.maybeAutoRefresh(id, trimmedDisplayName, credsChanged);
             return;
         }
 
@@ -300,7 +315,64 @@ export class ProviderDetailModal extends Modal {
         this.plugin.settings.providerConfigs = list;
         await this.plugin.saveSettings();
         this.onAfterChange();
+        if (credsChanged && this.originalId) {
+            this.render(); // keep modal open while we refresh
+            await this.maybeAutoRefresh(this.originalId, trimmedDisplayName, true);
+            return;
+        }
         this.close();
+    }
+
+    /**
+     * Background-refresh after a Save that changed credentials (or after a
+     * fresh provider was created). Keeps the modal open while running so
+     * the user sees the discovered model count + tier population without
+     * a separate Refresh click.
+     */
+    private async maybeAutoRefresh(providerId: string, displayName: string, credsChanged: boolean): Promise<void> {
+        if (!credsChanged) return;
+        if (!this.hasAnyCredentials()) return; // no point firing a doomed call
+        const discovery = this.plugin.modelDiscovery;
+        if (!discovery) return;
+
+        new Notice(t('settings.providers.modal.autoFetching', { name: displayName }));
+        try {
+            const result = await discovery.refreshProvider(providerId);
+            // Sync the local draft snapshot so the re-render shows the
+            // freshly-discovered models + tier mapping immediately.
+            const persisted = (this.plugin.settings.providerConfigs ?? []).find((p) => p.id === providerId);
+            this.discoveredModels = result;
+            this.lastRefreshAt = persisted?.lastRefreshAt ?? Date.now();
+            this.tierMapping = { ...(persisted?.tierMapping ?? {}) };
+            this.onAfterChange();
+            new Notice(t('settings.providers.modal.autoFetched', {
+                count: result.length,
+                name: displayName,
+            }));
+            this.render();
+        } catch (e) {
+            console.warn('[ProviderDetailModal] auto-refresh failed:', e);
+            new Notice(t('settings.providers.modal.autoFetchFailed', {
+                msg: (e as Error).message,
+            }));
+        }
+    }
+
+    /** True when at least one credential field has a non-empty value (auth-mode-aware). */
+    private hasAnyCredentials(): boolean {
+        if (LOCAL_PROVIDER_TYPES.includes(this.formType)) {
+            return !!this.formBaseUrl.trim();
+        }
+        if (this.formType === 'bedrock') {
+            return this.formAwsAuthMode === 'api-key'
+                ? !!this.formAwsApiKey.trim()
+                : !!this.formAwsAccessKey.trim() && !!this.formAwsSecretKey.trim();
+        }
+        if (OAUTH_PROVIDER_TYPES.includes(this.formType)) {
+            return (this.formType === 'github-copilot' && !!this.plugin.settings.githubCopilotAccessToken)
+                || (this.formType === 'chatgpt-oauth' && !!this.plugin.settings.chatgptOAuthAccessToken);
+        }
+        return !!this.formApiKey.trim();
     }
 
     private async handleRemove(): Promise<void> {
