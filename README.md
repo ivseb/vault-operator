@@ -197,6 +197,18 @@ This plugin makes network requests depending on your configuration:
 
 ---
 
+## Local capabilities
+
+Vault Operator runs on desktop Obsidian and uses several Node.js APIs that go beyond the standard vault API. The plugin only does this where the Obsidian API does not cover the feature; nothing is invoked without a user-initiated action.
+
+- **Filesystem access (`fs`)**: required for the local knowledge database (sql.js WASM with atomic writes and snapshots), the office document pipeline (PPTX, DOCX, XLSX, PDF temp files), the shadow git checkpoint store, the semantic index persistence, and the optional asset downloader. All writes stay under the vault path, the plugin data directory (`<vault>/.obsidian/plugins/vault-operator/`), or a dedicated temp folder that is cleaned up after use.
+- **Shell execution (`child_process`)**: used to spawn the Node-based sandbox worker (isolated child process for `evaluate_expression`), the local MCP server proxy, the shadow git executable for checkpoints, and the optional LibreOffice converter when generating presentations. Arguments are not constructed from chat text; commands are fixed binaries with structured argv.
+- **Vault enumeration**: standard vault listing (`vault.getFiles`) is used by semantic search, `list_files`, MOC generation, and inventory tools. The agent only acts on files you reference or explicitly approve.
+- **Clipboard access**: read and write only on user-initiated commands (the "Copy" buttons in chat / system-prompt previews and the optional clipboard-paste flow). No automatic clipboard monitoring.
+- **Dynamic code execution**: limited to the sandbox (`evaluate_expression`). Sandbox code runs inside a sealed iframe or a Node `vm.runInNewContext` realm with an AST allow-list (no `eval`, no `require`, no `process`). Third-party packages from `esm.sh` are integrity-pinned by version. The sandbox cannot access plugin internals, settings, or other vault files outside the explicit `ctx.vault` bridge.
+
+---
+
 ## Directory structure
 
 ```

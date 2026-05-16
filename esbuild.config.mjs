@@ -97,7 +97,7 @@ function generateInlineAssets() {
     }
     const workerLines = [
         "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
-        "/* eslint-disable */",
+        "/* eslint-disable -- generated build artifact, intentional unrestricted output */",
         "",
     ];
     for (const [name, src] of Object.entries(workers)) {
@@ -129,7 +129,7 @@ function generateInlineAssets() {
         join(outDir, "bundled-skills.ts"),
         [
             "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
-            "/* eslint-disable */",
+            "/* eslint-disable -- generated build artifact, intentional unrestricted output */",
             "",
             "export const BUNDLED_SKILLS: Record<string, Record<string, string>> = " + JSON.stringify(skills, null, 2) + ";",
             "",
@@ -161,7 +161,7 @@ function generateInlineAssets() {
         join(outDir, "bundled-templates.ts"),
         [
             "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
-            "/* eslint-disable */",
+            "/* eslint-disable -- generated build artifact, intentional unrestricted output */",
             "",
             "/** Themed PPTX templates, base64 encoded. Keys are themeName (e.g. 'minimal', 'modern'). */",
             "export const PPTX_TEMPLATES_BASE64: Record<string, string> = " + JSON.stringify(pptxTemplates, null, 2) + ";",
@@ -186,7 +186,7 @@ function generateInlineAssets() {
     };
     const wasmLines = [
         "// AUTO-GENERATED -- do not edit. Source: esbuild.config.mjs generateInlineAssets().",
-        "/* eslint-disable */",
+        "/* eslint-disable -- generated build artifact, intentional unrestricted output */",
         "",
     ];
     // The review bot scans the built main.js for substrings that look like
@@ -284,7 +284,7 @@ async function generateSourceBundle() {
     writeFileSync(
         join(outDir, "source-hash.ts"),
         "// AUTO-GENERATED -- do not edit. Source: esbuild generateSourceBundle().\n" +
-        "/* eslint-disable */\n\n" +
+        "/* eslint-disable -- generated build artifact, intentional unrestricted output */\n\n" +
         `export const SELF_DEV_SOURCE_SHA256 = "${sha}";\n`,
     );
 
