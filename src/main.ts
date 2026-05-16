@@ -6,6 +6,10 @@ import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelK
 import type { CustomModel, ModelTier, ProviderConfig } from './types/settings';
 import { resolveActiveProvider, resolveAdvisorModel, resolveTierModel } from './core/routing/tierResolution';
 import { migrateActiveModelsToProviders, type MigrationSummary } from './core/settings/migrations/activeModelsToProviders';
+import {
+    encryptProviderCredentialsInPlace,
+    decryptProviderCredentialsInPlace,
+} from './core/security/providerCredentialCrypto';
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
@@ -2113,6 +2117,9 @@ export default class ObsidianAgentPlugin extends Plugin {
         for (const model of settings.embeddingModels ?? []) {
             if (model.apiKey) model.apiKey = this.safeStorage.decrypt(model.apiKey);
         }
+        // AUDIT-027 H-1 mirror: decrypt per-provider credentials so the
+        // in-memory settings carry plaintext for the API handler layer.
+        decryptProviderCredentialsInPlace(settings, this.safeStorage);
         if (settings.webTools) {
             if (settings.webTools.braveApiKey) {
                 settings.webTools.braveApiKey = this.safeStorage.decrypt(settings.webTools.braveApiKey);
@@ -2176,6 +2183,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                 model.apiKey = this.safeStorage.encrypt(model.apiKey);
             }
         }
+        // AUDIT-027 H-1: per-provider credentials in the EPIC-26
+        // providerConfigs[] array + the legacy_active_models_backup
+        // snapshot must be encrypted on the same pass; otherwise the
+        // migration would write plaintext API keys + AWS credentials
+        // into data.json (CWE-312). Pure walker lives in
+        // src/core/security/providerCredentialCrypto.ts.
+        encryptProviderCredentialsInPlace(copy, this.safeStorage);
         if (copy.webTools) {
             if (copy.webTools.braveApiKey && !this.safeStorage.isEncrypted(copy.webTools.braveApiKey)) {
                 copy.webTools.braveApiKey = this.safeStorage.encrypt(copy.webTools.braveApiKey);
