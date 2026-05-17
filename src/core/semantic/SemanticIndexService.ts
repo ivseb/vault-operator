@@ -961,22 +961,54 @@ export class SemanticIndexService {
                         continue;
                     }
 
+                    // FIX-15-01-01: two-phase enrichment per file.
+                    // Phase A: LLM-enrichment is intrinsically per-chunk (each
+                    // chunk gets its own contextual prefix from the model) so
+                    // we still loop one-by-one and collect the enriched texts.
+                    // Phase B: a single batched embedBatch() call replaces the
+                    // previous per-chunk single-text embed (which produced
+                    // hundreds of `texts=1` HTTP roundtrips on a Vault reindex).
+                    const pendingEmbeds: Array<{ chunkId: number; enrichedText: string }> = [];
+
+                    // Phase A -- collect enriched texts (one LLM call per chunk).
                     for (const chunk of chunks) {
                         if (this.enrichmentCancelled) break;
                         try {
                             const enrichedTexts = await this.enrichChunkWithContext(
                                 [chunk.text], filePath, fullContent,
                             );
-                            const enrichedText = enrichedTexts[0];
-                            const [vector] = await this.embedBatch([enrichedText]);
-                            this.vectorStore.updateChunkEnriched(chunk.id, enrichedText, vector);
+                            pendingEmbeds.push({ chunkId: chunk.id, enrichedText: enrichedTexts[0] });
                         } catch (e) {
                             // Non-fatal: leave as unenriched, will retry next run
                             console.warn(`[SemanticIndex] Enrichment failed for chunk ${chunk.id}:`, e);
+                            this.enrichmentProcessed++;
                         }
-                        this.enrichmentProcessed++;
-                        // Yield to UI thread
+                        // Yield to UI thread between LLM calls
                         await new Promise<void>(r => window.setTimeout(r, 0));
+                    }
+
+                    // Phase B -- one batched embed for the whole file.
+                    if (pendingEmbeds.length > 0 && !this.enrichmentCancelled) {
+                        try {
+                            const vectors = await this.embedBatch(pendingEmbeds.map(p => p.enrichedText));
+                            for (let i = 0; i < pendingEmbeds.length; i++) {
+                                this.vectorStore.updateChunkEnriched(
+                                    pendingEmbeds[i].chunkId,
+                                    pendingEmbeds[i].enrichedText,
+                                    vectors[i],
+                                );
+                                this.enrichmentProcessed++;
+                            }
+                        } catch (e) {
+                            // Batch embed failed -- leave the file's chunks
+                            // unenriched, they will retry on the next run.
+                            console.warn(`[SemanticIndex] Batch embed failed for ${filePath}:`, e);
+                            this.enrichmentProcessed += pendingEmbeds.length;
+                        }
+                    } else if (this.enrichmentCancelled) {
+                        // Cancelled mid Phase A -- whatever was collected is
+                        // discarded; chunks stay unenriched for next run.
+                        // No counter increment (we did not finish them).
                     }
 
                     // Store note-level freshness class from per-chunk votes (FEATURE-2006)
