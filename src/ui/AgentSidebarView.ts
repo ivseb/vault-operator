@@ -77,6 +77,11 @@ export class AgentSidebarView extends ItemView {
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
 
+    // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
+    // queue up while a task is running and get drained by AgentTask at the
+    // start of the next iteration via consumeSteeringMessages.
+    private steeringQueue: string[] = [];
+
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
     // Last user message text — used by "Regenerate" action
@@ -392,6 +397,9 @@ export class AgentSidebarView extends ItemView {
         this.textarea.addEventListener('input', () => {
             this.autoResizeTextarea();
             void this.autocomplete.handleInput();
+            // FEAT-24-08 Steering: toggle Stop -> Send when user starts typing
+            // mid-run (and back to Stop when textarea is cleared).
+            this.refreshRunStateButtons();
         });
 
         this.textarea.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -1374,7 +1382,26 @@ export class AgentSidebarView extends ItemView {
 
         const text = this.textarea.value.trim();
         if (!text && this.attachments.pending.length === 0) return;
-        if (this.currentAbortController) return; // Already running
+
+        // FEAT-24-08 / ADR-114 Steering-Hook: if a task is already running,
+        // queue the text as a mid-run steering message instead of trying to
+        // start a new turn. Attachments are not supported in steering mode
+        // (corrections are short text-only nudges); they stay queued for the
+        // next real turn.
+        if (this.currentAbortController) {
+            if (!text) return;
+            this.steeringQueue.push(text);
+            // Render the steering bubble immediately so the user sees it
+            // landed; AgentTask will pick it up at the next iteration via
+            // consumeSteeringMessages. Same visual style as a regular user
+            // bubble per design decision.
+            this.addUserMessage(text, [], null);
+            this.uiMessages.push({ role: 'user', text, ts: new Date().toISOString() });
+            this.textarea.value = '';
+            this.autoResizeTextarea();
+            this.refreshRunStateButtons();
+            return;
+        }
 
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
@@ -1572,6 +1599,10 @@ export class AgentSidebarView extends ItemView {
 
         // Feature 3: Create AbortController, show stop button
         this.currentAbortController = new AbortController();
+        // FEAT-24-08 Steering: clear any stale entries before a new task
+        // starts so leftover mid-run messages from a previous run cannot
+        // leak into a fresh conversation.
+        this.steeringQueue = [];
         this.setRunningState(true);
 
         // Prepare streaming message elements (thinking → tools → response text → footer)
@@ -2038,6 +2069,15 @@ export class AgentSidebarView extends ItemView {
                             this.contextDisplay.update(usage, color);
                         }
                     }
+                },
+                // FEAT-24-08 / ADR-114 Steering-Hook: drain the queue and
+                // hand mid-run steering messages to AgentTask. Called by
+                // AgentTask once per iteration. Order preserved.
+                consumeSteeringMessages: () => {
+                    if (this.steeringQueue.length === 0) return [];
+                    const drained = this.steeringQueue;
+                    this.steeringQueue = [];
+                    return drained;
                 },
                 onModeSwitch: (newModeSlug) => {
                     // Explicitly sync settings before refreshing the button.
@@ -2549,13 +2589,34 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
-     * Toggle between send and stop button states
+     * Toggle between send and stop button states.
+     *
+     * FEAT-24-08 / ADR-114 Steering-Hook: when a task is running and the
+     * textarea has content, show Send (Claude-Code-style: typing morphs
+     * Stop -> Send so Enter sends a steering message instead of stopping).
+     * Empty textarea while running keeps Stop visible.
+     * Textarea stays enabled so the user can type mid-run.
      */
     private setRunningState(running: boolean): void {
-        if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', running);
-        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !running);
-        if (this.textarea) this.textarea.disabled = running;
         if (this.modelButton) this.modelButton.disabled = running;
+        // Textarea is no longer disabled when running -- needed for steering.
+        if (this.textarea) this.textarea.disabled = false;
+        this.refreshRunStateButtons();
+    }
+
+    /**
+     * Pick the correct primary action button (Send vs Stop) based on running
+     * state + textarea content. Called on running-state changes and on every
+     * textarea input event.
+     */
+    private refreshRunStateButtons(): void {
+        const running = this.currentAbortController !== null;
+        const hasText = (this.textarea?.value.trim().length ?? 0) > 0;
+        // Show Send when: not running OR running-with-text (steering mode).
+        // Show Stop when: running AND empty textarea.
+        const showSend = !running || hasText;
+        if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
+        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', showSend);
     }
 
     /**

@@ -74,6 +74,14 @@ export interface AgentTaskCallbacks {
     onTodoUpdate?: (items: import('./tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Called when switch_mode changes the active mode */
     onModeSwitch?: (newModeSlug: string) => void;
+    /**
+     * FEAT-24-08 / ADR-114 Steering-Hook: drained at the start of every
+     * iteration. Returns user-typed mid-run messages that should be appended
+     * to the conversation history before the next assistant turn. Each entry
+     * becomes its own user-role message so message order is preserved.
+     * Empty array means no steering pending.
+     */
+    consumeSteeringMessages?: () => string[];
     /** Called when the conversation history was condensed (context summarized) - includes token counts before/after */
     onContextCondensed?: (prevTokens?: number, newTokens?: number) => void;
     /** Called when a checkpoint is saved before a write tool */
@@ -842,6 +850,19 @@ export class AgentTask {
                         content: '[System] You have used ' + iteration + ' of ' + MAX_ITERATIONS +
                             ' iterations. Wrap up now: deliver your final answer or call attempt_completion.',
                     });
+                }
+
+                // FEAT-24-08 / ADR-114 Steering-Hook: drain any user-typed
+                // mid-run messages and prepend them to the next assistant
+                // turn. Order is preserved (one history entry per queued
+                // message). Cache is invalidated because the volatile tail
+                // changed (stable prefix is unaffected per ADR-62).
+                const steering = this.taskCallbacks.consumeSteeringMessages?.() ?? [];
+                if (steering.length > 0) {
+                    for (const msg of steering) {
+                        history.push({ role: 'user', content: msg });
+                    }
+                    cacheInvalidated = true;
                 }
 
                 // EPIC-26 / FEAT-26-01 / ADR-120: re-render when the
