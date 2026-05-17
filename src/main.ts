@@ -952,10 +952,11 @@ export default class ObsidianAgentPlugin extends Plugin {
             const embeddingModel = this.getActiveEmbeddingModel();
             if (embeddingModel) this.semanticIndex.setEmbeddingModel(embeddingModel);
             // Contextual Retrieval: set API handler for prefix generation (FEATURE-1501)
-            if (this.settings.enableContextualRetrieval && this.settings.contextualModelKey) {
-                const ctxModel = this.settings.activeModels.find(
-                    (m) => getModelKey(m) === this.settings.contextualModelKey && m.enabled,
-                );
+            // FEAT-24-08 Welle A: resolver falls back to active-provider fast-tier
+            // when no explicit `contextualModelKey` is set, so the feature stays
+            // alive after the EPIC-26 migration to provider-only config.
+            if (this.settings.enableContextualRetrieval) {
+                const ctxModel = this.getContextualModel();
                 if (ctxModel) {
                     const { buildApiHandlerForModel } = await import('./api/index');
                     this.semanticIndex.setContextualApiHandler(buildApiHandlerForModel(ctxModel));
@@ -983,7 +984,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             } else if (
                 this.semanticIndex.isIndexed &&
                 this.settings.enableContextualRetrieval &&
-                this.settings.contextualModelKey &&
+                this.getContextualModel() &&
                 this.vectorStore
             ) {
                 // No build needed, but check for unenriched chunks from a previous session
@@ -2197,12 +2198,51 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /** Return the memory extraction CustomModel, or null if none configured or disabled */
+    /**
+     * FEAT-24-08 Welle A (EPIC-26 follow-up): same fallback shape as
+     * `getHelperModel`. If `memoryModelKey` is empty (or points at a
+     * pre-EPIC-26 `activeModels[]` entry that no longer exists because
+     * the migration moved everything into `providerConfigs[]`), fall
+     * back to the active provider's `fast`-tier slot. Returns null
+     * only when the user has neither set an explicit key nor configured
+     * a fast-tier model on the active provider.
+     */
     getMemoryModel(): CustomModel | null {
         const key = this.settings.memory.memoryModelKey;
-        if (!key) return null;
-        const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
-        if (!model || !model.enabled) return null;
-        return model;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
+    }
+
+    /**
+     * FEAT-24-08 Welle A: Contextual-Retrieval prefix-generation model.
+     * Same explicit-key-then-fast-tier-fallback pattern as the helper /
+     * memory resolvers. Returns null when neither a working override
+     * nor a fast-tier slot exists.
+     */
+    getContextualModel(): CustomModel | null {
+        const key = this.settings.contextualModelKey;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
+    }
+
+    /**
+     * FEAT-24-08 Welle A: Chat-Linking semantic-titling model. Same
+     * explicit-key-then-fast-tier-fallback pattern as the other slot
+     * resolvers.
+     */
+    getTitlingModel(): CustomModel | null {
+        const key = this.settings.chatLinking?.titlingModelKey;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
     }
 
     /**

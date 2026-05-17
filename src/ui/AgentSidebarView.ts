@@ -2855,11 +2855,11 @@ export class AgentSidebarView extends ItemView {
         const store = this.plugin.conversationStore;
         if (!store) return;
 
-        // 1. Semantic titling (always, if model configured)
-        const modelKey = settings.chatLinking?.titlingModelKey;
-        const model = modelKey
-            ? settings.activeModels.find((m) => getModelKey(m) === modelKey && m.enabled)
-            : undefined;
+        // 1. Semantic titling (always, if model resolvable)
+        // FEAT-24-08 Welle A: resolver falls back to active-provider
+        // fast-tier when no explicit key is set, so titling stays alive
+        // after the EPIC-26 migration to provider-only config.
+        const model = this.plugin.getTitlingModel();
 
         if (model) {
             const userMsg = messages.find((m) => m.role === 'user')?.text ?? '';

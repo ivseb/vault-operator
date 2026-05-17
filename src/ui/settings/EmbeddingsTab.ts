@@ -782,11 +782,11 @@ export class EmbeddingsTab {
         const idx = this.plugin.semanticIndex;
         if (!idx || !idx.isIndexed || idx.enriching || idx.building) return;
         if (!this.plugin.settings.enableContextualRetrieval) return;
-        if (!this.plugin.settings.contextualModelKey) return;
 
-        const ctxModel = this.plugin.settings.activeModels.find(
-            (m) => getModelKey(m) === this.plugin.settings.contextualModelKey && m.enabled,
-        );
+        // FEAT-24-08 Welle A: resolver falls back to active-provider
+        // fast-tier when no explicit key is set, so enrichment survives
+        // the EPIC-26 migration to provider-only config.
+        const ctxModel = this.plugin.getContextualModel();
         if (!ctxModel) return;
 
         const { buildApiHandlerForModel } = await import('../../api/index');
