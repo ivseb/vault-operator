@@ -1972,6 +1972,9 @@ export class AgentSidebarView extends ItemView {
                             const truncated = displayContent.length > 2000
                                 ? displayContent.slice(0, 2000) + '\n…(truncated)'
                                 : displayContent;
+                            // FIX-19-31-02: clear any <pre> left by onToolProgress so the
+                            // final result replaces the live-preview instead of being appended.
+                            outputEl.empty();
                             outputEl.createEl('pre').setText(truncated);
                         }
                         details.open = isError;
