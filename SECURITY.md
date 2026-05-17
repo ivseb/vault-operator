@@ -9,8 +9,7 @@ the primary reference for community plugin reviewers and security-aware users.
 
 ## Reporting vulnerabilities
 
-Please email security findings to `sh.hanke@gmail.com` rather than opening a
-public issue.
+Please email security findings by opening an issue.
 
 Expected response time:
 

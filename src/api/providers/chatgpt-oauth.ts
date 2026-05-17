@@ -46,6 +46,14 @@ const CODEX_HEADERS: Record<string, string> = {
  * of truth is the Codex CLI bundled lineup (mirrored from
  * forked-kilocode/packages/types/src/providers/openai-codex.ts, 2026 release).
  *
+ * NOTE (2026-05-17): the `-mini` variants are listed in codex-rs but the
+ * chatgpt.com Codex backend rejects them with HTTP 400
+ * ("The 'gpt-5.1-codex-mini' model is not supported when using Codex with
+ *  a ChatGPT account."). Those models are API-tier only, so we omit them
+ * here -- otherwise users wire them into tierOverrides.fast and the run
+ * 400s mid-task. If OpenAI later opens the mini variants to ChatGPT auth,
+ * add them back here.
+ *
  * @see ADR-088
  */
 const KNOWN_MODELS: Record<string, ModelInfo> = {
@@ -53,13 +61,21 @@ const KNOWN_MODELS: Record<string, ModelInfo> = {
     'gpt-5.1':               { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.2':               { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5-codex':           { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5-codex-mini':      { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.1-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.1-codex-mini':    { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.1-codex-max':     { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.2-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.3-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
 };
+
+/**
+ * Models we used to expose but the ChatGPT subscription backend rejects.
+ * Used by the error path to spot stale picks from older settings and tell
+ * the user to refresh the model list.
+ */
+const KNOWN_UNSUPPORTED_ON_CHATGPT_ACCOUNT: ReadonlySet<string> = new Set([
+    'gpt-5-codex-mini',
+    'gpt-5.1-codex-mini',
+]);
 
 /** Test-Connection fallback when no tier mapping / discovered list exists yet. */
 export const CHATGPT_OAUTH_DEFAULT_TEST_MODEL = 'gpt-5';
@@ -330,6 +346,22 @@ export class ChatGptOAuthProvider implements ApiHandler {
 
     private enhanceError(status: number, detail: string): Error {
         const trimmed = detail.length > 400 ? detail.slice(0, 400) + '...' : detail;
+        if (status === 400) {
+            const serverMsg = extractServerDetail(detail);
+            // The Codex backend returns this exact wording when the model is not
+            // available on a ChatGPT subscription (only on the API-key tier).
+            if (/not supported when using Codex with a ChatGPT account/i.test(serverMsg ?? '')) {
+                const supported = Object.keys(KNOWN_MODELS).join(', ');
+                const wasOurStaleList = KNOWN_UNSUPPORTED_ON_CHATGPT_ACCOUNT.has(this.config.model);
+                const hint = wasOurStaleList
+                    ? ' This model was removed from the supported list -- click "Fetch" in Provider settings to refresh, then pick a supported model for the affected tier.'
+                    : '';
+                return new Error(
+                    `ChatGPT subscription does not support model "${this.config.model}" on the Codex backend.${hint} Supported: ${supported}.`,
+                );
+            }
+            return new Error(`ChatGPT request rejected (400). ${serverMsg ?? trimmed}`);
+        }
         switch (status) {
             case 401:
                 return new Error('ChatGPT authentication failed. Please sign in again in Provider settings.');
@@ -339,8 +371,6 @@ export class ChatGptOAuthProvider implements ApiHandler {
                 return new Error(`ChatGPT endpoint not found (404). The model "${this.config.model}" may not be available on your plan, or the backend path changed. Detail: ${trimmed}`);
             case 429:
                 return new Error('ChatGPT rate limit reached. Please wait a moment and retry.');
-            case 400:
-                return new Error(`ChatGPT request rejected (400). Schema may have drifted. Detail: ${trimmed}`);
             default:
                 return new Error(`ChatGPT API error (${status}): ${trimmed}`);
         }
@@ -408,6 +438,30 @@ async function readBody(response: NodeStreamResponse): Promise<string> {
     const chunks: Buffer[] = [];
     for await (const chunk of response.stream) chunks.push(chunk);
     return Buffer.concat(chunks).toString('utf-8');
+}
+
+/**
+ * Pull a human-readable message out of a Codex JSON error body. Common shapes:
+ *   {"detail": "..."}
+ *   {"error": {"message": "..."}}
+ *   {"message": "..."}
+ * Falls back to undefined if nothing recognisable is present so the caller can
+ * decide whether to show the raw trimmed body instead.
+ */
+function extractServerDetail(body: string): string | undefined {
+    if (!body) return undefined;
+    try {
+        const parsed = JSON.parse(body) as Record<string, unknown>;
+        if (typeof parsed.detail === 'string') return parsed.detail;
+        if (typeof parsed.message === 'string') return parsed.message;
+        const err = parsed.error;
+        if (err && typeof err === 'object' && typeof (err as Record<string, unknown>).message === 'string') {
+            return (err as Record<string, unknown>).message as string;
+        }
+    } catch {
+        // not JSON -- fall through
+    }
+    return undefined;
 }
 
 // ---------------------------------------------------------------------------

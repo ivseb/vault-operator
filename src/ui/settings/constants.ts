@@ -126,10 +126,13 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'Amazon Nova',    id: 'us.amazon.nova-lite-v1:0',                    label: 'Nova Lite (US)' },
     ],
     'chatgpt-oauth': [
+        // `-mini` variants are not exposed on the ChatGPT subscription backend
+        // (Codex CLI lineup includes them, but chatgpt.com 400s "not supported
+        // when using Codex with a ChatGPT account"). API-only.
         { group: 'GPT-5',  id: 'gpt-5.5',          label: 'GPT-5.5  (recommended for Pro)' },
         { group: 'GPT-5',  id: 'gpt-5',            label: 'GPT-5' },
         { group: 'Codex',  id: 'gpt-5-codex',      label: 'GPT-5 Codex' },
-        { group: 'Codex',  id: 'gpt-5-codex-mini', label: 'GPT-5 Codex mini' },
+        { group: 'Codex',  id: 'gpt-5.1-codex',    label: 'GPT-5.1 Codex' },
     ],
 };
 
