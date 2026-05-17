@@ -45,6 +45,9 @@ ontology-store            | src/core/knowledge/OntologyStore.ts                 
 implicit-connection       | src/core/knowledge/ImplicitConnectionService.ts       | ADR-77          | new edge inference: extend computeAll() rule set
 vector-store              | src/core/knowledge/VectorStore.ts                     | ADR-79          | new collection scope: extend buildScope() switch
 
+# MEMORY TOOLS (Tool surface for the Memory v2 stack)
+memory-tools              | src/core/tools/memory/                                | ADR-77, ADR-84  | new memory tool: register in ToolRegistry; tools: MarkForMemory, RecallMemory, SearchHistory, UpdateSoul
+
 # SEMANTIC INDEX
 semantic-index            | src/core/semantic/SemanticIndexService.ts             | ADR-79          | new index target: extend index lifecycle hooks
 embedding-service         | src/core/memory/EmbeddingService.ts                   | ADR-77          | new provider: implement EmbeddingProvider interface
@@ -63,7 +66,7 @@ openai                    | src/api/providers/openai.ts                         
 chatgpt-oauth             | src/api/providers/chatgpt-oauth.ts                    | ADR-88, ADR-89 | extend OAuth lifecycle in ChatGptOAuthService
 github-copilot            | src/api/providers/github-copilot.ts                   | ADR-37, ADR-43 | extend Copilot completion or model resolution
 bedrock                   | src/api/providers/bedrock.ts                          | ADR-11, ADR-111 | extend region or model resolver; set cachePoint ContentBlock when cache-capability says bedrock-cachepoint
-openrouter                | src/api/providers/openrouter.ts                       | ADR-11          | extend route fallback or pricing
+openrouter                | src/api/providers/openai.ts                           | ADR-11          | OpenRouter has no dedicated provider class; OpenAI adapter handles config.type==='openrouter' (cache deferred per capabilities.ts)
 cache-capability          | src/api/capabilities.ts                               | ADR-111         | new provider/model entry: extend table; UI and provider read via getCacheCapability()
 kv-cache-prompt           | src/core/systemPrompt.ts                              | ADR-62          | stable sections before CACHE_BREAKPOINT_MARKER, volatile tail after; providers split via splitSystemPromptAtCacheBreakpoint and mark only the prefix
 
@@ -75,6 +78,7 @@ safe-storage              | src/core/security/SafeStorageService.ts             
 
 # UI
 sidebar                   | src/ui/AgentSidebarView.ts                            | -                | new sidebar action: extend command map and renderer
+modals                    | src/ui/modals/                                        | -                | new modal: extend modal registry; FirstRunWizard, MemoryV2Upgrade, MemoryViewer, PluginPatch, Prompt, SoakReport, VaultHealthRepair
 diff-review               | src/ui/DiffReviewModal.ts                             | -                | new diff layout: extend renderer plus toolbar
 model-config              | src/ui/settings/ModelConfigModal.ts                   | -                | new model preset: extend MODEL_REGISTRY plus defaults
 mcp-tab                   | src/ui/settings/McpTab.ts                             | ADR-05          | new MCP entry: extend tab renderer
@@ -98,19 +102,43 @@ esbuild-wasm              | src/core/sandbox/EsbuildWasmManager.ts              
 # OFFICE / DOCUMENT GENERATION
 office-index              | src/core/office/index.ts                              | ADR-48          | new generator: implement OfficeGenerator and register
 document-parsers          | src/core/document-parsers/                            | ADR-25          | new format: implement DocumentParser interface
+document-parser-formats   | src/core/document-parsers/parsers/                    | ADR-23, ADR-24, ADR-25 | format-specific parsers: CsvParser, DocxParser, PdfParser, PptxParser, XlsxParser plus ooxmlHelpers
+
+# INGEST PIPELINE (EPIC-19 Knowledge Maintenance)
+ingest-deep               | src/core/ingest/DeepIngestPipeline.ts                 | ADR-66          | new ingest stage: extend pipeline phases (extract -> classify -> integrate)
+ingest-trigger            | src/core/ingest/AutoTriggerObserver.ts                | ADR-102         | new vault.on event: extend trigger detection table; cooldown lives in IngestTriageLogStore
+ingest-session            | src/core/ingest/IngestSessionStore.ts                 | ADR-100         | dialog-state schema: extend ingest_session table migration
+ingest-frontmatter        | src/core/ingest/FrontmatterIndexer.ts                 | ADR-66          | new metadata field: extend FrontmatterWriter plus BackfillJob
+
+# PROMPT SECTIONS (modular system prompt, ADR-08)
+prompt-sections           | src/core/prompts/sections/index.ts                    | ADR-08, ADR-62  | new section: add file under sections/, register in index, decide stable-prefix vs volatile-tail
+prompt-cost-aware         | src/core/prompts/sections/cost-aware/index.ts         | ADR-90          | cost-aware steering: antiOverthinking, budgetAwareness, errorRecovery, planFirst, stopCondition, subAgentGating, toolTiers
+
+# STORAGE (ADR-20 Global Storage)
+global-file-service       | src/core/storage/GlobalFileService.ts                 | ADR-20          | new sync target: extend SyncBridge plus VaultDataFileAdapter
+global-settings-service   | src/core/storage/GlobalSettingsService.ts             | ADR-20, ADR-72  | new settings key: extend types; honour configurable agent-storage root
+global-migration-service  | src/core/storage/GlobalMigrationService.ts            | ADR-20, ADR-72  | new migration version: append to ordered migrations list
+
+# TASK EXTRACTION (ADR-26/27/28)
+task-extractor            | src/core/tasks/TaskExtractor.ts                       | ADR-26          | new extraction trigger: extend post-write hook list
+task-note-creator         | src/core/tasks/TaskNoteCreator.ts                     | ADR-27, ADR-28  | new frontmatter field: extend schema; optional plugin integration via TaskNotesAdapter
+
+# UTILITIES (cross-cutting)
+agent-folder              | src/core/utils/agentFolderService.ts                  | ADR-72          | new agent-folder consumer: read via agentFolderService.getRoot()
+safe-regex                | src/core/utils/safeRegex.ts                           | -                | new regex with timeout: route through safeExec to avoid ReDoS
 
 # SKILLS / VAULT DNA / MASTERY
 vault-dna                 | src/core/skills/VaultDNAScanner.ts                    | ADR-14          | new heuristic: extend scanner rule set
 self-authored-skills      | src/core/skills/SelfAuthoredSkillLoader.ts            | ADR-09, ADR-75 | new skill format: extend SKILL.md parser
 core-plugin-library       | src/core/skills/CorePluginLibrary.ts                  | ADR-14          | new core skill: add metadata entry plus skill file
-mastery                   | src/core/mastery/RecipePromotion.ts                   | ADR-17          | new promotion rule: extend RecipePromotion heuristics
+mastery                   | src/core/mastery/RecipePromotionService.ts            | ADR-17, ADR-58 | new promotion rule: extend RecipePromotionService heuristics (embedding-based intent matching)
 quality-gates             | src/core/quality-gates/index.ts                       | -                | new quality gate: implement QualityGate interface
 
 # OBSERVABILITY
 observability             | src/core/observability/                               | -                | new event class: extend ObservabilityEvent union
 
 # PRICING / COST
-pricing                   | src/core/pricing/PricingService.ts                    | ADR-90          | new model price: extend MODEL_PRICING table
+pricing                   | src/core/pricing/ModelPricing.ts                      | ADR-90          | new model price: extend MODEL_PRICING table
 
 # CONFIG / GOVERNANCE
 config-store              | src/core/config/CodeConfigParser.ts                   | -                | new config knob: extend schema plus validators
@@ -118,6 +146,14 @@ governance                | src/core/governance/                                
 ignore-service            | src/core/governance/IgnoreService.ts                  | ADR-91          | new ignore source: extend ignore-file resolver
 update-settings-tool      | src/core/tools/agent/UpdateSettingsTool.ts            | -                | new settable path: extend WRITABLE_PATHS plus typings
 configure-model-tool      | src/core/tools/agent/ConfigureModelTool.ts            | -                | new model knob: extend handler plus settings types
+
+# VAULT TOOLS (read / vault / edit groups, 40+ files)
+vault-tools               | src/core/tools/vault/                                 | ADR-01, ADR-16  | new vault tool: file under tools/vault/, register in ToolRegistry, add to TOOL_GROUP_MAP (read/vault/edit), add ToolMeta description
+vault-create-office       | src/core/tools/vault/CreatePptxTool.ts                | ADR-48          | sibling generators: CreateDocxTool, CreateXlsxTool, CreateDrawioTool, CreateExcalidrawTool; gate via constrained-LLM plan_presentation pattern
+semantic-search-tool      | src/core/tools/vault/SemanticSearchTool.ts            | ADR-15          | semantic + BM25 hybrid; extend retriever pipeline in SemanticIndexService
+
+# GENERATED ASSETS (build-time; do not hand-edit)
+generated-assets          | src/_generated/                                       | -                | written by build (esbuild plugin): bundled-skills, bundled-templates, bundled-wasm, bundled-workers, asset-bundle-hashes, source-hash. Source-of-truth lives in scripts/build-* generators.
 
 # PLUGIN ENTRY
 plugin-entry              | src/main.ts                                           | -                | wiring: register service and tool in onload()
