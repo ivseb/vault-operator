@@ -55,6 +55,35 @@ export function addInfoButton(setting: Setting, title: string, body: string): vo
 }
 
 /**
+ * Render a section heading (h3) with an optional info-icon next to
+ * the title. Clicking the icon opens the same popover used by
+ * `addInfoButton`. Use this to attach a fachbegriff explanation to
+ * a whole section without spending a coloured block of body text
+ * on the tab.
+ */
+export function addSectionHeading(
+    parent: HTMLElement,
+    title: string,
+    info?: { body: string },
+): HTMLHeadingElement {
+    const heading = parent.createEl('h3', { cls: 'agent-settings-section' });
+    heading.createSpan({ cls: 'agent-settings-section-label', text: title });
+    if (info?.body) {
+        const btn = heading.createEl('button', {
+            cls: 'agent-info-btn',
+            attr: { type: 'button', 'aria-label': `${title}: info`, title },
+        });
+        setIcon(btn, 'info');
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openInfoPopover(title, info.body);
+        });
+    }
+    return heading;
+}
+
+/**
  * Add a slider with an inline, click-to-edit value display. The slider
  * track and the value sit inside the same .agent-slider-wrap container
  * so they read as one control instead of two side-by-side widgets.

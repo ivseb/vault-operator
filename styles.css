@@ -3368,6 +3368,9 @@
 
 /* ── Settings section headings ───────────────────────────────────────── */
 .agent-settings-section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
     font-weight: 600;
     color: var(--text-muted);
@@ -3381,20 +3384,12 @@
 
 .agent-settings-section:first-child { margin-top: 2px; }
 
-/* Explanatory paragraph that follows a section heading. Sits in a
-   clearly tinted grey container so a wall of plain text gets visual
-   structure. Strong enough to differentiate from the page background
-   in every theme, light enough to stay below the coloured intro
-   callout at the top of the tab in visual priority. */
-.agent-settings-section-desc {
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--text-muted);
-    background: color-mix(in srgb, var(--text-normal) 9%, var(--background-primary));
-    border: 1px solid color-mix(in srgb, var(--text-normal) 16%, var(--background-primary));
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin: 0 0 14px;
+.agent-settings-section .agent-info-btn {
+    /* Section headings are uppercase muted, so keep the info icon
+       in the same muted tone. The 6 px gap from the flex container
+       already provides the left margin. */
+    margin-left: 0;
+    color: var(--text-faint);
 }
 
 /* Pinned-to-memory star: always visible (status indicator), accent
