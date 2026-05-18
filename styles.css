@@ -2261,17 +2261,61 @@
     color: var(--text-muted);
 }
 
-/* Number input that sits next to a slider in a Setting. Narrow,
-   right-aligned, no spinner clutter. The slider stays the primary
-   interaction; the input is for typing an exact value. */
-.agent-slider-input.agent-slider-input {
-    width: 64px;
-    text-align: right;
-    margin-left: 8px;
+/* Slider with inline, click-to-edit value display. Track on the left,
+   value on the right inside the same control. Reads as one widget,
+   not as a slider plus a separate input box. */
+.agent-slider-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 180px;
 }
+.agent-slider {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+.agent-slider-value,
+.agent-slider-value-editing {
+    min-width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--text-normal);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    user-select: none;
+}
+.agent-slider-value:hover,
+.agent-slider-value:focus-visible {
+    background: var(--background-modifier-hover);
+    outline: none;
+}
+.agent-slider-value-editing {
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    cursor: text;
+}
+.agent-slider-input.agent-slider-input {
+    width: 100%;
+    min-width: 38px;
+    padding: 2px 6px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: var(--text-normal);
+}
+.agent-slider-input:focus { outline: none; box-shadow: none; }
 .agent-slider-input::-webkit-inner-spin-button,
 .agent-slider-input::-webkit-outer-spin-button {
-    opacity: 0.4;
+    display: none;
+    margin: 0;
 }
 
 /* EPIC-26 follow-up #3 -- tier row in ProviderDetailModal.
