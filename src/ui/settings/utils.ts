@@ -65,7 +65,7 @@ export function addSectionHeading(
     parent: HTMLElement,
     title: string,
     info?: { body: string },
-    opts?: { level?: 'h3' | 'h4' },
+    opts?: { level?: 'h3' | 'h4'; inlineHint?: string },
 ): HTMLHeadingElement {
     const tag = opts?.level ?? 'h3';
     const heading = parent.createEl(tag, { cls: 'agent-settings-section' });
@@ -80,6 +80,12 @@ export function addSectionHeading(
             e.preventDefault();
             e.stopPropagation();
             openInfoPopover(title, info.body);
+        });
+    }
+    if (opts?.inlineHint) {
+        parent.createEl('p', {
+            cls: 'agent-settings-section-hint',
+            text: opts.inlineHint,
         });
     }
     return heading as HTMLHeadingElement;

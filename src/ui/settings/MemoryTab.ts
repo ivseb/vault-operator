@@ -221,10 +221,32 @@ export class MemoryTab {
      * perplexity + unknown auf manual.
      */
     private buildCrossSurfaceSection(containerEl: HTMLElement): void {
+        // 2026-05-19: hide the dropdowns when there is no remote MCP
+        // server active. Without a connector configured in the
+        // Customize -> Connectors tab nothing can push conversations
+        // into Vault Operator, so the settings would be inert and
+        // confusing. Show a single info banner with a pointer instead.
+        const remoteMcpEnabled = this.plugin.settings.enableMcpServer ?? false;
+        if (!remoteMcpEnabled) {
+            addSectionHeading(
+                containerEl,
+                t('settings.memory.headingCrossSurface'),
+                { body: t('settings.memory.sectionCrossSurfaceInfo') },
+            );
+            const banner = containerEl.createDiv('vault-op-box vault-op-box--info');
+            const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
+            setIcon(icon, 'info');
+            const text = banner.createDiv({ cls: 'vault-op-box__text' });
+            text.createEl('strong', { text: t('settings.memory.crossSurfaceInactiveTitle') });
+            text.createDiv({ text: t('settings.memory.crossSurfaceInactiveBody') });
+            return;
+        }
+
         addSectionHeading(
             containerEl,
             t('settings.memory.headingCrossSurface'),
             { body: t('settings.memory.sectionCrossSurfaceInfo') },
+            { inlineHint: t('settings.memory.crossSurfaceInlineHint') },
         );
 
         // Ensure settings block exists

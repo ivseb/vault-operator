@@ -3392,6 +3392,21 @@
     color: var(--text-faint);
 }
 
+/* Plain explanatory paragraph that sits directly under a section
+   heading. Used when the section title alone is not enough to
+   convey the model, e.g. the cross-surface receive-side policy.
+   Same register as setting-item-description: muted, 12 px, no
+   coloured background. */
+.agent-settings-section-hint {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0 0 12px;
+    padding: 0;
+    background: transparent;
+    border: none;
+}
+
 /* Pinned-to-memory star: always visible (status indicator), accent
    colour, no fill -- the regular `star` icon stays as outline. */
 .history-row-action.history-row-action-pinned {
