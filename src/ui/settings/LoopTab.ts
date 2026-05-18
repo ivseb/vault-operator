@@ -15,16 +15,20 @@ export class LoopTab {
         infoText.createDiv({ text: t('settings.loop.introDesc') });
     }
 
+    private section(containerEl: HTMLElement, headingKey: string, descKey: string): void {
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t(headingKey) });
+        containerEl.createEl('p', { cls: 'agent-settings-section-desc', text: t(descKey) });
+    }
+
     build(containerEl: HTMLElement): void {
         this.buildIntroSection(containerEl);
 
         // ── Limits & retries ─────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.loop.headingLoop') });
+        this.section(containerEl, 'settings.loop.headingLoop', 'settings.loop.sectionLoopDesc');
 
         const errorLimitSetting = new Setting(containerEl)
             .setName(t('settings.loop.errorLimit'))
             .setDesc(t('settings.loop.errorLimitDesc'));
-        addInfoButton(errorLimitSetting, t('settings.loop.errorLimit'), t('settings.loop.errorLimitInfo'));
         addSliderInput(errorLimitSetting, {
             min: 0, max: 10, step: 1,
             value: this.plugin.settings.advancedApi.consecutiveMistakeLimit ?? 3,
@@ -37,7 +41,6 @@ export class LoopTab {
         const rateLimitSetting = new Setting(containerEl)
             .setName(t('settings.loop.rateLimit'))
             .setDesc(t('settings.loop.rateLimitDesc'));
-        addInfoButton(rateLimitSetting, t('settings.loop.rateLimit'), t('settings.loop.rateLimitInfo'));
         addSliderInput(rateLimitSetting, {
             min: 0, max: 3000, step: 100,
             value: this.plugin.settings.advancedApi.rateLimitMs ?? 0,
@@ -74,12 +77,11 @@ export class LoopTab {
         });
 
         // ── Auto-summarise ──────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.loop.headingCondensing') });
+        this.section(containerEl, 'settings.loop.headingCondensing', 'settings.loop.sectionCondensingDesc');
 
         const condensingSetting = new Setting(containerEl)
             .setName(t('settings.loop.enableCondensing'))
             .setDesc(t('settings.loop.enableCondensingDesc'));
-        addInfoButton(condensingSetting, t('settings.loop.enableCondensing'), t('settings.loop.enableCondensingInfo'));
         condensingSetting.addToggle((c) =>
             c.setValue(this.plugin.settings.advancedApi.condensingEnabled ?? false).onChange(async (v) => {
                 this.plugin.settings.advancedApi.condensingEnabled = v;
@@ -91,7 +93,6 @@ export class LoopTab {
         const thresholdSetting = new Setting(containerEl)
             .setName(t('settings.loop.condensingThreshold'))
             .setDesc(t('settings.loop.condensingThresholdDesc'));
-        addInfoButton(thresholdSetting, t('settings.loop.condensingThreshold'), t('settings.loop.condensingThresholdInfo'));
         addSliderInput(thresholdSetting, {
             min: 50, max: 95, step: 5,
             value: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
@@ -104,12 +105,11 @@ export class LoopTab {
             !(this.plugin.settings.advancedApi.condensingEnabled ?? false));
 
         // ── Power steering ──────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.loop.headingPowerSteering') });
+        this.section(containerEl, 'settings.loop.headingPowerSteering', 'settings.loop.sectionPowerSteeringDesc');
 
         const powerSteeringSetting = new Setting(containerEl)
             .setName(t('settings.loop.powerSteeringFreq'))
             .setDesc(t('settings.loop.powerSteeringFreqDesc'));
-        addInfoButton(powerSteeringSetting, t('settings.loop.powerSteeringFreq'), t('settings.loop.powerSteeringFreqInfo'));
         addSliderInput(powerSteeringSetting, {
             min: 0, max: 10, step: 1,
             value: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
@@ -120,12 +120,11 @@ export class LoopTab {
         });
 
         // ── Task routing ────────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.loop.headingHelperModel') });
+        this.section(containerEl, 'settings.loop.headingHelperModel', 'settings.loop.sectionRoutingDesc');
 
         const routerSetting = new Setting(containerEl)
             .setName(t('settings.loop.autoTaskRouterName'))
             .setDesc(t('settings.loop.autoTaskRouterDesc'));
-        addInfoButton(routerSetting, t('settings.loop.autoTaskRouterName'), t('settings.loop.autoTaskRouterInfo'));
         routerSetting.addToggle((toggle) =>
             toggle
                 .setValue(this.plugin.settings.autoTaskRouter?.enabled ?? true)

@@ -358,43 +358,41 @@ export const en: Translations = {
     // Settings — Loop Tab
     // =========================================================================
     'settings.loop.introTitle': 'Run behaviour',
-    'settings.loop.introDesc': 'How long the agent keeps working, how many errors it tolerates, when it summarises the conversation to stay focused. Defaults are sane, click the info icons to learn what each lever does before editing.',
-    'settings.loop.headingLoop': 'Limits & retries',
-    'settings.loop.headingCondensing': 'Auto-summarise',
-    'settings.loop.headingPowerSteering': 'Power steering',
-    'settings.loop.headingHelperModel': 'Task routing',
+    'settings.loop.introDesc': 'How long the agent keeps working, how many errors it tolerates, when it summarises the conversation to stay focused. Defaults are sane; edit only if you have a specific reason.',
 
     // Limits & retries
+    'settings.loop.headingLoop': 'Limits & retries',
+    'settings.loop.sectionLoopDesc': 'Safety nets that stop the agent before it burns through tokens or runs forever. Each one trips independently.',
     'settings.loop.errorLimit': 'Error limit',
-    'settings.loop.errorLimitDesc': 'Stop after this many tool errors in a row.',
-    'settings.loop.errorLimitInfo': 'Default 3. Prevents the agent from burning tokens in a retry loop. Set 0 to never stop. Raise if you use a flaky external service that often fails on the first call.',
+    'settings.loop.errorLimitDesc': 'Stop after this many tool errors in a row. Default: 3. Set to 0 to never stop automatically.',
     'settings.loop.rateLimit': 'Pause between requests',
-    'settings.loop.rateLimitDesc': 'Milliseconds to wait between API calls.',
-    'settings.loop.rateLimitInfo': 'Default 0. Add 500-1500 ms only if your provider returns repeated 429 errors on bursts. Most providers handle pacing themselves.',
+    'settings.loop.rateLimitDesc': 'Milliseconds to wait between API calls. Default: 0. Raise to 500-1500 ms only if your provider returns repeated rate-limit errors.',
     'settings.loop.maxIterations': 'Steps per message',
-    'settings.loop.maxIterationsDesc': 'How many tool-call rounds the agent may take for one message.',
-    'settings.loop.maxIterationsInfo': 'Default 25, covers nearly every workflow. One step = generate response, call tools, wait for results. Raise to 50 only if you regularly see "max iterations reached" notices on complex tasks.',
+    'settings.loop.maxIterationsDesc': 'How many tool-call rounds the agent may take for one message. Default: 25.',
+    'settings.loop.maxIterationsInfo': 'One step = the agent generates a response, calls one or more tools, and waits for the results. Multi-step tasks (research, refactors, deep ingests) need many steps. Raise to 50 if you regularly see "max iterations reached" notices on complex tasks.',
     'settings.loop.maxSubtaskDepth': 'Sub-agent depth',
-    'settings.loop.maxSubtaskDepthDesc': 'How deeply sub-agents may nest.',
-    'settings.loop.maxSubtaskDepthInfo': 'Default 2. 1 = sub-agents cannot spawn further sub-agents. Each level multiplies token cost because every sub-agent gets its own system prompt. Deeper rarely improves results.',
+    'settings.loop.maxSubtaskDepthDesc': 'How deeply sub-agents may nest. Default: 2.',
+    'settings.loop.maxSubtaskDepthInfo': 'A sub-agent is a second agent that the main agent can spawn for a specific subtask (e.g. "research this in parallel"). Depth 1 means sub-agents cannot spawn further sub-agents; 2 allows one extra level. Each level adds a fresh system prompt, multiplying token cost; deeper trees rarely improve results.',
 
     // Auto-summarise
+    'settings.loop.headingCondensing': 'Auto-summarise',
+    'settings.loop.sectionCondensingDesc': 'AI models can hold only a limited amount of text in memory at once. When your chat grows close to that limit, the agent automatically condenses older messages into a recap so you can keep going on a single long task. The summary replaces the original messages, so anything earlier than the most recent few turns is paraphrased, not verbatim.',
     'settings.loop.enableCondensing': 'Auto-summarise long chats',
-    'settings.loop.enableCondensingDesc': 'Replaces older messages with a summary once the conversation gets long.',
-    'settings.loop.enableCondensingInfo': 'Default on. Lets you keep one chat going on very large tasks. Tradeoff: everything earlier than the most recent few turns is paraphrased, not verbatim.',
+    'settings.loop.enableCondensingDesc': 'Replaces older messages with a recap once the chat fills up. Default: on.',
     'settings.loop.condensingThreshold': 'Trigger threshold',
-    'settings.loop.condensingThresholdDesc': "Summarise when the chat reaches this share of the model's memory limit.",
-    'settings.loop.condensingThresholdInfo': 'Default 80 %. Lower = more frequent summaries, faster but loses detail sooner. Higher = waits longer, more raw context but closer to hard-limit errors.',
+    'settings.loop.condensingThresholdDesc': "Summarise when the chat reaches this share of the memory limit. Default: 80 %.",
 
     // Power steering
+    'settings.loop.headingPowerSteering': 'Power steering',
+    'settings.loop.sectionPowerSteeringDesc': 'On long tasks the agent can drift away from its instructions because its role definition (the system prompt) sits far back in the conversation. Power steering periodically re-sends that role so the agent stays in character.',
     'settings.loop.powerSteeringFreq': 'Refresh frequency',
-    'settings.loop.powerSteeringFreqDesc': 'Re-send the agent\'s role every N turns to keep it focused.',
-    'settings.loop.powerSteeringFreqInfo': 'Default 4. The system prompt sits at the start of the conversation and drifts out of view on long tasks. Re-injecting it every N turns keeps the role fresh. Set 0 to disable.',
+    'settings.loop.powerSteeringFreqDesc': 'Re-send the role every N turns. Default: 4. Set to 0 to disable.',
 
     // Task routing
+    'settings.loop.headingHelperModel': 'Task routing',
+    'settings.loop.sectionRoutingDesc': "Some prompts (create one xlsx, summarise a single note, rename a folder) do not need a flagship model. Vault Operator can detect those and route them to your cheaper budget-tier model automatically, falling back to the main model if the budget model struggles.",
     'settings.loop.autoTaskRouterName': 'Route simple tasks to the cheap tier',
-    'settings.loop.autoTaskRouterDesc': 'Send single-step prompts to your cheaper budget-tier model.',
-    'settings.loop.autoTaskRouterInfo': 'Default on. Single-step prompts (create xlsx, summarise one note, rename a folder) use the active provider\'s fast tier instead of the main model. Saves cost on routine work. Falls back to the main model after 2 consecutive tool errors.',
+    'settings.loop.autoTaskRouterDesc': 'Single-step prompts use the budget-tier model. Multi-step prompts stay on the main model. Default: on.',
 
     // =========================================================================
     // Settings — Memory Tab

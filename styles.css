@@ -3381,6 +3381,17 @@
 
 .agent-settings-section:first-child { margin-top: 2px; }
 
+/* Plain explanatory paragraph that follows a section heading. Same
+   visual register as a setting-item-description: muted, 12px, no
+   coloured background. Use it to explain a fachbegriff once for the
+   whole section instead of repeating it on every setting tooltip. */
+.agent-settings-section-desc {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 0 0 12px;
+}
+
 /* Pinned-to-memory star: always visible (status indicator), accent
    colour, no fill -- the regular `star` icon stays as outline. */
 .history-row-action.history-row-action-pinned {
