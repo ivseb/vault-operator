@@ -1,24 +1,24 @@
 ---
-Zusammenfassung:
-Datum:
-Personen:
-Themen:
-Konzepte:
-Notizen:
-Meeting-Notizen:
-Projekt:
-Quellen:
-Kategorie:
-  - Meeting-Notiz
+Summary:
+Date:
+Participants:
+Topics:
+Concepts:
+Notes:
+Meeting notes:
+Project:
+Sources:
+Category:
+  - Meeting note
 tags:
 Permanent: false
 ---
 
-## Zusammenfassung
+## Summary
 
-## Transkript
+## Transcript
 
 > [!info]
-> Transkript als normalen Markdown-Text einfuegen, **nicht** in einen Code-Block.
-> Block-IDs (`^block-N`) greifen in Obsidian nur ausserhalb von Code-Bloecken.
-> Empfehlung: thematische `#### MM:SS`-Headings als Orientierungsanker.
+> Paste the transcript as plain Markdown text, **not** inside a code block.
+> Block IDs (`^block-N`) only work in Obsidian outside code blocks.
+> Recommendation: thematic `#### MM:SS` headings as orientation anchors.

@@ -65,8 +65,10 @@ export function addSectionHeading(
     parent: HTMLElement,
     title: string,
     info?: { body: string },
+    opts?: { level?: 'h3' | 'h4' },
 ): HTMLHeadingElement {
-    const heading = parent.createEl('h3', { cls: 'agent-settings-section' });
+    const tag = opts?.level ?? 'h3';
+    const heading = parent.createEl(tag, { cls: 'agent-settings-section' });
     heading.createSpan({ cls: 'agent-settings-section-label', text: title });
     if (info?.body) {
         const btn = heading.createEl('button', {
@@ -80,7 +82,7 @@ export function addSectionHeading(
             openInfoPopover(title, info.body);
         });
     }
-    return heading;
+    return heading as HTMLHeadingElement;
 }
 
 /**

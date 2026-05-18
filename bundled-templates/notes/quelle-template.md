@@ -1,20 +1,20 @@
 ---
-Zusammenfassung:
-Autor:
-Jahr:
+Summary:
+Author:
+Year:
 ISBN:
 URL:
-Notizen:
-Themen:
-Konzepte:
-Meeting-Notizen:
-Kategorie:
-  - Quelle
-Typ:
+Notes:
+Topics:
+Concepts:
+Meeting notes:
+Category:
+  - Source
+Type:
 tags:
 Permanent: false
 ---
 
 ## Overview
 
-## Kernaussagen
+## Key points
