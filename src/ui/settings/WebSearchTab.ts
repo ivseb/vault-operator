@@ -2,16 +2,17 @@ import { App, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { renderSkipHintIfSkipped } from './skipHints';
 import { t } from '../../i18n';
+import { addSectionHeading } from './utils';
 
 
 export class WebSearchTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.webSearch.introTitle') });
         infoText.createDiv({ text: t('settings.webSearch.introDesc') });
     }
@@ -19,12 +20,12 @@ export class WebSearchTab {
     build(containerEl: HTMLElement): void {
         renderSkipHintIfSkipped(containerEl, this.plugin, 'search-provider');
         this.buildIntroSection(containerEl);
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: t('settings.webSearch.desc'),
-        });
 
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.webSearch.headingGeneral') });
+        addSectionHeading(
+            containerEl,
+            t('settings.webSearch.headingGeneral'),
+            { body: t('settings.webSearch.sectionGeneralInfo') },
+        );
 
         new Setting(containerEl)
             .setName(t('settings.webSearch.enableWebTools'))
@@ -38,7 +39,11 @@ export class WebSearchTab {
                 }),
             );
 
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.webSearch.headingProvider') });
+        addSectionHeading(
+            containerEl,
+            t('settings.webSearch.headingProvider'),
+            { body: t('settings.webSearch.sectionProviderInfo') },
+        );
 
         new Setting(containerEl)
             .setName(t('settings.webSearch.provider'))

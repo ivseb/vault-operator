@@ -740,9 +740,11 @@ export interface ObsidianAgentSettings {
      */
     forcedSkills: Record<string, string[]>;
     /**
-     * Per-mode skill allow-list: maps mode slug → allowed skill names.
-     * Missing entry or empty array = all skills allowed (default).
-     * Non-empty array = only listed skills are available in that mode.
+     * @deprecated Removed 2026-05-18. Per-mode skill filtering was redundant
+     * with toolGroups (a skill cannot call tools its mode lacks) and added
+     * UI surface without value. Field is kept for back-compat (loaded as
+     * `{}` by the migration in main.ts loadSettings) so existing data.json
+     * files do not error.
      */
     modeSkillAllowList: Record<string, string[]>;
     /**
@@ -751,8 +753,10 @@ export interface ObsidianAgentSettings {
      */
     forcedWorkflow: Record<string, string>;
     /**
-     * Per-mode MCP server whitelist: maps mode slug → allowed server names.
-     * Missing entry or empty array = all configured servers allowed.
+     * @deprecated Removed 2026-05-18. Per-agent MCP allow-listing was
+     * replaced by the global `activeMcpServers` toggle in the chat-header
+     * pocket knife. Field stays for back-compat with old data.json files;
+     * loadSettings clears it to `{}` on every load.
      */
     modeMcpServers: Record<string, string[]>;
 
@@ -1144,14 +1148,14 @@ export interface VaultIngestSettings {
  * BA-25 Anhang B: Sebastians vorgegebener Standard-Prompt-Wortlaut.
  * Bleibt 1:1 als Default in Settings hinterlegt, vom User editierbar.
  */
-export const DEFAULT_SUMMARY_PROMPT_TEMPLATE = `Erstelle eine einzige Zusammenfassung in genau einem Satz in deutscher Sprache fuer die aktive Note.
+export const DEFAULT_SUMMARY_PROMPT_TEMPLATE = `Write a single one-sentence summary of the active note.
 
-Die Ausgabe darf nicht mehr als 25 Woerter enthalten. Gib nur den Satz aus, keine Erklaerungen.
-Wenn die Zusammenfassung laenger waere, kuerze sie radikal.
+The output must not exceed 25 words. Return only the sentence, no explanations.
+If the summary would be longer, shorten it aggressively.
 
-Erzeuge zusaetzlich 5-10 Keywords in deutscher und englischer Sprache (Bindestrich-Schreibweise wie "Wort1-Wort2", max 2 verbundene Woerter). Wenn Fachbegriffe eher in Englisch gebraeuchlich sind, verwende die englische Variante (z.B. "AI-Agent" statt "KI-Agent").
+Also produce 5-10 keywords in hyphenated style ("word1-word2", max two joined words). Prefer the English form for technical terms (e.g. "AI-agent" not "KI-Agent"). Mixed-language vaults: stick to the language of the note for the keywords.
 
-Erstelle 2-3 Vorschlaege fuer "Themen" und 2-3 Vorschlaege fuer "Konzepte" passend zum Inhalt der Note. Suche zuerst im Vault nach passenden vorhandenen Themen und Konzepten. Erstelle nur dann ein neues Thema oder Konzept, wenn kein passendes existiert.`;
+Suggest 2-3 entries for "Themen" (topics) and 2-3 entries for "Konzepte" (concepts) matching the note. Search the vault first for matching existing topics and concepts; only create a new entry if none fits.`;
 
 export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     summaryPrompt: {
@@ -1163,8 +1167,11 @@ export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     },
     autoTrigger: {
         enabled: false,
-        propertyName: '',
-        propertyValue: '',
+        // 2026-05-18: english defaults for new installs. Existing
+        // installs keep whatever the user persisted; the saved
+        // settings overwrite these defaults on load.
+        propertyName: 'category',
+        propertyValue: 'source',
         notification: false,
     },
     pdfStrategy: 'page-refs',

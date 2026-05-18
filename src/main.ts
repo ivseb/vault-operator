@@ -952,10 +952,11 @@ export default class ObsidianAgentPlugin extends Plugin {
             const embeddingModel = this.getActiveEmbeddingModel();
             if (embeddingModel) this.semanticIndex.setEmbeddingModel(embeddingModel);
             // Contextual Retrieval: set API handler for prefix generation (FEATURE-1501)
-            if (this.settings.enableContextualRetrieval && this.settings.contextualModelKey) {
-                const ctxModel = this.settings.activeModels.find(
-                    (m) => getModelKey(m) === this.settings.contextualModelKey && m.enabled,
-                );
+            // FEAT-24-08 Welle A: resolver falls back to active-provider fast-tier
+            // when no explicit `contextualModelKey` is set, so the feature stays
+            // alive after the EPIC-26 migration to provider-only config.
+            if (this.settings.enableContextualRetrieval) {
+                const ctxModel = this.getContextualModel();
                 if (ctxModel) {
                     const { buildApiHandlerForModel } = await import('./api/index');
                     this.semanticIndex.setContextualApiHandler(buildApiHandlerForModel(ctxModel));
@@ -983,7 +984,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             } else if (
                 this.semanticIndex.isIndexed &&
                 this.settings.enableContextualRetrieval &&
-                this.settings.contextualModelKey &&
+                this.getContextualModel() &&
                 this.vectorStore
             ) {
                 // No build needed, but check for unenriched chunks from a previous session
@@ -1995,11 +1996,36 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveData(this.encryptSettingsForSave(this.settings));
         });
 
-        // Migrate old mode slugs to new built-in mode slugs (Phase 3.1)
-        const OLD_MODE_MAP: Record<string, string> = { librarian: 'ask', writer: 'agent', orchestrator: 'agent', researcher: 'ask', curator: 'agent', architect: 'agent' };
+        // Migrate old mode slugs to new built-in agent slug.
+        // 2026-05-18: Ask removed, Agent (slug "agent") is the only default.
+        // All legacy specialist modes + Ask collapse into "agent".
+        const OLD_MODE_MAP: Record<string, string> = {
+            librarian: 'agent', writer: 'agent', orchestrator: 'agent',
+            researcher: 'agent', curator: 'agent', architect: 'agent',
+            ask: 'agent',
+        };
         if (OLD_MODE_MAP[this.settings.currentMode]) {
             this.settings.currentMode = OLD_MODE_MAP[this.settings.currentMode];
         }
+        // Drop any custom vault-override or __custom entry that still
+        // points at the removed "ask" slug -- it would dangle otherwise.
+        this.settings.customModes = (this.settings.customModes ?? []).filter(
+            (m) => m.slug !== 'ask' && m.slug !== 'ask__custom',
+        );
+        // Drop modeModelKey + modeToolOverrides for 'ask'.
+        for (const map of [
+            this.settings.modeModelKeys,
+            this.settings.modeToolOverrides,
+        ]) {
+            if (map && typeof map === 'object' && 'ask' in map) delete (map as Record<string, unknown>).ask;
+        }
+        // 2026-05-18: modeSkillAllowList + modeMcpServers removed. Per-mode
+        // skill / MCP allow-listing was redundant with toolGroups (skills
+        // cannot call tools the mode lacks) and the chat-header pocket-knife
+        // now toggles both globally via activeMcpServers and per-tool via
+        // modeToolOverrides.
+        this.settings.modeSkillAllowList = {};
+        this.settings.modeMcpServers = {};
         // Migrate source: 'custom' → 'vault' (introduced in Phase 3.1+)
         this.settings.globalCustomInstructions = this.settings.globalCustomInstructions ?? '';
         this.settings.modeModelKeys = this.settings.modeModelKeys ?? {};
@@ -2197,12 +2223,51 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /** Return the memory extraction CustomModel, or null if none configured or disabled */
+    /**
+     * FEAT-24-08 Welle A (EPIC-26 follow-up): same fallback shape as
+     * `getHelperModel`. If `memoryModelKey` is empty (or points at a
+     * pre-EPIC-26 `activeModels[]` entry that no longer exists because
+     * the migration moved everything into `providerConfigs[]`), fall
+     * back to the active provider's `fast`-tier slot. Returns null
+     * only when the user has neither set an explicit key nor configured
+     * a fast-tier model on the active provider.
+     */
     getMemoryModel(): CustomModel | null {
         const key = this.settings.memory.memoryModelKey;
-        if (!key) return null;
-        const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
-        if (!model || !model.enabled) return null;
-        return model;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
+    }
+
+    /**
+     * FEAT-24-08 Welle A: Contextual-Retrieval prefix-generation model.
+     * Same explicit-key-then-fast-tier-fallback pattern as the helper /
+     * memory resolvers. Returns null when neither a working override
+     * nor a fast-tier slot exists.
+     */
+    getContextualModel(): CustomModel | null {
+        const key = this.settings.contextualModelKey;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
+    }
+
+    /**
+     * FEAT-24-08 Welle A: Chat-Linking semantic-titling model. Same
+     * explicit-key-then-fast-tier-fallback pattern as the other slot
+     * resolvers.
+     */
+    getTitlingModel(): CustomModel | null {
+        const key = this.settings.chatLinking?.titlingModelKey;
+        if (key) {
+            const model = this.settings.activeModels.find((m) => getModelKey(m) === key);
+            if (model && model.enabled) return model;
+        }
+        return this.getTierModel('fast');
     }
 
     /**
@@ -2256,6 +2321,34 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     getAdvisorModel(): CustomModel | null {
         return resolveAdvisorModel(this.settings);
+    }
+
+    /**
+     * Build the cached SKILLS-directory block for a given agent (mode).
+     * Mirrors the logic AgentTask uses at runtime so the Preview-Modal
+     * can show the user exactly what gets injected for THIS agent.
+     * Respects per-mode allow-list + global manualSkillToggles.
+     */
+    async buildSkillDirectoryForMode(_modeSlug: string): Promise<string | undefined> {
+        const skillsManager = this.skillsManager;
+        const selfLoader = this.selfAuthoredSkillLoader;
+
+        const toggles = this.settings.manualSkillToggles ?? {};
+        const userSkills = skillsManager ? await skillsManager.discoverSkills() : [];
+        const filteredUserSkills = Object.keys(toggles).length > 0
+            ? userSkills.filter(s => toggles[s.path] !== false)
+            : userSkills;
+
+        const selfAuthoredBlock = selfLoader?.getMetadataSummary() ?? '';
+        const selfAuthoredNames = new Set(
+            (selfLoader?.getAllSkills() ?? []).map(s => s.name),
+        );
+        const userLines = filteredUserSkills
+            .filter(s => !selfAuthoredNames.has(s.name))
+            .map(s => `- ${s.name}: ${s.description}`);
+        const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
+        if (blocks.length === 0) return undefined;
+        return blocks.join('\n');
     }
 
     /** Return the active embedding CustomModel, or null if none configured or disabled */
@@ -3279,7 +3372,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             this,
             this.toolRegistry,
             'test-task-001',
-            'ask'
+            'agent'
         );
 
         // Create callbacks to collect results

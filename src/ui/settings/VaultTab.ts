@@ -6,19 +6,18 @@ import { pickAgentFolder } from './AgentFolderPickerModal';
 import { promptModal, confirmModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
 import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE } from '../../types/settings';
+import { addSectionHeading, addSliderInput } from './utils';
 
 
 export class VaultTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     build(containerEl: HTMLElement): void {
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: t('settings.vault.desc'),
-        });
-
-        // ── Checkpoints ─────────────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Checkpoints' });
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.headingCheckpoints'),
+            { body: t('settings.vault.sectionCheckpointsInfo') },
+        );
 
         new Setting(containerEl)
             .setName(t('settings.vault.enableCheckpoints'))
@@ -30,20 +29,17 @@ export class VaultTab {
                 }),
             );
 
-        new Setting(containerEl)
+        const timeoutSetting = new Setting(containerEl)
             .setName(t('settings.vault.snapshotTimeout'))
-            .setDesc(t('settings.vault.snapshotTimeoutDesc'))
-            .addText((t) =>
-                t
-                    .setValue(String(this.plugin.settings.checkpointTimeoutSeconds ?? 30))
-                    .onChange(async (v) => {
-                        const n = parseInt(v);
-                        if (!isNaN(n) && n > 0) {
-                            this.plugin.settings.checkpointTimeoutSeconds = n;
-                            await this.plugin.saveSettings();
-                        }
-                    }),
-            );
+            .setDesc(t('settings.vault.snapshotTimeoutDesc'));
+        addSliderInput(timeoutSetting, {
+            min: 5, max: 120, step: 5,
+            value: this.plugin.settings.checkpointTimeoutSeconds ?? 30,
+            onChange: async (v) => {
+                this.plugin.settings.checkpointTimeoutSeconds = v;
+                await this.plugin.saveSettings();
+            },
+        });
 
         new Setting(containerEl)
             .setName(t('settings.vault.autoCleanup'))
@@ -55,12 +51,11 @@ export class VaultTab {
                 }),
             );
 
-        // ── Task Extraction (FEATURE-100) ────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.vault.taskExtraction') });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: t('settings.vault.taskExtractionDesc'),
-        });
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.taskExtraction'),
+            { body: t('settings.vault.sectionTaskExtractionInfo') },
+        );
 
         const taskSettings = this.plugin.settings.taskExtraction ?? { enabled: true, taskFolder: 'Tasks' };
 
@@ -113,15 +108,11 @@ export class VaultTab {
                     }),
             );
 
-        // ── Agent Folder (FEATURE-0507 / Issue #26) ────────────────────────────
-        containerEl.createEl('h3', {
-            cls: 'agent-settings-section',
-            text: t('settings.vault.agentFolderHeading'),
-        });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: t('settings.vault.agentFolderDesc'),
-        });
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.agentFolderHeading'),
+            { body: t('settings.vault.sectionAgentFolderInfo') },
+        );
 
         let currentInput: HTMLInputElement | null = null;
         const service = new AgentFolderService(this.plugin);
@@ -190,14 +181,11 @@ export class VaultTab {
      * Plugin-Reload damit der vault.on-Listener neu registriert.
      */
     private buildVaultIngestSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault ingest' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text:
-                'Builds a wiki-like layer over your vault: per-note summaries, optional frontmatter '
-                + 'mirroring, and automatic triage of inbox notes via a configurable frontmatter property. '
-                + 'All toggles are off by default. Auto-trigger changes require a plugin reload to take effect.',
-        });
+        addSectionHeading(
+            containerEl,
+            t('settings.vault.headingIngest'),
+            { body: t('settings.vault.sectionIngestInfo') },
+        );
 
         const cfg = this.plugin.settings.vaultIngest ?? { ...DEFAULT_VAULT_INGEST_SETTINGS };
         // Sicherstellen dass Setting-Objekt existiert (Migration aus aelteren Settings-Versionen)
@@ -294,17 +282,12 @@ export class VaultTab {
                     }),
             );
 
-        // Auto-Trigger
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Auto-trigger for inbox triage' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text:
-                'Watches your vault for notes that carry a specific frontmatter property and value. '
-                + 'When a match is detected (e.g. you save a note with "Kategorie: Quelle"), the agent '
-                + 'automatically queues it for triage and processes it in the background. Useful for '
-                + 'inbox-style workflows where new sources should be summarized and filed without manual '
-                + 'invocation. Toggling this requires a plugin reload to (de)register the file watcher.',
-        });
+        addSectionHeading(
+            containerEl,
+            'Auto-trigger for inbox triage',
+            { body: 'Watches your vault for notes that carry a specific frontmatter property and value. When a match appears (e.g. you save a note with `category: source`), the agent automatically queues it for triage and processes it in the background. Useful for inbox-style workflows where new sources should be summarised and filed without manual invocation. Toggling the master switch requires a plugin reload to (de)register the file watcher.' },
+            { level: 'h4' },
+        );
 
         new Setting(containerEl)
             .setName('Enable auto-trigger')
@@ -326,7 +309,7 @@ export class VaultTab {
             .addText((text) =>
                 text
                     .setValue(cfg.autoTrigger.propertyName)
-                    .setPlaceholder('Kategorie')
+                    .setPlaceholder('category')
                     .onChange(async (v) => {
                         cfg.autoTrigger.propertyName = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
@@ -340,7 +323,7 @@ export class VaultTab {
             .addText((text) =>
                 text
                     .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
-                    .setPlaceholder('Quelle')
+                    .setPlaceholder('source')
                     .onChange(async (v) => {
                         const parts = v.split(',').map((s) => s.trim()).filter(Boolean);
                         cfg.autoTrigger.propertyValue = parts.length > 1 ? parts : (parts[0] ?? '');
@@ -360,15 +343,12 @@ export class VaultTab {
                 }),
             );
 
-        // PDF-Strategie
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'PDF handling' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text:
-                'Controls how PDFs are referenced when the agent cites them. Page-refs keeps the PDF '
-                + 'untouched and links to specific pages. Markdown-mirror additionally extracts the text '
-                + 'into a parallel markdown file, which lets the agent quote and link at block level.',
-        });
+        addSectionHeading(
+            containerEl,
+            'PDF handling',
+            { body: 'Controls how PDFs are referenced when the agent cites them. Page-refs keeps the PDF untouched and links to specific pages. Markdown-mirror additionally extracts the text into a parallel markdown file, which lets the agent quote and link at block level. Page-refs is the default; use Markdown-mirror only for text-heavy PDFs where you need quote-level granularity.' },
+            { level: 'h4' },
+        );
 
         new Setting(containerEl)
             .setName('PDF strategy')
@@ -389,16 +369,12 @@ export class VaultTab {
                     }),
             );
 
-        // ── Note templates for ingest skills (IMP-19-31-01) ──
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Note templates for ingest skills' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text:
-                'Vault-relative path to a Markdown file whose YAML frontmatter is used as the basis '
-                + 'for newly ingested source notes. Leave empty to fall back to the bundled defaults '
-                + '(plugin folder: note-templates/quelle-template.md or meeting-notiz-template.md). '
-                + 'Example value: "Tools & Settings/Templates/Quelle Template.md".',
-        });
+        addSectionHeading(
+            containerEl,
+            'Note templates for ingest skills',
+            { body: 'Vault-relative path to a Markdown file whose YAML frontmatter is used as the basis for newly ingested source notes. Leave empty to fall back to the bundled defaults. Useful if you want a custom set of frontmatter properties on every new source note.' },
+            { level: 'h4' },
+        );
 
         new Setting(containerEl)
             .setName('Template for /ingest')
@@ -445,17 +421,12 @@ export class VaultTab {
                     }),
             );
 
-        // ── Top-Hub-Block (FEAT-03-26 + FIX-03-26-01 Privacy-Hint, AUDIT-014 M-2) ──
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Top-hub block in system prompt' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text:
-                'Hubs are the most-linked notes in your vault, the structural backbone of your knowledge '
-                + 'graph (e.g. central index notes, MOCs, key topic pages). When enabled, summaries of '
-                + 'your top 30 hubs are injected into every conversation\'s system prompt so the agent '
-                + 'always has a high-level map of your vault. Improves grounding for general questions, '
-                + 'but increases token cost on every call.',
-        });
+        addSectionHeading(
+            containerEl,
+            'Top-hub block in system prompt',
+            { body: 'Hubs are the most-linked notes in your vault, the structural backbone of your knowledge graph (central index notes, MOCs, key topic pages). With this on, short summaries of your top 30 hubs are injected into every conversation\'s system prompt so the agent has a high-level map of your vault. Improves grounding for general questions, raises token cost on every call.' },
+            { level: 'h4' },
+        );
 
         const privacyWarn = containerEl.createEl('div', { cls: 'agent-settings-desc' });
         privacyWarn.createEl('strong', { text: 'Privacy notice: ' });
@@ -502,16 +473,11 @@ export class VaultTab {
             enabledSetting.descEl.createEl('em', { text: '(disabled until privacy notice is accepted)' });
         }
 
-        // ── Hot-Cluster-Konfiguration (FEAT-19-21) ─────────────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Hot clusters (periodic freshness lint)' });
-
-        const hotDesc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
-        hotDesc.appendText(
-            'A "cluster" is a topic group derived from your vault\'s ontology (e.g. "AI", "Cooking"). '
-            + 'A weekly background job checks whether the external world has moved on since your notes '
-            + 'were last updated, but only for clusters you mark as "hot" below. Mark topics where '
-            + 'currency matters (fast-moving fields, active projects). Default: none selected. A token '
-            + 'budget caps the cost of each run.',
+        addSectionHeading(
+            containerEl,
+            'Hot clusters (periodic freshness lint)',
+            { body: 'A "cluster" is a topic group derived from your vault\'s ontology (e.g. "AI", "Cooking"). A weekly background job checks whether the external world has moved on since your notes were last updated, but only for clusters you mark as "hot" below. Mark topics where currency matters (fast-moving fields, active projects). Default: none selected. A token budget caps the cost of each run.' },
+            { level: 'h4' },
         );
 
         const store = this.plugin.clusterMetadataStore;
@@ -541,14 +507,11 @@ export class VaultTab {
             }
         }
 
-        // ── Stufe-2 Activity-Hint (FEAT-19-19) ─────────────────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Activity hint on stale clusters' });
-        const stufe2Desc = containerEl.createEl('div', { cls: 'agent-settings-desc' });
-        stufe2Desc.appendText(
-            'When you open or edit a note in a cluster whose knowledge looks stale (low freshness score), '
-            + 'the plugin shows a subtle notice offering to run an "anti-echo" search against external '
-            + 'sources to surface what may have changed. Default OFF to avoid notice spam. Per-cluster '
-            + 'cooldowns and a daily cap prevent repeated nagging.',
+        addSectionHeading(
+            containerEl,
+            'Activity hint on stale clusters',
+            { body: 'When you open or edit a note in a cluster whose knowledge looks stale (low freshness score), the plugin can show a subtle notice offering to run an "anti-echo" search against external sources to surface what may have changed. Default off to avoid notice spam. Per-cluster cooldowns and a daily cap prevent repeated nagging.' },
+            { level: 'h4' },
         );
         new Setting(containerEl)
             .setName('Enable activity hint')
@@ -612,8 +575,12 @@ export class VaultTab {
                     });
             });
 
-        // ── Aktionen (Backfill, Inbox-Triage, MOC-Refresh) ──────────────
-        containerEl.createEl('h4', { cls: 'agent-settings-section', text: 'Manual actions' });
+        addSectionHeading(
+            containerEl,
+            'Manual actions',
+            { body: 'One-off operations you can run on the whole vault: backfill missing frontmatter summaries, scan the inbox for auto-trigger matches, inject map-of-content markers into hub notes, or rebuild the cached top-hub block. Each action is idempotent and safe to re-run.' },
+            { level: 'h4' },
+        );
         new Setting(containerEl)
             .setName('Run frontmatter backfill')
             .setDesc('Iterates over all Markdown notes and adds missing frontmatter summaries. Requires the auto-summary toggle above to be enabled. Can take a while on large vaults.')
@@ -708,7 +675,7 @@ export class VaultTab {
                 15_000,
             );
         } else if (summaryParts.length === 0) {
-            new Notice('Nothing migrated — destination already had identical files.');
+            new Notice('Nothing migrated. Destination already had identical files.');
         } else {
             new Notice(
                 `Migrated ${summaryParts.join(', ')}. Reload Obsidian so the knowledge and memory databases open at the new location.`,

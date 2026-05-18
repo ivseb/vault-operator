@@ -7,6 +7,7 @@ import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
+import { McpServerPopover } from './sidebar/McpServerPopover';
 import { ChatModelPickerPopover } from './sidebar/ChatModelPickerPopover';
 import { resolveOverrideModel } from './sidebar/chatModelDropdown';
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
@@ -52,7 +53,7 @@ export class AgentSidebarView extends ItemView {
     private chatContainer: HTMLElement | null = null;
     private inputArea: HTMLElement | null = null;
     private textarea: HTMLTextAreaElement | null = null;
-    private modeButton: HTMLElement | null = null;
+    // Note: modeButton was removed in FEAT-26-05; chat-header has no mode UI anymore.
     private modelButton: HTMLButtonElement | null = null;
     /**
      * EPIC-26 / FEAT-26-05: per-turn chat-header override.
@@ -76,6 +77,13 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+
+    // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
+    // queue up while a task is running and get drained by AgentTask at the
+    // start of the next iteration via consumeSteeringMessages. The bubbleEl
+    // reference lets the sidebar flip the UI from "queued" to
+    // "delivered at iteration N" the moment AgentTask consumes the entry.
+    private steeringQueue: Array<{ text: string; bubbleEl: HTMLElement }> = [];
 
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
@@ -104,6 +112,8 @@ export class AgentSidebarView extends ItemView {
     private webToggleButton: HTMLElement | null = null;
     /** Manages tool/skill/workflow picker */
     private toolPicker!: ToolPickerPopover;
+    /** Manages MCP server picker (opened from the "+" menu) */
+    private mcpPicker!: McpServerPopover;
     /** Manages pending attachments and chip bar UI */
     private attachments!: AttachmentHandler;
     /** Manages / and @ autocomplete dropdown */
@@ -120,6 +130,7 @@ export class AgentSidebarView extends ItemView {
         this.plugin = plugin;
         this.modeService = new ModeService(plugin);
         this.toolPicker = new ToolPickerPopover(plugin, this.modeService);
+        this.mcpPicker = new McpServerPopover(plugin);
         this.vaultFilePicker = new VaultFilePicker(
             this.app,
             async (files) => { for (const f of files) await this.attachments.addVaultFile(f); },
@@ -392,6 +403,9 @@ export class AgentSidebarView extends ItemView {
         this.textarea.addEventListener('input', () => {
             this.autoResizeTextarea();
             void this.autocomplete.handleInput();
+            // FEAT-24-08 Steering: toggle Stop -> Send when user starts typing
+            // mid-run (and back to Stop when textarea is cleared).
+            this.refreshRunStateButtons();
         });
 
         this.textarea.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -472,12 +486,10 @@ export class AgentSidebarView extends ItemView {
         const toolbarRight = toolbar.createDiv('chat-toolbar-right');
 
         // EPIC-26 / FEAT-26-05: Mode switcher removed from the chat header.
-        // The Agent/Ask dropdown was never used in practice (see memory
-        // `feedback_modes_unused.md`); skills + Provider-only setup cover
-        // the surface area better. The mode backend stays functional --
-        // currentMode setting, ModeService, switch_mode tool are unchanged
-        // -- only the UI trigger goes away. Default mode is Agent.
-        this.modeButton = null;
+        // 2026-05-18: the Agent/Mode-Button in the chat header is gone
+        // (FEAT-26-05). Agent management lives in Settings -> Agents.
+        // The mode backend stays functional: `currentMode` setting,
+        // ModeService, `switch_agent` tool are unchanged.
 
         // Model button (left, after mode)
         this.modelButton = toolbarLeft.createEl('button', {
@@ -577,6 +589,11 @@ export class AgentSidebarView extends ItemView {
             .setTitle('Insert workflow...')
             .setIcon('workflow')
             .onClick(() => this.openCommandPicker('workflows', anchor)));
+        menu.addSeparator();
+        menu.addItem(item => item
+            .setTitle(t('ui.sidebar.selectMcpServers'))
+            .setIcon('plug-2')
+            .onClick(() => this.mcpPicker.show(e, anchor, this.containerEl)));
         menu.showAtMouseEvent(e);
     }
 
@@ -867,20 +884,14 @@ export class AgentSidebarView extends ItemView {
         });
     }
 
-    private updateModeButton(): void {
-        if (!this.modeButton) return;
-        this.modeButton.empty();
-        const currentMode = this.plugin.settings.currentMode;
-        setIcon(this.modeButton.createSpan('toolbar-icon'), this.getModeIcon(currentMode));
-        this.modeButton.createSpan('mode-label').setText(this.getModeDisplayName(currentMode));
-        setIcon(this.modeButton.createSpan('mode-chevron'), 'chevron-down');
-        this.updateToolPickerButton();
-    }
-
+    /**
+     * 2026-05-18: legacy mode-button + popover removed (FEAT-26-05).
+     * Tool-Picker stays in the chat toolbar; with "Ask" gone there is
+     * no mode that hides it, so we always show.
+     */
     private updateToolPickerButton(): void {
         if (!this.toolPickerButton) return;
-        const isAsk = this.plugin.settings.currentMode === 'ask';
-        this.toolPickerButton.classList.toggle('agent-u-hidden', isAsk);
+        this.toolPickerButton.classList.remove('agent-u-hidden');
         this.updateWebToggleButton();
     }
 
@@ -1071,24 +1082,10 @@ export class AgentSidebarView extends ItemView {
         this.webToggleButton.classList.toggle('web-toggle-active', isEnabled);
     }
 
-    private showModeMenu(event: MouseEvent): void {
-        const menu = new Menu();
-        const modes = this.modeService.getAllModes();
-        modes.forEach((mode) => {
-            menu.addItem((item) =>
-                item
-                    .setTitle(mode.name)
-                    .setIcon(mode.icon)
-                    .setChecked(this.plugin.settings.currentMode === mode.slug)
-                    .onClick(() => this.switchMode(mode.slug))
-            );
-        });
-        menu.showAtMouseEvent(event);
-    }
-
-    private getModeIcon(modeSlug: string): string {
-        return this.modeService.getMode(modeSlug)?.icon ?? 'zap';
-    }
+    // 2026-05-18: showModeMenu + getModeIcon removed (dead since the
+    // chat-header Mode-button was retired in FEAT-26-05). Agent-switching
+    // now lives entirely in Settings -> Agents. getModeDisplayName stays
+    // because the mode-switched Notice still uses it.
 
     private getModeDisplayName(modeSlug: string): string {
         return this.modeService.getMode(modeSlug)?.name ?? modeSlug;
@@ -1150,36 +1147,22 @@ export class AgentSidebarView extends ItemView {
      * itself based on the directory and loads its body via the read_skill
      * tool. Replaces the previous classifier-driven body injection.
      *
-     * Honours the manual skill toggles and the per-mode allow-list so the
-     * directory matches what the user actually exposes.
+     * Honours the manual skill toggles so the directory matches what the
+     * user actually exposes.
      */
-    private async buildSkillDirectory(allowedSkillNames?: string[]): Promise<string | undefined> {
+    private async buildSkillDirectory(): Promise<string | undefined> {
         const skillsManager = this.plugin.skillsManager;
         const selfLoader = this.plugin.selfAuthoredSkillLoader;
 
-        // Effective toggles for user-skill paths (per-mode allow-list narrows them).
-        const toggles = { ...(this.plugin.settings.manualSkillToggles ?? {}) };
-        const allowedSet = allowedSkillNames ? new Set(allowedSkillNames) : null;
-
+        const toggles = this.plugin.settings.manualSkillToggles ?? {};
         const userSkills = skillsManager ? await skillsManager.discoverSkills() : [];
-        if (allowedSet) {
-            for (const skill of userSkills) {
-                if (!allowedSet.has(skill.name)) toggles[skill.path] = false;
-            }
-        }
         const filteredUserSkills = Object.keys(toggles).length > 0
             ? userSkills.filter(s => toggles[s.path] !== false)
             : userSkills;
 
-        // Self-authored / bundled skills (carries the inventory render).
-        const selfAuthoredAllowed = allowedSet ?? undefined;
-        const selfAuthoredBlock = selfLoader?.getMetadataSummary(selfAuthoredAllowed) ?? '';
-
-        // Names already covered by self-authored block to avoid duplicates.
+        const selfAuthoredBlock = selfLoader?.getMetadataSummary() ?? '';
         const selfAuthoredNames = new Set(
-            (selfLoader?.getAllSkills() ?? [])
-                .filter(s => !allowedSet || allowedSet.has(s.name))
-                .map(s => s.name),
+            (selfLoader?.getAllSkills() ?? []).map(s => s.name),
         );
 
         const userLines = filteredUserSkills
@@ -1374,7 +1357,25 @@ export class AgentSidebarView extends ItemView {
 
         const text = this.textarea.value.trim();
         if (!text && this.attachments.pending.length === 0) return;
-        if (this.currentAbortController) return; // Already running
+
+        // FEAT-24-08 / ADR-114 Steering-Hook: if a task is already running,
+        // queue the text as a mid-run steering message instead of trying to
+        // start a new turn. Attachments are not supported in steering mode
+        // (corrections are short text-only nudges); they stay queued for the
+        // next real turn.
+        if (this.currentAbortController) {
+            if (!text) return;
+            // Render the steering bubble in "pending" state and keep a
+            // reference so consumeSteeringMessages can flip it to
+            // "delivered at iteration N" when AgentTask actually drains it.
+            const bubbleEl = this.addSteeringMessage(text);
+            this.steeringQueue.push({ text, bubbleEl });
+            this.uiMessages.push({ role: 'user', text, ts: new Date().toISOString() });
+            this.textarea.value = '';
+            this.autoResizeTextarea();
+            this.refreshRunStateButtons();
+            return;
+        }
 
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
@@ -1572,6 +1573,16 @@ export class AgentSidebarView extends ItemView {
 
         // Feature 3: Create AbortController, show stop button
         this.currentAbortController = new AbortController();
+        // FEAT-24-08 Steering: clear any stale entries before a new task
+        // starts so leftover mid-run messages from a previous run cannot
+        // leak into a fresh conversation. Any pending bubbles that never
+        // got drained (e.g. typed during the very last iteration before
+        // attempt_completion fired) are flipped to "discarded" so the user
+        // can see they were not applied.
+        for (const entry of this.steeringQueue) {
+            this.markSteeringDiscarded(entry.bubbleEl);
+        }
+        this.steeringQueue = [];
         this.setRunningState(true);
 
         // Prepare streaming message elements (thinking → tools → response text → footer)
@@ -1856,7 +1867,7 @@ export class AgentSidebarView extends ItemView {
                         // Add compact item row to group body
                         const itemEl = activeToolGroup.bodyEl.createDiv('tool-group-item');
                         setIcon(itemEl.createSpan('tool-item-icon'), 'loader');
-                        itemEl.createSpan('tool-item-brief').setText(brief || '—');
+                        itemEl.createSpan('tool-item-brief').setText(brief || '...');
 
                         const queue = toolElsByName.get(name) ?? [];
                         queue.push(itemEl);
@@ -1972,6 +1983,9 @@ export class AgentSidebarView extends ItemView {
                             const truncated = displayContent.length > 2000
                                 ? displayContent.slice(0, 2000) + '\n…(truncated)'
                                 : displayContent;
+                            // FIX-19-31-02: clear any <pre> left by onToolProgress so the
+                            // final result replaces the live-preview instead of being appended.
+                            outputEl.empty();
                             outputEl.createEl('pre').setText(truncated);
                         }
                         details.open = isError;
@@ -2036,13 +2050,28 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
                 },
+                // FEAT-24-08 / ADR-114 Steering-Hook: drain the queue and
+                // hand mid-run steering messages to AgentTask. Called by
+                // AgentTask once per iteration. Order preserved. Each
+                // drained bubble is flipped to "delivered at iteration N"
+                // so the user can see exactly when their correction landed
+                // in the conversation history.
+                consumeSteeringMessages: (iteration: number) => {
+                    if (this.steeringQueue.length === 0) return [];
+                    const drained = this.steeringQueue;
+                    this.steeringQueue = [];
+                    const texts: string[] = [];
+                    for (const entry of drained) {
+                        texts.push(entry.text);
+                        this.markSteeringDelivered(entry.bubbleEl, iteration);
+                    }
+                    return texts;
+                },
                 onModeSwitch: (newModeSlug) => {
                     // Explicitly sync settings before refreshing the button.
-                    // ModeService.switchMode() sets this synchronously, but this
-                    // ensures the button always shows the correct mode even if
-                    // the async save is still in flight.
+                    // ModeService.switchMode() sets this synchronously; we
+                    // still update settings here as a safety net.
                     this.plugin.settings.currentMode = newModeSlug;
-                    this.updateModeButton();
                     new Notice(t('notice.modeSwitched', { mode: this.getModeDisplayName(newModeSlug) }));
                     // Auto-index on mode switch if configured
                     if (this.plugin.settings.semanticAutoIndex === 'mode-switch' && this.plugin.semanticIndex) {
@@ -2167,9 +2196,6 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
 
-                    // Refresh mode button — ensures it always reflects the final active mode
-                    // even after an agent-initiated switch_mode call during this task.
-                    this.updateModeButton();
                     // Replace the raw streaming text with the properly formatted Markdown.
                     // This fires exactly once — giving us instant streaming + clean final output.
                     streamingPara = null;
@@ -2352,10 +2378,7 @@ export class AgentSidebarView extends ItemView {
         const isOnboarding = isActiveOnboardingFlow(this.plugin.settings);
         let skillDirectorySection: string | undefined;
         if (!isOnboarding) {
-            const modeAllowed = this.plugin.settings.modeSkillAllowList?.[activeMode.slug];
-            // empty/undefined = all allowed; non-empty = only those skill names
-            const allowedSkillNames = modeAllowed && modeAllowed.length > 0 ? modeAllowed : undefined;
-            skillDirectorySection = await this.buildSkillDirectory(allowedSkillNames);
+            skillDirectorySection = await this.buildSkillDirectory();
         }
 
         // Apply forced workflow from tool picker (when message doesn't start with slash command)
@@ -2379,7 +2402,11 @@ export class AgentSidebarView extends ItemView {
         const pluginSkillsSection = isOnboarding ? undefined
             : this.plugin.skillRegistry?.getPluginSkillsPromptSection();
 
-        const allowedMcpServers = this.plugin.settings.modeMcpServers?.[activeMode.slug];
+        // 2026-05-18: per-mode MCP allow-list removed. The chat-header pocket
+        // knife now toggles activeMcpServers globally instead. The systemprompt
+        // tool-section honours activeMcpServers as the source of truth via
+        // McpBridge, so passing undefined here means "no per-agent restriction".
+        const allowedMcpServers: string[] | undefined = undefined;
 
         // Memory v2 is the only path. The legacy v1 MD-file pipeline was
         // removed once the upgrade orchestrator landed -- existing users
@@ -2542,17 +2569,45 @@ export class AgentSidebarView extends ItemView {
     private handleStop(): void {
         this.currentAbortController?.abort();
         this.currentAbortController = null;
+        // FEAT-24-08 Steering: pending bubbles never reached the agent --
+        // flip them to "discarded" so the user knows the correction was
+        // never applied.
+        for (const entry of this.steeringQueue) {
+            this.markSteeringDiscarded(entry.bubbleEl);
+        }
+        this.steeringQueue = [];
         this.setRunningState(false);
     }
 
     /**
-     * Toggle between send and stop button states
+     * Toggle between send and stop button states.
+     *
+     * FEAT-24-08 / ADR-114 Steering-Hook: when a task is running and the
+     * textarea has content, show Send (Claude-Code-style: typing morphs
+     * Stop -> Send so Enter sends a steering message instead of stopping).
+     * Empty textarea while running keeps Stop visible.
+     * Textarea stays enabled so the user can type mid-run.
      */
     private setRunningState(running: boolean): void {
-        if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', running);
-        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !running);
-        if (this.textarea) this.textarea.disabled = running;
         if (this.modelButton) this.modelButton.disabled = running;
+        // Textarea is no longer disabled when running -- needed for steering.
+        if (this.textarea) this.textarea.disabled = false;
+        this.refreshRunStateButtons();
+    }
+
+    /**
+     * Pick the correct primary action button (Send vs Stop) based on running
+     * state + textarea content. Called on running-state changes and on every
+     * textarea input event.
+     */
+    private refreshRunStateButtons(): void {
+        const running = this.currentAbortController !== null;
+        const hasText = (this.textarea?.value.trim().length ?? 0) > 0;
+        // Show Send when: not running OR running-with-text (steering mode).
+        // Show Stop when: running AND empty textarea.
+        const showSend = !running || hasText;
+        if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
+        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', showSend);
     }
 
     /**
@@ -2769,11 +2824,11 @@ export class AgentSidebarView extends ItemView {
         const store = this.plugin.conversationStore;
         if (!store) return;
 
-        // 1. Semantic titling (always, if model configured)
-        const modelKey = settings.chatLinking?.titlingModelKey;
-        const model = modelKey
-            ? settings.activeModels.find((m) => getModelKey(m) === modelKey && m.enabled)
-            : undefined;
+        // 1. Semantic titling (always, if model resolvable)
+        // FEAT-24-08 Welle A: resolver falls back to active-provider
+        // fast-tier when no explicit key is set, so titling stays alive
+        // after the EPIC-26 migration to provider-only config.
+        const model = this.plugin.getTitlingModel();
 
         if (model) {
             const userMsg = messages.find((m) => m.role === 'user')?.text ?? '';
@@ -3064,6 +3119,64 @@ export class AgentSidebarView extends ItemView {
         return msgEl;
     }
 
+    /**
+     * FEAT-24-08 / ADR-114 Steering-Hook: render a mid-run user correction
+     * as a distinct bubble. Three lifecycle states tracked via CSS classes:
+     *
+     *   - `steering-pending`    queued, waiting for next iteration
+     *   - `steering-delivered`  picked up by AgentTask at iteration N
+     *   - `steering-discarded`  task ended (Stop or completion) before drain
+     *
+     * Returns the bubble element so the queue can update its state later.
+     */
+    private addSteeringMessage(text: string): HTMLElement {
+        const msgEl = this.chatContainer!.createDiv('message user-message chat-message-steering steering-pending');
+        // Marker row above the content: small arrow icon + "Steering" label
+        const markerRow = msgEl.createDiv('steering-marker');
+        setIcon(markerRow.createSpan('steering-marker-icon'), 'corner-down-right');
+        markerRow.createSpan('steering-marker-label').setText(t('ui.sidebar.steeringLabel'));
+        // Bubble content
+        msgEl.createDiv('message-content').setText(text);
+        // Status footer (pending now, will be replaced on delivery / discard)
+        const footer = msgEl.createDiv('steering-footer');
+        setIcon(footer.createSpan('steering-footer-icon'), 'clock');
+        footer.createSpan('steering-footer-text').setText(t('ui.sidebar.steeringQueued'));
+        this.chatContainer!.scrollTop = this.chatContainer!.scrollHeight;
+        return msgEl;
+    }
+
+    /**
+     * Flip a steering bubble to "delivered" state once AgentTask has
+     * consumed it. Updates icon (clock -> check) and footer label
+     * ("queued" -> "delivered at iteration N").
+     */
+    private markSteeringDelivered(bubbleEl: HTMLElement, iteration: number): void {
+        bubbleEl.classList.remove('steering-pending');
+        bubbleEl.classList.add('steering-delivered');
+        const footer = bubbleEl.querySelector<HTMLElement>('.steering-footer');
+        if (!footer) return;
+        footer.empty();
+        setIcon(footer.createSpan('steering-footer-icon'), 'check');
+        footer.createSpan('steering-footer-text').setText(
+            t('ui.sidebar.steeringDelivered', { iteration: String(iteration) }),
+        );
+    }
+
+    /**
+     * Flip a steering bubble to "discarded" state when the task ended
+     * (Stop or natural completion) before the queue entry was drained.
+     * Updates icon (clock -> x) and footer label ("queued" -> "not delivered").
+     */
+    private markSteeringDiscarded(bubbleEl: HTMLElement): void {
+        bubbleEl.classList.remove('steering-pending');
+        bubbleEl.classList.add('steering-discarded');
+        const footer = bubbleEl.querySelector<HTMLElement>('.steering-footer');
+        if (!footer) return;
+        footer.empty();
+        setIcon(footer.createSpan('steering-footer-icon'), 'x');
+        footer.createSpan('steering-footer-text').setText(t('ui.sidebar.steeringDiscarded'));
+    }
+
     private addUserMessage(text: string, attachments: AttachmentItem[] = [], activeFile?: TFile | null): void {
         if (!this.chatContainer) return;
         const msgEl = this.chatContainer.createDiv('message user-message');
@@ -3158,8 +3271,7 @@ export class AgentSidebarView extends ItemView {
 
     private switchMode(modeSlug: string): void {
         void this.modeService.switchMode(modeSlug); // saves settings
-        this.updateModeButton();
-        this.updateModelButton(); // model may differ per mode
+        this.updateModelButton(); // model may differ per agent
     }
 
 
@@ -3858,7 +3970,7 @@ export class AgentSidebarView extends ItemView {
                 return { text: t('ui.approval.explain.command'), target: str('command_id') };
             case 'execute_recipe':
                 return { text: t('ui.approval.explain.recipe'), target: str('recipe_id') };
-            case 'switch_mode':
+            case 'switch_agent':
                 return { text: t('ui.approval.explain.switchMode') };
             case 'manage_skill':
             case 'manage_source':
@@ -4003,7 +4115,7 @@ export class AgentSidebarView extends ItemView {
         if (skillTools.includes(toolName)) return 'skill';
         if (toolName === 'call_plugin_api') return 'plugin-api';
         if (toolName === 'execute_recipe') return 'recipe';
-        if (toolName === 'switch_mode') return 'mode';
+        if (toolName === 'switch_agent') return 'mode';
         if (toolName === 'new_task') return 'subtask';
         return 'note-edit'; // write_file, edit_file, append_to_file, update_frontmatter
     }

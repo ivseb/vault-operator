@@ -6,16 +6,17 @@ import * as os from 'os';
 import * as safeFs from '../../core/security/safeFs';
 import { spawnAllowedSync } from '../../core/security/spawnAllowlist';
 import { ENV_APPDATA, readEnv } from '../../util/envKeys';
+import { addSectionHeading } from './utils';
 
 export class McpTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     build(containerEl: HTMLElement): void {
         // One intro banner for the page
-        const intro = containerEl.createDiv('agent-settings-info-banner');
-        const introIcon = intro.createSpan({ cls: 'agent-settings-info-icon' });
+        const intro = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const introIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(introIcon, 'link');
-        const introText = intro.createDiv({ cls: 'agent-settings-info-text' });
+        const introText = intro.createDiv({ cls: 'vault-op-box__text' });
         introText.createEl('strong', { text: 'Connections' });
 
         introText.createDiv({ text: 'Connect Vault Operator to AI assistants like Claude, or extend Vault Operator with external tool servers. All connections use the open MCP standard.' });
@@ -29,11 +30,11 @@ export class McpTab {
     // ─────────────────────────────────────────────────────────────────────────
 
     private buildConnectorSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Connectors' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: 'Let AI assistants access your vault. Enable a connector, then configure the assistant to connect.',
-        });
+        addSectionHeading(
+            containerEl,
+            'Connectors',
+            { body: 'Let external AI assistants (Claude Desktop, Claude Code, ChatGPT Desktop) read and write your vault through Vault Operator. Enable a connector here, then point the assistant at it using the configuration block this tab prints.' },
+        );
 
         // ── Claude Desktop / Claude Code ──────────────────────────────────
         containerEl.createEl('h4', { text: 'Local connector' });
@@ -100,10 +101,10 @@ export class McpTab {
 
             if (!hasRelay) {
                 // ── Info banner: setup flow ───────────────────────────────
-                const remoteInfo = containerEl.createDiv('agent-settings-info-banner');
-                const remoteInfoIcon = remoteInfo.createSpan({ cls: 'agent-settings-info-icon' });
+                const remoteInfo = containerEl.createDiv('vault-op-box vault-op-box--intro');
+                const remoteInfoIcon = remoteInfo.createSpan({ cls: 'vault-op-box__icon' });
                 setIcon(remoteInfoIcon, 'globe');
-                const remoteInfoText = remoteInfo.createDiv({ cls: 'agent-settings-info-text' });
+                const remoteInfoText = remoteInfo.createDiv({ cls: 'vault-op-box__text' });
                 remoteInfoText.createDiv({ text: 'A relay server on your own Cloudflare account connects your vault to AI assistants from any device. Your data stays on your infrastructure.' });
                 const steps = remoteInfoText.createEl('ol');
 
@@ -298,11 +299,11 @@ export class McpTab {
     // ─────────────────────────────────────────────────────────────────────────
 
     private buildExternalServersSection(containerEl: HTMLElement): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'External tool servers' });
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: 'Connect external tool servers for web search, databases, and more. These work in standalone mode.',
-        });
+        addSectionHeading(
+            containerEl,
+            'External tool servers',
+            { body: 'Add MCP servers maintained by others (web search, calendar, GitHub, your own scripts) so the agent can call them as tools. Each server runs as its own process, isolated from Obsidian.' },
+        );
 
         const mcpClient = this.plugin.mcpClient;
         const addBtn = containerEl.createEl('button', { text: t('settings.mcp.addServer'), cls: 'mod-cta agent-mcp-add-btn' });

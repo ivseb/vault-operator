@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Setting, setIcon, TFolder, AbstractInputSuggest, ButtonComponent } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { ModelConfigModal } from './ModelConfigModal';
-import { addInfoButton } from './utils';
+import { addInfoButton, addSectionHeading } from './utils';
 import { PROVIDER_LABELS, PROVIDER_COLORS } from './constants';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey } from '../../types/settings';
@@ -14,10 +14,10 @@ export class EmbeddingsTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.embeddings.introTitle') });
         infoText.createDiv({ text: t('settings.embeddings.introDesc') });
     }
@@ -25,7 +25,7 @@ export class EmbeddingsTab {
     build(containerEl: HTMLElement): void {
         renderSkipHintIfSkipped(containerEl, this.plugin, 'embedding-model');
         this.buildIntroSection(containerEl);
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingModels') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingModels'), { body: t('settings.embeddings.sectionModelsInfo') });
 
         const desc = containerEl.createDiv('model-table-desc');
         desc.setText(t('settings.embeddings.modelsDesc'));
@@ -72,7 +72,7 @@ export class EmbeddingsTab {
         });
 
         // ── Semantic Index ────────────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingIndex') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingIndex'), { body: t('settings.embeddings.sectionIndexInfo') });
 
         const activeEmbModel = this.plugin.getActiveEmbeddingModel();
         const embModelDesc = activeEmbModel
@@ -106,7 +106,7 @@ export class EmbeddingsTab {
         const semanticEnableSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.enableIndex'))
             .setDesc(t('settings.embeddings.enableIndexDesc'));
-        addInfoButton(semanticEnableSetting, this.app, t('settings.embeddings.infoIndexTitle'), t('settings.embeddings.infoIndexBody'));
+        addInfoButton(semanticEnableSetting, t('settings.embeddings.infoIndexTitle'), t('settings.embeddings.infoIndexBody'));
         semanticEnableSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.enableSemanticIndex ?? false).onChange(async (v) => {
                 this.plugin.settings.enableSemanticIndex = v;
@@ -171,29 +171,12 @@ export class EmbeddingsTab {
                 }),
             );
 
-        const ctxModels = this.plugin.settings.activeModels.filter((m) => m.enabled);
-        if (ctxModels.length > 0) {
-            new Setting(containerEl)
-                .setName(t('settings.embeddings.contextualModel'))
-                .setDesc(t('settings.embeddings.contextualModelDesc'))
-                .addDropdown((d) => {
-                    d.addOption('', t('settings.embeddings.contextualModelPlaceholder'));
-                    for (const m of ctxModels) {
-                        d.addOption(getModelKey(m), m.displayName ?? m.name);
-                    }
-                    d.setValue(this.plugin.settings.contextualModelKey ?? '');
-                    d.onChange(async (v) => {
-                        this.plugin.settings.contextualModelKey = v;
-                        await this.plugin.saveSettings();
-                        // Model changed: reset enrichment status and restart
-                        if (v && this.plugin.vectorStore) {
-                            getIdx()?.cancelEnrichment();
-                            this.plugin.vectorStore.resetEnrichmentStatus();
-                            void this.triggerEnrichmentIfReady();
-                        }
-                    });
-                });
-        }
+        // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
+        // Contextual-Model dropdown was removed. `getContextualModel()`
+        // falls back to the active provider's fast tier when no override
+        // is set; the legacy `activeModels[]` it used to enumerate from
+        // is empty after the EPIC-26 migration. The setting field
+        // `contextualModelKey` is preserved as a data field.
 
         const buildSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.buildIndexName'))
@@ -347,12 +330,12 @@ export class EmbeddingsTab {
             });
 
         // ── Index configuration ───────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingConfig') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingConfig'), { body: t('settings.embeddings.sectionConfigInfo') });
 
         const batchSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.checkpointInterval'))
             .setDesc(t('settings.embeddings.checkpointIntervalDesc'));
-        addInfoButton(batchSetting, this.app, t('settings.embeddings.infoCheckpointTitle'), t('settings.embeddings.infoCheckpointBody'));
+        addInfoButton(batchSetting, t('settings.embeddings.infoCheckpointTitle'), t('settings.embeddings.infoCheckpointBody'));
         batchSetting.addSlider((s) =>
             s.setLimits(10, 200, 10)
                 .setValue(this.plugin.settings.semanticBatchSize ?? 50)
@@ -387,7 +370,7 @@ export class EmbeddingsTab {
         const hydeSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.hyde'))
             .setDesc(t('settings.embeddings.hydeDesc'));
-        addInfoButton(hydeSetting, this.app, t('settings.embeddings.infoHydeTitle'), t('settings.embeddings.infoHydeBody'));
+        addInfoButton(hydeSetting, t('settings.embeddings.infoHydeTitle'), t('settings.embeddings.infoHydeBody'));
         hydeSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.hydeEnabled ?? false).onChange(async (v) => {
                 this.plugin.settings.hydeEnabled = v;
@@ -402,7 +385,7 @@ export class EmbeddingsTab {
             cls: 'setting-risk-note',
             text: t('settings.embeddings.riskNote'),
         });
-        addInfoButton(autoIndexOnChangeSetting, this.app, t('settings.embeddings.infoAutoChangeTitle'), t('settings.embeddings.infoAutoChangeBody'));
+        addInfoButton(autoIndexOnChangeSetting, t('settings.embeddings.infoAutoChangeTitle'), t('settings.embeddings.infoAutoChangeBody'));
         autoIndexOnChangeSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.semanticAutoIndexOnChange ?? false).onChange(async (v) => {
                 this.plugin.settings.semanticAutoIndexOnChange = v;
@@ -414,7 +397,7 @@ export class EmbeddingsTab {
         const autoIndexSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.autoIndexStrategy'))
             .setDesc(t('settings.embeddings.autoIndexStrategyDesc'));
-        addInfoButton(autoIndexSetting, this.app, t('settings.embeddings.infoAutoStrategyTitle'), t('settings.embeddings.infoAutoStrategyBody'));
+        addInfoButton(autoIndexSetting, t('settings.embeddings.infoAutoStrategyTitle'), t('settings.embeddings.infoAutoStrategyBody'));
         autoIndexSetting.addDropdown((d) =>
             d.addOptions({
                 never: t('settings.embeddings.autoIndexNever'),
@@ -431,7 +414,7 @@ export class EmbeddingsTab {
         const excludedSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.excludedFolders'))
             .setDesc(t('settings.embeddings.excludedFoldersDesc'));
-        addInfoButton(excludedSetting, this.app, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
+        addInfoButton(excludedSetting, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
 
         const excludedFolders = this.plugin.settings.semanticExcludedFolders ?? [];
 
@@ -487,7 +470,7 @@ export class EmbeddingsTab {
         // Storage location removed from UI (ADR-050: knowledge.db is always global)
 
         // ── Graph Expansion (FEATURE-1502) ─────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingGraph') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingGraph'), { body: t('settings.embeddings.sectionGraphInfo') });
 
         new Setting(containerEl)
             .setName(t('settings.embeddings.graphExpansion'))
@@ -575,7 +558,7 @@ export class EmbeddingsTab {
         }
 
         // ── Implicit Connections (FEATURE-1503) ──────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingImplicit') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingImplicit'), { body: t('settings.embeddings.sectionImplicitInfo') });
 
         new Setting(containerEl)
             .setName(t('settings.embeddings.implicitConnections'))
@@ -621,7 +604,7 @@ export class EmbeddingsTab {
         }
 
         // ── Local Reranking (FEATURE-1504) ───────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.embeddings.headingReranking') });
+        addSectionHeading(containerEl, t('settings.embeddings.headingReranking'), { body: t('settings.embeddings.sectionRerankingInfo') });
 
         new Setting(containerEl)
             .setName(t('settings.embeddings.localReranking'))
@@ -782,11 +765,11 @@ export class EmbeddingsTab {
         const idx = this.plugin.semanticIndex;
         if (!idx || !idx.isIndexed || idx.enriching || idx.building) return;
         if (!this.plugin.settings.enableContextualRetrieval) return;
-        if (!this.plugin.settings.contextualModelKey) return;
 
-        const ctxModel = this.plugin.settings.activeModels.find(
-            (m) => getModelKey(m) === this.plugin.settings.contextualModelKey && m.enabled,
-        );
+        // FEAT-24-08 Welle A: resolver falls back to active-provider
+        // fast-tier when no explicit key is set, so enrichment survives
+        // the EPIC-26 migration to provider-only config.
+        const ctxModel = this.plugin.getContextualModel();
         if (!ctxModel) return;
 
         const { buildApiHandlerForModel } = await import('../../api/index');

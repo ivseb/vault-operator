@@ -33,10 +33,10 @@ export class ProvidersTab {
 
     build(containerEl: HTMLElement): void {
         // Intro banner -- matches ModelsTab pattern
-        const intro = containerEl.createDiv({ cls: 'agent-settings-info-banner' });
-        const introIcon = intro.createSpan({ cls: 'agent-settings-info-icon' });
+        const intro = containerEl.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
+        const introIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(introIcon, 'server');
-        const introText = intro.createDiv({ cls: 'agent-settings-info-text' });
+        const introText = intro.createDiv({ cls: 'vault-op-box__text' });
         introText.createEl('strong', { text: t('settings.providers.title') });
         introText.createDiv({ text: t('settings.providers.intro') });
 

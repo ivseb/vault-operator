@@ -8,10 +8,10 @@ export class LogTab {
     constructor(private plugin: ObsidianAgentPlugin, private _app: unknown, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.log.introTitle') });
         infoText.createDiv({ text: t('settings.log.introDesc') });
     }

@@ -1,31 +1,48 @@
 import { App, Modal, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
+import { addSectionHeading } from './utils';
 
 
 export class PermissionsTab {
-    private permissiveWarning: HTMLElement | null = null;
-
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
-        setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
-        infoText.createEl('strong', { text: t('settings.permissions.introTitle') });
-        infoText.createDiv({ text: t('settings.permissions.introDesc') });
+        // 2026-05-18: this tab grants the agent the right to act without
+        // asking. Render the intro as an orange warning callout instead
+        // of the neutral blue one used on the rest of the tabs, and roll
+        // up the individual per-row warnings into one explicit notice.
+        const banner = containerEl.createDiv('vault-op-box vault-op-box--warning');
+        const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(icon, 'shield-alert');
+        const text = banner.createDiv({ cls: 'vault-op-box__text' });
+        text.createEl('strong', { text: t('settings.permissions.introTitle') });
+        text.createDiv({ text: t('settings.permissions.introDesc') });
     }
 
     build(containerEl: HTMLElement): void {
         this.buildIntroSection(containerEl);
-        containerEl.createEl('p', {
-            cls: 'agent-settings-desc',
-            text: t('settings.permissions.desc'),
-        });
 
-        // ── Auto-approve (master toggle + categories) ────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.permissions.headingAutoApprove') });
+        // ── Auto-approve master toggle + visibility helper ───────────────
+        addSectionHeading(
+            containerEl,
+            t('settings.permissions.headingAutoApprove'),
+            { body: t('settings.permissions.sectionAutoApproveInfo') },
+        );
+
+        let categoryContainer: HTMLDivElement;
+        const refreshCategoryDisabled = (): void => {
+            const masterOn = this.plugin.settings.autoApproval.enabled;
+            categoryContainer.classList.toggle('agent-approval-categories--disabled', !masterOn);
+            // Hard-disable every interactive control inside the category
+            // block when the master is off. CSS opacity alone left toggles
+            // clickable, so a user could "approve sandbox" while the master
+            // gate silently overrode the choice in the pipeline.
+            const inputs = categoryContainer.querySelectorAll<HTMLInputElement | HTMLButtonElement>(
+                'input, button',
+            );
+            inputs.forEach((el) => { el.disabled = !masterOn; });
+        };
 
         new Setting(containerEl)
             .setName(t('settings.permissions.enableAutoApprove'))
@@ -34,11 +51,9 @@ export class PermissionsTab {
                 t.setValue(this.plugin.settings.autoApproval.enabled).onChange(async (v) => {
                     this.plugin.settings.autoApproval.enabled = v;
                     await this.plugin.saveSettings();
-                    this.updateCategoryState(categoryContainer, v);
-                    this.updatePermissiveWarning();
+                    refreshCategoryDisabled();
                 }),
             );
-        this.addWarning(containerEl, 'settings.permissions.enableAutoApproveWarning', true);
 
         new Setting(containerEl)
             .setName(t('settings.permissions.showApprovalBar'))
@@ -50,13 +65,14 @@ export class PermissionsTab {
                 }),
             );
 
-        // Container for all category toggles — disabled when master is off
-        const categoryContainer = containerEl.createDiv('agent-approval-categories');
+        // ── Per-category toggles ─────────────────────────────────────────
+        categoryContainer = containerEl.createDiv('agent-approval-categories');
 
-        categoryContainer.createEl('h3', {
-            cls: 'agent-settings-section',
-            text: t('settings.permissions.headingPerCategory'),
-        });
+        addSectionHeading(
+            categoryContainer,
+            t('settings.permissions.headingPerCategory'),
+            { body: t('settings.permissions.sectionPerCategoryInfo') },
+        );
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.readOps'))
@@ -75,10 +91,8 @@ export class PermissionsTab {
                 t.setValue(this.plugin.settings.autoApproval.noteEdits).onChange(async (v) => {
                     this.plugin.settings.autoApproval.noteEdits = v;
                     await this.plugin.saveSettings();
-                    this.updatePermissiveWarning();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.noteEditsWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.vaultChanges'))
@@ -87,10 +101,8 @@ export class PermissionsTab {
                 t.setValue(this.plugin.settings.autoApproval.vaultChanges).onChange(async (v) => {
                     this.plugin.settings.autoApproval.vaultChanges = v;
                     await this.plugin.saveSettings();
-                    this.updatePermissiveWarning();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.vaultChangesWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.webOps'))
@@ -99,10 +111,8 @@ export class PermissionsTab {
                 t.setValue(this.plugin.settings.autoApproval.web).onChange(async (v) => {
                     this.plugin.settings.autoApproval.web = v;
                     await this.plugin.saveSettings();
-                    this.updatePermissiveWarning();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.webOpsWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.mcpCalls'))
@@ -113,7 +123,6 @@ export class PermissionsTab {
                     await this.plugin.saveSettings();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.mcpCallsWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.subtasks'))
@@ -124,7 +133,6 @@ export class PermissionsTab {
                     await this.plugin.saveSettings();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.subtasksWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.pluginSkills'))
@@ -136,7 +144,11 @@ export class PermissionsTab {
                 }),
             );
 
-        categoryContainer.createEl('h3', { cls: 'agent-settings-section', text: t('settings.permissions.headingPluginApi') });
+        addSectionHeading(
+            categoryContainer,
+            t('settings.permissions.headingPluginApi'),
+            { body: t('settings.permissions.sectionPluginApiInfo') },
+        );
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.pluginApiReads'))
@@ -157,7 +169,6 @@ export class PermissionsTab {
                     await this.plugin.saveSettings();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.pluginApiWritesWarning');
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.recipes'))
@@ -168,9 +179,12 @@ export class PermissionsTab {
                     await this.plugin.saveSettings();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.recipesWarning', true);
 
-        categoryContainer.createEl('h3', { cls: 'agent-settings-section', text: t('settings.permissions.headingSandbox') });
+        addSectionHeading(
+            categoryContainer,
+            t('settings.permissions.headingSandbox'),
+            { body: t('settings.permissions.sectionSandboxInfo') },
+        );
 
         new Setting(categoryContainer)
             .setName(t('settings.permissions.sandbox'))
@@ -191,30 +205,9 @@ export class PermissionsTab {
                     await this.plugin.saveSettings();
                 }),
             );
-        this.addWarning(categoryContainer, 'settings.permissions.sandboxWarning', true);
 
-        // H-1: Permissive mode warning — shown when web + writes are both auto-approved
-        this.permissiveWarning = containerEl.createDiv('agent-setting-warning agent-setting-warning--high-risk agent-u-hidden');
-        const permissiveIcon = this.permissiveWarning.createSpan('agent-setting-warning-icon');
-        setIcon(permissiveIcon, 'shield-alert');
-        this.permissiveWarning.createSpan({ text: t('settings.permissions.permissiveWarning') });
-        this.updatePermissiveWarning();
-
-        // Set initial disabled state
-        this.updateCategoryState(categoryContainer, this.plugin.settings.autoApproval.enabled);
-    }
-
-    /** H-1: Show/hide permissive mode warning when web + writes are both auto-approved. */
-    private updatePermissiveWarning(): void {
-        if (!this.permissiveWarning) return;
-        const a = this.plugin.settings.autoApproval;
-        const isPermissive = a.enabled && a.web && (a.noteEdits || a.vaultChanges);
-        this.permissiveWarning.toggleClass('agent-u-hidden', !isPermissive);
-    }
-
-    /** Toggle the disabled state of all category toggles. */
-    private updateCategoryState(container: HTMLElement, enabled: boolean): void {
-        container.toggleClass('agent-approval-categories--disabled', !enabled);
+        // Apply the initial disabled state (after every control exists).
+        refreshCategoryDisabled();
     }
 
     /**
@@ -244,14 +237,5 @@ export class PermissionsTab {
             })(this.app);
             modal.open();
         });
-    }
-
-    /** Render a security warning callout below a settings toggle. */
-    private addWarning(containerEl: HTMLElement, key: string, highRisk = false): void {
-        const cls = highRisk ? 'agent-setting-warning agent-setting-warning--high-risk' : 'agent-setting-warning';
-        const warnEl = containerEl.createDiv(cls);
-        const iconEl = warnEl.createSpan('agent-setting-warning-icon');
-        setIcon(iconEl, 'alert-triangle');
-        warnEl.createSpan({ text: t(key) });
     }
 }

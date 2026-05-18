@@ -1,26 +1,30 @@
 import { App, Notice, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { OnboardingService } from '../../core/memory/OnboardingService';
-import { getModelKey } from '../../types/settings';
 import { t } from '../../i18n';
+import { addSectionHeading } from './utils';
 
 
 export class InterfaceTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.interface.introTitle') });
         infoText.createDiv({ text: t('settings.interface.introDesc') });
     }
 
     build(containerEl: HTMLElement): void {
         this.buildIntroSection(containerEl);
-        // ─── Setup Dialog ─────────────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.interface.headingSetup') });
+
+        addSectionHeading(
+            containerEl,
+            t('settings.interface.headingSetup'),
+            { body: t('settings.interface.sectionSetupInfo') },
+        );
 
         if (this.plugin.memoryService) {
             const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
@@ -56,8 +60,11 @@ export class InterfaceTab {
                 .setDesc(t('settings.interface.memoryNotAvailable'));
         }
 
-        // ─── Interface Settings ───────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.interface.headingInterface') });
+        addSectionHeading(
+            containerEl,
+            t('settings.interface.headingInterface'),
+            { body: t('settings.interface.sectionInterfaceInfo') },
+        );
         new Setting(containerEl)
             .setName(t('settings.interface.autoAddActiveNote'))
             .setDesc(t('settings.interface.autoAddActiveNoteDesc'))
@@ -89,17 +96,21 @@ export class InterfaceTab {
             );
 
         new Setting(containerEl)
-            .setName('Show context progress')
-            .setDesc('Display a progress bar showing context window usage. Restart sidebar to apply.')
+            .setName(t('settings.interface.showContextProgress'))
+            .setDesc(t('settings.interface.showContextProgressDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.showContextProgress).onChange(async (value) => {
                     this.plugin.settings.showContextProgress = value;
                     await this.plugin.saveSettings();
-                    new Notice('Please restart the sidebar (close & reopen) to apply changes.');
+                    new Notice(t('settings.interface.restartSidebarNotice'));
                 })
             );
 
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.interface.headingHistory') });
+        addSectionHeading(
+            containerEl,
+            t('settings.interface.headingHistory'),
+            { body: t('settings.interface.sectionHistoryInfo') },
+        );
 
         new Setting(containerEl)
             .setName(t('settings.interface.historyFolder'))
@@ -120,8 +131,11 @@ export class InterfaceTab {
                     }),
             );
 
-        // ─── Chat Linking (ADR-022) ─────────────────────────────────────
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.interface.headingChatLinking') });
+        addSectionHeading(
+            containerEl,
+            t('settings.interface.headingChatLinking'),
+            { body: t('settings.interface.sectionChatLinkingInfo') },
+        );
 
         const cl = this.plugin.settings.chatLinking;
 
@@ -135,27 +149,12 @@ export class InterfaceTab {
                 }),
             );
 
-        const models = this.plugin.settings.activeModels.filter((m) => m.enabled);
-        if (models.length === 0) {
-            new Setting(containerEl)
-                .setName(t('settings.interface.chatLinkingModel'))
-                .setDesc(t('settings.interface.chatLinkingNoModels'));
-        } else {
-            new Setting(containerEl)
-                .setName(t('settings.interface.chatLinkingModel'))
-                .setDesc(t('settings.interface.chatLinkingModelDesc'))
-                .addDropdown((d) => {
-                    d.addOption('', t('settings.interface.chatLinkingSelectModel'));
-                    for (const m of models) {
-                        d.addOption(getModelKey(m), m.displayName ?? m.name);
-                    }
-                    d.setValue(cl.titlingModelKey);
-                    d.onChange(async (v) => {
-                        this.plugin.settings.chatLinking.titlingModelKey = v;
-                        await this.plugin.saveSettings();
-                    });
-                });
-        }
+        // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
+        // titling-model dropdown was removed. `getTitlingModel()` falls
+        // back to the active provider's fast tier when no override is
+        // set; the legacy `activeModels[]` it used to enumerate from is
+        // empty after the EPIC-26 migration. The setting field
+        // `chatLinking.titlingModelKey` is preserved as a data field.
     }
 
 }

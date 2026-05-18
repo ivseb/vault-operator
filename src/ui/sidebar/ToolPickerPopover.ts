@@ -1,4 +1,4 @@
-import { setIcon } from 'obsidian';
+import { Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { ModeService } from '../../core/modes/ModeService';
 import type { ToolGroup } from '../../types/settings';
@@ -23,10 +23,36 @@ export class ToolPickerPopover {
 
     show(event: MouseEvent, anchorBtn: HTMLElement, containerEl: HTMLElement): void {
         this.close();
+        try {
+            this.renderPopover(anchorBtn, containerEl);
+        } catch (err) {
+            console.error('[ToolPicker] failed to open:', err);
+            new Notice(t('ui.toolPicker.openFailed'));
+            this.close();
+        }
+    }
 
+    private renderPopover(anchorBtn: HTMLElement, containerEl: HTMLElement): void {
         const slug = this.plugin.settings.currentMode;
-        const mode = this.modeService.getMode(slug);
-        if (!mode) return;
+        let resolvedMode = this.modeService.getMode(slug);
+        if (!resolvedMode) {
+            console.warn(`[ToolPicker] currentMode "${slug}" is unknown, falling back to "agent".`);
+            this.plugin.settings.currentMode = 'agent';
+            void this.plugin.saveSettings();
+            resolvedMode = this.modeService.getMode('agent');
+            if (!resolvedMode) {
+                console.error('[ToolPicker] default "agent" mode is missing; cannot open picker.');
+                new Notice(t('ui.toolPicker.openFailed'));
+                return;
+            }
+        }
+        // Guard against half-migrated custom modes that lost their toolGroups
+        // array (would crash .filter()/.flatMap() below).
+        if (!Array.isArray(resolvedMode.toolGroups)) {
+            console.warn(`[ToolPicker] mode "${resolvedMode.slug}" has no toolGroups; defaulting to read+vault+agent.`);
+            resolvedMode = { ...resolvedMode, toolGroups: ['read', 'vault', 'agent'] };
+        }
+        const mode = resolvedMode;
 
         const popover = activeDocument.createElement('div');
         popover.className = 'tool-picker-popover';
@@ -252,12 +278,6 @@ export class ToolPickerPopover {
             })(); });
         }
 
-        // ── Skills section (async) ────────────────────────────────────────────
-        const { catRow: skillsCatRow, catBody: skillsCatBody } = makeTopCat(t('ui.toolPicker.skills'), false);
-        const skillsGroupCb = skillsCatRow.createEl('input', { type: 'checkbox' });
-        skillsGroupCb.className = 'tp-cat-group-cb';
-        skillsCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.loading') });
-
         // ── Workflows section (async) ─────────────────────────────────────────
         const { catRow: wfCatRow, catBody: wfCatBody } = makeTopCat(t('ui.toolPicker.workflows'), false);
         const wfGroupCb = wfCatRow.createEl('input', { type: 'checkbox' });
@@ -327,75 +347,8 @@ export class ToolPickerPopover {
             }
         });
 
-        // ── Async: skills + workflows ─────────────────────────────────────────
+        // ── Async: workflows ──────────────────────────────────────────────────
         void (async () => {
-            const skillsManager = this.plugin.skillsManager;
-            if (skillsManager) {
-                skillsCatBody.empty();
-                try {
-                    const skills = await skillsManager.discoverSkills();
-                    if (skills.length === 0) {
-                        skillsCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.noSkills') });
-                        skillsGroupCb.disabled = true;
-                    } else {
-                        const skillCbs: HTMLInputElement[] = [];
-                        const modeAllowed = this.plugin.settings.modeSkillAllowList?.[slug];
-                        // empty/undefined = all allowed
-                        const allowedSet = new Set<string>(
-                            modeAllowed && modeAllowed.length > 0 ? modeAllowed : skills.map((s) => s.name),
-                        );
-                        skillsCatRow.addClass('is-open');
-                        skillsCatBody.classList.remove('agent-u-hidden');
-                        for (const skill of skills) {
-                            const cb = makeItemRow(
-                                skillsCatBody, skill.name, skill.description ?? '', 'wand-2',
-                                allowedSet.has(skill.name), 'tp-item-row tp-item-indent-cat',
-                            );
-                            skillCbs.push(cb);
-                            cb.addEventListener('change', () => { void (async () => {
-                                if (!this.plugin.settings.modeSkillAllowList) this.plugin.settings.modeSkillAllowList = {};
-                                const cur = new Set<string>(
-                                    this.plugin.settings.modeSkillAllowList[slug]?.length
-                                        ? this.plugin.settings.modeSkillAllowList[slug]
-                                        : skills.map((s) => s.name),
-                                );
-                                if (cb.checked) cur.add(skill.name);
-                                else cur.delete(skill.name);
-                                const next = [...cur];
-                                this.plugin.settings.modeSkillAllowList[slug] =
-                                    next.length === skills.length ? [] : next;
-                                await this.plugin.saveSettings();
-                                const allSk = skillCbs.every((c) => c.checked);
-                                const someSk = skillCbs.some((c) => c.checked);
-                                skillsGroupCb.checked = allSk;
-                                skillsGroupCb.indeterminate = !allSk && someSk;
-                                updateCount();
-                            })(); });
-                        }
-                        const allSk = skillCbs.every((c) => c.checked);
-                        const someSk = skillCbs.some((c) => c.checked);
-                        skillsGroupCb.checked = allSk;
-                        skillsGroupCb.indeterminate = !allSk && someSk;
-                        skillsGroupCb.addEventListener('change', () => { void (async () => {
-                            for (const c of skillCbs) c.checked = skillsGroupCb.checked;
-                            skillsGroupCb.indeterminate = false;
-                            if (!this.plugin.settings.modeSkillAllowList) this.plugin.settings.modeSkillAllowList = {};
-                            // all checked → [] (no restriction); none checked → [] (same, no restriction)
-                            const next = skillsGroupCb.checked ? skills.map((s) => s.name) : [];
-                            this.plugin.settings.modeSkillAllowList[slug] =
-                                next.length === skills.length ? [] : next;
-                            await this.plugin.saveSettings();
-                            updateCount();
-                        })(); });
-                    }
-                } catch {
-                    skillsCatBody.createEl('span', { cls: 'tp-empty-hint', text: t('ui.toolPicker.errorSkills') });
-                }
-            } else {
-                skillsCatRow.remove();
-                skillsCatBody.remove();
-            }
-
             const workflowLoader = this.plugin.workflowLoader;
             if (workflowLoader) {
                 wfCatBody.empty();
