@@ -14,7 +14,7 @@ import type ObsidianAgentPlugin from '../../main';
 import { getModelKey } from '../../types/settings';
 import { OnboardingService } from '../../core/memory/OnboardingService';
 import { t } from '../../i18n';
-import { addSectionHeading } from './utils';
+import { addSectionHeading, addSliderInput } from './utils';
 import { confirmModal } from '../modals/PromptModal';
 import { FactStore } from '../../core/memory/FactStore';
 import { CommunicationStyleStore } from '../../core/memory/CommunicationStyleStore';
@@ -121,24 +121,18 @@ export class MemoryTab {
             // Threshold lives directly under Auto-extract because it only
             // makes sense in that context. Hidden when Auto is off.
             if (mem.autoExtractSessions) {
-                new Setting(containerEl)
+                const minMessagesSetting = new Setting(containerEl)
                     .setName(t('settings.memory.minMessages'))
-                    .setDesc(t('settings.memory.minMessagesDesc'))
-                    .addSlider((s) =>
-                        s
-                            .setLimits(2, 20, 1)
-                            .setValue(mem.extractionThreshold)
-                            .setDynamicTooltip()
-                            .onChange(async (v) => {
-                                this.plugin.settings.memory.extractionThreshold = v;
-                                await this.plugin.saveSettings();
-                            }),
-                    );
+                    .setDesc(t('settings.memory.minMessagesDesc'));
+                addSliderInput(minMessagesSetting, {
+                    min: 2, max: 20, step: 1,
+                    value: mem.extractionThreshold,
+                    onChange: async (v) => {
+                        this.plugin.settings.memory.extractionThreshold = v;
+                        await this.plugin.saveSettings();
+                    },
+                });
             }
-
-            // Hint that the manual path is always available, even when auto is off.
-            const manualHint = containerEl.createEl('div', { cls: 'vault-op-box vault-op-box--info' });
-            manualHint.createDiv({ cls: 'vault-op-box__text', text: t('settings.memory.manualAlwaysHint') });
 
             // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
             // memory-model dropdown was removed. `getMemoryModel()` falls
@@ -247,13 +241,12 @@ export class MemoryTab {
         if (cs.strictSourceIsolation === undefined) cs.strictSourceIsolation = false;
         if (!cs.defaultSyncMode) cs.defaultSyncMode = 'auto';
 
-        // Default sync-mode
         new Setting(containerEl)
-            .setName('Default sync-mode')
-            .setDesc('Used by providers whose per-provider override is set to "global".')
+            .setName('Default handling for incoming conversations')
+            .setDesc('Applied to providers whose per-source override below is set to "Use default".')
             .addDropdown((d) => {
-                d.addOption('auto', 'Auto-sync');
-                d.addOption('manual', 'Manual-sync');
+                d.addOption('auto', 'Extract immediately');
+                d.addOption('manual', 'Park as pending');
                 d.setValue(cs.defaultSyncMode);
                 d.onChange(async (v) => {
                     cs.defaultSyncMode = v as SyncMode;
@@ -261,13 +254,12 @@ export class MemoryTab {
                 });
             });
 
-        // FIX-23-01-01: Living-Document default
         new Setting(containerEl)
             .setName('Living document by default')
             .setDesc(
-                'When on (default), save_conversation calls within 30 minutes from the same source append to the existing conversation '
-                + 'instead of creating a new one. Memory-extraction runs incrementally on the new turns. Turn off if you want every '
-                + 'save_conversation call to start a fresh conversation.',
+                'When on (default), save_conversation calls from the same source within 30 minutes append to the existing conversation '
+                + 'instead of starting a new one. Memory extraction then runs incrementally on the new turns. Turn off if you want '
+                + 'every save_conversation call to create a fresh conversation.',
             )
             .addToggle((t) => {
                 t.setValue(cs.livingDocumentByDefault ?? true);
@@ -277,13 +269,12 @@ export class MemoryTab {
                 });
             });
 
-        // AUDIT-015 M-3: Cross-Source-ACL
         new Setting(containerEl)
-            .setName('Strict source isolation (recall_memory + search_history)')
+            .setName('Strict source isolation for recall')
             .setDesc(
-                'When on, every recall_memory and search_history MCP-call MUST pass an explicit source_interface argument, and reads are '
-                + 'scoped to that source only. Use this to prevent ChatGPT/Perplexity connectors from reading conversations or facts that '
-                + 'came from claude-ai/claude-code. Default off for backward compatibility.',
+                'When on, every recall_memory and search_history MCP call must pass an explicit source_interface argument and reads '
+                + 'are scoped to that source only. Use this to prevent the ChatGPT or Perplexity connectors from reading conversations '
+                + 'or facts that came from Claude. Default off for backward compatibility.',
             )
             .addToggle((t) => {
                 t.setValue(cs.strictSourceIsolation ?? false);
@@ -293,7 +284,7 @@ export class MemoryTab {
                 });
             });
 
-        // Per-provider overrides
+        // Per-source overrides
         const PROVIDER_LABELS: Record<SourceInterface, string> = {
             'obsilo': 'Vault Operator (internal)',
             'claude-ai': 'Claude.ai',
@@ -307,8 +298,8 @@ export class MemoryTab {
                 .setName(PROVIDER_LABELS[provider])
                 .addDropdown((d) => {
                     d.addOption('global', 'Use default');
-                    d.addOption('auto', 'Auto-sync');
-                    d.addOption('manual', 'Manual-sync');
+                    d.addOption('auto', 'Extract immediately');
+                    d.addOption('manual', 'Park as pending');
                     const current = cs.perProvider[provider] ?? 'global';
                     d.setValue(current);
                     d.onChange(async (v) => {

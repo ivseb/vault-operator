@@ -304,8 +304,8 @@ export const en: Translations = {
     // =========================================================================
     // Settings — Permissions Tab
     // =========================================================================
-    'settings.permissions.introTitle': 'Approve actions',
-    'settings.permissions.introDesc': 'Decide which actions the agent may take without asking. Read-only stays auto-approved, write actions you can require a click for.',
+    'settings.permissions.introTitle': 'Approve actions -- review carefully',
+    'settings.permissions.introDesc': 'Every category you auto-approve below lets the agent act on your vault, your data, or the outside world without asking again. Set each toggle deliberately and review them whenever you change models, install a new MCP server, or grant the agent broader skills. The highest-risk combinations are web access plus write access (the agent can fetch and act on anything from the internet) and sandbox code execution (the LLM authors code that runs in your browser). Auto-approve those only if you trust your active model and your prompts.',
     'settings.permissions.desc': 'Auto-approve controls whether the agent can perform actions immediately or must ask for your confirmation first. When a category is off, the agent pauses and shows an approval dialog before each action in that category.',
     'settings.permissions.headingBehavior': 'Agent behavior',
     'settings.permissions.headingAutoApprove': 'Auto-approve',
@@ -425,7 +425,7 @@ export const en: Translations = {
     'settings.memory.headingOnboarding': 'Onboarding',
     'settings.memory.sectionOnboardingInfo': 'A short guided dialog that asks for the basics (who you are, what you work on, your preferences) so the agent has something to work with on day one. You can rerun it any time to refresh the profile from scratch.',
     'settings.memory.headingCrossSurface': 'Cross-surface sync',
-    'settings.memory.sectionCrossSurfaceInfo': 'External chat tools (ChatGPT, Claude.ai, Claude Code, Perplexity) can pipe conversations and facts into your Vault Operator memory via the Remote MCP. Auto-sync extracts immediately using the same thresholds as in-app chats. Manual-sync parks conversations as pending until you confirm them in the History sidebar. ChatGPT and Perplexity default to manual to keep family-shared accounts out of personal memory.',
+    'settings.memory.sectionCrossSurfaceInfo': 'External chat tools (ChatGPT, Claude.ai, Claude Code, Perplexity) push conversations into Vault Operator via the Remote MCP. You trigger each push from those tools (e.g. a "save to memory" call inside ChatGPT); Vault Operator only decides what happens after the data arrives. The settings here control that handling: extract memory immediately, or park the conversation as pending until you review it in the History sidebar. ChatGPT and Perplexity default to pending to keep family-shared accounts out of personal memory.',
     'settings.memory.headingContents': 'Memory contents',
     'settings.memory.sectionContentsInfo': 'See what the agent remembers about you and how it knows itself. To add an entry, just say it in the chat (e.g. "remember that emojis are unwanted"). Use this view to inspect what is stored and remove entries you do not want kept.',
     'settings.memory.viewMemory': 'View memory',
