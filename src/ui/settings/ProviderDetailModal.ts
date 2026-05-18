@@ -388,10 +388,10 @@ export class ProviderDetailModal extends Modal {
     // ── Section helpers ───────────────────────────────────────────────
 
     private renderTierInfoBanner(parent: HTMLElement): void {
-        const banner = parent.createDiv({ cls: 'agent-settings-info-banner mcm-info-banner' });
-        const icon = banner.createSpan({ cls: 'agent-settings-info-icon' });
+        const banner = parent.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
+        const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(icon, 'info');
-        const text = banner.createDiv({ cls: 'agent-settings-info-text' });
+        const text = banner.createDiv({ cls: 'vault-op-box__text' });
         text.createEl('strong', { text: t('settings.providers.modal.tierInfoTitle') });
         text.createDiv({ text: t('settings.providers.modal.tierInfoBody') });
     }

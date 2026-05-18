@@ -36,10 +36,10 @@ export class PluginPatchModal extends Modal {
             text: `${Math.round(this.compiledJs.length / 1024)} KB compiled`,
         });
 
-        const banner = contentEl.createDiv({ cls: 'wizard-info-banner' });
-        const iconWrap = banner.createDiv({ cls: 'wizard-info-banner-icon' });
+        const banner = contentEl.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
+        const iconWrap = banner.createDiv({ cls: 'vault-op-box__icon' });
         setIcon(iconWrap, 'wrench');
-        const text = banner.createDiv({ cls: 'wizard-info-banner-text' });
+        const text = banner.createDiv({ cls: 'vault-op-box__text' });
         text.createEl('strong', { text: `You replace ${BUNDLE_FILENAME} manually` });
         text.createDiv({
             text: `Obsidian plugins are not allowed to overwrite their own ${BUNDLE_FILENAME} at runtime. Download the new build below, drop it into your plugin folder, then reload.`,

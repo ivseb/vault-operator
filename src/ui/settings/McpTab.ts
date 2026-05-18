@@ -12,10 +12,10 @@ export class McpTab {
 
     build(containerEl: HTMLElement): void {
         // One intro banner for the page
-        const intro = containerEl.createDiv('agent-settings-info-banner');
-        const introIcon = intro.createSpan({ cls: 'agent-settings-info-icon' });
+        const intro = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const introIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(introIcon, 'link');
-        const introText = intro.createDiv({ cls: 'agent-settings-info-text' });
+        const introText = intro.createDiv({ cls: 'vault-op-box__text' });
         introText.createEl('strong', { text: 'Connections' });
 
         introText.createDiv({ text: 'Connect Vault Operator to AI assistants like Claude, or extend Vault Operator with external tool servers. All connections use the open MCP standard.' });
@@ -100,10 +100,10 @@ export class McpTab {
 
             if (!hasRelay) {
                 // ── Info banner: setup flow ───────────────────────────────
-                const remoteInfo = containerEl.createDiv('agent-settings-info-banner');
-                const remoteInfoIcon = remoteInfo.createSpan({ cls: 'agent-settings-info-icon' });
+                const remoteInfo = containerEl.createDiv('vault-op-box vault-op-box--intro');
+                const remoteInfoIcon = remoteInfo.createSpan({ cls: 'vault-op-box__icon' });
                 setIcon(remoteInfoIcon, 'globe');
-                const remoteInfoText = remoteInfo.createDiv({ cls: 'agent-settings-info-text' });
+                const remoteInfoText = remoteInfo.createDiv({ cls: 'vault-op-box__text' });
                 remoteInfoText.createDiv({ text: 'A relay server on your own Cloudflare account connects your vault to AI assistants from any device. Your data stays on your infrastructure.' });
                 const steps = remoteInfoText.createEl('ol');
 

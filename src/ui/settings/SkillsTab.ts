@@ -75,10 +75,10 @@ export class SkillsTab {
     // -- Introduction --
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const intro = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = intro.createSpan({ cls: 'agent-settings-info-icon' });
+        const intro = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = intro.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = intro.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.skills.introTitle') });
         infoText.createEl('p', { text: t('settings.skills.introDesc') });
         infoText.createEl('p', { text: t('settings.skills.introDiff') });

@@ -181,10 +181,10 @@ export class FirstRunWizardModal extends Modal {
     // -----------------------------------------------------------------------
 
     private addInfoBanner(parent: HTMLElement, icon: string, headline: string, body: string): HTMLElement {
-        const banner = parent.createDiv({ cls: 'wizard-info-banner' });
-        const iconWrap = banner.createDiv({ cls: 'wizard-info-banner-icon' });
+        const banner = parent.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
+        const iconWrap = banner.createDiv({ cls: 'vault-op-box__icon' });
         setIcon(iconWrap, icon);
-        const text = banner.createDiv({ cls: 'wizard-info-banner-text' });
+        const text = banner.createDiv({ cls: 'vault-op-box__text' });
         text.createEl('strong', { text: headline });
         text.createDiv({ text: body });
         return banner;

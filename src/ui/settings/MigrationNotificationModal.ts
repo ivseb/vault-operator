@@ -40,9 +40,10 @@ export class MigrationNotificationModal extends Modal {
         });
 
         if (!summary.activeProviderResolved) {
-            const warning = body.createDiv({ cls: 'mig-modal-warning' });
-            warning.createEl('strong', { text: 'No active provider was resolved. ' });
-            warning.appendText('Pick one in Settings -> Providers before sending a message.');
+            const warning = body.createDiv({ cls: 'vault-op-box vault-op-box--warning' });
+            const wText = warning.createDiv({ cls: 'vault-op-box__text' });
+            wText.createEl('strong', { text: 'No active provider was resolved. ' });
+            wText.appendText('Pick one in Settings -> Providers before sending a message.');
         }
 
         if (summary.anomalies.length > 0) {
