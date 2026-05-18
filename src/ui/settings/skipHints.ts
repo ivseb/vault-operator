@@ -46,28 +46,13 @@ export function renderSkipHintIfSkipped(
     const message = STEP_MESSAGES[stepId];
     if (!message) return false;
 
-    const banner = containerEl.createDiv({ cls: 'vault-operator-skip-hint' });
-    banner.setCssStyles({ display: 'flex' });
-    banner.setCssStyles({ alignItems: 'flex-start' });
-    banner.setCssStyles({ gap: '12px' });
-    banner.setCssStyles({ padding: '10px 12px' });
-    banner.setCssStyles({ margin: '0 0 12px 0' });
-    banner.setCssStyles({ borderLeft: '3px solid var(--interactive-accent)' });
-    banner.setCssStyles({ background: 'var(--background-secondary)' });
-    banner.setCssStyles({ borderRadius: '4px' });
-    const text = banner.createDiv();
-    text.setCssStyles({ flex: '1' });
-    text.setCssStyles({ fontSize: '0.9em' });
+    const banner = containerEl.createDiv({ cls: 'vault-op-box vault-op-box--info' });
+    const text = banner.createDiv({ cls: 'vault-op-box__text' });
     const headline = text.createEl('strong');
     headline.setText('Setup left this for later');
-    headline.setCssStyles({ display: 'block' });
-    headline.setCssStyles({ marginBottom: '4px' });
     text.createDiv({ text: message });
 
-    const actions = banner.createDiv();
-    actions.setCssStyles({ display: 'flex' });
-    actions.setCssStyles({ gap: '6px' });
-    actions.setCssStyles({ alignItems: 'center' });
+    const actions = banner.createDiv({ cls: 'vault-op-box__actions' });
     const reopenBtn = actions.createEl('button', { text: 'Reopen wizard' });
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
     reopenBtn.addEventListener('click', async () => {

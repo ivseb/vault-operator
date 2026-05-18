@@ -633,37 +633,6 @@
     line-height: 1.5;
 }
 
-.vault-operator-wizard .wizard-info-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    font-size: 13px;
-    line-height: 1.55;
-    margin: 0 0 16px;
-    padding: 12px 14px;
-    background: color-mix(in srgb, var(--color-blue) 8%, var(--background-primary));
-    border-left: 3px solid var(--color-blue);
-    border-radius: 4px;
-}
-
-.vault-operator-wizard .wizard-info-banner-icon {
-    flex-shrink: 0;
-    margin-top: 2px;
-    color: var(--color-blue);
-    display: flex;
-}
-
-.vault-operator-wizard .wizard-info-banner-text {
-    flex: 1;
-    color: var(--text-normal);
-}
-
-.vault-operator-wizard .wizard-info-banner-text strong {
-    font-weight: 600;
-    display: block;
-    margin-bottom: 2px;
-}
-
 .vault-operator-wizard .wizard-section {
     font-size: 11px;
     font-weight: 600;
@@ -2247,8 +2216,8 @@
 
 /* Info-popover opened by clicking .mcm-info-btn. Centered overlay
    with a dismiss-on-backdrop click and Escape-key shortcut. Body text
-   matches the .agent-settings-info-banner size (13px) so the same
-   visual register applies to both inline banners and per-row hints. */
+   matches the .vault-op-box size (13px) so the same visual register
+   applies to both inline banners and per-row hints. */
 .mcm-info-overlay {
     position: fixed;
     inset: 0;
@@ -3369,16 +3338,6 @@
     opacity: 1;
 }
 
-.agent-settings-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 4px 0 12px 0;
-    padding: 8px 12px;
-    background: var(--background-secondary);
-    border-left: 3px solid var(--interactive-accent);
-    border-radius: 4px;
-}
-
 .agent-settings-soul-intro {
     margin: 4px 0 16px 0;
     padding: 10px 14px;
@@ -3700,35 +3659,81 @@
     border-radius: 6px;
 }
 
-/* Info banner (for important notes) */
-.agent-settings-info-banner {
+/* ── Unified box system (2026-05-18) ────────────────────────────────────
+ * One base class `.vault-op-box` plus a semantic modifier:
+ *   --intro    blue,    tab introduction
+ *   --info     grey,    helper / aside
+ *   --warning  amber,   caution
+ *   --error    red,     risk / failure
+ * Inner parts: .vault-op-box__icon, .vault-op-box__text, .vault-op-box__actions.
+ * Status badges (test result, enrichment progress) stay inline and use
+ * .vault-op-status with .is-ok / .is-error / .is-pending.
+ */
+.vault-op-box {
     display: flex;
     align-items: flex-start;
     gap: 10px;
     font-size: 13px;
     line-height: 1.6;
-    margin: 0 0 20px;
+    margin: 0 0 16px;
     padding: 12px 14px;
-    background: color-mix(in srgb, var(--color-blue) 8%, var(--background-primary));
     border-left: 3px solid var(--color-blue);
     border-radius: 4px;
+    background: color-mix(in srgb, var(--color-blue) 8%, var(--background-primary));
 }
 
-.agent-settings-info-icon {
+.vault-op-box__icon {
     flex-shrink: 0;
     margin-top: 2px;
+    display: flex;
     color: var(--color-blue);
 }
 
-.agent-settings-info-text {
+.vault-op-box__text {
     flex: 1;
     color: var(--text-normal);
 }
 
-.agent-settings-info-text strong {
+.vault-op-box__text strong {
     font-weight: var(--font-semibold);
     color: var(--text-normal);
 }
+
+.vault-op-box__actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.vault-op-box--info {
+    border-left-color: var(--interactive-accent);
+    background: var(--background-secondary);
+}
+.vault-op-box--info .vault-op-box__icon { color: var(--interactive-accent); }
+
+.vault-op-box--warning {
+    border-left-color: var(--color-yellow);
+    background: color-mix(in srgb, var(--color-yellow) 8%, var(--background-primary));
+}
+.vault-op-box--warning .vault-op-box__icon { color: var(--color-yellow); }
+
+.vault-op-box--error {
+    border-left-color: var(--text-error);
+    background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+}
+.vault-op-box--error .vault-op-box__icon { color: var(--text-error); }
+.vault-op-box--error .vault-op-box__text { color: var(--text-error); }
+
+.vault-op-status {
+    font-size: 11px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.vault-op-status.is-ok { color: var(--color-green); }
+.vault-op-status.is-error { color: var(--text-error); }
+.vault-op-status.is-pending { color: var(--text-muted); }
 
 /* Compact Obsidian Setting items within the behavior tab */
 .agent-settings-content .setting-item {

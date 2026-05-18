@@ -44,10 +44,10 @@ export class MemoryTab {
     }
 
     private buildIntroSection(containerEl: HTMLElement): void {
-        const infoBanner = containerEl.createDiv('agent-settings-info-banner');
-        const infoIcon = infoBanner.createSpan({ cls: 'agent-settings-info-icon' });
+        const infoBanner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const infoIcon = infoBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(infoIcon, 'lightbulb');
-        const infoText = infoBanner.createDiv({ cls: 'agent-settings-info-text' });
+        const infoText = infoBanner.createDiv({ cls: 'vault-op-box__text' });
         infoText.createEl('strong', { text: t('settings.memory.introTitle') });
         infoText.createDiv({ text: t('settings.memory.introDesc') });
     }
@@ -134,8 +134,8 @@ export class MemoryTab {
             }
 
             // Hint that the manual path is always available, even when auto is off.
-            const manualHint = containerEl.createEl('div', { cls: 'agent-settings-hint' });
-            manualHint.setText(t('settings.memory.manualAlwaysHint'));
+            const manualHint = containerEl.createEl('div', { cls: 'vault-op-box vault-op-box--info' });
+            manualHint.createDiv({ cls: 'vault-op-box__text', text: t('settings.memory.manualAlwaysHint') });
 
             // FEAT-24-08 Welle A follow-up (2026-05-18): the explicit
             // memory-model dropdown was removed. `getMemoryModel()` falls
@@ -363,8 +363,8 @@ export class MemoryTab {
         containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault Operator upgrade' });
 
         // Status banner -- different copy per pre-upgrade state.
-        const banner = containerEl.createDiv('agent-settings-info-banner');
-        const bannerText = banner.createDiv({ cls: 'agent-settings-info-text' });
+        const banner = containerEl.createDiv('vault-op-box vault-op-box--intro');
+        const bannerText = banner.createDiv({ cls: 'vault-op-box__text' });
         if (status === 'pending') {
             bannerText.createEl('strong', { text: 'Upgrade pending. ' });
             bannerText.appendText(
