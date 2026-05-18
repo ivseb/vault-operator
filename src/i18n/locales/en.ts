@@ -358,36 +358,43 @@ export const en: Translations = {
     // Settings — Loop Tab
     // =========================================================================
     'settings.loop.introTitle': 'Run behaviour',
-    'settings.loop.introDesc': 'How long the agent keeps working, how many errors it tolerates, when it summarises the conversation to stay focused. Defaults are sane, edit only if a task ran out of room or kept retrying.',
-    'settings.loop.desc': 'Control how the agent loop runs, how long context is kept, and how reliably the agent stays on task.',
-    'settings.loop.headingLoop': 'Agent loop',
-    'settings.loop.headingCondensing': 'Context condensing',
+    'settings.loop.introDesc': 'How long the agent keeps working, how many errors it tolerates, when it summarises the conversation to stay focused. Defaults are sane, click the info icons to learn what each lever does before editing.',
+    'settings.loop.headingLoop': 'Limits & retries',
+    'settings.loop.headingCondensing': 'Auto-summarise',
     'settings.loop.headingPowerSteering': 'Power steering',
-    'settings.loop.errorLimit': 'Consecutive error limit',
-    'settings.loop.errorLimitDesc': 'Stop the task after this many tool errors in a row. Prevents the agent from getting stuck in a loop. Set to 0 to never stop automatically.',
-    'settings.loop.rateLimit': 'Pause between requests (ms)',
-    'settings.loop.rateLimitDesc': 'Wait this many milliseconds between API calls. Useful if you hit rate limits on your API plan. Set to 0 for no delay.',
-    'settings.loop.enableCondensing': 'Enable context condensing',
-    'settings.loop.enableCondensingDesc': "When a conversation gets very long, automatically summarize older messages to stay within the model's memory limit. The summary replaces older messages but keeps key facts intact.",
-    'settings.loop.condensingThreshold': 'Condensing threshold',
-    'settings.loop.condensingThresholdDesc': "Start condensing when the conversation reaches this percentage of the model's memory limit. Lower = condenses more often; higher = waits longer before condensing.",
-    'settings.loop.powerSteeringFreq': 'Power steering frequency',
-    'settings.loop.powerSteeringFreqDesc': 'Every n steps, remind the agent of its current mode instructions. Helps keep long tasks on track. Set to 0 to disable; recommended: 4.',
-    'settings.loop.maxIterations': 'Max iterations per message',
-    'settings.loop.maxIterationsDesc': 'Maximum number of tool-call rounds the agent can take for a single message. Higher values allow more complex tasks. Default: 25.',
-    'settings.loop.maxSubtaskDepth': 'Max sub-agent depth',
-    'settings.loop.maxSubtaskDepthDesc': 'Maximum nesting depth for sub-agents. 1 = children cannot spawn grandchildren. 2 = one level of grandchildren allowed. Default: 2.',
-    'settings.loop.infoCondensingTitle': 'Context condensing',
-    'settings.loop.infoCondensingBody': 'AI models can only hold a limited amount of text in memory at once. When your conversation approaches that limit, context condensing automatically creates a summary of what was discussed so far, then continues the conversation with that summary instead of all the original messages. This lets you work on very large tasks without hitting context limits.',
-    'settings.loop.infoPowerSteeringTitle': 'Power steering',
-    'settings.loop.infoPowerSteeringBody': "During long tasks, the agent can gradually lose track of its role and instructions. Power steering periodically re-injects the current mode's system prompt into the conversation, keeping the agent focused on its intended purpose. A frequency of 4 means the reminder is sent every 4 conversation turns.",
-    'settings.loop.headingHelperModel': 'Helper model',
-    'settings.loop.helperModelSelect': 'Model for internal calls',
-    'settings.loop.helperModelSelectDesc': 'A cheap, fast model used for internal helper tasks: context condensing, fast-path planning, presentation planning, and recipe promotion. Leave empty to use the main model for these calls.',
-    'settings.loop.helperModelDefault': 'Use main model',
-    'settings.loop.noModels': 'No models configured. Add and enable a model in the models tab first.',
-    'settings.loop.autoTaskRouterName': 'Auto-route simple tasks to budget tier',
-    'settings.loop.autoTaskRouterDesc': 'When on, the agent routes single-step prompts (create xlsx/docx/pptx, read or write one file) to the active provider\'s fast tier instead of the main loop model. Research and multi-step prompts stay on the main model. The router escalates back to the main model after 2 consecutive tool errors so a weaker model never gets stuck.',
+    'settings.loop.headingHelperModel': 'Task routing',
+
+    // Limits & retries
+    'settings.loop.errorLimit': 'Error limit',
+    'settings.loop.errorLimitDesc': 'Stop the task after this many tool errors in a row.',
+    'settings.loop.errorLimitInfo': 'Each time the agent calls a tool and the tool returns an error, that counts as one. When the counter reaches this limit, the run stops so the agent does not burn through tokens in a retry loop. Set to 0 to never stop automatically. Default: 3. Increase only if you have a flaky external service that often fails on the first try.',
+    'settings.loop.rateLimit': 'Pause between requests',
+    'settings.loop.rateLimitDesc': 'Milliseconds to wait between API calls.',
+    'settings.loop.rateLimitInfo': 'Most users keep this at 0. Add a pause (e.g. 500-1500 ms) only if your provider rate-limits you on bursts. Symptoms: the chat shows repeated 429 errors. Most providers handle pacing automatically; this is the manual fallback.',
+    'settings.loop.maxIterations': 'Steps per message',
+    'settings.loop.maxIterationsDesc': 'How many tool-call rounds the agent may take for a single user message.',
+    'settings.loop.maxIterationsInfo': 'One step = the agent generates a response, calls one or more tools, and waits for the results. Multi-step tasks (research, refactors, deep ingests) need many steps. Default: 25 covers almost every workflow. Raise to 50 only if you regularly hit "max iterations reached" notices on complex tasks.',
+    'settings.loop.maxSubtaskDepth': 'Sub-agent depth',
+    'settings.loop.maxSubtaskDepthDesc': 'How deeply sub-agents may nest.',
+    'settings.loop.maxSubtaskDepthInfo': 'Sub-agents are spawned via the new_task tool. 1 = the main agent can spawn sub-agents but those cannot spawn further sub-agents. 2 (default) = one extra level. Keep this low; deeper trees rarely improve results and multiply cost. Each level eats fresh tokens because every sub-agent gets its own system prompt.',
+
+    // Auto-summarise
+    'settings.loop.enableCondensing': 'Auto-summarise long chats',
+    'settings.loop.enableCondensingDesc': 'Replaces older messages with a summary once the conversation gets long.',
+    'settings.loop.enableCondensingInfo': 'AI models hold a limited amount of text in memory at once. As your chat grows, the agent gets closer to that ceiling. With auto-summarise on, the older parts of the conversation are condensed into a recap once the chat fills a configurable share of the window, and the agent continues from that recap. Lets you work on very large tasks without restarting. Default: on.',
+    'settings.loop.condensingThreshold': 'Trigger threshold',
+    'settings.loop.condensingThresholdDesc': "Summarise when the chat reaches this percentage of the model's memory limit.",
+    'settings.loop.condensingThresholdInfo': 'Lower (60-70 %): summarises more often, keeps responses snappy but loses detail faster, useful for cheap models with small windows. Higher (85-95 %): waits longer, keeps more raw context for nuanced tasks but risks hitting a hard limit and erroring out. Default: 80 % balances both. Most users leave this alone.',
+
+    // Power steering
+    'settings.loop.powerSteeringFreq': 'Refresh frequency',
+    'settings.loop.powerSteeringFreqDesc': 'Re-send the agent\'s role every N turns to keep it focused.',
+    'settings.loop.powerSteeringFreqInfo': 'On very long tasks, the agent can drift away from its original instructions because the system prompt is far back in the conversation. Power steering periodically re-injects the current agent\'s system prompt so the role stays fresh. 4 (default) = the role is repeated every 4 turns. Set 0 to disable entirely. Increase if you observe the agent forgetting its persona late in a task.',
+
+    // Task routing
+    'settings.loop.autoTaskRouterName': 'Route simple tasks to the cheap tier',
+    'settings.loop.autoTaskRouterDesc': 'Send single-step prompts to your cheaper budget-tier model.',
+    'settings.loop.autoTaskRouterInfo': 'Tasks like "create one xlsx", "summarise this note", "rename this folder" rarely need a flagship model. With this on, those prompts route to the active provider\'s fast tier (the "fast" slot you mapped under Providers). Research, planning, and multi-step prompts stay on the main loop model. Safety net: if the cheap tier fails 2 tool calls in a row, the next call escalates back to the main model.',
 
     // =========================================================================
     // Settings — Memory Tab

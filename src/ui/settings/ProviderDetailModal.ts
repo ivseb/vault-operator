@@ -33,6 +33,7 @@ import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthS
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
 import { isOpenAIChatCompletionModel } from './testModelConnection';
 import { t } from '../../i18n';
+import { openInfoPopover } from './utils';
 
 const TIER_ORDER: ModelTier[] = ['fast', 'mid', 'flagship'];
 
@@ -148,7 +149,7 @@ export class ProviderDetailModal extends Modal {
         labelLine.createSpan({ text: opts.label });
         if (opts.desc) {
             const infoBtn = labelLine.createEl('button', {
-                cls: 'mcm-info-btn',
+                cls: 'agent-info-btn',
                 attr: {
                     type: 'button',
                     'aria-label': opts.label + ': info',
@@ -158,40 +159,12 @@ export class ProviderDetailModal extends Modal {
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.openInfoPopover(opts.label, opts.desc!);
+                openInfoPopover(opts.label, opts.desc!);
             });
         }
         const controlEl = row.createDiv('mcm-control');
         opts.build(controlEl);
         return row;
-    }
-
-    /**
-     * Open a small info-popover that explains a setting. Title is the
-     * setting label, body text matches the size of the settings info-
-     * banner (13px) so the visual style stays consistent across
-     * inline banners and per-row tooltips.
-     */
-    private openInfoPopover(title: string, body: string): void {
-        const overlay = activeDocument.body.createDiv('mcm-info-overlay');
-        const popover = overlay.createDiv('mcm-info-popover');
-        const head = popover.createDiv('mcm-info-head');
-        head.createSpan({ cls: 'mcm-info-title', text: title });
-        const closeBtn = head.createEl('button', {
-            cls: 'mcm-info-close',
-            attr: { type: 'button', 'aria-label': 'Close' },
-        });
-        setIcon(closeBtn, 'x');
-        popover.createDiv({ cls: 'mcm-info-body', text: body });
-        const dismiss = (): void => overlay.remove();
-        closeBtn.addEventListener('click', dismiss);
-        overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
-        activeDocument.addEventListener('keydown', function onKey(e) {
-            if (e.key === 'Escape') {
-                dismiss();
-                activeDocument.removeEventListener('keydown', onKey);
-            }
-        });
     }
 
     /** Helper: text/password input matching `.mcm-input` styling. */
