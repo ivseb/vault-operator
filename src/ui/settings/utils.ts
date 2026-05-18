@@ -1,4 +1,3 @@
-import type { SliderComponent, TextComponent } from 'obsidian';
 import { Setting, setIcon } from 'obsidian';
 
 /**
@@ -56,12 +55,14 @@ export function addInfoButton(setting: Setting, title: string, body: string): vo
 }
 
 /**
- * Add a slider AND a small number input to a Setting, both kept in
- * sync. Replaces the standalone `addText` pattern for numeric values:
- * the slider is the primary interaction (drag, click-to-set), the
- * input box lets you type an exact value when the slider step is too
- * coarse. Values from the input are clamped to [min, max] before
- * being persisted.
+ * Add a slider with an inline, click-to-edit value display. The slider
+ * track and the value sit inside the same .agent-slider-wrap container
+ * so they read as one control instead of two side-by-side widgets.
+ *
+ * - Drag the slider -> the value updates.
+ * - Click the value -> it turns into a number input. Type, then press
+ *   Enter or click outside to commit. Values outside [min, max] are
+ *   clamped before persisting.
  */
 export function addSliderInput(
     setting: Setting,
@@ -73,37 +74,88 @@ export function addSliderInput(
         onChange: (v: number) => void | Promise<void>;
     },
 ): void {
-    let slider: SliderComponent | null = null;
-    let input: TextComponent | null = null;
-
     const clamp = (n: number): number =>
         Math.min(opts.max, Math.max(opts.min, n));
+    // Snap a typed value to the nearest step so the slider thumb does
+    // not land between detents (e.g. typing 7 with a step of 5 lands
+    // on 5; typing 8 lands on 10).
+    const snap = (n: number): number => {
+        const steps = Math.round((n - opts.min) / opts.step);
+        return clamp(opts.min + steps * opts.step);
+    };
 
-    setting.addSlider((s) => {
-        slider = s;
-        s.setLimits(opts.min, opts.max, opts.step)
-            .setValue(opts.value)
-            .setDynamicTooltip()
-            .onChange((v) => {
-                if (input) input.setValue(String(v));
-                void opts.onChange(v);
-            });
+    const wrap = setting.controlEl.createDiv('agent-slider-wrap');
+    const slider = wrap.createEl('input', {
+        cls: 'agent-slider',
+        attr: {
+            type: 'range',
+            min: String(opts.min),
+            max: String(opts.max),
+            step: String(opts.step),
+            value: String(opts.value),
+        },
     });
-    setting.addText((c) => {
-        input = c;
-        c.setValue(String(opts.value));
-        c.inputEl.classList.add('agent-slider-input');
-        c.inputEl.setAttribute('type', 'number');
-        c.inputEl.setAttribute('min', String(opts.min));
-        c.inputEl.setAttribute('max', String(opts.max));
-        c.inputEl.setAttribute('step', String(opts.step));
-        c.onChange((raw) => {
-            const parsed = parseFloat(raw);
-            if (Number.isFinite(parsed)) {
-                const v = clamp(parsed);
-                if (slider) slider.setValue(v);
-                void opts.onChange(v);
-            }
+    const valueEl = wrap.createSpan({
+        cls: 'agent-slider-value',
+        text: String(opts.value),
+        attr: { 'aria-label': 'Click to edit', role: 'button', tabindex: '0' },
+    });
+
+    const commit = (n: number): void => {
+        const v = clamp(n);
+        slider.value = String(v);
+        valueEl.setText(String(v));
+        void opts.onChange(v);
+    };
+
+    slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        if (Number.isFinite(v)) {
+            valueEl.setText(String(v));
+            void opts.onChange(v);
+        }
+    });
+
+    const openEditor = (): void => {
+        const current = parseFloat(slider.value);
+        valueEl.empty();
+        valueEl.removeClass('agent-slider-value');
+        valueEl.addClass('agent-slider-value-editing');
+        const input = valueEl.createEl('input', {
+            cls: 'agent-slider-input',
+            attr: {
+                type: 'number',
+                min: String(opts.min),
+                max: String(opts.max),
+                step: String(opts.step),
+                value: String(current),
+            },
         });
+        input.focus();
+        input.select();
+        const close = (cancel: boolean): void => {
+            const parsed = parseFloat(input.value);
+            valueEl.empty();
+            valueEl.removeClass('agent-slider-value-editing');
+            valueEl.addClass('agent-slider-value');
+            if (!cancel && Number.isFinite(parsed)) {
+                commit(snap(parsed));
+            } else {
+                valueEl.setText(slider.value);
+            }
+        };
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); close(false); }
+            if (e.key === 'Escape') { e.preventDefault(); close(true); }
+        });
+        input.addEventListener('blur', () => close(false));
+    };
+
+    valueEl.addEventListener('click', openEditor);
+    valueEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openEditor();
+        }
     });
 }
