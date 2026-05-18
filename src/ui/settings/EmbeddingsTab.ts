@@ -106,7 +106,7 @@ export class EmbeddingsTab {
         const semanticEnableSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.enableIndex'))
             .setDesc(t('settings.embeddings.enableIndexDesc'));
-        addInfoButton(semanticEnableSetting, this.app, t('settings.embeddings.infoIndexTitle'), t('settings.embeddings.infoIndexBody'));
+        addInfoButton(semanticEnableSetting, t('settings.embeddings.infoIndexTitle'), t('settings.embeddings.infoIndexBody'));
         semanticEnableSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.enableSemanticIndex ?? false).onChange(async (v) => {
                 this.plugin.settings.enableSemanticIndex = v;
@@ -335,7 +335,7 @@ export class EmbeddingsTab {
         const batchSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.checkpointInterval'))
             .setDesc(t('settings.embeddings.checkpointIntervalDesc'));
-        addInfoButton(batchSetting, this.app, t('settings.embeddings.infoCheckpointTitle'), t('settings.embeddings.infoCheckpointBody'));
+        addInfoButton(batchSetting, t('settings.embeddings.infoCheckpointTitle'), t('settings.embeddings.infoCheckpointBody'));
         batchSetting.addSlider((s) =>
             s.setLimits(10, 200, 10)
                 .setValue(this.plugin.settings.semanticBatchSize ?? 50)
@@ -370,7 +370,7 @@ export class EmbeddingsTab {
         const hydeSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.hyde'))
             .setDesc(t('settings.embeddings.hydeDesc'));
-        addInfoButton(hydeSetting, this.app, t('settings.embeddings.infoHydeTitle'), t('settings.embeddings.infoHydeBody'));
+        addInfoButton(hydeSetting, t('settings.embeddings.infoHydeTitle'), t('settings.embeddings.infoHydeBody'));
         hydeSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.hydeEnabled ?? false).onChange(async (v) => {
                 this.plugin.settings.hydeEnabled = v;
@@ -385,7 +385,7 @@ export class EmbeddingsTab {
             cls: 'setting-risk-note',
             text: t('settings.embeddings.riskNote'),
         });
-        addInfoButton(autoIndexOnChangeSetting, this.app, t('settings.embeddings.infoAutoChangeTitle'), t('settings.embeddings.infoAutoChangeBody'));
+        addInfoButton(autoIndexOnChangeSetting, t('settings.embeddings.infoAutoChangeTitle'), t('settings.embeddings.infoAutoChangeBody'));
         autoIndexOnChangeSetting.addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.semanticAutoIndexOnChange ?? false).onChange(async (v) => {
                 this.plugin.settings.semanticAutoIndexOnChange = v;
@@ -397,7 +397,7 @@ export class EmbeddingsTab {
         const autoIndexSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.autoIndexStrategy'))
             .setDesc(t('settings.embeddings.autoIndexStrategyDesc'));
-        addInfoButton(autoIndexSetting, this.app, t('settings.embeddings.infoAutoStrategyTitle'), t('settings.embeddings.infoAutoStrategyBody'));
+        addInfoButton(autoIndexSetting, t('settings.embeddings.infoAutoStrategyTitle'), t('settings.embeddings.infoAutoStrategyBody'));
         autoIndexSetting.addDropdown((d) =>
             d.addOptions({
                 never: t('settings.embeddings.autoIndexNever'),
@@ -414,7 +414,7 @@ export class EmbeddingsTab {
         const excludedSetting = new Setting(containerEl)
             .setName(t('settings.embeddings.excludedFolders'))
             .setDesc(t('settings.embeddings.excludedFoldersDesc'));
-        addInfoButton(excludedSetting, this.app, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
+        addInfoButton(excludedSetting, t('settings.embeddings.infoExcludedTitle'), t('settings.embeddings.infoExcludedBody'));
 
         const excludedFolders = this.plugin.settings.semanticExcludedFolders ?? [];
 
