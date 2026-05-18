@@ -1,7 +1,7 @@
 import { App, Setting, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
-import { addInfoButton, addSliderInput } from './utils';
+import { addInfoButton, addSectionHeading, addSliderInput } from './utils';
 
 export class LoopTab {
     constructor(private plugin: ObsidianAgentPlugin, private app: App, private rerender: () => void) {}
@@ -16,8 +16,7 @@ export class LoopTab {
     }
 
     private section(containerEl: HTMLElement, headingKey: string, descKey: string): void {
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t(headingKey) });
-        containerEl.createEl('p', { cls: 'agent-settings-section-desc', text: t(descKey) });
+        addSectionHeading(containerEl, t(headingKey), { body: t(descKey) });
     }
 
     build(containerEl: HTMLElement): void {
