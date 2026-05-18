@@ -545,6 +545,17 @@ export class ToolExecutionPipeline {
         // injected via prompt injection. User approval is the primary defense.
         if (group === 'sandbox') {
             if (cfg.enabled && cfg.sandbox) return { decision: 'auto' };
+            if (cfg.sandbox && !cfg.enabled) {
+                // Diagnostic for "I toggled sandbox on but it still asks": the
+                // category bit is set, but the master switch above is off so
+                // the gate refuses. The UI now hard-disables category toggles
+                // while the master is off; this log is kept for legacy
+                // data.json files where the combination persists.
+                console.debug(
+                    `[Pipeline] ${toolCall.name}: sandbox category is on, ` +
+                    `but autoApproval.enabled (master) is off; falling back to user prompt.`,
+                );
+            }
             if (!extensions?.onApprovalRequired) {
                 console.warn(`[Pipeline] Sandbox tool ${toolCall.name} — denying (requires approval)`);
                 return { decision: 'rejected' };
