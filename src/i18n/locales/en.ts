@@ -6,6 +6,7 @@ export const en: Translations = {
     // =========================================================================
     'settings.group.providers': 'Providers',
     'settings.group.agentBehaviour': 'Agents',
+    'settings.group.customize': 'Customize',
     'settings.group.vault': 'Vault',
     'settings.group.advanced': 'Advanced',
     'settings.group.help': 'Help',
@@ -18,6 +19,8 @@ export const en: Translations = {
     'settings.tab.embeddings': 'Embeddings',
     'settings.tab.webSearch': 'Web search',
     'settings.tab.mcp': 'MCP',
+    'settings.tab.connectors': 'Connectors',
+    'settings.tab.vault': 'Vault',
     'settings.tab.modes': 'Agents',
     'settings.tab.autoApprove': 'Auto-approve',
     'settings.tab.loop': 'Loop',
@@ -677,6 +680,20 @@ export const en: Translations = {
     'settings.debug.debugModeDesc': 'Write detailed logs to the browser developer console. Open the console with Cmd+Option+I (Mac) or Ctrl+Shift+I (Windows).',
     'settings.debug.optionalAssetsHeading': 'Optional assets',
     'settings.debug.optionalAssetsInfo': 'Optional one-time downloads that stay out of the main plugin bundle so it remains under Obsidian Sync\'s 5 MB threshold. Each asset is SHA256-verified before it lands in <vault>/.vault-operator/assets/. The plugin works without any of them; the corresponding tool reports "not installed" until you click Install.',
+
+    // Optional assets sub-tab
+    'settings.optionalAssets.introTitle': 'Optional assets',
+    'settings.optionalAssets.introDesc': 'One-time downloads that stay out of the main plugin bundle so it remains under Obsidian Sync\'s 5 MB threshold. Each asset is SHA256-verified before it lands in <vault>/.vault-operator/assets/. The plugin works without any of them; the corresponding tool reports "not installed" until you click Install.',
+    'settings.optionalAssets.headingOffice': 'Office bundle',
+    'settings.optionalAssets.sectionOfficeInfo': 'Bundles exceljs, docx and pptxgenjs (~1.7 MB). Required to create or read .xlsx / .docx / .pptx files. Without it, the create_xlsx / create_docx / create_pptx tools stay disabled.',
+    'settings.optionalAssets.officeNotInstalled': 'Status: not installed -- create_docx / create_xlsx / create_pptx tools stay disabled',
+    'settings.optionalAssets.headingPdf': 'PDF parser',
+    'settings.optionalAssets.sectionPdfInfo': 'pdfjs-dist with its worker (~1.6 MB). Required to extract text from PDF attachments during ingest. Without it, PDFs are skipped.',
+    'settings.optionalAssets.pdfNotInstalled': 'Status: not installed -- PDF files are skipped during ingestion',
+    'settings.optionalAssets.headingSelfDev': 'Self-development source',
+    'settings.optionalAssets.sectionSelfDevInfo': 'A snapshot of the plugin\'s own source code (~5 MB) that the self-modification tools (manage_source) can read and edit. Ships in a separate release tag because of size; local-file install is the recommended path.',
+    'settings.optionalAssets.selfDevNotInstalled': 'Status: not installed -- manage_source tool stays disabled',
+    'settings.tab.optionalAssets': 'Optional assets',
 
     // =========================================================================
     // Settings — Backup Tab

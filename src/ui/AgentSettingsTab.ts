@@ -22,6 +22,7 @@ import { DebugTab }       from './settings/DebugTab';
 import { BackupTab }      from './settings/BackupTab';
 import { MemoryTab }      from './settings/MemoryTab';
 import { ShellTab }       from './settings/ShellTab';
+import { OptionalAssetsTab } from './settings/OptionalAssetsTab';
 
 // Re-export for backward compatibility (used in main.ts and other places)
 export { ModelConfigModal } from './settings/ModelConfigModal';
@@ -29,7 +30,7 @@ export { ContentEditorModal } from './settings/ContentEditorModal';
 
 // ---------------------------------------------------------------------------
 
-export type TabId = 'providers' | 'agent-behaviour' | 'vault' | 'advanced' | 'help';
+export type TabId = 'providers' | 'agent-behaviour' | 'customize' | 'advanced' | 'help';
 
 const HELP_URL = 'https://pssah4.github.io/vault-operator/';
 
@@ -38,6 +39,7 @@ export class AgentSettingsTab extends PluginSettingTab {
     private activeTab: TabId = 'providers';
     private activeProvidersSubTab: string = 'providers';
     private activeAgentSubTab: string = 'modes';
+    private activeCustomizeSubTab: string = 'skills';
     private activeAdvancedSubTab: string = 'interface';
 
     constructor(app: App, plugin: ObsidianAgentPlugin) {
@@ -54,6 +56,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (subTab) {
             if (tab === 'providers') this.activeProvidersSubTab = subTab;
             if (tab === 'agent-behaviour') this.activeAgentSubTab = subTab;
+            if (tab === 'customize') this.activeCustomizeSubTab = subTab;
             if (tab === 'advanced') this.activeAdvancedSubTab = subTab;
         }
         this.display();
@@ -77,7 +80,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         const tabs: { id: TabId; label: string; icon: string }[] = [
             { id: 'providers',       label: t('settings.group.providers'),       icon: 'plug'         },
             { id: 'agent-behaviour', label: t('settings.group.agentBehaviour'), icon: 'users-round'  },
-            { id: 'vault',           label: t('settings.group.vault'),           icon: 'server'       },
+            { id: 'customize',       label: t('settings.group.customize'),       icon: 'sliders'      },
             { id: 'advanced',        label: t('settings.group.advanced'),        icon: 'settings-2'   },
             { id: 'help',            label: t('settings.group.help'),            icon: 'help-circle'  },
         ];
@@ -122,7 +125,7 @@ export class AgentSettingsTab extends PluginSettingTab {
         const content = container.createDiv('agent-settings-content');
         if (this.activeTab === 'providers')       this.buildProvidersTab(content);
         if (this.activeTab === 'agent-behaviour') this.buildAgentBehaviourTab(content);
-        if (this.activeTab === 'vault')           new VaultTab(this.plugin, this.app, () => this.display()).build(content);
+        if (this.activeTab === 'customize')       this.buildCustomizeTab(content);
         if (this.activeTab === 'advanced')        this.buildAdvancedTab(content);
     }
 
@@ -168,18 +171,15 @@ export class AgentSettingsTab extends PluginSettingTab {
     // ---------------------------------------------------------------------------
 
     private buildProvidersTab(container: HTMLElement): void {
-        // EPIC-26 / FEAT-26-03: the legacy "Models" tab is hidden from the
-        // sub-tab nav. ModelsTab still renders when subTab === 'models'
-        // (e.g. when the OAuth Sign-In flow redirects there), so users
-        // mid-migration are not stranded; the tab simply is not a
-        // first-class entry in the navigation anymore.
+        // 2026-05-18 restructure: MCP moves out of Providers (a "Connector"
+        // is a tool surface for the agent, not a model/api provider) into
+        // the new Customize tab.
         this.buildSubTabNav(
             container,
             [
                 { id: 'providers',   label: t('settings.tab.providers') },
                 { id: 'embeddings',  label: t('settings.tab.embeddings') },
                 { id: 'web-search',  label: t('settings.tab.webSearch') },
-                { id: 'mcp-servers', label: t('settings.tab.mcp')        },
             ],
             this.activeProvidersSubTab,
             (id) => { this.activeProvidersSubTab = id; this.display(); },
@@ -190,7 +190,6 @@ export class AgentSettingsTab extends PluginSettingTab {
         if (this.activeProvidersSubTab === 'models')      new ModelsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'embeddings')  new EmbeddingsTab(this.plugin, this.app, rerender).build(content);
         if (this.activeProvidersSubTab === 'web-search')  new WebSearchTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeProvidersSubTab === 'mcp-servers') new McpTab(this.plugin, this.app, rerender).build(content);
     }
 
     // ---------------------------------------------------------------------------
@@ -198,15 +197,13 @@ export class AgentSettingsTab extends PluginSettingTab {
     // ---------------------------------------------------------------------------
 
     private buildAgentBehaviourTab(container: HTMLElement): void {
+        // 2026-05-18 restructure: Loop -> Advanced (tech tuning),
+        // Rules/Workflows/Skills/Prompts -> Customize (user-created
+        // recipes), MCP renamed to Connectors -> Customize.
         const subTabs = [
             { id: 'modes',       label: t('settings.tab.modes')       },
             { id: 'permissions', label: t('settings.tab.autoApprove') },
-            { id: 'loop',        label: t('settings.tab.loop')        },
             { id: 'memory',      label: t('settings.tab.memory')      },
-            { id: 'rules',       label: t('settings.tab.rules')       },
-            { id: 'workflows',   label: t('settings.tab.workflows')   },
-            { id: 'skills',      label: t('settings.tab.skills')      },
-            { id: 'prompts',     label: t('settings.tab.prompts')     },
         ];
         this.buildSubTabNav(container, subTabs, this.activeAgentSubTab,
             (id) => { this.activeAgentSubTab = id; this.display(); });
@@ -215,38 +212,62 @@ export class AgentSettingsTab extends PluginSettingTab {
         const ms = undefined; // ModeService is instantiated in AgentSidebarView; settings tabs work without it
         if (this.activeAgentSubTab === 'modes')       new ModesTab(this.plugin, this.app, rerender, ms).build(content);
         if (this.activeAgentSubTab === 'permissions') new PermissionsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAgentSubTab === 'loop')        new LoopTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAgentSubTab === 'memory')      new MemoryTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAgentSubTab === 'rules')       new RulesTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAgentSubTab === 'workflows')   new WorkflowsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAgentSubTab === 'skills')      new SkillsTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAgentSubTab === 'prompts')     new PromptsTab(this.plugin, this.app, rerender).build(content);
     }
 
     // ---------------------------------------------------------------------------
-    // Advanced tab (Interface + Log + Debug + Backup)
+    // Customize tab (Skills + Connectors + Prompts + Workflows + Rules)
+    // ---------------------------------------------------------------------------
+
+    private buildCustomizeTab(container: HTMLElement): void {
+        const subTabs = [
+            { id: 'skills',     label: t('settings.tab.skills')     },
+            { id: 'connectors', label: t('settings.tab.connectors') },
+            { id: 'prompts',    label: t('settings.tab.prompts')    },
+            { id: 'workflows',  label: t('settings.tab.workflows')  },
+            { id: 'rules',      label: t('settings.tab.rules')      },
+        ];
+        this.buildSubTabNav(container, subTabs, this.activeCustomizeSubTab,
+            (id) => { this.activeCustomizeSubTab = id; this.display(); });
+        const content = container.createDiv({ cls: 'agent-settings-subcontent' });
+        const rerender = () => this.display();
+        if (this.activeCustomizeSubTab === 'skills')     new SkillsTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeCustomizeSubTab === 'connectors') new McpTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeCustomizeSubTab === 'prompts')    new PromptsTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeCustomizeSubTab === 'workflows')  new WorkflowsTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeCustomizeSubTab === 'rules')      new RulesTab(this.plugin, this.app, rerender).build(content);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Advanced tab (Loop + Interface + Vault + Shell + Log + Debug + Backup)
     // ---------------------------------------------------------------------------
 
     private buildAdvancedTab(container: HTMLElement): void {
         this.buildSubTabNav(
             container,
             [
-                { id: 'interface',           label: t('settings.tab.interface') },
-                { id: 'shell',               label: t('settings.tab.shell')     },
-                { id: 'log',                 label: t('settings.tab.log')       },
-                { id: 'debug',               label: t('settings.tab.debug')     },
-                { id: 'backup',              label: t('settings.tab.backup')    },
+                { id: 'loop',      label: t('settings.tab.loop')      },
+                { id: 'interface', label: t('settings.tab.interface') },
+                { id: 'vault',     label: t('settings.tab.vault')     },
+                { id: 'shell',     label: t('settings.tab.shell')     },
+                { id: 'log',       label: t('settings.tab.log')       },
+                { id: 'debug',     label: t('settings.tab.debug')     },
+                { id: 'backup',    label: t('settings.tab.backup')    },
+                { id: 'optional-assets', label: t('settings.tab.optionalAssets') },
             ],
             this.activeAdvancedSubTab,
             (id) => { this.activeAdvancedSubTab = id; this.display(); },
         );
         const content = container.createDiv({ cls: 'agent-settings-subcontent' });
         const rerender = () => this.display();
-        if (this.activeAdvancedSubTab === 'interface')           new InterfaceTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'shell')               new ShellTab(this.plugin, this.app, rerender).build(content);
-        if (this.activeAdvancedSubTab === 'log')                 new LogTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'loop')      new LoopTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'interface') new InterfaceTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'vault')     new VaultTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'shell')     new ShellTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'log')       new LogTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'debug')     new DebugTab(this.plugin, this.app, rerender).build(content);
         if (this.activeAdvancedSubTab === 'backup')    new BackupTab(this.plugin, this.app, rerender).build(content);
+        if (this.activeAdvancedSubTab === 'optional-assets') new OptionalAssetsTab(this.plugin, this.app, rerender).build(content);
     }
 }
 

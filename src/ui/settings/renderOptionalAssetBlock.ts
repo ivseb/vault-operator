@@ -87,6 +87,27 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
         }
     };
 
+    // Self-Dev source ships in a separate release tag and is large enough
+    // that local-file installs are the recommended path. When
+    // `allowInstallFromFile` is set, render the local-file button as the
+    // primary action and put Re-install + Remove behind it. Other assets
+    // (office-bundle, pdfjs-bundle) keep Install (online) as primary.
+    if (opts.allowInstallFromFile) {
+        setting.addButton((btn) => {
+            btn.setButtonText('Install from file')
+                .setCta()
+                .onClick(async () => {
+                    const { pickAndInstallAsset } = await import('./installFromFile');
+                    pickAndInstallAsset(manager, spec, async () => {
+                        if (onPostInstall) {
+                            await onPostInstall();
+                        }
+                        await renderStatus();
+                    });
+                });
+        });
+    }
+
     setting.addButton((btn) => {
         installBtn = btn.buttonEl;
         btn.setButtonText('Install')
@@ -108,6 +129,11 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
                     await renderStatus();
                 }
             });
+        // When local-file install is primary, the online button drops the
+        // .mod-cta styling so it reads as the secondary action.
+        if (opts.allowInstallFromFile) {
+            btn.removeCta();
+        }
     });
 
     setting.addButton((btn) => {
@@ -128,22 +154,6 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
                 }
             });
     });
-
-    if (opts.allowInstallFromFile) {
-        setting.addExtraButton((btn) => {
-            btn.setIcon('upload')
-                .setTooltip('Install from local file (fallback if download fails)')
-                .onClick(async () => {
-                    const { pickAndInstallAsset } = await import('./installFromFile');
-                    pickAndInstallAsset(manager, spec, async () => {
-                        if (onPostInstall) {
-                            await onPostInstall();
-                        }
-                        await renderStatus();
-                    });
-                });
-        });
-    }
 
     void renderStatus();
 }
