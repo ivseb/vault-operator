@@ -2063,7 +2063,11 @@
 
 .mcm-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 
-.mcm-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; font-size: 12px; }
+/* Label column auto-sizes so longer labels ("Discovered models",
+   "Test connection") plus their info-icon stay on a single line.
+   `minmax(110px, auto)` keeps short labels (API key, Base URL) at
+   the previous width for visual rhythm while letting long ones grow. */
+.mcm-row { display: grid; grid-template-columns: minmax(110px, auto) 1fr; align-items: center; gap: 8px; font-size: 12px; }
 
 .mcm-label { color: var(--text-muted); display: flex; flex-direction: column; gap: 1px; }
 .mcm-desc { font-size: 10px; color: var(--text-faint); }
@@ -2195,12 +2199,16 @@
 }
 
 /* EPIC-26 / FEAT-26-03 -- inline label-line so a tier badge sits next
-   to the row label without breaking the .mcm-label vertical stack. */
+   to the row label without breaking the .mcm-label vertical stack.
+   nowrap keeps the info-button glued to the label text (AUDIT-030
+   follow-up: prior `flex-wrap: wrap` pushed the `(i)` to a new line
+   when label + icon exceeded the grid column width). */
 .mcm-label .mcm-label-line {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 /* Info-icon next to a setting name. Just the Lucide `info` glyph in
