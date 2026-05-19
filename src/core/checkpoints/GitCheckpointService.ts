@@ -635,6 +635,33 @@ export class GitCheckpointService {
     }
 
     /**
+     * Scan the shadow repo for all checkpoint commits across every task,
+     * newest first. Used by the list_checkpoints agent tool when no
+     * taskId filter is supplied.
+     *
+     * Does NOT populate the in-memory taskCheckpoints map -- that map is
+     * per-task, and a global scan would mix unrelated tasks together.
+     * Callers that want to restore must use getCheckpointByOid +
+     * restore() explicitly.
+     */
+    async listAllCheckpoints(limit = 50): Promise<CheckpointInfo[]> {
+        if (typeof limit !== 'number' || !Number.isFinite(limit) || limit <= 0 || limit > 1000) {
+            throw new Error(`[Checkpoints] Invalid limit: ${JSON.stringify(limit)}`);
+        }
+        await this.ensureInit();
+        const fs = this.getFs();
+        const commits = await git.log({ fs, dir: this.repoPath });
+        const list: CheckpointInfo[] = [];
+        for (const c of commits) {
+            if (!c.commit.message.startsWith('checkpoint:')) continue;
+            const info = this.checkpointInfoFromCommit(c);
+            if (info) list.push(info);
+            if (list.length >= limit) break;
+        }
+        return list;
+    }
+
+    /**
      * Read the snapshotted content of a single file from a checkpoint.
      * Returns null if the checkpoint has no commit or the file is not found.
      */
