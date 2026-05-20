@@ -109,11 +109,14 @@ describe('agentFolder sub-folder helpers (FEAT-29-01)', () => {
 });
 
 describe('agentFolder layout-aware helpers (FEAT-29-01 post-migration)', () => {
-    it('getPluginSkillsDir uses data/skills/plugin when migration is complete (FEAT-29-02)', () => {
+    it('getPluginSkillsDir uses unified data/skills when migration is complete (FEAT-29-11)', () => {
+        // FEAT-29-11 layout consolidation: plugin-skills live in the same
+        // root as user/builtin skills, distinguished by the `source:`
+        // frontmatter, not by a sub-folder.
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
-        expect(getPluginSkillsDir(holder)).toBe('.vault-operator/data/skills/plugin');
+        expect(getPluginSkillsDir(holder)).toBe('.vault-operator/data/skills');
     });
 
     it('getPluginSkillsDir keeps legacy flat layout when migration is pending', () => {
@@ -128,12 +131,12 @@ describe('agentFolder layout-aware helpers (FEAT-29-01 post-migration)', () => {
         expect(getPluginSkillsDir(holder)).toBe('.vault-operator/plugin-skills');
     });
 
-    it('getPluginSkillsPath returns folder/SKILL.md when migrated (FEAT-29-02)', () => {
+    it('getPluginSkillsPath returns unified folder/SKILL.md when migrated (FEAT-29-11)', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillsPath(holder, 'excalidraw')).toBe(
-            '.vault-operator/data/skills/plugin/excalidraw/SKILL.md',
+            '.vault-operator/data/skills/excalidraw/SKILL.md',
         );
     });
 
@@ -170,12 +173,12 @@ describe('agentFolder layout-aware helpers (FEAT-29-01 post-migration)', () => {
 });
 
 describe('FEAT-29-02 plugin-skill folder helpers', () => {
-    it('getPluginSkillFolderPath returns per-plugin folder when migrated', () => {
+    it('getPluginSkillFolderPath returns unified skill folder when migrated (FEAT-29-11)', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillFolderPath(holder, 'excalidraw')).toBe(
-            '.vault-operator/data/skills/plugin/excalidraw',
+            '.vault-operator/data/skills/excalidraw',
         );
     });
 
@@ -186,12 +189,12 @@ describe('FEAT-29-02 plugin-skill folder helpers', () => {
         expect(getPluginSkillFolderPath(holder, 'excalidraw')).toBeNull();
     });
 
-    it('getPluginSkillManifestPath returns SKILL.md inside per-plugin folder when migrated', () => {
+    it('getPluginSkillManifestPath returns SKILL.md in unified skill folder when migrated (FEAT-29-11)', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillManifestPath(holder, 'dataview')).toBe(
-            '.vault-operator/data/skills/plugin/dataview/SKILL.md',
+            '.vault-operator/data/skills/dataview/SKILL.md',
         );
     });
 
@@ -204,12 +207,12 @@ describe('FEAT-29-02 plugin-skill folder helpers', () => {
         );
     });
 
-    it('getPluginSkillReadmePath returns references/readme.md when migrated', () => {
+    it('getPluginSkillReadmePath returns references/readme.md in unified folder when migrated (FEAT-29-11)', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillReadmePath(holder, 'templater-obsidian')).toBe(
-            '.vault-operator/data/skills/plugin/templater-obsidian/references/readme.md',
+            '.vault-operator/data/skills/templater-obsidian/references/readme.md',
         );
     });
 
@@ -222,12 +225,12 @@ describe('FEAT-29-02 plugin-skill folder helpers', () => {
         );
     });
 
-    it('getPluginSkillCommandsRefPath returns references/commands.md when migrated', () => {
+    it('getPluginSkillCommandsRefPath returns references/commands.md in unified folder when migrated (FEAT-29-11)', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.vault-operator', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillCommandsRefPath(holder, 'obsidian-tasks-plugin')).toBe(
-            '.vault-operator/data/skills/plugin/obsidian-tasks-plugin/references/commands.md',
+            '.vault-operator/data/skills/obsidian-tasks-plugin/references/commands.md',
         );
     });
 
@@ -238,15 +241,15 @@ describe('FEAT-29-02 plugin-skill folder helpers', () => {
         expect(getPluginSkillCommandsRefPath(holder, 'obsidian-tasks-plugin')).toBeNull();
     });
 
-    it('respects custom agentFolderPath in all FEAT-29-02 helpers', () => {
+    it('respects custom agentFolderPath in all FEAT-29-11 unified-folder helpers', () => {
         const holder: Holder = {
             settings: { agentFolderPath: '.custom-agent', _layoutMigrationStatus: 'complete' },
         };
         expect(getPluginSkillFolderPath(holder, 'kanban')).toBe(
-            '.custom-agent/data/skills/plugin/kanban',
+            '.custom-agent/data/skills/kanban',
         );
         expect(getPluginSkillManifestPath(holder, 'kanban')).toBe(
-            '.custom-agent/data/skills/plugin/kanban/SKILL.md',
+            '.custom-agent/data/skills/kanban/SKILL.md',
         );
     });
 });

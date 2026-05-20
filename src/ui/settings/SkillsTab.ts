@@ -7,6 +7,7 @@ import type { SelfAuthoredSkill } from '../../core/skills/SelfAuthoredSkillLoade
 import {
     getPluginSkillsDir,
     getPluginSkillManifestPath,
+    getPluginSkillFolderPath,
     getPluginSkillReadmePath,
     getSelfAuthoredSkillsDir,
 } from '../../core/utils/agentFolder';
@@ -186,12 +187,15 @@ export class SkillsTab {
                 // Actions (edit, export, delete)
                 const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
 
-                // Edit
+                // Open folder (FEAT-29-11: replaces the old "edit -> modal"
+                // path. All skills now live in a folder with SKILL.md +
+                // optional scripts/, references/, assets/. Clicking the
+                // button reveals the folder in the OS file manager.)
                 const editBtn = actionsTd.createEl('button', {
                     cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.edit') },
                 });
-                setIcon(editBtn, 'pencil');
-                editBtn.addEventListener('click', () => { void this.editSkill(skill); });
+                setIcon(editBtn, 'folder-open');
+                editBtn.addEventListener('click', () => { void this.openSkillFolder(skill); });
 
                 // Export
                 const exportBtn = actionsTd.createEl('button', {
@@ -320,25 +324,95 @@ export class SkillsTab {
         }
     }
 
-    private async editSkill(skill: UnifiedSkill): Promise<void> {
+    /**
+     * FEAT-29-11: open the skill's folder in the OS file manager.
+     * Replaces the old `editSkill` modal flow. Works uniformly across
+     * user, learned, and bundled skills -- builtin folders live under
+     * `data/skills/{name}/` after the materialisation step.
+     */
+    private async openSkillFolder(skill: UnifiedSkill): Promise<void> {
         try {
-            if (skill.selfAuthored) {
-                const adapter = this.plugin.app.vault.adapter;
-                const content = await adapter.read(skill.selfAuthored.filePath);
-                new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, async (newContent) => {
-                    await adapter.write(skill.selfAuthored!.filePath, newContent);
-                }).open();
-            } else if (skill.globalPath && this.plugin.skillsManager) {
-                const mgr = this.plugin.skillsManager;
-                const gPath = skill.globalPath;
-                const content = await mgr.readFile(gPath);
-                new ContentEditorModal(this.app, t('settings.skills.editSkill', { name: skill.name }), content, (newContent) => {
-                    return mgr.writeFile(gPath, newContent);
-                }).open();
+            // Each UnifiedSkill carries either a vault-relative `selfAuthored.filePath`
+            // (pointing at the SKILL.md) or a `globalPath` from the SkillsManager.
+            // Pick whichever we have and walk one segment up to the folder.
+            let folderRelative: string | null = null;
+            if (skill.selfAuthored?.filePath) {
+                const p = skill.selfAuthored.filePath;
+                folderRelative = p.replace(/\/SKILL\.md$/, '').replace(/\/[^/]+\.skill\.md$/, '');
+            } else if (skill.globalPath) {
+                // Global skills are mirrored under {agent-folder}/data/skills/{slug}/SKILL.md.
+                // Strip the "skills/{slug}/SKILL.md" suffix on the global side and
+                // reroute to the vault-resident copy.
+                const slug = skill.globalPath.replace(/^skills\//, '').replace(/\/SKILL\.md$/, '');
+                folderRelative = `${this.skillsDir}/${slug}`;
+            }
+
+            if (!folderRelative) {
+                new Notice('Cannot resolve folder for this skill');
+                return;
+            }
+
+            // Build an absolute path via the FileSystemAdapter, then open via electron.
+            const adapter = this.plugin.app.vault.adapter as unknown as {
+                getFullPath?: (relative: string) => string;
+                getBasePath?: () => string;
+            };
+            const absPath = adapter.getFullPath
+                ? adapter.getFullPath(folderRelative)
+                : (adapter.getBasePath ? `${adapter.getBasePath()}/${folderRelative}` : null);
+            if (!absPath) {
+                new Notice('Cannot resolve absolute path');
+                return;
+            }
+
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- electron is the standard Obsidian-desktop dep, no runtime install needed
+            const electron = require('electron') as { shell?: { openPath?: (p: string) => Promise<string> } };
+            const result = electron.shell?.openPath
+                ? await electron.shell.openPath(absPath)
+                : 'electron.shell.openPath unavailable';
+            if (result) {
+                new Notice(`Open folder failed: ${result}`);
             }
         } catch (e) {
-            new Notice('Failed to edit skill');
-            console.error('[SkillsTab] Edit failed:', e);
+            new Notice('Failed to open skill folder');
+            console.error('[SkillsTab] openSkillFolder failed:', e);
+        }
+    }
+
+    /**
+     * FEAT-29-11: open a plugin-skill's folder. Plugin-skills now live in
+     * the unified `data/skills/{plugin-id}/` layout, identical to user
+     * and builtin skills.
+     */
+    private async openPluginSkillFolder(skill: PluginSkillMeta): Promise<void> {
+        try {
+            const folder = getPluginSkillFolderPath(this.plugin, skill.id);
+            if (!folder) {
+                new Notice('Plugin-skill folder not available pre-migration');
+                return;
+            }
+            const adapter = this.plugin.app.vault.adapter as unknown as {
+                getFullPath?: (relative: string) => string;
+                getBasePath?: () => string;
+            };
+            const absPath = adapter.getFullPath
+                ? adapter.getFullPath(folder)
+                : (adapter.getBasePath ? `${adapter.getBasePath()}/${folder}` : null);
+            if (!absPath) {
+                new Notice('Cannot resolve absolute path');
+                return;
+            }
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- electron is the standard Obsidian-desktop dep, no runtime install needed
+            const electron = require('electron') as { shell?: { openPath?: (p: string) => Promise<string> } };
+            const result = electron.shell?.openPath
+                ? await electron.shell.openPath(absPath)
+                : 'electron.shell.openPath unavailable';
+            if (result) {
+                new Notice(`Open folder failed: ${result}`);
+            }
+        } catch (e) {
+            new Notice('Failed to open plugin-skill folder');
+            console.error('[SkillsTab] openPluginSkillFolder failed:', e);
         }
     }
 
@@ -551,12 +625,13 @@ export class SkillsTab {
             // Actions (view buttons)
             const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
 
-            // Edit skill file
+            // Open skill folder (FEAT-29-11: opens the plugin-skill's folder
+            // in the OS file manager instead of the legacy edit-modal.)
             const editSkillBtn = actionsTd.createEl('button', {
                 cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.editFile') },
             });
-            setIcon(editSkillBtn, 'pencil');
-            editSkillBtn.addEventListener('click', () => void this.openSkillFile(skill));
+            setIcon(editSkillBtn, 'folder-open');
+            editSkillBtn.addEventListener('click', () => void this.openPluginSkillFolder(skill));
 
             // View README (if exists)
             const docsBtn = actionsTd.createEl('button', {

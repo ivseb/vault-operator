@@ -53,6 +53,29 @@ function makeStubVault() {
             calls.push({ op: 'rmdir', path: p });
             folders.delete(p);
         },
+        async rename(from: string, to: string): Promise<void> {
+            // Stub: move single file or folder + all its descendants.
+            if (folders.has(from)) {
+                folders.delete(from);
+                folders.add(to);
+                const prefix = from.endsWith('/') ? from : from + '/';
+                for (const f of Array.from(files.keys())) {
+                    if (f.startsWith(prefix)) {
+                        files.set(to + f.slice(from.length), files.get(f)!);
+                        files.delete(f);
+                    }
+                }
+                for (const subf of Array.from(folders)) {
+                    if (subf.startsWith(prefix) && subf !== from) {
+                        folders.delete(subf);
+                        folders.add(to + subf.slice(from.length));
+                    }
+                }
+            } else if (files.has(from)) {
+                files.set(to, files.get(from)!);
+                files.delete(from);
+            }
+        },
         async list(p: string): Promise<{ files: string[]; folders: string[] }> {
             const prefix = p.endsWith('/') ? p : p + '/';
             return {
@@ -134,10 +157,10 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
                 (c) => c.op === 'write' && c.path.endsWith('SKILL.md'),
             );
             expect(write).toBeDefined();
-            expect(write!.path).toBe('.vault-operator/data/skills/plugin/dataview/SKILL.md');
+            expect(write!.path).toBe('.vault-operator/data/skills/dataview/SKILL.md');
             // mkdir should have walked the folder tree
             expect(stub.calls.some(
-                (c) => c.op === 'mkdir' && c.path === '.vault-operator/data/skills/plugin/dataview',
+                (c) => c.op === 'mkdir' && c.path === '.vault-operator/data/skills/dataview',
             )).toBe(true);
         });
 
@@ -224,7 +247,7 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
             );
             expect(cmdRef).toBeDefined();
             expect(cmdRef!.path).toBe(
-                '.vault-operator/data/skills/plugin/obsidian-excalidraw-plugin/references/commands.md',
+                '.vault-operator/data/skills/obsidian-excalidraw-plugin/references/commands.md',
             );
             expect(cmdRef!.content).toContain('| Command ID | Name |');
             expect(cmdRef!.content).toContain('`obsidian-excalidraw-plugin:open`');

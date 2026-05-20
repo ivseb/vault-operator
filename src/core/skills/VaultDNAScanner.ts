@@ -204,39 +204,83 @@ export class VaultDNAScanner {
     }
 
     /**
-     * FEAT-29-02 Task 5: remove stale `.skill.md` / `.readme.md` files from
-     * the legacy `data/plugin-skills/` directory after Welle 1 migrated the
-     * layout. Removes the (now empty) folder too. Idempotent: missing files
-     * or already-deleted folders are non-fatal.
+     * Two-stage cleanup of pre-FEAT-29-11 skill layouts. Runs on every
+     * scanner init when the holder is post-Welle-1.
+     *
+     * **Stage 1 (FEAT-29-02 Task 5):** the legacy file layout
+     * `{root}/data/plugin-skills/*.skill.md|*.readme.md` is removed
+     * outright. New skills live in folders, those flat files are stale.
+     *
+     * **Stage 2 (FEAT-29-11):** the Welle-2 sub-folder
+     * `{root}/data/skills/plugin/{id}/` is flattened into the unified
+     * `{root}/data/skills/{id}/` layout. Each per-plugin folder gets moved
+     * (the adapter.rename is atomic on same partition), then the empty
+     * `plugin/` sub-folder is removed.
+     *
+     * Idempotent: missing files or already-flattened layouts are non-fatal.
      */
     private async cleanupLegacyPluginSkillsLayout(): Promise<void> {
         if (!this.holder) return;
-        const agentRoot = this.skillsDir.replace(/\/data\/skills\/plugin$/, '');
-        const legacyDir = `${agentRoot}/data/plugin-skills`;
-        const exists = await this.vault.adapter.exists(legacyDir);
-        if (!exists) return;
 
-        try {
-            const listing = await this.vault.adapter.list(legacyDir);
-            for (const f of listing.files) {
-                if (f.endsWith('.skill.md') || f.endsWith('.readme.md')) {
-                    try {
-                        await this.vault.adapter.remove(f);
-                    } catch {
-                        // Concurrent edit or read-only -- skip, retry on next scan
+        // `this.skillsDir` after FEAT-29-11 is `{root}/data/skills`. The agent
+        // root is two segments up. Compute it that way so the same code path
+        // works whether the holder reports the new or the old layout.
+        const agentRoot = this.skillsDir.replace(/\/data\/skills(\/plugin)?$/, '');
+
+        // ── Stage 1: drop the pre-FEAT-29-02 flat file layout ──────────
+        const legacyFlat = `${agentRoot}/data/plugin-skills`;
+        if (await this.vault.adapter.exists(legacyFlat)) {
+            try {
+                const listing = await this.vault.adapter.list(legacyFlat);
+                for (const f of listing.files) {
+                    if (f.endsWith('.skill.md') || f.endsWith('.readme.md')) {
+                        try { await this.vault.adapter.remove(f); } catch { /* tolerate */ }
                     }
                 }
+                const after = await this.vault.adapter.list(legacyFlat);
+                if (after.files.length === 0 && after.folders.length === 0) {
+                    await this.vault.adapter.rmdir(legacyFlat, false);
+                }
+            } catch {
+                // listing failed -- skip, retry on next scan
             }
-            // Try to remove the now-empty folder. Fails non-fatally if there
-            // are still other files (the user might have stashed something
-            // there manually).
-            const after = await this.vault.adapter.list(legacyDir);
-            if (after.files.length === 0 && after.folders.length === 0) {
-                await this.vault.adapter.rmdir(legacyDir, false);
+        }
+
+        // ── Stage 2 (FEAT-29-11): flatten data/skills/plugin/* ────────
+        const welle2PluginDir = `${agentRoot}/data/skills/plugin`;
+        if (await this.vault.adapter.exists(welle2PluginDir)) {
+            try {
+                const listing = await this.vault.adapter.list(welle2PluginDir);
+                for (const sub of listing.folders) {
+                    // adapter.list returns absolute-vault paths; the basename
+                    // is everything after the last slash.
+                    const slug = sub.split('/').pop();
+                    if (!slug) continue;
+                    const dest = `${agentRoot}/data/skills/${slug}`;
+                    if (await this.vault.adapter.exists(dest)) {
+                        // A user-authored or builtin skill with the same name
+                        // already exists at the new location. Preserve it
+                        // (user wins) and skip the move; the plugin folder
+                        // stays where it was so the user can resolve manually.
+                        console.warn(
+                            `[VaultDNA] cleanup: skipping ${sub} -- destination ${dest} already exists`,
+                        );
+                        continue;
+                    }
+                    try {
+                        await this.vault.adapter.rename(sub, dest);
+                    } catch {
+                        // Rename can fail on cross-device or permission; skip
+                    }
+                }
+                // Try to drop the now-empty plugin/ folder
+                const afterMove = await this.vault.adapter.list(welle2PluginDir);
+                if (afterMove.files.length === 0 && afterMove.folders.length === 0) {
+                    await this.vault.adapter.rmdir(welle2PluginDir, false);
+                }
+            } catch {
+                // listing failed -- retry on next scan
             }
-        } catch {
-            // Folder listing failed -- treat as a no-op so init never blocks
-            // on cleanup.
         }
     }
 

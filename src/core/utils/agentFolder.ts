@@ -118,22 +118,21 @@ function assertSafePluginId(pluginId: string): void {
 }
 
 /**
- * Path to a plugin-skill file or its manifest. Layout-aware across two
- * dimensions:
+ * Path to any skill file or its manifest. Layout-aware across three eras:
  *
  *   - Pre-FEAT-29-01: legacy file format `{root}/plugin-skills/{id}.skill.md`.
- *   - Post-FEAT-29-01, Pre-FEAT-29-02: still file format, just under
- *     `{root}/data/plugin-skills/{id}.skill.md` (Welle 1 just moved the
- *     parent into the data/ sub-folder, no format change).
  *   - Post-FEAT-29-02: Anthropic-conformant folder format
- *     `{root}/data/skills/plugin/{id}/SKILL.md`. FEAT-29-02 activation gates
- *     on `_layoutMigrationStatus === 'complete'` (Welle 2 depends on Welle 1).
+ *     `{root}/data/skills/plugin/{id}/SKILL.md` (Welle 2 used a plugin/
+ *     sub-folder for namespace separation).
+ *   - **Post-FEAT-29-11 (2026-05-20):** the plugin/ sub-folder is gone.
+ *     All skills (user, builtin, plugin) share a single root
+ *     `{root}/data/skills/{name}/SKILL.md`. The `source:` frontmatter
+ *     field discriminates between user-managed, builtin-managed (Sebastian
+ *     ships these in the plugin bundle), and plugin-managed entries.
  *
- * For new code prefer `getPluginSkillFolderPath` and
- * `getPluginSkillManifestPath`. `getPluginSkillsPath` is retained for the
- * pre-Welle-2 file layout used during the transition window; callers must
- * decide via `isLayoutMigrated` whether they reach the legacy file or the
- * new folder.
+ * For new code prefer `getSkillFolder` and `getSkillManifestPath`. The
+ * `getPluginSkill*` aliases stay for backwards compatibility -- they all
+ * resolve into the unified path under `data/skills/{name}/`.
  */
 export function getPluginSkillsPath(holder: SettingsHolder, pluginId: string): string {
     assertSafePluginId(pluginId);
@@ -144,36 +143,37 @@ export function getPluginSkillsPath(holder: SettingsHolder, pluginId: string): s
 }
 
 /**
- * Directory containing all plugin-skill manifests. Post-FEAT-29-02 each
- * plugin lives in its own sub-folder, so this dir is the *root* of those
- * folders (`{root}/data/skills/plugin/`), not a flat container.
+ * FEAT-29-11: Unified skills root. All skills (user, builtin, plugin)
+ * live here as sub-folders. Was `{root}/data/skills/plugin/` under Welle 2,
+ * now flattened.
  *
  *   - Pre-FEAT-29-01: legacy `{root}/plugin-skills/` (file layout).
- *   - Post-FEAT-29-02 (= post-FEAT-29-01 by dependency):
- *     `{root}/data/skills/plugin/` (folder layout).
+ *   - Post-FEAT-29-01: `{root}/data/skills/`.
  */
 export function getPluginSkillsDir(holder: SettingsHolder): string {
     if (isLayoutMigrated(holder)) {
-        return normalizePath(`${getInternalAgentFolderPath(holder)}/data/skills/plugin`);
+        return normalizePath(`${getInternalAgentFolderPath(holder)}/data/skills`);
     }
     return normalizePath(`${getInternalAgentFolderPath(holder)}/plugin-skills`);
 }
 
 /**
- * FEAT-29-02: Per-plugin folder under `{root}/data/skills/plugin/{id}/`.
- * Returns null when called pre-migration (the legacy file layout has no
- * per-plugin folder concept; callers should use `getPluginSkillsPath`).
+ * FEAT-29-11: Per-skill folder under `{root}/data/skills/{name}/`. Same
+ * layout for plugin-managed, user-authored, and builtin skills. Returns
+ * null when called pre-FEAT-29-01 (legacy file layout has no per-skill
+ * folder concept; callers should use `getPluginSkillsPath`).
  */
 export function getPluginSkillFolderPath(holder: SettingsHolder, pluginId: string): string | null {
     assertSafePluginId(pluginId);
     if (!isLayoutMigrated(holder)) return null;
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/data/skills/plugin/${pluginId}`);
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/data/skills/${pluginId}`);
 }
 
 /**
- * FEAT-29-02: Anthropic-conformant `SKILL.md` manifest path inside the
- * per-plugin folder. Returns the legacy file path when called pre-migration,
- * so direct call-sites stay agnostic of the migration state.
+ * FEAT-29-11: Anthropic-conformant `SKILL.md` manifest path inside the
+ * unified per-skill folder. Returns the legacy file path when called
+ * pre-FEAT-29-01, so direct call-sites stay agnostic of the migration
+ * state.
  */
 export function getPluginSkillManifestPath(holder: SettingsHolder, pluginId: string): string {
     assertSafePluginId(pluginId);
@@ -181,14 +181,16 @@ export function getPluginSkillManifestPath(holder: SettingsHolder, pluginId: str
         return normalizePath(`${getInternalAgentFolderPath(holder)}/plugin-skills/${pluginId}.skill.md`);
     }
     return normalizePath(
-        `${getInternalAgentFolderPath(holder)}/data/skills/plugin/${pluginId}/SKILL.md`,
+        `${getInternalAgentFolderPath(holder)}/data/skills/${pluginId}/SKILL.md`,
     );
 }
 
 /**
- * FEAT-29-02: Path to `references/readme.md` for core-plugin descriptions
- * that used to live as `{id}.readme.md` next to `{id}.skill.md`. Pre-Welle-2
- * returns the legacy flat path.
+ * FEAT-29-11: Path to `references/readme.md`. Note: Welle-4-Update from
+ * Sebastian's live feedback is to **drop the separate readme** and inline
+ * its content into the SKILL.md body. This helper stays for one more
+ * iteration so the cleanup phase can find and delete stale legacy readme
+ * files left behind by older scans.
  */
 export function getPluginSkillReadmePath(holder: SettingsHolder, pluginId: string): string {
     assertSafePluginId(pluginId);
@@ -196,21 +198,19 @@ export function getPluginSkillReadmePath(holder: SettingsHolder, pluginId: strin
         return normalizePath(`${getInternalAgentFolderPath(holder)}/plugin-skills/${pluginId}.readme.md`);
     }
     return normalizePath(
-        `${getInternalAgentFolderPath(holder)}/data/skills/plugin/${pluginId}/references/readme.md`,
+        `${getInternalAgentFolderPath(holder)}/data/skills/${pluginId}/references/readme.md`,
     );
 }
 
 /**
- * FEAT-29-02: Path to `references/commands.md` (eager-generated for the
- * curated Top-5 plugins -- Excalidraw, Dataview, Templater, Tasks, Kanban).
- * Pre-Welle-2 returns null because the legacy file layout has no place for
- * a separate command reference; the data lives inline in the `.skill.md`.
+ * FEAT-29-11: Path to `references/commands.md` (eager-generated for the
+ * curated Top-5 plugins). Pre-FEAT-29-01 returns null.
  */
 export function getPluginSkillCommandsRefPath(holder: SettingsHolder, pluginId: string): string | null {
     assertSafePluginId(pluginId);
     if (!isLayoutMigrated(holder)) return null;
     return normalizePath(
-        `${getInternalAgentFolderPath(holder)}/data/skills/plugin/${pluginId}/references/commands.md`,
+        `${getInternalAgentFolderPath(holder)}/data/skills/${pluginId}/references/commands.md`,
     );
 }
 
