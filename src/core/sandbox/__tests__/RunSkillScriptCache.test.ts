@@ -92,6 +92,17 @@ describe('RunSkillScriptCache (FEAT-29-06)', () => {
         expect(cache.get('s1', 'k', 'src')).toBeNull();
     });
 
+    it('handles maxEntries=1 edge case (every new entry evicts the previous)', () => {
+        const tiny = new RunSkillScriptCache({ maxEntries: 1 });
+        tiny.set('s1', 'k', 'src', 'c1');
+        expect(tiny.get('s1', 'k', 'src')).toBe('c1');
+        tiny.set('s2', 'k', 'src', 'c2');
+        // s1 is gone -- only one slot, the new entry replaced it.
+        expect(tiny.get('s1', 'k', 'src')).toBeNull();
+        expect(tiny.get('s2', 'k', 'src')).toBe('c2');
+        expect(tiny.size()).toBe(1);
+    });
+
     it('defaults to maxEntries=20 when not specified', () => {
         const big = new RunSkillScriptCache();
         for (let i = 0; i < 20; i++) {
