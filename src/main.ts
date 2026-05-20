@@ -838,6 +838,25 @@ export default class ObsidianAgentPlugin extends Plugin {
             const cacheRoot = `${vaultBasePath}/${this.settings.agentFolderPath ?? '.vault-operator'}/cache`;
             checkpointsAbsPath = `${cacheRoot}/checkpoints`;
             devEnvAbsPath = `${cacheRoot}/dev-env`;
+
+            // One-shot notice for users who had chatHistoryFolder configured
+            // before the setting was removed. Defers to after layout-ready so
+            // the modal renders on top of an initialised workspace.
+            const legacyChatHistoryFolder = this.settings._chatHistoryFolderLegacy;
+            if (legacyChatHistoryFolder) {
+                this.app.workspace.onLayoutReady(() => {
+                    void (async () => {
+                        const { openChatHistoryFolderRemovedModal } = await import(
+                            './ui/modals/ChatHistoryFolderRemovedModal'
+                        );
+                        await openChatHistoryFolderRemovedModal(this.app, {
+                            legacyPath: legacyChatHistoryFolder,
+                        });
+                        this.settings._chatHistoryFolderLegacy = undefined;
+                        await this.saveSettings();
+                    })();
+                });
+            }
         }
 
         // Governance: ignore/protected path rules

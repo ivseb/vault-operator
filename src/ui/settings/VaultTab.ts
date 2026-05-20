@@ -166,7 +166,7 @@ export class VaultTab {
             );
 
         // ── FEAT-29-01 Storage Layout Migration ───────────────────────────
-        this.buildLayoutMigrationSection(containerEl, applyPathChange);
+        this.buildLayoutMigrationSection(containerEl, applyPathChange, service);
 
         // ── BA-25 Karpathy-Wiki-Pattern (Vault-Ingest) ────────────────────
         this.buildVaultIngestSection(containerEl);
@@ -184,6 +184,7 @@ export class VaultTab {
     private buildLayoutMigrationSection(
         containerEl: HTMLElement,
         applyPathChange: (newPath: string) => Promise<void>,
+        service: AgentFolderService,
     ): void {
         addSectionHeading(
             containerEl,
@@ -292,16 +293,66 @@ export class VaultTab {
                                 message:
                                     `Current path: ${currentPath}\n`
                                     + `New path: ${DEFAULT_AGENT_FOLDER}\n\n`
-                                    + 'Existing files stay at the old path. Move them manually or '
-                                    + 'use the "Migrate data" button above. Continue?',
-                                confirmLabel: 'Reset',
+                                    + 'Plugin skills, knowledge index and memory databases are '
+                                    + 'copied from the current folder into the default. Original '
+                                    + 'files stay in place; remove them manually after verifying '
+                                    + 'the new location works. Continue?',
+                                confirmLabel: 'Reset and migrate files',
                                 cancelLabel: 'Cancel',
                             });
                             if (!ok) return;
+
+                            // Move plugin skills, vault-dna snapshot, knowledge db,
+                            // memory db from currentPath to DEFAULT_AGENT_FOLDER via
+                            // the existing migration helper, then flip the setting.
+                            const migrationResult = await service.migrate(currentPath, DEFAULT_AGENT_FOLDER);
                             await applyPathChange(DEFAULT_AGENT_FOLDER);
-                            new Notice(`Agent folder path reset to ${DEFAULT_AGENT_FOLDER}.`, 6000);
+
+                            const movedSummary: string[] = [];
+                            if (migrationResult.movedKnowledgeDb) movedSummary.push('knowledge index');
+                            if (migrationResult.movedMemoryDb) movedSummary.push('memory database');
+                            if (migrationResult.movedVaultDna) movedSummary.push('vault-DNA snapshot');
+                            if (migrationResult.movedPluginSkills > 0) {
+                                movedSummary.push(`${migrationResult.movedPluginSkills} plugin skill file(s)`);
+                            }
+                            const movedLine = movedSummary.length > 0
+                                ? `Moved: ${movedSummary.join(', ')}.`
+                                : 'Nothing to move (no plugin data at the previous path).';
+                            const errLine = migrationResult.errors.length > 0
+                                ? ` ${migrationResult.errors.length} non-fatal error(s); check developer console.`
+                                : '';
+                            new Notice(
+                                `Agent folder path reset to ${DEFAULT_AGENT_FOLDER}. ${movedLine}${errLine}`,
+                                8000,
+                            );
+                            if (migrationResult.errors.length > 0) {
+                                console.warn('[VaultOperator] Reset-to-default migration errors:', migrationResult.errors);
+                            }
                             this.rerender();
                         })();
+                    }),
+            );
+
+        // Restore previous layout from a backup snapshot
+        new Setting(containerEl)
+            .setName('Restore previous layout from backup')
+            .setDesc(
+                statusValue === 'complete'
+                    ? 'Undo the storage layout consolidation by restoring from the backup snapshot the migration created. Choose the most recent backup, the four legacy roots get rebuilt, and the consolidated data/ and cache/ folders are removed. Plugin reload required after.'
+                    : 'Restore only makes sense after a completed migration. Currently the migration has not run or did not complete.',
+            )
+            .addButton((btn) =>
+                btn
+                    .setButtonText('Restore from backup')
+                    .setIcon('history')
+                    .setTooltip(
+                        statusValue === 'complete'
+                            ? 'Restore the layout that was in place before the storage migration.'
+                            : 'Migration is not complete; nothing to restore.',
+                    )
+                    .setDisabled(statusValue !== 'complete')
+                    .onClick(() => {
+                        void this.handleRestoreClick(statusValue);
                     }),
             );
 
@@ -775,6 +826,90 @@ export class VaultTab {
      * confirm, migrate. Originals stay in place — user deletes manually
      * after verifying the new location works.
      */
+    /**
+     * Restore the legacy layout from a backup snapshot the consolidation
+     * migration wrote. Lists available backups, asks the user to confirm,
+     * then runs the restore service. Resets the migration status so the
+     * Settings UI reflects the rollback after the next plugin reload.
+     */
+    private async handleRestoreClick(statusValue: string): Promise<void> {
+        if (statusValue !== 'complete') {
+            new Notice('Layout migration is not complete; nothing to restore.', 5000);
+            return;
+        }
+        const vaultBasePath = (this.app.vault.adapter as unknown as {
+            getBasePath?(): string;
+        }).getBasePath?.() ?? '';
+        if (!vaultBasePath) {
+            new Notice('Cannot resolve vault base path; restore aborted.', 6000);
+            return;
+        }
+        const nodePath = await import('path');
+        const pluginDataDir = nodePath.join(
+            vaultBasePath,
+            this.app.vault.configDir,
+            'plugins',
+            this.plugin.manifest.id,
+        );
+        const vaultParent = nodePath.dirname(vaultBasePath);
+
+        const { listBackupFolders, restoreLayoutFromBackup } = await import(
+            '../../core/utils/restoreLayoutFromBackup'
+        );
+        const backups = await listBackupFolders(pluginDataDir);
+        if (backups.length === 0) {
+            new Notice(
+                'No backup snapshot found. Restore is only available after a fresh migration.',
+                7000,
+            );
+            return;
+        }
+        const latest = backups[0];
+        const latestName = nodePath.basename(latest);
+        const ok = await confirmModal(this.app, {
+            title: 'Restore previous layout from backup?',
+            message:
+                `Latest backup: ${latestName}\n\n`
+                + 'Restoring this snapshot:\n'
+                + '  - Rebuilds the four legacy plugin folders\n'
+                + '  - Deletes the consolidated .vault-operator/data and .vault-operator/cache folders\n'
+                + '  - Resets the migration status so the consolidation can be re-run later\n\n'
+                + 'You will have to reload the plugin afterwards (Cmd-P / Ctrl-P -> Reload Vault Operator). Continue?',
+            confirmLabel: 'Restore from backup',
+            cancelLabel: 'Cancel',
+        });
+        if (!ok) return;
+
+        const report = await restoreLayoutFromBackup({
+            vaultBasePath,
+            vaultParent,
+            backupPath: latest,
+            removeConsolidated: true,
+        });
+
+        if (!report.allRestoreSucceeded) {
+            const failed = report.entries.filter((e) => e.status === 'failed' || e.status === 'skipped-destination-populated');
+            console.warn('[VaultOperator] Restore-from-backup partial failure:', report);
+            new Notice(
+                `Restore did not complete cleanly: ${failed.length} target(s) blocked. Check developer console.`,
+                10000,
+            );
+            return;
+        }
+
+        // Reset migration flags so the UI offers the migration again and the
+        // next plugin start does not skip the trigger.
+        this.plugin.settings._layoutMigrationStatus = undefined;
+        this.plugin.settings._layoutMigrationOptIn = false;
+        await this.plugin.saveSettings();
+
+        new Notice(
+            'Layout restored from backup. Reload the plugin (Cmd-P / Ctrl-P -> Reload Vault Operator) to pick up the old layout.',
+            10000,
+        );
+        this.rerender();
+    }
+
     private async handleMigrateClick(service: AgentFolderService): Promise<void> {
         const currentPath = readStoredAgentFolder(this.plugin);
         const oldPathInput = await promptModal(this.app, {
