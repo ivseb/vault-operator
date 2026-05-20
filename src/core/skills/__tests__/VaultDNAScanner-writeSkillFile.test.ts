@@ -164,7 +164,7 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
             )).toBe(true);
         });
 
-        it('uses strict Anthropic frontmatter (only name + description)', async () => {
+        it('uses strict Anthropic frontmatter (name + description + source only)', async () => {
             const { scanner, stub } = makeScanner(true);
             const skill = makeSkill({ id: 'templater-obsidian', description: 'A templating engine' });
             await (scanner as unknown as ScannerInternals).writeSkillFile(skill);
@@ -175,12 +175,13 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
             expect(fmMatch).toBeTruthy();
             const fm = fmMatch![1];
 
-            // Anthropic format: exactly `name` and `description` keys at the
-            // top-level. No id/source/plugin-type/status/class/has-settings/commands.
+            // Anthropic format with FEAT-29-11 source-discriminator:
+            // `name`, `description`, `source` (= plugin-id). No id/plugin-type/
+            // status/class/has-settings/commands.
             expect(fm).toMatch(/^name:\s/m);
             expect(fm).toMatch(/^description:\s/m);
+            expect(fm).toMatch(/^source: templater-obsidian$/m);
             expect(fm).not.toMatch(/^id:\s/m);
-            expect(fm).not.toMatch(/^source:\s/m);
             expect(fm).not.toMatch(/^plugin-type:\s/m);
             expect(fm).not.toMatch(/^status:\s/m);
             expect(fm).not.toMatch(/^class:\s/m);
@@ -231,37 +232,36 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
             expect(secondWrite).toBe(firstWrite);
         });
 
-        it('generates references/commands.md for Top-5 plugins', async () => {
+        it('does NOT generate references/commands.md for any plugin (FEAT-29-11 consolidation)', async () => {
+            // Commands live in SKILL.md body under "## Plugin metadata > ### Commands".
+            // The separate references/commands.md was a Welle-2 dead-mailbox
+            // (the agent never read it without an explicit body hint).
             const { scanner, stub } = makeScanner(true);
+
+            // Try with a former Top-5 plugin (would have generated a ref-md previously).
             const skill = makeSkill({
                 id: 'obsidian-excalidraw-plugin',
                 name: 'Excalidraw',
-                commands: [
-                    { id: 'obsidian-excalidraw-plugin:open', name: 'Open Excalidraw' },
-                ],
+                commands: [{ id: 'obsidian-excalidraw-plugin:open', name: 'Open Excalidraw' }],
             });
             await (scanner as unknown as ScannerInternals).writeSkillFile(skill);
 
             const cmdRef = stub.calls.find(
                 (c) => c.op === 'write' && c.path.endsWith('/references/commands.md'),
             );
-            expect(cmdRef).toBeDefined();
-            expect(cmdRef!.path).toBe(
-                '.vault-operator/data/skills/obsidian-excalidraw-plugin/references/commands.md',
-            );
-            expect(cmdRef!.content).toContain('| Command ID | Name |');
-            expect(cmdRef!.content).toContain('`obsidian-excalidraw-plugin:open`');
+            expect(cmdRef).toBeUndefined();
+            // Commands ARE still in the SKILL.md body.
+            const skillMd = stub.calls.find((c) => c.op === 'write' && c.path.endsWith('SKILL.md'))!;
+            expect(skillMd.content).toContain('`obsidian-excalidraw-plugin:open`');
         });
 
-        it('does NOT generate references/commands.md for non-Top-5 plugins', async () => {
+        it('writes a source: <plugin-id> frontmatter field (FEAT-29-11)', async () => {
             const { scanner, stub } = makeScanner(true);
-            const skill = makeSkill({ id: 'some-random-plugin', name: 'Random' });
+            const skill = makeSkill({ id: 'dataview', name: 'Dataview' });
             await (scanner as unknown as ScannerInternals).writeSkillFile(skill);
-
-            const cmdRef = stub.calls.find(
-                (c) => c.op === 'write' && c.path.endsWith('/references/commands.md'),
-            );
-            expect(cmdRef).toBeUndefined();
+            const skillMd = stub.calls.find((c) => c.op === 'write' && c.path.endsWith('SKILL.md'))!;
+            const fm = /^---\n([\s\S]*?)\n---/m.exec(skillMd.content!)![1];
+            expect(fm).toMatch(/^source: dataview$/m);
         });
     });
 
@@ -314,48 +314,12 @@ describe('VaultDNAScanner.writeSkillFile (FEAT-29-02)', () => {
         });
     });
 
-    describe('AUDIT-FEAT-29-02 M-1 + L-2: markdown injection guards', () => {
-        it('escapes pipe in cmd.name in the references/commands.md table', async () => {
-            const { scanner, stub } = makeScanner(true);
-            const skill = makeSkill({
-                id: 'dataview',
-                name: 'Dataview',
-                commands: [
-                    { id: 'dataview:export', name: 'Export | with metadata' },
-                ],
-            });
-            await (scanner as unknown as ScannerInternals).writeSkillFile(skill);
-            const cmdRef = stub.calls.find(
-                (c) => c.op === 'write' && c.path.endsWith('/references/commands.md'),
-            )!;
-            // The pipe in the name must be escaped so it does not break the
-            // markdown column count.
-            expect(cmdRef.content!).toContain('Export \\| with metadata');
-            expect(cmdRef.content!).not.toContain('| Export | with metadata |');
-        });
-
-        it('collapses newlines in cmd.name in the references/commands.md table', async () => {
-            const { scanner, stub } = makeScanner(true);
-            const skill = makeSkill({
-                id: 'obsidian-tasks-plugin',
-                name: 'Tasks',
-                commands: [
-                    { id: 'obsidian-tasks-plugin:create', name: 'Create\nnew task' },
-                ],
-            });
-            await (scanner as unknown as ScannerInternals).writeSkillFile(skill);
-            const cmdRef = stub.calls.find(
-                (c) => c.op === 'write' && c.path.endsWith('/references/commands.md'),
-            )!;
-            expect(cmdRef.content!).toContain('Create new task');
-            // Should NOT contain a raw newline mid-row that would break the table
-            const tableLines = cmdRef.content!
-                .split('\n')
-                .filter((l: string) => l.startsWith('| ') && l.endsWith(' |'));
-            for (const row of tableLines) {
-                expect(row).not.toMatch(/\n/);
-            }
-        });
+    describe('AUDIT-FEAT-29-02 M-1 + L-2: markdown injection guards (now body-only)', () => {
+        // FEAT-29-11 removed references/commands.md generation -- the
+        // Welle-2 table is gone. Markdown-escape guarantees move to the
+        // SKILL.md body (Plugin metadata section).
+        // The two original table-escape tests are obsolete; the remaining
+        // body-escape tests below (backtick + newline) still apply.
 
         it('escapes backticks in plugin id within inline code spans', async () => {
             const { scanner, stub } = makeScanner(true);

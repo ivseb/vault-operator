@@ -31,18 +31,6 @@ type AgentFolderHolder = {
     settings: Pick<ObsidianAgentSettings, 'agentFolderPath' | '_layoutMigrationStatus'>;
 };
 
-/** FEAT-29-02: curated set of plugins that get an eager-generated
- *  `references/commands.md` listing every command the plugin exposes. The
- *  set stays small on purpose -- only plugins where the command surface is
- *  large enough that browsing it as a separate reference helps the agent. */
-const TOP_PLUGINS_WITH_COMMANDS_REF = new Set([
-    'obsidian-excalidraw-plugin',
-    'dataview',
-    'templater-obsidian',
-    'obsidian-tasks-plugin',
-    'obsidian-kanban',
-]);
-
 /**
  * FEAT-29-02: lightweight isLayoutMigrated for VaultDNAScanner -- avoids a
  * direct import cycle with agentFolder.ts (which exports the canonical
@@ -51,16 +39,6 @@ const TOP_PLUGINS_WITH_COMMANDS_REF = new Set([
  */
 function isHolderMigrated(holder: AgentFolderHolder): boolean {
     return holder.settings._layoutMigrationStatus === 'complete';
-}
-
-/**
- * FEAT-29-02 / AUDIT-FEAT-29-02 M-1: collapse newlines and escape pipes so a
- * plugin-controlled command name cannot break a markdown table layout. Used
- * by writeCommandsReferenceIfTopPlugin and by any other markdown-table
- * renderer that takes plugin-controlled strings.
- */
-function escapeMarkdownTableCell(s: string): string {
-    return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
 /**
@@ -109,6 +87,14 @@ export class VaultDNAScanner {
     private lastKnownEnabledSet = new Set<string>();
     /** Runtime skill metadata — built after scan */
     private pluginSkills: PluginSkillMeta[] = [];
+    /**
+     * True once `fullScan` has finished at least once in this plugin session.
+     * Stays true for the lifetime of the scanner instance (i.e. until next
+     * plugin reload). Consumed by SkillsTab to avoid scanning in a loop
+     * when the user genuinely has zero installed plugins.
+     */
+    private _hasScanned = false;
+    get hasScanned(): boolean { return this._hasScanned; }
 
     /**
      * @param holder Optional plugin/settings holder. Pass `undefined` only in
@@ -282,6 +268,60 @@ export class VaultDNAScanner {
                 // listing failed -- retry on next scan
             }
         }
+
+        // ── Stage 3 (FEAT-29-11): drop legacy references/ subfolders ────
+        // The Welle-2 scanner generated references/commands.md and
+        // references/readme.md for plugin-managed skills. FEAT-29-11
+        // consolidates that content into the SKILL.md body, so any leftover
+        // references/-folder under a scanner-managed skill is stale.
+        // Identify scanner-managed skills via the `source: <plugin-id>`
+        // frontmatter we now write. Skills without that marker (user,
+        // builtin) keep their references/ untouched.
+        try {
+            const skillsRoot = `${agentRoot}/data/skills`;
+            if (await this.vault.adapter.exists(skillsRoot)) {
+                const skillListing = await this.vault.adapter.list(skillsRoot);
+                for (const skillFolder of skillListing.folders) {
+                    const refDir = `${skillFolder}/references`;
+                    if (!(await this.vault.adapter.exists(refDir))) continue;
+                    // Read SKILL.md frontmatter to check ownership.
+                    const skillMd = `${skillFolder}/SKILL.md`;
+                    if (!(await this.vault.adapter.exists(skillMd))) continue;
+                    let isScannerManaged = false;
+                    try {
+                        const md = await this.vault.adapter.read(skillMd);
+                        const fmMatch = /^---\n([\s\S]*?)\n---/m.exec(md);
+                        const fm = fmMatch?.[1] ?? '';
+                        const slug = skillFolder.split('/').pop() ?? '';
+                        // Scanner-managed = source frontmatter matches the
+                        // folder slug (= plugin id).
+                        if (new RegExp(`^source: ${slug}$`, 'm').test(fm)) {
+                            isScannerManaged = true;
+                        }
+                    } catch {
+                        continue;
+                    }
+                    if (!isScannerManaged) continue;
+                    // Drop the references/ tree for this scanner-managed skill.
+                    try {
+                        const refListing = await this.vault.adapter.list(refDir);
+                        for (const f of refListing.files) {
+                            try { await this.vault.adapter.remove(f); } catch { /* tolerate */ }
+                        }
+                        // Only rmdir if it's now empty (preserve any user-added
+                        // file inside references/, defense-in-depth).
+                        const afterFiles = await this.vault.adapter.list(refDir);
+                        if (afterFiles.files.length === 0 && afterFiles.folders.length === 0) {
+                            await this.vault.adapter.rmdir(refDir, false);
+                        }
+                    } catch {
+                        // Listing failed -- retry on next scan
+                    }
+                }
+            }
+        } catch {
+            // Whole stage failed -- non-fatal, scanner moves on
+        }
     }
 
     /**
@@ -351,11 +391,12 @@ export class VaultDNAScanner {
             console.warn('[VaultDNA] README fetch during scan failed:', e),
         );
 
-        // Phase 4: Write .skill.md files + core plugin docs
+        // Phase 4: Write SKILL.md files. FEAT-29-11 retired the separate
+        // writeCorePluginReadmes pass -- core-plugin readme content now
+        // lives inline in the SKILL.md body via enrichCoreBody.
         for (const skill of skills) {
             await this.writeSkillFile(skill);
         }
-        await this.writeCorePluginReadmes();
 
         // Phase 5: Persist vault-dna.json
         const archived = this.vaultDNA?.archived ?? [];
@@ -369,6 +410,7 @@ export class VaultDNAScanner {
         await this.vault.adapter.write(this.dnaPath, JSON.stringify(this.vaultDNA, null, 2));
 
         this.pluginSkills = skills;
+        this._hasScanned = true;
 
         console.debug(`[VaultDNA] Scanned ${plugins.length} plugins (${skills.length} with skills)`);
         return this.vaultDNA;
@@ -775,9 +817,11 @@ export class VaultDNAScanner {
 
         const migrated = this.holder ? isHolderMigrated(this.holder) : false;
         if (migrated && this.holder) {
+            // FEAT-29-11: drop the legacy references/commands.md generation.
+            // Commands live in the SKILL.md body under "## Plugin metadata >
+            // ### Commands"; the extra references-table was a dead-mailbox
+            // because the agent never read it without an explicit body hint.
             await this.writeFolderFormat(skill, body);
-            // Top-5 plugins also get a references/commands.md.
-            await this.writeCommandsReferenceIfTopPlugin(skill);
         } else {
             await this.writeLegacyFileFormat(skill, body, isEmpty, setupHint);
         }
@@ -800,13 +844,41 @@ export class VaultDNAScanner {
         // so walk it.
         await this.ensureDirRecursive(folder);
 
+        // FEAT-29-11: drop a stale references/ subfolder from a previous
+        // Welle-2 write. The Stage-3 cleanup in cleanupLegacyPluginSkillsLayout
+        // only runs at init and only when the existing SKILL.md already carries
+        // the new `source: <plugin-id>` marker, which it doesn't on the first
+        // post-upgrade scan. Doing the drop here makes it idempotent per skill
+        // and guaranteed-fired on every writeFolderFormat call.
+        const refDir = `${folder}/references`;
+        if (await this.vault.adapter.exists(refDir)) {
+            try {
+                const refListing = await this.vault.adapter.list(refDir);
+                for (const f of refListing.files) {
+                    try { await this.vault.adapter.remove(f); } catch { /* tolerate */ }
+                }
+                const after = await this.vault.adapter.list(refDir);
+                if (after.files.length === 0 && after.folders.length === 0) {
+                    await this.vault.adapter.rmdir(refDir, false);
+                }
+            } catch {
+                // Best-effort cleanup, next scan retries.
+            }
+        }
+
         const metadataBlock = this.renderPluginMetadataBlock(skill);
         const description = skill.description.replace(/"/g, '\\"').replace(/\n/g, ' ');
 
+        // FEAT-29-11: source-frontmatter discriminator. The skill folders
+        // now share a single root (data/skills/{name}/) for user, builtin
+        // and plugin entries. The scanner stamps `source: <plugin-id>` so
+        // a later cleanup pass can identify and update its own entries
+        // without touching user-managed ones.
         const content = [
             '---',
             `name: ${skill.id}`,
             `description: "${description}"`,
+            `source: ${skill.id}`,
             '---',
             '',
             `# ${skill.name}`,
@@ -1058,99 +1130,15 @@ export class VaultDNAScanner {
         return parts.join('\n');
     }
 
-    /**
-     * Generate .readme.md (legacy) or `references/readme.md` (FEAT-29-02) for
-     * core plugins from CorePluginLibrary definitions. Core plugins have no
-     * GitHub repo, so we create docs from our static defs. Layout-aware: post-
-     * Welle-1 the file lands inside the per-plugin folder under references/.
-     */
-    private async writeCorePluginReadmes(): Promise<void> {
-        for (const def of CORE_PLUGIN_DEFS) {
-            const readmePath = this.holder
-                ? getPluginSkillReadmePath(this.holder, def.id)
-                : `${this.skillsDir}/${def.id}.readme.md`;
-            const configPath = `${this.vault.configDir}/${def.id}.json`;
-
-            const lines: string[] = [
-                `# ${def.name}`,
-                '',
-                `${def.description}`,
-                '',
-                '## Overview',
-                '',
-                `${def.name} is an Obsidian core plugin. It is built into Obsidian and does not require separate installation.`,
-                '',
-                '## Commands',
-                '',
-            ];
-
-            for (const cmd of def.commands) {
-                lines.push(`- \`${cmd.id}\` -- ${cmd.name}`);
-            }
-
-            lines.push('');
-            lines.push('## Configuration');
-            lines.push('');
-            lines.push(`Settings are stored at \`${configPath}\`.`);
-            lines.push('');
-            lines.push(`To read: \`read_file("${configPath}")\``);
-            lines.push(`To write: \`write_file("${configPath}", updatedJSON)\``);
-            lines.push('');
-            lines.push('## Usage Notes');
-            lines.push('');
-            lines.push(def.instructions);
-
-            // Ensure references/ folder exists (folder layout only); for the
-            // legacy file layout the skillsDir already exists.
-            const parent = readmePath.substring(0, readmePath.lastIndexOf('/'));
-            if (parent) await this.ensureDirRecursive(parent);
-            await this.vault.adapter.write(readmePath, lines.join('\n'));
-        }
-    }
-
-    /**
-     * FEAT-29-02 Task 3: eager-generate a `references/commands.md` for the
-     * curated Top-5 plugins. Only fires post-Welle-1 (folder layout). Each
-     * command lands as one table row with id + name; agents can read this
-     * separately from the SKILL.md so the manifest stays slim.
-     *
-     * Idempotent: overwrites on every scan with the current command set.
-     */
-    private async writeCommandsReferenceIfTopPlugin(skill: PluginSkillMeta): Promise<void> {
-        if (!this.holder) return;
-        if (!isHolderMigrated(this.holder)) return;
-        if (!TOP_PLUGINS_WITH_COMMANDS_REF.has(skill.id)) return;
-        const refPath = getPluginSkillCommandsRefPath(this.holder, skill.id);
-        if (!refPath) return;
-
-        const parent = refPath.substring(0, refPath.lastIndexOf('/'));
-        if (parent) await this.ensureDirRecursive(parent);
-
-        const lines: string[] = [
-            `# ${skill.name} -- commands reference`,
-            '',
-            `Auto-generated by VaultDNAScanner. Updated on each plugin scan.`,
-            '',
-        ];
-
-        if (skill.commands.length === 0) {
-            lines.push('No commands exposed by this plugin at scan time.');
-        } else {
-            lines.push('| Command ID | Name |');
-            lines.push('|---|---|');
-            for (const cmd of skill.commands) {
-                // M-1 from AUDIT-FEAT-29-02: plugin-controlled name may contain
-                // a pipe character that would otherwise break the markdown
-                // table layout. Escape pipes and collapse newlines.
-                lines.push(
-                    `| \`${escapeInlineCode(cmd.id)}\` | ${escapeMarkdownTableCell(cmd.name)} |`,
-                );
-            }
-        }
-        lines.push('');
-
-        await this.vault.adapter.write(refPath, lines.join('\n'));
-    }
+    // FEAT-29-11 (2026-05-20): writeCorePluginReadmes and
+    // writeCommandsReferenceIfTopPlugin removed. Their output (readme +
+    // commands-table) duplicated information that already lived in the
+    // SKILL.md body and was never reliably consumed by the agent (no
+    // explicit body hint pointed at the references/ files). Core-plugin
+    // readme content is now inlined into the SKILL.md body via
+    // enrichCoreBody. Commands stay in the body's "Plugin metadata"
+    // section. Cleanup of stale references/ folders happens in
+    // cleanupLegacyPluginSkillsLayout Stage 3.
 
     // ── Continuous Sync (Polling) ────────────────────────────────────────
 
