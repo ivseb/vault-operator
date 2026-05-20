@@ -301,6 +301,73 @@ describe('migrateAgentLayout Phase 5: cache-shared move with -shared suffix', ()
     });
 });
 
+describe('migrateAgentLayout Phase 6: skills drift-resolve', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    function seedSkill(root: string, name: string, content: string, mtime: Date): void {
+        const dir = path.join(root, name);
+        fs.mkdirSync(dir, { recursive: true });
+        const skillMd = path.join(dir, 'SKILL.md');
+        fs.writeFileSync(skillMd, content);
+        // Force mtime so older/newer comparison is deterministic
+        fs.utimesSync(skillMd, mtime, mtime);
+    }
+
+    it('moves skill that exists only in vault-local source', async () => {
+        const localRoot = path.join(vault.vaultBasePath, '.obsilo-vault', 'skills');
+        seedSkill(localRoot, 'acme-slides', '---\nname: acme-slides\ndescription: x\n---', new Date('2026-05-01'));
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        await migrateAgentLayout(input);
+
+        const dest = path.join(vault.vaultBasePath, '.vault-operator', 'data', 'skills', 'acme-slides', 'SKILL.md');
+        expect(fs.existsSync(dest)).toBe(true);
+        expect(fs.existsSync(path.join(localRoot, 'acme-slides'))).toBe(false);
+    });
+
+    it('moves skill that exists only in vault-parent source', async () => {
+        const sharedRoot = path.join(vault.vaultParent, 'obsilo-shared', 'skills');
+        seedSkill(sharedRoot, 'humanizer', '---\nname: humanizer\ndescription: x\n---', new Date('2026-05-01'));
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        await migrateAgentLayout(input);
+
+        const dest = path.join(vault.vaultBasePath, '.vault-operator', 'data', 'skills', 'humanizer', 'SKILL.md');
+        expect(fs.existsSync(dest)).toBe(true);
+    });
+
+    it('newer mtime wins on conflict, loser archived under .versions/', async () => {
+        const localRoot = path.join(vault.vaultBasePath, '.obsilo-vault', 'skills');
+        const sharedRoot = path.join(vault.vaultParent, 'obsilo-shared', 'skills');
+        // local has older content
+        seedSkill(localRoot, 'poolboy', 'old-version', new Date('2026-04-01'));
+        // shared has newer content
+        seedSkill(sharedRoot, 'poolboy', 'new-version', new Date('2026-05-01'));
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        await migrateAgentLayout(input);
+
+        const destSkillMd = path.join(vault.vaultBasePath, '.vault-operator', 'data', 'skills', 'poolboy', 'SKILL.md');
+        expect(fs.readFileSync(destSkillMd, 'utf8')).toBe('new-version');
+
+        const versionsDir = path.join(vault.vaultBasePath, '.vault-operator', 'data', 'skills', 'poolboy', '.versions');
+        const archivedRoots = fs.readdirSync(versionsDir);
+        expect(archivedRoots.length).toBe(1);
+        const archivedSkillMd = path.join(versionsDir, archivedRoots[0], 'SKILL.md');
+        expect(fs.readFileSync(archivedSkillMd, 'utf8')).toBe('old-version');
+    });
+
+    it('handles fresh install (no skills folders at all)', async () => {
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        const report = await migrateAgentLayout(input);
+
+        const phase6 = report.phases.find((p) => p.phase === 'skills-resolved')!;
+        expect(phase6.items).toEqual([]);
+    });
+});
+
 describe('migrateAgentLayout Phase 7: cleanup', () => {
     let vault: ReturnType<typeof makeTempVault>;
     beforeEach(() => { vault = makeTempVault(); });

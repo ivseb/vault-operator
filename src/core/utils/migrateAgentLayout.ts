@@ -408,8 +408,115 @@ async function phaseCacheShared(input: AgentLayoutMigrationInput): Promise<Phase
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Phase 6: skills-resolve  (deferred to dedicated module in PLAN-27 Task 11)
+// Phase 6: Skills drift-resolve (PLAN-27 Task 11)
 //
+// Two skill sources existed in parallel before this migration:
+//   - {vault}/.obsilo-vault/skills/        vault-local (SelfAuthoredSkillLoader)
+//   - {vault-parent}/obsilo-shared/skills/ vault-parent (GlobalFileService)
+//
+// They drifted with different content. Resolve by union with mtime precedence:
+//   - skill only in one source -> move to .vault-operator/data/skills/<name>/
+//   - skill in both -> compare SKILL.md mtimes, newer wins, loser archived
+//     under .vault-operator/data/skills/<name>/.versions/<loser-mtime-iso>/
+//
+// Implementation note: this phase runs before phase 7 cleanup so the
+// emptied skills/ folders can be removed together with the rest of the
+// legacy roots.
+// ─────────────────────────────────────────────────────────────────────────
+
+interface SkillEntry {
+    name: string;
+    sourcePath: string;
+    skillMdPath: string;
+    mtimeMs: number;
+}
+
+async function listSkillsAt(skillsRoot: string): Promise<SkillEntry[]> {
+    if (!(await pathExists(skillsRoot))) return [];
+    const entries: SkillEntry[] = [];
+    const dirents = await rawFs.promises.readdir(skillsRoot, { withFileTypes: true });
+    for (const d of dirents) {
+        if (!d.isDirectory()) continue;
+        const sourcePath = pathModule.join(skillsRoot, d.name);
+        // Anthropic convention is SKILL.md; legacy used skill.md. Prefer SKILL.md.
+        const upper = pathModule.join(sourcePath, 'SKILL.md');
+        const lower = pathModule.join(sourcePath, 'skill.md');
+        const skillMd = (await pathExists(upper)) ? upper : (await pathExists(lower)) ? lower : null;
+        if (!skillMd) continue;
+        try {
+            const stat = await rawFs.promises.stat(skillMd);
+            entries.push({ name: d.name, sourcePath, skillMdPath: skillMd, mtimeMs: stat.mtimeMs });
+        } catch {
+            // skip unreadable
+        }
+    }
+    return entries;
+}
+
+async function archiveLoser(
+    loserSourcePath: string,
+    winnerDestPath: string,
+    loserMtimeMs: number,
+): Promise<string> {
+    const isoMtime = new Date(loserMtimeMs).toISOString().replace(/[:.]/g, '-');
+    const archiveDir = pathModule.join(winnerDestPath, '.versions', isoMtime);
+    await rawFs.promises.mkdir(archiveDir, { recursive: true });
+    await copyRecursive(loserSourcePath, archiveDir);
+    return archiveDir;
+}
+
+async function phaseSkillsResolve(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
+    const vaultLocal = pathModule.join(input.vaultBasePath, '.obsilo-vault', 'skills');
+    const vaultParent = pathModule.join(input.vaultParent, 'obsilo-shared', 'skills');
+    const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'data', 'skills');
+    await rawFs.promises.mkdir(destRoot, { recursive: true });
+
+    const local = await listSkillsAt(vaultLocal);
+    const shared = await listSkillsAt(vaultParent);
+
+    const byName = new Map<string, { local?: SkillEntry; shared?: SkillEntry }>();
+    for (const e of local) byName.set(e.name, { ...byName.get(e.name), local: e });
+    for (const e of shared) byName.set(e.name, { ...byName.get(e.name), shared: e });
+
+    const results: PhaseEntry['items'] = [];
+    for (const [name, pair] of byName) {
+        const dest = pathModule.join(destRoot, name);
+        // Both sources present -> mtime precedence
+        if (pair.local && pair.shared) {
+            const winner = pair.local.mtimeMs >= pair.shared.mtimeMs ? pair.local : pair.shared;
+            const loser = winner === pair.local ? pair.shared : pair.local;
+            // Move winner to destination
+            const r = await moveOne(winner.sourcePath, dest);
+            // Archive loser under winner's .versions/
+            try {
+                const archiveDir = await archiveLoser(loser.sourcePath, dest, loser.mtimeMs);
+                // Remove loser source after successful archive
+                await rawFs.promises.rm(loser.sourcePath, { recursive: true, force: true });
+                results.push({
+                    from: `${winner.sourcePath} (winner) + ${loser.sourcePath} -> ${archiveDir}`,
+                    to: dest,
+                    status: r.status === 'failed' ? 'failed' : r.status,
+                    error: r.error,
+                });
+            } catch (e) {
+                results.push({
+                    from: `${winner.sourcePath} + ${loser.sourcePath}`,
+                    to: dest,
+                    status: 'failed',
+                    error: e instanceof Error ? e.message : String(e),
+                });
+            }
+            continue;
+        }
+        // Single source -> straight move
+        const only = (pair.local ?? pair.shared)!;
+        const r = await moveOne(only.sourcePath, dest);
+        results.push({ from: only.sourcePath, to: dest, ...r });
+    }
+    return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Phase 7: Legacy cleanup
 //   Remove emptied .obsidian-agent/, .obsilo-vault/, obsilo-shared/ folders.
 //   Telemetry inside .obsidian-agent/ is first moved to .vault-operator/data/
@@ -555,7 +662,14 @@ export async function migrateAgentLayout(
         await input.setStatus(status);
     }
 
-    // Phase 6: skills-resolve  (PLAN-27 Task 11, follow-up commit)
+    // Phase 6: skills-resolve  (drift-merge across two source roots)
+    if (!isPhaseDone(status, 'skills-resolved')) {
+        const t0 = Date.now();
+        const items = await phaseSkillsResolve(input);
+        phases.push({ phase: 'skills-resolved', items, durationMs: Date.now() - t0 });
+        status = 'skills-resolved';
+        await input.setStatus(status);
+    }
 
     // Phase 7: cleanup
     if (!isPhaseDone(status, 'cleanup-done')) {
