@@ -845,11 +845,19 @@ export class VaultTab {
             return;
         }
         const nodePath = await import('path');
+        const nodeOs = await import('os');
+        const nodeCrypto = await import('crypto');
+        // Backup pfad mirror to main.ts:744 -- {homedir}/.vault-operator-migration-backups/{vault-hash}/
+        // ensures snapshots stay outside any sync container (iCloud, Obsidian-Sync).
+        const vaultIdHash = nodeCrypto
+            .createHash('md5')
+            .update(vaultBasePath)
+            .digest('hex')
+            .slice(0, 12);
         const pluginDataDir = nodePath.join(
-            vaultBasePath,
-            this.app.vault.configDir,
-            'plugins',
-            this.plugin.manifest.id,
+            nodeOs.homedir(),
+            '.vault-operator-migration-backups',
+            vaultIdHash,
         );
         const vaultParent = nodePath.dirname(vaultBasePath);
 

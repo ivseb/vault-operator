@@ -31,7 +31,10 @@ function makeTempVault() {
 }
 
 function seedBackup(pluginDataDir: string, timestamp: string): string {
-    const backupRoot = path.join(pluginDataDir, 'layout-migration-backups', `vault-operator-backup-${timestamp}`);
+    // Post-M-1 (AUDIT-FEAT-29-01): backups live directly under pluginDataDir,
+    // no longer in a `layout-migration-backups/` sub-folder. The home-dir
+    // hash-based path already encodes the vault-id.
+    const backupRoot = path.join(pluginDataDir, `vault-operator-backup-${timestamp}`);
     fs.mkdirSync(backupRoot, { recursive: true });
     return backupRoot;
 }

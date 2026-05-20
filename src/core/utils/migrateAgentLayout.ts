@@ -121,9 +121,12 @@ export interface AgentLayoutMigrationInput {
     vaultBasePath: string;
     /** Absolute filesystem path to the vault parent (one level up). */
     vaultParent: string;
-    /** Absolute filesystem path to the Obsidian plugin data directory
-     * (outside the vault). Backups are written here so iCloud-sync of the
-     * vault does not replicate them across devices. */
+    /** Absolute filesystem path to the directory where the backup snapshot
+     * is written. MUST live outside every migration source root (recursive
+     * self-copy bug, 14 GB ENAMETOOLONG explosion observed 2026-05-20) AND
+     * outside any sync container (iCloud / Obsidian-Sync would replicate the
+     * knowledge.db clone to remote servers; M-1 in AUDIT-FEAT-29-01).
+     * Recommended layout: {homedir}/.vault-operator-migration-backups/{hash}/. */
     pluginDataDir: string;
     /** Current value of settings.agentFolderPath. Default is .vault-operator. */
     agentFolderPath: string;
@@ -158,7 +161,16 @@ async function isDirEmpty(p: string): Promise<boolean> {
 }
 
 async function copyRecursive(src: string, dest: string): Promise<void> {
-    const stat = await rawFs.promises.stat(src);
+    // lstat (NOT stat) so symlinks don't get followed. A malicious symlink in
+    // the vault (e.g. .obsidian-agent/foo -> /etc/passwd) would otherwise
+    // pipe host-file contents into the backup snapshot. L-4 in AUDIT-FEAT-29-01.
+    const stat = await rawFs.promises.lstat(src);
+    if (stat.isSymbolicLink()) {
+        // Skip silently. The backup is for recovery; symlinks are user-vault-
+        // specific and don't represent migration state. A subsequent restore
+        // would never need them.
+        return;
+    }
     if (stat.isDirectory()) {
         await rawFs.promises.mkdir(dest, { recursive: true });
         const entries = await rawFs.promises.readdir(src, { withFileTypes: true });
@@ -170,6 +182,16 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
     } else {
         await rawFs.promises.mkdir(pathModule.dirname(dest), { recursive: true });
         await rawFs.promises.copyFile(src, dest);
+        // 0600 so a snapshot of knowledge.db / memory.db is owner-only. The
+        // chmod is best-effort: Windows ignores it, but on macOS/Linux it
+        // matters because the backup folder lives in the home dir, which on
+        // multi-user systems may otherwise be world-readable. L-2 in AUDIT-FEAT-29-01.
+        try {
+            await rawFs.promises.chmod(dest, 0o600);
+        } catch {
+            // chmod failed (Windows or unusual FS) -- non-fatal, the file is
+            // copied either way. The next pass of the audit can flag this.
+        }
     }
 }
 
@@ -271,7 +293,47 @@ async function phaseBackup(input: AgentLayoutMigrationInput): Promise<BackupResu
         bytesCopied += await sumBytes(dest);
     }
 
+    // Retention: keep at most BACKUP_RETENTION snapshots, delete the rest.
+    // L-1 in AUDIT-FEAT-29-01. Each snapshot can be hundreds of MB
+    // (288 MB knowledge.db plus skills plus memory), so 3 snapshots cap the
+    // disk-use at roughly 1 GB.
+    await pruneOldBackups(input.pluginDataDir, backupRoot);
+
     return { backupPath: backupRoot, bytesCopied };
+}
+
+const BACKUP_RETENTION = 3;
+
+/**
+ * Delete all `vault-operator-backup-*` folders under `pluginDataDir` except
+ * the most recent BACKUP_RETENTION (including the just-written `keepRoot`).
+ * Order is ISO-timestamp-sorted; newest wins.
+ */
+async function pruneOldBackups(pluginDataDir: string, keepRoot: string): Promise<void> {
+    try {
+        const entries = await rawFs.promises.readdir(pluginDataDir, { withFileTypes: true });
+        const snapshots = entries
+            .filter((e) => e.isDirectory() && e.name.startsWith('vault-operator-backup-'))
+            .map((e) => pathModule.join(pluginDataDir, e.name))
+            .sort()
+            .reverse(); // newest first
+        // Always keep `keepRoot` in the survivors, then fill up to BACKUP_RETENTION.
+        const survivors = new Set<string>([keepRoot]);
+        for (const s of snapshots) {
+            if (survivors.size >= BACKUP_RETENTION) break;
+            survivors.add(s);
+        }
+        for (const s of snapshots) {
+            if (survivors.has(s)) continue;
+            try {
+                await rawFs.promises.rm(s, { recursive: true, force: true });
+            } catch {
+                // non-fatal -- a leftover snapshot is recoverable manually
+            }
+        }
+    } catch {
+        // pluginDataDir may not exist on first migration; non-fatal.
+    }
 }
 
 async function sumBytes(p: string): Promise<number> {

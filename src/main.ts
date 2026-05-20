@@ -735,18 +735,24 @@ export default class ObsidianAgentPlugin extends Plugin {
         // migration service ships but stays dormant.
         if (this.settings._layoutMigrationOptIn === true
             && this.settings._layoutMigrationStatus !== 'complete') {
-            // Backup destination MUST be outside every migration source folder,
-            // otherwise the recursive copy of obsilo-shared would back itself
-            // up infinitely (ENAMETOOLONG, observed 2026-05-20 with a 14 GB
-            // path explosion). Use the Obsidian plugin data dir which lives at
-            // {vault}/.obsidian/plugins/<id>/ and is not part of any migration
-            // source. A backup sub-folder gets timestamped under it.
+            // Backup destination MUST be outside every migration source folder
+            // (recursive self-copy bug -- 14 GB ENAMETOOLONG explosion observed
+            // 2026-05-20) AND outside any sync container (iCloud-replicated
+            // vaults would otherwise push a 288 MB knowledge.db clone to Apple
+            // servers; M-1 in AUDIT-FEAT-29-01-2026-05-20.md). The home
+            // directory satisfies both constraints. A vault-hash sub-folder
+            // keeps multiple vaults on the same machine separate.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time crypto require to hash the vault path; not a security-sensitive hash
+            const nodeCrypto = require('crypto') as typeof import('crypto');
+            const vaultIdHash = nodeCrypto
+                .createHash('md5')
+                .update(vaultBasePath || '__no_vault_path__')
+                .digest('hex')
+                .slice(0, 12);
             const safeBackupDir = nodePath.join(
-                vaultBasePath,
-                this.app.vault.configDir,
-                'plugins',
-                this.manifest.id,
-                'layout-migration-backups',
+                homeDir,
+                '.vault-operator-migration-backups',
+                vaultIdHash,
             );
             console.debug('[VaultOperator] storage layout migration trigger entered', {
                 optIn: this.settings._layoutMigrationOptIn,

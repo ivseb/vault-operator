@@ -100,7 +100,10 @@ async function isDirEmptyIgnoringConsolidated(p: string): Promise<boolean> {
 }
 
 async function copyRecursive(src: string, dest: string): Promise<void> {
-    const stat = await rawFs.promises.stat(src);
+    // lstat so symlinks inside the backup snapshot don't get followed during
+    // a restore. Mirrors L-4 hardening in migrateAgentLayout.copyRecursive.
+    const stat = await rawFs.promises.lstat(src);
+    if (stat.isSymbolicLink()) return;
     if (stat.isDirectory()) {
         await rawFs.promises.mkdir(dest, { recursive: true });
         const entries = await rawFs.promises.readdir(src, { withFileTypes: true });
@@ -117,14 +120,24 @@ async function copyRecursive(src: string, dest: string): Promise<void> {
 
 /**
  * List backup folders sorted newest first.
+ *
+ * Note: with the M-1 fix in main.ts, the backup directory now sits directly
+ * at {homedir}/.vault-operator-migration-backups/{vault-hash}/. The legacy
+ * sub-folder `layout-migration-backups` is no longer added; the input
+ * already points at the {vault-hash} folder.
  */
 export async function listBackupFolders(pluginDataDir: string): Promise<string[]> {
-    const backupRoot = pathModule.join(pluginDataDir, 'layout-migration-backups');
-    if (!(await pathExists(backupRoot))) return [];
-    const entries = await rawFs.promises.readdir(backupRoot, { withFileTypes: true });
+    if (!(await pathExists(pluginDataDir))) return [];
+    const entries = await rawFs.promises.readdir(pluginDataDir, { withFileTypes: true });
+    const resolvedRoot = pathModule.resolve(pluginDataDir);
+    // Defense-in-depth path-containment check (L-3 in AUDIT-FEAT-29-01):
+    // even though `dirent.name` is just a basename, a malicious symlink with
+    // the right prefix could otherwise pipe restore-reads outside the root.
     const folders = entries
         .filter((e) => e.isDirectory() && e.name.startsWith('vault-operator-backup-'))
-        .map((e) => pathModule.join(backupRoot, e.name))
+        .map((e) => pathModule.resolve(pathModule.join(pluginDataDir, e.name)))
+        .filter((p) => p === resolvedRoot
+            || p.startsWith(resolvedRoot + pathModule.sep))
         .sort()
         .reverse(); // newest first
     return folders;

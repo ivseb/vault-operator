@@ -126,6 +126,39 @@ describe('migrateAgentLayout Phase 1: backup snapshot', () => {
         expect(report.phases.length).toBeGreaterThanOrEqual(1);
         expect(report.phases.some((p) => p.phase === 'data-vault-done')).toBe(true);
     });
+
+    it('prunes older snapshots, keeping only the most recent BACKUP_RETENTION (3)', async () => {
+        // Pre-seed 4 stale snapshots with older ISO timestamps; the new run
+        // adds a 5th. After pruning, only the 3 newest (= the new one + 2 of
+        // the seeded ones) should survive.
+        const seedTimestamps = [
+            '2026-01-01T00-00-00-000Z',
+            '2026-02-01T00-00-00-000Z',
+            '2026-03-01T00-00-00-000Z',
+            '2026-04-01T00-00-00-000Z',
+        ];
+        for (const ts of seedTimestamps) {
+            fs.mkdirSync(path.join(vault.pluginDataDir, `vault-operator-backup-${ts}`), { recursive: true });
+        }
+
+        // Seed a source so phase 1 has something to back up (otherwise the
+        // backup root would still be created, just empty).
+        fs.mkdirSync(path.join(vault.vaultBasePath, '.obsilo-vault'), { recursive: true });
+        fs.writeFileSync(path.join(vault.vaultBasePath, '.obsilo-vault', 'knowledge.db'), 'fake');
+
+        const { input } = makeInput(vault);
+        const report = await migrateAgentLayout(input);
+
+        const remaining = fs
+            .readdirSync(vault.pluginDataDir)
+            .filter((n) => n.startsWith('vault-operator-backup-'));
+        expect(remaining).toHaveLength(3);
+        // The new backup is always among the survivors
+        expect(remaining).toContain(path.basename(report.backupPath!));
+        // The two oldest seeds (2026-01, 2026-02) must be gone
+        expect(remaining.some((n) => n.includes('2026-01-01'))).toBe(false);
+        expect(remaining.some((n) => n.includes('2026-02-01'))).toBe(false);
+    });
 });
 
 describe('migrateAgentLayout Phase 2: data-move vault-local', () => {
