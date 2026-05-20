@@ -227,11 +227,15 @@ interface BackupResult {
  * the absolute backup path. Skips silently when a source root does not exist.
  *
  * Naming: vault-operator-backup-{ISO-timestamp}/{root-name}/...
+ *
+ * Hard safety: the backup destination must NOT live inside any migration
+ * source path. If it does, the backup would copy itself recursively and
+ * blow up with ENAMETOOLONG once the OS path limit is hit (observed in the
+ * field 2026-05-20: a 14 GB recursive copy at depth 13 before the failure).
  */
 async function phaseBackup(input: AgentLayoutMigrationInput): Promise<BackupResult> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupRoot = pathModule.join(input.pluginDataDir, `vault-operator-backup-${timestamp}`);
-    await rawFs.promises.mkdir(backupRoot, { recursive: true });
 
     const sources = [
         { label: 'obsidian-agent', from: pathModule.join(input.vaultBasePath, '.obsidian-agent') },
@@ -239,6 +243,24 @@ async function phaseBackup(input: AgentLayoutMigrationInput): Promise<BackupResu
         { label: 'vault-operator', from: pathModule.join(input.vaultBasePath, '.vault-operator') },
         { label: 'obsilo-shared', from: pathModule.join(input.vaultParent, 'obsilo-shared') },
     ];
+
+    // Safety-belt: refuse to start the backup if its destination would sit
+    // inside any of the source roots. Recursive self-copy is the only way
+    // this function can corrupt user data, so we make the check explicit.
+    for (const src of sources) {
+        const normalizedFrom = pathModule.resolve(src.from);
+        const normalizedBackup = pathModule.resolve(backupRoot);
+        if (normalizedBackup.startsWith(normalizedFrom + pathModule.sep)
+            || normalizedBackup === normalizedFrom) {
+            throw new Error(
+                `Backup destination (${backupRoot}) lives inside migration source ${src.from}. `
+                + 'Choose a backup folder outside every legacy root (typically the Obsidian '
+                + 'plugin data directory at {vault}/.obsidian/plugins/<id>/).',
+            );
+        }
+    }
+
+    await rawFs.promises.mkdir(backupRoot, { recursive: true });
 
     let bytesCopied = 0;
     for (const src of sources) {

@@ -735,15 +735,42 @@ export default class ObsidianAgentPlugin extends Plugin {
         // migration service ships but stays dormant.
         if (this.settings._layoutMigrationOptIn === true
             && this.settings._layoutMigrationStatus !== 'complete') {
+            // Backup destination MUST be outside every migration source folder,
+            // otherwise the recursive copy of obsilo-shared would back itself
+            // up infinitely (ENAMETOOLONG, observed 2026-05-20 with a 14 GB
+            // path explosion). Use the Obsidian plugin data dir which lives at
+            // {vault}/.obsidian/plugins/<id>/ and is not part of any migration
+            // source. A backup sub-folder gets timestamped under it.
+            const safeBackupDir = nodePath.join(
+                vaultBasePath,
+                this.app.vault.configDir,
+                'plugins',
+                this.manifest.id,
+                'layout-migration-backups',
+            );
+            console.debug('[VaultOperator] storage layout migration trigger entered', {
+                optIn: this.settings._layoutMigrationOptIn,
+                status: this.settings._layoutMigrationStatus,
+                agentFolderPath: this.settings.agentFolderPath,
+                chatHistoryFolder: this.settings.chatHistoryFolder,
+                vaultBasePath,
+                vaultParent,
+                safeBackupDir,
+            });
+            new Notice('Storage layout migration starting. This may take 30-60 seconds for a large knowledge index.', 6000);
             try {
                 const { migrateAgentLayout } = await import('./core/utils/migrateAgentLayout');
                 const knownLegacyDefaults = ['.obsidian-agent', '.obsilo-vault', 'obsilo-vault', '.vault-operator'];
                 const isLegacyDefault = knownLegacyDefaults.includes(this.settings.agentFolderPath ?? '');
                 const chatHistoryFolderLegacyValue = this.settings.chatHistoryFolder?.trim() ?? '';
+                console.debug('[VaultOperator] migrateAgentLayout calling', {
+                    isLegacyDefault,
+                    chatHistoryFolderLegacyValue,
+                });
                 const report = await migrateAgentLayout({
                     vaultBasePath,
                     vaultParent,
-                    pluginDataDir: pluginDataRoot,
+                    pluginDataDir: safeBackupDir,
                     agentFolderPath: this.settings.agentFolderPath ?? '',
                     chatHistoryFolder: this.settings.chatHistoryFolder ?? '',
                     currentStatus: this.settings._layoutMigrationStatus ?? 'pending',
@@ -774,16 +801,27 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // depends on globalFs initialises (rulesLoader, workflowLoader,
                 // skillsManager, memory, history all run next).
                 this.globalFs.useVaultLocalRoot(this.settings.agentFolderPath ?? '.vault-operator');
+                console.debug('[VaultOperator] migrateAgentLayout returned', report);
                 if (report.phases.length > 0) {
-                    console.debug('[Plugin] FEAT-29-01 layout migration:', report);
                     new Notice(
-                        `Vault Operator: storage consolidated into .vault-operator/. Backup: ${report.backupPath ?? '(none)'}`,
+                        `Storage consolidated into .vault-operator/. Backup: ${report.backupPath ?? '(none)'}`,
                         8000,
                     );
+                } else {
+                    new Notice('Storage layout migration completed (no work to do).', 5000);
                 }
             } catch (e) {
-                console.warn('[Plugin] FEAT-29-01 layout migration failed (non-fatal, will retry on next reload):', e);
+                console.error('[VaultOperator] storage layout migration failed:', e);
+                new Notice(
+                    `Storage layout migration failed: ${e instanceof Error ? e.message : String(e)}. Check developer console for details.`,
+                    15000,
+                );
             }
+        } else {
+            console.debug('[VaultOperator] storage layout migration trigger NOT entered', {
+                optIn: this.settings._layoutMigrationOptIn,
+                status: this.settings._layoutMigrationStatus,
+            });
         }
 
         // FEAT-29-01: ensure GlobalFileService points at the consolidated

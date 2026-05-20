@@ -48,6 +48,36 @@ function makeInput(vault: ReturnType<typeof makeTempVault>, overrides: Partial<A
     return { input, statusLog };
 }
 
+describe('migrateAgentLayout phase 1 safety-belt against recursive backup', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    it('throws fail-fast when pluginDataDir lives inside a migration source (obsilo-shared)', async () => {
+        // Reproduce the 2026-05-20 production bug: pluginDataDir was set to
+        // {vault-parent}/obsilo-shared/ which is also a migration source.
+        // Backup would recursively copy itself until ENAMETOOLONG.
+        fs.mkdirSync(path.join(vault.vaultParent, 'obsilo-shared'), { recursive: true });
+        const badPluginDataDir = path.join(vault.vaultParent, 'obsilo-shared');
+        const { input } = makeInput(vault, { pluginDataDir: badPluginDataDir });
+
+        await expect(migrateAgentLayout(input)).rejects.toThrow(/lives inside migration source/);
+
+        // The dangerous backup folder must not exist
+        const entries = fs.readdirSync(badPluginDataDir);
+        const recursiveBackups = entries.filter((e) => e.startsWith('vault-operator-backup-'));
+        expect(recursiveBackups).toEqual([]);
+    });
+
+    it('throws fail-fast when pluginDataDir lives inside .obsilo-vault', async () => {
+        fs.mkdirSync(path.join(vault.vaultBasePath, '.obsilo-vault'), { recursive: true });
+        const badPluginDataDir = path.join(vault.vaultBasePath, '.obsilo-vault');
+        const { input } = makeInput(vault, { pluginDataDir: badPluginDataDir });
+
+        await expect(migrateAgentLayout(input)).rejects.toThrow(/lives inside migration source/);
+    });
+});
+
 describe('migrateAgentLayout Phase 1: backup snapshot', () => {
     let vault: ReturnType<typeof makeTempVault>;
     beforeEach(() => { vault = makeTempVault(); });

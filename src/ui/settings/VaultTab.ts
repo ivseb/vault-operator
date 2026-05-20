@@ -217,7 +217,7 @@ export class VaultTab {
                     .setButtonText(
                         statusValue === 'complete' ? 'Already migrated' : 'Activate migration',
                     )
-                    .setIcon('arrow-up-circle')
+                    .setIcon('arrow-right-left')
                     .setDisabled(statusValue === 'complete')
                     .onClick(() => {
                         void (async () => {
