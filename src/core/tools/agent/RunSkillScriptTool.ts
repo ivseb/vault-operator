@@ -24,6 +24,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getSelfAuthoredSkillsDir } from '../../utils/agentFolder';
+import { RunSkillScriptCache } from '../../sandbox/RunSkillScriptCache';
 
 const SAFE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SAFE_NAME_MAX_LEN = 200;
@@ -44,8 +45,15 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
     // the approval gate is conservative.
     readonly isWriteOperation = true;
 
+    // FEAT-29-06 Task B: shared per-tool-instance cache. EsbuildWasm
+    // compile is the expensive step (transform: ~100 ms for small scripts,
+    // build: ~500-2000 ms for bundles with deps). Caching by source-hash
+    // means a script that runs in a loop pays the bundler cost once.
+    private readonly cache: RunSkillScriptCache;
+
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+        this.cache = new RunSkillScriptCache();
     }
 
     getDefinition(): ToolDefinition {
@@ -136,17 +144,25 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
         }
 
         let compiled: string;
-        try {
-            // Use transform (no deps) for simple scripts. A future hint
-            // could parse `// @deps: [...]` from the source header and
-            // call build() instead. For now transform handles all current
-            // scripts in production skills.
-            compiled = await esbuild.transform(source);
-        } catch (e) {
-            callbacks.pushToolResult(
-                this.formatError(new Error(`Script bundler error: ${(e as Error).message ?? String(e)}`)),
-            );
-            return;
+        // FEAT-29-06 Task B: cache lookup by skill+script+source-hash.
+        // A second invocation with identical source skips the bundler.
+        const cached = this.cache.get(skillName, scriptName, source);
+        if (cached !== null) {
+            compiled = cached;
+        } else {
+            try {
+                // Use transform (no deps) for simple scripts. A future hint
+                // could parse `// @deps: [...]` from the source header and
+                // call build() instead. For now transform handles all current
+                // scripts in production skills.
+                compiled = await esbuild.transform(source);
+            } catch (e) {
+                callbacks.pushToolResult(
+                    this.formatError(new Error(`Script bundler error: ${(e as Error).message ?? String(e)}`)),
+                );
+                return;
+            }
+            this.cache.set(skillName, scriptName, source, compiled);
         }
 
         // Execute in sandbox

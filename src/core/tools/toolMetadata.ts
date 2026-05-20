@@ -437,6 +437,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'After solving a novel problem: save the approach as a reusable skill so you can apply it instantly next time. Use read_skill to actually load and follow a skill.',
         commonMistakes: 'Confusing skills with tools. Skills are instructions (how to approach a task), not executable code. Using manage_skill read to apply a skill -- use read_skill instead.',
     },
+    run_skill_script: {
+        group: 'agent', label: 'Run Skill Script', icon: 'play-circle',
+        signature: 'run_skill_script(skill_name, script_name, args?)',
+        description: 'Execute a JavaScript helper script that lives in a self-authored skill folder under scripts/{script_name}.js. The script must export `async function execute(args)`; the return value is JSON-serialized back to the tool_result. Replaces the legacy code_modules pattern (FEAT-29-06).',
+        example: 'run_skill_script("newsletter-digest", "aggregate", {"window_days": 7})',
+        whenToUse: 'For deterministic, repeatable steps the agent should not have to hallucinate each time (data aggregation, API calls, format conversion, binary file generation). The skill folder bundles the SKILL.md instructions WITH the scripts.',
+        commonMistakes: 'Calling for a one-off task that has no persisted script -- use evaluate_expression instead. Passing the path with a .js extension -- script_name is the bare name.',
+    },
     manage_mcp_server: {
         group: 'agent', label: 'Manage MCP', icon: 'plug-2',
         signature: 'manage_mcp_server(action, name?, config?)',

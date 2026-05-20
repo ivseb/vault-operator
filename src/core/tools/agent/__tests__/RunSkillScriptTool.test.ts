@@ -255,4 +255,66 @@ describe('RunSkillScriptTool (FEAT-29-06)', () => {
             expect(tool.name).toBe('run_skill_script');
         });
     });
+
+    describe('bundle cache (Task B)', () => {
+        it('skips the bundler on a second call with identical source', async () => {
+            const stub = makePluginStub({
+                files: {
+                    '.vault-operator/data/skills/my-skill/scripts/echo.js':
+                        'export async function execute(args) { return args; }',
+                },
+                sandboxResult: { ok: true },
+            });
+            // Spy on the bundler so we count transform-calls.
+            let transformCount = 0;
+            const tool = new RunSkillScriptTool(stub.plugin);
+            const origTransform = stub.plugin.esbuildWasmManager!.transform.bind(
+                stub.plugin.esbuildWasmManager,
+            );
+            stub.plugin.esbuildWasmManager!.transform = async (src: string) => {
+                transformCount += 1;
+                return origTransform(src);
+            };
+
+            const { context } = makeContext();
+            await tool.execute({ skill_name: 'my-skill', script_name: 'echo', args: {} }, context);
+            await tool.execute({ skill_name: 'my-skill', script_name: 'echo', args: {} }, context);
+
+            // First call hits the bundler. Second hit is a cache lookup so
+            // transform should NOT run a second time.
+            expect(transformCount).toBe(1);
+        });
+
+        it('re-bundles when the script source changes', async () => {
+            const stub = makePluginStub({
+                files: {
+                    '.vault-operator/data/skills/my-skill/scripts/echo.js':
+                        'export async function execute(args) { return args; }',
+                },
+                sandboxResult: { ok: true },
+            });
+            let transformCount = 0;
+            const tool = new RunSkillScriptTool(stub.plugin);
+            const origTransform = stub.plugin.esbuildWasmManager!.transform.bind(
+                stub.plugin.esbuildWasmManager,
+            );
+            stub.plugin.esbuildWasmManager!.transform = async (src: string) => {
+                transformCount += 1;
+                return origTransform(src);
+            };
+
+            const { context } = makeContext();
+            await tool.execute({ skill_name: 'my-skill', script_name: 'echo' }, context);
+
+            // Simulate the user editing the script on disk between calls.
+            stub.files.set(
+                '.vault-operator/data/skills/my-skill/scripts/echo.js',
+                'export async function execute(args) { return { changed: true, args }; }',
+            );
+
+            await tool.execute({ skill_name: 'my-skill', script_name: 'echo' }, context);
+
+            expect(transformCount).toBe(2);
+        });
+    });
 });
