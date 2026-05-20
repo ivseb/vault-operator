@@ -86,6 +86,8 @@ export type ToolName =
     | 'execute_command'
     | 'resolve_capability_gap'
     | 'enable_plugin'
+    // FEAT-29-03 / ADR-124: live probe of a plugin's commands and API methods
+    | 'probe_plugin'
     // Plugin API + Recipe Shell (PAS-1.5)
     | 'call_plugin_api'
     | 'execute_recipe'

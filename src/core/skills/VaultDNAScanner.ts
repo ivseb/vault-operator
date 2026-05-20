@@ -190,11 +190,16 @@ export class VaultDNAScanner {
         // Full scan
         await this.fullScan();
 
-        // Delayed reclassification: some plugins register commands late.
-        // Re-check NONE-classified enabled plugins after 3s.
-        window.setTimeout(() => { void this.reclassifyNonePlugins(); }, 3000);
+        // FEAT-29-03: faster pickup of lazy plugins. Two reclassify passes:
+        //  - 1s after init for plugins that register commands quickly.
+        //  - 10s after init as a safety net for very-lazy plugins like Dataview.
+        window.setTimeout(() => { void this.reclassifyNonePlugins(); }, 1000);
+        window.setTimeout(() => { void this.reclassifyNonePlugins(); }, 10000);
 
-        // Start continuous sync polling
+        // Start continuous sync polling (FEAT-29-03: shortened to 2s for sub-
+        // second responsiveness, augmented by a workspace.layout-change hook
+        // wired in main.ts that triggers a checkForChanges immediately on
+        // any UI-driven settings activation).
         this.startSync();
     }
 
@@ -1108,7 +1113,20 @@ export class VaultDNAScanner {
     startSync(): void {
         const enabledPlugins = this.app.plugins?.enabledPlugins;
         this.lastKnownEnabledSet = new Set(enabledPlugins ?? []);
-        this.pollIntervalId = scheduleRecurring(() => { void this.checkForChanges(); }, 30_000);
+        // FEAT-29-03: 2s tick for sub-second plugin-enable visibility. Was 30s
+        // in v2.5; tighter polling is cheap (Set-diff on at most ~100 plugin
+        // ids) and the workspace.layout-change hook (main.ts) makes most
+        // user-driven activations instant anyway.
+        this.pollIntervalId = scheduleRecurring(() => { void this.checkForChanges(); }, 2_000);
+    }
+
+    /**
+     * FEAT-29-03: external trigger for event-driven re-sync. Wired up in
+     * main.ts via `app.workspace.on("layout-change")` with a 200ms debounce.
+     * Idempotent: a back-to-back call within the same tick is harmless.
+     */
+    triggerImmediateSync(): Promise<void> {
+        return this.checkForChanges();
     }
 
     stopSync(): void {

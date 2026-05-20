@@ -106,6 +106,9 @@ export class SkillRegistry {
                 ? `  read_file("${this.skillsDir}/{plugin-id}/SKILL.md")`
                 : `  read_file("${this.skillsDir}/{plugin-id}.skill.md")`,
             'This tells you what the plugin does, its commands, its configuration, and how to use it.',
+            // FEAT-29-03: probe_plugin tool for live verification when the
+            // listed commands look stale or a plugin was just enabled.
+            'If a plugin was just enabled, or the listed commands look stale, call probe_plugin("{plugin-id}") for the current live state before falling back to execute_command.',
             '',
         ];
 

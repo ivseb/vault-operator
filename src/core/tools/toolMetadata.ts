@@ -511,6 +511,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'When a disabled plugin is needed. Ask the user before enabling.',
         commonMistakes: 'Enabling without checking if installed — use resolve_capability_gap first.',
     },
+    probe_plugin: {
+        group: 'skill', label: 'Probe Plugin', icon: 'scan-search',
+        signature: 'probe_plugin(plugin_id)',
+        description: 'Live read of a plugin\'s current commands and API methods. Use before the first call_plugin_api or execute_command on a freshly enabled plugin, or when the PLUGIN SKILLS section looks stale.',
+        example: 'probe_plugin("dataview")',
+        whenToUse: 'Just-enabled lazy plugin (Dataview, Templater), post-update command rename, or before first call to a plugin you have not used this session.',
+        commonMistakes: 'Skipping probe and guessing command IDs from the stale PLUGIN SKILLS list -- if a probe disagrees, trust the probe.',
+    },
     call_plugin_api: {
         group: 'skill', label: 'Plugin API', icon: 'code',
         signature: 'call_plugin_api(plugin_id, method, args?)',

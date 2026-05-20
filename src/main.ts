@@ -899,6 +899,21 @@ export default class ObsidianAgentPlugin extends Plugin {
                 await this.vaultDNAScanner!.initialize().catch((e) =>
                     console.warn('[Plugin] VaultDNA scanner init failed (non-fatal):', e)
                 );
+                // FEAT-29-03: event-driven re-sync trigger. workspace.layout-change
+                // fires on most UI-driven settings activations (including plugin
+                // enable/disable), so we coalesce them into a debounced
+                // immediate-sync call. Sub-second responsiveness without
+                // hammering the diff loop on every layout flicker.
+                let layoutChangeTimer: number | null = null;
+                this.registerEvent(this.app.workspace.on('layout-change', () => {
+                    if (layoutChangeTimer !== null) window.clearTimeout(layoutChangeTimer);
+                    layoutChangeTimer = window.setTimeout(() => {
+                        layoutChangeTimer = null;
+                        void this.vaultDNAScanner?.triggerImmediateSync().catch((e) =>
+                            console.warn('[Plugin] VaultDNA immediate-sync failed (non-fatal):', e),
+                        );
+                    }, 200);
+                }));
             });
         }
 
