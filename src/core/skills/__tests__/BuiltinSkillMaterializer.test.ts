@@ -266,6 +266,72 @@ describe('BuiltinSkillMaterializer', () => {
         expect(report.written).toEqual([]);
     });
 
+    /**
+     * AUDIT-FEAT-29-11 L-1: defense-in-depth against path-traversal via
+     * crafted bundle keys. Bundle is Sebastian-managed at build time, so
+     * the risk is theoretical, but enforcing containment closes the
+     * traversal class outright.
+     */
+    describe('AUDIT-FEAT-29-11 L-1 path-traversal guard', () => {
+        it('rejects a relpath containing `..`', async () => {
+            const bundle = {
+                humanizer: {
+                    'SKILL.md': '---\nname: humanizer\ndescription: x\n---\n\nB\n',
+                    '../escape.md': 'malicious',
+                },
+            };
+            const report = await materializer.materializeAll(bundle);
+
+            // SKILL.md still landed (the inner-loop continue is per-file).
+            expect(stub.files.has('.vault-operator/data/skills/humanizer/SKILL.md')).toBe(true);
+            // The escape file never made it to disk.
+            expect(stub.files.has('.vault-operator/data/skills/escape.md')).toBe(false);
+            // And the error is reported.
+            expect(report.errors).toContainEqual(
+                { name: 'humanizer', reason: 'unsafe relpath rejected: ../escape.md' },
+            );
+        });
+
+        it('rejects an absolute relpath', async () => {
+            const bundle = {
+                ingest: {
+                    'SKILL.md': '---\nname: ingest\ndescription: x\n---\n\nB\n',
+                    '/etc/passwd': 'malicious',
+                },
+            };
+            const report = await materializer.materializeAll(bundle);
+
+            // No write at /etc/passwd.
+            expect(stub.files.has('/etc/passwd')).toBe(false);
+            expect(report.errors.some((e) => e.reason.includes('/etc/passwd'))).toBe(true);
+        });
+
+        it('rejects a relpath with a NUL byte', async () => {
+            const bundle = {
+                ingest: {
+                    'SKILL.md': '---\nname: ingest\ndescription: x\n---\n\nB\n',
+                    'scripts/foo\0.js': 'malicious',
+                },
+            };
+            const report = await materializer.materializeAll(bundle);
+            expect(report.errors.some((e) => e.reason.includes('foo\0.js'))).toBe(true);
+        });
+
+        it('accepts well-formed relative paths in subfolders', async () => {
+            const bundle = {
+                office: {
+                    'SKILL.md': '---\nname: office\ndescription: x\n---\n\nB\n',
+                    'scripts/build.js': 'export function f(){}',
+                    'references/notes.md': '# notes',
+                },
+            };
+            const report = await materializer.materializeAll(bundle);
+            expect(report.errors).toEqual([]);
+            expect(stub.files.has('.vault-operator/data/skills/office/scripts/build.js')).toBe(true);
+            expect(stub.files.has('.vault-operator/data/skills/office/references/notes.md')).toBe(true);
+        });
+    });
+
     it('reports errors per-skill without aborting the whole pass', async () => {
         const bundle = {
             'bad/name': {

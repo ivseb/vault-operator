@@ -496,8 +496,21 @@ export class SkillsTab {
         zip: JSZip,
     ): Promise<void> {
         const { files, folders } = await adapter.list(dir);
+        const dirPrefix = `${dir}/`;
         for (const filePath of files) {
+            // FEAT-29-11 AUDIT L-2 defense-in-depth: defend the user against
+            // zip-slip if a future Obsidian adapter returns a path outside
+            // the listed folder. The current adapter does not, but the cost
+            // of the containment check is negligible.
+            if (!filePath.startsWith(dirPrefix)) {
+                console.warn('[SkillsTab] Skipping out-of-range file during export:', filePath);
+                continue;
+            }
             const name = filePath.slice(dir.length + 1);
+            if (name.includes('..') || name.startsWith('/')) {
+                console.warn('[SkillsTab] Skipping unsafe zip path:', name);
+                continue;
+            }
             const zipPath = relPrefix ? `${relPrefix}/${name}` : name;
             if (this.isLikelyBinaryFile(name)) {
                 const buf = await adapter.readBinary(filePath);
@@ -508,7 +521,15 @@ export class SkillsTab {
             }
         }
         for (const subPath of folders) {
+            if (!subPath.startsWith(dirPrefix)) {
+                console.warn('[SkillsTab] Skipping out-of-range folder during export:', subPath);
+                continue;
+            }
             const subName = subPath.slice(dir.length + 1);
+            if (subName.includes('..') || subName.startsWith('/')) {
+                console.warn('[SkillsTab] Skipping unsafe zip subfolder:', subName);
+                continue;
+            }
             const subRel = relPrefix ? `${relPrefix}/${subName}` : subName;
             await this.addFolderToZip(adapter, subPath, subRel, zip);
         }

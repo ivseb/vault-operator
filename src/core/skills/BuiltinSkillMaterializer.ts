@@ -87,7 +87,32 @@ export class BuiltinSkillMaterializer {
                         relPath = relPath.slice(0, -BINARY_SUFFIX.length);
                         binary = true;
                     }
+                    // FEAT-29-11 AUDIT L-1 defense-in-depth: refuse relPaths
+                    // that escape the skill folder via `..` segments or that
+                    // try to write under an absolute path. Bundle is built
+                    // from the local bundled-skills/ tree at compile time so
+                    // the risk is theoretical, but enforcing containment
+                    // closes the path-traversal class outright.
+                    if (
+                        relPath.includes('..')
+                        || relPath.startsWith('/')
+                        || relPath.startsWith('\\')
+                        || relPath.includes('\0')
+                    ) {
+                        report.errors.push({
+                            name: skillName,
+                            reason: `unsafe relpath rejected: ${relPath}`,
+                        });
+                        continue;
+                    }
                     const fullPath = normalizePath(`${targetDir}/${relPath}`);
+                    if (!fullPath.startsWith(`${targetDir}/`) && fullPath !== targetDir) {
+                        report.errors.push({
+                            name: skillName,
+                            reason: `path escapes skill folder: ${relPath}`,
+                        });
+                        continue;
+                    }
                     const parent = fullPath.slice(0, fullPath.lastIndexOf('/'));
                     if (parent && parent !== targetDir) {
                         await this.ensureDir(parent);
