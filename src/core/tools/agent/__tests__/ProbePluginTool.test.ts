@@ -138,6 +138,32 @@ describe('ProbePluginTool.probe (FEAT-29-03)', () => {
         expect(result.api_methods).toEqual(['run']);
     });
 
+    it('skips properties whose getter throws instead of crashing (AUDIT L-1)', () => {
+        const apiObj: Record<string, unknown> = {
+            run: () => 0,
+            // safe normal method
+            stop: () => 0,
+        };
+        // Define a getter that throws when read. probe_plugin must skip
+        // this property, NOT abort the whole api scan.
+        Object.defineProperty(apiObj, 'lazy', {
+            get() { throw new Error('not initialized'); },
+            enumerable: true,
+            configurable: true,
+        });
+
+        const plugin = makePluginStub({
+            plugins: { 'getter-plugin': { api: apiObj } },
+            manifests: { 'getter-plugin': { id: 'getter-plugin' } },
+            enabledPlugins: ['getter-plugin'],
+        });
+        const tool = new ProbePluginTool(plugin);
+        const result = tool.probe('getter-plugin');
+        // run + stop survive; the throwing getter is silently skipped.
+        expect(result.api_methods.sort()).toEqual(['run', 'stop']);
+        expect(result.api_methods).not.toContain('lazy');
+    });
+
     it('handles a large plugin instance (200 props) without runaway latency', () => {
         // Risk-Szenario 5 from /coding-Handoff: probe iterates over the
         // plugin instance via Object.keys when there is no `api` property.

@@ -147,7 +147,17 @@ function reflectApiMethods(pluginInstance: unknown): string[] {
     for (const key of Object.keys(apiHolder)) {
         if (key.startsWith('_')) continue;
         if (PLUGIN_BASE_METHODS.has(key)) continue;
-        if (typeof apiHolder[key] !== 'function') continue;
+        // AUDIT-FEAT-29-03+04 L-1: a plugin can implement a property as a
+        // getter with side effects (state init, lazy compute) and the
+        // getter may throw. Skip such properties so the whole probe does
+        // not abort on one bad property.
+        let value: unknown;
+        try {
+            value = apiHolder[key];
+        } catch {
+            continue;
+        }
+        if (typeof value !== 'function') continue;
         out.push(key);
     }
     return out.sort();

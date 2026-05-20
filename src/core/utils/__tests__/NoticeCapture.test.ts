@@ -161,6 +161,73 @@ describe('withNoticeCapture (FEAT-29-04)', () => {
         await new Promise<void>((res) => setTimeout(res, 300));
     });
 
+    it('runs a nested withNoticeCapture fail-soft (AUDIT M-1 race-protection)', async () => {
+        const { globalRef } = makeGlobalWithStubNotice();
+        let innerResult: { patchSkipped: boolean; notices: unknown[] } | undefined;
+        await withNoticeCapture(globalRef, async () => {
+            new (globalRef.Notice as new (msg: string) => unknown)('outer A');
+            // Nested call WHILE the outer patch is active. With M-1 race
+            // protection, the inner call must run fail-soft and NOT
+            // re-patch the global, otherwise we corrupt the chain.
+            innerResult = await withNoticeCapture(globalRef, () => {
+                new (globalRef.Notice as new (msg: string) => unknown)('inner B');
+            }, { tailMs: 0 });
+        }, { tailMs: 0 });
+
+        expect(innerResult).toBeDefined();
+        expect(innerResult!.patchSkipped).toBe(true);
+        expect(innerResult!.notices).toEqual([]);
+    });
+
+    it('clears the singleton activePatch after fn settles so the next caller patches normally', async () => {
+        const { globalRef } = makeGlobalWithStubNotice();
+        // First call -- normal patch + restore lifecycle.
+        const first = await withNoticeCapture(globalRef, () => {
+            new (globalRef.Notice as new (msg: string) => unknown)('first');
+        }, { tailMs: 0 });
+        expect(first.patchSkipped).toBe(false);
+
+        // Second call AFTER the first finished -- must NOT see a stale
+        // activePatch. The fix would regress here if the singleton was
+        // not cleared on cleanup.
+        const second = await withNoticeCapture(globalRef, () => {
+            new (globalRef.Notice as new (msg: string) => unknown)('second');
+        }, { tailMs: 0 });
+        expect(second.patchSkipped).toBe(false);
+        expect(second.notices.map((n) => n.text)).toContain('second');
+    });
+
+    it('truncates per-notice text at MAX_NOTICE_TEXT_CHARS with marker (AUDIT L-2)', async () => {
+        const { globalRef } = makeGlobalWithStubNotice();
+        const longText = 'X'.repeat(2000);
+        const result = await withNoticeCapture(globalRef, () => {
+            new (globalRef.Notice as new (msg: string) => unknown)(longText);
+        }, { tailMs: 0 });
+        const text = result.notices[0].text;
+        expect(text.length).toBeLessThan(longText.length);
+        expect(text.endsWith('... [truncated]')).toBe(true);
+        // 500-char limit (the public constant lives in the module)
+        expect(text.length).toBe(500 + '... [truncated]'.length);
+    });
+
+    it('detects naked token formats without keyword (AUDIT I-1)', async () => {
+        const { globalRef } = makeGlobalWithStubNotice();
+        const result = await withNoticeCapture(globalRef, () => {
+            new (globalRef.Notice as new (msg: string) => unknown)('Payload: ghp_abcdefghijklmnopqrstuvwxyz0123456789');
+            new (globalRef.Notice as new (msg: string) => unknown)('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.foo.bar');
+            new (globalRef.Notice as new (msg: string) => unknown)('sk-1234567890abcdefghijklmnop');
+            new (globalRef.Notice as new (msg: string) => unknown)('File saved');
+        }, { tailMs: 0 });
+
+        const redactedCount = result.notices.filter((n) => n.redacted).length;
+        // First three should be redacted by token-format pattern.
+        expect(redactedCount).toBeGreaterThanOrEqual(3);
+        // Harmless notice survives.
+        const plain = result.notices.find((n) => n.text === 'File saved');
+        expect(plain).toBeDefined();
+        expect(plain?.redacted).toBe(false);
+    });
+
     it('does NOT flag false-positive "key" usage in harmless notices', async () => {
         // Risk-Szenario 4 from /coding-Handoff: sensitive-heuristic is
         // anchored on word-boundaries so a notice like "Pressed key Escape"

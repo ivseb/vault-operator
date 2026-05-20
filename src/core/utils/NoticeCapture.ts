@@ -56,7 +56,32 @@ export interface NoticeCaptureOptions {
     maxCaptures?: number;
 }
 
-const SENSITIVE_PATTERN = /\b(token|secret|key|password|api[-_ ]?key)\b/i;
+/**
+ * AUDIT-FEAT-29-03+04 I-1 fix: catch both explicit keyword mentions
+ * (token/secret/key/password/bearer/pat/auth) and naked token formats
+ * (GitHub `ghp_*`, OpenAI `sk-*`, JWT `eyJ*`, generic 32+ hex). The format
+ * patterns catch leaks even when a plugin spells the key without naming
+ * the field.
+ */
+const SENSITIVE_PATTERN_KEYWORDS =
+    /\b(token|secret|key|password|api[-_ ]?key|bearer|pat|auth(?:orization)?)\b/i;
+const SENSITIVE_PATTERN_TOKEN_FORMATS =
+    /\b(ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9._-]{20,}|[0-9a-f]{32,})\b/;
+
+function isSensitiveText(text: string): boolean {
+    return SENSITIVE_PATTERN_KEYWORDS.test(text) || SENSITIVE_PATTERN_TOKEN_FORMATS.test(text);
+}
+
+/** AUDIT-FEAT-29-03+04 L-2 fix: per-notice text bound. 500 chars is generous
+ *  for legit user-facing notices; large debug strings and stack traces get
+ *  truncated with a clear marker. */
+const MAX_NOTICE_TEXT_CHARS = 500;
+
+/** AUDIT-FEAT-29-03+04 M-1 fix: module-level singleton to prevent two
+ *  concurrent `withNoticeCapture` calls from corrupting the global Notice
+ *  reference. The first caller patches; nested callers run fail-soft (no
+ *  capture) until the first one finishes restoring. */
+let activePatch: { token: symbol } | null = null;
 const ERROR_PATTERN = /\b(error|fail|cannot|not found|missing|invalid)\b/i;
 const WARNING_PATTERN = /\b(warning|warn|deprecated|caution)\b/i;
 const SUCCESS_PATTERN = /\b(success|saved|created|done|copied|exported|completed)\b/i;
@@ -104,19 +129,43 @@ export async function withNoticeCapture<T>(
         return { result, notices, truncated, capturedError, patchSkipped };
     }
 
+    // AUDIT-FEAT-29-03+04 M-1: a second caller during the tail-window of
+    // an active capture would otherwise read the already-patched Notice
+    // as its "original", chain the patches, and corrupt the global on
+    // restore. Detect via the module-level singleton and fail-soft
+    // (run fn without capture). The first caller's notices stay intact.
+    if (activePatch !== null) {
+        patchSkipped = true;
+        let result: T | undefined;
+        let capturedError: Error | null = null;
+        try {
+            result = await fn();
+        } catch (e) {
+            capturedError = e instanceof Error ? e : new Error(String(e));
+        }
+        return { result, notices, truncated, capturedError, patchSkipped };
+    }
+    const ownToken = Symbol('notice-capture-token');
+    activePatch = { token: ownToken };
+
     const recordNotice = (raw: unknown): void => {
         if (notices.length >= maxCaptures) {
             truncated = true;
             return;
         }
-        const text = typeof raw === 'string'
+        const rawText = typeof raw === 'string'
             ? raw
             : (raw && typeof raw === 'object' && 'textContent' in raw && typeof (raw as { textContent?: unknown }).textContent === 'string'
                 ? (raw as { textContent: string }).textContent
                 : String(raw));
-        const redacted = SENSITIVE_PATTERN.test(text);
+        // AUDIT-FEAT-29-03+04 L-2: trim per-notice text so a plugin that
+        // dumps a 50 KB stack trace into a Notice does not bloat tool_result.
+        const text = rawText.length > MAX_NOTICE_TEXT_CHARS
+            ? rawText.slice(0, MAX_NOTICE_TEXT_CHARS) + '... [truncated]'
+            : rawText;
+        const redacted = isSensitiveText(text);
         notices.push({
-            text: redacted ? '[redacted notice text -- contained sensitive keyword]' : text,
+            text: redacted ? '[redacted notice text -- contained sensitive keyword or token format]' : text,
             likely_severity: redacted ? 'unknown' : classifySeverity(text),
             redacted,
             t_ms: Date.now() - t0,
@@ -162,7 +211,13 @@ export async function withNoticeCapture<T>(
         }
     } finally {
         // Restore in finally so a throw still puts the original back.
+        // M-1 fix: only clear `activePatch` when WE are the active patcher.
+        // A defensive guard in case a future caller manages to set
+        // activePatch concurrently despite the head-of-function check.
         globalRef.Notice = OriginalNotice as unknown;
+        if (activePatch !== null && activePatch.token === ownToken) {
+            activePatch = null;
+        }
     }
 
     return { result, notices, truncated, capturedError, patchSkipped };
