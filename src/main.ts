@@ -715,6 +715,61 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveSettings();
         }
 
+        // FEAT-29-01: Consolidate all plugin storage under {vault}/.vault-operator/
+        // {data,cache}. Replaces the four legacy roots .obsidian-agent,
+        // .obsilo-vault, .vault-operator (asset-cache), obsilo-shared. Idempotent
+        // and resumable via _layoutMigrationStatus. See ADR-119 third iteration.
+        //
+        // OPT-IN gate: the migration is destructive and depends on a code-path
+        // refactor (GlobalFileService, rulesLoader, workflowLoader, skillsManager
+        // and other services point at obsilo-shared today; after the migration
+        // they would fail to find their data). The trigger runs only when the
+        // user has explicitly set _layoutMigrationOptIn=true in data.json or
+        // via the Settings restore-action (PLAN-27 Task 5). Until then the
+        // migration service ships but stays dormant.
+        if (this.settings._layoutMigrationOptIn === true
+            && this.settings._layoutMigrationStatus !== 'complete') {
+            try {
+                const { migrateAgentLayout } = await import('./core/utils/migrateAgentLayout');
+                const knownLegacyDefaults = ['.obsidian-agent', '.obsilo-vault', 'obsilo-vault', '.vault-operator'];
+                const isLegacyDefault = knownLegacyDefaults.includes(this.settings.agentFolderPath ?? '');
+                const chatHistoryFolderLegacyValue = this.settings.chatHistoryFolder?.trim() ?? '';
+                const report = await migrateAgentLayout({
+                    vaultBasePath,
+                    vaultParent,
+                    pluginDataDir: pluginDataRoot,
+                    agentFolderPath: this.settings.agentFolderPath ?? '',
+                    chatHistoryFolder: this.settings.chatHistoryFolder ?? '',
+                    currentStatus: this.settings._layoutMigrationStatus ?? 'pending',
+                    setStatus: async (status) => {
+                        this.settings._layoutMigrationStatus = status;
+                        await this.saveSettings();
+                    },
+                });
+                // Phase 8 (settings-update): flip the agentFolderPath default
+                // when it was a known legacy default, capture the legacy
+                // chatHistoryFolder for the post-migration notice, then mark complete.
+                if (isLegacyDefault) {
+                    this.settings.agentFolderPath = '.vault-operator/data';
+                }
+                if (chatHistoryFolderLegacyValue) {
+                    this.settings._chatHistoryFolderLegacy = chatHistoryFolderLegacyValue;
+                    this.settings.chatHistoryFolder = '';
+                }
+                this.settings._layoutMigrationStatus = 'complete';
+                await this.saveSettings();
+                if (report.phases.length > 0) {
+                    console.debug('[Plugin] FEAT-29-01 layout migration:', report);
+                    new Notice(
+                        `Vault Operator: storage consolidated into .vault-operator/. Backup: ${report.backupPath ?? '(none)'}`,
+                        8000,
+                    );
+                }
+            } catch (e) {
+                console.warn('[Plugin] FEAT-29-01 layout migration failed (non-fatal, will retry on next reload):', e);
+            }
+        }
+
         // Governance: ignore/protected path rules
         this.ignoreService = new IgnoreService(this.app.vault);
         await this.ignoreService.load();
