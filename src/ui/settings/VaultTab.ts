@@ -218,9 +218,15 @@ export class VaultTab {
                         statusValue === 'complete' ? 'Already migrated' : 'Activate migration',
                     )
                     .setIcon('arrow-right-left')
-                    .setDisabled(statusValue === 'complete')
                     .onClick(() => {
                         void (async () => {
+                            if (statusValue === 'complete') {
+                                new Notice(
+                                    'Storage layout migration already completed. Nothing to do.',
+                                    5000,
+                                );
+                                return;
+                            }
                             const ok = await confirmModal(this.app, {
                                 title: 'Activate storage layout migration?',
                                 message:
@@ -260,9 +266,15 @@ export class VaultTab {
                 btn
                     .setButtonText(`Reset to ${DEFAULT_AGENT_FOLDER}`)
                     .setIcon('rotate-ccw')
-                    .setDisabled(isDefault)
                     .onClick(() => {
                         void (async () => {
+                            if (isDefault) {
+                                new Notice(
+                                    `Agent folder path is already the default (${DEFAULT_AGENT_FOLDER}).`,
+                                    5000,
+                                );
+                                return;
+                            }
                             const ok = await confirmModal(this.app, {
                                 title: 'Reset agent folder path?',
                                 message:
