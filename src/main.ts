@@ -973,14 +973,21 @@ export default class ObsidianAgentPlugin extends Plugin {
             // FEATURE-0507: pass the configurable agent folder so knowledge.db
             // lands under {agentFolderPath}/knowledge.db instead of the
             // hardcoded ".obsidian-agent/knowledge.db".
-            const { getAgentFolderPath } = await import('./core/utils/agentFolder');
+            //
+            // FEAT-29-01: use the layout-aware data-dir helper so the file
+            // resolves to .vault-operator/data/knowledge.db after migration,
+            // and stays flat at .obsilo-vault/knowledge.db before. Without
+            // this the post-migration boot would spawn an empty knowledge.db
+            // at the legacy root path and the 288 MB migrated copy in data/
+            // would never be loaded.
+            const { getAgentDataDir } = await import('./core/utils/agentFolder');
             this.knowledgeDB = new KnowledgeDB(
                 this.app.vault,
                 pluginDir,
                 'local', // FEATURE-1508: knowledge.db is vault-local (syncs with vault)
                 'knowledge.db',
                 undefined, // globalRoot — not used in local mode
-                getAgentFolderPath(this),
+                getAgentDataDir(this),
             );
             await this.knowledgeDB.open().catch((e) => {
                 if (e instanceof WriterLockHeldError) {

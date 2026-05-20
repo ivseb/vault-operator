@@ -546,6 +546,34 @@ async function phaseSkillsResolve(input: AgentLayoutMigrationInput): Promise<Pha
 //   place for now; FEAT-29-01 follow-up decides merge vs legacy-backup).
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Recursive emptiness check: a directory counts as effectively empty if its
+ * only contents are .DS_Store, iCloud sync conflict copies (filename
+ * patterns like "foo 2.ext"), and other directories that are themselves
+ * effectively empty. Used by phase 7 cleanup to remove legacy roots whose
+ * sub-tree was drained by phases 2-6 but where empty intermediate folders
+ * remained.
+ */
+async function isEffectivelyEmpty(dir: string): Promise<boolean> {
+    try {
+        const entries = await rawFs.promises.readdir(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const name = entry.name;
+            if (name === '.DS_Store') continue;
+            if (entry.isDirectory()) {
+                const child = pathModule.join(dir, name);
+                if (!(await isEffectivelyEmpty(child))) return false;
+            } else {
+                // Non-directory entry (file). Anything other than .DS_Store counts.
+                return false;
+            }
+        }
+        return true;
+    } catch {
+        return true;
+    }
+}
+
 async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
     const results: PhaseEntry['items'] = [];
 
@@ -558,7 +586,9 @@ async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntr
         results.push({ from: telemetrySrc, to: telemetryDest, ...r });
     }
 
-    // 7b: Remove emptied legacy roots
+    // 7b: Remove emptied legacy roots. Empty intermediate sub-folders count
+    // as empty for this purpose, otherwise leftover skills/ or similar shells
+    // would keep the parent alive forever.
     const candidateRoots = [
         pathModule.join(input.vaultBasePath, '.obsidian-agent'),
         pathModule.join(input.vaultBasePath, '.obsilo-vault'),
@@ -566,12 +596,8 @@ async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntr
     ];
     for (const root of candidateRoots) {
         if (!(await pathExists(root))) continue;
-        // Ignore .DS_Store when checking emptiness on macOS
-        const entries = await rawFs.promises.readdir(root);
-        const meaningful = entries.filter((e) => e !== '.DS_Store');
-        if (meaningful.length === 0) {
+        if (await isEffectivelyEmpty(root)) {
             try {
-                // Best-effort remove; .DS_Store will be cleaned up too
                 await rawFs.promises.rm(root, { recursive: true, force: true });
                 results.push({ from: root, to: '(removed)', status: 'renamed' });
             } catch (e) {
@@ -583,6 +609,11 @@ async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntr
                 });
             }
         } else {
+            // Surface what is keeping the root alive so the user can decide
+            // whether to clean it up by hand. Include both immediate entries
+            // and the first non-empty file we find.
+            const entries = await rawFs.promises.readdir(root);
+            const meaningful = entries.filter((e) => e !== '.DS_Store');
             results.push({
                 from: root,
                 to: '(left in place)',

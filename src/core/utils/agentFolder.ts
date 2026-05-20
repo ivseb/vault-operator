@@ -166,12 +166,17 @@ export function getSelfAuthoredSkillsDir(holder: SettingsHolder): string {
 // during the migration window.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Persistent user data directory: {root}/data. */
+/** Persistent user data directory: {root}/data after layout migration,
+ *  {root} (flat) before migration. Layout-aware so consumers like
+ *  KnowledgeDB resolve to the right path in both states. */
 export function getAgentDataDir(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/data`);
+    const root = getInternalAgentFolderPath(holder);
+    return isLayoutMigrated(holder) ? normalizePath(`${root}/data`) : normalizePath(root);
 }
 
-/** Regenerable cache directory: {root}/cache. Safe to delete. */
+/** Regenerable cache directory: {root}/cache after layout migration,
+ *  {root} (flat) before migration. Safe to delete. */
 export function getAgentCacheDir(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/cache`);
+    const root = getInternalAgentFolderPath(holder);
+    return isLayoutMigrated(holder) ? normalizePath(`${root}/cache`) : normalizePath(root);
 }

@@ -36,46 +36,60 @@ type Holder = {
 };
 
 describe('agentFolder sub-folder helpers (FEAT-29-01)', () => {
-    it('getAgentDataDir returns {root}/data for configured vault-relative path', () => {
-        const holder: Holder = { settings: { agentFolderPath: '.vault-operator' } };
-        expect(getAgentDataDir(holder)).toBe('.vault-operator/data');
+    // After FEAT-29-01 layout migration, getAgentDataDir/getAgentCacheDir
+    // are layout-aware: they return {root}/data or {root}/cache only when
+    // _layoutMigrationStatus === 'complete'. Before migration they return
+    // the flat root so existing code paths keep finding their files.
+    const migrated = (path: string): Holder => ({
+        settings: { agentFolderPath: path, _layoutMigrationStatus: 'complete' },
     });
 
-    it('getAgentCacheDir returns {root}/cache for configured vault-relative path', () => {
-        const holder: Holder = { settings: { agentFolderPath: '.vault-operator' } };
-        expect(getAgentCacheDir(holder)).toBe('.vault-operator/cache');
+    it('getAgentDataDir returns {root}/data after migration', () => {
+        expect(getAgentDataDir(migrated('.vault-operator'))).toBe('.vault-operator/data');
+    });
+
+    it('getAgentCacheDir returns {root}/cache after migration', () => {
+        expect(getAgentCacheDir(migrated('.vault-operator'))).toBe('.vault-operator/cache');
     });
 
     it('getAgentDataDir falls back to DEFAULT_AGENT_FOLDER when setting is empty', () => {
-        const holder: Holder = { settings: { agentFolderPath: '' } };
+        const holder: Holder = { settings: { agentFolderPath: '', _layoutMigrationStatus: 'complete' } };
         expect(getAgentDataDir(holder)).toBe(`${DEFAULT_AGENT_FOLDER}/data`);
     });
 
     it('getAgentCacheDir falls back to DEFAULT_AGENT_FOLDER when setting is empty', () => {
-        const holder: Holder = { settings: { agentFolderPath: '' } };
+        const holder: Holder = { settings: { agentFolderPath: '', _layoutMigrationStatus: 'complete' } };
         expect(getAgentCacheDir(holder)).toBe(`${DEFAULT_AGENT_FOLDER}/cache`);
     });
 
     it('getAgentDataDir uses DEFAULT_AGENT_FOLDER when setting is absolute', () => {
-        const holder: Holder = { settings: { agentFolderPath: '/Users/seb/external-folder' } };
+        const holder: Holder = { settings: { agentFolderPath: '/Users/seb/external-folder', _layoutMigrationStatus: 'complete' } };
         expect(isAbsoluteAgentFolder('/Users/seb/external-folder')).toBe(true);
         expect(getAgentDataDir(holder)).toBe(`${DEFAULT_AGENT_FOLDER}/data`);
     });
 
     it('getAgentCacheDir uses DEFAULT_AGENT_FOLDER when setting is absolute', () => {
-        const holder: Holder = { settings: { agentFolderPath: 'C:\\Users\\seb\\external-folder' } };
+        const holder: Holder = { settings: { agentFolderPath: 'C:\\Users\\seb\\external-folder', _layoutMigrationStatus: 'complete' } };
         expect(isAbsoluteAgentFolder('C:\\Users\\seb\\external-folder')).toBe(true);
         expect(getAgentCacheDir(holder)).toBe(`${DEFAULT_AGENT_FOLDER}/cache`);
     });
 
     it('getAgentDataDir handles custom vault-relative agent folder', () => {
-        const holder: Holder = { settings: { agentFolderPath: 'CustomPlugin' } };
-        expect(getAgentDataDir(holder)).toBe('CustomPlugin/data');
+        expect(getAgentDataDir(migrated('CustomPlugin'))).toBe('CustomPlugin/data');
     });
 
     it('getAgentCacheDir handles custom vault-relative agent folder', () => {
-        const holder: Holder = { settings: { agentFolderPath: 'CustomPlugin' } };
-        expect(getAgentCacheDir(holder)).toBe('CustomPlugin/cache');
+        expect(getAgentCacheDir(migrated('CustomPlugin'))).toBe('CustomPlugin/cache');
+    });
+
+    it('getAgentDataDir returns flat root before migration (legacy path semantics)', () => {
+        const holder: Holder = { settings: { agentFolderPath: '.obsilo-vault' } };
+        expect(getAgentDataDir(holder)).toBe('.obsilo-vault');
+    });
+
+    it('getAgentCacheDir returns flat root before migration (legacy path semantics)', () => {
+        const holder: Holder = { settings: { agentFolderPath: '.obsilo-vault' } };
+        expect(getAgentCacheDir(holder)).toBe('.obsilo-vault');
     });
 
     it('does not break existing helpers (getInternalAgentFolderPath returns root unchanged)', () => {

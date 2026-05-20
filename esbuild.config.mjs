@@ -537,8 +537,16 @@ const mainBuildOptions = {
                             // load them without going through the install flow.
                             // VAULT_PLUGIN_DIR ends with .obsidian/plugins/<id>/
                             // so the vault root is three levels up.
+                            //
+                            // FEAT-29-01: prefer .vault-operator/cache/assets/
+                            // when the consolidated layout exists (post-migration
+                            // location). Fall back to the legacy .vault-operator/
+                            // assets/ path for pre-migration dev vaults.
                             const vaultRoot = join(VAULT_PLUGIN_DIR, "..", "..", "..");
-                            const assetDir = join(vaultRoot, ".vault-operator", "assets");
+                            const cacheAssetDir = join(vaultRoot, ".vault-operator", "cache", "assets");
+                            const legacyAssetDir = join(vaultRoot, ".vault-operator", "assets");
+                            const useCacheLayout = existsSync(join(vaultRoot, ".vault-operator", "cache"));
+                            const assetDir = useCacheLayout ? cacheAssetDir : legacyAssetDir;
                             if (!existsSync(assetDir)) mkdirSync(assetDir, { recursive: true });
                             for (const name of ["office-bundle.js", "pdfjs-bundle.js"]) {
                                 if (!existsSync(name)) continue;
