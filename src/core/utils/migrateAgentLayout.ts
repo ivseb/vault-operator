@@ -308,26 +308,162 @@ async function phaseDataVault(input: AgentLayoutMigrationInput): Promise<PhaseEn
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Phases 3-7: placeholders (implemented in follow-up commits)
+// Phase 3: Cache-Move vault-local
+//   .vault-operator/{assets, runtime}    -> .vault-operator/cache/{assets, runtime}
+//   .obsilo-vault/{tmp, soak-reports}    -> .vault-operator/cache/{tmp, soak-reports}
 // ─────────────────────────────────────────────────────────────────────────
 
-// Phase 3: cache-vault. .vault-operator/{assets,runtime} -> .vault-operator/cache/*
-//          plus .obsilo-vault/{tmp,soak-reports} -> .vault-operator/cache/*
+async function phaseCacheVault(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
+    const vaultOperatorRoot = pathModule.join(input.vaultBasePath, '.vault-operator');
+    const cacheRoot = pathModule.join(vaultOperatorRoot, 'cache');
+    const obsiloVaultRoot = pathModule.join(input.vaultBasePath, '.obsilo-vault');
+    await rawFs.promises.mkdir(cacheRoot, { recursive: true });
 
-// Phase 4: data-shared. obsilo-shared/{history,history.db,history.db.bak,
-//          memory,memory.db,memory.db.bak,memory-v1-backup,episodes,logs,
-//          rules,workflows,pending-extractions.json} -> .vault-operator/data/*
+    // Restructure inside .vault-operator/: assets and runtime move into cache/
+    const inPlace: Array<{ name: string }> = [{ name: 'assets' }, { name: 'runtime' }];
+    // Move throwaway data from .obsilo-vault into cache/
+    const fromVault: Array<{ name: string }> = [{ name: 'tmp' }, { name: 'soak-reports' }];
 
-// Phase 5: cache-shared. obsilo-shared/{checkpoints,dev-env,tmp,.bak} ->
-//          .vault-operator/cache/*
+    const results: PhaseEntry['items'] = [];
+    for (const entry of inPlace) {
+        const from = pathModule.join(vaultOperatorRoot, entry.name);
+        const to = pathModule.join(cacheRoot, entry.name);
+        const r = await moveOne(from, to);
+        results.push({ from, to, ...r });
+    }
+    for (const entry of fromVault) {
+        const from = pathModule.join(obsiloVaultRoot, entry.name);
+        const to = pathModule.join(cacheRoot, entry.name);
+        const r = await moveOne(from, to);
+        results.push({ from, to, ...r });
+    }
+    return results;
+}
 
-// Phase 6: skills-resolve. Drift-merge .obsilo-vault/skills/ and
-//          obsilo-shared/skills/. mtime precedence, loser snapshotted under
-//          .versions/.
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 4: Data-Move shared
+//   obsilo-shared/{history, history.db[.bak], memory, memory.db[.bak],
+//   memory-v1-backup, episodes, logs, rules, workflows, pending-extractions.json}
+//     -> .vault-operator/data/*
+// ─────────────────────────────────────────────────────────────────────────
 
-// Phase 7: cleanup. Remove emptied .obsidian-agent/, .obsilo-vault/,
-//          obsilo-shared/ folders. Evaluate obsilo-shared/settings.json
-//          separately (may need to merge into Plugin data.json).
+const DATA_SHARED_ENTRIES: Array<{ name: string }> = [
+    { name: 'history' },
+    { name: 'history.db' },
+    { name: 'history.db.bak' },
+    { name: 'memory' },
+    { name: 'memory.db' },
+    { name: 'memory.db.bak' },
+    { name: 'memory-v1-backup' },
+    { name: 'episodes' },
+    { name: 'logs' },
+    { name: 'rules' },
+    { name: 'workflows' },
+    { name: 'pending-extractions.json' },
+];
+
+async function phaseDataShared(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
+    const sourceRoot = pathModule.join(input.vaultParent, 'obsilo-shared');
+    const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'data');
+    await rawFs.promises.mkdir(destRoot, { recursive: true });
+
+    const results: PhaseEntry['items'] = [];
+    for (const entry of DATA_SHARED_ENTRIES) {
+        const from = pathModule.join(sourceRoot, entry.name);
+        const to = pathModule.join(destRoot, entry.name);
+        const r = await moveOne(from, to);
+        results.push({ from, to, ...r });
+    }
+    return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 5: Cache-Move shared
+//   obsilo-shared/{checkpoints, dev-env, tmp, .bak}
+//     -> .vault-operator/cache/{checkpoints, dev-env, tmp-shared, .bak-shared}
+// (tmp and .bak get the -shared suffix to avoid collision with vault-local
+//  counterparts that already moved in phase 3 and phase 2 respectively.)
+// ─────────────────────────────────────────────────────────────────────────
+
+const CACHE_SHARED_ENTRIES: Array<{ name: string; destName?: string }> = [
+    { name: 'checkpoints' },
+    { name: 'dev-env' },
+    { name: 'tmp', destName: 'tmp-shared' },
+    { name: '.bak', destName: '.bak-shared' },
+];
+
+async function phaseCacheShared(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
+    const sourceRoot = pathModule.join(input.vaultParent, 'obsilo-shared');
+    const destRoot = pathModule.join(input.vaultBasePath, '.vault-operator', 'cache');
+    await rawFs.promises.mkdir(destRoot, { recursive: true });
+
+    const results: PhaseEntry['items'] = [];
+    for (const entry of CACHE_SHARED_ENTRIES) {
+        const from = pathModule.join(sourceRoot, entry.name);
+        const to = pathModule.join(destRoot, entry.destName ?? entry.name);
+        const r = await moveOne(from, to);
+        results.push({ from, to, ...r });
+    }
+    return results;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 6: skills-resolve  (deferred to dedicated module in PLAN-27 Task 11)
+//
+// Phase 7: Legacy cleanup
+//   Remove emptied .obsidian-agent/, .obsilo-vault/, obsilo-shared/ folders.
+//   Telemetry inside .obsidian-agent/ is first moved to .vault-operator/data/
+//   telemetry/. obsilo-shared/settings.json is evaluated separately (left in
+//   place for now; FEAT-29-01 follow-up decides merge vs legacy-backup).
+// ─────────────────────────────────────────────────────────────────────────
+
+async function phaseCleanup(input: AgentLayoutMigrationInput): Promise<PhaseEntry['items']> {
+    const results: PhaseEntry['items'] = [];
+
+    // 7a: Move .obsidian-agent/telemetry to .vault-operator/data/telemetry
+    const legacyAgent = pathModule.join(input.vaultBasePath, '.obsidian-agent');
+    const telemetrySrc = pathModule.join(legacyAgent, 'telemetry');
+    const telemetryDest = pathModule.join(input.vaultBasePath, '.vault-operator', 'data', 'telemetry');
+    if (await pathExists(telemetrySrc)) {
+        const r = await moveOne(telemetrySrc, telemetryDest);
+        results.push({ from: telemetrySrc, to: telemetryDest, ...r });
+    }
+
+    // 7b: Remove emptied legacy roots
+    const candidateRoots = [
+        pathModule.join(input.vaultBasePath, '.obsidian-agent'),
+        pathModule.join(input.vaultBasePath, '.obsilo-vault'),
+        pathModule.join(input.vaultParent, 'obsilo-shared'),
+    ];
+    for (const root of candidateRoots) {
+        if (!(await pathExists(root))) continue;
+        // Ignore .DS_Store when checking emptiness on macOS
+        const entries = await rawFs.promises.readdir(root);
+        const meaningful = entries.filter((e) => e !== '.DS_Store');
+        if (meaningful.length === 0) {
+            try {
+                // Best-effort remove; .DS_Store will be cleaned up too
+                await rawFs.promises.rm(root, { recursive: true, force: true });
+                results.push({ from: root, to: '(removed)', status: 'renamed' });
+            } catch (e) {
+                results.push({
+                    from: root,
+                    to: '(remove failed)',
+                    status: 'failed',
+                    error: e instanceof Error ? e.message : String(e),
+                });
+            }
+        } else {
+            results.push({
+                from: root,
+                to: '(left in place)',
+                status: 'skipped-destination-populated',
+                error: `remaining entries: ${meaningful.join(', ')}`,
+            });
+        }
+    }
+    return results;
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Phase 8: Settings update (run inline by caller via setStatus + return flag)
@@ -387,16 +523,51 @@ export async function migrateAgentLayout(
     if (!isPhaseDone(status, 'data-vault-done')) {
         const t0 = Date.now();
         const items = await phaseDataVault(input);
-        phases.push({
-            phase: 'data-vault-done',
-            items,
-            durationMs: Date.now() - t0,
-        });
+        phases.push({ phase: 'data-vault-done', items, durationMs: Date.now() - t0 });
         status = 'data-vault-done';
         await input.setStatus(status);
     }
 
-    // Phases 3-7: TODO follow-up commits
+    // Phase 3: Cache-Move vault-local
+    if (!isPhaseDone(status, 'cache-vault-done')) {
+        const t0 = Date.now();
+        const items = await phaseCacheVault(input);
+        phases.push({ phase: 'cache-vault-done', items, durationMs: Date.now() - t0 });
+        status = 'cache-vault-done';
+        await input.setStatus(status);
+    }
+
+    // Phase 4: Data-Move shared (vault-parent -> vault-local)
+    if (!isPhaseDone(status, 'data-shared-done')) {
+        const t0 = Date.now();
+        const items = await phaseDataShared(input);
+        phases.push({ phase: 'data-shared-done', items, durationMs: Date.now() - t0 });
+        status = 'data-shared-done';
+        await input.setStatus(status);
+    }
+
+    // Phase 5: Cache-Move shared (vault-parent -> vault-local)
+    if (!isPhaseDone(status, 'cache-shared-done')) {
+        const t0 = Date.now();
+        const items = await phaseCacheShared(input);
+        phases.push({ phase: 'cache-shared-done', items, durationMs: Date.now() - t0 });
+        status = 'cache-shared-done';
+        await input.setStatus(status);
+    }
+
+    // Phase 6: skills-resolve  (PLAN-27 Task 11, follow-up commit)
+
+    // Phase 7: cleanup
+    if (!isPhaseDone(status, 'cleanup-done')) {
+        const t0 = Date.now();
+        const items = await phaseCleanup(input);
+        phases.push({ phase: 'cleanup-done', items, durationMs: Date.now() - t0 });
+        status = 'cleanup-done';
+        await input.setStatus(status);
+    }
+
+    // Phase 8: settings-update  (PLAN-27 Task 4 trigger, follow-up commit)
+    // Phase 9: chatHistoryFolder removal notice  (PLAN-27 Task 10, follow-up)
 
     // Phase 10: Report (always runs at the end of whatever phases ran)
     const finishedAt = new Date().toISOString();

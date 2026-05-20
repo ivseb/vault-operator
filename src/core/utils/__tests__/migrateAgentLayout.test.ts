@@ -197,6 +197,155 @@ describe('migrateAgentLayout status flag and resume', () => {
     });
 });
 
+describe('migrateAgentLayout Phase 3: cache-move vault-local', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    it('moves .vault-operator/{assets,runtime} into cache/', async () => {
+        const assets = path.join(vault.vaultBasePath, '.vault-operator', 'assets');
+        const runtime = path.join(vault.vaultBasePath, '.vault-operator', 'runtime');
+        fs.mkdirSync(assets, { recursive: true });
+        fs.mkdirSync(runtime, { recursive: true });
+        fs.writeFileSync(path.join(assets, 'office-bundle.js'), 'office');
+        fs.writeFileSync(path.join(runtime, 'sandbox-worker.js'), 'worker');
+
+        const { input } = makeInput(vault, { currentStatus: 'data-vault-done' });
+        const report = await migrateAgentLayout(input);
+
+        expect(
+            fs.existsSync(path.join(vault.vaultBasePath, '.vault-operator', 'cache', 'assets', 'office-bundle.js')),
+        ).toBe(true);
+        expect(
+            fs.existsSync(path.join(vault.vaultBasePath, '.vault-operator', 'cache', 'runtime', 'sandbox-worker.js')),
+        ).toBe(true);
+
+        const phase3 = report.phases.find((p) => p.phase === 'cache-vault-done')!;
+        expect(phase3.items.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('moves .obsilo-vault/{tmp,soak-reports} into cache/', async () => {
+        const tmp = path.join(vault.vaultBasePath, '.obsilo-vault', 'tmp');
+        fs.mkdirSync(tmp, { recursive: true });
+        fs.writeFileSync(path.join(tmp, 'session-result.json'), '{}');
+
+        const { input } = makeInput(vault, { currentStatus: 'data-vault-done' });
+        await migrateAgentLayout(input);
+
+        expect(
+            fs.existsSync(path.join(vault.vaultBasePath, '.vault-operator', 'cache', 'tmp', 'session-result.json')),
+        ).toBe(true);
+    });
+});
+
+describe('migrateAgentLayout Phase 4: data-shared move', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    it('moves history, memory, rules from obsilo-shared into data/', async () => {
+        const shared = path.join(vault.vaultParent, 'obsilo-shared');
+        fs.mkdirSync(path.join(shared, 'history'), { recursive: true });
+        fs.mkdirSync(path.join(shared, 'memory'), { recursive: true });
+        fs.mkdirSync(path.join(shared, 'rules'), { recursive: true });
+        fs.writeFileSync(path.join(shared, 'history', 'conv-1.json'), '{}');
+        fs.writeFileSync(path.join(shared, 'memory.db'), 'mdb');
+        fs.writeFileSync(path.join(shared, 'rules', 'rule-1.md'), '# rule');
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-vault-done' });
+        await migrateAgentLayout(input);
+
+        const dataRoot = path.join(vault.vaultBasePath, '.vault-operator', 'data');
+        expect(fs.existsSync(path.join(dataRoot, 'history', 'conv-1.json'))).toBe(true);
+        expect(fs.existsSync(path.join(dataRoot, 'memory.db'))).toBe(true);
+        expect(fs.existsSync(path.join(dataRoot, 'rules', 'rule-1.md'))).toBe(true);
+    });
+
+    it('handles missing obsilo-shared (fresh install) without error', async () => {
+        const { input } = makeInput(vault, { currentStatus: 'cache-vault-done' });
+        const report = await migrateAgentLayout(input);
+        const phase4 = report.phases.find((p) => p.phase === 'data-shared-done')!;
+        expect(phase4.items.every((it) => it.status === 'skipped-no-source')).toBe(true);
+    });
+});
+
+describe('migrateAgentLayout Phase 5: cache-shared move with -shared suffix', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    it('moves checkpoints + dev-env without suffix', async () => {
+        const shared = path.join(vault.vaultParent, 'obsilo-shared');
+        fs.mkdirSync(path.join(shared, 'checkpoints'), { recursive: true });
+        fs.writeFileSync(path.join(shared, 'checkpoints', 'a-commit'), 'sha');
+
+        const { input } = makeInput(vault, { currentStatus: 'data-shared-done' });
+        await migrateAgentLayout(input);
+
+        expect(
+            fs.existsSync(path.join(vault.vaultBasePath, '.vault-operator', 'cache', 'checkpoints', 'a-commit')),
+        ).toBe(true);
+    });
+
+    it('moves obsilo-shared/tmp into cache/tmp-shared to avoid collision with phase 3 tmp', async () => {
+        const sharedTmp = path.join(vault.vaultParent, 'obsilo-shared', 'tmp');
+        fs.mkdirSync(sharedTmp, { recursive: true });
+        fs.writeFileSync(path.join(sharedTmp, 'shared-tmp-file'), 'x');
+
+        const { input } = makeInput(vault, { currentStatus: 'data-shared-done' });
+        await migrateAgentLayout(input);
+
+        expect(
+            fs.existsSync(path.join(vault.vaultBasePath, '.vault-operator', 'cache', 'tmp-shared', 'shared-tmp-file')),
+        ).toBe(true);
+    });
+});
+
+describe('migrateAgentLayout Phase 7: cleanup', () => {
+    let vault: ReturnType<typeof makeTempVault>;
+    beforeEach(() => { vault = makeTempVault(); });
+    afterEach(() => vault.cleanup());
+
+    it('moves .obsidian-agent/telemetry into data/telemetry then removes empty .obsidian-agent', async () => {
+        const legacy = path.join(vault.vaultBasePath, '.obsidian-agent');
+        fs.mkdirSync(path.join(legacy, 'telemetry'), { recursive: true });
+        fs.writeFileSync(path.join(legacy, 'telemetry', 'log.json'), '[]');
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        await migrateAgentLayout(input);
+
+        const newTele = path.join(vault.vaultBasePath, '.vault-operator', 'data', 'telemetry', 'log.json');
+        expect(fs.existsSync(newTele)).toBe(true);
+        expect(fs.existsSync(legacy)).toBe(false);
+    });
+
+    it('leaves .obsilo-vault in place if it still contains files after earlier phases', async () => {
+        // Seed unmoved leftover file
+        const leftover = path.join(vault.vaultBasePath, '.obsilo-vault', 'mystery-file.txt');
+        fs.mkdirSync(path.dirname(leftover), { recursive: true });
+        fs.writeFileSync(leftover, 'untouched');
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        const report = await migrateAgentLayout(input);
+
+        expect(fs.existsSync(leftover)).toBe(true);
+        const phase7 = report.phases.find((p) => p.phase === 'cleanup-done')!;
+        const oldVaultEntry = phase7.items.find((it) => it.from.endsWith('.obsilo-vault'));
+        expect(oldVaultEntry?.status).toBe('skipped-destination-populated');
+    });
+
+    it('removes legacy roots that only contain .DS_Store', async () => {
+        const legacy = path.join(vault.vaultBasePath, '.obsidian-agent');
+        fs.mkdirSync(legacy, { recursive: true });
+        fs.writeFileSync(path.join(legacy, '.DS_Store'), 'mac-cruft');
+
+        const { input } = makeInput(vault, { currentStatus: 'cache-shared-done' });
+        await migrateAgentLayout(input);
+
+        expect(fs.existsSync(legacy)).toBe(false);
+    });
+});
+
 describe('migrateAgentLayout report file', () => {
     let vault: ReturnType<typeof makeTempVault>;
     beforeEach(() => { vault = makeTempVault(); });
