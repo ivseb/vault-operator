@@ -1,14 +1,23 @@
 /**
  * agentFolder — single source of truth for the agent folder path.
  *
- * FEATURE-0507 / ADR-072: User-configurable folder (default `.obsidian-agent`)
- * for agent-managed artefacts. The setting controls the root for:
- *   - Plugin skills        ({root}/plugin-skills/{plugin-id}.skill.md)
- *   - VaultDNA snapshot    ({root}/vault-dna.json)
- *   - Externalised tmp     ({root}/tmp/{task-id}/...)
+ * FEATURE-0507 / ADR-072 / ADR-119 amendment 2026-05-20: User-configurable
+ * folder (default `.vault-operator`) for agent-managed artefacts. The setting
+ * carries the plugin root; functional sub-folders are derived via the
+ * getAgentDataDir() and getAgentCacheDir() helpers below.
+ *
+ * Sub-folder layout (ADR-119 third iteration, FEAT-29-01):
+ *   - {root}/data/    persistent user state (knowledge.db, skills, history,
+ *                     memory, rules, workflows, episodes, logs, plugin-skills,
+ *                     vault-dna.json, telemetry)
+ *   - {root}/cache/   regenerable assets (checkpoints, dev-env, asset bundles,
+ *                     runtime workers, tmp externalisation, soak-reports)
+ *
+ * Cross-vault sharing is provided by a separate backup-export tool
+ * (FEAT-29-12, EPIC-29 Welle 4), not by a vault-parent root anymore.
  *
  * Issue #26 follow-up: the path can be either **vault-relative**
- * (e.g. `.obsidian-agent`) or an **absolute filesystem path** picked
+ * (e.g. `.vault-operator`) or an **absolute filesystem path** picked
  * via the native OS folder dialog. Consumers that can only read/write
  * through Obsidian's vault API (tmp externalisation, vault-dna snapshot,
  * local knowledge DB) fall back to the vault-relative default when the
@@ -16,14 +25,8 @@
  * for those. User-content consumers (plugin skills) can honour the
  * absolute path via Node `fs.promises`.
  *
- * NOT controlled here:
- *   - Cross-vault data (modes, rules, workflows, recipes, memory) lives in
- *     {vault-parent}/.obsidian-agent/ via GlobalFileService. That root is
- *     intentionally separate so a per-vault setting can never break shared
- *     data — see ADR-072.
- *
- * Migration: changing the setting does NOT auto-move existing files. Users
- * must move them manually.
+ * Migration: see migrateAgentLayout.ts (FEAT-29-01) which moves data from
+ * the legacy paths into the new sub-folder layout on plugin onload.
  */
 
 import { normalizePath } from 'obsidian';
@@ -127,4 +130,23 @@ export const LEGACY_SELF_AUTHORED_SKILLS_DIR = '.obsilo-sync/skills';
 
 export function getSelfAuthoredSkillsDir(holder: SettingsHolder): string {
     return normalizePath(`${getInternalAgentFolderPath(holder)}/skills`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Sub-folder helpers (FEAT-29-01, ADR-119 third iteration)
+//
+// data/ holds persistent user state. cache/ holds regenerable artefacts that
+// can be deleted without data loss. Consumers should prefer these helpers
+// over the legacy flat helpers above, which keep their existing semantics
+// during the migration window.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Persistent user data directory: {root}/data. */
+export function getAgentDataDir(holder: SettingsHolder): string {
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/data`);
+}
+
+/** Regenerable cache directory: {root}/cache. Safe to delete. */
+export function getAgentCacheDir(holder: SettingsHolder): string {
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/cache`);
 }
