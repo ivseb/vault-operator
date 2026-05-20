@@ -218,6 +218,12 @@ export class VaultTab {
                         statusValue === 'complete' ? 'Already migrated' : 'Activate migration',
                     )
                     .setIcon('arrow-right-left')
+                    .setTooltip(
+                        statusValue === 'complete'
+                            ? 'Storage layout migration already completed. Nothing to do.'
+                            : 'Activate the storage layout migration. Plugin reload required afterwards.',
+                    )
+                    .setDisabled(statusValue === 'complete')
                     .onClick(() => {
                         void (async () => {
                             if (statusValue === 'complete') {
@@ -266,6 +272,12 @@ export class VaultTab {
                 btn
                     .setButtonText(`Reset to ${DEFAULT_AGENT_FOLDER}`)
                     .setIcon('rotate-ccw')
+                    .setTooltip(
+                        isDefault
+                            ? `Agent folder path is already the default (${DEFAULT_AGENT_FOLDER}).`
+                            : `Reset the agent folder path to ${DEFAULT_AGENT_FOLDER}.`,
+                    )
+                    .setDisabled(isDefault)
                     .onClick(() => {
                         void (async () => {
                             if (isDefault) {
