@@ -47,8 +47,22 @@ export const LEGACY_AGENT_FOLDERS = ['.obsilo-vault', 'obsilo-vault', '.obsidian
 /** Backwards-compatible alias for code that still references the old constant. */
 export const LEGACY_AGENT_FOLDER = '.obsidian-agent';
 
-/** Setting carrier — anything that exposes settings.agentFolderPath. */
-type SettingsHolder = { settings: Pick<ObsidianAgentSettings, 'agentFolderPath'> };
+/** Setting carrier — anything that exposes settings.agentFolderPath. The
+ *  layout-migration status is included so the helpers below can flip between
+ *  legacy flat layout ({root}/<sub>) and the new sub-folder layout
+ *  ({root}/data/<sub>, {root}/cache/<sub>) without breaking existing
+ *  consumers during the migration window. */
+type SettingsHolder = {
+    settings: Pick<ObsidianAgentSettings, 'agentFolderPath'> & {
+        _layoutMigrationStatus?: ObsidianAgentSettings['_layoutMigrationStatus'];
+    };
+};
+
+/** True iff FEAT-29-01 migration has completed. Helpers use this to choose
+ *  between legacy flat layout and new sub-folder layout. */
+function isLayoutMigrated(holder: SettingsHolder): boolean {
+    return holder.settings._layoutMigrationStatus === 'complete';
+}
 
 /**
  * Detect whether a path is an absolute filesystem path. POSIX starts with "/",
@@ -94,28 +108,38 @@ export function getInternalAgentFolderPath(holder: SettingsHolder): string {
  * also live inside the vault even if the user picked an absolute agent
  * folder. A later release will add real filesystem-native plugin-skill
  * loading so FolderBridge-style versioned setups can live outside the vault.
+ *
+ * FEAT-29-01: after layout migration, plugin-skill files live under
+ * {root}/data/plugin-skills/. Before migration, legacy {root}/plugin-skills/.
  */
 export function getPluginSkillsPath(holder: SettingsHolder, pluginId: string): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/plugin-skills/${pluginId}.skill.md`);
+    const sub = isLayoutMigrated(holder) ? 'data/plugin-skills' : 'plugin-skills';
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/${sub}/${pluginId}.skill.md`);
 }
 
-/** Directory containing all plugin-skill files. See getPluginSkillsPath for the vault-residency note. */
+/** Directory containing all plugin-skill files. See getPluginSkillsPath for
+ *  the vault-residency note and the FEAT-29-01 sub-folder behaviour. */
 export function getPluginSkillsDir(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/plugin-skills`);
+    const sub = isLayoutMigrated(holder) ? 'data/plugin-skills' : 'plugin-skills';
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/${sub}`);
 }
 
-/** Path to the VaultDNA snapshot. Always vault-resident. */
+/** Path to the VaultDNA snapshot. Always vault-resident. FEAT-29-01: moves
+ *  into data/ after migration. */
 export function getVaultDnaPath(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/vault-dna.json`);
+    const sub = isLayoutMigrated(holder) ? 'data/vault-dna.json' : 'vault-dna.json';
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/${sub}`);
 }
 
 /**
  * Root directory for externalised tmp tool results (BUG-014 / FEATURE-1803).
  * Always vault-resident so the agent's `read_file` tool can reach the files
- * back through the vault adapter.
+ * back through the vault adapter. FEAT-29-01: moves into cache/ after
+ * migration (tmp is regenerable, belongs in cache).
  */
 export function getTmpRoot(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/tmp`);
+    const sub = isLayoutMigrated(holder) ? 'cache/tmp' : 'tmp';
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/${sub}`);
 }
 
 /**
@@ -129,7 +153,8 @@ export function getTmpRoot(holder: SettingsHolder): string {
 export const LEGACY_SELF_AUTHORED_SKILLS_DIR = '.obsilo-sync/skills';
 
 export function getSelfAuthoredSkillsDir(holder: SettingsHolder): string {
-    return normalizePath(`${getInternalAgentFolderPath(holder)}/skills`);
+    const sub = isLayoutMigrated(holder) ? 'data/skills' : 'skills';
+    return normalizePath(`${getInternalAgentFolderPath(holder)}/${sub}`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────

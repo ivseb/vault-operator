@@ -653,8 +653,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 2. Initialize core services
         const pluginDir = `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
         const pluginDataRoot = this.globalFs.getRoot();
-        const checkpointsAbsPath = `${pluginDataRoot}/checkpoints`;
-        const devEnvAbsPath = `${pluginDataRoot}/dev-env`;
+        // checkpointsAbsPath and devEnvAbsPath are recomputed AFTER the FEAT-29-01
+        // migration runs further down, because the migration may relocate both
+        // caches from vault-parent/obsilo-shared/* to vault-local
+        // .vault-operator/cache/*. The placeholder values here are only used by
+        // the FEATURE-1508 / migratePluginDataDirs path which runs against the
+        // pre-migration layout.
+        let checkpointsAbsPath = `${pluginDataRoot}/checkpoints`;
+        let devEnvAbsPath = `${pluginDataRoot}/dev-env`;
 
         // FEATURE-1508: One-time migration from ~/.obsidian-agent/ to {vault-parent}/.obsidian-agent/
         if (!this.settings._parentDirMigrated) {
@@ -749,8 +755,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // Phase 8 (settings-update): flip the agentFolderPath default
                 // when it was a known legacy default, capture the legacy
                 // chatHistoryFolder for the post-migration notice, then mark complete.
+                // NOTE: agentFolderPath stays at the .vault-operator ROOT (not the
+                // /data sub-folder) so the existing helpers (getPluginSkillsDir,
+                // getTmpRoot, getSelfAuthoredSkillsDir, getVaultDnaPath) can append
+                // the correct data/ or cache/ sub-folder via their FEAT-29-01
+                // layout-aware logic in agentFolder.ts.
                 if (isLegacyDefault) {
-                    this.settings.agentFolderPath = '.vault-operator/data';
+                    this.settings.agentFolderPath = '.vault-operator';
                 }
                 if (chatHistoryFolderLegacyValue) {
                     this.settings._chatHistoryFolderLegacy = chatHistoryFolderLegacyValue;
@@ -758,6 +769,11 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
                 this.settings._layoutMigrationStatus = 'complete';
                 await this.saveSettings();
+                // FEAT-29-01: GlobalFileService now points at the consolidated
+                // vault-local data root. Re-point before any service that
+                // depends on globalFs initialises (rulesLoader, workflowLoader,
+                // skillsManager, memory, history all run next).
+                this.globalFs.useVaultLocalRoot(this.settings.agentFolderPath ?? '.vault-operator');
                 if (report.phases.length > 0) {
                     console.debug('[Plugin] FEAT-29-01 layout migration:', report);
                     new Notice(
@@ -768,6 +784,22 @@ export default class ObsidianAgentPlugin extends Plugin {
             } catch (e) {
                 console.warn('[Plugin] FEAT-29-01 layout migration failed (non-fatal, will retry on next reload):', e);
             }
+        }
+
+        // FEAT-29-01: ensure GlobalFileService points at the consolidated
+        // vault-local layout on every reload after migration completed (not
+        // just the boot that ran the migration). Idempotent.
+        if (this.settings._layoutMigrationStatus === 'complete') {
+            this.globalFs.useVaultLocalRoot(this.settings.agentFolderPath ?? '.vault-operator');
+            // Recompute the cache-side absolute paths so GitCheckpointService
+            // and EsbuildWasmManager (instantiated further down) read from the
+            // consolidated cache folder rather than the legacy vault-parent
+            // location. The migration physically moved both folders in
+            // phase 5; without this recompute the services would point at
+            // empty legacy paths.
+            const cacheRoot = `${vaultBasePath}/${this.settings.agentFolderPath ?? '.vault-operator'}/cache`;
+            checkpointsAbsPath = `${cacheRoot}/checkpoints`;
+            devEnvAbsPath = `${cacheRoot}/dev-env`;
         }
 
         // Governance: ignore/protected path rules
