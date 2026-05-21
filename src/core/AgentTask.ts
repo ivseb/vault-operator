@@ -536,7 +536,12 @@ export class AgentTask {
         const childDepth = this.depth + 1;
         const childCanSpawn = childDepth < this.maxSubtaskDepth;
 
-        const spawnSubtask = async (childMode: string, childMessage: string, profileName?: string): Promise<string> => {
+        const spawnSubtask = async (
+            childMode: string,
+            childMessage: string,
+            profileName?: string,
+            overrides?: import('./tools/types').SubtaskSpawnOverrides,
+        ): Promise<string> => {
             const childHistory: MessageParam[] = [];
             let childText = '';
 
@@ -545,6 +550,12 @@ export class AgentTask {
             // allowlist and the parent's rules / mcp / plugin-skills set is
             // dropped (the profile is the explicit scope).
             const profile = profileName ? getSubagentProfile(profileName) : undefined;
+
+            // FEAT-29-10 follow-up: per-spawn caps. `maxIterations` shortens
+            // the child loop; `allowedTools` further narrows the child's tool
+            // schema. Overrides win over profile defaults.
+            const effectiveMaxIterations = overrides?.maxIterations ?? this.maxIterations;
+            const effectiveAllowedTools = overrides?.allowedTools ?? profile?.allowedTools;
 
             // EPIC-26 / ADR-120: tier override + output cap. When the profile
             // pins a tier (research=fast, advisor=flagship), build a fresh
@@ -606,7 +617,7 @@ export class AgentTask {
                 this.consecutiveMistakeLimit,
                 this.rateLimitMs,
                 // Subtasks don't condense or power-steer (keep child loops lean)
-                false, 80, 0, this.maxIterations,
+                false, 80, 0, effectiveMaxIterations,
                 childDepth,             // propagate nesting depth
                 this.maxSubtaskDepth,   // propagate limit
                 this.microcompactionEnabled, // FEAT-24-02: cheap tool_result pruning still applies
@@ -632,7 +643,7 @@ export class AgentTask {
                 allowedMcpServers: profile ? undefined : allowedMcpServers,
                 pluginSkillsSection: profile ? undefined : pluginSkillsSection,
                 subagentRoleOverride: profile?.roleDefinition,
-                subagentAllowedTools: profile?.allowedTools,
+                subagentAllowedTools: effectiveAllowedTools,
                 configDir,
             });
             return childText;

@@ -13,12 +13,36 @@ Runs another skill as a sub-skill. The sub-skill executes in a fresh subtask (ow
   "name": "invoke_skill",
   "input": {
     "skill_name": "meeting-summary",
-    "args": { "note": "2026-05-21.md" }
+    "args": { "note": "2026-05-21.md" },
+    "max_iterations": 8
   }
 }
 ```
 
 Use when the current skill workflow explicitly names another skill as a building block. The sub-skill sees its own SKILL.md body in its prompt plus the args as a JSON block under `## Inputs`.
+
+### Cost controls
+
+Sub-skills carry two cost-control levers, both designed to fail safe.
+
+`max_iterations` caps the child loop budget per call. Default is 12, hard cap is 25. The agent passes this on the call site when it expects the sub-skill to be fast; lower means a runaway sub-skill cannot quietly multiply parent cost.
+
+`allowedTools` in the sub-skill's SKILL.md frontmatter restricts the child's tool schema. Without it the child sees the full parent tool set (~9000 prompt tokens of schema). With it the schema collapses to just the tools the sub-skill actually needs.
+
+```yaml
+---
+name: meeting-summary
+description: Summarise a meeting note into bullet points.
+allowedTools:
+  - read_file
+  - edit_file
+  - write_file
+  - search_files
+  - attempt_completion
+---
+```
+
+The allowlist must include `attempt_completion`, otherwise the sub-skill cannot return a result.
 
 Do not use for one-off questions the current skill can answer itself. Do not use to "step into" a skill just to read its body, use `read_skill` for that.
 

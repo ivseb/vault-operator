@@ -21,7 +21,7 @@
  */
 
 import { BaseTool } from '../BaseTool';
-import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type { ToolDefinition, ToolExecutionContext, ToolName } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { isSafePathSegment } from '../../utils/safePathName';
 import {
@@ -32,7 +32,19 @@ import {
 interface InvokeSkillArgs {
     skill_name: string;
     args?: Record<string, unknown>;
+    max_iterations?: number;
 }
+
+/**
+ * Default loop budget for invoke_skill spawns. Lower than the main loop's
+ * 25 so a runaway sub-skill cannot quietly multiply the parent's cost.
+ * Caller can raise per-call via `args.max_iterations`. Skills that
+ * legitimately need more iterations than this default should split
+ * themselves up; that's almost always the right answer.
+ */
+const DEFAULT_SUBSKILL_MAX_ITERATIONS = 12;
+/** Hard upper bound on what a single skill body can request. */
+const HARD_SUBSKILL_MAX_ITERATIONS = 25;
 
 export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
     readonly name = 'invoke_skill' as const;
@@ -64,6 +76,10 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
                         description: 'JSON-serializable inputs passed to the sub-skill. '
                             + 'Inputs appear in the sub-skill\'s prompt under a "## Inputs" section.',
                         additionalProperties: true,
+                    },
+                    max_iterations: {
+                        type: 'number',
+                        description: `Per-call loop budget for the sub-skill (default ${DEFAULT_SUBSKILL_MAX_ITERATIONS}, hard cap ${HARD_SUBSKILL_MAX_ITERATIONS}). Lower keeps cost predictable. Raise only when the skill explicitly needs more iterations.`,
                     },
                 },
                 required: ['skill_name'],
@@ -136,14 +152,30 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
 
         try {
             const message = this.composeSubtaskMessage(skillName, skill.body, subArgs);
-            const subResult = await spawnSubtask('agent', message);
+            // FEAT-29-10 follow-up: clamp args.max_iterations to the hard
+            // cap, fall back to DEFAULT if absent or non-numeric.
+            const requested = typeof args.max_iterations === 'number'
+                ? Math.max(1, Math.floor(args.max_iterations))
+                : DEFAULT_SUBSKILL_MAX_ITERATIONS;
+            const maxIterations = Math.min(requested, HARD_SUBSKILL_MAX_ITERATIONS);
+            // Skill frontmatter `allowedTools` -> subtask tool allowlist.
+            // Empty array means "no opinion", let the subtask see the full set.
+            const allowedTools = skill.allowedTools.length > 0
+                ? (skill.allowedTools as ToolName[])
+                : undefined;
+            const subResult = await spawnSubtask('agent', message, undefined, {
+                maxIterations,
+                allowedTools,
+            });
             callbacks.pushToolResult(this.formatSuccess(JSON.stringify({
                 ok: true,
                 skill: skillName,
                 depth: compositionStack.depth(),
+                maxIterations,
+                allowedToolsCount: allowedTools?.length ?? null,
                 result: subResult,
             }, null, 2)));
-            callbacks.log(`Invoked sub-skill: ${skillName} (depth ${compositionStack.depth()})`);
+            callbacks.log(`Invoked sub-skill: ${skillName} (depth ${compositionStack.depth()}, maxIter=${maxIterations}, tools=${allowedTools?.length ?? 'inherit'})`);
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             callbacks.pushToolResult(this.formatError(

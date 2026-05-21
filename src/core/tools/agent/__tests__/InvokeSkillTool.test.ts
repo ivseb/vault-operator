@@ -24,16 +24,27 @@ interface FakeSkill {
     name: string;
     description: string;
     body: string;
+    /** FEAT-29-10 follow-up: optional skill-frontmatter tool allowlist. */
+    allowedTools?: string[];
 }
 
 function makePlugin(skills: FakeSkill[]) {
     return {
         selfAuthoredSkillLoader: {
-            getSkill(name: string): FakeSkill | undefined {
-                return skills.find((s) => s.name === name);
+            getSkill(name: string): { name: string; description: string; body: string; allowedTools: string[] } | undefined {
+                const s = skills.find((s) => s.name === name);
+                if (!s) return undefined;
+                return { ...s, allowedTools: s.allowedTools ?? [] };
             },
         },
     } as unknown as import('../../../../main').default;
+}
+
+interface SpawnCall {
+    mode: string;
+    message: string;
+    profileName?: string;
+    overrides?: { maxIterations?: number; allowedTools?: string[] };
 }
 
 function makeContext(opts: {
@@ -42,7 +53,7 @@ function makeContext(opts: {
     spawnError?: Error;
 }) {
     const pushed: string[] = [];
-    const spawnCalls: Array<{ mode: string; message: string }> = [];
+    const spawnCalls: SpawnCall[] = [];
     const ctx = {
         callbacks: {
             pushToolResult: (s: string) => pushed.push(s),
@@ -50,8 +61,8 @@ function makeContext(opts: {
             handleError: async (_t: string, _e: unknown) => {},
         },
         compositionStack: opts.stack ?? new CompositionStackService(5),
-        spawnSubtask: async (mode: string, message: string) => {
-            spawnCalls.push({ mode, message });
+        spawnSubtask: async (mode: string, message: string, profileName?: string, overrides?: { maxIterations?: number; allowedTools?: string[] }) => {
+            spawnCalls.push({ mode, message, profileName, overrides });
             if (opts.spawnError) throw opts.spawnError;
             return opts.spawnResult ?? 'sub-skill result text';
         },
@@ -176,6 +187,93 @@ describe('InvokeSkillTool', () => {
             const { ctx } = makeContext({ stack, spawnError: new Error('subtask boom') });
             await tool.execute({ skill_name: 'a' }, ctx);
             expect(stack.depth()).toBe(0);
+        });
+    });
+
+    describe('FEAT-29-10 follow-up: subtask cost controls', () => {
+        it('spawns with default maxIterations = 12 when args.max_iterations is absent', async () => {
+            const plugin = makePlugin([{ name: 'a', description: '', body: 'b' }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a' }, ctx);
+
+            expect(spawnCalls).toHaveLength(1);
+            expect(spawnCalls[0].overrides?.maxIterations).toBe(12);
+        });
+
+        it('respects args.max_iterations within bounds', async () => {
+            const plugin = makePlugin([{ name: 'a', description: '', body: 'b' }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a', max_iterations: 6 }, ctx);
+
+            expect(spawnCalls[0].overrides?.maxIterations).toBe(6);
+        });
+
+        it('clamps args.max_iterations to the hard cap of 25', async () => {
+            const plugin = makePlugin([{ name: 'a', description: '', body: 'b' }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a', max_iterations: 500 }, ctx);
+
+            expect(spawnCalls[0].overrides?.maxIterations).toBe(25);
+        });
+
+        it('clamps args.max_iterations to at least 1', async () => {
+            const plugin = makePlugin([{ name: 'a', description: '', body: 'b' }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a', max_iterations: 0 }, ctx);
+
+            expect(spawnCalls[0].overrides?.maxIterations).toBe(1);
+        });
+
+        it('forwards skill.allowedTools as the subtask tool allowlist', async () => {
+            const plugin = makePlugin([{
+                name: 'a',
+                description: '',
+                body: 'b',
+                allowedTools: ['read_file', 'edit_file', 'attempt_completion'],
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a' }, ctx);
+
+            expect(spawnCalls[0].overrides?.allowedTools).toEqual([
+                'read_file', 'edit_file', 'attempt_completion',
+            ]);
+        });
+
+        it('leaves allowedTools undefined when the skill frontmatter has no allowlist', async () => {
+            const plugin = makePlugin([{ name: 'a', description: '', body: 'b' }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'a' }, ctx);
+
+            expect(spawnCalls[0].overrides?.allowedTools).toBeUndefined();
+        });
+
+        it('includes maxIterations + allowedToolsCount in the success result', async () => {
+            const plugin = makePlugin([{
+                name: 'a',
+                description: '',
+                body: 'b',
+                allowedTools: ['read_file', 'edit_file'],
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, pushed } = makeContext({});
+
+            await tool.execute({ skill_name: 'a', max_iterations: 8 }, ctx);
+
+            const result = pushed.join('\n');
+            expect(result).toContain('"maxIterations": 8');
+            expect(result).toContain('"allowedToolsCount": 2');
         });
     });
 
