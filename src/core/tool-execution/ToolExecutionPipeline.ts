@@ -329,6 +329,20 @@ export class ToolExecutionPipeline {
                 if (approval.decision === 'rejected') {
                     return this.errorResult(toolCall.id, 'Operation denied by user');
                 }
+                // FEAT-29-07: when the user approves a dynamically-discovered
+                // plugin-API call, count the approval. Once the per-method
+                // threshold is reached AND the method name matches the read
+                // heuristic, the method is auto-promoted into
+                // safeMethodOverrides so future calls skip the prompt.
+                // Only fires for genuine USER approvals -- auto-approved
+                // calls (decision === 'auto') don't count, otherwise the
+                // promotion would be trivial.
+                if (
+                    approval.decision === 'approved'
+                    && toolCall.name === 'call_plugin_api'
+                ) {
+                    void this.maybeAutoPromotePluginApi(toolCall.input);
+                }
             }
 
             // 3b. Cache invalidation: write tools invalidate cached reads for affected paths
@@ -667,6 +681,41 @@ export class ToolExecutionPipeline {
         if (overrides[overrideKey]) return false; // User marked as safe read
 
         return true; // Default: treat as write
+    }
+
+    /**
+     * FEAT-29-07: count user-approvals of Tier-2 (dynamically discovered)
+     * plugin-API methods. Fires recordApprovalAndMaybePromote which
+     * mutates the settings and -- once the threshold + read-heuristic
+     * line up -- adds the method to safeMethodOverrides so subsequent
+     * calls are auto-approved.
+     *
+     * Non-blocking: saveSettings is awaited in a detached Promise so
+     * the hot path returns immediately. Errors are swallowed: a failed
+     * promotion never breaks the user's tool call.
+     */
+    private async maybeAutoPromotePluginApi(input: Record<string, unknown>): Promise<void> {
+        const pluginId = ((input?.plugin_id as string) ?? '').trim();
+        const method = ((input?.method as string) ?? '').trim();
+        if (!pluginId || !method) return;
+
+        // Only count Tier-2 methods (not in the built-in allowlist).
+        // Tier-1 entries already have a static isWrite flag and need no promotion.
+        const allowedEntry = findAllowedMethod(pluginId, method);
+        if (allowedEntry) return;
+
+        const { recordApprovalAndMaybePromote } = await import('../tools/agent/pluginApiAdaptive');
+        const apiSettings = this.plugin.settings.pluginApi;
+        if (!apiSettings) return;
+        const result = recordApprovalAndMaybePromote(apiSettings, pluginId, method);
+        try {
+            await this.plugin.saveSettings();
+            if (result.promoted) {
+                console.debug(`[PluginApi] Auto-promoted ${pluginId}:${method} (count ${result.newCount})`);
+            }
+        } catch (e) {
+            console.warn('[PluginApi] saveSettings after approval failed (non-fatal):', e);
+        }
     }
 
     private errorResult(toolUseId: string, message: string): ToolResult {

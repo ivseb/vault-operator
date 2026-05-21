@@ -1248,6 +1248,33 @@ export interface PluginApiSettings {
      * Only relevant for methods NOT in the built-in allowlist.
      */
     safeMethodOverrides: Record<string, boolean>;
+    /**
+     * FEAT-29-07: default timeout in ms for plugin API calls. Falls back
+     * to 10000 when unset. Hard-capped at 300000 (5 min) by the resolver
+     * to prevent endless hangs.
+     */
+    defaultTimeoutMs?: number;
+    /**
+     * FEAT-29-07: per-plugin timeout override in ms. Wins over default
+     * when set. Same 5-min hard cap.
+     * Key: pluginId (e.g. "dataview"), value: timeout in ms.
+     */
+    pluginTimeoutMs?: Record<string, number>;
+    /**
+     * FEAT-29-07: when true, every successful user-approval of a Tier-2
+     * (dynamically discovered) method increments approvalCounts; once
+     * the threshold is reached AND the method name matches the read
+     * heuristic (get/list/find/query/..), the method is promoted into
+     * safeMethodOverrides so subsequent calls no longer prompt.
+     */
+    autoPromotionEnabled?: boolean;
+    /** FEAT-29-07: number of approvals before auto-promotion. Default 3. */
+    autoPromotionThreshold?: number;
+    /**
+     * FEAT-29-07: per-method approval counter for auto-promotion.
+     * Key: "pluginId:methodName", value: integer approval count.
+     */
+    approvalCounts?: Record<string, number>;
 }
 
 /**
@@ -1538,6 +1565,11 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     pluginApi: {
         enabled: true,
         safeMethodOverrides: {},
+        defaultTimeoutMs: 10_000,
+        pluginTimeoutMs: {},
+        autoPromotionEnabled: true,
+        autoPromotionThreshold: 3,
+        approvalCounts: {},
     },
     recipes: {
         enabled: true,
