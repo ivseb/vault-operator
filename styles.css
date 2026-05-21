@@ -5017,22 +5017,83 @@
     white-space: nowrap;
 }
 
+/* Borderless icon button used in skill rows. Higher specificity via
+   the table-cell ancestor wins over Obsidian's default .setting-item
+   button styling. Matches the chat-toolbar button look (transparent,
+   icon-only). */
+.agent-skill-actions-cell button.agent-skill-action-btn,
 .agent-skill-action-btn {
-    background: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
     border: none;
+    box-shadow: none;
     cursor: pointer;
-    padding: 2px 4px;
     color: var(--text-muted);
     border-radius: 4px;
 }
 
+.agent-skill-action-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-skill-actions-cell button.agent-skill-action-btn:hover,
 .agent-skill-action-btn:hover {
     color: var(--text-normal);
     background: var(--background-modifier-hover);
+    box-shadow: none;
 }
 
 .agent-skill-action-btn-faint {
     opacity: 0.3;
+}
+
+/* ---------------------------------------------------------------------------
+ * Generic borderless icon-only buttons across the Settings tab.
+ *
+ * Targets any <button> inside .agent-settings that has a direct <svg> child
+ * AND no other direct children (i.e. setIcon() was called on it and there
+ * is no accompanying label text). Text-buttons (Create, Import, Reload,
+ * Save) and CTA-styled buttons (.mod-cta) keep their default look so
+ * primary actions stay visually distinct.
+ *
+ * Selector is :has() / :not(:has()) which Electron has supported since
+ * version 109 (Obsidian 1.4+).
+ * ------------------------------------------------------------------------ */
+.agent-settings button:has(> svg):not(:has(> :not(svg))):not(.mod-cta) {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.agent-settings button:has(> svg):not(:has(> :not(svg))):not(.mod-cta):hover {
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    box-shadow: none;
+}
+
+.agent-settings button:has(> svg):not(:has(> :not(svg))):not(.mod-cta) svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-settings button:has(> svg):not(:has(> :not(svg))):not(.mod-cta):disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .agent-skill-toggle-cell {

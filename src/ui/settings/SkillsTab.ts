@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { App, Notice, setIcon } from 'obsidian';
+import { App, Menu, Notice, setIcon } from 'obsidian';
 import JSZip from 'jszip';
 import type ObsidianAgentPlugin from '../../main';
 import { ContentEditorModal } from './ContentEditorModal';
@@ -193,44 +193,47 @@ export class SkillsTab {
                 const badge = sourceTd.createSpan({ text: sourceLabel, cls: 'agent-skill-source-badge' });
                 badge.addClass(`agent-skill-source-${skill.source}`);
 
-                // Actions (edit, export, delete)
+                // Actions menu (FEAT-29-09 follow-up: collapsed to a
+                // single more-horizontal button to free up space next to
+                // the on/off toggle. Menu items: open folder, versions,
+                // export, (optional) delete.
                 const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
-
-                // Open folder (FEAT-29-11: replaces the old "edit -> modal"
-                // path. All skills now live in a folder with SKILL.md +
-                // optional scripts/, references/, assets/. Clicking the
-                // button reveals the folder in the OS file manager.)
-                const editBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.edit') },
+                const menuBtn = actionsTd.createEl('button', {
+                    cls: 'agent-skill-action-btn agent-skill-action-menu',
+                    attr: { 'aria-label': 'Skill actions' },
                 });
-                setIcon(editBtn, 'folder-open');
-                editBtn.addEventListener('click', () => { void this.openSkillFolder(skill); });
-
-                // Versions (FEAT-29-09)
-                const versionsBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': 'Show skill versions' },
+                setIcon(menuBtn, 'more-horizontal');
+                menuBtn.addEventListener('click', (evt) => {
+                    const menu = new Menu();
+                    menu.addItem((item) =>
+                        item.setTitle(t('settings.skills.edit') || 'Open folder')
+                            .setIcon('folder-open')
+                            .onClick(() => { void this.openSkillFolder(skill); }),
+                    );
+                    menu.addItem((item) =>
+                        item.setTitle('Show versions')
+                            .setIcon('history')
+                            .onClick(() => { this.openSkillVersionsModal(skill); }),
+                    );
+                    menu.addItem((item) =>
+                        item.setTitle(t('settings.skills.export') || 'Export as zip')
+                            .setIcon('download')
+                            .onClick(() => { void this.exportSkill(skill); }),
+                    );
+                    if (skill.source !== 'bundled' && skill.source !== 'builtin') {
+                        menu.addSeparator();
+                        menu.addItem((item) =>
+                            item.setTitle(t('settings.skills.delete') || 'Delete')
+                                .setIcon('trash-2')
+                                .setWarning(true)
+                                .onClick(() => { void (async () => {
+                                    await this.deleteSkill(skill);
+                                    await refreshList();
+                                })(); }),
+                        );
+                    }
+                    menu.showAtMouseEvent(evt);
                 });
-                setIcon(versionsBtn, 'history');
-                versionsBtn.addEventListener('click', () => { this.openSkillVersionsModal(skill); });
-
-                // Export
-                const exportBtn = actionsTd.createEl('button', {
-                    cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.export') },
-                });
-                setIcon(exportBtn, 'download');
-                exportBtn.addEventListener('click', () => { void this.exportSkill(skill); });
-
-                // Delete (not for bundled skills)
-                if (skill.source !== 'bundled') {
-                    const delBtn = actionsTd.createEl('button', {
-                        cls: 'agent-skill-action-btn', attr: { 'aria-label': t('settings.skills.delete') },
-                    });
-                    setIcon(delBtn, 'trash-2');
-                    delBtn.addEventListener('click', () => { void (async () => {
-                        await this.deleteSkill(skill);
-                        await refreshList();
-                    })(); });
-                }
 
                 // Toggle
                 const toggleTd = tr.createEl('td', { cls: 'agent-skill-toggle-cell' });
