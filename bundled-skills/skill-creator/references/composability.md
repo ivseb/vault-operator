@@ -29,16 +29,13 @@ Sub-skills carry two cost-control levers, both designed to fail safe.
 
 `allowedTools` in the sub-skill's SKILL.md frontmatter restricts the child's tool schema. Without it the child sees the full parent tool set (~9000 prompt tokens of schema). With it the schema collapses to just the tools the sub-skill actually needs.
 
+Use the inline-list form. The frontmatter parser is line-based and does not handle multi-line YAML lists; only `[a, b, c]` is read correctly.
+
 ```yaml
 ---
 name: meeting-summary
 description: Summarise a meeting note into bullet points.
-allowedTools:
-  - read_file
-  - edit_file
-  - write_file
-  - search_files
-  - attempt_completion
+allowedTools: [read_file, edit_file, write_file, search_files, attempt_completion]
 ---
 ```
 
