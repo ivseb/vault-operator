@@ -1902,6 +1902,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.extractionQueue.setThrottleMs(this.settings.memory.reExtractThrottleMs ?? 60_000);
         }
 
+        // FEAT-29-12: auto-daily backup. Runs in the background after a
+        // 60s grace period so it does not slow down plugin onload. The
+        // runner gates itself on settings.backup.autoDailyEnabled and
+        // on a 24h interval (lastAutoBackupAt). Auto-daily backups
+        // ALWAYS strip secrets, regardless of any manual export flag.
+        window.setTimeout(() => {
+            this.runAutoBackup().catch((e) =>
+                console.warn('[Plugin] Auto-backup failed (non-fatal):', e),
+            );
+        }, 60_000);
+
         // LLM provider (null if no API key configured)
         this.initApiHandler();
 
@@ -2971,6 +2982,49 @@ export default class ObsidianAgentPlugin extends Plugin {
             factsUpdated: report.factsUpdated,
             skipped: false,
         });
+    }
+
+    /**
+     * FEAT-29-12: auto-daily backup gate + runner. Pure orchestration
+     * layer between the AutoBackupRunner pure-logic and the plugin's
+     * settings + vault adapter. No-op when settings.backup is missing
+     * or autoDailyEnabled is false. Persistence of lastAutoBackupAt is
+     * done via saveSettings.
+     */
+    async runAutoBackup(): Promise<void> {
+        if (!this.settings.backup) return;
+        const { maybeRunAutoBackup } = await import('./core/backup/AutoBackupRunner');
+        const agentRoot = (await import('./core/utils/agentFolder')).getInternalAgentFolderPath(this);
+        // Wrap vault.adapter as the BackupFileAdapter shape the runner needs.
+        const adapter = this.app.vault.adapter;
+        const backupAdapter = {
+            exists: (p: string) => adapter.exists(p),
+            list: (p: string) => adapter.list(p),
+            readBinary: async (p: string) => new Uint8Array(await adapter.readBinary(p)),
+            writeBinary: (p: string, d: Uint8Array) => adapter.writeBinary(p, d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) as ArrayBuffer),
+            read: (p: string) => adapter.read(p),
+            write: (p: string, d: string) => adapter.write(p, d),
+            mkdir: async (p: string) => { if (!(await adapter.exists(p))) await adapter.mkdir(p); },
+            stat: (p: string) => adapter.stat(p),
+            remove: (p: string) => adapter.remove(p),
+        };
+        const result = await maybeRunAutoBackup(
+            this.settings.backup,
+            backupAdapter,
+            agentRoot,
+            this.settings,
+            async (ts) => {
+                if (this.settings.backup) {
+                    this.settings.backup.lastAutoBackupAt = ts;
+                    await this.saveSettings();
+                }
+            },
+        );
+        if (result.ran) {
+            console.debug(`[Plugin] Auto-backup: ${result.filename} (${result.bytesWritten} bytes), pruned ${result.prunedFiles?.length ?? 0}`);
+        } else if (result.error) {
+            console.warn(`[Plugin] Auto-backup error: ${result.error}`);
+        }
     }
 
     /**

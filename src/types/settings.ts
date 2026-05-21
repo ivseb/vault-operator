@@ -893,6 +893,10 @@ export interface ObsidianAgentSettings {
     // FEAT-29-09: per-skill versioning (snapshot + restore).
     skillVersioning?: { retentionCount: number };
 
+    // FEAT-29-12: backup/export-tool. Selective ZIP export of plugin
+    // state, opt-in auto-daily backup, conflict-aware import.
+    backup?: BackupSettings;
+
     // Plugin API (PAS-1.5)
     pluginApi: PluginApiSettings;
 
@@ -1246,6 +1250,30 @@ export interface PluginApiSettings {
     safeMethodOverrides: Record<string, boolean>;
 }
 
+/**
+ * FEAT-29-12 Backup/Export-Tool settings.
+ *   exportSecretsAllowed -- opt-in: when true, manual exports may include
+ *     API keys. Default false. Auto-daily backups ALWAYS strip secrets
+ *     regardless of this flag (a backup that the user did not explicitly
+ *     trigger must not carry credentials).
+ *   autoDailyEnabled -- when true, the plugin runs one selective backup
+ *     per 24h on plugin boot.
+ *   autoDailyTargetPath -- vault-relative folder for auto-daily ZIPs.
+ *     Defaults to .vault-operator/cache/backups so it stays out of
+ *     Obsidian's vault view by default.
+ *   retentionCount -- keep at most N auto-daily backups; older ones are
+ *     pruned on the next auto-daily run.
+ *   lastAutoBackupAt -- timestamp (ms epoch) of the last successful
+ *     auto-daily backup. Used to gate the 24h interval.
+ */
+export interface BackupSettings {
+    exportSecretsAllowed: boolean;
+    autoDailyEnabled: boolean;
+    autoDailyTargetPath: string;
+    retentionCount: number;
+    lastAutoBackupAt: number;
+}
+
 // ---------------------------------------------------------------------------
 // Visual Intelligence Settings (FEATURE-1115)
 // ---------------------------------------------------------------------------
@@ -1500,6 +1528,13 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         lastScanAt: '',
     },
     skillVersioning: { retentionCount: 20 },
+    backup: {
+        exportSecretsAllowed: false,
+        autoDailyEnabled: false,
+        autoDailyTargetPath: '.vault-operator/cache/backups',
+        retentionCount: 7,
+        lastAutoBackupAt: 0,
+    },
     pluginApi: {
         enabled: true,
         safeMethodOverrides: {},
