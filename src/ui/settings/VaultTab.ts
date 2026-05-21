@@ -255,7 +255,7 @@ export class VaultTab {
                             this.plugin.settings._layoutMigrationOptIn = true;
                             await this.plugin.saveSettings();
                             new Notice(
-                                'Migration activated. Please reload the plugin (Cmd-P / Ctrl-P -> Reload Vault Operator).',
+                                'Migration activated. Please reload the plugin via the command palette to apply.',
                                 10000,
                             );
                             this.rerender();
@@ -642,7 +642,7 @@ export class VaultTab {
         // source note. Default category is "Quellen-Notiz" / "Source note".
         new Setting(containerEl)
             .setName('Template for sense-making notes')
-            .setDesc('Frontmatter template used for the secondary output notes (Sense-Making-Note or Zettel) produced by /ingest and /ingest-deep.')
+            .setDesc('Frontmatter template used for the secondary output notes (sense-making summary or per-takeaway zettels) produced by /ingest and /ingest-deep.')
             .addText((text) =>
                 text
                     .setPlaceholder('Tools & Settings/Templates/Notiz Template.md')
@@ -661,7 +661,7 @@ export class VaultTab {
         // so user edits are preserved; the modal offers force-overwrite.
         new Setting(containerEl)
             .setName('Re-materialize default templates')
-            .setDesc('Re-writes the bundled Source/Note/Meeting-Note templates into your configured Templates folder. Existing files are skipped unless you confirm overwrite.')
+            .setDesc('Re-writes the bundled source, note and meeting-note templates into your configured templates folder. Existing files are skipped unless you confirm overwrite.')
             .addButton((btn) =>
                 btn
                     .setButtonText('Re-materialize')
@@ -949,7 +949,7 @@ export class VaultTab {
         await this.plugin.saveSettings();
 
         new Notice(
-            'Layout restored from backup. Reload the plugin (Cmd-P / Ctrl-P -> Reload Vault Operator) to pick up the old layout.',
+            'Layout restored from backup. Reload the plugin via the command palette to pick up the old layout.',
             10000,
         );
         this.rerender();
@@ -1035,7 +1035,7 @@ export class VaultTab {
         const folder = await resolveCoreTemplatesFolder(this.app);
         if (!folder) {
             new Notice(
-                'No Templates folder set. Enable the Obsidian core Templates plugin and pick a folder first.',
+                'No templates folder set. Enable the Obsidian core templates plugin and pick a folder first.',
                 8000,
             );
             return;

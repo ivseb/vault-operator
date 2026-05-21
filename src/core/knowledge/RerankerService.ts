@@ -79,7 +79,7 @@ export class RerankerService {
                 // onnxruntime-web is a transitive dep of @huggingface/transformers.
                 // Subpath `/webgpu` has no published .d.ts so we silence the
                 // import-resolution error and rely on the runtime resolver.
-                // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- runtime subpath, no type declarations published for /webgpu
                 // @ts-ignore -- runtime subpath, no type declarations
                 const ort = await import('onnxruntime-web/webgpu');
                 (globalThis as Record<symbol, unknown>)[ortSymbol] = ort;

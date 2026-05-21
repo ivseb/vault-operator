@@ -641,7 +641,7 @@ export class FirstRunWizardModal extends Modal {
         // ---- Materialize-now toggle ----
         new Setting(this.bodyEl)
             .setName('Materialize default templates now')
-            .setDesc('Writes Source, Note, and Meeting-Note templates into the folder above. Existing files are skipped.')
+            .setDesc('Writes the source, note and meeting-note templates into the folder above. Existing files are skipped.')
             .addToggle((t) => t
                 .setValue(this.templatesShouldMaterialize)
                 .onChange((v) => { this.templatesShouldMaterialize = v; }),

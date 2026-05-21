@@ -9,6 +9,7 @@
 
 import { App, Modal, Notice, setIcon } from 'obsidian';
 import type { SkillSnapshotService, SnapshotMetadata } from '../../core/skills/SkillSnapshotService';
+import { confirmModal, promptModal } from './PromptModal';
 
 export class SkillVersionsModal extends Modal {
     constructor(
@@ -46,26 +47,17 @@ export class SkillVersionsModal extends Modal {
 
     private renderSnapshotRow(parent: HTMLElement, snap: SnapshotMetadata): void {
         const row = parent.createDiv({ cls: 'skill-version-row' });
-        row.style.setProperty('display', 'flex');
-        row.style.setProperty('align-items', 'center');
-        row.style.setProperty('gap', '8px');
-        row.style.setProperty('padding', '6px 0');
-        row.style.setProperty('border-bottom', '1px solid var(--background-modifier-border)');
 
-        const info = row.createDiv();
-        info.style.setProperty('flex', '1');
+        const info = row.createDiv({ cls: 'skill-version-info' });
         const when = new Date(snap.createdAt).toLocaleString();
         const fileText = snap.fileCount === 1 ? '1 file' : `${snap.fileCount} files`;
         info.createEl('div', { text: when });
-        const meta = info.createEl('div', { cls: 'mod-muted' });
-        meta.style.setProperty('font-size', '12px');
+        const meta = info.createEl('div', { cls: 'mod-muted skill-version-meta' });
         const labelBadge = snap.label === 'pre-restore' ? '[pre-restore] ' : '';
         const tagText = snap.tags.length > 0 ? ` · tags: ${snap.tags.join(', ')}` : '';
         meta.setText(`${labelBadge}${fileText}, ${this.formatBytes(snap.totalBytes)}${tagText}`);
 
-        const actions = row.createDiv();
-        actions.style.setProperty('display', 'flex');
-        actions.style.setProperty('gap', '4px');
+        const actions = row.createDiv({ cls: 'skill-version-actions' });
 
         const restoreBtn = actions.createEl('button', { cls: 'mod-cta' });
         setIcon(restoreBtn, 'rotate-ccw');
@@ -79,10 +71,13 @@ export class SkillVersionsModal extends Modal {
     }
 
     private async handleRestore(snap: SnapshotMetadata): Promise<void> {
-        const ok = window.confirm(
-            `Restore ${this.skillName} to the version from ${new Date(snap.createdAt).toLocaleString()}? ` +
-            `A pre-restore snapshot of the current state is taken first.`,
-        );
+        const ok = await confirmModal(this.app, {
+            title: 'Restore skill version',
+            message:
+                `Restore ${this.skillName} to the version from ${new Date(snap.createdAt).toLocaleString()}? ` +
+                `A pre-restore snapshot of the current state is taken first.`,
+            confirmLabel: 'Restore',
+        });
         if (!ok) return;
 
         try {
@@ -98,10 +93,12 @@ export class SkillVersionsModal extends Modal {
 
     private async handleTag(snap: SnapshotMetadata): Promise<void> {
         const existing = snap.tags.join(', ');
-        const input = window.prompt(
-            `Tags for this snapshot (comma-separated). Tagged snapshots survive prune.`,
-            existing,
-        );
+        const input = await promptModal(this.app, {
+            title: 'Edit snapshot tags',
+            message: 'Tags for this snapshot (comma-separated). Tagged snapshots survive prune.',
+            defaultValue: existing,
+            submitLabel: 'Save tags',
+        });
         if (input === null) return;
 
         const newTags = input

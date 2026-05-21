@@ -7156,3 +7156,36 @@
     opacity: 0.45;
     cursor: not-allowed;
 }
+
+/* FEAT-29-09 SkillVersionsModal -- moved off element.style.setProperty */
+.skill-version-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.skill-version-info { flex: 1; }
+.skill-version-meta { font-size: 12px; }
+.skill-version-actions { display: flex; gap: 4px; }
+
+/* FEAT-29-08 PartialTranslationModal -- moved off element.style.setProperty */
+.partial-translation-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+}
+.partial-translation-table th {
+    text-align: left;
+    padding: 4px 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.partial-translation-table td { padding: 4px 8px; }
+.partial-translation-heading { margin-top: 16px; }
+.partial-translation-reason { font-size: 0.9em; }
+.partial-translation-button-bar {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 20px;
+}
