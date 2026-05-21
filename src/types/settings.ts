@@ -1214,6 +1214,21 @@ Also produce 5-10 keywords in hyphenated style ("word1-word2", max two joined wo
 
 Suggest 2-3 entries for "Themen" (topics) and 2-3 entries for "Konzepte" (concepts) matching the note. Search the vault first for matching existing topics and concepts; only create a new entry if none fits.`;
 
+/**
+ * AUDIT-024 L-2: single source of truth for the ingest-templates sub-shape.
+ * VaultTab onChange handlers reuse this via spread to keep the migration
+ * fallback consistent when a new template-field is added.
+ */
+export function DEFAULT_INGEST_TEMPLATES(): VaultIngestSettings['templates'] {
+    return {
+        ingestNoteTemplate: '',
+        ingestDeepNoteTemplate: '',
+        meetingSummaryTemplate: '',
+        quellenNotizTemplate: '',
+        templatesLanguage: '',
+    };
+}
+
 export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
     summaryPrompt: {
         template: DEFAULT_SUMMARY_PROMPT_TEMPLATE,
@@ -1236,13 +1251,7 @@ export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
         enabled: false,
         privacyAcknowledged: false,
     },
-    templates: {
-        ingestNoteTemplate: '',
-        ingestDeepNoteTemplate: '',
-        meetingSummaryTemplate: '',
-        quellenNotizTemplate: '',
-        templatesLanguage: '',
-    },
+    templates: DEFAULT_INGEST_TEMPLATES(),
     stufe2Hint: {
         enabled: false,
         hintThresholdScore: 70,

@@ -181,6 +181,23 @@ export class FirstRunWizardModal extends Modal {
         }
     }
 
+    /**
+     * AUDIT-024 M-1: human-readable provider name for the privacy
+     * banner in the Templates step. Falls back to a generic label
+     * when no model is configured yet.
+     */
+    private resolveActiveProviderName(): string {
+        const active = this.plugin.settings.activeModels.find((m) => m.enabled !== false);
+        if (!active) return 'your active LLM provider (none configured yet)';
+        const provider = (active as { provider?: string; type?: string }).provider
+            ?? (active as { provider?: string; type?: string }).type
+            ?? 'unknown';
+        const name = (active as { displayName?: string; modelName?: string }).displayName
+            ?? (active as { displayName?: string; modelName?: string }).modelName
+            ?? 'unknown model';
+        return `${provider} / ${name}`;
+    }
+
     private async runTemplatesMaterialization(): Promise<void> {
         const folder = this.templatesFolder.trim();
         if (!folder) {
@@ -629,6 +646,24 @@ export class FirstRunWizardModal extends Modal {
         const customHint = customWrap.createDiv();
         customHint.setCssStyles({ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' });
         customHint.setText('Frontmatter keys and category values get translated by the active LLM. Structure stays identical.');
+
+        // AUDIT-024 M-1: explicit consent banner whenever the language
+        // is "Other" because that triggers an LLM round-trip with the
+        // bundled template content as input. Banner names the provider
+        // so the user can decide before clicking Next.
+        const privacyBanner = customWrap.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
+        privacyBanner.setCssStyles({ marginTop: '8px' });
+        const privacyIcon = privacyBanner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(privacyIcon, 'shield');
+        const privacyText = privacyBanner.createDiv({ cls: 'vault-op-box__text' });
+        privacyText.createEl('strong', { text: 'Privacy notice' });
+        const activeProviderName = this.resolveActiveProviderName();
+        privacyText.createDiv({
+            text:
+                `Translation sends each bundled template (about 200 bytes of YAML frontmatter, no vault content) to your active provider (${activeProviderName}). ` +
+                'No user notes are transmitted. You can switch back to Deutsch or English to skip the network round-trip.',
+        });
+
         const setCustomVisibility = () => {
             customWrap.setCssStyles({ display: this.templatesLang === 'other' ? '' : 'none' });
         };

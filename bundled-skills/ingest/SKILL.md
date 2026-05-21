@@ -194,8 +194,13 @@ N Notes via `write_file`-Calls, einer pro Take-Away:
 Wenn in Step 4 Notes erstellt wurden:
 
 1. Lade die Quelle-Note via `read_file`.
-2. Lies das `Notizen:`-Feld aus dem Frontmatter.
-3. `update_frontmatter`-Tool: setze `Notizen:` auf eine Liste mit
+2. **Verifikation (AUDIT-024 I-1):** Pruefe im Frontmatter, dass die
+   Note die `Kategorie: - Quelle` (oder `- Source` im englischen
+   Vault) traegt. Wenn nicht, ist der Pfad falsch oder die Note ist
+   die falsche -- STOP und frag den User, bevor du irgendwo
+   `Notizen:` setzt.
+3. Lies das `Notizen:`-Feld aus dem Frontmatter.
+4. `update_frontmatter`-Tool: setze `Notizen:` auf eine Liste mit
    `[[note1]], [[note2]], ...`. Bestehende Werte beibehalten (append).
 
 Damit zeigt der Obsidian-Graph die Verbindung Quelle <-> abgeleitete
