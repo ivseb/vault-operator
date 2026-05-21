@@ -22,6 +22,10 @@ const ALLOWED_KEYS = new Set([
     'trigger',
     'license',
     'allowed-tools',
+    // FEAT-29-10 follow-up: invoke_skill honours `allowedTools` (camelCase)
+    // from the sub-skill frontmatter. Keep both spellings tolerated.
+    'allowedTools',
+    'allowed_tools',
     'metadata',
     'compatibility',
     'model',
