@@ -48,6 +48,12 @@ const ALLOWED_KEYS: ReadonlySet<string> = new Set([
     'trigger',
     'license',
     'allowed-tools',
+    // FEAT-29-10 follow-up: invoke_skill reads `allowedTools` (camelCase)
+    // from the sub-skill frontmatter to narrow the spawn's tool schema.
+    // Both spellings are accepted (Anthropic uses kebab-case, internal VO
+    // convention is camelCase like requiredTools/codeModules).
+    'allowedTools',
+    'allowed_tools',
     'metadata',
     'compatibility',
     'model',

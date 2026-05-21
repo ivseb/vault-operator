@@ -67,6 +67,16 @@ const COMPLEX_MULTISTEP_RE = /\b(dann|danach|nachdem|sobald|first.*then|step by 
 const COMPLEX_SKILL_CREATION_RE =
     /\b(build|create|make|baue?|bau|erstelle?|generate|neuer|new)\b[^.\n]*\bskills?\b|\b(kannst du|can you)\b[^.\n]*\b(automatisier\w*|automate)\b/i;
 
+/**
+ * FEAT-29-08: skill-translation prompts always route to the main
+ * (flagship) model. Python-to-JavaScript code translation requires
+ * the strongest model, otherwise subtle semantic bugs leak into the
+ * generated code. Triggers cover the verb + "skill" / "anthropic skill"
+ * noun pattern in EN+DE plus the import/clone wording often used.
+ */
+const COMPLEX_SKILL_TRANSLATION_RE =
+    /\b(translate|convert|port|uebersetze?|konvertier\w*|portier\w*)\b[^.\n]*\b(skills?|anthropic\s+skills?|python\s+skills?)\b|\b(import|hole|clone)\b[^.\n]*\banthropic\b[^.\n]*\bskills?/i;
+
 const SHORT_PROMPT_CHARS = 80;
 const LONG_PROMPT_CHARS = 300;
 
@@ -94,6 +104,7 @@ export class TaskRouter {
 
         // Strong complex signals win first
         if (COMPLEX_SKILL_CREATION_RE.test(text)) return 'complex';
+        if (COMPLEX_SKILL_TRANSLATION_RE.test(text)) return 'complex';
         if (COMPLEX_MULTISTEP_RE.test(text)) return 'complex';
         if (COMPLEX_RESEARCH_RE.test(text)) return 'complex';
         if (text.length > LONG_PROMPT_CHARS) return 'complex';
