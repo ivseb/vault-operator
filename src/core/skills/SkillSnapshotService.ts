@@ -61,6 +61,14 @@ export class SkillSnapshotService {
     }
 
     private snapshotFolder(skillName: string, id: string): string {
+        // AUDIT-FEAT-29-09 L-1: snapshot ids are emitted by generateId()
+        // as ISO-timestamp-plus-counter, e.g.
+        // `2026-05-21T12-34-56-789Z-0001`. Restore / tag accept the id
+        // back from the caller, so we validate the shape here to block
+        // path-traversal attempts like `../../etc/passwd`.
+        if (!/^[A-Za-z0-9._-]+$/.test(id)) {
+            throw new Error(`Unsafe snapshot id rejected: ${JSON.stringify(id)}`);
+        }
         return `${this.versionsFolder(skillName)}/${id}`;
     }
 

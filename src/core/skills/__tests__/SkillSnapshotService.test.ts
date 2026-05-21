@@ -344,5 +344,24 @@ describe('SkillSnapshotService', () => {
             const meta = await svc.snapshot('empty');
             expect(meta.fileCount).toBe(0);
         });
+
+        /**
+         * AUDIT-FEAT-29-09 L-1: snapshotId is caller-supplied for
+         * restore/tag/untag and was unvalidated. Path-traversal via
+         * crafted id `../../etc/passwd` would escape the skill
+         * folder. The snapshotFolder() helper now validates the id
+         * shape against `[A-Za-z0-9._-]+`.
+         */
+        it('rejects unsafe snapshot ids in restore', async () => {
+            await seedSkill(stub, 'my-skill', { 'SKILL.md': 'v1' });
+            await expect(svc.restore('my-skill', '../escape')).rejects.toThrow(/Unsafe snapshot id/);
+            await expect(svc.restore('my-skill', '/etc/passwd')).rejects.toThrow(/Unsafe snapshot id/);
+        });
+
+        it('rejects unsafe snapshot ids in tag / untag', async () => {
+            await seedSkill(stub, 'my-skill', { 'SKILL.md': 'v1' });
+            await expect(svc.tag('my-skill', '../escape', 'foo')).rejects.toThrow(/Unsafe snapshot id/);
+            await expect(svc.untag('my-skill', '../escape', 'foo')).rejects.toThrow(/Unsafe snapshot id/);
+        });
     });
 });
