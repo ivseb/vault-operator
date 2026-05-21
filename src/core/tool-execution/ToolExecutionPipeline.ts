@@ -170,8 +170,20 @@ export interface ContextExtensions {
     updateTodos?: (items: import('../tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Switch the active mode (called by switch_mode tool) */
     switchMode?: (slug: string) => void;
-    /** Spawn a child task (called by new_task tool) */
-    spawnSubtask?: (mode: string, message: string, profileName?: string) => Promise<string>;
+    /** Spawn a child task (called by new_task / invoke_skill tools) */
+    spawnSubtask?: (
+        mode: string,
+        message: string,
+        profileName?: string,
+        overrides?: import('../tools/types').SubtaskSpawnOverrides,
+    ) => Promise<string>;
+    /**
+     * FEAT-29-10 Composability: shared stack-tracker for invoke_skill /
+     * invoke_mcp_server. Owned by the top-level AgentTask, passed by
+     * reference into every spawned subtask so cycle-detection and
+     * depth-limit work across the whole composition chain.
+     */
+    compositionStack?: import('../skills/CompositionStackService').CompositionStackService;
     /**
      * EPIC-26 / FEAT-26-01 / ADR-120: try to acquire one of the per-task
      * advisor slots. Used by ConsultFlagshipTool to enforce the 3-call
@@ -389,6 +401,7 @@ export class ToolExecutionPipeline {
                 updateTodos: extensions?.updateTodos,
                 switchMode: extensions?.switchMode,
                 spawnSubtask: extensions?.spawnSubtask,
+                compositionStack: extensions?.compositionStack,
                 consumeAdvisorSlot: extensions?.consumeAdvisorSlot,
                 invalidateToolCache: extensions?.invalidateToolCache,
                 activateDeferredTool: extensions?.activateDeferredTool,

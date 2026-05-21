@@ -49,6 +49,13 @@ export interface SelfAuthoredSkill {
      */
     source: string;
     requiredTools: string[];
+    /**
+     * FEAT-29-10 follow-up: when present, sub-skill invocations via
+     * invoke_skill spawn the subtask with this tool allowlist. Drastically
+     * reduces the subtask's tool-schema prompt cost. Empty array means
+     * "no opinion" -- the subtask sees the parent's full tool set.
+     */
+    allowedTools: string[];
     /** Code module filenames (without .ts) listed in frontmatter */
     codeModules: string[];
     /** Loaded code module metadata (populated after loading compiled JS) */
@@ -906,6 +913,14 @@ export class SelfAuthoredSkillLoader {
             triggerSource,
             source: (fm.source as SelfAuthoredSkill['source']) ?? 'user',
             requiredTools: fm.requiredTools ? this.parseArray(fm.requiredTools) : [],
+            // FEAT-29-10 follow-up: support both camelCase and snake_case
+            // so authors using Anthropic-style frontmatter (`allowed_tools`)
+            // don't trip on the parser.
+            allowedTools: fm.allowedTools
+                ? this.parseArray(fm.allowedTools)
+                : fm.allowed_tools
+                    ? this.parseArray(fm.allowed_tools)
+                    : [],
             codeModules: fm.codeModules ? this.parseArray(fm.codeModules) : [],
             codeModuleInfos: [],
             createdAt: fm.createdAt ? new Date(fm.createdAt) : new Date(),

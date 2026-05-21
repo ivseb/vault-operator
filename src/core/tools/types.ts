@@ -99,6 +99,9 @@ export type ToolName =
     // Self-Development (Phase 1: Foundation)
     | 'read_agent_logs'
     | 'manage_mcp_server'
+    // FEAT-29-10: composability tools (skill-to-skill, skill-to-mcp).
+    | 'invoke_skill'
+    | 'invoke_mcp_server'
     // Self-Development (Phase 3: Expression evaluation)
     | 'evaluate_expression'
     // Self-Development (Phase 4: Core Self-Modification)
@@ -183,6 +186,18 @@ export interface ToolCallbacks {
 }
 
 /**
+ * FEAT-29-10 follow-up: per-spawn caps that invoke_skill / new_task may
+ * attach to a subtask. Plain object so the AgentTask doesn't grow a
+ * "profile lookup or n-th positional arg" mess.
+ */
+export interface SubtaskSpawnOverrides {
+    /** Cap the child's loop budget. */
+    maxIterations?: number;
+    /** Restrict the child's tool schema to this allowlist. */
+    allowedTools?: ToolName[];
+}
+
+/**
  * Tool execution context
  */
 export interface ToolExecutionContext {
@@ -257,8 +272,28 @@ export interface ToolExecutionContext {
      * profile (see src/core/agent/subagent-profiles.ts). When set, the
      * subagent runs with the profile's roleDefinition + allowedTools
      * instead of inheriting the parent's mode/rules/skills set.
+     *
+     * FEAT-29-10 follow-up: `overrides` carries ad-hoc per-spawn caps.
+     * `maxIterations` shortens the child's loop budget (default = parent's,
+     * usually 25). `allowedTools` is a tool-name allowlist that further
+     * narrows the child's tool schema (e.g. an invoke_skill sub-skill that
+     * declares `allowedTools` in its frontmatter). Overrides win over the
+     * profile defaults so a profile-spawn can still be tightened.
      */
-    spawnSubtask?: (mode: string, message: string, profileName?: string) => Promise<string>;
+    spawnSubtask?: (
+        mode: string,
+        message: string,
+        profileName?: string,
+        overrides?: SubtaskSpawnOverrides,
+    ) => Promise<string>;
+
+    /**
+     * FEAT-29-10 Composability: shared stack-tracker for invoke_skill /
+     * invoke_mcp_server calls. Owned by the top-level AgentTask, passed
+     * by reference to every spawned subtask so cycle-detection and
+     * depth-limit work across the whole composition chain.
+     */
+    compositionStack?: import('../skills/CompositionStackService').CompositionStackService;
 
     /**
      * EPIC-26 / FEAT-26-01 / ADR-120: try to acquire one of the per-task
