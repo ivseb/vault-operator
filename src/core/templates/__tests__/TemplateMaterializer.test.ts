@@ -163,4 +163,26 @@ describe('TemplateMaterializer', () => {
         const m = new TemplateMaterializer(app as never, BUNDLE);
         await expect(m.materialize('', 'de', {})).rejects.toThrow(/folder/i);
     });
+
+    it('rejects bundle filenames with path-traversal segments (AUDIT-024 M-2)', async () => {
+        // Defense-in-depth: a future bundle generator or supply-chain
+        // compromise could land traversal segments in bundle keys.
+        // The materializer must refuse to compose `${folder}/${name}`
+        // when the name escapes the folder.
+        const evilBundle = {
+            de: {
+                '../evil.md': '---\nfoo: bar\n---\n',
+                'nested/path.md': '---\nfoo: bar\n---\n',
+                'with\0null.md': '---\nfoo: bar\n---\n',
+                'safe.md': '---\nfoo: bar\n---\n',
+            },
+        };
+        const { app, files } = makeFakeApp();
+        const m = new TemplateMaterializer(app as never, evilBundle);
+        const result = await m.materialize('Templates', 'de', {});
+        expect(result.failed).toHaveLength(3);
+        expect(result.failed.map((f) => f.reason).every((r) => /unsafe/i.test(r))).toBe(true);
+        expect(result.written).toEqual(['Templates/safe.md']);
+        expect(files.has('Templates/../evil.md')).toBe(false);
+    });
 });

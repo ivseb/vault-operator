@@ -228,7 +228,12 @@ Nach jedem `ingest_deep`-Run mit Output-Mode `source-plus-summary`
 oder `source-plus-multi-zettel`:
 
 1. Lade die Quelle-Note via `read_file`.
-2. `update_frontmatter`-Tool: setze `Notizen:` auf eine Liste mit
+2. **Verifikation (AUDIT-024 I-1):** Pruefe im Frontmatter, dass die
+   Note die `Kategorie: - Quelle` (oder `- Source` im englischen
+   Vault) traegt. Wenn nicht, ist der Pfad falsch oder die Note ist
+   die falsche -- STOP und frag den User, bevor du irgendwo
+   `Notizen:` setzt.
+3. `update_frontmatter`-Tool: setze `Notizen:` auf eine Liste mit
    `[[<output-note-1>]], [[<output-note-2>]], ...`. Bestehende
    Werte beibehalten (append, kein replace).
 

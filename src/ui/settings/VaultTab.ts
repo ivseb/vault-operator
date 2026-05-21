@@ -5,7 +5,7 @@ import { AgentFolderService, readStoredAgentFolder } from '../../core/utils/agen
 import { pickAgentFolder } from './AgentFolderPickerModal';
 import { promptModal, confirmModal } from '../modals/PromptModal';
 import { t } from '../../i18n';
-import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE } from '../../types/settings';
+import { DEFAULT_VAULT_INGEST_SETTINGS, DEFAULT_SUMMARY_PROMPT_TEMPLATE, DEFAULT_INGEST_TEMPLATES } from '../../types/settings';
 import { addSectionHeading, addSliderInput } from './utils';
 import { resolveCoreTemplatesFolder } from '../../core/utils/templatesFolder';
 import { TemplateMaterializer } from '../../core/templates/TemplateMaterializer';
@@ -600,7 +600,7 @@ export class VaultTab {
                     .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
                     .setValue(cfg.templates?.ingestNoteTemplate ?? '')
                     .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? { ingestNoteTemplate: '', ingestDeepNoteTemplate: '', meetingSummaryTemplate: '', quellenNotizTemplate: '', templatesLanguage: '' };
+                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
                         cfg.templates.ingestNoteTemplate = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
                         await this.plugin.saveSettings();
@@ -615,7 +615,7 @@ export class VaultTab {
                     .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
                     .setValue(cfg.templates?.ingestDeepNoteTemplate ?? '')
                     .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? { ingestNoteTemplate: '', ingestDeepNoteTemplate: '', meetingSummaryTemplate: '', quellenNotizTemplate: '', templatesLanguage: '' };
+                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
                         cfg.templates.ingestDeepNoteTemplate = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
                         await this.plugin.saveSettings();
@@ -630,7 +630,7 @@ export class VaultTab {
                     .setPlaceholder('Tools & Settings/Templates/Meeting-Notiz Template.md')
                     .setValue(cfg.templates?.meetingSummaryTemplate ?? '')
                     .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? { ingestNoteTemplate: '', ingestDeepNoteTemplate: '', meetingSummaryTemplate: '', quellenNotizTemplate: '', templatesLanguage: '' };
+                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
                         cfg.templates.meetingSummaryTemplate = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
                         await this.plugin.saveSettings();
@@ -648,7 +648,7 @@ export class VaultTab {
                     .setPlaceholder('Tools & Settings/Templates/Notiz Template.md')
                     .setValue(cfg.templates?.quellenNotizTemplate ?? '')
                     .onChange(async (v) => {
-                        cfg.templates = cfg.templates ?? { ingestNoteTemplate: '', ingestDeepNoteTemplate: '', meetingSummaryTemplate: '', quellenNotizTemplate: '', templatesLanguage: '' };
+                        cfg.templates = cfg.templates ?? DEFAULT_INGEST_TEMPLATES();
                         cfg.templates.quellenNotizTemplate = v.trim();
                         this.plugin.settings.vaultIngest = cfg;
                         await this.plugin.saveSettings();

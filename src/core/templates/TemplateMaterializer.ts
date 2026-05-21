@@ -17,6 +17,21 @@
  *   set unchanged and report `fallbackLanguage: 'en'`.
  * - Write failures are captured in `failed` rather than thrown so a
  *   partial materialization still reports what landed.
+ *
+ * AUDIT-024 L-1 (TOCTOU, accepted by design).
+ * The `exists()` + `write()` sequence has a small race window. The
+ * materializer assumes single-user / single-Obsidian-instance per
+ * vault (the common case). Multi-instance vaults could see a second
+ * writer slip in between the check and the write; the resulting
+ * worst case is a redundant overwrite of a freshly created file,
+ * not data corruption. Add an explicit per-folder lock only if we
+ * see multi-instance reports.
+ *
+ * AUDIT-024 M-2 (path-segment validation).
+ * Every bundle filename is checked for traversal segments before
+ * write. The bundle is generated at build time from a controlled
+ * directory tree, but the check stays for defense-in-depth in case
+ * a future generator or supply-chain compromise lands unsafe keys.
  */
 
 import type { App } from 'obsidian';
@@ -80,6 +95,23 @@ export class TemplateMaterializer {
         }
 
         for (const [filename, sourceContent] of Object.entries(templates)) {
+            // AUDIT-024 M-2: defense-in-depth path-segment check. The
+            // bundle is generated at build time from a controlled tree
+            // and is trusted, but symmetric to BuiltinSkillMaterializer
+            // we refuse any filename that would escape the target folder
+            // (segments, leading slash, null byte, nested separator).
+            if (
+                filename.length === 0
+                || filename.includes('..')
+                || filename.startsWith('/')
+                || filename.startsWith('\\')
+                || filename.includes('\0')
+                || filename.includes('/')
+                || filename.includes('\\')
+            ) {
+                result.failed.push({ path: filename, reason: `unsafe path segment rejected: ${JSON.stringify(filename)}` });
+                continue;
+            }
             const path = `${targetFolder}/${filename}`;
             try {
                 if (!opts.force && await adapter.exists(path)) {
