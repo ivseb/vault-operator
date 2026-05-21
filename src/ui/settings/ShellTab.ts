@@ -206,10 +206,10 @@ export class ShellTab {
             .setName('Add per-plugin override')
             .setDesc('Plugin ID and timeout in ms.')
             .addText((tx) => tx
-                .setPlaceholder('plugin-id (e.g. dataview)')
+                .setPlaceholder('Dataview')
                 .onChange((v) => { newPluginId = v.trim(); }))
             .addText((tx) => tx
-                .setPlaceholder('ms (e.g. 30000)')
+                .setPlaceholder('30000')
                 .onChange((v) => { newTimeout = v; }))
             .addButton((b) => b
                 .setButtonText('Add')
@@ -222,8 +222,8 @@ export class ShellTab {
                 }));
 
         new Setting(containerEl)
-            .setName('Auto-promote Tier-2 methods')
-            .setDesc('When a dynamically discovered method is approved N times AND its name looks like a read (get/list/find/query/...), add it to the user-safe list so future calls are auto-approved.')
+            .setName('Auto-promote tier-2 methods')
+            .setDesc('When a dynamically discovered method is approved enough times and its name looks like a read (get, list, find, query and so on), add it to the user-safe list so future calls are auto-approved.')
             .addToggle((tg) => tg
                 .setValue(api.autoPromotionEnabled !== false)
                 .onChange(async (v) => {
@@ -249,7 +249,7 @@ export class ShellTab {
         if (sorted.length > 0) {
             containerEl.createEl('p', {
                 cls: 'agent-settings-desc',
-                text: `Top approval counts (Tier-2 methods, max 10 shown):`,
+                text: `Top approval counts (tier-2 methods, max 10 shown):`,
             });
             for (const [key, count] of sorted) {
                 const safe = (this.plugin.settings.pluginApi?.safeMethodOverrides ?? {})[key];

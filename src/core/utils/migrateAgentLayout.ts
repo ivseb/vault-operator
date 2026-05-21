@@ -277,7 +277,7 @@ async function phaseBackup(input: AgentLayoutMigrationInput): Promise<BackupResu
             throw new Error(
                 `Backup destination (${backupRoot}) lives inside migration source ${src.from}. `
                 + 'Choose a backup folder outside every legacy root (typically the Obsidian '
-                + 'plugin data directory at {vault}/.obsidian/plugins/<id>/).',
+                + 'plugin data directory under {vault}/<config-dir>/plugins/<id>/).',
             );
         }
     }

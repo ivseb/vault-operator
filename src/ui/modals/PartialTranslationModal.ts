@@ -95,16 +95,10 @@ export class PartialTranslationModal extends Modal {
     }
 
     private renderSummaryTable(): void {
-        const tbl = this.contentEl.createEl('table');
-        tbl.style.setProperty('width', '100%');
-        tbl.style.setProperty('border-collapse', 'collapse');
-        tbl.style.setProperty('margin', '12px 0');
+        const tbl = this.contentEl.createEl('table', { cls: 'partial-translation-table' });
         const head = tbl.createEl('thead').createEl('tr');
         ['Category', 'Count'].forEach((h) => {
-            const th = head.createEl('th', { text: h });
-            th.style.setProperty('text-align', 'left');
-            th.style.setProperty('padding', '4px 8px');
-            th.style.setProperty('border-bottom', '1px solid var(--background-modifier-border)');
+            head.createEl('th', { text: h });
         });
         const body = tbl.createEl('tbody');
         const rows: Array<[string, number]> = [
@@ -114,16 +108,13 @@ export class PartialTranslationModal extends Modal {
         ];
         for (const [label, count] of rows) {
             const tr = body.createEl('tr');
-            const tdL = tr.createEl('td', { text: label });
-            const tdC = tr.createEl('td', { text: String(count) });
-            tdL.style.setProperty('padding', '4px 8px');
-            tdC.style.setProperty('padding', '4px 8px');
+            tr.createEl('td', { text: label });
+            tr.createEl('td', { text: String(count) });
         }
     }
 
     private renderPartialSection(): void {
-        const h = this.contentEl.createEl('h4', { text: 'Partial mappings (limitations)' });
-        h.style.setProperty('margin-top', '16px');
+        this.contentEl.createEl('h4', { text: 'Partial mappings (limitations)', cls: 'partial-translation-heading' });
         const list = this.contentEl.createEl('ul');
         for (const entry of this.report.partial) {
             const li = list.createEl('li');
@@ -138,24 +129,18 @@ export class PartialTranslationModal extends Modal {
     }
 
     private renderUnmappableSection(): void {
-        const h = this.contentEl.createEl('h4', { text: 'Unmappable (no JavaScript equivalent)' });
-        h.style.setProperty('margin-top', '16px');
+        this.contentEl.createEl('h4', { text: 'Unmappable (no JavaScript equivalent)', cls: 'partial-translation-heading' });
         const list = this.contentEl.createEl('ul');
         for (const entry of this.report.unmappable) {
             const li = list.createEl('li');
             li.createSpan({ text: `${entry.module} (${entry.source})` });
-            const reason = li.createEl('div', { cls: 'mod-muted' });
-            reason.style.setProperty('font-size', '0.9em');
+            const reason = li.createEl('div', { cls: 'mod-muted partial-translation-reason' });
             reason.setText(entry.reason);
         }
     }
 
     private renderButtons(): void {
-        const bar = this.contentEl.createDiv({ cls: 'modal-button-container' });
-        bar.style.setProperty('display', 'flex');
-        bar.style.setProperty('justify-content', 'flex-end');
-        bar.style.setProperty('gap', '8px');
-        bar.style.setProperty('margin-top', '20px');
+        const bar = this.contentEl.createDiv({ cls: 'modal-button-container partial-translation-button-bar' });
 
         const cancelBtn = bar.createEl('button', {
             text: 'Cancel and use skill-creator instead',

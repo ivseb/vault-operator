@@ -25,7 +25,7 @@
 
 /* eslint-disable @typescript-eslint/no-require-imports -- one-time crypto require for sha256 hashing of script source. crypto is Node built-in, not an external dep. */
 const nodeCrypto = require('crypto') as typeof import('crypto');
-/* eslint-enable @typescript-eslint/no-require-imports */
+/* eslint-enable @typescript-eslint/no-require-imports -- end of one-time crypto require scope */
 
 export interface RunSkillScriptCacheOptions {
     maxEntries?: number;
