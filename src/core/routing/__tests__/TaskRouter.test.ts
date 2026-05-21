@@ -78,6 +78,18 @@ describe('TaskRouter.classifyByRegex', () => {
         expect(router.classifyByRegex('erstelle einen skill der pptx baut')).toBe('complex');
     });
 
+    it('classifies skill-translation prompts as complex (FEAT-29-08 flagship escalation)', () => {
+        // English trigger phrases
+        expect(router.classifyByRegex('translate the anthropic pdf skill')).toBe('complex');
+        expect(router.classifyByRegex('convert this python skill to JS')).toBe('complex');
+        expect(router.classifyByRegex('port the anthropic skills')).toBe('complex');
+        expect(router.classifyByRegex('import the anthropic pptx skill from github')).toBe('complex');
+        // German trigger phrases
+        expect(router.classifyByRegex('uebersetze den anthropic pdf skill')).toBe('complex');
+        expect(router.classifyByRegex('konvertiere diesen python skill')).toBe('complex');
+        expect(router.classifyByRegex('hole mir den anthropic pdf skill')).toBe('complex');
+    });
+
     it('does not over-match the bare word "skill" in unrelated contexts', () => {
         // "skill" alone should not flip a clearly research-y or simple prompt
         // into the wrong bucket. The trigger requires a verb + skill noun phrase.
