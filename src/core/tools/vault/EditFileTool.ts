@@ -119,13 +119,15 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                     );
                     return;
                 }
-                // BUG-032: When old_str is short and new_str is large (e.g. inserting
-                // a 6KB summary into a meeting note), edit_file is the wrong tool --
-                // the diff payload is brittle and JSON-streaming can truncate the
-                // tool call. Steer the agent toward a more reliable alternative.
+                // BUG-032 / FIX-01-05-01: When new_str is large (>=1000 chars),
+                // edit_file is the wrong tool -- the diff payload is brittle and
+                // JSON-streaming can truncate the tool call. Live test 2026-05-21
+                // showed the agent retried edit_file 5+ times on a missing old_str
+                // because the steer was soft ("prefer write_file"). The threshold
+                // dropped from 2000 to 1000 chars and the wording is now imperative.
                 const newStrSize = (new_str ?? '').length;
-                const sizeHint = newStrSize > 2000
-                    ? ` Note: new_str is ${newStrSize} chars. For large insertions or full rewrites prefer write_file (replace whole file) or append_to_file (add at end) -- edit_file is meant for targeted small changes.`
+                const sizeHint = newStrSize >= 1000
+                    ? ` Note: new_str is ${newStrSize} chars. Use write_file instead to replace the whole file, or append_to_file to add at the end. edit_file is for targeted small edits, not large rewrites -- retrying with the same large new_str will keep failing.`
                     : '';
                 throw new Error(
                     `old_str not found in file "${path}". ` +
