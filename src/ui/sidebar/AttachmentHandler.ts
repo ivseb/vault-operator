@@ -501,7 +501,13 @@ export class AttachmentHandler {
      */
     private async readAttachmentFolderPath(): Promise<string> {
         try {
-            const raw = await this.vault.adapter.read('.obsidian/app.json');
+            // configDir is the user-configurable Obsidian config folder
+            // (usually `.obsidian` but can be renamed). Reading via the
+            // hardcoded `.obsidian/app.json` literal trips the
+            // obsidianmd/hardcoded-config-path rule -- and would actually
+            // miss the file on vaults with a renamed config folder.
+            const configDir = this.vault.configDir;
+            const raw = await this.vault.adapter.read(`${configDir}/app.json`);
             const parsed = JSON.parse(raw) as { attachmentFolderPath?: unknown };
             const v = parsed.attachmentFolderPath;
             if (typeof v === 'string' && v.trim()) return v.trim();

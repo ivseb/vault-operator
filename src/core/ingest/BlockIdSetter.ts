@@ -135,7 +135,7 @@ function longestContiguousOverlap(a: string[], b: string[]): number {
     // longest run of tokens that appear in both `a` and `b` in order.
     if (a.length === 0 || b.length === 0) return 0;
     let best = 0;
-    const dp: number[] = new Array(b.length + 1).fill(0);
+    const dp: number[] = new Array<number>(b.length + 1).fill(0);
     for (let i = 1; i <= a.length; i++) {
         let prev = 0;
         for (let j = 1; j <= b.length; j++) {
