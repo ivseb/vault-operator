@@ -239,11 +239,16 @@ export class IngestTriageTool extends BaseTool<'ingest_triage'> {
                 const sourcePath = source_uri.startsWith('vault://')
                     ? source_uri.slice('vault://'.length)
                     : undefined;
-                const [vaultHits, memoryHits, historyHits] = await Promise.all([
-                    this.searchVault(query, topK, sourcePath),
-                    this.searchMemory(query, topK),
-                    this.searchHistory(query, topK),
-                ]);
+                // searchVault is the only awaited path (embedding call);
+                // searchMemory and searchHistory are synchronous SQL hits, so
+                // we run the vault search in parallel and pick up the other
+                // two while it returns. Wrapping the sync results in
+                // Promise.resolve would also work but adds no parallelism --
+                // doing them inline keeps the await-thenable lint happy and
+                // avoids the await-with-no-thenable warning.
+                const memoryHits = this.searchMemory(query, topK);
+                const historyHits = this.searchHistory(query, topK);
+                const vaultHits = await this.searchVault(query, topK, sourcePath);
                 const searchSection = this.renderSearchSection(query, vaultHits, memoryHits, historyHits);
                 if (searchSection) lines.push('', searchSection);
             }
@@ -273,7 +278,7 @@ export class IngestTriageTool extends BaseTool<'ingest_triage'> {
             const path = sourceUri.slice('vault://'.length);
             const parts: string[] = [];
             const basename = path.split('/').pop()?.replace(/\.[^.]+$/, '') ?? '';
-            if (basename) parts.push(basename.replace(/[_\-]+/g, ' '));
+            if (basename) parts.push(basename.replace(/[_-]+/g, ' '));
             const file = this.plugin.app.vault.getAbstractFileByPath(path);
             if (file instanceof TFile) {
                 const fm = this.plugin.app.metadataCache.getFileCache(file)?.frontmatter;
@@ -295,7 +300,7 @@ export class IngestTriageTool extends BaseTool<'ingest_triage'> {
             try {
                 const u = new URL(sourceUri);
                 const pathQuery = `${u.pathname} ${u.search}`
-                    .replace(/[/?&=_\-]+/g, ' ')
+                    .replace(/[/?&=_-]+/g, ' ')
                     .replace(/\s+/g, ' ')
                     .trim();
                 return pathQuery;
