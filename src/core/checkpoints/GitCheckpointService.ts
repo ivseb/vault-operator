@@ -407,13 +407,12 @@ export class GitCheckpointService {
                             } catch (readBackErr) {
                                 console.warn(`[Checkpoints] read-back failed for ${JSON.stringify(vaultRelPath)}:`, readBackErr);
                             }
-                            // FIX-01-07-03 actual fix: the disk write succeeded but any
-                            // currently open MarkdownView for this file is still showing
-                            // its in-memory CodeMirror buffer. When the user types or
-                            // Obsidian auto-saves, that buffer overwrites the disk back to
-                            // the pre-restore state. Force every open leaf for this file
-                            // to re-read from disk.
-                            await this.refreshOpenViewsFor(existingFile);
+                            // FIX-01-07-03 phase 3 fix: the disk write succeeded but
+                            // any currently open MarkdownView still shows the stale
+                            // CodeMirror buffer. Push the restored content directly
+                            // into the editor so the user sees it and the next
+                            // auto-save does not revert the disk.
+                            await this.refreshOpenViewsFor(existingFile, content);
                         }
                     } else {
                         await this.vault.adapter.write(vaultRelPath, content);
@@ -748,13 +747,13 @@ export class GitCheckpointService {
     }
 
     /**
-     * FIX-01-07-03: force every open MarkdownView that holds this file to
-     * re-read the disk state. Delegates to the shared helper because edit
-     * tools (write_file, edit_file, append_to_file) have the same issue
-     * and need the same fix.
+     * FIX-01-07-03: push the restored content into every open
+     * MarkdownView that holds this file. Delegates to the shared helper
+     * because edit tools (write_file, edit_file, append_to_file) have the
+     * same issue and need the same fix.
      */
-    private async refreshOpenViewsFor(file: TFile): Promise<void> {
-        const refreshed = await refreshOpenMarkdownViewsFor(this.app, file);
+    private async refreshOpenViewsFor(file: TFile, content?: string): Promise<void> {
+        const refreshed = await refreshOpenMarkdownViewsFor(this.app, file, content);
         if (refreshed > 0) {
             console.debug(`[Checkpoints] ${JSON.stringify(file.path)}: refreshed ${refreshed} open MarkdownView(s) after restore`);
         }

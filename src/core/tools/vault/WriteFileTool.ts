@@ -154,10 +154,10 @@ export class WriteFileTool extends BaseTool<'write_file'> {
 
                 const existingContent = await this.app.vault.read(existingFile);
                 await this.app.vault.modify(existingFile, content);
-                // FIX-01-07-03: force open MarkdownView to re-read disk, otherwise
-                // the stale CodeMirror buffer flushes back and silently reverts
-                // this write.
-                await refreshOpenMarkdownViewsFor(this.app, existingFile);
+                // FIX-01-07-03: push the new content directly into the open
+                // CodeMirror buffer so the editor view shows the write
+                // immediately and the next auto-save no longer reverts it.
+                await refreshOpenMarkdownViewsFor(this.app, existingFile, content);
                 const beforeLines = existingContent.split('\n').length;
                 const afterLines = content.split('\n').length;
                 const added = Math.max(0, afterLines - beforeLines);

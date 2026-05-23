@@ -109,10 +109,11 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                 if (normalized !== null) {
                     if (file) {
                         await this.app.vault.modify(file, normalized);
-                        // FIX-01-07-03: force open MarkdownView to re-read disk,
-                        // otherwise the stale CodeMirror buffer flushes back and
-                        // silently reverts this edit.
-                        await refreshOpenMarkdownViewsFor(this.app, file);
+                        // FIX-01-07-03: push the new content directly into the
+                        // open CodeMirror buffer so the editor view shows the
+                        // edit immediately. Without this the disk is correct
+                        // but the user sees the pre-edit buffer.
+                        await refreshOpenMarkdownViewsFor(this.app, file, normalized);
                     } else {
                         await this.app.vault.adapter.write(path, normalized);
                     }
@@ -151,8 +152,8 @@ export class EditFileTool extends BaseTool<'edit_file'> {
             const newContent = this.replaceFirst(content, old_str, new_str, expected_replacements);
             if (file) {
                 await this.app.vault.modify(file, newContent);
-                // FIX-01-07-03: see note above; same view-refresh guard.
-                await refreshOpenMarkdownViewsFor(this.app, file);
+                // FIX-01-07-03: see note above; same editor-buffer push.
+                await refreshOpenMarkdownViewsFor(this.app, file, newContent);
             } else {
                 await this.app.vault.adapter.write(path, newContent);
             }

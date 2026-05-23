@@ -73,10 +73,10 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
                 const currentContent = await this.app.vault.read(existing);
                 const newContent = currentContent ? currentContent + separator + content : content;
                 await this.app.vault.modify(existing, newContent);
-                // FIX-01-07-03: force open MarkdownView to re-read disk, otherwise
-                // the stale CodeMirror buffer flushes back and silently reverts
-                // this append.
-                await refreshOpenMarkdownViewsFor(this.app, existing);
+                // FIX-01-07-03: push the new content directly into the open
+                // CodeMirror buffer so the editor view shows the append
+                // immediately.
+                await refreshOpenMarkdownViewsFor(this.app, existing, newContent);
                 const appendedLines = content.split('\n').length;
                 callbacks.pushToolResult(
                     this.formatSuccess(`Appended to ${path} (+${appendedLines} lines)`) +
