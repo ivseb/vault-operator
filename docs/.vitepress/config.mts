@@ -3,11 +3,24 @@ import { withMermaid } from 'vitepress-plugin-mermaid'
 
 const tutorialsSidebar = [
   {
-    text: 'Tutorials',
+    text: 'Get started',
     items: [
-      { text: 'Installation & Quick Start', link: '/tutorials/getting-started' },
-      { text: 'Your First Conversation', link: '/tutorials/first-conversation' },
-      { text: 'Your First Knowledge Workflow', link: '/tutorials/knowledge-workflow' },
+      { text: 'Installation & quick start', link: '/tutorials/getting-started' },
+      { text: 'Your first conversation', link: '/tutorials/first-conversation' },
+    ],
+  },
+  {
+    text: 'Knowledge workflows',
+    items: [
+      { text: 'Search your vault by meaning', link: '/tutorials/search-by-meaning' },
+      { text: 'Capture a PDF with /ingest', link: '/tutorials/quick-ingest' },
+      { text: 'Sense-making with /ingest-deep', link: '/tutorials/deep-ingest' },
+    ],
+  },
+  {
+    text: 'Overview',
+    items: [
+      { text: 'Knowledge workflow overview', link: '/tutorials/knowledge-workflow' },
     ],
   },
 ]
@@ -72,6 +85,8 @@ const conceptsSidebar = [
     items: [
       { text: 'How Vault Operator works', link: '/concepts/' },
       { text: 'The agent loop', link: '/concepts/agent-loop' },
+      { text: 'Block-level provenance', link: '/concepts/provenance' },
+      { text: 'Checkpoints and undo', link: '/concepts/checkpoints' },
     ],
   },
   {
@@ -118,6 +133,12 @@ const conceptsSidebar = [
       { text: 'Task extraction', link: '/concepts/task-extraction' },
       { text: 'Provider auth', link: '/concepts/provider-auth' },
       { text: 'UI architecture', link: '/concepts/ui-architecture' },
+    ],
+  },
+  {
+    text: 'For developers',
+    items: [
+      { text: 'Codebase tour', link: '/concepts/codebase-tour' },
     ],
   },
 ]
