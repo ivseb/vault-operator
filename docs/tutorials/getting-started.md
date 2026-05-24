@@ -98,6 +98,8 @@ By default the chat loop runs on the **Main tier** of your active provider. When
 
 ## Next steps
 
-From here, read [Your first conversation](/tutorials/first-conversation) for modes and context, [Choosing a model](/guides/choosing-a-model) to pick a model for your workflow, and [Safety & control](/guides/safety-control) for how permissions and checkpoints work.
+From here, read [Your first conversation](/tutorials/first-conversation) for modes, context, and approvals. Then walk through the knowledge tutorials in order: [Search your vault by meaning](/tutorials/search-by-meaning), [Capture a PDF with /ingest](/tutorials/quick-ingest), and [Sense-making with /ingest-deep](/tutorials/deep-ingest).
+
+For deeper references: [Choosing a model](/guides/choosing-a-model) for picking a model for your workflow and [Safety & control](/guides/safety-control) for how permissions and checkpoints work.
 
 If something does not work as described above, check the [Troubleshooting](/reference/troubleshooting) page first.

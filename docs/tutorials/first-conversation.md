@@ -80,6 +80,8 @@ For broad questions like "What do I know about X?", just ask. The agent will run
 
 ## Next steps
 
-See [Choosing a model](/guides/choosing-a-model) for provider comparisons, [Chat interface](/guides/chat-interface) for the full feature set, and [Knowledge discovery](/guides/knowledge-discovery) to set up semantic search.
+The natural next tutorial is [Search your vault by meaning](./search-by-meaning), which gets semantic search running. After that, [Capture a PDF with /ingest](./quick-ingest) and [Sense-making with /ingest-deep](./deep-ingest) cover the two ingest paths.
+
+For deeper references: [Choosing a model](/guides/choosing-a-model) for provider comparisons, [Chat interface](/guides/chat-interface) for the full feature set, and [Knowledge discovery](/guides/knowledge-discovery) for the full search and graph story.
 
 If a tool call fails or the agent gets stuck, the [Troubleshooting](/reference/troubleshooting) page covers the common cases.

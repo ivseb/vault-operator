@@ -85,7 +85,7 @@ Drop a PDF, web clip, or Office file into the chat and Vault Operator runs a 10-
 
 > **Example prompt:** "Deep-ingest this research paper. Focus on the methodology section."
 
-[Knowledge ingest guide](/guides/knowledge-ingest)
+[Sense-making with /ingest-deep tutorial](/tutorials/deep-ingest) | [Knowledge ingest guide](/guides/knowledge-ingest) | [Block-level provenance](/concepts/provenance)
 
 ## It delegates complex work
 
