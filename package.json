@@ -1,6 +1,6 @@
 {
   "name": "vault-operator",
-  "version": "2.12.3",
+  "version": "2.12.4",
   "description": "Agentic AI operating layer for your vault. Discovers and uses installed plugins, maintains persistent unified memory, and adapts to your workflows, skills and tools with full safety controls.",
   "main": "main.js",
   "scripts": {
@@ -88,6 +88,7 @@
     "dompurify": ">=3.4.0",
     "fast-uri": ">=3.1.2",
     "fast-xml-builder": ">=1.1.7",
-    "uuid": ">=11.1.1"
+    "uuid": ">=11.1.1",
+    "qs": ">=6.15.2"
   }
 }
