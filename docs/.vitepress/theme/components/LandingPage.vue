@@ -175,8 +175,8 @@ onMounted(() => {
 <template>
   <section class="landing-hero">
     <a href="https://github.com/pssah4/vault-operator/releases" class="landing-badge" target="_blank" rel="noopener">
-      <span class="landing-badge-version">v2.12.4</span>
-      <span>Security maintenance: qs DoS (CVE-2026-8723) closed via npm override. npm audit baseline back to zero.</span>
+      <span class="landing-badge-version">v2.12</span>
+      <span>Ingest-deep walks you through triage, topic selection, and output mode. Every claim ends with a link back to the source paragraph.</span>
     </a>
 
     <h1 class="landing-title">Your Obsidian vault,<br>with a real AI Agent.</h1>
