@@ -47,6 +47,7 @@ import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } f
 import { getCacheCapability } from '../capabilities';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
+import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 
 // Default context window for Claude models on Bedrock.
 // Can be refined per model in the model-registry later.
@@ -176,15 +177,18 @@ export class BedrockProvider implements ApiHandler {
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
+        // FIX-04-03-07: defensive drop of thinking blocks before the strict
+        // exhaustive switch in convertMessages — same reasoning as Anthropic.
+        const thinkingFreeMessages = stripThinkingBlocks(messages);
         // FIX-04-03-06: when the caller passes no tools but the history
         // still contains tool_use/tool_result blocks (typical for the
         // hard-limit-recovery path in AgentTask), strip those blocks
         // to text markers. Otherwise AWS Converse returns 400
         // "toolConfig must be defined when using toolUse and toolResult
         // content blocks".
-        const messagesForApi = tools.length === 0 && messagesHaveToolBlocks(messages)
-            ? stripToolBlocksForNoToolsCall(messages)
-            : messages;
+        const messagesForApi = tools.length === 0 && messagesHaveToolBlocks(thinkingFreeMessages)
+            ? stripToolBlocksForNoToolsCall(thinkingFreeMessages)
+            : thinkingFreeMessages;
         const bedrockMessages = this.convertMessages(messagesForApi);
 
         // IMP-18-01-02 / ADR-111: Bedrock caches nothing without explicit cachePoint
@@ -470,6 +474,12 @@ export class BedrockProvider implements ApiHandler {
                     status: block.is_error ? 'error' : 'success',
                 },
             };
+        }
+
+        if (block.type === 'thinking') {
+            // FIX-04-03-07: should never reach here -- stripThinkingBlocks
+            // runs in createMessage. Fail loud if someone bypasses it.
+            throw new Error('[Bedrock] thinking blocks must be stripped before convertBlock');
         }
 
         // Exhaustiveness check -- unreachable

@@ -245,6 +245,9 @@ export class KiloGatewayProvider implements ApiHandler {
             const blocks = msg.content;
 
             if (msg.role === 'assistant') {
+                // FIX-04-03-07: thinking blocks (DeepSeek-style reasoning) are
+                // dropped here -- the Kilo Gateway does not echo reasoning_content
+                // back to its upstream models.
                 const textParts = blocks
                     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
                     .map((b) => b.text)

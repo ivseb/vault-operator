@@ -13,7 +13,12 @@ import type { ToolDefinition } from '../core/tools/types';
 
 export type ApiStreamChunk =
     | { type: 'text'; text: string }
-    | { type: 'thinking'; text: string }
+    // requiresPassback: set by providers whose API contract requires the reasoning
+    // text to be echoed back on the next tool-resolution request (DeepSeek
+    // deepseek-reasoner via OpenAI-compatible; see FIX-04-03-07). AgentTask
+    // accumulates these into a ThinkingBlock on the assistant message; others
+    // are display-only.
+    | { type: 'thinking'; text: string; requiresPassback?: boolean }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_error'; id: string; name: string; error: string }
     | { type: 'usage'; inputTokens: number; outputTokens: number;
@@ -59,6 +64,12 @@ export type ToolResultContentBlock =
 export type ContentBlock =
     | { type: 'text'; text: string }
     | { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } }
+    // FIX-04-03-07: persisted reasoning text for OpenAI-compatible reasoner
+    // models (DeepSeek deepseek-reasoner). Only emitted on the wire by the
+    // OpenAI-compatible provider for the last assistant message with tool_use,
+    // and only for config.type ∈ {custom, ollama, lmstudio}. All other
+    // providers strip thinking blocks via stripThinkingBlocks().
+    | { type: 'thinking'; text: string }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_result'; tool_use_id: string; content: string | ToolResultContentBlock[]; is_error?: boolean };
 

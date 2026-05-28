@@ -2117,6 +2117,7 @@ export class AgentSidebarView extends ItemView {
                                 ts: new Date().toISOString(),
                                 toolStepsHtml: stepsBlockEl?.outerHTML,
                                 taskId,
+                                reasoningText: accumulatedThinking || undefined,
                             });
                         }
                         // Render user answer as a regular chat message
@@ -2126,6 +2127,7 @@ export class AgentSidebarView extends ItemView {
                         ({ messageEl, thinkingEl, toolsEl, contentEl, footerEl } = this.createStreamingMessageEl());
                         // Reset per-turn state
                         accumulatedText = '';
+                        accumulatedThinking = '';
                         accumulatedToolContent = '';
                         hasTools = false;
                         streamingPara = null;
@@ -2303,6 +2305,7 @@ export class AgentSidebarView extends ItemView {
                             ts: new Date().toISOString(),
                             toolStepsHtml: stepsBlockEl?.outerHTML,
                             taskId,
+                            reasoningText: accumulatedThinking || undefined,
                         });
                     }
                     // Auto-save conversation to ConversationStore
@@ -2984,7 +2987,7 @@ export class AgentSidebarView extends ItemView {
                 if (msg.role === 'user') {
                     this.addUserMessage(msg.text);
                 } else {
-                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml);
+                    const el = this.renderMarkdownMessage(msg.text, 'assistant', msg.toolStepsHtml, msg.reasoningText);
                     if (el) assistantPairs.push({ msg, el });
                 }
             }
@@ -3099,9 +3102,26 @@ export class AgentSidebarView extends ItemView {
         markdown: string,
         role: 'assistant' | 'user',
         toolStepsHtml?: string,
+        reasoningText?: string,
     ): HTMLElement | null {
         if (!this.chatContainer) return null;
         const msgEl = this.chatContainer.createDiv(`message ${role}-message`);
+        // FIX-04-03-07: re-inject captured reasoning text as a collapsed
+        // "Reasoning..." bubble (same class names + behavior as the live
+        // stream block so the existing CSS applies). Above tool steps and
+        // markdown content -- mirrors the order the model produced.
+        if (role === 'assistant' && reasoningText && reasoningText.length > 0) {
+            const thinkingEl = msgEl.createDiv('thinking-block');
+            const header = thinkingEl.createDiv('thinking-header');
+            setIcon(header.createSpan('thinking-spinner'), 'chevron-right');
+            header.createSpan('thinking-label').setText(t('ui.sidebar.reasoningCollapsed'));
+            const body = thinkingEl.createDiv('thinking-content');
+            body.classList.add('agent-u-hidden');
+            body.setText(reasoningText);
+            header.addEventListener('click', () => {
+                body.classList.toggle('agent-u-hidden');
+            });
+        }
         // Re-inject the collapsed agent steps block above the markdown so
         // the user can still expand "what did the agent do?" after a chat
         // reload. Parsed via DOMParser to avoid innerHTML and keep the

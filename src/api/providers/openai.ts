@@ -26,7 +26,24 @@ interface OpenAIMessage {
     tool_calls?: OpenAIToolCall[];
     tool_call_id?: string;
     name?: string;
+    // FIX-04-03-07: DeepSeek deepseek-reasoner requires the original
+    // reasoning_content to be echoed back on assistant messages that contain
+    // tool_calls, otherwise a follow-up request returns 400.
+    reasoning_content?: string;
 }
+
+// FIX-04-03-07: only OpenAI-compatible backends that *can* consume a passed-back
+// reasoning_content field get one on the wire. Excluded:
+//   - openai/azure: official OpenAI does not expect the field; future strict
+//     validation could 400.
+//   - openrouter: has its own server-side reasoning passthrough via the
+//     top-level `reasoning: {...}` request param (Claude extended thinking).
+//     Echoing reasoning_content too could interfere.
+//   - gemini: uses different reasoning conventions.
+// If users with OpenRouter -> DeepSeek-reasoner report the same 400 we can
+// extend this after a regression test against OpenRouter + Claude ET.
+const REASONING_PASSBACK_PROVIDER_TYPES = new Set<string>(['custom', 'ollama', 'lmstudio']);
+const MAX_REASONING_CONTENT_CHARS = 50_000;
 
 interface OpenAIToolCall {
     id: string;
@@ -348,11 +365,16 @@ export class OpenAiProvider implements ApiHandler {
 
             const delta = choice.delta;
 
-            // OpenRouter reasoning content (extended thinking passthrough)
+            // OpenRouter reasoning content (extended thinking passthrough) +
+            // DeepSeek deepseek-reasoner. requiresPassback tells AgentTask to
+            // persist these chunks into a ThinkingBlock on the assistant
+            // message so convertMessages can echo them back on the next request
+            // (FIX-04-03-07). The wire-side allow-list still gates whether the
+            // echo actually happens.
             const reasoning = (delta as Record<string, unknown>)?.reasoning_content
                 ?? (delta as Record<string, unknown>)?.reasoning;
             if (typeof reasoning === 'string' && reasoning) {
-                yield { type: 'thinking', text: reasoning } satisfies ApiStreamChunk;
+                yield { type: 'thinking', text: reasoning, requiresPassback: true } satisfies ApiStreamChunk;
             }
 
             // Text content
@@ -441,7 +463,29 @@ export class OpenAiProvider implements ApiHandler {
             { role: 'system', content: systemPrompt },
         ];
 
-        for (const msg of messages) {
+        // FIX-04-03-07: DeepSeek deepseek-reasoner requires reasoning_content on
+        // the assistant message whose tool_calls are being resolved. Multi-round
+        // convention says strip reasoning from older rounds. So: find the LAST
+        // assistant message that has a tool_use; only THAT one gets the echo.
+        // Older assistant ThinkingBlocks (and ThinkingBlocks on any message
+        // without tool_use) are silently dropped from the wire — caps the
+        // per-request overhead at one turn of reasoning regardless of session
+        // length, preventing token-cost explosion.
+        const emitReasoningPassback = REASONING_PASSBACK_PROVIDER_TYPES.has(this.config.type);
+        let lastAssistantWithToolUseIdx = -1;
+        if (emitReasoningPassback) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m.role !== 'assistant' || typeof m.content === 'string') continue;
+                if (m.content.some((b) => b.type === 'tool_use')) {
+                    lastAssistantWithToolUseIdx = i;
+                    break;
+                }
+            }
+        }
+
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
             if (typeof msg.content === 'string') {
                 result.push({ role: msg.role, content: msg.content });
                 continue;
@@ -451,7 +495,10 @@ export class OpenAiProvider implements ApiHandler {
             const blocks = msg.content;
 
             if (msg.role === 'assistant') {
-                // Assistant messages may contain text + tool_use blocks
+                // Assistant messages may contain text + tool_use blocks.
+                // Thinking blocks are filtered out of textParts here (they never
+                // belong in visible content) and live in reasoning_content
+                // instead, gated on the allow-list + last-assistant rule above.
                 const textParts = blocks
                     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
                     .map((b) => b.text)
@@ -462,9 +509,22 @@ export class OpenAiProvider implements ApiHandler {
                         b.type === 'tool_use',
                 );
 
+                let reasoningContent: string | undefined;
+                if (emitReasoningPassback && i === lastAssistantWithToolUseIdx) {
+                    const joined = blocks
+                        .filter((b): b is { type: 'thinking'; text: string } => b.type === 'thinking')
+                        .map((b) => b.text)
+                        .join('');
+                    if (joined.length > 0) {
+                        reasoningContent = joined.length > MAX_REASONING_CONTENT_CHARS
+                            ? `${joined.slice(0, MAX_REASONING_CONTENT_CHARS)}\n[reasoning truncated]`
+                            : joined;
+                    }
+                }
+
                 if (toolUseParts.length > 0) {
                     // Message with tool calls
-                    result.push({
+                    const assistantMsg: OpenAIMessage = {
                         role: 'assistant',
                         content: textParts || null,
                         tool_calls: toolUseParts.map((b) => ({
@@ -475,12 +535,17 @@ export class OpenAiProvider implements ApiHandler {
                                 arguments: JSON.stringify(b.input),
                             },
                         })),
-                    });
+                    };
+                    if (reasoningContent !== undefined) {
+                        assistantMsg.reasoning_content = reasoningContent;
+                    }
+                    result.push(assistantMsg);
                 } else {
                     result.push({ role: 'assistant', content: textParts });
                 }
             } else {
-                // User messages may contain text + tool_result blocks
+                // User messages may contain text + tool_result blocks. Thinking
+                // blocks cannot legally appear on user role; ignored if they do.
                 for (const block of blocks) {
                     if (block.type === 'text') {
                         result.push({ role: 'user', content: block.text });
