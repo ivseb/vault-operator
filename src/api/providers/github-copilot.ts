@@ -355,6 +355,9 @@ export class GitHubCopilotProvider implements ApiHandler {
             const blocks = msg.content;
 
             if (msg.role === 'assistant') {
+                // FIX-04-03-07: thinking blocks (DeepSeek-style reasoning) are
+                // dropped here -- Copilot routes through Claude/GPT which do
+                // not consume a plain `reasoning_content` field.
                 const textParts = blocks
                     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
                     .map((b) => b.text)

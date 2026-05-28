@@ -138,4 +138,34 @@ describe('sanitizeHistoryForApi (BUG-017)', () => {
         expect(result.stats.droppedOrphanToolUses).toBe(0);
         expect(result.stats.droppedOrphanToolResults).toBe(0);
     });
+
+    // FIX-04-03-07: thinking blocks must survive sanitization. DeepSeek's
+    // reasoning_content lives in these blocks and the OpenAI-compat provider
+    // echoes them back on the next request — sanitize would otherwise strip
+    // them as "unknown" and break the multi-round contract.
+    it('preserves thinking blocks on assistant messages', () => {
+        const history: MessageParam[] = [
+            { role: 'user', content: 'plan it' },
+            {
+                role: 'assistant',
+                content: [
+                    { type: 'thinking', text: 'considering options' },
+                    { type: 'text', text: 'here is the plan' },
+                    { type: 'tool_use', id: 'tu1', name: 'list_files', input: {} },
+                ],
+            },
+            {
+                role: 'user',
+                content: [{ type: 'tool_result', tool_use_id: 'tu1', content: 'r' }],
+            },
+        ];
+        const result = sanitizeHistoryForApi(history);
+        const assistant = result.history.find((m) => m.role === 'assistant');
+        const blocks = assistant?.content as { type: string }[];
+        expect(blocks.some((b) => b.type === 'thinking')).toBe(true);
+        expect(blocks.some((b) => b.type === 'text')).toBe(true);
+        expect(blocks.some((b) => b.type === 'tool_use')).toBe(true);
+        expect(result.stats.droppedOrphanToolUses).toBe(0);
+        expect(result.stats.droppedEmptyMessages).toBe(0);
+    });
 });

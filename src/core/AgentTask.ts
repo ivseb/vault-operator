@@ -932,6 +932,12 @@ export class AgentTask {
 
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
+                // FIX-04-03-07: persist reasoning text only when the provider
+                // marks it for passback (currently the OpenAI-compatible provider
+                // for DeepSeek deepseek-reasoner). Anthropic / Bedrock thinking
+                // chunks lack signatures so they must not round-trip — they go
+                // to onThinking for display only.
+                const thinkingParts: string[] = [];
                 // id -> actionable error message (from the provider). Kept as a Map
                 // so the model receives the real "split the write / don't double-emit"
                 // guidance as the tool_result, not a generic "retry with valid JSON".
@@ -946,6 +952,7 @@ export class AgentTask {
                 for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
+                        if (chunk.requiresPassback) thinkingParts.push(chunk.text);
                     } else if (chunk.type === 'text') {
                         hasStreamedText = true;
                         textParts.push(chunk.text);
@@ -989,8 +996,13 @@ export class AgentTask {
                     }
                 }
 
-                // Build the assistant message content
+                // Build the assistant message content. Thinking first (mirrors
+                // the order the model produced: CoT before answer/tool), then
+                // visible text, then tool_use blocks.
                 const assistantContent: ContentBlock[] = [];
+                if (thinkingParts.length > 0) {
+                    assistantContent.push({ type: 'thinking', text: thinkingParts.join('') });
+                }
                 if (textParts.length > 0) {
                     assistantContent.push({ type: 'text', text: textParts.join('') });
                 }
@@ -1530,6 +1542,11 @@ export class AgentTask {
             if (Array.isArray(m.content)) {
                 for (const block of m.content) {
                     if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+                        count += Math.ceil(block.text.length / 4);
+                    } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
+                        // FIX-04-03-07: thinking persists on assistant messages
+                        // for DeepSeek reasoner round-trip. Counted at chars/4
+                        // so condensing fires on time when reasoning accumulates.
                         count += Math.ceil(block.text.length / 4);
                     } else if (block.type === 'tool_use') {
                         // tool_use overhead: id, name, type fields ~150 tokens
