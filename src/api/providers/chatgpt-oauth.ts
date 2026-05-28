@@ -278,6 +278,9 @@ export class ChatGptOAuthProvider implements ApiHandler {
             const blocks = msg.content;
 
             if (msg.role === 'assistant') {
+                // FIX-04-03-07: thinking blocks (DeepSeek-style reasoning) are
+                // dropped here -- ChatGPT-OAuth uses the Responses API with
+                // encrypted reasoning summaries, not a plaintext echo field.
                 const textParts = blocks
                     .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
                     .map((b) => b.text)

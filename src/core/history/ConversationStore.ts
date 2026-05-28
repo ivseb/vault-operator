@@ -74,6 +74,14 @@ export interface UiMessage {
      * block.
      */
     taskId?: string;
+    /**
+     * Captured reasoning text for assistant turns produced by reasoner
+     * models (DeepSeek deepseek-reasoner via OpenAI-compatible provider,
+     * FIX-04-03-07). Replayed on conversation reload as a collapsed
+     * "Reasoning..." bubble above the assistant answer. Optional --
+     * older messages and non-reasoner turns omit it.
+     */
+    reasoningText?: string;
 }
 
 export interface ConversationData {

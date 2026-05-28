@@ -17,6 +17,7 @@ import type { ToolDefinition } from '../../core/tools/types';
 import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } from '../../types/model-registry';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
+import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 
 /** Put an ephemeral cache_control marker on the last content block of a message. */
 export function markLastBlock(msg: Anthropic.MessageParam): void {
@@ -90,8 +91,11 @@ export class AnthropicProvider implements ApiHandler {
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
-        // Convert our internal MessageParam[] to Anthropic's format
-        const anthropicMessages = this.convertMessages(messages);
+        // FIX-04-03-07: defensive drop of any thinking blocks before the
+        // strict convertMessages map. Cross-provider switch (DeepSeek -> Anthropic)
+        // would otherwise hit "Unknown content block type". Anthropic's own
+        // signed extended-thinking round-trip needs a separate fix.
+        const anthropicMessages = this.convertMessages(stripThinkingBlocks(messages));
 
         // Convert ToolDefinition[] to Anthropic's tool format
         const anthropicTools: Anthropic.Tool[] = tools.map((tool) => ({
