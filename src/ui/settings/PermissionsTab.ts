@@ -45,6 +45,7 @@ export class PermissionsTab {
             { body: t('settings.permissions.sectionAutoApproveInfo') },
         );
 
+        // eslint-disable-next-line prefer-const -- forward-declared for closure capture below; assigned after the master toggles to preserve DOM order
         let categoryContainer: HTMLDivElement;
         const refreshCategoryDisabled = (): void => {
             const masterOn = this.plugin.settings.autoApproval.enabled;

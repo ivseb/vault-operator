@@ -3001,7 +3001,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             exists: (p: string) => adapter.exists(p),
             list: (p: string) => adapter.list(p),
             readBinary: async (p: string) => new Uint8Array(await adapter.readBinary(p)),
-            writeBinary: (p: string, d: Uint8Array) => adapter.writeBinary(p, d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) as ArrayBuffer),
+            writeBinary: (p: string, d: Uint8Array) => adapter.writeBinary(p, d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength)),
             read: (p: string) => adapter.read(p),
             write: (p: string, d: string) => adapter.write(p, d),
             mkdir: async (p: string) => { if (!(await adapter.exists(p))) await adapter.mkdir(p); },

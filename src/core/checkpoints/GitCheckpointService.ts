@@ -21,11 +21,11 @@
 
 import git from 'isomorphic-git';
 import * as path from 'path';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- isomorphic-git
-// needs the raw Node fs module as its plugin; routing through safeFs caused an
-// indefinite hang during git.resolveRef on iCloud-backed vaults (2026-05-16).
-// The repo also lives outside the vault now (2026-05-19), so vault.adapter is
-// no longer an option for repo-internal I/O.
+// isomorphic-git needs the raw Node fs module as its plugin; routing through
+// safeFs caused an indefinite hang during git.resolveRef on iCloud-backed vaults
+// (2026-05-16). The repo also lives outside the vault now (2026-05-19), so
+// vault.adapter is no longer an option for repo-internal I/O.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- see comment above
 const rawFs = require('fs') as typeof import('fs');
 import { TFile, TFolder, type App, type Vault } from 'obsidian';
 import { refreshOpenMarkdownViewsFor } from '../utils/refreshMarkdownView';
