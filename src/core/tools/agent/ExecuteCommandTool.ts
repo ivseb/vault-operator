@@ -82,7 +82,7 @@ export class ExecuteCommandTool extends BaseTool<'execute_command'> {
             // executeCommandById returns.
             const capture = await withNoticeCapture(
                 globalThis as { Notice?: unknown },
-                async () => {
+                () => {
                     this.app.commands.executeCommandById(commandId);
                 },
             );

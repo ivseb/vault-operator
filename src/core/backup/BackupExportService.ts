@@ -222,7 +222,7 @@ export async function unpackZip(zipBytes: Uint8Array): Promise<{ files: BackupFi
     const manifestText = await manifestEntry.async('string');
     const manifest = JSON.parse(manifestText) as BackupManifest;
     if (manifest.schemaVersion !== 1) {
-        throw new Error(`Unsupported backup schema version: ${manifest.schemaVersion}`);
+        throw new Error(`Unsupported backup schema version: ${String(manifest.schemaVersion)}`);
     }
     const files: BackupFile[] = [];
     for (const entry of Object.values(zip.files)) {
@@ -325,5 +325,5 @@ export async function readManifest(zipBytes: Uint8Array): Promise<BackupManifest
     const zip = await JSZip.loadAsync(zipBytes);
     const manifestEntry = zip.file(MANIFEST_FILENAME);
     if (!manifestEntry) throw new Error(`Backup ZIP is missing ${MANIFEST_FILENAME}`);
-    return JSON.parse(await manifestEntry.async('string'));
+    return JSON.parse(await manifestEntry.async('string')) as BackupManifest;
 }

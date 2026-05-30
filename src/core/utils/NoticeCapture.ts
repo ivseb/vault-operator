@@ -114,7 +114,7 @@ export async function withNoticeCapture<T>(
     const t0 = Date.now();
 
     const OriginalNotice = globalRef.Notice as
-        | (new (msg: string | DocumentFragment, timeout?: number) => unknown)
+        | (new (msg: string | DocumentFragment, timeout?: number) => unknown) & { prototype: object }
         | undefined;
 
     if (!OriginalNotice || typeof OriginalNotice !== 'function') {
@@ -187,12 +187,12 @@ export async function withNoticeCapture<T>(
     }
     // Mirror the prototype so `instanceof Notice` checks in plugins keep
     // working while the patch is active.
-    PatchedNotice.prototype = OriginalNotice.prototype;
+    PatchedNotice.prototype = (OriginalNotice as { prototype: object }).prototype;
 
     let result: T | undefined;
     let capturedError: Error | null = null;
     try {
-        globalRef.Notice = PatchedNotice as unknown;
+        globalRef.Notice = PatchedNotice;
         try {
             result = await fn();
         } catch (e) {
@@ -202,10 +202,11 @@ export async function withNoticeCapture<T>(
         // raise notices after their command returns still land in capture.
         if (tailMs > 0) {
             await new Promise<void>((res) => {
-                // setTimeout reference falls back to setTimeout when in a non-DOM env
-                const setT = (typeof window !== 'undefined' && typeof window.setTimeout === 'function')
-                    ? window.setTimeout.bind(window)
-                    : (globalThis as { setTimeout: (cb: () => void, ms: number) => unknown }).setTimeout;
+                // setTimeout reference falls back to globalThis when in a non-DOM env.
+                const setT: (cb: () => void, ms: number) => unknown =
+                    (typeof window !== 'undefined' && typeof window.setTimeout === 'function')
+                        ? (window.setTimeout.bind(window) as (cb: () => void, ms: number) => unknown)
+                        : (globalThis as { setTimeout: (cb: () => void, ms: number) => unknown }).setTimeout;
                 setT(() => res(), tailMs);
             });
         }
@@ -214,7 +215,7 @@ export async function withNoticeCapture<T>(
         // M-1 fix: only clear `activePatch` when WE are the active patcher.
         // A defensive guard in case a future caller manages to set
         // activePatch concurrently despite the head-of-function check.
-        globalRef.Notice = OriginalNotice as unknown;
+        globalRef.Notice = OriginalNotice;
         if (activePatch !== null && activePatch.token === ownToken) {
             activePatch = null;
         }

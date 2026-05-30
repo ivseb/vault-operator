@@ -54,6 +54,7 @@ export class ProbePluginTool extends BaseTool<'probe_plugin'> {
         };
     }
 
+    // eslint-disable-next-line @typescript-eslint/require-await -- AgentTool interface contract requires Promise<void>; this tool happens to be fully synchronous (probe reads in-memory app state)
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const pluginId = (input.plugin_id as string ?? '').trim();
