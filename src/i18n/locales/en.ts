@@ -1255,7 +1255,7 @@ export const en: Translations = {
     'modal.modelConfig.browseAvailable': 'Browse available models',
     'modal.modelConfig.loadingModels': 'Loading\u2026',
     'modal.modelConfig.noModelsOllama': 'No models found. Pull one first, e.g.: ollama pull llama3.2',
-    'modal.modelConfig.noModelsUrl': 'No models found at this base URL. If this endpoint does not implement /v1/models, just type the model ID into the Model ID field above and save.',
+    'modal.modelConfig.noModelsUrl': 'No models found at this base URL. If this endpoint does not implement /v1/models, just type the model ID into the field above and save.',
     'modal.modelConfig.ollamaUnreachable': 'Cannot reach the local server. Make sure it is running, then try again.',
     'modal.modelConfig.serverUnreachable': 'Cannot reach server: {{error}}. Check the base URL. If the endpoint does not implement /v1/models, type the model ID manually above and save.',
     // Provider API key hints
