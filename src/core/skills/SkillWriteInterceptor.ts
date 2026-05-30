@@ -45,20 +45,19 @@ export class SkillWriteInterceptor {
      */
     install(): void {
         if (this.installed) return;
-        this.originalWrite = this.adapter.write.bind(this.adapter);
+        this.originalWrite = this.adapter.write.bind(this.adapter) as AdapterLike['write'];
         if (typeof this.adapter.writeBinary === 'function') {
-            this.originalWriteBinary = this.adapter.writeBinary.bind(this.adapter);
+            this.originalWriteBinary = this.adapter.writeBinary.bind(this.adapter) as AdapterLike['writeBinary'];
         }
 
-        const self = this;
-        this.adapter.write = async function (path: string, content: string): Promise<void> {
-            await self.maybeSnapshot(path);
-            return self.originalWrite!(path, content);
+        this.adapter.write = async (path: string, content: string): Promise<void> => {
+            await this.maybeSnapshot(path);
+            return this.originalWrite!(path, content);
         };
         if (this.originalWriteBinary) {
-            this.adapter.writeBinary = async function (path: string, content: ArrayBuffer): Promise<void> {
-                await self.maybeSnapshot(path);
-                return self.originalWriteBinary!(path, content);
+            this.adapter.writeBinary = async (path: string, content: ArrayBuffer): Promise<void> => {
+                await this.maybeSnapshot(path);
+                return this.originalWriteBinary!(path, content);
             };
         }
         this.installed = true;

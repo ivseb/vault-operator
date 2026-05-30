@@ -290,7 +290,7 @@ export class BackupTab {
                     await this.plugin.saveSettings();
                 }));
 
-        const last = this.plugin.settings.backup!.lastAutoBackupAt;
+        const last = this.plugin.settings.backup.lastAutoBackupAt;
         if (last > 0) {
             const when = new Date(last).toLocaleString();
             section.createEl('p', {

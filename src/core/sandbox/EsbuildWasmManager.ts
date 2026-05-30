@@ -28,9 +28,10 @@
 
 import { Notice, requestUrl } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- the cache
-// lives outside the vault, so vault.adapter is not an option. Same pattern as
-// GitCheckpointService. Desktop-only; the entire plugin is isDesktopOnly:true.
+// The cache lives outside the vault, so vault.adapter is not an option. Same
+// pattern as GitCheckpointService. Desktop-only; the entire plugin is
+// isDesktopOnly:true.
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- see comment above
 const rawFs = require('fs') as typeof import('fs');
 import * as pathModule from 'path';
 

@@ -2327,8 +2327,7 @@
     min-width: 0;
     cursor: pointer;
 }
-.agent-slider-value,
-.agent-slider-value-editing {
+.agent-slider-value {
     min-width: 38px;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -2346,10 +2345,17 @@
     outline: none;
 }
 .agent-slider-value-editing {
+    min-width: 38px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    color: var(--text-normal);
     padding: 0;
-    background: transparent;
+    border-radius: 4px;
     border: 1px solid var(--background-modifier-border);
+    background: transparent;
     cursor: text;
+    user-select: none;
 }
 .agent-slider-input.agent-slider-input {
     width: 100%;

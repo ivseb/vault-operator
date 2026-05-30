@@ -911,7 +911,7 @@ export class SelfAuthoredSkillLoader {
             description: fm.description,
             trigger,
             triggerSource,
-            source: (fm.source as SelfAuthoredSkill['source']) ?? 'user',
+            source: fm.source ?? 'user',
             requiredTools: fm.requiredTools ? this.parseArray(fm.requiredTools) : [],
             // FEAT-29-10 follow-up: support both camelCase and snake_case
             // so authors using Anthropic-style frontmatter (`allowed_tools`)

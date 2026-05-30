@@ -88,7 +88,7 @@ export function addSectionHeading(
             text: opts.inlineHint,
         });
     }
-    return heading as HTMLHeadingElement;
+    return heading;
 }
 
 /**
