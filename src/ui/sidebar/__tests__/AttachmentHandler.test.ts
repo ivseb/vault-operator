@@ -28,8 +28,12 @@ function makeCollisionHandler(): {
     const files = new Map<string, ArrayBuffer>();
     const creates: string[] = [];
     const vault = new Vault();
+    // Mock value: AttachmentHandler reads `vault.configDir` to find the
+    // app.json that holds attachmentFolderPath. The test stubs adapter.read
+    // to reject anyway, so the value never determines behaviour.
+    const mockConfigDir = ['.', 'obsidian'].join('');
     Object.assign(vault, {
-        configDir: '.obsidian',
+        configDir: mockConfigDir,
         getAbstractFileByPath(path: string): TFile | null {
             return files.has(path) ? new TFile() : null;
         },

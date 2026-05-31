@@ -49,7 +49,9 @@ export function* flushToolCallAccumulators(
         }
         let input: Record<string, unknown> = {};
         try {
-            input = acc.argumentsJson.trim() ? JSON.parse(acc.argumentsJson) : {};
+            input = acc.argumentsJson.trim()
+                ? (JSON.parse(acc.argumentsJson) as Record<string, unknown>)
+                : {};
         } catch (e) {
             // BUG-032 / FIX-18-04-03: surface as tool_error so AgentTask
             // increments the mistake counter; with wasMaxTokens=true the
