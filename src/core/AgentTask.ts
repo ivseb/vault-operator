@@ -849,6 +849,22 @@ export class AgentTask {
         // until the task ends.
         const activatedDeferredTools = new Set<string>();
 
+        // ADR-26 Recall-feeds-Retrieval: when consult returned a learned
+        // `sequence` decision, pre-activate every DEFERRED TOOL on that
+        // path so the schemas are already in the very first prompt and
+        // find_tool is unnecessary for the path-tools. Only tool ids are
+        // pre-activated -- skill:* / mcp:* / subagent:* ids are reached by
+        // the agent through their own dispatch tools, not by schema
+        // injection. We pre-activate even ids the daemon learned for tools
+        // that are NOT currently deferred: the activated-set is a no-op for
+        // already-visible tools (isDeferredTool gate inside the helper),
+        // so the loop stays correct when the daemon's view drifts.
+        for (const id of guidance.path) {
+            if (isDeferredTool(id)) {
+                activatedDeferredTools.add(id);
+            }
+        }
+
         // EPIC-26 / FEAT-26-01 / ADR-120: reminder is rebuilt as part of the
         // prompt cache. The closure captures the current value of
         // `consecutiveMistakes` (defined above) so a transition into
@@ -934,15 +950,23 @@ export class AgentTask {
                 cachedTools = cachedTools.filter((t) => t.name !== 'consult_flagship');
             }
 
-            // Stigmergy: reorder the final tool list by per-turn ranking.
-            // NOTHING IS HIDDEN -- every tool the agent had before stays in
-            // the list; only the ORDER changes. When the turn is disabled
-            // (daemon down / SDK missing / Studio off) orderTools returns a
-            // shallow copy unchanged. The model still sees the full surface
-            // so a stale ranking can never block a tool the agent needs.
+            // ADR-26 / Recall-feeds-Retrieval contract: Stigmergy is NOT a
+            // second tool selector and MUST NOT reorder the tool block --
+            // VOs own find_tool / progressive disclosure is the precise
+            // default selector. Reordering would compete with that selector,
+            // could downgrade a good pick, and would break the prompt cache
+            // because the model sees the tool array in a per-turn-dependent
+            // order. cachedTools stays in VOs registered order.
+            //
+            // Stigmergy's surfacing signal is delivered earlier in run():
+            // for a learned `sequence` decision, pathGuidance.path lists the
+            // tools the daemon expects on this task; deferred tool ids in
+            // that path are pre-activated via activateDeferredTool BEFORE
+            // the prompt cache is built, so their schemas are already in
+            // cachedTools when this builder runs. find_tool is unaffected
+            // when the path is unknown.
             // Per-tool capability_invoked/returned events are emitted at the
             // real dispatch point in ToolExecutionPipeline.executeTool().
-            cachedTools = stigmergyTurn.orderTools(cachedTools, (t) => t.name);
 
             cachedPromptMode = activeMode.slug;
             cacheInvalidated = false;

@@ -120,7 +120,17 @@ export interface StigmergyTurn {
      * that means appending it to the latest user message as an extra text
      * block, NOT prepending it to the system prompt.
      */
-    pathGuidance: (descOf?: (id: string) => string | undefined) => { text: string };
+    /**
+     * Short, model-facing hint built from the consult decision, plus the
+     * raw capability path it was built from. `path` carries the ordered
+     * capability ids for a `sequence` decision (next step first); empty
+     * for `ranked` / `enforce` / disabled turns. `text` is the rendered
+     * guidance string the caller appends AFTER the cached prefix; empty
+     * when there is nothing useful to say. The caller uses `path` to
+     * pre-activate deferred tool ids before the prompt cache is built
+     * (ADR-26 Recall-feeds-Retrieval) and `text` as the per-turn hint.
+     */
+    pathGuidance: (descOf?: (id: string) => string | undefined) => { path: string[]; text: string };
     /** Wrap the tool list before it is shown to the model. Returns the same shape. */
     instrument: (tools: ToolDefinition[]) => ToolDefinition[];
     /**
@@ -174,7 +184,7 @@ const NOOP_TURN: StigmergyTurn = {
     taskId: '',
     instrument: (t) => t,
     orderTools: (tools) => Array.from(tools),
-    pathGuidance: () => ({ text: '' }),
+    pathGuidance: () => ({ path: [], text: '' }),
     emitInvoked: async () => { /* noop */ },
     emitReturned: async () => { /* noop */ },
     end: async () => { /* noop */ },
@@ -495,7 +505,7 @@ export async function beginStigmergyTurn(params: {
                     .map((x) => x.t);
             },
             pathGuidance: (descOf) => {
-                if (!enabled || !decision) return { text: '' };
+                if (!enabled || !decision) return { path: [], text: '' };
                 // AUDIT-035 L-1 + I-3: capability descriptions can come from
                 // external sources (MCP-tool descriptions are server-provided,
                 // skill descriptions come from user-authored frontmatter).
@@ -527,14 +537,20 @@ export async function beginStigmergyTurn(params: {
                         : s.slice(0, MAX_GUIDANCE_CHARS) + '\n...(truncated)';
                 if (decision.mode === 'sequence') {
                     const fullPath = [decision.nextCapability, ...(decision.remainingPath ?? [])];
-                    if (fullPath.length === 0) return { text: '' };
+                    if (fullPath.length === 0) return { path: [], text: '' };
                     // Slice long learned paths to the first 10 steps and add
                     // a trailer so the model still sees the next move first.
                     const shown = fullPath.length > 10 ? fullPath.slice(0, 10) : fullPath;
                     const trailer = fullPath.length > shown.length
                         ? `\n...(and ${fullPath.length - shown.length} more steps)`
                         : '';
+                    // ADR-26: `path` carries the FULL ordered capability list
+                    // (not the sliced display list) so the caller can pre-
+                    // activate every deferred tool on the learned path, not
+                    // just the first 10. The substrate may pin a longer
+                    // sequence than we want to inline.
                     return {
+                        path: fullPath.slice(),
                         text: cap(
                             'Stigmergy has a pinned sequence for this kind of task:\n'
                             + shown.map(line).join('\n')
@@ -545,18 +561,24 @@ export async function beginStigmergyTurn(params: {
                 }
                 if (decision.mode === 'enforce') {
                     const ids = decision.ranked.slice(0, 5).map((r) => r.capabilityId);
-                    if (ids.length === 0) return { text: '' };
+                    if (ids.length === 0) return { path: [], text: '' };
+                    // `enforce` is a pinned SET, not a sequence. The loop
+                    // SDK's PathGuidance.path is empty for enforce decisions
+                    // (no single learned path applies); we mirror that so
+                    // the caller does not pre-activate set entries as if
+                    // they were a path. Set semantics belongs in the text.
                     return {
+                        path: [],
                         text: cap(
                             'Stigmergy requires the next capability from this pinned set (best first):\n'
                             + ids.map(line).join('\n'),
                         ),
                     };
                 }
-                // mode === 'ranked': observe-only, no guidance text. The
-                // re-ordering done by orderTools is the entire surfacing
-                // signal at this stage.
-                return { text: '' };
+                // mode === 'ranked': observe-only, no guidance text and no
+                // pre-activation. VOs own find_tool / progressive disclosure
+                // stays the precise default selector.
+                return { path: [], text: '' };
             },
             emitInvoked: async (capabilityId) => {
                 if (!enabled) return;
