@@ -27,10 +27,21 @@ import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
-import { getSubagentProfile } from './agent/subagent-profiles';
+import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { getHelperApi } from './helper-api';
 import { buildApiHandlerForModel } from '../api';
 import { CompositionStackService } from './skills/CompositionStackService';
+import {
+    beginStigmergyTurn,
+    registerCapabilitiesIfChanged as registerStigmergyCapabilitiesIfChanged,
+    stigmergyMcpId,
+    stigmergyPromptOf,
+    stigmergySkillId,
+    stigmergySubagentId,
+    type CapabilityDescriptor,
+    type McpCapabilityDescriptor,
+    type StigmergyTurn,
+} from './stigmergy/StigmergyAdapter';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
@@ -335,8 +346,170 @@ export class AgentTask {
         // contribute to it. Pipeline mutates on each successful read.
         const readFiles = new Set<string>();
 
-        // Add user message to the shared history
-        history.push({ role: 'user', content: userMessage });
+        // Stigmergy observability turn -- consult BEFORE the user message is
+        // pushed to history, so we can append pathGuidance to it cache-safely
+        // (the cached prefix is system + tools schema; the messages tail is
+        // not cached, so appending here does not invalidate the cache).
+        // Phase 1: the adapter NEVER hides a tool -- orderTools only reorders,
+        // pathGuidance only emits text in pinned/enforce modes. When the
+        // daemon is down or Stigmergy is toggled off, every call is a no-op
+        // and the loop runs exactly as before. Capability registration is
+        // hash-gated and re-runs only when the inventory actually changed.
+        //
+        // candidate_ids now span ALL FOUR explorable surfaces -- tools,
+        // skills, MCP tools, subagent profiles -- so consult can rank them
+        // jointly. Ids are namespaced (skill:*, mcp:server:*, subagent:*)
+        // exactly the way the inner-dispatch emits encode them; that
+        // alignment is what keeps the substrate from accumulating phantom
+        // capability nodes that never see edges.
+        //
+        // VO/Stigmergy contract: candidate_ids MUST equal the registered
+        // capability set (Cooperation Building Block 2). The mode-filtered
+        // tool list excludes deferred tools (FEATURE-1600 / find_tool /
+        // progressive disclosure), but those tools ARE registered with the
+        // daemon. If consult only saw the mode-filtered set, a learned path
+        // that runs through a deferred tool could never re-fire -- the
+        // consult would never know that tool was a candidate. Use the full
+        // registered tool set here so registration-superset == consult-set.
+        //
+        // The mode-filtered set still drives the prompt-cache `cachedTools`
+        // surface the model sees (orderTools is applied there); deferred
+        // tools stay deferred from the LLM until find_tool activates them.
+        // Stigmergy is RECALL, not a second tool selector -- VO's own
+        // progressive disclosure remains the precise default selector.
+        const fullRegisteredTools = this.toolRegistry.getToolDefinitions();
+        const stigmergyCandidates = fullRegisteredTools;
+
+        const pluginForStigmergy = this.toolRegistry.plugin as unknown as {
+            selfAuthoredSkillLoader?: { getAllSkills(): Array<{ name: string; description: string }> };
+            skillsManager?: { discoverSkills(): Promise<Array<{ name: string; description: string }>> };
+        };
+        const stigmergySkillsList: CapabilityDescriptor[] = [];
+        const seenSkillNames = new Set<string>();
+        const addSkill = (name: string, description: string): void => {
+            if (!name || seenSkillNames.has(name)) return;
+            seenSkillNames.add(name);
+            stigmergySkillsList.push({ name, description });
+        };
+        try {
+            for (const s of pluginForStigmergy.selfAuthoredSkillLoader?.getAllSkills() ?? []) {
+                addSkill(s.name, s.description);
+            }
+        } catch (e) {
+            console.debug('[Stigmergy] self-authored skill enumeration failed (non-fatal):',
+                e instanceof Error ? e.message : e);
+        }
+        try {
+            const userSkills = (await pluginForStigmergy.skillsManager?.discoverSkills()) ?? [];
+            for (const s of userSkills) addSkill(s.name, s.description);
+        } catch (e) {
+            console.debug('[Stigmergy] user skill enumeration failed (non-fatal):',
+                e instanceof Error ? e.message : e);
+        }
+
+        const stigmergyMcpList: McpCapabilityDescriptor[] = [];
+        if (mcpClient) {
+            try {
+                const allowed = allowedMcpServers;
+                const serverAllowed = (name: string): boolean =>
+                    !allowed || allowed.length === 0 || allowed.includes(name);
+                for (const { serverName, tool } of mcpClient.getAllTools()) {
+                    if (!serverAllowed(serverName)) continue;
+                    stigmergyMcpList.push({
+                        server: serverName,
+                        name: tool.name,
+                        description: tool.description ?? '',
+                    });
+                }
+            } catch (e) {
+                console.debug('[Stigmergy] mcp tool enumeration failed (non-fatal):',
+                    e instanceof Error ? e.message : e);
+            }
+        }
+
+        const stigmergySubagentList: CapabilityDescriptor[] = listSubagentProfileNames()
+            .map((name) => {
+                const p = getSubagentProfile(name);
+                return p ? { name: p.name, description: p.description } : null;
+            })
+            .filter((x): x is CapabilityDescriptor => x !== null);
+
+        await registerStigmergyCapabilitiesIfChanged({
+            tools: fullRegisteredTools,
+            skills: stigmergySkillsList,
+            mcp: stigmergyMcpList,
+            subagents: stigmergySubagentList,
+        });
+
+        const stigmergyCandidateIds: string[] = [
+            ...stigmergyCandidates.map((t) => t.name as string),
+            ...stigmergySkillsList.map((s) => stigmergySkillId(s.name)),
+            ...stigmergyMcpList.map((m) => stigmergyMcpId(m.server, m.name)),
+            ...stigmergySubagentList.map((a) => stigmergySubagentId(a.name)),
+        ];
+        const stigmergyTurn: StigmergyTurn = await beginStigmergyTurn({
+            taskId,
+            prompt: stigmergyPromptOf(userMessage),
+            candidateIds: stigmergyCandidateIds,
+        });
+        // Bind the turn to the per-task pipeline so the single-tool dispatch
+        // point can emit capability_invoked / capability_returned around
+        // tool.execute(). Without this, the daemon only sees START->tool
+        // (from capability_loaded) and never tool->tool edges.
+        pipeline.setStigmergyTurn(stigmergyTurn);
+
+        // VO/Stigmergy contract: outcome grading (Cooperation Building Block 1).
+        // The finally below MUST grade the turn, not unconditionally accept
+        // it. A flailing run that ended in find_tool / tool errors must not
+        // reinforce the same path the same way a clean attempt_completion
+        // does -- otherwise consult would learn to recommend bad shortcuts.
+        // Resolution rules (first matching wins, defaults to 'abandon'):
+        //   - clean attempt_completion, no abort/error -> 'accept'
+        //   - normal end without attempt_completion (iteration cap, hard
+        //     limit recovery, model stopped early)             -> 'iterate'
+        //   - abort, thrown error, circuit-breaker trip,
+        //     network/API failure                              -> 'abandon'
+        // Set at the three return sites in run(); the finally reads it.
+        let stigmergyOutcome: 'accept' | 'iterate' | 'abandon' = 'abandon';
+
+        // pathGuidance: when Stigmergy has a pinned sequence or pinned-set for
+        // this task, append the hint as an extra text block on the SAME user
+        // message. Two consecutive role:'user' messages would violate the
+        // Anthropic alternation contract, so we merge into one. The text is
+        // appended at the END of the content array, after the cached system +
+        // tools schema, so the prompt cache stays valid.
+        // The descOf map spans all four surfaces so a pinned `skill:*` /
+        // `mcp:*` / `subagent:*` id in the guidance text gets a readable
+        // description, not a bare id.
+        const stigmergyDescById = new Map<string, string>();
+        for (const t of stigmergyCandidates) {
+            stigmergyDescById.set(t.name as string, t.description ?? '');
+        }
+        for (const s of stigmergySkillsList) {
+            stigmergyDescById.set(stigmergySkillId(s.name), s.description);
+        }
+        for (const m of stigmergyMcpList) {
+            stigmergyDescById.set(stigmergyMcpId(m.server, m.name), m.description);
+        }
+        for (const a of stigmergySubagentList) {
+            stigmergyDescById.set(stigmergySubagentId(a.name), a.description);
+        }
+        const guidance = stigmergyTurn.pathGuidance((id) => stigmergyDescById.get(id));
+        const userMessageWithGuidance: typeof userMessage = guidance.text
+            ? (typeof userMessage === 'string'
+                ? [
+                    { type: 'text', text: userMessage },
+                    { type: 'text', text: guidance.text },
+                ]
+                : [...userMessage, { type: 'text', text: guidance.text }])
+            : userMessage;
+        history.push({ role: 'user', content: userMessageWithGuidance });
+        // Phase 2 hook (intentionally inert): once we trust the ranking, swap
+        // the candidate set to `stigmergyTurn.surfaced` here, gated behind a
+        // user setting. Phase 1 keeps the full tool list so the daemon can
+        // learn from the unbiased baseline.
+        // const useSurfacedOnly = false;
+        // if (useSurfacedOnly && stigmergyTurn.surfaced.length > 0) { ... }
 
         // v2.10.0: TaskRouter. Classify the user prompt; route simple
         // tool tasks onto the helper model so trivial xlsx / docx / file
@@ -626,26 +799,42 @@ export class AgentTask {
                 this.compositionStack, // FEAT-29-10: share stack by reference
             );
 
-            await childTask.run({
-                userMessage: childMessage,
-                taskId: `${taskId}-sub-${Date.now()}`,
-                initialMode: profile ? 'agent' : childMode,
-                history: childHistory,
-                abortSignal,
-                globalCustomInstructions,
-                includeTime,
-                // Profile spawn: drop the parent's rules/mcp/plugin-skills set
-                // entirely. The profile's roleDefinition + allowedTools is the
-                // full scope.
-                rulesContent: profile ? undefined : rulesContent,
-                skillDirectorySection, // subtask-gated to '' inside buildSystemPromptForMode -- pass-through anyway
-                mcpClient: profile ? undefined : mcpClient,
-                allowedMcpServers: profile ? undefined : allowedMcpServers,
-                pluginSkillsSection: profile ? undefined : pluginSkillsSection,
-                subagentRoleOverride: profile?.roleDefinition,
-                subagentAllowedTools: effectiveAllowedTools,
-                configDir,
-            });
+            // Stigmergy: emit at the inner dispatch when the spawn is a
+            // PROFILE spawn -- those are the ones with a stable, namespaced
+            // `subagent:<profile>` id the daemon can rank. Anonymous
+            // new_task spawns have no canonical id (the child mode/message
+            // are too freeform), so we leave them as their outer
+            // `new_task`-tool emission and skip the subagent layer.
+            // Captures the outer `stigmergyTurn` from the run() scope.
+            const stigmergyOn = profile !== undefined && stigmergyTurn.enabled === true;
+            const capId = profile !== undefined ? stigmergySubagentId(profile.name) : '';
+            if (stigmergyOn) await stigmergyTurn.emitInvoked(capId);
+            let subagentOk = false;
+            try {
+                await childTask.run({
+                    userMessage: childMessage,
+                    taskId: `${taskId}-sub-${Date.now()}`,
+                    initialMode: profile ? 'agent' : childMode,
+                    history: childHistory,
+                    abortSignal,
+                    globalCustomInstructions,
+                    includeTime,
+                    // Profile spawn: drop the parent's rules/mcp/plugin-skills set
+                    // entirely. The profile's roleDefinition + allowedTools is the
+                    // full scope.
+                    rulesContent: profile ? undefined : rulesContent,
+                    skillDirectorySection, // subtask-gated to '' inside buildSystemPromptForMode -- pass-through anyway
+                    mcpClient: profile ? undefined : mcpClient,
+                    allowedMcpServers: profile ? undefined : allowedMcpServers,
+                    pluginSkillsSection: profile ? undefined : pluginSkillsSection,
+                    subagentRoleOverride: profile?.roleDefinition,
+                    subagentAllowedTools: effectiveAllowedTools,
+                    configDir,
+                });
+                subagentOk = true;
+            } finally {
+                if (stigmergyOn) await stigmergyTurn.emitReturned(capId, subagentOk);
+            }
             return childText;
         };
 
@@ -745,6 +934,16 @@ export class AgentTask {
                 cachedTools = cachedTools.filter((t) => t.name !== 'consult_flagship');
             }
 
+            // Stigmergy: reorder the final tool list by per-turn ranking.
+            // NOTHING IS HIDDEN -- every tool the agent had before stays in
+            // the list; only the ORDER changes. When the turn is disabled
+            // (daemon down / SDK missing / Studio off) orderTools returns a
+            // shallow copy unchanged. The model still sees the full surface
+            // so a stale ranking can never block a tool the agent needs.
+            // Per-tool capability_invoked/returned events are emitted at the
+            // real dispatch point in ToolExecutionPipeline.executeTool().
+            cachedTools = stigmergyTurn.orderTools(cachedTools, (t) => t.name);
+
             cachedPromptMode = activeMode.slug;
             cacheInvalidated = false;
         };
@@ -821,6 +1020,7 @@ export class AgentTask {
         const RATE_LIMIT_BASE_WAIT_MS = 30_000;
         let rateLimitRetries = 0;
 
+        try {
         while (true) {
         try {
             for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
@@ -1416,6 +1616,16 @@ export class AgentTask {
                 outcome: 'completed',
             });
 
+            // VO/Stigmergy: grade the turn at the normal success-exit.
+            // `completionResult !== null` means the model called
+            // attempt_completion -> accept (full reinforcement). Reaching
+            // this exit without a completion means the agent ran out of
+            // iterations or the hard-limit recovery fired -> iterate
+            // (weaker reward, signals "revision needed"). A flailing run
+            // that tripped the circuit breaker never lands here -- it
+            // throws into the catch below and gets graded 'abandon'.
+            stigmergyOutcome = completionResult !== null ? 'accept' : 'iterate';
+
             this.taskCallbacks.onComplete();
             return;  // Success — exit the emergency retry loop
         } catch (error) {
@@ -1435,6 +1645,9 @@ export class AgentTask {
                     iterations: telemetryIterations,
                     outcome: 'aborted',
                 });
+                // VO/Stigmergy: abort is negative evidence -- no
+                // reinforcement of whatever partial path the agent took.
+                stigmergyOutcome = 'abandon';
                 this.taskCallbacks.onComplete();
                 return;
             }
@@ -1523,9 +1736,31 @@ export class AgentTask {
                 console.error('[AgentTask] Task failed:', err);
                 this.taskCallbacks.onError(err);
             }
+            // VO/Stigmergy: thrown error (parse failure, circuit-breaker
+            // trip from consecutive tool errors, API/network failure after
+            // retries) is negative evidence -- no reinforcement.
+            stigmergyOutcome = 'abandon';
             return;  // Error — exit the emergency retry loop
         }
         } // while (true) — emergency condensing retry loop
+        } finally {
+            // VO/Stigmergy: outcome-graded resolution. The default is
+            // 'abandon' so any unexpected exit path (e.g. a future return
+            // someone forgets to grade) lands on the safe side: no
+            // reinforcement of an unverified path. accept/iterate/abandon
+            // are first-resolver-wins inside the adapter, so re-entry is
+            // safe. `end()` is always called -- it just marks the turn as
+            // delivered for the auto-accept timer; the resolution decides
+            // what actually happens to the substrate.
+            await stigmergyTurn.end();
+            if (stigmergyOutcome === 'accept') {
+                await stigmergyTurn.accept(totalInputTokens + totalOutputTokens);
+            } else if (stigmergyOutcome === 'iterate') {
+                await stigmergyTurn.iterate();
+            } else {
+                await stigmergyTurn.abandon();
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

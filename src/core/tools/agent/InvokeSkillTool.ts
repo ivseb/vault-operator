@@ -28,6 +28,7 @@ import {
     CompositionCycleError,
     CompositionDepthExceededError,
 } from '../../skills/CompositionStackService';
+import { stigmergySkillId } from '../../stigmergy/StigmergyAdapter';
 
 interface InvokeSkillArgs {
     skill_name: string;
@@ -150,6 +151,16 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             return;
         }
 
+        // Stigmergy: emit at the inner dispatch (the spawn itself) with a
+        // namespaced skill id so the substrate sees `skill:<name>` as a
+        // first-class capability and not just the outer `invoke_skill`
+        // dispatcher star. Pipeline still emits `invoke_skill`
+        // invoked/returned around the whole call.
+        const stigmergyTurn = context.stigmergyTurn;
+        const stigmergyOn = stigmergyTurn?.enabled === true;
+        const capId = stigmergySkillId(skillName);
+        if (stigmergyOn) await stigmergyTurn.emitInvoked(capId);
+        let invokedOk = false;
         try {
             const message = this.composeSubtaskMessage(skillName, skill.body, subArgs);
             // FEAT-29-10 follow-up: clamp args.max_iterations to the hard
@@ -176,6 +187,7 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
                 result: subResult,
             }, null, 2)));
             callbacks.log(`Invoked sub-skill: ${skillName} (depth ${compositionStack.depth()}, maxIter=${maxIterations}, tools=${allowedTools?.length ?? 'inherit'})`);
+            invokedOk = true;
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             callbacks.pushToolResult(this.formatError(
@@ -185,6 +197,7 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             // Pop unconditionally so a failed spawn does not leave the
             // stack in a bad state.
             compositionStack.pop();
+            if (stigmergyOn) await stigmergyTurn.emitReturned(capId, invokedOk);
         }
     }
 

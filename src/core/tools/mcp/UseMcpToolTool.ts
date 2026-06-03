@@ -9,6 +9,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { McpClient } from '../../mcp/McpClient';
+import { stigmergyMcpId } from '../../stigmergy/StigmergyAdapter';
 
 interface UseMcpToolInput {
     server_name: string;
@@ -80,11 +81,26 @@ export class UseMcpToolTool extends BaseTool<'use_mcp_tool'> {
             return;
         }
 
+        // Stigmergy: emit at the INNER dispatch point with the namespaced
+        // mcp id, so the substrate sees the real `mcp:<server>:<tool>`
+        // capability and not just the outer dispatcher `use_mcp_tool` star
+        // (the pipeline already emits the outer pair). callTool catches
+        // transport errors and returns an "Error: ..." string instead of
+        // throwing, so we treat both shapes as negative evidence.
+        const stigmergyTurn = context.stigmergyTurn;
+        const stigmergyOn = stigmergyTurn?.enabled === true;
+        const capId = stigmergyMcpId(server_name, tool_name);
+        if (stigmergyOn) await stigmergyTurn.emitInvoked(capId);
+
         try {
             const result = await this.mcpClient.callTool(server_name, tool_name, args);
             callbacks.pushToolResult(result);
             callbacks.log(`MCP tool ${server_name}/${tool_name} returned ${result.length} chars`);
+            if (stigmergyOn) {
+                await stigmergyTurn.emitReturned(capId, !result.startsWith('Error'));
+            }
         } catch (error) {
+            if (stigmergyOn) await stigmergyTurn.emitReturned(capId, false);
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('use_mcp_tool', error);
         }

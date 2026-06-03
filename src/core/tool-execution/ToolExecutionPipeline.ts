@@ -28,6 +28,7 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
+import type { StigmergyTurn } from '../stigmergy/StigmergyAdapter';
 
 /**
  * FEAT-24-03 (ADR-63 amendment): hard ceiling on the characters of any single
@@ -228,6 +229,15 @@ export class ToolExecutionPipeline {
     /** ADR-063: Context Externalization — large results written to temp files. */
     private resultExternalizer: ResultExternalizer | null = null;
 
+    /**
+     * Active Stigmergy turn for this task (set once after `loop.beginTurn`).
+     * The pipeline emits `capability_invoked` / `capability_returned` around
+     * each single-tool dispatch so the daemon can learn real tool->tool
+     * trails (not just START->tool stars). Undefined or `enabled=false`
+     * means observe-only mode is off and emits are skipped on the fast path.
+     */
+    private stigmergyTurn?: StigmergyTurn;
+
 
     /** Tools eligible for result caching (read-only, deterministic within a task). */
     private static readonly CACHEABLE = new Set([
@@ -262,6 +272,16 @@ export class ToolExecutionPipeline {
     /** ADR-063: Get the externalizer (for Fast Path to disable during batch). */
     getExternalizer(): ResultExternalizer | null {
         return this.resultExternalizer;
+    }
+
+    /**
+     * Bind the Stigmergy turn used to instrument the single-tool dispatch.
+     * Called by AgentTask right after `loop.beginTurn(...)` returns. The
+     * turn carries its own enabled-gate, so passing a no-op turn (daemon
+     * down / SDK missing / Studio toggle off) is safe.
+     */
+    setStigmergyTurn(turn: StigmergyTurn): void {
+        this.stigmergyTurn = turn;
     }
 
     /** ADR-063: Clean up temp files after task completion. */
@@ -420,9 +440,37 @@ export class ToolExecutionPipeline {
                 invalidateToolCache: extensions?.invalidateToolCache,
                 activateDeferredTool: extensions?.activateDeferredTool,
                 getReadFiles: extensions?.readFiles ? () => extensions.readFiles! : undefined,
+                // Stigmergy turn: dispatcher tools (use_mcp_tool, read_skill,
+                // invoke_skill) emit additional namespaced events for the
+                // inner capability (mcp:<server>:<tool>, skill:<name>) so
+                // the substrate sees real tool->skill / tool->mcp edges,
+                // not just dispatcher stars. The turn is a no-op when
+                // Stigmergy is off / the daemon is down, so passing it
+                // through unconditionally is safe.
+                stigmergyTurn: this.stigmergyTurn,
             };
 
-            await tool.execute(toolCall.input, context);
+            // Stigmergy: emit capability_invoked BEFORE the dispatch and
+            // capability_returned AFTER, so the daemon can build tool->tool
+            // edges instead of only START->tool stars. The id MUST match what
+            // we registered with registerCapability (toolCall.name == tool
+            // definition name == capability id), otherwise phantom
+            // capabilities would appear in the substrate.
+            // The turn handle itself is non-fatal: emit failures are logged
+            // and swallowed so they cannot mask the tool's own error.
+            // `success=false` covers BOTH a throw AND the codebase's
+            // pushToolResult('<error>...') convention (executionHadError),
+            // since both are negative evidence for the substrate.
+            const stigmergyTurn = this.stigmergyTurn;
+            const stigmergyOn = stigmergyTurn?.enabled === true;
+            if (stigmergyOn) await stigmergyTurn.emitInvoked(toolCall.name);
+            try {
+                await tool.execute(toolCall.input, context);
+            } catch (e) {
+                if (stigmergyOn) await stigmergyTurn.emitReturned(toolCall.name, false);
+                throw e;
+            }
+            if (stigmergyOn) await stigmergyTurn.emitReturned(toolCall.name, !executionHadError);
 
             // FIX-H: track successful file reads for todo-verification (ADR-090 follow-up)
             // Must happen BEFORE the hallucination scan below so this same call's
