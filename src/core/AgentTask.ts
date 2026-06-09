@@ -113,8 +113,12 @@ export interface AgentTaskCallbacks {
      * (success, iteration-cap, abort, error) so RecipePromotion sees the
      * full picture. Fields:
      *   - toolSequence / toolLedger: existing ADR-018 payload.
-     *   - success: true ONLY when `stigmergyOutcome === 'accept'` AND
-     *     `mistakesEncountered === 0` AND `attemptCompletionFired`.
+     *   - success: true when `stigmergyOutcome === 'accept'` AND
+     *     `mistakesEncountered === 0` AND (`attemptCompletionFired` OR
+     *     the turn was a clean natural exit -- streamed text, used at
+     *     least one tool, no errors, no iteration-cap hit). The natural-
+     *     exit branch covers read-only / question tasks where the prompt
+     *     deliberately steers the model away from attempt_completion.
      *   - mistakesEncountered: total tool errors during the loop.
      *   - attemptCompletionFired: whether the model called attempt_completion.
      *   - fastPathFired: whether the ADR-061 FastPath block ran successfully.
@@ -508,7 +512,22 @@ export class AgentTask {
         //   - abort, thrown error, circuit-breaker trip,
         //     network/API failure                              -> 'abandon'
         // Set at the three return sites in run(); the finally reads it.
-        let stigmergyOutcome: 'accept' | 'iterate' | 'abandon' = 'abandon';
+        let stigmergyOutcome: 'accept' | 'abandon' = 'abandon';
+        // FIX 2026-06-09 (Stigmergy substrate starvation RCA): a turn
+        // graded 'iterate' previously called stigmergyTurn.iterate(),
+        // which the upstream loop SDK uses to CANCEL the daemon's auto-
+        // accept timer AND leak the response buffer without depositing
+        // any edges in the substrate. With the prompt explicitly
+        // forbidding attempt_completion for read-only / question tasks
+        // (toolRules.ts:19, toolRouting.ts:33, AttemptCompletionTool.ts
+        // description), every clean read-only turn ended on 'iterate'
+        // and the substrate accumulated zero edges -- so no pin could
+        // ever form and no RecipePromotion shortcut could ever fire.
+        // The grading is now binary: a clean natural exit (streamed
+        // text, no errors, didn't hit the cap) is reinforcement-worthy
+        // (accept). Iteration-cap and error exits are negative evidence
+        // (abandon). The 'iterate' state is gone.
+        let cleanNaturalExit = false;
 
         // pathGuidance: when Stigmergy has a pinned sequence or pinned-set for
         // this task, append the hint as an extra text block on the SAME user
@@ -1759,14 +1778,32 @@ export class AgentTask {
             });
 
             // VO/Stigmergy: grade the turn at the normal success-exit.
-            // `completionResult !== null` means the model called
-            // attempt_completion -> accept (full reinforcement). Reaching
-            // this exit without a completion means the agent ran out of
-            // iterations or the hard-limit recovery fired -> iterate
-            // (weaker reward, signals "revision needed"). A flailing run
-            // that tripped the circuit breaker never lands here -- it
-            // throws into the catch below and gets graded 'abandon'.
-            stigmergyOutcome = completionResult !== null ? 'accept' : 'iterate';
+            // FIX 2026-06-09 (substrate starvation RCA): binary grading.
+            // - clean attempt_completion -> accept (full reinforcement).
+            // - clean natural exit (model streamed visible text, used at
+            //   least one tool, no tool errors, didn't hit the iteration
+            //   cap) -> accept. This is the read-only / question shape
+            //   the prompt explicitly steers the model into; reaching it
+            //   IS a successful turn from the user's POV and worth
+            //   reinforcing.
+            // - everything else at the success-exit (iteration cap hit,
+            //   hard-limit recovery firing) -> abandon. The previous
+            //   'iterate' grading triggered loop.iterate() which leaks
+            //   the daemon buffer and deposits nothing, so it was a
+            //   strictly-worse choice than abandon for our flow.
+            const hitIterationCap = telemetryIterations >= MAX_ITERATIONS;
+            const productiveToolWork = repetitionDetector.getToolSequence().length > 0;
+            cleanNaturalExit =
+                completionResult === null
+                && hasStreamedText
+                && productiveToolWork
+                && totalToolErrors === 0
+                && consecutiveMistakes === 0
+                && !hitIterationCap;
+            stigmergyOutcome =
+                (completionResult !== null || cleanNaturalExit)
+                    ? 'accept'
+                    : 'abandon';
 
             this.taskCallbacks.onComplete();
             return;  // Success — exit the emergency retry loop
@@ -1886,19 +1923,24 @@ export class AgentTask {
         }
         } // while (true) — emergency condensing retry loop
         } finally {
-            // VO/Stigmergy: outcome-graded resolution. The default is
-            // 'abandon' so any unexpected exit path (e.g. a future return
-            // someone forgets to grade) lands on the safe side: no
-            // reinforcement of an unverified path. accept/iterate/abandon
-            // are first-resolver-wins inside the adapter, so re-entry is
-            // safe. `end()` is always called -- it just marks the turn as
-            // delivered for the auto-accept timer; the resolution decides
+            // VO/Stigmergy: outcome-graded resolution. Binary: accept or
+            // abandon. The default is 'abandon' so any unexpected exit
+            // path (e.g. a future return someone forgets to grade) lands
+            // on the safe side: no reinforcement of an unverified path.
+            // accept and abandon are first-resolver-wins inside the
+            // adapter, so re-entry is safe. `end()` is always called --
+            // it just marks the turn as delivered; the resolution decides
             // what actually happens to the substrate.
+            // FIX 2026-06-09: 'iterate' was previously a third option
+            // but the upstream loop SDK uses iterate() to CANCEL the
+            // auto-accept timer AND leak the response buffer with zero
+            // deposits. With the prompt forbidding attempt_completion
+            // for read-only tasks, every clean read-only turn ended on
+            // iterate -> substrate accumulated zero edges -> no pin
+            // could ever form. The grading is now binary.
             await stigmergyTurn.end();
             if (stigmergyOutcome === 'accept') {
                 await stigmergyTurn.accept(totalInputTokens + totalOutputTokens);
-            } else if (stigmergyOutcome === 'iterate') {
-                await stigmergyTurn.iterate();
             } else {
                 await stigmergyTurn.abandon();
             }
@@ -1911,10 +1953,17 @@ export class AgentTask {
             try {
                 const toolSeq = repetitionDetector.getToolSequence();
                 if (toolSeq.length > 0) {
+                    // FIX 2026-06-09 (Stigmergy substrate starvation RCA):
+                    // mirror the grading relaxation so RecipePromotion
+                    // (ADR-058 Gate 3 organic 3-similar) is no longer
+                    // starved on the read-only / question task shape that
+                    // the prompt explicitly steers into. A clean natural
+                    // exit counts as success for episode-recording too,
+                    // not just an explicit attempt_completion.
                     const episodeSuccess =
                         stigmergyOutcome === 'accept'
                         && totalToolErrors === 0
-                        && attemptCompletionFired;
+                        && (attemptCompletionFired || cleanNaturalExit);
                     this.taskCallbacks.onEpisodeData?.({
                         toolSequence: toolSeq,
                         toolLedger: repetitionDetector.getLedger(),
