@@ -73,3 +73,76 @@ describe('handleSearchVault graph appendix labels (typed predicates)', () => {
         expect(text).toContain('(widerspricht)');
     });
 });
+
+/**
+ * Retrieval wave 1, item 6: reranker call-site keeps the original fusion
+ * score in `score` and renders the cross-encoder output as a separate
+ * rerank value. Ordering still follows the reranker (rerank wins when
+ * present), and a throwing reranker stays fail-open (fused order).
+ */
+describe('handleSearchVault reranking call-site', () => {
+    function rerankPlugin(
+        rerankScoreByPath: Record<string, number>,
+        opts?: { throwOnRerank?: boolean },
+    ): ObsidianAgentPlugin {
+        return {
+            app: {},
+            settings: {
+                enableReranking: true,
+                enableGraphExpansion: false,
+                enableImplicitConnections: false,
+            },
+            ignoreService: { isIgnored: () => false },
+            rerankerService: {
+                isLoaded: true,
+                rerank: (_q: string, cands: { path: string; text: string; score: number }[]) => {
+                    if (opts?.throwOnRerank) return Promise.reject(new Error('rerank boom'));
+                    return Promise.resolve(
+                        cands
+                            .map((c) => ({ ...c, rerankScore: rerankScoreByPath[c.path] ?? 0 }))
+                            .sort((a, b) => b.rerankScore - a.rerankScore),
+                    );
+                },
+            },
+            implicitConnectionService: undefined,
+            graphStore: undefined,
+            semanticIndex: {
+                isIndexed: true,
+                search: async () => [
+                    { path: 'Notes/A.md', excerpt: 'excerpt A', score: 0.9 },
+                    { path: 'Notes/B.md', excerpt: 'excerpt B', score: 0.8 },
+                ],
+                keywordSearch: async () => [],
+                getChunksByPath: async () => [],
+            },
+        } as unknown as ObsidianAgentPlugin;
+    }
+
+    it('orders by rerank score and renders fusion score plus rerank score', async () => {
+        const r = await handleSearchVault(
+            rerankPlugin({ 'Notes/A.md': 0.2, 'Notes/B.md': 0.9 }),
+            { query: 'test query' },
+        );
+        const text = r.content[0].text;
+        // Reranker output wins the ordering: B before A
+        expect(text.indexOf('Notes/B.md')).toBeGreaterThan(-1);
+        expect(text.indexOf('Notes/B.md')).toBeLessThan(text.indexOf('Notes/A.md'));
+        // Fusion score stays in the score field (RRF: rank 1 = 1/61, rank 2 = 1/62),
+        // the rerank output is rendered separately
+        expect(text).toContain(`score: ${(1 / 62).toFixed(4)}, rerank: 0.9000`);
+        expect(text).toContain(`score: ${(1 / 61).toFixed(4)}, rerank: 0.2000`);
+    });
+
+    it('falls back to the fused order when the reranker throws (fail-open)', async () => {
+        const r = await handleSearchVault(
+            rerankPlugin({}, { throwOnRerank: true }),
+            { query: 'test query' },
+        );
+        const text = r.content[0].text;
+        expect(text.indexOf('Notes/A.md')).toBeGreaterThan(-1);
+        expect(text.indexOf('Notes/A.md')).toBeLessThan(text.indexOf('Notes/B.md'));
+        // No rerank part rendered for un-reranked results
+        expect(text).toContain(`score: ${(1 / 61).toFixed(4)})`);
+        expect(text).not.toContain('rerank:');
+    });
+});

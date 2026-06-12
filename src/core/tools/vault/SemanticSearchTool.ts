@@ -170,7 +170,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                 { weighted: weightedFusion, cosineByPath },
             );
 
-            type HybridEntry = { path: string; excerpt: string; score: number; method: 'semantic' | 'keyword' | 'hybrid' };
+            type HybridEntry = { path: string; excerpt: string; score: number; method: 'semantic' | 'keyword' | 'hybrid'; rerankScore?: number };
             const classify = (contribs: Record<string, number>): HybridEntry['method'] => {
                 const signals = Object.keys(contribs).filter(k => contribs[k] > 0);
                 if (signals.length >= 2) return 'hybrid';
@@ -218,10 +218,15 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
                         query,
                         toRerank.map(r => ({ path: r.path, text: r.excerpt, score: r.score })),
                     );
+                    // Keep the original fusion score in `score`; the
+                    // cross-encoder output rides along as `rerankScore`.
+                    // Ordering still follows the reranker (the service
+                    // returns candidates sorted by rerankScore).
                     results = reranked.map(r => ({
                         path: r.path,
                         excerpt: r.text,
-                        score: r.rerankScore,
+                        score: r.score,
+                        rerankScore: r.rerankScore,
                         method: 'hybrid' as const,
                     }));
                 } catch (e) {

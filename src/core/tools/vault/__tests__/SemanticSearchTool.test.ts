@@ -11,7 +11,7 @@
  *    first-write-wins behavior.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SemanticSearchTool } from '../SemanticSearchTool';
 import type ObsidianAgentPlugin from '../../../../main';
 import type { ToolExecutionContext } from '../../types';
@@ -34,6 +34,13 @@ function ctx(): { ctx: ToolExecutionContext; results: string[]; logs: string[] }
     };
 }
 
+type RerankerStub = {
+    rerank: (
+        query: string,
+        cands: { path: string; text: string; score: number }[],
+    ) => Promise<{ path: string; text: string; score: number; rerankScore: number }[]>;
+};
+
 function mockPlugin(opts: {
     semanticResults?: SemanticResult[];
     keywordResults?: SemanticResult[];
@@ -41,19 +48,20 @@ function mockPlugin(opts: {
     weightedFusionEnabled?: boolean;
     graphNeighbors?: GraphNeighbor[];
     chunksByPath?: Record<string, string[]>;
+    rerankerService?: RerankerStub;
 }): ObsidianAgentPlugin {
     const { semanticResults = [], keywordResults = [], tagResults = [], graphNeighbors, chunksByPath = {} } = opts;
     return {
         app: {},
         settings: {
             hydeEnabled: false,
-            enableReranking: false,
+            enableReranking: opts.rerankerService !== undefined,
             enableGraphExpansion: graphNeighbors !== undefined,
             enableImplicitConnections: false,
             weightedFusionEnabled: opts.weightedFusionEnabled ?? false,
         },
         apiHandler: undefined,
-        rerankerService: undefined,
+        rerankerService: opts.rerankerService,
         graphStore: graphNeighbors !== undefined
             ? { getNeighborsWithImplicit: () => graphNeighbors }
             : undefined,
@@ -301,5 +309,82 @@ describe('SemanticSearchTool graph appendix labels (typed predicates)', () => {
         const out = results[0];
         expect(out).toContain('(similar, confidence: 0.83)');
         expect(out).not.toContain('[contradicts]');
+    });
+});
+
+/**
+ * Retrieval wave 1, item 6: reranker call-site keeps the original fusion
+ * score in `score`, carries the cross-encoder output in `rerankScore`,
+ * and orders results by the reranker output (rerank wins when present).
+ * A throwing reranker stays fail-open: the fused order passes through.
+ */
+describe('SemanticSearchTool reranking call-site', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    function rerankStub(rerankScoreByPath: Record<string, number>): RerankerStub & {
+        received: { path: string; text: string; score: number }[][];
+    } {
+        const received: { path: string; text: string; score: number }[][] = [];
+        return {
+            received,
+            rerank: (_q: string, cands: { path: string; text: string; score: number }[]) => {
+                received.push(cands.map((c) => ({ ...c })));
+                return Promise.resolve(
+                    cands
+                        .map((c) => ({ ...c, rerankScore: rerankScoreByPath[c.path] ?? 0 }))
+                        .sort((a, b) => b.rerankScore - a.rerankScore),
+                );
+            },
+        };
+    }
+
+    function twoResultPlugin(reranker: RerankerStub): ObsidianAgentPlugin {
+        return mockPlugin({
+            semanticResults: [
+                { path: 'Notes/A.md', excerpt: 'excerpt A', score: 0.9, chunkIndex: 0 },
+                { path: 'Notes/B.md', excerpt: 'excerpt B', score: 0.8, chunkIndex: 0 },
+            ],
+            rerankerService: reranker,
+        });
+    }
+
+    it('orders results by rerank score (rerank wins when present)', async () => {
+        const stub = rerankStub({ 'Notes/A.md': 0.1, 'Notes/B.md': 0.9 });
+        const tool = new SemanticSearchTool(twoResultPlugin(stub));
+        const { ctx: c, results } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        const out = results[0];
+        expect(out.indexOf('Notes/B.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/B.md')).toBeLessThan(out.indexOf('Notes/A.md'));
+    });
+
+    it('passes the original fusion scores into the reranker', async () => {
+        const stub = rerankStub({ 'Notes/A.md': 0.1, 'Notes/B.md': 0.9 });
+        const tool = new SemanticSearchTool(twoResultPlugin(stub));
+        const { ctx: c } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        // Plain RRF (flag off in mockPlugin): semantic rank 1 = 1/61, rank 2 = 1/62
+        expect(stub.received).toHaveLength(1);
+        expect(stub.received[0][0].path).toBe('Notes/A.md');
+        expect(stub.received[0][0].score).toBeCloseTo(1 / 61, 10);
+        expect(stub.received[0][1].score).toBeCloseTo(1 / 62, 10);
+    });
+
+    it('keeps the fused order when the reranker throws (fail-open)', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const throwing: RerankerStub = {
+            rerank: () => Promise.reject(new Error('rerank boom')),
+        };
+        const tool = new SemanticSearchTool(twoResultPlugin(throwing));
+        const { ctx: c, results } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        const out = results[0];
+        expect(out.indexOf('Notes/A.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/A.md')).toBeLessThan(out.indexOf('Notes/B.md'));
     });
 });
