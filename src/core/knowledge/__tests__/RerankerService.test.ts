@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { RerankerService } from '../RerankerService';
+import { RerankerService, RERANKER_MODEL_OPTIONS } from '../RerankerService';
 import type { TokenizerFn, ModelFn, RerankCandidate } from '../RerankerService';
 
 type Backend = { tokenizer: TokenizerFn; model: ModelFn };
@@ -229,6 +229,26 @@ describe('RerankerService batched scoring', () => {
         ], 1);
         expect(out).toHaveLength(1);
         expect(out[0].path).toBe('Notes/High.md');
+    });
+});
+
+describe('RerankerService model options (ISSUE-A regression)', () => {
+    // The plugin injects onnxruntime-web via globalThis[Symbol.for('onnxruntime')].
+    // In that custom-runtime branch transformers.js never populates its
+    // supportedDevices list, so device 'wasm' throws
+    // 'Unsupported device: "wasm". Should be one of: .' at load time.
+    // 'auto' returns the (empty) list without throwing, and the explicit
+    // session_options.executionProviders pins the ORT wasm EP deterministically.
+    it('uses device auto, not wasm, to dodge the empty supportedDevices throw', () => {
+        expect(RERANKER_MODEL_OPTIONS.device).toBe('auto');
+    });
+
+    it('pins the wasm execution provider via session_options', () => {
+        expect([...RERANKER_MODEL_OPTIONS.session_options.executionProviders]).toEqual(['wasm']);
+    });
+
+    it('keeps the q8 quantized weights', () => {
+        expect(RERANKER_MODEL_OPTIONS.dtype).toBe('q8');
     });
 });
 

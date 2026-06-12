@@ -43,6 +43,27 @@ export type ModelFn = (inputs: Record<string, unknown>) => Promise<{ logits: { d
 
 const MODEL_ID = 'Xenova/ms-marco-MiniLM-L-6-v2';
 
+/**
+ * Options for AutoModelForSequenceClassification.from_pretrained().
+ *
+ * device MUST be 'auto', not 'wasm': we hand transformers.js a custom ONNX
+ * runtime via globalThis[Symbol.for('onnxruntime')], and in that branch
+ * transformers never populates its supportedDevices list. 'wasm' then throws
+ * 'Unsupported device: "wasm". Should be one of: .' while 'auto' returns the
+ * (empty) list without throwing. The wasm execution provider is instead
+ * pinned explicitly through session_options.executionProviders, which
+ * transformers passes through untouched (session_options.executionProviders
+ * is only defaulted when absent).
+ *
+ * Exported so the regression test can pin this contract without loading
+ * the real WASM backend.
+ */
+export const RERANKER_MODEL_OPTIONS = {
+    dtype: 'q8',
+    device: 'auto',
+    session_options: { executionProviders: ['wasm'] },
+} as const;
+
 /** Query-document pairs scored per cross-encoder forward pass (bounds WASM memory). */
 const RERANK_BATCH_SIZE = 8;
 
@@ -146,15 +167,29 @@ export class RerankerService {
         const globalSlot = window as unknown as Record<symbol, unknown>;
         if (!(ortSymbol in globalSlot)) {
             // onnxruntime-web is a transitive dep of @huggingface/transformers.
-            // Subpath `/webgpu` has no published .d.ts so we silence the
+            // Subpath `/wasm` resolves to dist/ort.wasm.bundle.min.mjs whose
+            // inlined emscripten glue pairs with the plain
+            // ort-wasm-simd-threaded.wasm we ship as the pinned vault asset
+            // (the /webgpu bundle pairs with the asyncify variant instead and
+            // would reject our binary). It also registers only the cpu/wasm
+            // backends, which is all the reranker needs. The subpath has no
+            // resolvable .d.ts under moduleResolution=node, so we silence the
             // import-resolution error and rely on the runtime resolver.
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- runtime subpath, no type declarations published for /webgpu
+            // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- runtime subpath, no type declarations resolvable for /wasm
             // @ts-ignore -- runtime subpath, no type declarations
-            const ort = await import('onnxruntime-web/webgpu');
+            const ort = await import('onnxruntime-web/wasm');
             globalSlot[ortSymbol] = ort;
         }
 
         const { AutoModelForSequenceClassification, AutoTokenizer, env } = await import('@huggingface/transformers');
+
+        // Keep the vault-provided wasmBinary authoritative: with the default
+        // useWasmCache=true, transformers' ensureWasmLoaded() would download
+        // the asyncify binary from the jsdelivr CDN and OVERWRITE the
+        // wasmBinary we set below (also an undeclared network fetch, which
+        // breaks offline use and review-bot rules). Disabling the cache
+        // short-circuits that path entirely.
+        env.useWasmCache = false;
 
         // ONNX WASM is an optional download. Settings > Knowledge >
         // Reranker has an Install button that fetches the binary
@@ -181,6 +216,13 @@ export class RerankerService {
             return null;
         }
         onnxWasm.wasmBinary = wasmBinary;
+        // transformers auto-sets wasmPaths to jsdelivr CDN URLs of the
+        // ASYNCIFY build at import time. ORT treats wasmPaths.mjs as a glue
+        // override and would import that CDN script instead of the plain
+        // glue embedded in the injected /wasm bundle (mismatching our plain
+        // wasmBinary and adding an undeclared network fetch). Clearing the
+        // paths keeps the embedded glue plus the vault binary authoritative.
+        onnxWasm.wasmPaths = undefined;
         onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
         console.debug(`[Reranker] Loaded ONNX WASM from vault asset (${Math.round(wasmBinary.byteLength / 1024 / 1024)} MB)`);
 
@@ -188,10 +230,7 @@ export class RerankerService {
         const startTime = Date.now();
 
         const tokenizer = await AutoTokenizer.from_pretrained(MODEL_ID) as unknown as TokenizerFn;
-        const model = await AutoModelForSequenceClassification.from_pretrained(MODEL_ID, {
-            dtype: 'q8',
-            device: 'wasm',
-        });
+        const model = await AutoModelForSequenceClassification.from_pretrained(MODEL_ID, RERANKER_MODEL_OPTIONS);
 
         console.debug(`[Reranker] Model loaded in ${Date.now() - startTime}ms`);
         return { tokenizer, model };
