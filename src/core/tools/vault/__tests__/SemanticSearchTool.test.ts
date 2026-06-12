@@ -37,6 +37,7 @@ function mockPlugin(opts: {
     semanticResults?: SemanticResult[];
     keywordResults?: SemanticResult[];
     tagResults?: SemanticResult[];
+    weightedFusionEnabled?: boolean;
 }): ObsidianAgentPlugin {
     const { semanticResults = [], keywordResults = [], tagResults = [] } = opts;
     return {
@@ -46,6 +47,7 @@ function mockPlugin(opts: {
             enableReranking: false,
             enableGraphExpansion: false,
             enableImplicitConnections: false,
+            weightedFusionEnabled: opts.weightedFusionEnabled ?? false,
         },
         apiHandler: undefined,
         rerankerService: undefined,
@@ -140,5 +142,70 @@ describe('SemanticSearchTool excerpt selection (opener chunk preference)', () =>
         expect(out).toContain('B opener chunk');
         expect(out).not.toContain('A middle chunk');
         expect(out).not.toContain('B middle chunk');
+    });
+});
+
+/**
+ * Retrieval wave 1, item 4: weighted RRF fusion behind weightedFusionEnabled.
+ *
+ * Shared scenario:
+ *  - Dense.md: semantic rank 1 + keyword rank 1 (strong dense+keyword hit)
+ *  - Contested.md: keyword rank 2 only
+ *  - TagOnly.md: tag rank 1 only
+ *
+ * Plain RRF ranks TagOnly (1/61) above Contested (1/62). With the tag arm
+ * weighted at 0.6 the real keyword match wins.
+ */
+describe('SemanticSearchTool weighted fusion flag', () => {
+    function fusionPlugin(weightedFusionEnabled: boolean): ObsidianAgentPlugin {
+        return mockPlugin({
+            weightedFusionEnabled,
+            semanticResults: [
+                { path: 'Notes/Dense.md', excerpt: 'dense excerpt', score: 0.9, chunkIndex: 0 },
+            ],
+            keywordResults: [
+                { path: 'Notes/Dense.md', excerpt: 'dense excerpt', score: 0.8, chunkIndex: 0 },
+                { path: 'Notes/Contested.md', excerpt: 'contested excerpt', score: 0.5, chunkIndex: 0 },
+            ],
+            tagResults: [
+                { path: 'Notes/TagOnly.md', excerpt: 'tag only excerpt', score: 1.0, chunkIndex: 0 },
+            ],
+        });
+    }
+
+    it('flag off keeps the old ordering (tag-only rank 1 above keyword rank 2)', async () => {
+        const tool = new SemanticSearchTool(fusionPlugin(false));
+        const { ctx: c, results } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        const out = results[0];
+        expect(out.indexOf('Notes/Dense.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/TagOnly.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/Contested.md')).toBeGreaterThan(-1);
+        // Legacy plain RRF: TagOnly (1/61) renders before Contested (1/62).
+        expect(out.indexOf('Notes/TagOnly.md')).toBeLessThan(out.indexOf('Notes/Contested.md'));
+    });
+
+    it('flag on: tag-only hit no longer outranks the keyword hit', async () => {
+        const tool = new SemanticSearchTool(fusionPlugin(true));
+        const { ctx: c, results } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        const out = results[0];
+        expect(out.indexOf('Notes/Dense.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/TagOnly.md')).toBeGreaterThan(-1);
+        expect(out.indexOf('Notes/Contested.md')).toBeGreaterThan(-1);
+        // Weighted: Contested (1/62) renders before TagOnly (0.6/61).
+        expect(out.indexOf('Notes/Contested.md')).toBeLessThan(out.indexOf('Notes/TagOnly.md'));
+        // The strong dense+keyword hit stays on top.
+        expect(out.indexOf('Notes/Dense.md')).toBeLessThan(out.indexOf('Notes/Contested.md'));
+    });
+
+    it('flag on keeps tag recall (tag-only hit still listed)', async () => {
+        const tool = new SemanticSearchTool(fusionPlugin(true));
+        const { ctx: c, results } = ctx();
+        await tool.execute({ query: 'test query' }, c);
+
+        expect(results[0]).toContain('Notes/TagOnly.md');
     });
 });

@@ -2,7 +2,7 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
-import { rrf } from '../../memory/rrf';
+import { fuseHybridArms } from '../../semantic/weightedFusion';
 
 export class SemanticSearchTool extends BaseTool<'semantic_search'> {
     readonly name = 'semantic_search' as const;
@@ -149,11 +149,25 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
             // Reciprocal Rank Fusion via the engine-public utility from
             // FEATURE-0316 task 1. Method tag mirrors which signals contributed
             // (semantic / keyword / tag / hybrid) for the result line.
-            const fused = rrf([
-                { name: 'semantic', items: semanticResults.map(r => r.path) },
-                { name: 'keyword', items: keywordResults.map(r => r.path) },
-                { name: 'tag', items: tagResults.map(r => r.path) },
-            ]);
+            // With weightedFusionEnabled (retrieval wave 1, item 4) the tag
+            // arm is downweighted to 0.6 and the dense cosine is blended
+            // into the final ordering; flag off keeps plain RRF.
+            const weightedFusion = this.plugin.settings.weightedFusionEnabled !== false;
+            // Best dense cosine per path (the dense arm may return more
+            // than one chunk per file, keep the strongest).
+            const cosineByPath = new Map<string, number>();
+            for (const r of semanticResults) {
+                const prev = cosineByPath.get(r.path);
+                if (prev === undefined || r.score > prev) cosineByPath.set(r.path, r.score);
+            }
+            const fused = fuseHybridArms(
+                {
+                    semantic: semanticResults.map(r => r.path),
+                    keyword: keywordResults.map(r => r.path),
+                    tag: tagResults.map(r => r.path),
+                },
+                { weighted: weightedFusion, cosineByPath },
+            );
 
             type HybridEntry = { path: string; excerpt: string; score: number; method: 'semantic' | 'keyword' | 'hybrid' };
             const classify = (contribs: Record<string, number>): HybridEntry['method'] => {

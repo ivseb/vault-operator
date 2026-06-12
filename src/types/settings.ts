@@ -788,6 +788,8 @@ export interface ObsidianAgentSettings {
     contextualModelKey: string;
     /** HyDE: generate a hypothetical document before embedding the query. Off by default (costs 1 extra LLM call per search). */
     hydeEnabled: boolean;
+    /** Weighted RRF fusion: downweight the tag arm (0.6) and blend dense cosine into the final ordering. Off reproduces plain RRF. */
+    weightedFusionEnabled: boolean;
     /** Auto-index vault files as they change (modify/create/delete/rename). Off by default — can slow down Obsidian if using a local embedding model. */
     semanticAutoIndexOnChange: boolean;
 
@@ -1498,6 +1500,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableContextualRetrieval: true,
     contextualModelKey: '',
     hydeEnabled: false,
+    weightedFusionEnabled: true,
     semanticAutoIndexOnChange: false,
     enableGraphExpansion: true,
     graphExpansionHops: 1,

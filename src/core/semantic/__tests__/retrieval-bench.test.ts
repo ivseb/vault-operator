@@ -17,9 +17,10 @@
  *  C - acronyms and umlauts: covered by the tokenizer fix (umlaut folding
  *      plus acronym allowlist). These cases started as it.fails documenting
  *      the bug and were flipped to plain it() together with that fix.
- *  D - fusion sanity: hybrid hits outrank tag-only hits. Cases that depend
- *      on the upcoming weighted-RRF change are it.fails with the comment
- *      "flips with weighted fusion".
+ *  D - fusion sanity: hybrid hits outrank tag-only hits. Cases that
+ *      depended on the weighted-RRF change started as it.fails with the
+ *      comment "flips with weighted fusion" and were flipped to plain
+ *      it() together with that change (item 4: fuseHybridArms).
  *
  * Contract: vitest treats an unexpectedly PASSING it.fails as a failure,
  * so fixing the underlying bug forces the corresponding case to be flipped
@@ -33,8 +34,8 @@ import { SemanticIndexService } from '../SemanticIndexService';
 import type { SemanticResult } from '../SemanticIndexService';
 import type { KnowledgeDB } from '../../knowledge/KnowledgeDB';
 import { VectorStore } from '../../knowledge/VectorStore';
-import { rrf } from '../../memory/rrf';
 import type { RrfResult } from '../../memory/rrf';
+import { fuseHybridArms } from '../weightedFusion';
 
 // ---------------------------------------------------------------------------
 // In-memory KnowledgeDB shim (same pattern as VectorStore.test.ts)
@@ -197,20 +198,26 @@ function fusedRankOf(fused: RrfResult[], path: string): number {
 
 /**
  * Fuse the three signals exactly like SemanticSearchTool does
- * (src/core/tools/vault/SemanticSearchTool.ts, rrf call). The semantic
- * signal is a deterministic hand-crafted path list standing in for the
- * embedding ranking.
+ * (src/core/tools/vault/SemanticSearchTool.ts, fuseHybridArms call).
+ * Weighted fusion is the production default (weightedFusionEnabled: true),
+ * so the bench runs the weighted path. The semantic signal is a
+ * deterministic hand-crafted path list standing in for the embedding
+ * ranking; it carries no cosine values, so the cosine sanity blend stays
+ * inert here (ordering is then a monotone transform of weighted RRF).
  */
 async function fuse(query: string, semanticStylePaths: string[]): Promise<RrfResult[]> {
     const [keywordResults, tagResults] = await Promise.all([
         service.keywordSearch(query, 10),
         service.tagMatchSearch(query, 10),
     ]);
-    return rrf([
-        { name: 'semantic', items: semanticStylePaths },
-        { name: 'keyword', items: keywordResults.map((r) => r.path) },
-        { name: 'tag', items: tagResults.map((r) => r.path) },
-    ]);
+    return fuseHybridArms(
+        {
+            semantic: semanticStylePaths,
+            keyword: keywordResults.map((r) => r.path),
+            tag: tagResults.map((r) => r.path),
+        },
+        { weighted: true },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -355,10 +362,11 @@ describe('retrieval bench / family D: fusion sanity', () => {
         expect(tagOnlyRank).toBeGreaterThan(hybridRank);
     });
 
-    // KNOWN BROKEN: with equal RRF weights a tag-only hit at tag rank 1
-    // (1/61) beats a real body keyword match at keyword rank 2 (1/62).
-    // flips with weighted fusion
-    it.fails('D2: a keyword body match at rank 2 outranks a tag-only hit', async () => {
+    // Flipped with weighted fusion (item 4): with equal RRF weights a
+    // tag-only hit at tag rank 1 (1/61) beat a real body keyword match at
+    // keyword rank 2 (1/62). The 0.6 tag arm weight (0.6/61 < 1/62)
+    // reverses that.
+    it('D2: a keyword body match at rank 2 outranks a tag-only hit', async () => {
         // Semantic signal deliberately misses the project note, so its only
         // signal is keyword rank 2 (behind Tech/Plugin Development.md).
         const fused = await fuse('plugin', ['Tech/Plugin Development.md']);
