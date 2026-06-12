@@ -79,6 +79,18 @@ const DEFAULT_CHUNK_SIZE = 2000;   // chars — larger chunks → fewer API call
 const DEFAULT_COMMIT_EVERY = 20;   // files between disk commits
 const DEFAULT_EMBED_BATCH = 16;    // texts per API request
 
+// Minimum body length (chars, frontmatter excluded) for a note to enter the
+// index (ISSUE-E). Near-empty stubs embed close to the embedding-space
+// centroid and weakly cosine-match every query, so they surface at rank 1 in
+// the semantic arm and add noise to the keyword arm (same vectors table).
+// 40 chars: known stubs carry at most 10 chars of body ("# COWORK"), while
+// the smallest legit retrieval-bench fixture body has 63 chars.
+const MIN_INDEXABLE_BODY_CHARS = 40;
+
+// Max stored chunk text length (including the title and frontmatter prefix)
+// for the one-time stub cleanup sweep to consider a path a stub candidate.
+const STUB_SWEEP_MAX_TEXT_CHARS = 300;
+
 // ---------------------------------------------------------------------------
 // Keyword tokenization helpers. Shared by ALL token producers in this file
 // (query terms, chunk tokens, filename tokens, tag tokens); folding only one
@@ -410,6 +422,20 @@ export class SemanticIndexService {
             this.progressTotal = total;
             onProgress?.(indexed, total);
 
+            // One-time cleanup of pre-existing stub vectors (ISSUE-E): stubs
+            // indexed before the body gate existed keep unchanged mtimes, so
+            // they never enter toIndex and would pollute search results until
+            // touched. Runs BEFORE the toIndex-empty early return on purpose:
+            // "nothing changed" is exactly the state old stubs are in. Full
+            // rebuilds apply the gate to every file anyway and set the flag
+            // at the end. No re-embedding happens here; cost is a few
+            // cachedReads on tiny files.
+            if (!isFullRebuild && !this.cancelled
+                && this.knowledgeDB.getCheckpointValue('bodyGateVersion') !== '1') {
+                await this.cleanupStubVectors();
+                this.knowledgeDB.setCheckpointValue('bodyGateVersion', '1');
+            }
+
             if (toIndex.length === 0) {
                 console.debug('[SemanticIndex] Index up to date — nothing to index.');
                 this.builtAt = new Date();
@@ -445,6 +471,12 @@ export class SemanticIndexService {
                         // Contextual Enrichment runs as Pass 2 in the background after build.
                         const vectors = await this.embedBatch(enrichedChunks);
                         this.vectorStore.insertChunks(file.path, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
+                    } else {
+                        // File shrank to a gated stub (or emptied): drop its old
+                        // vectors. Side effect: gated files never store an mtime,
+                        // so each build re-reads and re-chunks them (cachedRead
+                        // plus one regex, no embedding call). Negligible.
+                        this.vectorStore.deleteByPath(file.path);
                     }
 
                     indexed++;
@@ -477,6 +509,12 @@ export class SemanticIndexService {
                         this.vectorStore.deleteByPath(p);
                     }
                 }
+            }
+
+            // A completed full rebuild applied the body gate to every file,
+            // so the one-time stub sweep is unnecessary afterwards.
+            if (isFullRebuild && !this.cancelled) {
+                this.knowledgeDB.setCheckpointValue('bodyGateVersion', '1');
             }
 
             // Final checkpoint + save
@@ -512,6 +550,40 @@ export class SemanticIndexService {
         } finally {
             this.isBuilding = false;
             this.abortController = null;
+        }
+    }
+
+    /**
+     * One-time sweep removing pre-existing stub vectors (ISSUE-E).
+     * Candidates are single-chunk entries whose stored text is short; each
+     * is re-read and re-chunked, and only entries the body gate now rejects
+     * are deleted. Legit short notes that slip into the candidate set are
+     * kept. Binary documents and images are skipped to avoid parser cost
+     * (binary stubs are rare and clean up on touch or full rebuild).
+     */
+    private async cleanupStubVectors(): Promise<void> {
+        const candidates = this.vectorStore.getStubCandidatePaths(STUB_SWEEP_MAX_TEXT_CHARS);
+        let removed = 0;
+        for (const p of candidates) {
+            // session:/episode: entries are not vault files; leave them alone.
+            if (p.startsWith('session:') || p.startsWith('episode:')) continue;
+            const ext = p.split('.').pop()?.toLowerCase() ?? '';
+            if (SemanticIndexService.BINARY_DOCUMENT_EXTENSIONS.has(ext)) continue;
+            if (SemanticIndexService.IMAGE_EXTENSIONS.has(ext)) continue;
+            const file = this.vault.getFileByPath(p);
+            if (!file) continue;
+            try {
+                const content = await this.vault.cachedRead(file);
+                if (this.splitIntoChunks(content, this.chunkSize).length === 0) {
+                    this.vectorStore.deleteByPath(p);
+                    removed++;
+                }
+            } catch (e) {
+                console.warn(`[SemanticIndex] Stub sweep failed for ${p}:`, e);
+            }
+        }
+        if (removed > 0) {
+            console.debug(`[SemanticIndex] Stub sweep removed ${removed} gated entries.`);
         }
     }
 
@@ -1547,9 +1619,22 @@ export class SemanticIndexService {
             return '';
         }).trim();
 
+        // Body gate (ISSUE-E): skip notes whose body is shorter than
+        // MIN_INDEXABLE_BODY_CHARS. Measured on bodyText only, NOT on the
+        // frontmatter-prepended string, so templated frontmatter bloat
+        // (uid/created/modified keys) cannot push a stub over the gate.
+        // Trade-offs: (a) gated notes vanish from the semantic AND keyword
+        // arms (keywordSearch reads the same vectors table); Obsidian native
+        // search still covers title lookup. (b) Frontmatter-only "property
+        // notes" lose semantic findability; the tag arm (separate tags table
+        // via GraphStore) and native search still cover them. (c) The gate
+        // also applies to indexSessionSummary/indexEpisode: sub-40-char
+        // summaries/episodes are dropped, which is harmless. The gate
+        // subsumes the previous empty-stripped check.
+        if (bodyText.length < MIN_INDEXABLE_BODY_CHARS) return [];
+
         // Prepend frontmatter (if any) to the body so IDs/tags appear in chunk 0
         const stripped = frontmatterContent ? `${frontmatterContent}\n\n${bodyText}` : bodyText;
-        if (!stripped) return [];
         if (stripped.length <= maxChars) return [stripped];
 
         // Split at heading boundaries (keep heading with its content)
