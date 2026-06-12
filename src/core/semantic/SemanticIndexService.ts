@@ -32,6 +32,12 @@ export interface SemanticResult {
     path: string;
     excerpt: string;
     score: number;
+    /**
+     * Index of the chunk the excerpt was taken from (0 = opener chunk).
+     * Optional: older code paths and MCP callers may omit it; consumers
+     * must treat undefined as "unknown" and fall back to the excerpt as-is.
+     */
+    chunkIndex?: number;
 }
 
 export interface BuildResult {
@@ -621,9 +627,9 @@ export class SemanticIndexService {
             }
 
             // 3. Score each chunk: sum(TF * IDF) per matching term, keep best chunk per file
-            const byPath = new Map<string, { excerpt: string; score: number }>();
+            const byPath = new Map<string, { excerpt: string; score: number; chunkIndex: number }>();
             for (let idx = 0; idx < allChunks.length; idx++) {
-                const { path: filePath, text: chunk } = allChunks[idx];
+                const { path: filePath, text: chunk, chunkIndex } = allChunks[idx];
                 if (!chunk || !filePath) continue;
 
                 const tokenSet = chunkTokensCache.get(idx);
@@ -642,7 +648,7 @@ export class SemanticIndexService {
 
                 const existing = byPath.get(filePath);
                 if (!existing || score > existing.score) {
-                    byPath.set(filePath, { excerpt: chunk, score });
+                    byPath.set(filePath, { excerpt: chunk, score, chunkIndex });
                 }
             }
 
@@ -665,7 +671,7 @@ export class SemanticIndexService {
             const entries = Array.from(byPath.entries());
             const maxScore = entries.reduce((m, [, v]) => Math.max(m, v.score), 1);
             return entries
-                .map(([filePath, v]) => ({ path: filePath, excerpt: v.excerpt, score: v.score / maxScore }))
+                .map(([filePath, v]) => ({ path: filePath, excerpt: v.excerpt, score: v.score / maxScore, chunkIndex: v.chunkIndex }))
                 .sort((a, b) => b.score - a.score)
                 .slice(0, topK);
         } catch {
@@ -724,7 +730,7 @@ export class SemanticIndexService {
             // Hydrate with excerpts -- first chunk of each file
             return ranked.map(({ path, score }) => {
                 const chunks = this.vectorStore.getChunkTextsByPath(path);
-                return { path, excerpt: chunks[0] ?? '', score };
+                return { path, excerpt: chunks[0] ?? '', score, chunkIndex: 0 };
             });
         } catch {
             return [];
@@ -778,6 +784,7 @@ export class SemanticIndexService {
                     path: r.path,
                     excerpt: r.text,
                     score: r.score,
+                    chunkIndex: r.chunkIndex,
                 }));
             }
 
@@ -787,6 +794,7 @@ export class SemanticIndexService {
                 path: r.path,
                 excerpt: r.text,
                 score: r.score,
+                chunkIndex: r.chunkIndex,
             }));
         } catch (e) {
             console.error('[SemanticIndex] Search failed:', e);

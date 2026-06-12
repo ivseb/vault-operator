@@ -128,14 +128,23 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
             ]);
 
             // Cache excerpts per path so the fused result can pick the best
-            // available text (cosine excerpt > keyword excerpt > tag excerpt).
-            const excerptByPath = new Map<string, string>();
-            const remember = (path: string, text: string) => {
-                if (text && !excerptByPath.has(path)) excerptByPath.set(path, text);
+            // available text. Prefer the opener chunk (chunkIndex 0) so the
+            // agent sees the lede of a note instead of a random middle
+            // paragraph. Results without chunkIndex (older code paths, MCP)
+            // only feed the fallback map, which keeps the previous
+            // first-write-wins behavior (cosine > keyword > tag).
+            const openerExcerptByPath = new Map<string, string>();
+            const fallbackExcerptByPath = new Map<string, string>();
+            const remember = (path: string, text: string, chunkIndex?: number) => {
+                if (!text) return;
+                if (chunkIndex === 0 && !openerExcerptByPath.has(path)) openerExcerptByPath.set(path, text);
+                if (!fallbackExcerptByPath.has(path)) fallbackExcerptByPath.set(path, text);
             };
-            for (const r of semanticResults) remember(r.path, r.excerpt);
-            for (const r of keywordResults) remember(r.path, r.excerpt);
-            for (const r of tagResults) remember(r.path, r.excerpt);
+            for (const r of semanticResults) remember(r.path, r.excerpt, r.chunkIndex);
+            for (const r of keywordResults) remember(r.path, r.excerpt, r.chunkIndex);
+            for (const r of tagResults) remember(r.path, r.excerpt, r.chunkIndex);
+            const excerptFor = (path: string): string =>
+                openerExcerptByPath.get(path) ?? fallbackExcerptByPath.get(path) ?? '';
 
             // Reciprocal Rank Fusion via the engine-public utility from
             // FEATURE-0316 task 1. Method tag mirrors which signals contributed
@@ -156,7 +165,7 @@ export class SemanticSearchTool extends BaseTool<'semantic_search'> {
 
             let results: HybridEntry[] = fused.map(f => ({
                 path: f.id,
-                excerpt: excerptByPath.get(f.id) ?? '',
+                excerpt: excerptFor(f.id),
                 score: f.score,
                 method: classify(f.contributions),
             }));
