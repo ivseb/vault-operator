@@ -14,10 +14,9 @@
  * Query families:
  *  A - entity lookup: names must hit title notes above body-only mentions
  *  B - concept lookup: concept terms hit the defining note, opener excerpt
- *  C - acronyms and umlauts: KNOWN BROKEN today (tokenizer drops tokens
- *      shorter than 3 chars, no umlaut normalization). Written as it.fails
- *      so they document the bug; the tokenizer item later in this branch
- *      flips them to plain it().
+ *  C - acronyms and umlauts: covered by the tokenizer fix (umlaut folding
+ *      plus acronym allowlist). These cases started as it.fails documenting
+ *      the bug and were flipped to plain it() together with that fix.
  *  D - fusion sanity: hybrid hits outrank tag-only hits. Cases that depend
  *      on the upcoming weighted-RRF change are it.fails with the comment
  *      "flips with weighted fusion".
@@ -288,30 +287,29 @@ describe('retrieval bench / family B: concept lookup', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Family C - acronyms and umlauts (KNOWN BROKEN cases use it.fails)
+// Family C - acronyms and umlauts
 // ---------------------------------------------------------------------------
 
 describe('retrieval bench / family C: acronyms and umlauts', () => {
-    // KNOWN BROKEN: tokenize() drops tokens shorter than 3 chars, so the
-    // whole query vanishes. Flips with the tokenizer item later in this branch.
-    it.fails('C1: acronym query "KI" finds the KI note via keyword search', async () => {
+    // Short acronyms survive tokenization via ACRONYM_ALLOWLIST.
+    it('C1: acronym query "KI" finds the KI note via keyword search', async () => {
         const results = await service.keywordSearch('KI', 10);
         expect(results[0]?.path).toBe('Tech/KI Strategie.md');
     });
 
-    it.fails('C2: acronym query "AI" finds the AI note via keyword search', async () => {
+    it('C2: acronym query "AI" finds the AI note via keyword search', async () => {
         const results = await service.keywordSearch('AI', 10);
         expect(results[0]?.path).toBe('Tech/AI Research.md');
     });
 
-    it.fails('C3: acronym query "OS" finds the OS note via keyword search', async () => {
+    it('C3: acronym query "OS" finds the OS note via keyword search', async () => {
         const results = await service.keywordSearch('OS', 10);
         expect(results[0]?.path).toBe('Tech/OS Kernel.md');
     });
 
-    // KNOWN BROKEN: same <3 char filter applies to tag matching, so the
-    // existing #ki tag can never be hit by its own acronym.
-    it.fails('C4: acronym query "KI" finds the KI note via tag match', async () => {
+    // The allowlist also applies to tag matching, so the #ki tag is
+    // reachable by its own acronym.
+    it('C4: acronym query "KI" finds the KI note via tag match', async () => {
         const results = await service.tagMatchSearch('KI', 10);
         expect(results[0]?.path).toBe('Tech/KI Strategie.md');
     });
@@ -326,10 +324,9 @@ describe('retrieval bench / family C: acronyms and umlauts', () => {
         expect(results[0]?.path).toBe('Notes/Über das Projekt.md');
     });
 
-    // KNOWN BROKEN: no umlaut normalization. The transliterated query
-    // "ueber" stems to "ueb" and never matches the indexed "über" tokens.
-    // Flips with the tokenizer item later in this branch.
-    it.fails('C7: transliterated query "ueber" finds the same note', async () => {
+    // Umlaut folding: both "ueber" and "über" fold to "uber", so the
+    // transliterated spelling matches the indexed umlaut form.
+    it('C7: transliterated query "ueber" finds the same note', async () => {
         const results = await service.keywordSearch('ueber', 10);
         expect(results[0]?.path).toBe('Notes/Über das Projekt.md');
     });

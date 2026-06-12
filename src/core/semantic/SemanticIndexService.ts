@@ -80,6 +80,58 @@ const DEFAULT_COMMIT_EVERY = 20;   // files between disk commits
 const DEFAULT_EMBED_BATCH = 16;    // texts per API request
 
 // ---------------------------------------------------------------------------
+// Keyword tokenization helpers. Shared by ALL token producers in this file
+// (query terms, chunk tokens, filename tokens, tag tokens); folding only one
+// side would silently break matching.
+// ---------------------------------------------------------------------------
+
+// Short acronyms that bypass the minimum token length filter.
+// Checked case-insensitively: tokens are lowercased before the check.
+export const ACRONYM_ALLOWLIST: ReadonlySet<string> = new Set([
+    'ki', 'ai', 'os', 'ba', 're', 'js', 'db', 'ml', 'ui', 'ux', 'ci', 'it',
+]);
+
+/**
+ * Fold a lowercased token to its ASCII search form:
+ * 1. Map German sharp s to "ss".
+ * 2. NFKD-decompose and strip combining marks (u-umlaut becomes "u").
+ * 3. Collapse the German transliteration digraphs ae/oe/ue to a/o/u
+ *    ("ue" only when not preceded by a vowel or "q", mirroring Lucene's
+ *    GermanNormalizationFilter) so the umlaut spelling and the ASCII
+ *    transliteration of the same word produce an identical token.
+ */
+export function foldToken(token: string): string {
+    return token
+        .replace(/ß/g, 'ss')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/ae/g, 'a')
+        .replace(/oe/g, 'o')
+        .replace(/(?<![aeiouq])ue/g, 'u');
+}
+
+// Common stop words that add noise to TF-IDF (German plus English).
+// Kept minimal: IDF handles most stop words, but very common words like
+// "ist", "wie", "the" appear in nearly every chunk and dilute scores.
+// Entries pass through foldToken() so the set lives in the same folded
+// space as the tokens it filters. "ueber" is intentionally NOT in the
+// list: folded it would collide with the content word "über" and make
+// notes like "Über das Projekt" unfindable. None of the folded entries
+// collide with ACRONYM_ALLOWLIST (guarded by tokenizer-folding.test.ts).
+export const KEYWORD_STOP_WORDS: ReadonlySet<string> = new Set([
+    // German
+    'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines',
+    'ist', 'sind', 'war', 'hat', 'haben', 'wird', 'werden', 'kann', 'koennen',
+    'wie', 'was', 'wer', 'wir', 'ich', 'sie', 'und', 'oder', 'aber', 'auch',
+    'mit', 'von', 'aus', 'fuer', 'bei', 'nach', 'unter', 'auf',
+    'nicht', 'noch', 'nur', 'sehr', 'schon', 'doch', 'dass', 'wenn', 'weil',
+    // English
+    'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her',
+    'was', 'one', 'our', 'out', 'has', 'had', 'this', 'that', 'with', 'from',
+    'have', 'been', 'will', 'they', 'were', 'which', 'their', 'what', 'about',
+].map((w) => foldToken(w)));
+
+// ---------------------------------------------------------------------------
 // SemanticIndexService
 // ---------------------------------------------------------------------------
 
@@ -558,54 +610,43 @@ export class SemanticIndexService {
     }
 
     /**
-     * Tokenize text into stemmed words.
+     * Tokenize text into folded, stemmed words.
      * Splits on word boundaries (whitespace, hyphens, underscores, punctuation)
-     * to handle compound words like "Meeting-Notiz" → ["meeting", "notiz"].
-     * Filters tokens shorter than 3 characters.
+     * to handle compound words like "Meeting-Notiz" -> ["meeting", "notiz"].
+     * Each token is folded via foldToken() (umlauts, sharp s, German
+     * transliteration digraphs) BEFORE the length filter and stemming.
+     * Filters tokens shorter than 3 characters unless they are listed in
+     * ACRONYM_ALLOWLIST ("ki", "ai", "os", ...).
      */
     private static tokenize(text: string): string[] {
         return text
             .toLowerCase()
             .split(/[\s_/,.;:!?()[\]{}"'`|@#=+*<>~^-]+/)
-            .filter((t) => t.length >= 3)
+            .map((t) => foldToken(t))
+            .filter((t) => t.length >= 3 || ACRONYM_ALLOWLIST.has(t))
             .map((t) => SemanticIndexService.stemWord(t));
     }
 
     /**
-     * Keyword search over indexed chunks using TF-IDF scoring with stemming.
+     * Keyword search over indexed chunks using TF-IDF scoring with folding
+     * and stemming.
      *
      * Improvements over the previous substring-counting approach:
      * - Stemming: "meetings" matches "Meeting-Notiz" (both stem to "meeting")
      * - Word boundaries: "cat" does NOT match "category" (tokenized separately)
-     * - IDF weighting: rare terms score higher than common words (language-agnostic,
-     *   no hardcoded stop-word list needed)
-     * - Compound-word splitting: "Meeting-Notiz" → ["meeting", "notiz"]
+     * - IDF weighting: rare terms score higher than common words (language-agnostic)
+     * - Compound-word splitting: "Meeting-Notiz" -> ["meeting", "notiz"]
+     * - Unicode folding: "ueber" matches "über" (both fold to "uber")
      *
      * Used by hybrid search (RRF fusion) to catch exact names/tags the embedding misses.
      */
-    // Common stop words that add noise to TF-IDF (German + English).
-    // Kept minimal — IDF handles most stop words, but very common words
-    // like "ist", "wie", "the" appear in nearly every chunk and dilute scores.
-    private static readonly STOP_WORDS = new Set([
-        // German
-        'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einer', 'eines',
-        'ist', 'sind', 'war', 'hat', 'haben', 'wird', 'werden', 'kann', 'koennen',
-        'wie', 'was', 'wer', 'wir', 'ich', 'sie', 'und', 'oder', 'aber', 'auch',
-        'mit', 'von', 'aus', 'fuer', 'bei', 'nach', 'ueber', 'unter', 'auf',
-        'nicht', 'noch', 'nur', 'sehr', 'schon', 'doch', 'dass', 'wenn', 'weil',
-        // English
-        'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her',
-        'was', 'one', 'our', 'out', 'has', 'had', 'this', 'that', 'with', 'from',
-        'have', 'been', 'will', 'they', 'were', 'which', 'their', 'what', 'about',
-    ]);
-
     // eslint-disable-next-line @typescript-eslint/require-await -- public API expects Promise for consistency
     async keywordSearch(query: string, topK = 8): Promise<SemanticResult[]> {
         if (!this.knowledgeDB.isOpen()) return [];
         try {
-            // 1. Tokenize + stem query terms, deduplicate, remove stop words
+            // 1. Tokenize + fold + stem query terms, deduplicate, remove stop words
             const queryTerms = [...new Set(SemanticIndexService.tokenize(query))]
-                .filter(t => !SemanticIndexService.STOP_WORDS.has(t));
+                .filter(t => !KEYWORD_STOP_WORDS.has(t));
             if (queryTerms.length === 0) return [];
 
             const allChunks = this.vectorStore.getAllChunks();
@@ -696,7 +737,7 @@ export class SemanticIndexService {
         try {
             const queryTokens = new Set(
                 [...SemanticIndexService.tokenize(query)]
-                    .filter(t => !SemanticIndexService.STOP_WORDS.has(t)),
+                    .filter(t => !KEYWORD_STOP_WORDS.has(t)),
             );
             if (queryTokens.size === 0) return [];
 
