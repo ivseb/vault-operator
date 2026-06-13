@@ -121,3 +121,59 @@ describe('BedrockProvider - reasoning effort passthrough', () => {
         expect('additionalModelRequestFields' in input!).toBe(false);
     });
 });
+
+describe('BedrockProvider - extended thinking (budget-tokens Claude)', () => {
+    it('attaches reasoning_config budget_tokens and forces temperature 1 when thinking is on', async () => {
+        const { provider, lastInput } = makeBedrock({
+            model: 'eu.anthropic.claude-sonnet-4-6',
+            thinkingEnabled: true,
+            thinkingBudgetTokens: 6000,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        const input = lastInput();
+        const amrf = input?.additionalModelRequestFields as
+            | { reasoning_config?: { type?: string; budget_tokens?: number; effort?: string } }
+            | undefined;
+        expect(amrf?.reasoning_config?.type).toBe('enabled');
+        expect(typeof amrf?.reasoning_config?.budget_tokens).toBe('number');
+        expect(amrf?.reasoning_config?.budget_tokens as number).toBeGreaterThan(0);
+        // A budget-tokens model never carries an effort enum.
+        expect(amrf?.reasoning_config?.effort).toBeUndefined();
+        // Extended thinking requires temperature == 1.
+        const inf = input?.inferenceConfig as { temperature?: number } | undefined;
+        expect(inf?.temperature).toBe(1);
+    });
+
+    it('omits the field and keeps normal temperature when thinking is off (byte-identical)', async () => {
+        const { provider, lastInput } = makeBedrock({
+            model: 'eu.anthropic.claude-sonnet-4-6',
+            thinkingEnabled: false,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        const input = lastInput();
+        expect('additionalModelRequestFields' in input!).toBe(false);
+        const inf = input?.inferenceConfig as { temperature?: number } | undefined;
+        expect(inf?.temperature).not.toBe(1);
+    });
+
+    it('does NOT send budget_tokens for the adaptive lineup (Opus 4.8) on a bare thinking-on turn', async () => {
+        // Opus 4.8 is adaptive, not budget-tokens; with no effort it sends no
+        // reasoning_config and the model thinks by its own default.
+        const { provider, lastInput } = makeBedrock({
+            model: 'eu.anthropic.claude-opus-4-8-v1:0',
+            thinkingEnabled: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect('additionalModelRequestFields' in lastInput()!).toBe(false);
+    });
+
+    it('does NOT send a thinking field for non-Claude (Nova) even with thinking on', async () => {
+        const { provider, lastInput } = makeBedrock({
+            model: 'eu.amazon.nova-pro-v1:0',
+            thinkingEnabled: true,
+            thinkingBudgetTokens: 6000,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect('additionalModelRequestFields' in lastInput()!).toBe(false);
+    });
+});
