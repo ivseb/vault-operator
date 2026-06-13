@@ -29,6 +29,7 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { getHelperApi } from './helper-api';
+import { shouldRunTaskRouter } from './routing/TaskRouter';
 import { buildApiHandlerForModel } from '../api';
 import { CompositionStackService } from './skills/CompositionStackService';
 import {
@@ -597,7 +598,7 @@ export class AgentTask {
         // model, classified as complex, etc).
         const mainApi = this.api;
         let routerDecision: 'simple' | 'complex' | 'unknown' | 'disabled' = 'disabled';
-        if (this.depth === 0) {
+        if (shouldRunTaskRouter(this.depth, this.modelOverrideActive)) {
             try {
                 const plugin = this.toolRegistry.plugin;
                 const routerEnabled = plugin.settings.autoTaskRouter?.enabled ?? true;
@@ -630,6 +631,8 @@ export class AgentTask {
             } catch (e) {
                 console.warn('[TaskRouter] router failed, staying on main api:', e);
             }
+        } else if (this.depth === 0 && this.modelOverrideActive) {
+            console.debug('[TaskRouter] skipped -- manual model override active. Staying on the picked model.');
         }
 
         // Escalation helper: switch back to main api after 2 consecutive errors.
