@@ -6104,13 +6104,23 @@
     height: 18px;
     flex-shrink: 0;
     border-radius: 999px;
-    background: linear-gradient(
-        to right,
-        var(--interactive-accent) 0%,
-        var(--interactive-accent) var(--effort-fill, 0%),
-        var(--background-modifier-border) var(--effort-fill, 0%),
-        var(--background-modifier-border) 100%
-    );
+    background: var(--background-modifier-border);
+    cursor: pointer;
+    /* let a pointer drag move the knob without the list scrolling underneath */
+    touch-action: none;
+}
+
+/* Accent track filled up to the knob centre: KNOB_PX/2 + frac * (100% - KNOB_PX),
+   with KNOB_PX = 14px, so the fill always ends exactly under the knob. */
+.chat-model-picker-effort-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: calc(7px + var(--effort-frac, 0) * (100% - 14px));
+    border-radius: 999px;
+    background: var(--interactive-accent);
+    pointer-events: none;
 }
 
 .chat-model-picker-effort-dots {
@@ -6119,7 +6129,9 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 7px;
+    /* 5.5px = knob-centre inset (7px) minus half a dot (1.5px), so the dot
+       centres line up exactly with the knob stops. */
+    padding: 0 5.5px;
     pointer-events: none;
 }
 
@@ -6128,48 +6140,35 @@
     height: 3px;
     border-radius: 50%;
     background: var(--background-primary);
-    opacity: 0.6;
+    opacity: 0.55;
 }
 
-.chat-model-picker-effort-slider {
+/* The knob centre travels from 7px to width-7px, i.e.
+   left = frac * (100% - 14px); flush-left at 'auto', flush-right at 'max'. */
+.chat-model-picker-effort-knob {
     position: absolute;
-    inset: 0;
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    background: transparent;
-    cursor: pointer;
-}
-
-.chat-model-picker-effort-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
+    top: 50%;
+    left: calc(var(--effort-frac, 0) * (100% - 14px));
     width: 14px;
     height: 14px;
+    transform: translateY(-50%);
     border-radius: 50%;
-    background: var(--interactive-accent);
-    box-shadow: 0 0 0 2px var(--background-primary);
-    cursor: pointer;
+    background: var(--background-primary);
+    border: 2px solid var(--interactive-accent);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    pointer-events: none;
 }
 
-.chat-model-picker-effort-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    border: none;
-    border-radius: 50%;
-    background: var(--interactive-accent);
-    box-shadow: 0 0 0 2px var(--background-primary);
-    cursor: pointer;
-}
-
-.chat-model-picker-effort-slider:focus-visible {
+.chat-model-picker-effort-pill:focus-visible {
     outline: 2px solid var(--interactive-accent);
     outline-offset: 2px;
 }
 
 /* Issue #44: thinking-override badge on the chat-header model button */
+/* Thinking state on the chat-header model button. Always present so it mirrors
+   the picker switch. 'on' (incl. the follow default) is muted so the persistent
+   badge stays quiet; 'off' is accented so a disabled-thinking deviation stands
+   out at a glance. */
 .model-thinking-badge {
     font-size: 9px;
     font-weight: 600;
@@ -6178,6 +6177,13 @@
     margin-left: 4px;
     padding: 1px 5px;
     border-radius: 7px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    color: var(--text-muted);
+    background: var(--background-modifier-border);
+}
+
+.model-thinking-badge.is-off {
     color: var(--text-on-accent, white);
     background: var(--text-accent, var(--interactive-accent));
 }

@@ -10,6 +10,8 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_EFFORT_OVERRIDE,
     effortControlVisibility,
+    effortFractionForIndex,
+    effortIndexForFraction,
     effortIndexForOverride,
     effortStopForIndex,
     effortStops,
@@ -135,6 +137,58 @@ describe('effortIndexForOverride <-> effortStopForIndex round trip', () => {
         expect(effortStopForIndex(claudeStops, -3)).toBe('auto');
         expect(effortStopForIndex(claudeStops, 99)).toBe('max');
         expect(effortStopForIndex(claudeStops, Number.NaN)).toBe('auto');
+    });
+});
+
+describe('effortFractionForIndex', () => {
+    it('maps the first stop to 0 (knob flush left) and the last to 1 (flush right)', () => {
+        // 6 stops -> auto..max for Claude
+        expect(effortFractionForIndex(0, 6)).toBe(0);
+        expect(effortFractionForIndex(5, 6)).toBe(1);
+    });
+
+    it('spreads the middle stops evenly', () => {
+        expect(effortFractionForIndex(1, 5)).toBeCloseTo(0.25);
+        expect(effortFractionForIndex(2, 5)).toBeCloseTo(0.5);
+        expect(effortFractionForIndex(3, 5)).toBeCloseTo(0.75);
+    });
+
+    it('pins to 0 for a degenerate slider (one or zero stops)', () => {
+        expect(effortFractionForIndex(0, 1)).toBe(0);
+        expect(effortFractionForIndex(3, 1)).toBe(0);
+        expect(effortFractionForIndex(0, 0)).toBe(0);
+    });
+
+    it('clamps an out-of-range index into the track', () => {
+        expect(effortFractionForIndex(-2, 6)).toBe(0);
+        expect(effortFractionForIndex(99, 6)).toBe(1);
+    });
+});
+
+describe('effortIndexForFraction', () => {
+    it('snaps a fraction to the nearest discrete stop', () => {
+        // 6 stops: boundaries at 0, .2, .4, .6, .8, 1
+        expect(effortIndexForFraction(0, 6)).toBe(0);
+        expect(effortIndexForFraction(0.19, 6)).toBe(1);
+        expect(effortIndexForFraction(0.5, 6)).toBe(3); // .5*5 = 2.5 -> rounds to 3
+        expect(effortIndexForFraction(1, 6)).toBe(5);
+    });
+
+    it('snaps a drag past either end to the first or last stop', () => {
+        expect(effortIndexForFraction(-0.5, 6)).toBe(0);
+        expect(effortIndexForFraction(1.5, 6)).toBe(5);
+    });
+
+    it('pins to 0 for a degenerate slider or a non-finite fraction', () => {
+        expect(effortIndexForFraction(0.7, 1)).toBe(0);
+        expect(effortIndexForFraction(Number.NaN, 6)).toBe(0);
+    });
+
+    it('round-trips with effortFractionForIndex for every stop', () => {
+        const count = 6;
+        for (let i = 0; i < count; i++) {
+            expect(effortIndexForFraction(effortFractionForIndex(i, count), count)).toBe(i);
+        }
     });
 });
 

@@ -22,6 +22,7 @@ import {
     isExplicitEffortOverride,
     resolveEffectiveEffort,
     resolveEffectiveModelForEffort,
+    thinkingSwitchIsOn,
     type EffortOverride,
 } from './sidebar/effortOverride';
 import { getModelEffortLevels, type EffortLevel } from '../types/model-registry';
@@ -792,15 +793,21 @@ export class AgentSidebarView extends ItemView {
             title = hasModeOverride ? t('ui.sidebar.modeOverride', { label }) : label;
         }
         this.modelButton.createSpan('model-label').setText(label);
-        // Issue #44: surface an explicit per-conversation thinking override on
-        // the button so the user can see it is active. 'follow' shows nothing.
+        // Mirror the picker's binary thinking switch on the chat header so the
+        // two never disagree. The footer always shows on/off via the same
+        // predicate as the switch: 'follow' (the byte-identical default) and
+        // 'on' read as On, only explicit 'off' reads as Off. (Previously the
+        // badge rendered only for explicit overrides, so the default showed
+        // nothing in the footer while the switch already read On.) The "forced"
+        // tooltip wording stays reserved for an explicit deviation.
+        const thinkingOn = thinkingSwitchIsOn(this.chatThinkingOverride);
+        const badge = this.modelButton.createSpan('model-thinking-badge');
+        badge.classList.toggle('is-off', !thinkingOn);
+        badge.setText(thinkingOn
+            ? t('ui.sidebar.thinkingBadgeOn')
+            : t('ui.sidebar.thinkingBadgeOff'));
         if (isExplicitThinkingOverride(this.chatThinkingOverride)) {
-            const isOn = this.chatThinkingOverride === 'on';
-            const badge = this.modelButton.createSpan('model-thinking-badge');
-            badge.setText(isOn
-                ? t('ui.sidebar.thinkingBadgeOn')
-                : t('ui.sidebar.thinkingBadgeOff'));
-            title = isOn
+            title = thinkingOn
                 ? t('ui.sidebar.thinkingOverrideTitleOn', { label: title })
                 : t('ui.sidebar.thinkingOverrideTitleOff', { label: title });
         }

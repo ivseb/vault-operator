@@ -26,6 +26,8 @@ import {
     effortStops,
     effortIndexForOverride,
     effortStopForIndex,
+    effortFractionForIndex,
+    effortIndexForFraction,
     thinkingSwitchIsOn,
 } from './effortOverride';
 
@@ -337,38 +339,97 @@ export class ChatModelPickerPopover {
         });
         const valueEl = labelWrap.createSpan('chat-model-picker-effort-value');
 
-        // Pill wrap: a dots row sits behind a transparent-track range input so
-        // the markers show through and the visible thumb rides on top.
+        // Custom div slider (not a native <input type=range>): the native thumb
+        // is inset by half its width at each end, so it can never sit flush-left
+        // at 'auto' or flush-right at 'max', and its fill never lines up with the
+        // thumb. Here the knob is positioned by a fraction var so it lands exactly
+        // on each dot, flush at both extremes, and the fill ends under the knob.
+        // The pill itself is the slider widget (role=slider, focusable).
         const pill = row.createDiv('chat-model-picker-effort-pill');
+        pill.setAttrs({
+            role: 'slider',
+            tabindex: '0',
+            'aria-label': t('ui.sidebar.effortLabel'),
+            'aria-valuemin': '0',
+            'aria-valuemax': String(stops.length - 1),
+        });
+        pill.createDiv('chat-model-picker-effort-fill');
         const dots = pill.createDiv('chat-model-picker-effort-dots');
         for (let i = 0; i < stops.length; i++) {
             dots.createSpan('chat-model-picker-effort-dot');
         }
-
-        const slider = pill.createEl('input', {
-            cls: 'chat-model-picker-effort-slider',
-            attr: { type: 'range', min: '0', max: String(stops.length - 1), step: '1' },
-        });
-        slider.setAttr('aria-label', t('ui.sidebar.effortLabel'));
+        const knob = pill.createDiv('chat-model-picker-effort-knob');
+        knob.setAttr('aria-hidden', 'true');
 
         const sync = () => {
-            const current = callbacks.getEffort();
-            const idx = effortIndexForOverride(stops, current);
-            slider.value = String(idx);
-            // Filled portion of the pill track up to the knob, via a CSS var so
-            // no inline style property is assigned directly (bot-compliant).
-            const pct = stops.length > 1 ? (idx / (stops.length - 1)) * 100 : 0;
-            pill.setCssProps({ '--effort-fill': `${pct}%` });
+            const idx = effortIndexForOverride(stops, callbacks.getEffort());
+            const frac = effortFractionForIndex(idx, stops.length);
+            // One fraction var drives both the knob position and the fill width
+            // via CSS calc, so no inline geometry is assigned directly.
+            pill.setCssProps({ '--effort-frac': String(frac) });
             const label = labelFor(stops[idx] ?? 'auto');
             valueEl.setText(label);
-            slider.setAttr('aria-valuetext', label);
+            pill.setAttr('aria-valuenow', String(idx));
+            pill.setAttr('aria-valuetext', label);
         };
 
-        slider.addEventListener('input', () => {
-            const level = effortStopForIndex(stops, Number(slider.value));
-            callbacks.onEffortChange(level);
+        const commitIndex = (idx: number) => {
+            const level = effortStopForIndex(stops, idx);
+            if (level !== callbacks.getEffort()) callbacks.onEffortChange(level);
             sync();
+        };
+
+        // Map a pointer x to the nearest stop. The knob is KNOB_PX wide and its
+        // centre travels from KNOB_PX/2 to width-KNOB_PX/2, matching the CSS
+        // calc(var(--effort-frac) * (100% - KNOB_PX)).
+        const KNOB_PX = 14;
+        const indexFromClientX = (clientX: number): number => {
+            const rect = pill.getBoundingClientRect();
+            const travel = rect.width - KNOB_PX;
+            const x = clientX - rect.left - KNOB_PX / 2;
+            const frac = travel > 0 ? x / travel : 0;
+            return effortIndexForFraction(frac, stops.length);
+        };
+
+        let dragging = false;
+        pill.addEventListener('pointerdown', (e: PointerEvent) => {
+            dragging = true;
+            pill.setPointerCapture(e.pointerId);
+            // preventDefault stops text selection but also cancels the default
+            // focus move, so focus the pill explicitly: otherwise the keyboard
+            // (Arrow/Home/End) handler below stays unreachable after a click.
+            pill.focus();
+            commitIndex(indexFromClientX(e.clientX));
+            e.preventDefault();
         });
+        pill.addEventListener('pointermove', (e: PointerEvent) => {
+            if (!dragging) return;
+            commitIndex(indexFromClientX(e.clientX));
+        });
+        const endDrag = (e: PointerEvent) => {
+            if (!dragging) return;
+            dragging = false;
+            if (pill.hasPointerCapture(e.pointerId)) pill.releasePointerCapture(e.pointerId);
+        };
+        pill.addEventListener('pointerup', endDrag);
+        pill.addEventListener('pointercancel', endDrag);
+
+        pill.addEventListener('keydown', (e: KeyboardEvent) => {
+            const cur = effortIndexForOverride(stops, callbacks.getEffort());
+            let next = cur;
+            switch (e.key) {
+                case 'ArrowLeft':
+                case 'ArrowDown': next = cur - 1; break;
+                case 'ArrowRight':
+                case 'ArrowUp': next = cur + 1; break;
+                case 'Home': next = 0; break;
+                case 'End': next = stops.length - 1; break;
+                default: return;
+            }
+            e.preventDefault();
+            commitIndex(Math.min(Math.max(next, 0), stops.length - 1));
+        });
+
         sync();
 
         return { wrap: row, sync };

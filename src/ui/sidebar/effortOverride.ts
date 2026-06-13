@@ -102,6 +102,34 @@ export function effortStopForIndex(stops: EffortOverride[], index: number): Effo
     return stops[clamped] ?? 'auto';
 }
 
+/**
+ * The knob travel fraction (0..1) for a slider index across `stopCount` stops.
+ * 0 is the leftmost stop (knob flush left), 1 the rightmost (knob flush right).
+ * With one or zero stops the knob pins to 0 so a degenerate slider never
+ * divides by zero. The fraction drives a CSS calc so the knob and the filled
+ * track land exactly on each dot, including both extremes (the native range
+ * input could never reach flush-right because its thumb is inset by half its
+ * width at each end).
+ */
+export function effortFractionForIndex(index: number, stopCount: number): number {
+    if (stopCount <= 1) return 0;
+    const clamped = Math.min(Math.max(Math.trunc(index), 0), stopCount - 1);
+    return clamped / (stopCount - 1);
+}
+
+/**
+ * The nearest slider index for a knob travel fraction (0..1) across `stopCount`
+ * stops. Rounds to the closest discrete stop and clamps into range, so a drag
+ * or click past either end snaps to the first or last stop. A non-finite
+ * fraction resolves to 0.
+ */
+export function effortIndexForFraction(fraction: number, stopCount: number): number {
+    if (stopCount <= 1) return 0;
+    if (!Number.isFinite(fraction)) return 0;
+    const raw = Math.round(fraction * (stopCount - 1));
+    return Math.min(Math.max(raw, 0), stopCount - 1);
+}
+
 /** A resolved (model id, provider type) pair the effort control reasons about. */
 export interface EffortModelRef {
     modelId: string;
