@@ -10,6 +10,8 @@
  * free of any Obsidian import.
  */
 
+import type { ThinkingOverride } from './thinkingOverride';
+
 /**
  * Per-conversation reasoning-effort override.
  *  - 'auto'  : send no effort field (vendor default, byte-identical to today)
@@ -50,4 +52,40 @@ export function resolveEffectiveEffort(
         default:
             return undefined;
     }
+}
+
+/**
+ * The coherent per-conversation override pair, after the effort-wins rule.
+ *  - effort           : the explicit effort level, or undefined for auto
+ *  - thinking         : the thinking override to actually apply
+ *  - effortIsExplicit : whether a native effort field should be sent
+ */
+export interface ConversationOverrides {
+    effort: 'low' | 'medium' | 'high' | undefined;
+    thinking: ThinkingOverride;
+    effortIsExplicit: boolean;
+}
+
+/**
+ * Resolve the coherent effort + thinking pair for a conversation.
+ *
+ * Within-pin coherence: when an explicit effort level is set, the explicit
+ * thinking on/off override must NOT also be applied. On Claude the effort dial
+ * drives reasoning depth, so Thinking=Off plus Effort=High is contradictory.
+ * Effort wins: any explicit thinking override is collapsed to 'follow' so the
+ * model's own thinkingEnabled is kept and only the effort field is sent.
+ *
+ * When effort is 'auto' the thinking override passes through untouched, so the
+ * existing thinking-only behavior is preserved byte-for-byte.
+ */
+export function resolveConversationOverrides(
+    thinkingOverride: ThinkingOverride,
+    effortOverride: EffortOverride,
+): ConversationOverrides {
+    const effortIsExplicit = isExplicitEffortOverride(effortOverride);
+    return {
+        effort: resolveEffectiveEffort(effortOverride),
+        thinking: effortIsExplicit ? 'follow' : thinkingOverride,
+        effortIsExplicit,
+    };
 }

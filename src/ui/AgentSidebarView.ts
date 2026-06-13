@@ -17,6 +17,12 @@ import {
     resolveEffectiveThinkingEnabled,
     type ThinkingOverride,
 } from './sidebar/thinkingOverride';
+import {
+    DEFAULT_EFFORT_OVERRIDE,
+    resolveConversationOverrides,
+    resolveEffectiveEffort,
+    type EffortOverride,
+} from './sidebar/effortOverride';
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
@@ -76,6 +82,15 @@ export class AgentSidebarView extends ItemView {
      * Lives alongside chatModelOverride; reset to 'follow' on a fresh chat.
      */
     private chatThinkingOverride: ThinkingOverride = DEFAULT_THINKING_OVERRIDE;
+    /**
+     * Per-conversation reasoning-effort override (pin-only).
+     * 'auto' -> send no effort field (default, byte-identical to today).
+     * 'low'/'medium'/'high' -> request that native effort level. Only threaded
+     * when a model is pinned via the chat dropdown (router off), so the
+     * within-model effort dial and the tier router are never both live.
+     * Lives alongside chatModelOverride; reset to 'auto' on a fresh chat.
+     */
+    private chatEffortOverride: EffortOverride = DEFAULT_EFFORT_OVERRIDE;
     /** EPIC-26 / FEAT-26-05: searchable popover for picking the chat-header model. */
     private chatModelPicker: ChatModelPickerPopover | null = null;
     private sendButton: HTMLElement | null = null;
@@ -1567,7 +1582,17 @@ export class AgentSidebarView extends ItemView {
         // thinking on/off. When it does, a fresh handler is built even for
         // the default-active model so the override takes effect.
         const activeProvider = resolveActiveProvider(this.plugin.settings);
-        const thinkingIsExplicit = isExplicitThinkingOverride(this.chatThinkingOverride);
+        // Within-pin coherence (effort feature): when an explicit effort level
+        // is set, the effort dial drives reasoning depth on Claude, so the
+        // explicit thinking on/off override is suppressed (effort wins). When
+        // effort is 'auto' the thinking override passes through unchanged, so
+        // the pre-existing thinking-only behavior stays byte-identical.
+        const coherentOverrides = resolveConversationOverrides(
+            this.chatThinkingOverride,
+            this.chatEffortOverride,
+        );
+        const effectiveThinkingOverride = coherentOverrides.thinking;
+        const thinkingIsExplicit = isExplicitThinkingOverride(effectiveThinkingOverride);
         // Apply the per-conversation thinking override to a model before it is
         // built. In 'follow' mode the model's own value is kept unchanged.
         const applyThinkingOverride = (model: CustomModel): CustomModel => {
@@ -1575,10 +1600,19 @@ export class AgentSidebarView extends ItemView {
             return {
                 ...model,
                 thinkingEnabled: resolveEffectiveThinkingEnabled(
-                    this.chatThinkingOverride,
+                    effectiveThinkingOverride,
                     model.thinkingEnabled,
                 ),
             };
+        };
+        // Apply the per-conversation effort override to a model before it is
+        // built. Effort is pin-only, so this is only threaded on the pinned
+        // (modelOverrideActive) path below, never on the default-active or mode
+        // paths. 'auto' leaves the model unchanged so no effort field is sent.
+        const applyEffortOverride = (model: CustomModel): CustomModel => {
+            const effort = resolveEffectiveEffort(this.chatEffortOverride);
+            if (effort === undefined) return model;
+            return { ...model, reasoningEffort: effort };
         };
         let resolvedApiHandler = this.plugin.apiHandler;
         // modelOverrideActive means the user pinned a specific model via the
@@ -1593,8 +1627,13 @@ export class AgentSidebarView extends ItemView {
             const m = resolveOverrideModel(activeProvider, this.chatModelOverride);
             if (m) {
                 try {
-                    const cm = applyThinkingOverride(
-                        providerConfigToCustomModel(activeProvider, m.id, m),
+                    // Pin-only: effort is threaded here (and only here) because a
+                    // pinned model suppresses the tier router, so the effort dial
+                    // fills a real vacuum without colliding with router compute.
+                    const cm = applyEffortOverride(
+                        applyThinkingOverride(
+                            providerConfigToCustomModel(activeProvider, m.id, m),
+                        ),
                     );
                     resolvedApiHandler = buildApiHandlerForModel(cm);
                     modelOverrideActive = true;
@@ -2737,6 +2776,14 @@ export class AgentSidebarView extends ItemView {
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
+        // Reset the per-conversation chat-header overrides so a pinned model,
+        // forced thinking, or a chosen effort level does not leak into the next
+        // conversation. The state-field comments claim a fresh-chat reset; this
+        // is where that reset actually happens.
+        this.chatModelOverride = null;
+        this.chatThinkingOverride = DEFAULT_THINKING_OVERRIDE;
+        this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
+        this.updateModelButton();
         // ADR-048: Reset session flags when starting a new conversation
         this.plugin.sessionFlags.clear();
         this.onboarding?.reset();

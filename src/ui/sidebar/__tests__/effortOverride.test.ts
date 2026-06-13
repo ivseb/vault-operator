@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_EFFORT_OVERRIDE,
     isExplicitEffortOverride,
+    resolveConversationOverrides,
     resolveEffectiveEffort,
 } from '../effortOverride';
 
@@ -42,5 +43,45 @@ describe('DEFAULT_EFFORT_OVERRIDE', () => {
         expect(DEFAULT_EFFORT_OVERRIDE).toBe('auto');
         expect(isExplicitEffortOverride(DEFAULT_EFFORT_OVERRIDE)).toBe(false);
         expect(resolveEffectiveEffort(DEFAULT_EFFORT_OVERRIDE)).toBe(undefined);
+    });
+});
+
+describe('resolveConversationOverrides (within-pin coherence)', () => {
+    it('passes the thinking override through untouched when effort is auto', () => {
+        expect(resolveConversationOverrides('on', 'auto')).toEqual({
+            effort: undefined,
+            thinking: 'on',
+            effortIsExplicit: false,
+        });
+        expect(resolveConversationOverrides('off', 'auto')).toEqual({
+            effort: undefined,
+            thinking: 'off',
+            effortIsExplicit: false,
+        });
+        expect(resolveConversationOverrides('follow', 'auto')).toEqual({
+            effort: undefined,
+            thinking: 'follow',
+            effortIsExplicit: false,
+        });
+    });
+
+    it('forces thinking to follow when effort is explicit (effort wins)', () => {
+        // Thinking=Off + Effort=High is contradictory on Claude, so effort wins
+        // and the explicit thinking override is suppressed.
+        expect(resolveConversationOverrides('off', 'high')).toEqual({
+            effort: 'high',
+            thinking: 'follow',
+            effortIsExplicit: true,
+        });
+        expect(resolveConversationOverrides('on', 'low')).toEqual({
+            effort: 'low',
+            thinking: 'follow',
+            effortIsExplicit: true,
+        });
+        expect(resolveConversationOverrides('follow', 'medium')).toEqual({
+            effort: 'medium',
+            thinking: 'follow',
+            effortIsExplicit: true,
+        });
     });
 });
