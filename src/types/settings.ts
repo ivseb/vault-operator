@@ -1058,6 +1058,15 @@ export interface ObsidianAgentSettings {
         enabled: boolean;
     };
 
+    /**
+     * Always use the compact system-prompt variants (EPIC-26 lean cost
+     * heuristics + lean plugin-skill catalogue) to save tokens. When false,
+     * the lean variants are chosen by routing heuristics only.
+     *
+     * Default: false (current behaviour preserved).
+     */
+    leanSystemPrompt: boolean;
+
     /** BA-25: Vault-Ingest-Pflege (Note-Summary, Frontmatter, Auto-Trigger, PDF). */
     vaultIngest: VaultIngestSettings;
 
@@ -1664,6 +1673,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     agentFolderPath: '.vault-operator',
     defaultOutputFolder: 'Inbox/',
     autoTaskRouter: { enabled: true },
+    leanSystemPrompt: false,
     vaultIngest: DEFAULT_VAULT_INGEST_SETTINGS,
 
     // EPIC-26 / ADR-122: provider-only setup. Pre-migration defaults

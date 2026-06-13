@@ -408,6 +408,8 @@ export const en: Translations = {
     'settings.loop.sectionRoutingDesc': "Some prompts (create one XLSX, summarise a single note, rename a folder) do not need a flagship model. Vault Operator can detect those and route them to your cheaper budget-tier model automatically, falling back to the main model if the budget model struggles.",
     'settings.loop.autoTaskRouterName': 'Route simple tasks to the cheap tier',
     'settings.loop.autoTaskRouterDesc': 'Single-step prompts use the budget-tier model. Multi-step prompts stay on the main model. Default: on.',
+    'settings.loop.leanSystemPromptName': 'Lean system prompt',
+    'settings.loop.leanSystemPromptDesc': 'Always use the compact prompt variants to save tokens. May slightly reduce plugin-skill awareness until a skill is mentioned. Default: off.',
 
     // =========================================================================
     // Settings — Memory Tab

@@ -30,6 +30,7 @@ import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { getHelperApi } from './helper-api';
 import { shouldRunTaskRouter } from './routing/TaskRouter';
+import { resolveLeanFlags } from './prompts/leanFlags';
 import { buildApiHandlerForModel } from '../api';
 import { CompositionStackService } from './skills/CompositionStackService';
 import {
@@ -1040,8 +1041,13 @@ export class AgentTask {
                 // running on auto-mode (no override active). Lean plugin-skills
                 // until a skill-group tool is actually invoked. Subtasks always
                 // see lean cost-heuristics (their prompts are small anyway).
-                costHeuristicsLean: !this.modelOverrideActive,
-                pluginSkillsLean: !recentPluginSkillUsage,
+                // The "Lean system prompt" setting (#44) ORs into both
+                // decisions to force the compact variants.
+                ...resolveLeanFlags(
+                    this.toolRegistry.plugin.settings.leanSystemPrompt ?? false,
+                    this.modelOverrideActive,
+                    recentPluginSkillUsage,
+                ),
             });
             let baseTools = this.modeService
                 ? this.modeService.getToolDefinitions(activeMode)
