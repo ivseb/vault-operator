@@ -126,13 +126,21 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'Amazon Nova',    id: 'us.amazon.nova-lite-v1:0',                    label: 'Nova Lite (US)' },
     ],
     'chatgpt-oauth': [
-        // `-mini` variants are not exposed on the ChatGPT subscription backend
-        // (Codex CLI lineup includes them, but chatgpt.com 400s "not supported
-        // when using Codex with a ChatGPT account"). API-only.
-        { group: 'GPT-5',  id: 'gpt-5.5',          label: 'GPT-5.5  (recommended for Pro)' },
-        { group: 'GPT-5',  id: 'gpt-5',            label: 'GPT-5' },
-        { group: 'Codex',  id: 'gpt-5-codex',      label: 'GPT-5 Codex' },
-        { group: 'Codex',  id: 'gpt-5.1-codex',    label: 'GPT-5.1 Codex' },
+        // BUG-3-CODEX-OAUTH-MODEL-MISMATCH: this list MUST stay a subset of
+        // KNOWN_MODELS in src/api/providers/chatgpt-oauth.ts (the only Codex
+        // allowlist -- the backend has no /v1/models). Offering an id the
+        // backend rejects 400s mid-task with "not supported when using Codex
+        // with a ChatGPT account". gpt-5.5 and the `-mini` variants are
+        // API-tier only and were removed for that reason. Guard:
+        // src/ui/settings/__tests__/chatgptOAuthSuggestions.test.ts.
+        { group: 'GPT-5',  id: 'gpt-5',                label: 'GPT-5' },
+        { group: 'GPT-5',  id: 'gpt-5.1',              label: 'GPT-5.1' },
+        { group: 'GPT-5',  id: 'gpt-5.2',              label: 'GPT-5.2' },
+        { group: 'Codex',  id: 'gpt-5-codex',          label: 'GPT-5 Codex' },
+        { group: 'Codex',  id: 'gpt-5.1-codex',        label: 'GPT-5.1 Codex' },
+        { group: 'Codex',  id: 'gpt-5.1-codex-max',    label: 'GPT-5.1 Codex Max' },
+        { group: 'Codex',  id: 'gpt-5.2-codex',        label: 'GPT-5.2 Codex' },
+        { group: 'Codex',  id: 'gpt-5.3-codex',        label: 'GPT-5.3 Codex' },
     ],
 };
 

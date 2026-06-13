@@ -355,9 +355,13 @@ export class ChatGptOAuthProvider implements ApiHandler {
             // available on a ChatGPT subscription (only on the API-key tier).
             if (/not supported when using Codex with a ChatGPT account/i.test(serverMsg ?? '')) {
                 const supported = Object.keys(KNOWN_MODELS).join(', ');
-                const wasOurStaleList = KNOWN_UNSUPPORTED_ON_CHATGPT_ACCOUNT.has(this.config.model);
-                const hint = wasOurStaleList
-                    ? ' This model was removed from the supported list -- click "Fetch" in Provider settings to refresh, then pick a supported model for the affected tier.'
+                // Any id outside KNOWN_MODELS is a stale pick from older settings
+                // (e.g. the dead gpt-5.5 default or a `-mini` variant). Steer the
+                // user back to a supported model instead of leaving them stuck.
+                const isStalePick = KNOWN_UNSUPPORTED_ON_CHATGPT_ACCOUNT.has(this.config.model)
+                    || !Object.prototype.hasOwnProperty.call(KNOWN_MODELS, this.config.model);
+                const hint = isStalePick
+                    ? ' This model is not on the supported list -- click "Fetch" in Provider settings to refresh, then pick a supported model for the affected tier.'
                     : '';
                 return new Error(
                     `ChatGPT subscription does not support model "${this.config.model}" on the Codex backend.${hint} Supported: ${supported}.`,

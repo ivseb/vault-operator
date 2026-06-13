@@ -1649,7 +1649,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     chatgptOAuthEmail: '',
     chatgptOAuthPlanTier: '',
     chatgptOAuthExpiresAt: 0,
-    chatgptOAuthModel: 'gpt-5.5',
+    chatgptOAuthModel: 'gpt-5-codex',
     chatgptOAuthDisclaimerAcknowledgedAt: 0,
     debugMode: false,
     agentFolderPath: '.vault-operator',
