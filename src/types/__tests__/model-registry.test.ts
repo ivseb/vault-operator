@@ -6,6 +6,7 @@ import {
     resolveOutputBudget,
     estimatePromptTokens,
     modelSupportsTemperature,
+    getModelEffortSupport,
 } from '../model-registry';
 
 describe('normalizeModelId', () => {
@@ -268,5 +269,62 @@ describe('modelSupportsTemperature (FIX-04-03-02)', () => {
     it('does not flag unknown local model names', () => {
         expect(modelSupportsTemperature('llama-3.1-70b')).toBe(true);
         expect(modelSupportsTemperature('qwen3.5:9b')).toBe(true);
+    });
+});
+
+describe('getModelEffortSupport', () => {
+    it('supports Claude on Bedrock', () => {
+        expect(getModelEffortSupport('eu.anthropic.claude-opus-4-8-v1', 'bedrock')).toBe(true);
+    });
+
+    it('supports Claude on anthropic-direct', () => {
+        expect(getModelEffortSupport('claude-sonnet-4-6', 'anthropic')).toBe(true);
+    });
+
+    it('supports Claude on OpenRouter', () => {
+        expect(getModelEffortSupport('anthropic/claude-opus-4-8', 'openrouter')).toBe(true);
+    });
+
+    it('supports GPT-5 on OpenAI', () => {
+        expect(getModelEffortSupport('gpt-5', 'openai')).toBe(true);
+        expect(getModelEffortSupport('gpt-5.5', 'openai')).toBe(true);
+    });
+
+    it('supports o-series on OpenAI / Copilot / ChatGPT-OAuth', () => {
+        expect(getModelEffortSupport('o3', 'openai')).toBe(true);
+        expect(getModelEffortSupport('o1-mini', 'github-copilot')).toBe(true);
+        expect(getModelEffortSupport('o4-mini', 'chatgpt-oauth')).toBe(true);
+    });
+
+    it('supports GPT-5 / o-series via OpenRouter (non-Claude path)', () => {
+        expect(getModelEffortSupport('openai/gpt-5', 'openrouter')).toBe(true);
+        expect(getModelEffortSupport('openai/o3', 'openrouter')).toBe(true);
+    });
+
+    it('does NOT support Gemini', () => {
+        expect(getModelEffortSupport('gemini-2.5-pro', 'gemini')).toBe(false);
+    });
+
+    it('does NOT support ollama / lmstudio / custom', () => {
+        expect(getModelEffortSupport('llama-3.1-70b', 'ollama')).toBe(false);
+        expect(getModelEffortSupport('qwen3.5:9b', 'lmstudio')).toBe(false);
+        expect(getModelEffortSupport('some-model', 'custom')).toBe(false);
+    });
+
+    it('does NOT support a random custom id', () => {
+        expect(getModelEffortSupport('totally-made-up-1234', 'custom')).toBe(false);
+        expect(getModelEffortSupport('totally-made-up-1234', 'openai')).toBe(false);
+    });
+
+    it('does NOT support a non-Claude model on a Claude-only provider', () => {
+        // A GPT model accidentally configured under anthropic must not flip on.
+        expect(getModelEffortSupport('gpt-4o', 'anthropic')).toBe(false);
+        // Claude under openai is not a real combination either.
+        expect(getModelEffortSupport('claude-sonnet-4-6', 'openai')).toBe(false);
+    });
+
+    it('does NOT support GPT-4 lineage (no reasoning effort surface)', () => {
+        expect(getModelEffortSupport('gpt-4o', 'openai')).toBe(false);
+        expect(getModelEffortSupport('gpt-4.1', 'openai')).toBe(false);
     });
 });

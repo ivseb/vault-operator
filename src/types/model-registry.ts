@@ -302,6 +302,49 @@ export function modelSupportsTemperature(modelId: string): boolean {
     return true;
 }
 
+/**
+ * Whether a (model, provider) pair can SEND a native reasoning-effort field.
+ *
+ * This gates the per-conversation effort selector: the control is only rendered
+ * and a native effort field is only sent for combinations we know how to wire.
+ *
+ * - Claude on anthropic / bedrock / openrouter: output_config.effort (Anthropic
+ *   and OpenRouter) or additionalModelRequestFields reasoning (Bedrock).
+ * - GPT-5 and the o-series (o1, o3, o4, ...) on openai / github-copilot /
+ *   chatgpt-oauth / openrouter: reasoning.effort / reasoning_effort.
+ *
+ * Everything else (Gemini, Ollama, LM Studio, custom, GPT-4 lineage, any
+ * unknown id) returns false: control hidden, no field sent. The id is
+ * normalized first so OpenRouter `anthropic/claude-*` and Bedrock
+ * `eu.anthropic.claude-*-v1` map to the same answer as the direct id.
+ */
+export function getModelEffortSupport(modelId: string, providerType: string): boolean {
+    const provider = providerType.toLowerCase();
+    const normalized = normalizeModelId(modelId).toLowerCase();
+
+    const isClaude = /^claude-/.test(normalized);
+    // GPT-5 family and the reasoning o-series (o1..o9 plus o-mini variants).
+    const isOpenAiReasoning = /^gpt-5(\b|[.-])/.test(normalized) || /^o[1-9](\b|[.-])/.test(normalized);
+
+    // Claude-capable providers send the effort via the native Anthropic surface.
+    if (isClaude && (provider === 'anthropic' || provider === 'bedrock' || provider === 'openrouter')) {
+        return true;
+    }
+
+    // OpenAI-style reasoning providers send reasoning.effort / reasoning_effort.
+    if (
+        isOpenAiReasoning &&
+        (provider === 'openai' ||
+            provider === 'github-copilot' ||
+            provider === 'chatgpt-oauth' ||
+            provider === 'openrouter')
+    ) {
+        return true;
+    }
+
+    return false;
+}
+
 /** Output ceiling assumed for models we have no registry entry for (local models, gateways, ...). */
 const UNKNOWN_MODEL_OUTPUT_CEILING = 64_000;
 /** Generous-but-bounded default visible-output budget for known cloud models. */

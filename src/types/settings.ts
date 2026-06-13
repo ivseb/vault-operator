@@ -39,6 +39,8 @@ export interface CustomModel {
     thinkingEnabled?: boolean;
     /** Thinking budget in tokens (used when thinkingEnabled is true, default 10000) */
     thinkingBudgetTokens?: number;
+    /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
+    reasoningEffort?: 'low' | 'medium' | 'high';
     /** AWS region (Bedrock only), e.g. "eu-central-1", "us-east-1" */
     awsRegion?: string;
     /** Auth mode for Bedrock: 'api-key' uses a single bearer token (new AWS Bedrock API Keys),
@@ -277,6 +279,8 @@ export interface LLMProvider {
     thinkingEnabled?: boolean;
     /** Thinking budget in tokens */
     thinkingBudgetTokens?: number;
+    /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
+    reasoningEffort?: 'low' | 'medium' | 'high';
     /** AWS region (Bedrock only) */
     awsRegion?: string;
     /** Bedrock auth mode */
@@ -307,6 +311,7 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         promptCachingEnabled: model.promptCachingEnabled !== false,
         thinkingEnabled: model.thinkingEnabled,
         thinkingBudgetTokens: model.thinkingBudgetTokens,
+        reasoningEffort: model.reasoningEffort,
         awsRegion: model.awsRegion,
         awsAuthMode: model.awsAuthMode,
         awsApiKey: model.awsApiKey,
