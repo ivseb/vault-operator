@@ -44,6 +44,20 @@ describe('getModelOutputCeiling / getModelMaxTokens', () => {
         expect(getModelOutputCeiling('some-custom-model')).toBeUndefined();
     });
 
+    // BUG-2: the post-4.6 Anthropic lineup (Opus 4.7/4.8, Fable 5) was missing
+    // from the registry, so resolveOutputBudget treated them as unknown and
+    // capped visible output at the 8192 legacy default -- the silent
+    // truncation that produced the "Write file" failure mode. These models
+    // have a 1M context window and a 128K output ceiling.
+    it('resolves the post-4.6 Anthropic lineup (Opus 4.7/4.8, Fable 5)', () => {
+        expect(getModelOutputCeiling('claude-opus-4-7')).toBe(128_000);
+        expect(getModelOutputCeiling('claude-opus-4-8')).toBe(128_000);
+        expect(getModelOutputCeiling('claude-fable-5')).toBe(128_000);
+        // Bedrock-decorated IDs normalize to the same registry entry.
+        expect(getModelOutputCeiling('eu.anthropic.claude-opus-4-8-v1')).toBe(128_000);
+        expect(getModelOutputCeiling('anthropic/claude-fable-5')).toBe(128_000);
+    });
+
     it('getModelMaxTokens falls back to 8192 for unknown models', () => {
         expect(getModelMaxTokens('llama3.2')).toBe(8_192);
         expect(getModelMaxTokens('eu.anthropic.claude-opus-4-6-v1')).toBe(128_000);
@@ -78,6 +92,21 @@ describe('resolveOutputBudget', () => {
     it('stays conservative (8192) for unknown models with no configured value', () => {
         expect(resolveOutputBudget('llama3.2', undefined)).toEqual({
             maxTokens: 8_192,
+            thinkingBudgetTokens: 0,
+        });
+    });
+
+    // BUG-2: before the post-4.6 lineup was registered, Opus 4.8 / Fable 5 hit
+    // the unknown-model path and were capped at 8192 visible output -- long
+    // writes silently truncated. With registry entries they get the generous
+    // 32k default like any other known cloud model.
+    it('gives the post-4.6 Anthropic lineup the generous default, not the legacy 8192 cap', () => {
+        expect(resolveOutputBudget('claude-opus-4-8', undefined)).toEqual({
+            maxTokens: 32_000,
+            thinkingBudgetTokens: 0,
+        });
+        expect(resolveOutputBudget('claude-fable-5', undefined)).toEqual({
+            maxTokens: 32_000,
             thinkingBudgetTokens: 0,
         });
     });

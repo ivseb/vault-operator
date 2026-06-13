@@ -15,6 +15,32 @@ export interface ModelInfo {
 // Anthropic Models
 // https://docs.anthropic.com/en/docs/about-claude/models
 export const ANTHROPIC_MODELS: Record<string, ModelInfo> = {
+    // BUG-2: the post-4.6 lineup must be registered so resolveOutputBudget
+    // gives them the generous output budget instead of the 8192 legacy cap
+    // used for unknown models (the silent long-write truncation). 1M context
+    // window, 128K output ceiling. These also drop the sampling parameters --
+    // see modelSupportsTemperature below.
+    'claude-fable-5': {
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        supportsTools: true,
+        supportsStreaming: true,
+        displayName: 'Claude Fable 5',
+    },
+    'claude-opus-4-8': {
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        supportsTools: true,
+        supportsStreaming: true,
+        displayName: 'Claude Opus 4.8',
+    },
+    'claude-opus-4-7': {
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        supportsTools: true,
+        supportsStreaming: true,
+        displayName: 'Claude Opus 4.7',
+    },
     'claude-opus-4-6': {
         contextWindow: 200_000,
         maxTokens: 128_000,
