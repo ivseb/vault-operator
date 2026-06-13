@@ -363,8 +363,19 @@ export class ChatGptOAuthProvider implements ApiHandler {
                 const hint = isStalePick
                     ? ' This model is not on the supported list -- click "Fetch" in Provider settings to refresh, then pick a supported model for the affected tier.'
                     : '';
+                // Surface whether the account-id header was attached and the
+                // raw backend wording. If even a supported base model is
+                // rejected WITH an account id present, the account itself has
+                // no Codex entitlement (a plan-level limitation, not a plugin
+                // bug). Without an account id, the rejection may instead be the
+                // missing header -- re-authenticate.
+                const hasAccountId = !!this.auth.getAccountId();
+                const accountNote = hasAccountId
+                    ? ' A chatgpt-account-id was sent, so if a supported base model is still rejected your ChatGPT plan likely has no Codex access.'
+                    : ' No chatgpt-account-id was sent for this request, which can itself trigger this rejection -- sign out and sign in again in Provider settings.';
+                const serverNote = serverMsg ? ` Backend said: "${serverMsg}".` : '';
                 return new Error(
-                    `ChatGPT subscription does not support model "${this.config.model}" on the Codex backend.${hint} Supported: ${supported}.`,
+                    `ChatGPT subscription does not support model "${this.config.model}" on the Codex backend.${hint}${accountNote}${serverNote} Supported: ${supported}.`,
                 );
             }
             return new Error(`ChatGPT request rejected (400). ${serverMsg ?? trimmed}`);
