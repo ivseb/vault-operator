@@ -223,7 +223,16 @@ export class RerankerService {
         // wasmBinary and adding an undeclared network fetch). Clearing the
         // paths keeps the embedded glue plus the vault binary authoritative.
         onnxWasm.wasmPaths = undefined;
-        onnxWasm.numThreads = Math.min(4, navigator?.hardwareConcurrency ?? 4);
+        // Single-threaded on purpose. The threaded build
+        // (ort-wasm-simd-threaded.wasm) spawns pthread Web Workers that each
+        // need to resolve the ORT loader script URL. In the bundled Electron
+        // renderer, with wasmPaths cleared and no document.currentScript /
+        // import.meta.url, that URL cannot be determined and worker spawn
+        // throws "cannot determine the script source URL". numThreads=1 runs
+        // the same binary on the main thread using the provided wasmBinary --
+        // no workers, no URL resolution. A cross-encoder over ~20 candidates
+        // does not need threads.
+        onnxWasm.numThreads = 1;
         console.debug(`[Reranker] Loaded ONNX WASM from vault asset (${Math.round(wasmBinary.byteLength / 1024 / 1024)} MB)`);
 
         console.debug(`[Reranker] Loading model ${MODEL_ID}...`);

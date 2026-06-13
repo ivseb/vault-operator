@@ -73,3 +73,39 @@ export function readStringClaim(claims: JwtClaims, ...names: string[]): string {
     }
     return '';
 }
+
+/**
+ * Last-resort deep scan: look for any of the given field names one level deep
+ * inside every object-valued claim, regardless of the namespace key. Used when
+ * the expected namespace paths miss because a provider nests a value under a
+ * key we do not enumerate. Returns the first non-empty string match or `''`.
+ */
+export function findClaimInNestedObjects(claims: JwtClaims, ...fieldNames: string[]): string {
+    for (const value of Object.values(claims)) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+        const obj = value as Record<string, unknown>;
+        for (const field of fieldNames) {
+            const v = obj[field];
+            if (typeof v === 'string' && v.length > 0) return v;
+        }
+    }
+    return '';
+}
+
+/**
+ * Describe a claims object's shape for diagnostics: top-level keys, with
+ * nested object claims expanded to `key:{subkey,subkey}`. KEYS ONLY, never
+ * values, so it is safe to log a token's structure without leaking the
+ * account id, email, or other claim values.
+ */
+export function describeClaimStructure(claims: JwtClaims): string {
+    const parts: string[] = [];
+    for (const [key, value] of Object.entries(claims)) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+            parts.push(`${key}:{${Object.keys(value as Record<string, unknown>).join(',')}}`);
+        } else {
+            parts.push(key);
+        }
+    }
+    return parts.join(', ');
+}

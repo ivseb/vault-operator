@@ -16,7 +16,7 @@ import { requestUrl, Platform } from 'obsidian';
 import type { ObsidianAgentSettings } from '../../types/settings';
 import { SafeStorageService } from '../security/SafeStorageService';
 import { startPkceLoopbackServer } from './PkceLoopbackServer';
-import { decodeJwtClaims, readStringClaim } from './jwt-decode';
+import { decodeJwtClaims, readStringClaim, findClaimInNestedObjects, describeClaimStructure } from './jwt-decode';
 
 void SafeStorageService; // import retained for future direct use
 
@@ -284,14 +284,30 @@ export class ChatGptOAuthService {
     private applyJwtClaims(jwt: string): void {
         const claims = decodeJwtClaims(jwt);
         if (!claims) return;
-        this.accountId = readStringClaim(claims, ...ACCOUNT_ID_CLAIMS) || this.accountId;
+        // Named paths first (flat + the OpenAI nested namespace), then a
+        // last-resort deep scan over every object-valued claim in case the
+        // account id is nested under a namespace we do not enumerate.
+        const accountId = readStringClaim(claims, ...ACCOUNT_ID_CLAIMS)
+            || findClaimInNestedObjects(claims, 'chatgpt_account_id', 'account_id');
+        if (accountId) this.accountId = accountId;
         const email = readStringClaim(claims, 'email');
         if (email) this.email = email;
-        const planRaw = readStringClaim(claims, ...PLAN_TIER_CLAIMS).toLowerCase();
+        const planRaw = (readStringClaim(claims, ...PLAN_TIER_CLAIMS)
+            || findClaimInNestedObjects(claims, 'chatgpt_plan_type', 'plan_type')).toLowerCase();
         const resolvedPlan = planRaw === 'pro' ? 'pro' : planRaw === 'plus' ? 'plus' : planRaw ? 'unknown' : '';
         // Keep a previously resolved plan if this token has no plan claim, so
         // applying the access token after the id token never clears it.
         if (resolvedPlan) this.planTier = resolvedPlan;
+        // Diagnostic: a decoded token that yields an email but no account id
+        // means the chatgpt-account-id header will be dropped and the Codex
+        // backend rejects every model. Log the claim shape (keys only, no
+        // values) so the missing field can be located without leaking secrets.
+        if (!this.accountId && email) {
+            console.warn(
+                '[ChatGptOAuth] account id not found in token; the chatgpt-account-id header will be omitted and the Codex backend will reject every model. '
+                + 'Claim structure (keys only, no values): ' + describeClaimStructure(claims),
+            );
+        }
     }
 
     // ---------------------------------------------------------------------------
