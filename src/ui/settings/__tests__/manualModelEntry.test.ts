@@ -14,8 +14,14 @@ import {
 } from '../manualModelEntry';
 
 describe('providerSupportsManualModelId', () => {
-    it('allows manual entry only for chatgpt-oauth', () => {
+    it('allows manual entry for providers that may lack a model-list endpoint', () => {
+        // ChatGPT OAuth (Codex) and custom OpenAI-compatible endpoints cannot
+        // be relied on to enumerate models, so they get free-text entry.
         expect(providerSupportsManualModelId('chatgpt-oauth')).toBe(true);
+        expect(providerSupportsManualModelId('custom')).toBe(true);
+    });
+
+    it('keeps dropdown-only for providers with a real /v1/models refresh', () => {
         expect(providerSupportsManualModelId('openai')).toBe(false);
         expect(providerSupportsManualModelId('anthropic')).toBe(false);
         expect(providerSupportsManualModelId('github-copilot')).toBe(false);

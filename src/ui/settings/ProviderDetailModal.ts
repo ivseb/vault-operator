@@ -1001,11 +1001,12 @@ export class ProviderDetailModal extends Modal {
     }
 
     /**
-     * Free-text model-id control for providers without a model listing
-     * endpoint (ChatGPT OAuth / Codex). Lets a power user pin a future Codex
-     * id we cannot enumerate. An unknown id degrades gracefully: the provider
-     * falls back to default model info and the backend's own "not supported"
-     * message surfaces if the id is wrong.
+     * Free-text model-id control for providers without a reliable model
+     * listing endpoint (ChatGPT OAuth / Codex, and custom OpenAI-compatible
+     * endpoints that may not expose /v1/models -- issue #40). Lets the user
+     * type a model id we cannot enumerate. An unknown id degrades gracefully:
+     * the provider falls back to default model info and the endpoint's own
+     * error surfaces if the id is wrong.
      */
     private renderManualTierControl(parent: HTMLElement, tier: ModelTier, value: string): void {
         const input = parent.createEl('input', {

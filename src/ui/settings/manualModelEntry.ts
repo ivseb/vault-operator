@@ -18,14 +18,15 @@ export const MANUAL_TIER_OPTION_VALUE = '__manual__';
 /**
  * Provider types whose tier slots accept a manually typed model id.
  *
- * Only the ChatGPT OAuth Codex backend qualifies today: it has no model
- * listing endpoint, so the discovered list is the static known lineup and a
- * never-listed-but-valid future Codex id would otherwise be unreachable.
+ * Two cases qualify, both because the model list cannot be relied on:
+ *  - `chatgpt-oauth` (Codex): a never-listed-but-valid id must be reachable.
+ *  - `custom`: an OpenAI-compatible endpoint may not expose `/v1/models` at
+ *    all (issue #40), leaving the tier dropdown empty with no other way in.
  * Every other provider can refresh a real `/v1/models` list, so free-text
  * there would only invite typos.
  */
 export function providerSupportsManualModelId(type: ProviderType): boolean {
-    return type === 'chatgpt-oauth';
+    return type === 'chatgpt-oauth' || type === 'custom';
 }
 
 export interface TierSlotViewInput {
