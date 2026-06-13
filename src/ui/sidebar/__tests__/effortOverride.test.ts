@@ -10,9 +10,13 @@ import { describe, expect, it } from 'vitest';
 import {
     DEFAULT_EFFORT_OVERRIDE,
     effortControlVisibility,
+    effortIndexForOverride,
+    effortStopForIndex,
+    effortStops,
     isExplicitEffortOverride,
     resolveEffectiveEffort,
     resolveEffectiveModelForEffort,
+    thinkingSwitchIsOn,
 } from '../effortOverride';
 
 describe('resolveEffectiveEffort', () => {
@@ -65,6 +69,72 @@ describe('effortControlVisibility', () => {
 
     it('renders nothing when thinking is on but the model cannot send effort', () => {
         expect(effortControlVisibility(true, false)).toBe('none');
+    });
+});
+
+describe('thinkingSwitchIsOn', () => {
+    it('reads the default follow as On (byte-identical default still shows On)', () => {
+        expect(thinkingSwitchIsOn('follow')).toBe(true);
+    });
+
+    it('reads explicit on as On', () => {
+        expect(thinkingSwitchIsOn('on')).toBe(true);
+    });
+
+    it('reads only explicit off as Off', () => {
+        expect(thinkingSwitchIsOn('off')).toBe(false);
+    });
+});
+
+describe('effortStops', () => {
+    it('prepends auto to the model-native levels', () => {
+        expect(effortStops(['low', 'medium', 'high', 'xhigh', 'max'])).toEqual([
+            'auto',
+            'low',
+            'medium',
+            'high',
+            'xhigh',
+            'max',
+        ]);
+        expect(effortStops(['minimal', 'low', 'medium', 'high'])).toEqual([
+            'auto',
+            'minimal',
+            'low',
+            'medium',
+            'high',
+        ]);
+    });
+
+    it('is just auto when the model has no native levels', () => {
+        expect(effortStops([])).toEqual(['auto']);
+    });
+});
+
+describe('effortIndexForOverride <-> effortStopForIndex round trip', () => {
+    const claudeStops = effortStops(['low', 'medium', 'high', 'xhigh', 'max']);
+
+    it('maps each stop to its index and back', () => {
+        for (let i = 0; i < claudeStops.length; i++) {
+            expect(effortIndexForOverride(claudeStops, claudeStops[i])).toBe(i);
+            expect(effortStopForIndex(claudeStops, i)).toBe(claudeStops[i]);
+        }
+    });
+
+    it('auto sits at index 0', () => {
+        expect(effortIndexForOverride(claudeStops, 'auto')).toBe(0);
+        expect(effortStopForIndex(claudeStops, 0)).toBe('auto');
+    });
+
+    it('an override not in the stops clamps to auto (index 0)', () => {
+        const gptStops = effortStops(['minimal', 'low', 'medium', 'high']);
+        // xhigh is a Claude level; it is not a GPT stop, so it clamps to auto.
+        expect(effortIndexForOverride(gptStops, 'xhigh')).toBe(0);
+    });
+
+    it('an out-of-range index clamps into the stops', () => {
+        expect(effortStopForIndex(claudeStops, -3)).toBe('auto');
+        expect(effortStopForIndex(claudeStops, 99)).toBe('max');
+        expect(effortStopForIndex(claudeStops, Number.NaN)).toBe('auto');
     });
 });
 

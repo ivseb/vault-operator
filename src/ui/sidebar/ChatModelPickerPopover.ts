@@ -21,7 +21,13 @@ import type { EffortLevel } from '../../types/model-registry';
 import { t } from '../../i18n';
 import type { ThinkingOverride } from './thinkingOverride';
 import type { EffortOverride } from './effortOverride';
-import { isExplicitEffortOverride, effortControlVisibility } from './effortOverride';
+import {
+    effortControlVisibility,
+    effortStops,
+    effortIndexForOverride,
+    effortStopForIndex,
+    thinkingSwitchIsOn,
+} from './effortOverride';
 
 export interface ChatModelPickerCallbacks {
     /** Currently selected override (null = Auto). */
@@ -130,20 +136,29 @@ export class ChatModelPickerPopover {
         };
         searchInput.addEventListener('input', applyFilter);
 
-        // ── Thinking + reasoning-effort overrides (per conversation) ─────
-        // The thinking toggle always shows. The effort control is revealed
-        // only when thinking is On AND the active model can send a native
-        // effort field; otherwise it is omitted (no inert control, no hint).
-        const setThinkingDisabled = this.makeThinkingControl(popover, callbacks);
-        const effortCapable = callbacks.getEffortLevels().length > 0;
-        const thinkingOn = callbacks.getThinking() !== 'off';
-        const visibility = effortControlVisibility(thinkingOn, effortCapable);
-        if (visibility === 'control') {
-            this.makeEffortControl(popover, callbacks, setThinkingDisabled);
-        }
-        // Coherence on open: if effort is already explicit, the thinking
-        // toggle is greyed (effort drives reasoning depth on Claude).
-        setThinkingDisabled(visibility === 'control' && isExplicitEffortOverride(callbacks.getEffort()));
+        // ── Thinking switch + reasoning-effort slider (per conversation) ──
+        // Thinking is a binary On/Off pill switch. The effort slider is built
+        // only when the model is effort-capable, and its row is shown only
+        // while thinking is On. Flipping the switch toggles the row live.
+        const levels = callbacks.getEffortLevels();
+        const effortCapable = levels.length > 0;
+
+        // Build the effort row once (if the model can send effort) so the
+        // switch can show/hide it without rebuilding the DOM.
+        const effortRow = effortCapable ? this.makeEffortControl(popover, callbacks, levels) : null;
+
+        const syncEffortRowVisibility = () => {
+            if (!effortRow) return;
+            const visibility = effortControlVisibility(
+                thinkingSwitchIsOn(callbacks.getThinking()),
+                effortCapable,
+            );
+            effortRow.wrap.classList.toggle('agent-u-hidden', visibility !== 'control');
+            if (visibility === 'control') effortRow.sync();
+        };
+
+        this.makeThinkingControl(popover, callbacks, syncEffortRowVisibility);
+        syncEffortRowVisibility();
 
         // ── Keyboard: Esc closes, Enter selects first visible ───────────
         this.keyHandler = (e: KeyboardEvent) => {
@@ -243,77 +258,72 @@ export class ChatModelPickerPopover {
     }
 
     /**
-     * Per-conversation thinking override (issue #44): a small segmented
-     * control with Follow / On / Off. "Follow" is the default and keeps the
-     * active model's own thinking setting, so an untouched picker changes
-     * nothing.
+     * Per-conversation thinking switch: a binary On/Off pill switch (a track
+     * with a sliding knob, accent when on). The picker keeps the tri-state
+     * ThinkingOverride internally for default preservation: On reads as
+     * override !== 'off' (so the byte-identical 'follow' default shows On), Off
+     * reads as override === 'off'. Clicking sets an explicit 'on' or 'off'.
+     *
+     * Models without thinking ignore an 'on' override (the providers already
+     * no-op it), so the switch stays a simple binary toggle.
      */
-    private makeThinkingControl(popover: HTMLElement, callbacks: ChatModelPickerCallbacks): (disabled: boolean) => void {
-        const footer = popover.createDiv('chat-model-picker-thinking');
-        footer.createDiv({
+    private makeThinkingControl(
+        popover: HTMLElement,
+        callbacks: ChatModelPickerCallbacks,
+        onToggle: () => void,
+    ): void {
+        const row = popover.createDiv('chat-model-picker-thinking');
+        row.createDiv({
             cls: 'chat-model-picker-thinking-label',
             text: t('ui.sidebar.thinkingOverrideLabel'),
         });
-        const group = footer.createDiv('chat-model-picker-thinking-group');
 
-        const options: Array<{ value: ThinkingOverride; label: string }> = [
-            { value: 'follow', label: t('ui.sidebar.thinkingOverrideFollow') },
-            { value: 'on', label: t('ui.sidebar.thinkingOverrideOn') },
-            { value: 'off', label: t('ui.sidebar.thinkingOverrideOff') },
-        ];
+        const switchBtn = row.createEl('button', {
+            cls: 'chat-model-picker-thinking-switch',
+            attr: { type: 'button', role: 'switch' },
+        });
+        switchBtn.createSpan('chat-model-picker-thinking-knob');
+        const stateText = row.createSpan('chat-model-picker-thinking-state');
 
-        const buttons: Array<{ value: ThinkingOverride; el: HTMLButtonElement }> = [];
         const sync = () => {
-            const current = callbacks.getThinking();
-            for (const b of buttons) {
-                b.el.classList.toggle('is-active', b.value === current);
-                b.el.setAttr('aria-pressed', b.value === current ? 'true' : 'false');
-            }
+            const on = thinkingSwitchIsOn(callbacks.getThinking());
+            switchBtn.classList.toggle('is-on', on);
+            switchBtn.setAttr('aria-checked', on ? 'true' : 'false');
+            stateText.setText(on ? t('ui.sidebar.thinkingOn') : t('ui.sidebar.thinkingOff'));
         };
 
-        for (const opt of options) {
-            const btn = group.createEl('button', {
-                cls: 'chat-model-picker-thinking-btn',
-                text: opt.label,
-                attr: { type: 'button' },
-            });
-            btn.addEventListener('click', () => {
-                if (btn.disabled) return;
-                callbacks.onThinkingChange(opt.value);
-                sync();
-            });
-            buttons.push({ value: opt.value, el: btn });
-        }
+        switchBtn.addEventListener('click', () => {
+            // currently-on -> off, currently-off -> on. Always an explicit value.
+            const next: ThinkingOverride = thinkingSwitchIsOn(callbacks.getThinking()) ? 'off' : 'on';
+            callbacks.onThinkingChange(next);
+            sync();
+            onToggle();
+        });
         sync();
-
-        // Returned so the effort control can grey the thinking toggle when an
-        // explicit effort level is set (effort drives reasoning depth, so a
-        // Thinking=Off plus Effort=High combination is contradictory).
-        return (disabled: boolean) => {
-            footer.classList.toggle('is-disabled', disabled);
-            for (const b of buttons) b.el.disabled = disabled;
-        };
     }
 
     /**
-     * Per-conversation reasoning-effort override: a segmented control with
-     * Auto / Low / Medium / High. Only rendered when a model is pinned and the
-     * model can send a native effort field. "Auto" (the default) sends no
-     * effort field, so an untouched picker changes nothing.
+     * Per-conversation reasoning-effort slider: a Claude-Code-style pill slider
+     * (a pill track with one dot marker per stop and a round knob, accent-filled
+     * up to the knob). Stops are ['auto', ...model-native levels]. 'auto' (the
+     * leftmost default) sends no effort field, so an untouched picker changes
+     * nothing. Returns the row wrap plus a sync() so the caller can re-sync when
+     * it un-hides the row.
      */
     private makeEffortControl(
         popover: HTMLElement,
         callbacks: ChatModelPickerCallbacks,
-        setThinkingDisabled: (disabled: boolean) => void,
-    ): void {
-        // Ordered stops, left (Auto = no override) to right (High). A slider
-        // rather than buttons, matching the Claude Code effort selector.
-        const LEVELS: EffortOverride[] = ['auto', 'low', 'medium', 'high'];
+        levels: EffortLevel[],
+    ): { wrap: HTMLElement; sync: () => void } {
+        const stops = effortStops(levels);
         const labelFor = (level: EffortOverride): string => {
             switch (level) {
+                case 'minimal': return t('ui.sidebar.effortMinimal');
                 case 'low': return t('ui.sidebar.effortLow');
                 case 'medium': return t('ui.sidebar.effortMedium');
                 case 'high': return t('ui.sidebar.effortHigh');
+                case 'xhigh': return t('ui.sidebar.effortXhigh');
+                case 'max': return t('ui.sidebar.effortMax');
                 case 'auto':
                 default: return t('ui.sidebar.effortAuto');
             }
@@ -327,32 +337,41 @@ export class ChatModelPickerPopover {
         });
         const valueEl = labelWrap.createSpan('chat-model-picker-effort-value');
 
-        const slider = row.createEl('input', {
+        // Pill wrap: a dots row sits behind a transparent-track range input so
+        // the markers show through and the visible thumb rides on top.
+        const pill = row.createDiv('chat-model-picker-effort-pill');
+        const dots = pill.createDiv('chat-model-picker-effort-dots');
+        for (let i = 0; i < stops.length; i++) {
+            dots.createSpan('chat-model-picker-effort-dot');
+        }
+
+        const slider = pill.createEl('input', {
             cls: 'chat-model-picker-effort-slider',
-            attr: { type: 'range', min: '0', max: String(LEVELS.length - 1), step: '1' },
+            attr: { type: 'range', min: '0', max: String(stops.length - 1), step: '1' },
         });
         slider.setAttr('aria-label', t('ui.sidebar.effortLabel'));
 
         const sync = () => {
             const current = callbacks.getEffort();
-            const idx = Math.max(0, LEVELS.indexOf(current));
+            const idx = effortIndexForOverride(stops, current);
             slider.value = String(idx);
-            // Filled portion of the pill track, driven by a CSS var so no
-            // inline style property is assigned directly (bot-compliant).
-            const pct = (idx / (LEVELS.length - 1)) * 100;
-            slider.setCssProps({ '--effort-fill': `${pct}%` });
-            const label = labelFor(current);
+            // Filled portion of the pill track up to the knob, via a CSS var so
+            // no inline style property is assigned directly (bot-compliant).
+            const pct = stops.length > 1 ? (idx / (stops.length - 1)) * 100 : 0;
+            pill.setCssProps({ '--effort-fill': `${pct}%` });
+            const label = labelFor(stops[idx] ?? 'auto');
             valueEl.setText(label);
             slider.setAttr('aria-valuetext', label);
-            setThinkingDisabled(isExplicitEffortOverride(current));
         };
 
         slider.addEventListener('input', () => {
-            const level = LEVELS[Number(slider.value)] ?? 'auto';
+            const level = effortStopForIndex(stops, Number(slider.value));
             callbacks.onEffortChange(level);
             sync();
         });
         sync();
+
+        return { wrap: row, sync };
     }
 
     private positionPopover(popover: HTMLElement, anchorBtn: HTMLElement, containerEl: HTMLElement): void {

@@ -12,6 +12,7 @@
  */
 
 import type { EffortLevel } from '../../types/model-registry';
+import type { ThinkingOverride } from './thinkingOverride';
 
 /**
  * Per-conversation reasoning-effort override. 'auto' sends no effort field
@@ -62,6 +63,43 @@ export function effortControlVisibility(
     effortCapable: boolean,
 ): EffortControlVisibility {
     return thinkingOn && effortCapable ? 'control' : 'none';
+}
+
+/**
+ * Whether the binary thinking switch reads as On. The picker keeps the
+ * tri-state ThinkingOverride internally for default preservation: only an
+ * explicit 'off' reads as Off, both 'follow' (the byte-identical default) and
+ * 'on' read as On. The switch sets an explicit 'on' or 'off' on click.
+ */
+export function thinkingSwitchIsOn(override: ThinkingOverride): boolean {
+    return override !== 'off';
+}
+
+/** The ordered effort slider stops: 'auto' (leftmost, sends nothing) then the
+ * model-native levels. With no native levels the slider has only 'auto', which
+ * is why the caller hides the whole row in that case. */
+export function effortStops(levels: EffortLevel[]): EffortOverride[] {
+    return ['auto', ...levels];
+}
+
+/**
+ * Map an effort override to its slider index within the given stops. An
+ * override the stops do not contain (e.g. a stale level after the model
+ * changed) clamps to 0 ('auto'), so the knob never lands off the track.
+ */
+export function effortIndexForOverride(stops: EffortOverride[], override: EffortOverride): number {
+    const idx = stops.indexOf(override);
+    return idx < 0 ? 0 : idx;
+}
+
+/**
+ * Map a slider index back to its effort override, clamped into range so an
+ * out-of-bounds index resolves to 'auto' rather than undefined.
+ */
+export function effortStopForIndex(stops: EffortOverride[], index: number): EffortOverride {
+    if (!Number.isFinite(index)) return 'auto';
+    const clamped = Math.min(Math.max(Math.trunc(index), 0), stops.length - 1);
+    return stops[clamped] ?? 'auto';
 }
 
 /** A resolved (model id, provider type) pair the effort control reasons about. */

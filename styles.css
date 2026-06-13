@@ -6004,7 +6004,8 @@
     margin-bottom: 4px;
 }
 
-/* Issue #44: per-conversation thinking override control */
+/* Issue #44: per-conversation thinking binary switch.
+   A pill track with a sliding knob, accent-filled when on. */
 .chat-model-picker-thinking {
     display: flex;
     align-items: center;
@@ -6020,49 +6021,55 @@
     color: var(--text-muted);
 }
 
-.chat-model-picker-thinking-group {
-    display: inline-flex;
+.chat-model-picker-thinking-switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 34px;
+    height: 18px;
+    margin-left: auto;
+    padding: 0;
     border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    overflow: hidden;
-}
-
-.chat-model-picker-thinking-btn {
-    font-size: 11px;
-    line-height: 1.6;
-    padding: 2px 8px;
-    border: none;
-    border-left: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    color: var(--text-muted);
+    border-radius: 999px;
+    background: var(--background-modifier-border);
     cursor: pointer;
+    transition: background 0.12s ease;
 }
 
-.chat-model-picker-thinking-btn:first-child {
-    border-left: none;
-}
-
-.chat-model-picker-thinking-btn:hover {
-    color: var(--text-normal);
-}
-
-.chat-model-picker-thinking-btn.is-active {
+.chat-model-picker-thinking-switch.is-on {
     background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
 }
 
-/* Coherence: the thinking toggle is greyed while an explicit reasoning
-   effort is set, because effort drives reasoning depth on Claude. */
-.chat-model-picker-thinking.is-disabled {
-    opacity: 0.45;
+.chat-model-picker-thinking-knob {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--background-primary);
+    transition: transform 0.12s ease;
 }
 
-.chat-model-picker-thinking-btn:disabled {
-    cursor: default;
+.chat-model-picker-thinking-switch.is-on .chat-model-picker-thinking-knob {
+    transform: translateX(16px);
 }
 
-/* Per-conversation reasoning-effort selector (pin-mode only).
-   Slider styling matching the Claude Code effort control. */
+.chat-model-picker-thinking-switch:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 2px;
+}
+
+.chat-model-picker-thinking-state {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-normal);
+    min-width: 22px;
+    text-align: right;
+}
+
+/* Per-conversation reasoning-effort slider: a Claude-Code-style pill slider
+   with discrete dot markers and a round knob, accent-filled up to the knob. */
 .chat-model-picker-effort {
     display: flex;
     align-items: center;
@@ -6091,13 +6098,12 @@
     color: var(--text-normal);
 }
 
-.chat-model-picker-effort-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 132px;
-    height: 6px;
+.chat-model-picker-effort-pill {
+    position: relative;
+    width: 148px;
+    height: 18px;
+    flex-shrink: 0;
     border-radius: 999px;
-    cursor: pointer;
     background: linear-gradient(
         to right,
         var(--interactive-accent) 0%,
@@ -6105,6 +6111,36 @@
         var(--background-modifier-border) var(--effort-fill, 0%),
         var(--background-modifier-border) 100%
     );
+}
+
+.chat-model-picker-effort-dots {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 7px;
+    pointer-events: none;
+}
+
+.chat-model-picker-effort-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--background-primary);
+    opacity: 0.6;
+}
+
+.chat-model-picker-effort-slider {
+    position: absolute;
+    inset: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
 }
 
 .chat-model-picker-effort-slider::-webkit-slider-thumb {
@@ -6118,17 +6154,19 @@
     cursor: pointer;
 }
 
+.chat-model-picker-effort-slider::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: none;
+    border-radius: 50%;
+    background: var(--interactive-accent);
+    box-shadow: 0 0 0 2px var(--background-primary);
+    cursor: pointer;
+}
+
 .chat-model-picker-effort-slider:focus-visible {
     outline: 2px solid var(--interactive-accent);
     outline-offset: 2px;
-}
-
-.chat-model-picker-effort-hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    border-top: 1px solid var(--background-modifier-border);
-    padding: 8px 10px;
-    flex-shrink: 0;
 }
 
 /* Issue #44: thinking-override badge on the chat-header model button */

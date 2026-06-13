@@ -1652,15 +1652,22 @@ export const en: Translations = {
     'ui.sidebar.thinkingOverrideFollow': 'Follow model',
     'ui.sidebar.thinkingOverrideOn': 'On',
     'ui.sidebar.thinkingOverrideOff': 'Off',
+    // Binary thinking switch state text
+    'ui.sidebar.thinkingOn': 'On',
+    'ui.sidebar.thinkingOff': 'Off',
     'ui.sidebar.thinkingBadgeOn': 'thinking on',
     'ui.sidebar.thinkingBadgeOff': 'thinking off',
     'ui.sidebar.thinkingOverrideTitleOn': '{{label}} Extended thinking forced on for this conversation.',
     'ui.sidebar.thinkingOverrideTitleOff': '{{label}} Extended thinking forced off for this conversation.',
-    // Per-conversation reasoning-effort override (pin-mode only)
+    // Per-conversation reasoning-effort override (shown when thinking is on)
     'ui.sidebar.effortLabel': 'Reasoning effort',
     'ui.sidebar.effortAuto': 'Auto',
+    'ui.sidebar.effortMinimal': 'Minimal',
     'ui.sidebar.effortLow': 'Low',
     'ui.sidebar.effortMedium': 'Medium',
     'ui.sidebar.effortHigh': 'High',
+    // eslint-disable-next-line obsidianmd/ui/sentence-case-locale-module -- effort level name matches the native 'xhigh' API level and the Claude Code label
+    'ui.sidebar.effortXhigh': 'XHigh',
+    'ui.sidebar.effortMax': 'Max',
     'ui.sidebar.effortAutoHint': 'Effort is set automatically while routing is on. Pin a model to control it.',
 };
