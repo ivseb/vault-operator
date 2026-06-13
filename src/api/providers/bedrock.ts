@@ -43,7 +43,7 @@ import type {
 } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { truncatedToolInputError } from '../types';
-import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } from '../../types/model-registry';
+import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, getModelEffortSupport } from '../../types/model-registry';
 import { getCacheCapability } from '../capabilities';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
@@ -250,6 +250,36 @@ export class BedrockProvider implements ApiHandler {
         const supportsTemperature = modelSupportsTemperature(this.config.model);
         const temperature = supportsTemperature ? (this.config.temperature ?? 0.2) : undefined;
 
+        // NEW WIRING (maintainer opt-in, NOT CI-tested): native reasoning effort
+        // passthrough for Claude on Bedrock. Bedrock Converse exposes Anthropic
+        // extended thinking via `additionalModelRequestFields` -- a loose
+        // DocumentType (Record<string, unknown>) the SDK does not type-check. On
+        // older Claude the shape is
+        //   { reasoning_config: { type: 'enabled', budget_tokens: N } }
+        // but the new effort-capable lineup (Opus 4.7/4.8, Fable/Mythos) takes
+        // an effort enum rather than a token budget, so we send
+        //   { reasoning_config: { type: 'enabled', effort: <level> } }
+        // The exact field name for the new models cannot be verified against a
+        // live endpoint here; Sebastian will live-test it. The construction is
+        // wrapped fail-safe: when reasoningEffort is unset the field is omitted
+        // entirely (byte-identical to today), and if building it ever throws we
+        // proceed WITHOUT the field rather than break a working request.
+        let additionalModelRequestFields: DocumentType | undefined;
+        if (this.config.reasoningEffort && getModelEffortSupport(this.config.model, this.config.type)) {
+            try {
+                additionalModelRequestFields = {
+                    reasoning_config: {
+                        type: 'enabled',
+                        effort: this.config.reasoningEffort,
+                    },
+                };
+            } catch (e) {
+                // Untested live path: never let a malformed field break the call.
+                console.debug('[Bedrock] reasoning_config construction failed, omitting field', e);
+                additionalModelRequestFields = undefined;
+            }
+        }
+
         const command = new ConverseStreamCommand({
             modelId: this.config.model,
             messages: bedrockMessages,
@@ -259,6 +289,7 @@ export class BedrockProvider implements ApiHandler {
                 ...(temperature !== undefined ? { temperature } : {}),
             },
             toolConfig,
+            ...(additionalModelRequestFields !== undefined ? { additionalModelRequestFields } : {}),
         });
 
         const response = await this.client.send(command, { abortSignal });
