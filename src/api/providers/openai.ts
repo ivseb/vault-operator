@@ -12,7 +12,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import type { IncomingMessage } from 'http';
-import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } from '../../types/model-registry';
+import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, getModelEffortSupport } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
 
@@ -289,6 +289,23 @@ export class OpenAiProvider implements ApiHandler {
             },
         );
 
+        // Per-conversation reasoning effort. Only honoured for effort-capable
+        // (model, provider) pairs (gpt-5 / o-series on openai/copilot/openrouter,
+        // Claude-via-openrouter). 'auto'/undefined sends nothing, so the request
+        // stays byte-identical to today. The wire field differs by provider:
+        //   - OpenRouter normalizes to reasoning: { effort } (works for both its
+        //     Claude and non-Claude reasoning models, and merges with the
+        //     existing reasoning.max_tokens passthrough).
+        //   - openai / github-copilot use the chat-completions reasoning_effort.
+        const effort = this.config.reasoningEffort;
+        const effortCapable = effort !== undefined
+            && getModelEffortSupport(this.config.model, this.config.type);
+        // OpenRouter reasoning object: merge the existing extended-thinking
+        // max_tokens passthrough (if any) with the effort field (if any).
+        const openRouterReasoning: Record<string, unknown> = {};
+        if (openRouterThinking) openRouterReasoning.max_tokens = budgetTokens;
+        if (effortCapable && this.config.type === 'openrouter') openRouterReasoning.effort = effort;
+
         // Build request body
         const requestBody: OpenAI.ChatCompletionCreateParamsStreaming = {
             model: this.config.type !== 'azure' ? this.config.model : this.config.model,
@@ -304,9 +321,14 @@ export class OpenAiProvider implements ApiHandler {
             stream_options: (this.config.type === 'openai' || this.config.type === 'openrouter')
                 ? { include_usage: true }
                 : undefined,
-            // OpenRouter reasoning passthrough for Anthropic models
-            ...(openRouterThinking
-                ? { reasoning: { max_tokens: budgetTokens } } as Record<string, unknown>
+            // OpenRouter reasoning object: extended-thinking max_tokens passthrough
+            // and/or the native effort field, whichever is active.
+            ...(Object.keys(openRouterReasoning).length > 0
+                ? { reasoning: openRouterReasoning } as Record<string, unknown>
+                : {}),
+            // openai / github-copilot reasoning effort (chat-completions field).
+            ...(effortCapable && this.config.type !== 'openrouter'
+                ? { reasoning_effort: effort } as Record<string, unknown>
                 : {}),
             // OpenRouter: disable automatic model fallback to prevent silent model switches.
             // Without this, OpenRouter can route to a completely different model (e.g. Gemini)

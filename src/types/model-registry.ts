@@ -303,6 +303,32 @@ export function modelSupportsTemperature(modelId: string): boolean {
 }
 
 /**
+ * Whether a Claude model still accepts the legacy extended-thinking request
+ * shape `thinking: { type: 'enabled', budget_tokens: N }`.
+ *
+ * The adaptive-thinking lineup (Opus 4.7+, Fable, Mythos) removed budget_tokens
+ * and returns a 400 if it is sent -- those models only accept
+ * `thinking: { type: 'adaptive' }`. Older Claude (Opus 4.6 and earlier, Sonnet
+ * 4.6, the 3.x snapshots) still take budget_tokens.
+ *
+ * Returns false ONLY for the adaptive-thinking Claude families; everything else
+ * (older Claude, non-Claude, unknown ids) returns true so the existing
+ * budget_tokens path stays the default. The id is normalized first so
+ * OpenRouter `anthropic/claude-*` and Bedrock `eu.anthropic.claude-*-v1` map to
+ * the same answer as the direct id.
+ */
+export function modelUsesBudgetTokensThinking(modelId: string): boolean {
+    const normalized = normalizeModelId(modelId).toLowerCase();
+    // Opus 4.7/4.8/4.9 and later snapshots: adaptive only, budget_tokens 400s.
+    // Mirrors the minor-version matching in modelSupportsTemperature so a future
+    // 4-10/4-11 stays covered while 4-6 and earlier keep budget_tokens.
+    if (/^claude-opus-4-(?:[7-9]|\d\d+)\b/.test(normalized)) return false;
+    // Fable / Mythos families: adaptive only.
+    if (/^claude-(fable|mythos)-/.test(normalized)) return false;
+    return true;
+}
+
+/**
  * Whether a (model, provider) pair can SEND a native reasoning-effort field.
  *
  * This gates the per-conversation effort selector: the control is only rendered

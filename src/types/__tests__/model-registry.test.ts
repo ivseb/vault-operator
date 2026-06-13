@@ -7,6 +7,7 @@ import {
     estimatePromptTokens,
     modelSupportsTemperature,
     getModelEffortSupport,
+    modelUsesBudgetTokensThinking,
 } from '../model-registry';
 
 describe('normalizeModelId', () => {
@@ -326,5 +327,39 @@ describe('getModelEffortSupport', () => {
     it('does NOT support GPT-4 lineage (no reasoning effort surface)', () => {
         expect(getModelEffortSupport('gpt-4o', 'openai')).toBe(false);
         expect(getModelEffortSupport('gpt-4.1', 'openai')).toBe(false);
+    });
+});
+
+describe('modelUsesBudgetTokensThinking', () => {
+    it('returns false for the adaptive-thinking Claude family (Opus 4.7/4.8/4.9)', () => {
+        // These reject thinking.budget_tokens with a 400 — adaptive only.
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-7')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-8')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-9')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-8-20260601')).toBe(false);
+    });
+
+    it('returns false for the Fable and Mythos families', () => {
+        expect(modelUsesBudgetTokensThinking('claude-fable-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-mythos-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-mythos-preview')).toBe(false);
+    });
+
+    it('normalizes provider-decorated ids before deciding', () => {
+        expect(modelUsesBudgetTokensThinking('anthropic/claude-opus-4-8')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('eu.anthropic.claude-opus-4-8-v1')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('eu.anthropic.claude-fable-5')).toBe(false);
+    });
+
+    it('returns true for older Claude that still takes budget_tokens', () => {
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-6')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('claude-sonnet-4-6')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('claude-opus-4-5')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('claude-3-5-sonnet-20241022')).toBe(true);
+    });
+
+    it('returns true for non-Claude and unknown ids (default to the existing budget path)', () => {
+        expect(modelUsesBudgetTokensThinking('gpt-4o')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('totally-made-up-1234')).toBe(true);
     });
 });

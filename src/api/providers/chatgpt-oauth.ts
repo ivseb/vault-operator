@@ -250,7 +250,11 @@ export class ChatGptOAuthProvider implements ApiHandler {
             body.parallel_tool_calls = false;
         }
         if (isGpt5Family(this.config.model)) {
-            body.reasoning = { effort: 'low', summary: 'auto' };
+            // The Codex backend rejects GPT-5* requests without a reasoning field.
+            // Default to 'low' (the documented 400-avoidance value); an explicit
+            // user-chosen effort overrides it. Never derive medium/high without
+            // an explicit user value -- the hardcoded low stays the floor.
+            body.reasoning = { effort: this.config.reasoningEffort ?? 'low', summary: 'auto' };
             body.include = ['reasoning.encrypted_content'];
         }
         // FIX-04-03-02: omit temperature for default-only models (e.g. GPT-5.x)
@@ -279,7 +283,10 @@ export class ChatGptOAuthProvider implements ApiHandler {
             store: false,
         };
         if (isGpt5Family(this.config.model)) {
-            body.reasoning = { effort: 'low', summary: 'auto' };
+            // Same low-floor default as createMessage; an explicit user effort
+            // overrides it. (This is a tiny classification call, so the effort
+            // rarely matters, but the surface stays consistent.)
+            body.reasoning = { effort: this.config.reasoningEffort ?? 'low', summary: 'auto' };
         }
         const response = await this.streamRequest(body, abortSignal);
         if (response.status >= 400) {
