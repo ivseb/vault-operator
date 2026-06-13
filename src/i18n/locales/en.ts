@@ -1656,4 +1656,11 @@ export const en: Translations = {
     'ui.sidebar.thinkingBadgeOff': 'thinking off',
     'ui.sidebar.thinkingOverrideTitleOn': '{{label}} Extended thinking forced on for this conversation.',
     'ui.sidebar.thinkingOverrideTitleOff': '{{label}} Extended thinking forced off for this conversation.',
+    // Per-conversation reasoning-effort override (pin-mode only)
+    'ui.sidebar.effortLabel': 'Reasoning effort',
+    'ui.sidebar.effortAuto': 'Auto',
+    'ui.sidebar.effortLow': 'Low',
+    'ui.sidebar.effortMedium': 'Medium',
+    'ui.sidebar.effortHigh': 'High',
+    'ui.sidebar.effortAutoHint': 'Effort is set automatically while routing is on. Pin a model to control it.',
 };

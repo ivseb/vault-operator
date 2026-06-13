@@ -6051,6 +6051,71 @@
     color: var(--text-on-accent);
 }
 
+/* Coherence: the thinking toggle is greyed while an explicit reasoning
+   effort is set, because effort drives reasoning depth on Claude. */
+.chat-model-picker-thinking.is-disabled {
+    opacity: 0.45;
+}
+
+.chat-model-picker-thinking-btn:disabled {
+    cursor: default;
+}
+
+/* Per-conversation reasoning-effort selector (pin-mode only) */
+.chat-model-picker-effort {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 8px 10px;
+    flex-shrink: 0;
+}
+
+.chat-model-picker-effort-label {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.chat-model-picker-effort-group {
+    display: inline-flex;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.chat-model-picker-effort-btn {
+    font-size: 11px;
+    line-height: 1.6;
+    padding: 2px 8px;
+    border: none;
+    border-left: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.chat-model-picker-effort-btn:first-child {
+    border-left: none;
+}
+
+.chat-model-picker-effort-btn:hover {
+    color: var(--text-normal);
+}
+
+.chat-model-picker-effort-btn.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.chat-model-picker-effort-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 8px 10px;
+    flex-shrink: 0;
+}
+
 /* Issue #44: thinking-override badge on the chat-header model button */
 .model-thinking-badge {
     font-size: 9px;

@@ -927,6 +927,11 @@ export class AgentSidebarView extends ItemView {
                 this.chatThinkingOverride = override;
                 this.updateModelButton();
             },
+            getEffort: () => this.chatEffortOverride,
+            onEffortChange: (override) => {
+                this.chatEffortOverride = override;
+                this.updateModelButton();
+            },
         });
     }
 

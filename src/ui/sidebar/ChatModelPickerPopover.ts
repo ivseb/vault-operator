@@ -17,8 +17,11 @@
 import { setIcon } from 'obsidian';
 import type { DiscoveredModel, ProviderConfig } from '../../types/settings';
 import { getTierBadgeLabel } from '../../types/settings';
+import { getModelEffortSupport } from '../../types/model-registry';
 import { t } from '../../i18n';
 import type { ThinkingOverride } from './thinkingOverride';
+import type { EffortOverride } from './effortOverride';
+import { isExplicitEffortOverride, effortControlVisibility } from './effortOverride';
 
 export interface ChatModelPickerCallbacks {
     /** Currently selected override (null = Auto). */
@@ -29,6 +32,10 @@ export interface ChatModelPickerCallbacks {
     getThinking: () => ThinkingOverride;
     /** Called when the user changes the thinking override. */
     onThinkingChange: (override: ThinkingOverride) => void;
+    /** Current per-conversation reasoning-effort override. */
+    getEffort: () => EffortOverride;
+    /** Called when the user changes the reasoning-effort override. */
+    onEffortChange: (override: EffortOverride) => void;
 }
 
 export class ChatModelPickerPopover {
@@ -117,8 +124,26 @@ export class ChatModelPickerPopover {
         };
         searchInput.addEventListener('input', applyFilter);
 
-        // ── Thinking override (per conversation) ─────────────────────────
-        this.makeThinkingControl(popover, callbacks);
+        // ── Thinking + reasoning-effort overrides (per conversation) ─────
+        // The thinking toggle always shows. The effort control only shows
+        // when a model is pinned (router off) AND that model can send a
+        // native effort field; in auto mode it is replaced by a hint, and
+        // for a pinned-but-effort-incapable model it is omitted entirely.
+        const setThinkingDisabled = this.makeThinkingControl(popover, callbacks);
+        const pinnedId = callbacks.getCurrent();
+        const effortSupported = pinnedId !== null && getModelEffortSupport(pinnedId, provider.type);
+        const visibility = effortControlVisibility(pinnedId !== null, effortSupported);
+        if (visibility === 'control') {
+            this.makeEffortControl(popover, callbacks, setThinkingDisabled);
+        } else if (visibility === 'hint') {
+            popover.createDiv({
+                cls: 'chat-model-picker-effort-hint',
+                text: t('ui.sidebar.effortAutoHint'),
+            });
+        }
+        // Coherence on open: if effort is already explicit, the thinking
+        // toggle is greyed (effort drives reasoning depth on Claude).
+        setThinkingDisabled(visibility === 'control' && isExplicitEffortOverride(callbacks.getEffort()));
 
         // ── Keyboard: Esc closes, Enter selects first visible ───────────
         this.keyHandler = (e: KeyboardEvent) => {
@@ -223,7 +248,7 @@ export class ChatModelPickerPopover {
      * active model's own thinking setting, so an untouched picker changes
      * nothing.
      */
-    private makeThinkingControl(popover: HTMLElement, callbacks: ChatModelPickerCallbacks): void {
+    private makeThinkingControl(popover: HTMLElement, callbacks: ChatModelPickerCallbacks): (disabled: boolean) => void {
         const footer = popover.createDiv('chat-model-picker-thinking');
         footer.createDiv({
             cls: 'chat-model-picker-thinking-label',
@@ -237,7 +262,7 @@ export class ChatModelPickerPopover {
             { value: 'off', label: t('ui.sidebar.thinkingOverrideOff') },
         ];
 
-        const buttons: Array<{ value: ThinkingOverride; el: HTMLElement }> = [];
+        const buttons: Array<{ value: ThinkingOverride; el: HTMLButtonElement }> = [];
         const sync = () => {
             const current = callbacks.getThinking();
             for (const b of buttons) {
@@ -253,7 +278,66 @@ export class ChatModelPickerPopover {
                 attr: { type: 'button' },
             });
             btn.addEventListener('click', () => {
+                if (btn.disabled) return;
                 callbacks.onThinkingChange(opt.value);
+                sync();
+            });
+            buttons.push({ value: opt.value, el: btn });
+        }
+        sync();
+
+        // Returned so the effort control can grey the thinking toggle when an
+        // explicit effort level is set (effort drives reasoning depth, so a
+        // Thinking=Off plus Effort=High combination is contradictory).
+        return (disabled: boolean) => {
+            footer.classList.toggle('is-disabled', disabled);
+            for (const b of buttons) b.el.disabled = disabled;
+        };
+    }
+
+    /**
+     * Per-conversation reasoning-effort override: a segmented control with
+     * Auto / Low / Medium / High. Only rendered when a model is pinned and the
+     * model can send a native effort field. "Auto" (the default) sends no
+     * effort field, so an untouched picker changes nothing.
+     */
+    private makeEffortControl(
+        popover: HTMLElement,
+        callbacks: ChatModelPickerCallbacks,
+        setThinkingDisabled: (disabled: boolean) => void,
+    ): void {
+        const footer = popover.createDiv('chat-model-picker-effort');
+        footer.createDiv({
+            cls: 'chat-model-picker-effort-label',
+            text: t('ui.sidebar.effortLabel'),
+        });
+        const group = footer.createDiv('chat-model-picker-effort-group');
+
+        const options: Array<{ value: EffortOverride; label: string }> = [
+            { value: 'auto', label: t('ui.sidebar.effortAuto') },
+            { value: 'low', label: t('ui.sidebar.effortLow') },
+            { value: 'medium', label: t('ui.sidebar.effortMedium') },
+            { value: 'high', label: t('ui.sidebar.effortHigh') },
+        ];
+
+        const buttons: Array<{ value: EffortOverride; el: HTMLElement }> = [];
+        const sync = () => {
+            const current = callbacks.getEffort();
+            for (const b of buttons) {
+                b.el.classList.toggle('is-active', b.value === current);
+                b.el.setAttr('aria-pressed', b.value === current ? 'true' : 'false');
+            }
+            setThinkingDisabled(isExplicitEffortOverride(current));
+        };
+
+        for (const opt of options) {
+            const btn = group.createEl('button', {
+                cls: 'chat-model-picker-effort-btn',
+                text: opt.label,
+                attr: { type: 'button' },
+            });
+            btn.addEventListener('click', () => {
+                callbacks.onEffortChange(opt.value);
                 sync();
             });
             buttons.push({ value: opt.value, el: btn });

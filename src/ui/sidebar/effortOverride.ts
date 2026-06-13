@@ -89,3 +89,21 @@ export function resolveConversationOverrides(
         effortIsExplicit,
     };
 }
+
+/** What the picker should render for the reasoning-effort control. */
+export type EffortControlVisibility = 'control' | 'hint' | 'none';
+
+/**
+ * Decide what the chat picker renders for reasoning effort.
+ *  - 'control': a model is pinned AND that model/provider can send effort
+ *  - 'hint'   : no model is pinned (auto mode); show the "pin a model" hint
+ *  - 'none'   : a model is pinned but it cannot send effort (e.g. a local or
+ *               Gemini model); render nothing rather than a dead control
+ */
+export function effortControlVisibility(
+    modelPinned: boolean,
+    effortSupported: boolean,
+): EffortControlVisibility {
+    if (!modelPinned) return 'hint';
+    return effortSupported ? 'control' : 'none';
+}

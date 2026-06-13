@@ -85,3 +85,20 @@ describe('resolveConversationOverrides (within-pin coherence)', () => {
         });
     });
 });
+
+import { effortControlVisibility } from '../effortOverride';
+
+describe('effortControlVisibility', () => {
+    it('shows the control only when a model is pinned and effort is supported', () => {
+        expect(effortControlVisibility(true, true)).toBe('control');
+    });
+
+    it('shows the hint in auto mode (no model pinned)', () => {
+        expect(effortControlVisibility(false, true)).toBe('hint');
+        expect(effortControlVisibility(false, false)).toBe('hint');
+    });
+
+    it('renders nothing when a model is pinned but cannot send effort', () => {
+        expect(effortControlVisibility(true, false)).toBe('none');
+    });
+});
