@@ -246,6 +246,15 @@ export const BUILT_IN_MODELS: CustomModel[] = [
         enabled: false,
         isBuiltIn: true,
     },
+    // Cohere (custom provider, OpenAI compatibility endpoint -- needs a Cohere API key)
+    {
+        name: 'command-a-03-2025',
+        provider: 'custom',
+        displayName: 'Cohere Command A',
+        baseUrl: 'https://api.cohere.ai/compatibility/v1',
+        enabled: false,
+        isBuiltIn: true,
+    },
 ];
 
 // ---------------------------------------------------------------------------
