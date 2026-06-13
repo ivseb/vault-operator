@@ -126,21 +126,15 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         { group: 'Amazon Nova',    id: 'us.amazon.nova-lite-v1:0',                    label: 'Nova Lite (US)' },
     ],
     'chatgpt-oauth': [
-        // BUG-3-CODEX-OAUTH-MODEL-MISMATCH: this list MUST stay a subset of
-        // KNOWN_MODELS in src/api/providers/chatgpt-oauth.ts (the only Codex
-        // allowlist -- the backend has no /v1/models). Offering an id the
-        // backend rejects 400s mid-task with "not supported when using Codex
-        // with a ChatGPT account". gpt-5.5 and the `-mini` variants are
-        // API-tier only and were removed for that reason. Guard:
+        // Static fallback suggestions. The live "Fetch" path queries the real
+        // Codex /codex/models endpoint, which is account- and version-specific
+        // and authoritative. This list MUST stay a subset of KNOWN_MODELS in
+        // src/api/providers/chatgpt-oauth.ts (the static fallback lineup) so
+        // an offline pick is one the backend currently accepts. Guard:
         // src/ui/settings/__tests__/chatgptOAuthSuggestions.test.ts.
-        { group: 'GPT-5',  id: 'gpt-5',                label: 'GPT-5' },
-        { group: 'GPT-5',  id: 'gpt-5.1',              label: 'GPT-5.1' },
-        { group: 'GPT-5',  id: 'gpt-5.2',              label: 'GPT-5.2' },
-        { group: 'Codex',  id: 'gpt-5-codex',          label: 'GPT-5 Codex' },
-        { group: 'Codex',  id: 'gpt-5.1-codex',        label: 'GPT-5.1 Codex' },
-        { group: 'Codex',  id: 'gpt-5.1-codex-max',    label: 'GPT-5.1 Codex Max' },
-        { group: 'Codex',  id: 'gpt-5.2-codex',        label: 'GPT-5.2 Codex' },
-        { group: 'Codex',  id: 'gpt-5.3-codex',        label: 'GPT-5.3 Codex' },
+        { group: 'GPT-5',  id: 'gpt-5.5',              label: 'GPT-5.5' },
+        { group: 'GPT-5',  id: 'gpt-5.4',              label: 'GPT-5.4' },
+        { group: 'GPT-5',  id: 'gpt-5.4-mini',         label: 'GPT-5.4 mini' },
     ],
 };
 

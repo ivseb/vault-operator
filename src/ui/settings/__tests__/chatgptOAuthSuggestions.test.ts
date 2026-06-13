@@ -9,13 +9,18 @@
  * model the Codex backend rejects with HTTP 400
  * ("not supported when using Codex with a ChatGPT account").
  *
- * These tests pin the suggestion list to the provider allowlist so the two
- * sources cannot drift again. KNOWN_MODELS stays the single source of truth;
- * adding a new Codex id there must be mirrored here for the test to pass.
+ * These tests pin the static suggestion list to the static fallback allowlist
+ * so the two cannot drift. The live "Fetch" path (fetchChatGptOAuthModels)
+ * queries the real /codex/models endpoint and is authoritative; KNOWN_MODELS
+ * is the offline fallback. Adding an id to KNOWN_MODELS must be mirrored here.
+ *
+ * Update 2026-06: the backend retired gpt-5/5.1/5.2 and the -codex variants;
+ * the current lineup is gpt-5.4, gpt-5.4-mini, gpt-5.5 (confirmed against a
+ * live account's /codex/models cache), so gpt-5.5 is now a VALID Codex model.
  */
 import { describe, expect, it } from 'vitest';
 import { MODEL_SUGGESTIONS } from '../constants';
-import { listKnownChatGptOAuthModels } from '../../../api/providers/chatgpt-oauth';
+import { listKnownChatGptOAuthModels, parseCodexModelsResponse } from '../../../api/providers/chatgpt-oauth';
 
 describe('MODEL_SUGGESTIONS chatgpt-oauth alignment with KNOWN_MODELS', () => {
     const suggestions = MODEL_SUGGESTIONS['chatgpt-oauth'] ?? [];
@@ -25,12 +30,18 @@ describe('MODEL_SUGGESTIONS chatgpt-oauth alignment with KNOWN_MODELS', () => {
         expect(suggestions.length).toBeGreaterThan(0);
     });
 
-    it('never offers gpt-5.5 (Codex backend rejects it, API-tier only)', () => {
+    it('offers the current frontier model gpt-5.5', () => {
         const ids = suggestions.map((s) => s.id);
-        expect(ids).not.toContain('gpt-5.5');
+        expect(ids).toContain('gpt-5.5');
     });
 
-    it('every suggested id is an invokable Codex model (subset of KNOWN_MODELS)', () => {
+    it('no longer offers retired ids (gpt-5, gpt-5-codex)', () => {
+        const ids = suggestions.map((s) => s.id);
+        expect(ids).not.toContain('gpt-5');
+        expect(ids).not.toContain('gpt-5-codex');
+    });
+
+    it('every suggested id is in the static fallback (subset of KNOWN_MODELS)', () => {
         for (const s of suggestions) {
             expect(knownIds.has(s.id), `suggested id ${s.id} is not in KNOWN_MODELS`).toBe(true);
         }
@@ -40,5 +51,28 @@ describe('MODEL_SUGGESTIONS chatgpt-oauth alignment with KNOWN_MODELS', () => {
         for (const s of suggestions) {
             expect(s.label.toLowerCase()).not.toContain('recommended for pro');
         }
+    });
+});
+
+describe('parseCodexModelsResponse', () => {
+    it('maps slug/display_name and drops hidden + slugless entries', () => {
+        const body = {
+            models: [
+                { slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' },
+                { slug: 'gpt-5.4-mini', display_name: 'GPT-5.4 mini' },
+                { slug: 'internal-x', display_name: 'Internal', visibility: 'hidden' },
+                { display_name: 'No slug' },
+            ],
+        };
+        expect(parseCodexModelsResponse(body)).toEqual([
+            { id: 'gpt-5.5', label: 'GPT-5.5' },
+            { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' },
+        ]);
+    });
+
+    it('returns empty for a malformed body', () => {
+        expect(parseCodexModelsResponse(null)).toEqual([]);
+        expect(parseCodexModelsResponse({})).toEqual([]);
+        expect(parseCodexModelsResponse({ models: 'nope' })).toEqual([]);
     });
 });

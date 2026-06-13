@@ -13,6 +13,7 @@
  */
 
 import OpenAI from 'openai';
+import { requestUrl } from 'obsidian';
 import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import { truncatedToolInputError } from '../types';
@@ -27,44 +28,43 @@ void OpenAI; // retained: Errors instance kept for compatibility but not activel
 // ---------------------------------------------------------------------------
 
 const CODEX_RESPONSES_URL = 'https://chatgpt.com/backend-api/codex/responses';
+const CODEX_MODELS_URL = 'https://chatgpt.com/backend-api/codex/models';
 
 /**
  * First-party originator + user-agent. The Codex backend rejects everything
  * outside this allowlist with 403 + "no active subscription" regardless of
  * the user's actual plan. Verified against pi-mono#1828 and codex-rs.
+ *
+ * The version in the User-Agent is load-bearing: the Codex backend gates the
+ * available model set on the reported client version (the /codex/models
+ * response is keyed by client_version). A stale version is served the old,
+ * now-removed model set, so EVERY current model (gpt-5.4, gpt-5.5, ...) comes
+ * back "not supported when using Codex with a ChatGPT account". Keep this at a
+ * current codex-cli release.
  */
+const CODEX_CLIENT_VERSION = '0.140.0';
 const CODEX_HEADERS: Record<string, string> = {
     'OpenAI-Beta': 'responses=experimental',
     'Originator': 'codex_cli_rs',
-    'User-Agent': 'codex_cli_rs/0.21.0 (Obsidian Plugin) Vault Operator',
+    'User-Agent': `codex_cli_rs/${CODEX_CLIENT_VERSION} (Obsidian Plugin) Vault Operator`,
     'Accept': 'text/event-stream',
 };
 
 /**
- * Codex models reachable via the ChatGPT Plus/Pro OAuth backend. Hardcoded
- * because the Codex endpoint has no `/v1/models` listing -- the only source
- * of truth is the Codex CLI bundled lineup (mirrored from
- * forked-kilocode/packages/types/src/providers/openai-codex.ts, 2026 release).
- *
- * NOTE (2026-05-17): the `-mini` variants are listed in codex-rs but the
- * chatgpt.com Codex backend rejects them with HTTP 400
- * ("The 'gpt-5.1-codex-mini' model is not supported when using Codex with
- *  a ChatGPT account."). Those models are API-tier only, so we omit them
- * here -- otherwise users wire them into tierOverrides.fast and the run
- * 400s mid-task. If OpenAI later opens the mini variants to ChatGPT auth,
- * add them back here.
+ * Static FALLBACK lineup of Codex models for the ChatGPT OAuth backend, used
+ * when the live `/codex/models` fetch (fetchChatGptOAuthModels) is unavailable
+ * (offline, not signed in). The authoritative source is the live endpoint:
+ * the available set is account- and version-specific and rotates as OpenAI
+ * ships new frontier models and retires old ones. This list is the current
+ * known lineup (2026-06); older ids (gpt-5, gpt-5.1, gpt-5.2, the -codex
+ * variants) were retired by the backend and now 400 as "not supported".
  *
  * @see ADR-088
  */
 const KNOWN_MODELS: Record<string, ModelInfo> = {
-    'gpt-5':                 { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.1':               { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.2':               { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5-codex':           { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.1-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.1-codex-max':     { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.2-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
-    'gpt-5.3-codex':         { contextWindow: 400_000, supportsTools: true, supportsStreaming: true },
+    'gpt-5.5':       { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
+    'gpt-5.4':       { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
+    'gpt-5.4-mini':  { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
 };
 
 /**
@@ -78,11 +78,70 @@ const KNOWN_UNSUPPORTED_ON_CHATGPT_ACCOUNT: ReadonlySet<string> = new Set([
 ]);
 
 /** Test-Connection fallback when no tier mapping / discovered list exists yet. */
-export const CHATGPT_OAUTH_DEFAULT_TEST_MODEL = 'gpt-5';
+export const CHATGPT_OAUTH_DEFAULT_TEST_MODEL = 'gpt-5.5';
 
-/** Exposed for the Refresh path -- Codex has no `/v1/models` to discover from. */
+/** The static fallback list, used when the live fetch cannot run. */
 export function listKnownChatGptOAuthModels(): { id: string; label: string }[] {
     return Object.keys(KNOWN_MODELS).map((id) => ({ id, label: id }));
+}
+
+/** One entry of the Codex `/codex/models` response. */
+interface CodexModelEntry {
+    slug?: string;
+    display_name?: string;
+    visibility?: string;
+}
+
+/**
+ * Parse the Codex `/codex/models` JSON body into the id/label pairs the model
+ * picker expects. Hidden models are dropped; everything visible is offered.
+ * Pure (no I/O) so it can be unit-tested against recorded payloads.
+ */
+export function parseCodexModelsResponse(body: unknown): { id: string; label: string }[] {
+    const models = (body as { models?: unknown })?.models;
+    if (!Array.isArray(models)) return [];
+    const out: { id: string; label: string }[] = [];
+    for (const raw of models as CodexModelEntry[]) {
+        const slug = typeof raw?.slug === 'string' ? raw.slug : '';
+        if (!slug || raw.visibility === 'hidden') continue;
+        out.push({ id: slug, label: typeof raw.display_name === 'string' ? raw.display_name : slug });
+    }
+    return out;
+}
+
+/**
+ * Discover the models the signed-in ChatGPT account can actually use, from
+ * the live Codex `/codex/models` endpoint (the same source the official Codex
+ * client caches). Falls back to the static KNOWN_MODELS lineup on any failure
+ * so the picker is never empty. The endpoint is account- and version-specific,
+ * so this is the authoritative list, not the hardcoded one.
+ */
+export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: string }[]> {
+    try {
+        const auth = ChatGptOAuthService.getInstance();
+        const token = await auth.getValidAccessToken();
+        if (!token) return listKnownChatGptOAuthModels();
+        const accountId = auth.getAccountId();
+        const headers: Record<string, string> = {
+            'OpenAI-Beta': CODEX_HEADERS['OpenAI-Beta'],
+            'Originator': CODEX_HEADERS['Originator'],
+            'User-Agent': CODEX_HEADERS['User-Agent'],
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+        };
+        if (accountId) {
+            headers['chatgpt-account-id'] = accountId;
+            headers['ChatGPT-Account-ID'] = accountId;
+        }
+        const res = await requestUrl({ url: CODEX_MODELS_URL, method: 'GET', headers, throw: false });
+        if (res.status === 200) {
+            const list = parseCodexModelsResponse(res.json);
+            if (list.length > 0) return list;
+        }
+    } catch {
+        // fall through to the static lineup
+    }
+    return listKnownChatGptOAuthModels();
 }
 
 const DEFAULT_MODEL_INFO: ModelInfo = {
