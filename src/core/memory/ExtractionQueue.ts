@@ -255,7 +255,7 @@ export class ExtractionQueue {
             // v1 shape: plain array of items (back-compat)
             const migrate = (raws: unknown[]): PendingExtraction[] =>
                 raws.filter((x): x is PendingExtraction => !!x && typeof x === 'object')
-                    .map((x) => ({ ...(x as PendingExtraction), failureCount: (x as PendingExtraction).failureCount ?? 0 }));
+                    .map((x) => ({ ...x, failureCount: x.failureCount ?? 0 }));
             if (Array.isArray(parsed)) {
                 this.items = migrate(parsed);
                 this.parkedItems = [];
