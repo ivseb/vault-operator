@@ -448,8 +448,7 @@ export class ModelConfigModal extends Modal {
         });
         const hnInput = this.anthropicGatewayHeaderNameRow.createEl('input', {
             cls: 'mcm-input',
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- HTTP header name is a literal identifier
-            attr: { type: 'text', placeholder: 'Ocp-Apim-Subscription-Key' },
+            attr: { type: 'text', placeholder: 'Header name' },
         });
         hnInput.value = this.formGatewayHeaderName;
         hnInput.addEventListener('input', () => (this.formGatewayHeaderName = hnInput.value.trim()));
@@ -1586,8 +1585,7 @@ export class ModelConfigModal extends Modal {
         );
         const hnInput = this.bedrockGatewayHeaderNameRow.createEl('input', {
             cls: 'mcm-input',
-            // eslint-disable-next-line obsidianmd/ui/sentence-case -- HTTP header name is a literal identifier, not UI prose
-            attr: { type: 'text', placeholder: 'Ocp-Apim-Subscription-Key' },
+            attr: { type: 'text', placeholder: 'Header name' },
         });
         hnInput.value = this.formGatewayHeaderName;
         hnInput.addEventListener('input', () => (this.formGatewayHeaderName = hnInput.value.trim()));
