@@ -64,7 +64,7 @@ export function wireMcmDescTooltips(root: HTMLElement): void {
         // The first non-desc child is treated as the label text. Most
         // call sites use a single span for the label.
         const labelChild = Array.from(labelEl.children).find(
-            (c): c is HTMLElement => c instanceof HTMLElement && !c.classList.contains('mcm-desc'),
+            (c): c is HTMLElement => c.instanceOf(HTMLElement) && !c.classList.contains('mcm-desc'),
         );
         if (!labelChild) return;
         const labelText = (labelChild.textContent ?? '').trim();
