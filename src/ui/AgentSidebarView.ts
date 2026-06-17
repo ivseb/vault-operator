@@ -225,7 +225,6 @@ export class AgentSidebarView extends ItemView {
         this.buildHeader(container);
         this.buildChatContainer(container);
         this.buildSuggestionBanner(container);
-        this.buildContextDisplay(container);
         this.buildChatInput(container);
         this.buildAiDisclaimer(container);
 
@@ -405,31 +404,6 @@ export class AgentSidebarView extends ItemView {
     private buildAiDisclaimer(container: HTMLElement): void {
         const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
         disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
-    }
-
-    /**
-     * Mount the context-window progress bar above the input area when the
-     * user has enabled it in Settings > Advanced > Interface. Driven by
-     * `this.contextTracker`, which is initialized in onOpen(). The
-     * condense button is intentionally suppressed (undefined handler)
-     * because manual condensing is not yet implemented (see
-     * triggerManualCondensing). Live token updates flow through the
-     * onUsage callback in the agent run path.
-     *
-     * issue #45 quirk 1: closes the wire-up gap -- the toggle, widget
-     * class, tracker and CSS were already in place, only the
-     * instantiation was missing.
-     */
-    private buildContextDisplay(container: HTMLElement): void {
-        if (!this.plugin.settings.showContextProgress) return;
-        if (!this.contextTracker) return;
-
-        this.contextDisplay = new ContextDisplay();
-        this.contextDisplay.build(container);
-
-        const usage = this.contextTracker.getContextUsage();
-        const color = this.contextTracker.getContextColor();
-        this.contextDisplay.update(usage, color, this.currentAbortController !== null);
     }
 
     private buildChatInput(container: HTMLElement): void {
@@ -2210,21 +2184,6 @@ export class AgentSidebarView extends ItemView {
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage
                     taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens);
-
-                    // issue #45 quirk 1: refresh the context progress bar
-                    // on every usage tick. Without this the bar would
-                    // render once at sidebar open and only move after a
-                    // condense event. ContextTracker.updateUsage SETS
-                    // tokensUsed = in + out (cumulative parent-task sum),
-                    // not deltas.
-                    if (this.contextTracker) {
-                        this.contextTracker.updateUsage(inputTokens, outputTokens);
-                        if (this.contextDisplay) {
-                            const usage = this.contextTracker.getContextUsage();
-                            const color = this.contextTracker.getContextColor();
-                            this.contextDisplay.update(usage, color, true);
-                        }
-                    }
                 },
                 onTodoUpdate: (items) => {
                     lastTodoItems = items;
