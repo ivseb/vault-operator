@@ -3337,8 +3337,7 @@
     opacity: 1;
 }
 
-.checkpoint-marker::before,
-.checkpoint-marker::after {
+.checkpoint-marker::before {
     content: '';
     flex: 1;
     height: 1px;
@@ -3347,7 +3346,11 @@
 }
 
 .checkpoint-marker::after {
+    content: '';
+    flex: 1;
+    height: 1px;
     background: linear-gradient(to left, transparent, var(--background-modifier-border));
+    pointer-events: none;
 }
 
 .checkpoint-icon {
