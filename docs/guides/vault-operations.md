@@ -76,12 +76,14 @@ These tools help you restructure your vault.
 | **create_folder** | Creates a new folder (including nested paths) |
 | **move_file** | Moves a note to a different folder or renames it |
 | **delete_file** | Sends a note to the Obsidian trash |
+| **extract_zip** | Unpacks a `.zip` or `.skill` archive from the vault into a target folder (path-traversal + zip-bomb guarded) |
 
 ### Examples
 
 - *"Create an Archive/2025 folder and move all notes tagged #archived there"* (uses `create_folder` + `move_file`)
 - *"Rename @old-project-name to new-project-name"* (uses `move_file`)
 - *"Delete all empty notes in the Inbox folder"* (uses `delete_file`)
+- *"Unzip @ki-briefing-deutsch.zip into Inbox/"* (uses `extract_zip`)
 
 :::warning Deletion respects Obsidian trash settings
 Deleted files go to your configured Obsidian trash (system trash or the vault `.trash` folder). You can recover them from there.

@@ -3337,8 +3337,7 @@
     opacity: 1;
 }
 
-.checkpoint-marker::before,
-.checkpoint-marker::after {
+.checkpoint-marker::before {
     content: '';
     flex: 1;
     height: 1px;
@@ -3347,7 +3346,11 @@
 }
 
 .checkpoint-marker::after {
+    content: '';
+    flex: 1;
+    height: 1px;
     background: linear-gradient(to left, transparent, var(--background-modifier-border));
+    pointer-events: none;
 }
 
 .checkpoint-icon {
@@ -7182,6 +7185,31 @@
 }
 
 .agent-suggestions-toggle svg {
+    width: 14px;
+    height: 14px;
+}
+
+.agent-suggestions-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.agent-suggestions-close {
+    background: transparent;
+    border: none;
+    padding: 2px;
+    cursor: pointer;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+}
+
+.agent-suggestions-close:hover {
+    color: var(--text-normal);
+}
+
+.agent-suggestions-close svg {
     width: 14px;
     height: 14px;
 }

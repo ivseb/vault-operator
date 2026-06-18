@@ -102,7 +102,7 @@ export function describeClaimStructure(claims: JwtClaims): string {
     const parts: string[] = [];
     for (const [key, value] of Object.entries(claims)) {
         if (value && typeof value === 'object' && !Array.isArray(value)) {
-            parts.push(`${key}:{${Object.keys(value as Record<string, unknown>).join(',')}}`);
+            parts.push(`${key}:{${Object.keys(value).join(',')}}`);
         } else {
             parts.push(key);
         }
