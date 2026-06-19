@@ -25,7 +25,7 @@ describe('FreshnessFrontmatterPatcher', () => {
     it('filterToAllowlist drops every key that is not `freshness`', () => {
         const filtered = filterToAllowlist({
             freshness: { value: 'outdated', replace: true },
-            verdict: { value: 'widerspricht' },
+            verdict: { value: 'contradicts' },
             confidence: { value: 0.9 },
             sources: { value: ['u'] },
         });

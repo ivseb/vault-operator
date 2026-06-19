@@ -1,6 +1,6 @@
 /**
- * ResolveConflictModal -- single-note resolve dialogue for the Aging-
- * knowledge tab (IMP-20-06-01 W3-T2).
+ * ResolveConflictModal -- single-note resolve dialogue for the
+ * Knowledge-review tab (IMP-20-06-01 W3-T2).
  *
  * Surfaces the verifier verdict for one note and offers four explicit
  * actions:
@@ -12,7 +12,7 @@
  *   3. Edit note      -- open the file in the active leaf.
  *   4. Delete note    -- trashFile via FileManager (review-bot safe).
  *
- * The Aging-knowledge tab passes a callback for "refresh after action"
+ * The Knowledge-review tab passes a callback for "refresh after action"
  * so the underlying list re-renders without re-opening the modal.
  *
  * Wayfinder entry: see `src/ARCHITECTURE.map`, row `resolve-conflict-modal`.
@@ -20,8 +20,17 @@
 
 import { Modal, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
-import type { AgingRow } from '../../core/health/AgingKnowledgeReader';
+import type { ReviewRow } from '../../core/health/KnowledgeReviewReader';
+import type { VerdictLiteral } from '../../core/health/types';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
+
+const VERDICT_LABELS: Record<VerdictLiteral, string> = {
+    matches: 'Matches sources',
+    extends: 'Could extend',
+    contradicts: 'Contradicted by sources',
+    outdated: 'Outdated',
+    no_external_source: 'No external evidence yet',
+};
 
 export interface ResolveConflictModalOptions {
     onChange: () => void;
@@ -29,10 +38,10 @@ export interface ResolveConflictModalOptions {
 
 export class ResolveConflictModal extends Modal {
     private readonly plugin: ObsidianAgentPlugin;
-    private readonly row: AgingRow;
+    private readonly row: ReviewRow;
     private readonly opts: ResolveConflictModalOptions;
 
-    constructor(plugin: ObsidianAgentPlugin, row: AgingRow, opts: ResolveConflictModalOptions) {
+    constructor(plugin: ObsidianAgentPlugin, row: ReviewRow, opts: ResolveConflictModalOptions) {
         super(plugin.app);
         this.plugin = plugin;
         this.row = row;
@@ -44,11 +53,12 @@ export class ResolveConflictModal extends Modal {
         contentEl.empty();
         contentEl.addClass('resolve-conflict-modal');
 
-        contentEl.createEl('h3', { text: 'Resolve aging knowledge' });
+        contentEl.createEl('h3', { text: 'Resolve knowledge issue' });
         contentEl.createEl('p', { text: this.row.path });
 
         const verdictLine = contentEl.createDiv('resolve-conflict-verdict');
-        verdictLine.createEl('strong', { text: this.row.verdict });
+        const label = VERDICT_LABELS[this.row.verdict] ?? this.row.verdict;
+        verdictLine.createEl('strong', { text: label });
         verdictLine.appendText(` (confidence ${this.row.confidence.toFixed(2)}, ${this.row.verifierTier} tier)`);
 
         if (this.row.summary) {
@@ -97,8 +107,9 @@ export class ResolveConflictModal extends Modal {
     }
 
     private async openInChat(): Promise<void> {
+        const label = VERDICT_LABELS[this.row.verdict] ?? this.row.verdict;
         const prompt = `Help me review the note **${this.row.path}**. The freshness verifier flagged it as `
-            + `**${this.row.verdict}** with confidence ${this.row.confidence.toFixed(2)}.\n\n`
+            + `**${label}** with confidence ${this.row.confidence.toFixed(2)}.\n\n`
             + `Summary: ${this.row.summary || '(none)'}\n\n`
             + `Sources:\n${this.row.sources.map((s) => `- ${s}`).join('\n') || '(none)'}`;
 

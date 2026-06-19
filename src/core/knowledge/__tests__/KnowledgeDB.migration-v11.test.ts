@@ -124,6 +124,12 @@ describe('KnowledgeDB schema migration v10 -> v11 (IMP-20-06-01)', () => {
     });
 
     it('note_freshness_history accepts a row with optional summary and sources_json null', async () => {
+        // Historical fixture: v11 stored German verdict literals
+        // (`deckt-sich` / `ergaenzt` / `widerspricht`). The v12
+        // migration rewrites them to the English canon; see
+        // `KnowledgeDB.migration-v12.test.ts`. The German literal
+        // below documents what v11 PERSISTED, not what current code
+        // emits.
         const SQL = await initSqlJs();
         const db = new SQL.Database();
         db.exec(SCHEMA_DDL_V11);

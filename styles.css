@@ -93,47 +93,55 @@
     color: var(--text-normal);
     border-bottom: 2px solid var(--interactive-accent);
 }
-.vault-health-aging-toolbar {
+.vault-health-knowledge-review-toolbar {
     display: flex;
     gap: 6px;
     margin: 8px 0 12px 0;
 }
-.vault-health-aging-list {
+.vault-health-knowledge-review-subheading {
+    margin-top: 16px;
+    margin-bottom: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.vault-health-knowledge-review-list {
     display: flex;
     flex-direction: column;
     gap: 8px;
 }
-.vault-health-aging-item {
+.vault-health-knowledge-review-item {
     padding: 10px 12px;
     border-left: 3px solid var(--background-modifier-border);
     background: var(--background-secondary);
     border-radius: 4px;
 }
-.vault-health-aging-item.is-severity-critical {
+.vault-health-knowledge-review-item.is-severity-critical {
     border-left-color: var(--color-red);
 }
-.vault-health-aging-item.is-severity-moderate {
+.vault-health-knowledge-review-item.is-severity-moderate {
     border-left-color: var(--color-orange);
 }
-.vault-health-aging-item.is-severity-info {
+.vault-health-knowledge-review-item.is-severity-info {
     border-left-color: var(--color-blue);
 }
-.vault-health-aging-head {
+.vault-health-knowledge-review-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 12px;
 }
-.vault-health-aging-verdict {
+.vault-health-knowledge-review-verdict {
     font-size: 12px;
     color: var(--text-muted);
 }
-.vault-health-aging-summary {
+.vault-health-knowledge-review-summary {
     margin: 6px 0;
     color: var(--text-muted);
     font-size: 13px;
 }
-.vault-health-aging-actions {
+.vault-health-knowledge-review-actions {
     display: flex;
     gap: 6px;
     margin-top: 6px;

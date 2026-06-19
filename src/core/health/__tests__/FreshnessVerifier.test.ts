@@ -47,7 +47,7 @@ function makeFakeProvider(opts: FakeProviderOptions): VerifierProvider & {
 const SETTINGS_DEFAULT: VerifierSettings = {
     allowFrontierEscalation: true,
     frontierConfidenceThreshold: 0.7,
-    frontierSeverityFilter: ['widerspricht', 'outdated'],
+    frontierSeverityFilter: ['contradicts', 'outdated'],
 };
 
 const NOTE = { path: 'Notes/A.md', body: 'Pricing is $29.' };
@@ -57,7 +57,7 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
     it('returns the mid-tier verdict when confidence is high enough', async () => {
         const provider = makeFakeProvider({
             midReturns: {
-                verdict: 'deckt-sich',
+                verdict: 'matches',
                 confidence: 0.9,
                 summary: 'Matches the source.',
                 sources: ['https://example.com/pricing'],
@@ -71,7 +71,7 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
 
         expect(provider.midCalls).toBe(1);
         expect(provider.frontierCalls).toBe(0);
-        expect(result.verdict).toBe('deckt-sich');
+        expect(result.verdict).toBe('matches');
         expect(result.verifierTier).toBe('mid');
         expect(result.tokensUsed).toBe(5500);
         expect(result.modelId).toBe('haiku-test');
@@ -80,14 +80,14 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
     it('escalates to frontier when confidence is low AND severity in filter AND ZDR is true', async () => {
         const provider = makeFakeProvider({
             midReturns: {
-                verdict: 'widerspricht',
+                verdict: 'contradicts',
                 confidence: 0.55,
                 summary: 'Mid call: possibly outdated.',
                 sources: ['https://example.com/pricing'],
                 tokensUsed: 5500,
             },
             frontierReturns: {
-                verdict: 'widerspricht',
+                verdict: 'contradicts',
                 confidence: 0.91,
                 summary: 'Frontier confirmed: outdated.',
                 sources: ['https://example.com/pricing'],
@@ -111,7 +111,7 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
     it('fail-closes when ZDR capability is false: stays mid-tier, does not call frontier', async () => {
         const provider = makeFakeProvider({
             midReturns: {
-                verdict: 'widerspricht',
+                verdict: 'contradicts',
                 confidence: 0.5,
                 summary: 'Mid call: possibly outdated.',
                 sources: ['https://example.com/pricing'],
@@ -126,7 +126,7 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
         expect(provider.midCalls).toBe(1);
         expect(provider.frontierCalls).toBe(0);
         expect(result.verifierTier).toBe('mid');
-        expect(result.verdict).toBe('widerspricht');
+        expect(result.verdict).toBe('contradicts');
         expect(result.tokensUsed).toBe(5500);
     });
 
@@ -156,7 +156,7 @@ describe('FreshnessVerifier (IMP-20-06-01 W1-T5)', () => {
     it('does not escalate when severity is not in the filter, even at low confidence', async () => {
         const provider = makeFakeProvider({
             midReturns: {
-                verdict: 'ergaenzt',
+                verdict: 'extends',
                 confidence: 0.4,
                 summary: 'Additive only.',
                 sources: ['https://example.com/x'],

@@ -1416,7 +1416,7 @@ export interface FreshnessSettings {
     };
     allowFrontierEscalation: boolean;
     frontierConfidenceThreshold: number;
-    frontierSeverityFilter: ('deckt-sich' | 'ergaenzt' | 'widerspricht' | 'outdated' | 'no_external_source')[];
+    frontierSeverityFilter: ('matches' | 'extends' | 'contradicts' | 'outdated' | 'no_external_source')[];
     excludePaths: string[];
 }
 
@@ -1425,7 +1425,7 @@ export const DEFAULT_FRESHNESS_SETTINGS: FreshnessSettings = {
     externalSources: { enabled: false },
     allowFrontierEscalation: false,
     frontierConfidenceThreshold: 0.7,
-    frontierSeverityFilter: ['widerspricht', 'outdated'],
+    frontierSeverityFilter: ['contradicts', 'outdated'],
     excludePaths: ['Private/', 'Personal/', 'Medical/', 'Clients/'],
 };
 

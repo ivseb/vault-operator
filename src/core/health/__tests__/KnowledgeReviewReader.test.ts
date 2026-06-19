@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import initSqlJs from 'sql.js';
 
-import { AgingKnowledgeReader, mapSeverity } from '../AgingKnowledgeReader';
+import { KnowledgeReviewReader, mapSeverity } from '../KnowledgeReviewReader';
 
 /**
  * IMP-20-06-01 W3-T1 (data layer).
@@ -53,48 +53,48 @@ describe('mapSeverity (ADR-106 amendment)', () => {
         expect(mapSeverity('outdated', 1)).toBe('critical');
     });
 
-    it('widerspricht critical above 0.7 confidence', () => {
-        expect(mapSeverity('widerspricht', 0.7)).toBe('critical');
-        expect(mapSeverity('widerspricht', 0.9)).toBe('critical');
+    it('contradicts critical at or above 0.7 confidence', () => {
+        expect(mapSeverity('contradicts', 0.7)).toBe('critical');
+        expect(mapSeverity('contradicts', 0.9)).toBe('critical');
     });
 
-    it('widerspricht moderate below 0.7 confidence', () => {
-        expect(mapSeverity('widerspricht', 0.69)).toBe('moderate');
-        expect(mapSeverity('widerspricht', 0.0)).toBe('moderate');
+    it('contradicts moderate below 0.7 confidence', () => {
+        expect(mapSeverity('contradicts', 0.69)).toBe('moderate');
+        expect(mapSeverity('contradicts', 0.0)).toBe('moderate');
     });
 
-    it('ergaenzt is moderate', () => {
-        expect(mapSeverity('ergaenzt', 0.5)).toBe('moderate');
+    it('extends is moderate', () => {
+        expect(mapSeverity('extends', 0.5)).toBe('moderate');
     });
 
     it('no_external_source is info', () => {
         expect(mapSeverity('no_external_source', 0.5)).toBe('info');
     });
 
-    it('deckt-sich is ok', () => {
-        expect(mapSeverity('deckt-sich', 0.99)).toBe('ok');
+    it('matches is ok', () => {
+        expect(mapSeverity('matches', 0.99)).toBe('ok');
     });
 });
 
-describe('AgingKnowledgeReader.listAll', () => {
+describe('KnowledgeReviewReader.listAll', () => {
     let db: Db;
-    let reader: AgingKnowledgeReader;
+    let reader: KnowledgeReviewReader;
 
     beforeEach(async () => {
         db = await makeDb();
-        reader = new AgingKnowledgeReader(db);
+        reader = new KnowledgeReviewReader(db);
     });
 
     it('returns an empty list when no verdicts exist', () => {
         expect(reader.listAll()).toEqual([]);
     });
 
-    it('lists rows sorted by last_checked_at desc, hides deckt-sich by default', () => {
+    it('lists rows sorted by last_checked_at desc, hides matches by default', () => {
         db.run(`INSERT INTO note_freshness (path, freshness_class, classified_at,
             last_verdict, last_confidence, last_summary, last_sources_json,
             last_checked_at, last_verifier_tier) VALUES
-            ('A.md', 'stable', '2026-06-19', 'widerspricht', 0.9, 'old facts', '["u1"]', '2026-06-19T10:00:00Z', 'mid'),
-            ('B.md', 'stable', '2026-06-19', 'deckt-sich', 0.95, 'agrees', '[]', '2026-06-19T12:00:00Z', 'mid'),
+            ('A.md', 'stable', '2026-06-19', 'contradicts', 0.9, 'old facts', '["u1"]', '2026-06-19T10:00:00Z', 'mid'),
+            ('B.md', 'stable', '2026-06-19', 'matches', 0.95, 'agrees', '[]', '2026-06-19T12:00:00Z', 'mid'),
             ('C.md', 'stable', '2026-06-19', 'outdated', 0.6, 'gone', '[]', '2026-06-19T11:00:00Z', 'mid')`);
 
         const rows = reader.listAll();
@@ -103,11 +103,11 @@ describe('AgingKnowledgeReader.listAll', () => {
         expect(rows[1].severity).toBe('critical');
     });
 
-    it('includes deckt-sich rows when includeOk=true', () => {
+    it('includes matches rows when includeOk=true', () => {
         db.run(`INSERT INTO note_freshness (path, freshness_class, classified_at,
             last_verdict, last_confidence, last_summary, last_sources_json,
             last_checked_at, last_verifier_tier) VALUES
-            ('B.md', 'stable', '2026-06-19', 'deckt-sich', 0.95, 'agrees', '[]', '2026-06-19T12:00:00Z', 'mid')`);
+            ('B.md', 'stable', '2026-06-19', 'matches', 0.95, 'agrees', '[]', '2026-06-19T12:00:00Z', 'mid')`);
 
         const rows = reader.listAll(true);
         expect(rows).toHaveLength(1);
@@ -115,21 +115,21 @@ describe('AgingKnowledgeReader.listAll', () => {
     });
 });
 
-describe('AgingKnowledgeReader.listHistory', () => {
+describe('KnowledgeReviewReader.listHistory', () => {
     it('returns history rows for a single path desc', async () => {
         const db = await makeDb();
-        const reader = new AgingKnowledgeReader(db);
+        const reader = new KnowledgeReviewReader(db);
 
         db.run(`INSERT INTO note_freshness_history
             (path, run_at, verdict, confidence, summary, sources_json, verifier_tier, model_id, tokens_used)
             VALUES
-            ('A.md', '2026-06-01T00:00:00Z', 'deckt-sich', 0.9, 'old run', '[]', 'mid', 'haiku', 100),
-            ('A.md', '2026-06-19T00:00:00Z', 'widerspricht', 0.8, 'new run', '["u"]', 'mid', 'haiku', 120),
+            ('A.md', '2026-06-01T00:00:00Z', 'matches', 0.9, 'old run', '[]', 'mid', 'haiku', 100),
+            ('A.md', '2026-06-19T00:00:00Z', 'contradicts', 0.8, 'new run', '["u"]', 'mid', 'haiku', 120),
             ('B.md', '2026-06-19T00:00:00Z', 'outdated', 0.7, 'other note', '[]', 'mid', 'haiku', 90)`);
 
         const history = reader.listHistory('A.md');
         expect(history).toHaveLength(2);
         expect(history[0].runAt).toBe('2026-06-19T00:00:00Z');
-        expect(history[0].verdict).toBe('widerspricht');
+        expect(history[0].verdict).toBe('contradicts');
     });
 });

@@ -72,14 +72,14 @@ const FAKE_VERDICT_PROVIDER: VerifierProvider = {
     frontierModelId: 'opus-test',
     hasZdrCapability: () => false,
     callMidTier: async () => ({
-        verdict: 'deckt-sich',
+        verdict: 'matches',
         confidence: 0.9,
         summary: 'agrees with sources',
         sources: ['https://example.com/a'],
         tokensUsed: 120,
     }),
     callFrontier: async () => ({
-        verdict: 'widerspricht',
+        verdict: 'contradicts',
         confidence: 0.95,
         summary: 'contradicts',
         sources: ['https://example.com/b'],
@@ -127,15 +127,15 @@ describe('FreshnessOrchestrator (IMP-20-06-01 W2-T5)', () => {
         const result = await orchestrator.runForCluster('pricing');
 
         expect(result.verdicts).toHaveLength(1);
-        expect(result.verdicts[0].verdict).toBe('deckt-sich');
+        expect(result.verdicts[0].verdict).toBe('matches');
         expect(result.tokensUsed).toBe(120);
 
         const mirror = db.exec('SELECT last_verdict, last_confidence, last_verifier_tier FROM note_freshness WHERE path = ?', ['Notes/x.md']);
-        expect(mirror[0].values[0]).toEqual(['deckt-sich', 0.9, 'mid']);
+        expect(mirror[0].values[0]).toEqual(['matches', 0.9, 'mid']);
 
         const history = db.exec('SELECT verdict, confidence FROM note_freshness_history WHERE path = ?', ['Notes/x.md']);
         expect(history[0].values).toHaveLength(1);
-        expect(history[0].values[0]).toEqual(['deckt-sich', 0.9]);
+        expect(history[0].values[0]).toEqual(['matches', 0.9]);
     });
 
     it('audit M-3: returns empty result when enabled() returns false, never touches the DB', async () => {
@@ -279,14 +279,14 @@ describe('FreshnessOrchestrator (IMP-20-06-01 W2-T5)', () => {
             frontierModelId: 'opus-test',
             hasZdrCapability: () => true,
             callMidTier: async () => ({
-                verdict: 'widerspricht',
+                verdict: 'contradicts',
                 confidence: 0.4,
                 summary: 'unsure',
                 sources: [],
                 tokensUsed: 100,
             }),
             callFrontier: async () => ({
-                verdict: 'widerspricht',
+                verdict: 'contradicts',
                 confidence: 0.92,
                 summary: 'confirmed contradiction',
                 sources: ['https://example.com/x'],
@@ -312,7 +312,7 @@ describe('FreshnessOrchestrator (IMP-20-06-01 W2-T5)', () => {
             verifier: new FreshnessVerifier(escalatingProvider, {
                 allowFrontierEscalation: true,
                 frontierConfidenceThreshold: 0.7,
-                frontierSeverityFilter: ['widerspricht'],
+                frontierSeverityFilter: ['contradicts'],
             }),
             history: new NoteFreshnessHistoryStore(db),
             db,

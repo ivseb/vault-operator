@@ -49,7 +49,7 @@ type SqlJsStatement = {
 
 export type { SqlJsDatabase, SqlJsStatement };
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 // ---------------------------------------------------------------------------
 // Schema DDL
@@ -548,6 +548,20 @@ export class KnowledgeDB {
                 }
             }
 
+            // v11 -> v12: IMP-20-06-01 verdict literal vocabulary
+            // migration. Self-builds that ran the freshness verifier
+            // before this change persisted German verdict literals
+            // (deckt-sich, ergaenzt, widerspricht) into note_freshness
+            // and note_freshness_history. Rewrite them to the English
+            // canonical values (matches, extends, contradicts). The
+            // CASE expression is idempotent: rows that already carry
+            // the English value or any non-matching value pass through
+            // unchanged. outdated and no_external_source were English
+            // from the start and stay untouched.
+            if (currentVersion < 12) {
+                migrateVerdictVocabularyV11ToV12(this.db);
+            }
+
             // Re-run DDL (CREATE IF NOT EXISTS is idempotent)
             this.initSchema();
             this.db.run('UPDATE schema_meta SET version = ?', [SCHEMA_VERSION]);
@@ -752,5 +766,40 @@ export class KnowledgeDB {
             this.saveTimer = null;
             void this.save();
         }, 2000); // 2s debounce
+    }
+}
+
+/**
+ * IMP-20-06-01 v11 -> v12 migration step. Pure helper so the unit
+ * tests can exercise it without instantiating KnowledgeDB.
+ *
+ * Rewrites the German verdict literals stored in v11
+ * (`deckt-sich`, `ergaenzt`, `widerspricht`) to the English canon
+ * (`matches`, `extends`, `contradicts`) in both
+ * `note_freshness.last_verdict` and `note_freshness_history.verdict`.
+ * The CASE expression is idempotent: rows already in the English
+ * canon, or in any other state (outdated, no_external_source, NULL),
+ * pass through unchanged.
+ */
+export function migrateVerdictVocabularyV11ToV12(db: SqlJsDatabase): void {
+    const verdictRewrite = (col: string) => `CASE ${col}
+        WHEN 'deckt-sich' THEN 'matches'
+        WHEN 'ergaenzt' THEN 'extends'
+        WHEN 'widerspricht' THEN 'contradicts'
+        ELSE ${col}
+    END`;
+    try {
+        db.run(
+            `UPDATE note_freshness SET last_verdict = ${verdictRewrite('last_verdict')} WHERE last_verdict IS NOT NULL`,
+        );
+    } catch {
+        // note_freshness might be empty or absent on a partial v11 install.
+    }
+    try {
+        db.run(
+            `UPDATE note_freshness_history SET verdict = ${verdictRewrite('verdict')}`,
+        );
+    } catch {
+        // history table might not exist on a partial v11 install.
     }
 }

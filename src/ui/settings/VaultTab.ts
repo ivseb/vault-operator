@@ -209,7 +209,7 @@ export class VaultTab {
 
         new Setting(containerEl)
             .setName('Write freshness hint to note frontmatter')
-            .setDesc('Mirror the latest verdict as a single `freshness` key in the note. Default off; the verdict already lives in the Aging-knowledge tab.')
+            .setDesc('Mirror the latest verdict as a single `freshness` key in the note. Default off; the verdict already lives in the Knowledge review tab.')
             .addToggle((tg) =>
                 tg.setValue(freshness.writeFrontmatter).onChange(async (v) => {
                     this.plugin.settings.freshness = { ...freshness, writeFrontmatter: v };

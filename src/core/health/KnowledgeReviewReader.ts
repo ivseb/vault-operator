@@ -1,5 +1,5 @@
 /**
- * AgingKnowledgeReader -- read-side helper for the Aging-knowledge UI
+ * KnowledgeReviewReader -- read-side helper for the Knowledge-review UI
  * (IMP-20-06-01 Wave 3).
  *
  * Reads `note_freshness` mirror columns plus a per-path history slice
@@ -7,13 +7,15 @@
  * the ADR-106 amendment:
  *
  *   outdated                                       -> critical
- *   widerspricht  with confidence >= HIGH_CONF     -> critical
- *   widerspricht  with confidence <  HIGH_CONF     -> moderate
- *   ergaenzt                                       -> moderate
+ *   contradicts  with confidence >= HIGH_CONF      -> critical
+ *   contradicts  with confidence <  HIGH_CONF      -> moderate
+ *   extends                                        -> moderate
  *   no_external_source                             -> info
- *   deckt-sich                                     -> ok (hidden by default)
+ *   matches                                        -> ok (hidden by default)
  *
- * Persistence shape comes from KnowledgeDB schema v11.
+ * Persistence shape comes from KnowledgeDB schema v12 (verdict literals
+ * are English; v11 stored German values and the v12 migration
+ * translates them in place).
  */
 
 import type { VerdictLiteral, VerifierTier } from './types';
@@ -22,9 +24,9 @@ interface SqlDb {
     exec(sql: string, params?: unknown[]): Array<{ columns: string[]; values: unknown[][] }>;
 }
 
-export type AgingSeverity = 'critical' | 'moderate' | 'info' | 'ok';
+export type ReviewSeverity = 'critical' | 'moderate' | 'info' | 'ok';
 
-export interface AgingRow {
+export interface ReviewRow {
     path: string;
     verdict: VerdictLiteral;
     confidence: number;
@@ -32,10 +34,10 @@ export interface AgingRow {
     sources: string[];
     lastCheckedAt: string;
     verifierTier: VerifierTier;
-    severity: AgingSeverity;
+    severity: ReviewSeverity;
 }
 
-export interface AgingHistoryRow {
+export interface ReviewHistoryRow {
     runAt: string;
     verdict: VerdictLiteral;
     confidence: number;
@@ -47,10 +49,10 @@ export interface AgingHistoryRow {
 
 const HIGH_CONFIDENCE_THRESHOLD = 0.7;
 
-export class AgingKnowledgeReader {
+export class KnowledgeReviewReader {
     constructor(private readonly db: SqlDb) {}
 
-    listAll(includeOk = false): AgingRow[] {
+    listAll(includeOk = false): ReviewRow[] {
         const res = this.db.exec(
             `SELECT path, last_verdict, last_confidence, last_summary,
                     last_sources_json, last_checked_at, last_verifier_tier
@@ -60,7 +62,7 @@ export class AgingKnowledgeReader {
         );
         if (!res.length || !res[0].values.length) return [];
 
-        const rows: AgingRow[] = [];
+        const rows: ReviewRow[] = [];
         for (const r of res[0].values) {
             const verdict = ((r[1] as string | null) ?? '') as VerdictLiteral;
             const confidence = Number(r[2] ?? 0);
@@ -81,7 +83,7 @@ export class AgingKnowledgeReader {
         return rows;
     }
 
-    listHistory(path: string): AgingHistoryRow[] {
+    listHistory(path: string): ReviewHistoryRow[] {
         const res = this.db.exec(
             `SELECT run_at, verdict, confidence, summary, sources_json,
                     verifier_tier, model_id
@@ -104,12 +106,12 @@ export class AgingKnowledgeReader {
     }
 }
 
-export function mapSeverity(verdict: VerdictLiteral, confidence: number): AgingSeverity {
+export function mapSeverity(verdict: VerdictLiteral, confidence: number): ReviewSeverity {
     if (verdict === 'outdated') return 'critical';
-    if (verdict === 'widerspricht') {
+    if (verdict === 'contradicts') {
         return confidence >= HIGH_CONFIDENCE_THRESHOLD ? 'critical' : 'moderate';
     }
-    if (verdict === 'ergaenzt') return 'moderate';
+    if (verdict === 'extends') return 'moderate';
     if (verdict === 'no_external_source') return 'info';
     return 'ok';
 }

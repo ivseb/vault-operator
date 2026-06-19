@@ -14,9 +14,31 @@ import type ObsidianAgentPlugin from '../../main';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
 import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService';
-import { AgingKnowledgeReader, type AgingRow } from '../../core/health/AgingKnowledgeReader';
+import { KnowledgeReviewReader, type ReviewRow } from '../../core/health/KnowledgeReviewReader';
+import type { VerdictLiteral } from '../../core/health/types';
 import { ResolveConflictModal } from './ResolveConflictModal';
 import { BatchResolveModal } from './BatchResolveModal';
+
+/**
+ * Display-only labels for the verdict literals. Storage and code
+ * still use the canonical English literal (matches, extends, ...);
+ * this map is the user-facing surface only.
+ */
+const VERDICT_LABELS: Record<VerdictLiteral, string> = {
+    matches: 'Matches sources',
+    extends: 'Could extend',
+    contradicts: 'Contradicted by sources',
+    outdated: 'Outdated',
+    no_external_source: 'No external evidence yet',
+};
+
+/**
+ * Cluster-level finding types that belong in the Knowledge review
+ * tab (not Findings). Cluster freshness is the Karpathy-Lint score
+ * over note groups; it is semantically the same family as the
+ * note-level verifier flags.
+ */
+const KNOWLEDGE_REVIEW_CHECKS = new Set<HealthCheckType>(['cluster_freshness']);
 
 const REPAIRABLE_CHECKS = new Set<HealthCheckType>([
     'missing_backlinks', 'category_mismatch', 'inconsistent_tags',
@@ -35,7 +57,7 @@ const CHECK_LABELS: Record<string, string> = {
 };
 
 type SeverityFilter = 'all' | 'high' | 'medium' | 'low';
-type TopTab = 'findings' | 'aging';
+type TopTab = 'findings' | 'review';
 
 export class VaultHealthRepairModal extends Modal {
     private plugin: ObsidianAgentPlugin;
@@ -44,7 +66,7 @@ export class VaultHealthRepairModal extends Modal {
     private onDiscuss?: (prompt: string) => void;
     /** FEAT-19-18: severity filter pill (all/high/medium/low). Default 'all'. */
     private severityFilter: SeverityFilter = 'all';
-    /** IMP-20-06-01 Wave 3: top-level view switch between findings and aging knowledge. */
+    /** IMP-20-06-01 Wave 3: top-level view switch between findings and the Knowledge-review tab. */
     private topTab: TopTab = 'findings';
 
     constructor(
@@ -64,7 +86,7 @@ export class VaultHealthRepairModal extends Modal {
 
     private render(): void {
         if (this.topTab === 'findings') this.showFindings();
-        else this.showAgingKnowledge();
+        else this.showKnowledgeReview();
     }
 
     private renderTopTabs(parent: HTMLElement): void {
@@ -73,36 +95,45 @@ export class VaultHealthRepairModal extends Modal {
             text: 'Findings',
             cls: 'vault-health-top-tab' + (this.topTab === 'findings' ? ' is-active' : ''),
         });
-        const agingBtn = row.createEl('button', {
-            text: 'Aging knowledge',
-            cls: 'vault-health-top-tab' + (this.topTab === 'aging' ? ' is-active' : ''),
+        const reviewBtn = row.createEl('button', {
+            text: 'Knowledge review',
+            cls: 'vault-health-top-tab' + (this.topTab === 'review' ? ' is-active' : ''),
         });
         findingsBtn.addEventListener('click', () => {
             this.topTab = 'findings';
             this.render();
         });
-        agingBtn.addEventListener('click', () => {
-            this.topTab = 'aging';
+        reviewBtn.addEventListener('click', () => {
+            this.topTab = 'review';
             this.render();
         });
     }
 
-    private showAgingKnowledge(): void {
+    private showKnowledgeReview(): void {
         const { contentEl } = this;
         contentEl.empty();
         contentEl.addClass('vault-health-modal');
         this.renderTopTabs(contentEl);
 
-        contentEl.createEl('h3', { text: 'Aging knowledge' });
+        contentEl.createEl('h3', { text: 'Knowledge review' });
 
         // IMP-20-06-01 W3-T4: mobile guard. Verifier read paths are
         // desktop-only for now; on mobile show an explanatory note
         // instead of an empty grid.
         if (Platform.isMobile) {
             contentEl.createEl('p', {
-                text: 'Aging-knowledge review needs the desktop client. Open the same vault on desktop to resolve flagged notes.',
+                text: 'Knowledge review needs the desktop client. Open the same vault on desktop to resolve flagged notes.',
             });
             return;
+        }
+
+        // Cluster-freshness findings (Karpathy-Lint score per cluster)
+        // land here, not in the Findings tab.
+        const clusterFindings = this.findings.filter((f) =>
+            KNOWLEDGE_REVIEW_CHECKS.has(f.check),
+        );
+        if (clusterFindings.length) {
+            this.renderClusterFreshnessSection(contentEl, clusterFindings);
         }
 
         const db = this.plugin.knowledgeDB?.getDB();
@@ -111,12 +142,15 @@ export class VaultHealthRepairModal extends Modal {
             return;
         }
 
-        const reader = new AgingKnowledgeReader(db);
+        const reader = new KnowledgeReviewReader(db);
         const rows = reader.listAll(false);
+
+        const noteHeading = contentEl.createEl('h4', { text: 'Notes flagged by the verifier' });
+        noteHeading.addClass('vault-health-knowledge-review-subheading');
 
         if (!rows.length) {
             contentEl.createEl('p', {
-                text: 'No aging-knowledge flags right now. Notes appear here once the freshness verifier marks them widerspricht, outdated, or ergaenzt.',
+                text: 'No notes flagged yet. Notes appear here once the freshness verifier marks them as contradicted, outdated, or in need of extension.',
             });
             return;
         }
@@ -129,31 +163,53 @@ export class VaultHealthRepairModal extends Modal {
         const summary = contentEl.createEl('p');
         summary.appendText(`${rows.length} notes flagged: ${counts.critical} critical, ${counts.moderate} moderate, ${counts.info} info.`);
 
-        const batchRow = contentEl.createDiv('vault-health-aging-toolbar');
+        const batchRow = contentEl.createDiv('vault-health-knowledge-review-toolbar');
         const batchBtn = batchRow.createEl('button', { text: 'Batch resolve' });
         batchBtn.addEventListener('click', () => {
             new BatchResolveModal(this.plugin, rows, { onChange: () => this.render() }).open();
         });
 
-        const list = contentEl.createDiv('vault-health-aging-list');
+        const list = contentEl.createDiv('vault-health-knowledge-review-list');
         for (const row of rows) {
-            const item = list.createDiv('vault-health-aging-item ' + `is-severity-${row.severity}`);
-            const head = item.createDiv('vault-health-aging-head');
+            const item = list.createDiv('vault-health-knowledge-review-item ' + `is-severity-${row.severity}`);
+            const head = item.createDiv('vault-health-knowledge-review-head');
             head.createEl('strong', { text: row.path });
+            const label = VERDICT_LABELS[row.verdict] ?? row.verdict;
             const verdictBadge = head.createEl('span', {
-                text: ` ${row.verdict} (${row.confidence.toFixed(2)})`,
-                cls: 'vault-health-aging-verdict',
+                text: ` ${label} (${row.confidence.toFixed(2)})`,
+                cls: 'vault-health-knowledge-review-verdict',
             });
             verdictBadge.setAttr('data-severity', row.severity);
 
             if (row.summary) {
-                item.createEl('p', { text: row.summary, cls: 'vault-health-aging-summary' });
+                item.createEl('p', { text: row.summary, cls: 'vault-health-knowledge-review-summary' });
             }
 
-            const actions = item.createDiv('vault-health-aging-actions');
+            const actions = item.createDiv('vault-health-knowledge-review-actions');
             const resolveBtn = actions.createEl('button', { text: 'Resolve' });
             resolveBtn.addEventListener('click', () => {
                 new ResolveConflictModal(this.plugin, row, { onChange: () => this.render() }).open();
+            });
+        }
+    }
+
+    private renderClusterFreshnessSection(parent: HTMLElement, findings: HealthFinding[]): void {
+        const heading = parent.createEl('h4', { text: 'Cluster freshness' });
+        heading.addClass('vault-health-knowledge-review-subheading');
+        const list = parent.createDiv('vault-health-knowledge-review-list');
+        for (const f of findings) {
+            const severity = f.severity === 'high' ? 'critical' : f.severity === 'medium' ? 'moderate' : 'info';
+            const item = list.createDiv('vault-health-knowledge-review-item ' + `is-severity-${severity}`);
+            const head = item.createDiv('vault-health-knowledge-review-head');
+            head.createEl('strong', { text: f.cluster ?? 'Cluster' });
+            if (f.description) {
+                item.createEl('p', { text: f.description, cls: 'vault-health-knowledge-review-summary' });
+            }
+            const actions = item.createDiv('vault-health-knowledge-review-actions');
+            const discussBtn = actions.createEl('button', { text: 'Discuss freshness update' });
+            discussBtn.addEventListener('click', () => {
+                const prompt = `Help me refresh the cluster "${f.cluster ?? ''}". ${f.description ?? ''}`;
+                this.onDiscuss?.(prompt);
             });
         }
     }
@@ -172,16 +228,20 @@ export class VaultHealthRepairModal extends Modal {
         contentEl.addClass('vault-health-modal');
         this.renderTopTabs(contentEl);
 
-        const repairableCount = this.findings.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
-        const totalCount = this.findings.length;
+        // IMP-20-06-01 W3-T1: cluster_freshness moved into the
+        // Knowledge-review tab. Filter it out of the Findings view so
+        // the same finding does not surface in both places.
+        const findingsForView = this.findings.filter((f) => !KNOWLEDGE_REVIEW_CHECKS.has(f.check));
+        const repairableCount = findingsForView.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
+        const totalCount = findingsForView.length;
 
         contentEl.createEl('h3', { text: `Vault health (${totalCount} findings)` });
 
         // FEAT-19-18: Severity filter tabs.
         const counts = {
-            high: this.findings.filter(f => f.severity === 'high').length,
-            medium: this.findings.filter(f => f.severity === 'medium').length,
-            low: this.findings.filter(f => f.severity === 'low').length,
+            high: findingsForView.filter(f => f.severity === 'high').length,
+            medium: findingsForView.filter(f => f.severity === 'medium').length,
+            low: findingsForView.filter(f => f.severity === 'low').length,
         };
         const filterRow = contentEl.createDiv('vault-health-filter-row');
         const tabs: Array<{ key: SeverityFilter; label: string }> = [
@@ -204,8 +264,8 @@ export class VaultHealthRepairModal extends Modal {
 
         // Apply filter
         const visibleFindings = this.severityFilter === 'all'
-            ? this.findings
-            : this.findings.filter(f => f.severity === this.severityFilter);
+            ? findingsForView
+            : findingsForView.filter(f => f.severity === this.severityFilter);
 
         // Group findings by check type
         const grouped = new Map<HealthCheckType, { findings: HealthFinding[]; indices: number[] }>();

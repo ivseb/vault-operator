@@ -32,7 +32,7 @@ export interface UpdateFinding {
      * Optional per-note verdicts attached to this cluster finding.
      * Populated by the FreshnessVerifier wiring from IMP-20-06-01.
      * Existing notification sinks that only consume cluster-level
-     * fields ignore this; the Aging-knowledge tab reads it.
+     * fields ignore this; the Knowledge-review tab reads it.
      * Additive per ADR-105 amendment 2026-06-19.
      */
     notes?: import('./types').NoteVerdict[];

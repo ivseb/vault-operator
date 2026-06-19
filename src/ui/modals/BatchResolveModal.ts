@@ -1,5 +1,5 @@
 /**
- * BatchResolveModal -- bulk-apply for the Aging-knowledge tab
+ * BatchResolveModal -- bulk-apply for the Knowledge-review tab
  * (IMP-20-06-01 W3-T3).
  *
  * Lets the user filter the verdict list by severity + min confidence
@@ -13,11 +13,11 @@
 import { Modal, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type {
-    AgingRow,
-    AgingSeverity,
-} from '../../core/health/AgingKnowledgeReader';
+    ReviewRow,
+    ReviewSeverity,
+} from '../../core/health/KnowledgeReviewReader';
 
-const ALL_SEVERITIES: AgingSeverity[] = ['critical', 'moderate', 'info'];
+const ALL_SEVERITIES: ReviewSeverity[] = ['critical', 'moderate', 'info'];
 
 type BatchAction = 'mark-verified' | 'delete';
 
@@ -27,15 +27,15 @@ export interface BatchResolveModalOptions {
 
 export class BatchResolveModal extends Modal {
     private readonly plugin: ObsidianAgentPlugin;
-    private readonly rows: AgingRow[];
+    private readonly rows: ReviewRow[];
     private readonly opts: BatchResolveModalOptions;
 
-    private selectedSeverities: Set<AgingSeverity> = new Set(['critical', 'moderate']);
+    private selectedSeverities: Set<ReviewSeverity> = new Set(['critical', 'moderate']);
     private minConfidence = 0;
     private action: BatchAction = 'mark-verified';
     private aborted = false;
 
-    constructor(plugin: ObsidianAgentPlugin, rows: AgingRow[], opts: BatchResolveModalOptions) {
+    constructor(plugin: ObsidianAgentPlugin, rows: ReviewRow[], opts: BatchResolveModalOptions) {
         super(plugin.app);
         this.plugin = plugin;
         this.rows = rows;
@@ -47,7 +47,7 @@ export class BatchResolveModal extends Modal {
         contentEl.empty();
         contentEl.addClass('batch-resolve-modal');
 
-        contentEl.createEl('h3', { text: 'Batch resolve aging knowledge' });
+        contentEl.createEl('h3', { text: 'Batch resolve knowledge' });
         contentEl.createEl('p', { text: `${this.rows.length} rows in the current view.` });
 
         this.renderFilters(contentEl);
@@ -143,7 +143,7 @@ export class BatchResolveModal extends Modal {
         });
     }
 
-    private filteredRows(): AgingRow[] {
+    private filteredRows(): ReviewRow[] {
         return this.rows.filter((r) => {
             if (!this.selectedSeverities.has(r.severity)) return false;
             if (r.confidence < this.minConfidence) return false;
@@ -151,7 +151,7 @@ export class BatchResolveModal extends Modal {
         });
     }
 
-    private async runBatch(rows: AgingRow[], counterEl: HTMLElement): Promise<void> {
+    private async runBatch(rows: ReviewRow[], counterEl: HTMLElement): Promise<void> {
         this.aborted = false;
         let done = 0;
         let failed = 0;
@@ -175,7 +175,7 @@ export class BatchResolveModal extends Modal {
         this.opts.onChange();
     }
 
-    private markVerifiedRow(row: AgingRow): void {
+    private markVerifiedRow(row: ReviewRow): void {
         const db = this.plugin.knowledgeDB?.getDB();
         if (!db) return;
         db.run(
@@ -186,7 +186,7 @@ export class BatchResolveModal extends Modal {
         this.plugin.knowledgeDB?.markDirty();
     }
 
-    private async deleteRow(row: AgingRow): Promise<void> {
+    private async deleteRow(row: ReviewRow): Promise<void> {
         const file = this.plugin.app.vault.getAbstractFileByPath(row.path);
         if (!(file instanceof TFile)) return;
         await this.plugin.app.fileManager.trashFile(file);

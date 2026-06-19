@@ -64,7 +64,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
         store.recordRun({
             path: 'Notes/A.md',
             runAt: '2026-06-19T00:00:00Z',
-            verdict: 'deckt-sich',
+            verdict: 'matches',
             confidence: 0.92,
             verifierTier: 'mid',
             modelId: 'claude-haiku-4-5',
@@ -79,7 +79,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
             store.recordRun({
                 path: 'Notes/A.md',
                 runAt: `2026-06-${String(10 + i).padStart(2, '0')}T00:00:00Z`,
-                verdict: 'deckt-sich',
+                verdict: 'matches',
                 confidence: 0.8,
                 verifierTier: 'mid',
                 modelId: 'm',
@@ -99,7 +99,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
             `INSERT INTO note_freshness_history
              (path, run_at, verdict, confidence, verifier_tier, model_id, tokens_used)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            ['Notes/A.md', '2026-01-01T00:00:00Z', 'deckt-sich', 0.9, 'mid', 'm', 100],
+            ['Notes/A.md', '2026-01-01T00:00:00Z', 'matches', 0.9, 'mid', 'm', 100],
         );
         expect(countRows(db, 'Notes/A.md')).toBe(1);
 
@@ -107,7 +107,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
         store.recordRun({
             path: 'Notes/A.md',
             runAt: '2026-06-19T00:00:00Z',
-            verdict: 'widerspricht',
+            verdict: 'contradicts',
             confidence: 0.6,
             verifierTier: 'mid',
             modelId: 'm',
@@ -117,7 +117,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
 
         expect(countRows(db, 'Notes/A.md')).toBe(1);
         const rows = db.exec('SELECT verdict FROM note_freshness_history WHERE path = ?', ['Notes/A.md']);
-        expect(rows[0].values[0][0]).toBe('widerspricht');
+        expect(rows[0].values[0][0]).toBe('contradicts');
     });
 
     it('retains rows isolated per path (Note B is unaffected by Note A retention)', () => {
@@ -125,7 +125,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
             store.recordRun({
                 path: 'Notes/A.md',
                 runAt: `2026-06-${String(10 + i).padStart(2, '0')}T00:00:00Z`,
-                verdict: 'deckt-sich',
+                verdict: 'matches',
                 confidence: 0.8,
                 verifierTier: 'mid',
                 modelId: 'm',
@@ -135,7 +135,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
         store.recordRun({
             path: 'Notes/B.md',
             runAt: '2026-06-19T00:00:00Z',
-            verdict: 'ergaenzt',
+            verdict: 'extends',
             confidence: 0.85,
             verifierTier: 'mid',
             modelId: 'm',
@@ -150,12 +150,12 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
         store.recordRun({
             path: 'Notes/A.md',
             runAt: '2026-06-19T00:00:00Z',
-            verdict: 'widerspricht',
+            verdict: 'contradicts',
             confidence: 0.75,
             verifierTier: 'frontier',
             modelId: 'claude-opus-4-7',
             tokensUsed: 12000,
-            summary: 'Pricing widerspricht externer Quelle.',
+            summary: 'Pricing contradicts the external source.',
             sources: ['https://example.com/pricing'],
         });
 
@@ -163,7 +163,7 @@ describe('NoteFreshnessHistoryStore (IMP-20-06-01 W1-T3)', () => {
             'SELECT summary, sources_json, verifier_tier FROM note_freshness_history WHERE path = ?',
             ['Notes/A.md'],
         );
-        expect(rows[0].values[0][0]).toBe('Pricing widerspricht externer Quelle.');
+        expect(rows[0].values[0][0]).toBe('Pricing contradicts the external source.');
         expect(JSON.parse(rows[0].values[0][1] as string)).toEqual(['https://example.com/pricing']);
         expect(rows[0].values[0][2]).toBe('frontier');
     });
