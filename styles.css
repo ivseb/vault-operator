@@ -74,6 +74,88 @@
 .vault-health-modal {
     max-width: 600px;
 }
+.vault-health-top-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    padding-bottom: 8px;
+}
+.vault-health-top-tab {
+    background: transparent;
+    border: none;
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+.vault-health-top-tab.is-active {
+    color: var(--text-normal);
+    border-bottom: 2px solid var(--interactive-accent);
+}
+.vault-health-aging-toolbar {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0 12px 0;
+}
+.vault-health-aging-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.vault-health-aging-item {
+    padding: 10px 12px;
+    border-left: 3px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    border-radius: 4px;
+}
+.vault-health-aging-item.is-severity-critical {
+    border-left-color: var(--color-red);
+}
+.vault-health-aging-item.is-severity-moderate {
+    border-left-color: var(--color-orange);
+}
+.vault-health-aging-item.is-severity-info {
+    border-left-color: var(--color-blue);
+}
+.vault-health-aging-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+.vault-health-aging-verdict {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.vault-health-aging-summary {
+    margin: 6px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
+.vault-health-aging-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+.resolve-conflict-modal .resolve-conflict-actions,
+.resolve-conflict-modal .resolve-conflict-confirm,
+.batch-resolve-modal .batch-resolve-actions,
+.batch-resolve-modal .batch-resolve-filter-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+    align-items: center;
+}
+.batch-resolve-modal .batch-resolve-filter-label {
+    margin-right: 12px;
+}
+.batch-resolve-modal .batch-resolve-counter,
+.batch-resolve-modal .batch-resolve-preview {
+    margin: 8px 0;
+    color: var(--text-muted);
+    font-size: 13px;
+}
 .vault-health-severity {
     display: inline-block;
     min-width: 54px;
