@@ -218,8 +218,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Allow frontier escalation under ZDR')
-            .setDesc('When the mid-tier model is unsure, re-ask the flagship model. Only fires if at least one flagship provider is marked Zero-Data-Retention.')
+            .setName('Allow flagship escalation when verifier confidence is low')
+            .setDesc('Re-ask the flagship model when the mid-tier verdict confidence is low; only fires when a flagship provider is marked zero-data-retention.')
             .addToggle((tg) =>
                 tg.setValue(freshness.allowFrontierEscalation).onChange(async (v) => {
                     this.plugin.settings.freshness = { ...freshness, allowFrontierEscalation: v };
@@ -241,7 +241,7 @@ export class VaultTab {
 
         new Setting(containerEl)
             .setName('Exclude paths')
-            .setDesc('Path prefixes the verifier skips. Comma-separated. Default Private/, Personal/, Medical/, Clients/.')
+            .setDesc('Comma-separated path prefixes the verifier never reads from.')
             .addText((text) => {
                 text.setValue(freshness.excludePaths.join(', '))
                     .onChange(async (v) => {

@@ -13,7 +13,7 @@ function cfg(over: Partial<ProviderConfig>): ProviderConfig {
         tierMapping: {},
         tierOverrides: {},
         ...over,
-    } as ProviderConfig;
+    };
 }
 
 describe('isFrontierZdrEnabled', () => {

@@ -53,7 +53,7 @@ describe('FreshnessFrontmatterPatcher', () => {
         await patcher.writeHint(file, { label: 'outdated' });
 
         expect(writeSpy).toHaveBeenCalledTimes(1);
-        const passedPatch = writeSpy.mock.calls[0][1];
+        const passedPatch = writeSpy.mock.calls[0][1] as Record<string, unknown>;
         expect(Object.keys(passedPatch)).toEqual(['freshness']);
     });
 });

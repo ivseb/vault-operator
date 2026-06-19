@@ -62,13 +62,13 @@ export class AgingKnowledgeReader {
 
         const rows: AgingRow[] = [];
         for (const r of res[0].values) {
-            const verdict = String(r[1] ?? '') as VerdictLiteral;
+            const verdict = ((r[1] as string | null) ?? '') as VerdictLiteral;
             const confidence = Number(r[2] ?? 0);
             const severity = mapSeverity(verdict, confidence);
             if (severity === 'ok' && !includeOk) continue;
 
             rows.push({
-                path: String(r[0]),
+                path: (r[0] as string | null) ?? '',
                 verdict,
                 confidence,
                 summary: (r[3] as string | null) ?? '',
@@ -93,13 +93,13 @@ export class AgingKnowledgeReader {
         if (!res.length || !res[0].values.length) return [];
 
         return res[0].values.map((r) => ({
-            runAt: String(r[0] ?? ''),
-            verdict: String(r[1] ?? '') as VerdictLiteral,
+            runAt: (r[0] as string | null) ?? '',
+            verdict: ((r[1] as string | null) ?? '') as VerdictLiteral,
             confidence: Number(r[2] ?? 0),
             summary: (r[3] as string | null) ?? '',
             sources: parseSources(r[4] as string | null),
             verifierTier: ((r[5] as string | null) ?? 'mid') as VerifierTier,
-            modelId: String(r[6] ?? ''),
+            modelId: (r[6] as string | null) ?? '',
         }));
     }
 }

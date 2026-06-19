@@ -159,7 +159,7 @@ export class BatchResolveModal extends Modal {
             if (this.aborted) break;
             try {
                 if (this.action === 'mark-verified') {
-                    await this.markVerifiedRow(row);
+                    this.markVerifiedRow(row);
                 } else {
                     await this.deleteRow(row);
                 }
@@ -175,7 +175,7 @@ export class BatchResolveModal extends Modal {
         this.opts.onChange();
     }
 
-    private async markVerifiedRow(row: AgingRow): Promise<void> {
+    private markVerifiedRow(row: AgingRow): void {
         const db = this.plugin.knowledgeDB?.getDB();
         if (!db) return;
         db.run(

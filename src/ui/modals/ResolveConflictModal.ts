@@ -66,7 +66,7 @@ export class ResolveConflictModal extends Modal {
         const buttonRow = contentEl.createDiv('resolve-conflict-actions');
 
         const markBtn = buttonRow.createEl('button', { text: 'Mark verified' });
-        markBtn.addEventListener('click', () => { void this.markVerified(); });
+        markBtn.addEventListener('click', () => { this.markVerified(); });
 
         const chatBtn = buttonRow.createEl('button', { text: 'Open in chat' });
         chatBtn.addEventListener('click', () => { void this.openInChat(); });
@@ -82,7 +82,7 @@ export class ResolveConflictModal extends Modal {
         this.contentEl.empty();
     }
 
-    private async markVerified(): Promise<void> {
+    private markVerified(): void {
         const db = this.plugin.knowledgeDB?.getDB();
         if (!db) return;
         db.run(

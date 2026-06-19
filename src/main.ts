@@ -1453,7 +1453,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // effect without a plugin reload.
                 const freshnessSettings = this.settings.freshness;
                 const webSettings = this.settings.webTools;
-                const webProvider = (webSettings?.provider === 'tavily' ? 'tavily' : 'brave') as 'brave' | 'tavily';
+                const webProvider: 'brave' | 'tavily' = webSettings?.provider === 'tavily' ? 'tavily' : 'brave';
                 const webApiKey = (webProvider === 'brave' ? webSettings?.braveApiKey : webSettings?.tavilyApiKey) ?? '';
 
                 const freshnessOrchestrator: FreshnessOrchestrator | null = (() => {
