@@ -98,16 +98,13 @@
     gap: 6px;
     margin: 8px 0 12px 0;
 }
-/* IMP-19-01-01: Auto-fix CTA banner above the severity filter pills. */
+/* IMP-19-01-01: Auto-fix CTA above the severity filter pills.
+   Plain text + button; no background, no border. */
 .vault-health-autofix-banner {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 10px 12px;
     margin: 8px 0 12px 0;
-    background: var(--background-secondary);
-    border-left: 3px solid var(--interactive-accent);
-    border-radius: 4px;
 }
 .vault-health-autofix-label {
     display: flex;
@@ -121,7 +118,7 @@
 }
 .vault-health-autofix-btn {
     align-self: flex-start;
-    margin-top: 4px;
+    margin-top: 6px;
 }
 .resolve-conflict-modal .resolve-conflict-actions,
 .resolve-conflict-modal .resolve-conflict-confirm,

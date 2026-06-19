@@ -732,16 +732,8 @@ export class VaultHealthRepairModal extends Modal {
      */
     private renderAutoFixBanner(parent: HTMLElement, repairableCount: number): void {
         const banner = parent.createDiv('vault-health-autofix-banner');
-        const label = banner.createDiv('vault-health-autofix-label');
-        label.createSpan({
-            cls: 'vault-health-severity severity-low',
-            text: 'rule',
-        });
-        label.createSpan({
-            text: ` ${repairableCount} trivial ${repairableCount === 1 ? 'issue' : 'issues'} can be auto-fixed`,
-        });
         const desc = banner.createDiv('vault-health-autofix-desc');
-        desc.setText('Missing backlinks, category mismatches, inconsistent tags. Checkpoint runs first; undo stays on the next screen.');
+        desc.setText(`${repairableCount} trivial ${repairableCount === 1 ? 'issue' : 'issues'} can be auto-fixed (missing backlinks, category mismatches, inconsistent tags). Checkpoint runs first; undo stays on the next screen.`);
 
         const btn = banner.createEl('button', {
             text: `Auto-fix ${repairableCount} ${repairableCount === 1 ? 'issue' : 'issues'}`,
