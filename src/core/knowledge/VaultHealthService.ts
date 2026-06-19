@@ -485,14 +485,27 @@ export class VaultHealthService {
     }
 
     private checkBrokenLinks(db: SqlJsDatabase): void {
-        // Only consider .md targets as broken links (skip attachments, PDFs, images, external refs)
+        // FIX-19-01-02: the `vectors` table is the embedding index,
+        // not the vault filesystem. A note can legitimately exist on
+        // disk without ever being embedded (embeddings disabled, the
+        // path is excluded from indexing, the note was just created,
+        // or it is empty). Using vectors as the "exists" predicate
+        // produced false-positive broken-link findings where the
+        // modal would render `[[X]]` as a clickable wikilink (Obsidian
+        // resolves it because the file exists) while the description
+        // claimed the note does not exist.
+        //
+        // The SQL stays the same (cheap pre-filter to keep the
+        // candidate set small), but every candidate is now verified
+        // against the vault filesystem and Obsidian's linkpath
+        // resolver before it becomes a finding.
         const result = db.exec(
             `SELECT DISTINCT source_path, target_path FROM edges
              WHERE target_path LIKE '%.md'
                AND target_path NOT IN (
                    SELECT DISTINCT path FROM vectors WHERE chunk_index = 0
                )
-             LIMIT 50`,
+             LIMIT 200`,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
@@ -501,24 +514,60 @@ export class VaultHealthService {
             target: row[1] as string,
         }));
 
-        // Group by target (the broken link destination)
         const byTarget = new Map<string, string[]>();
         for (const p of pairs) {
-            // Skip targets that look like external references or non-vault paths
+            // Skip targets that look like external references or non-vault paths.
             if (p.target.includes('://') || p.target.startsWith('http')) continue;
+
+            // Verify against the vault filesystem. A direct path hit
+            // confirms the file exists; if the edge stored a wikilink
+            // basename rather than the full path, ask Obsidian's
+            // linkpath resolver from the source-note's directory.
+            if (this.existsInVault(p.target, p.source)) continue;
+
             const existing = byTarget.get(p.target) ?? [];
             existing.push(p.source);
             byTarget.set(p.target, existing);
         }
 
+        // Cap the surfaced set at 50 to keep the modal readable.
+        let surfaced = 0;
         for (const [target, sources] of byTarget) {
+            if (surfaced >= 50) break;
             this.findings.push({
                 check: 'broken_links',
                 severity: 'medium',
                 paths: [target, ...sources],
                 description: `[[${target}]] is referenced from ${sources.length} note(s) but does not exist in the vault`,
             });
+            surfaced++;
         }
+    }
+
+    /**
+     * FIX-19-01-02: vault-filesystem existence check for the
+     * broken-links predicate. Returns true when the target resolves
+     * to a real `TFile` either via direct path lookup or via
+     * Obsidian's linkpath resolver from the source-note's directory.
+     * Both lookups respect Obsidian's case rules and folder layout.
+     */
+    private existsInVault(targetPath: string, sourcePath: string): boolean {
+        const direct = this.app.vault.getAbstractFileByPath(targetPath);
+        if (direct instanceof TFile) return true;
+
+        // Try variants the graph extractor might have stored. Some
+        // extractors normalize wikilinks to bare basenames before
+        // writing to edges; others store full paths.
+        const withoutExt = targetPath.replace(/\.md$/, '');
+        const direct2 = this.app.vault.getAbstractFileByPath(withoutExt + '.md');
+        if (direct2 instanceof TFile) return true;
+
+        // Linkpath resolver respects Obsidian's "shortest path when
+        // unambiguous" rule. Resolves `[[Note]]` against any vault
+        // file named `Note.md` regardless of folder, with the
+        // source-note's directory as the resolution context.
+        const resolved = this.app.metadataCache.getFirstLinkpathDest(withoutExt, sourcePath);
+        return resolved instanceof TFile;
     }
 
     /**

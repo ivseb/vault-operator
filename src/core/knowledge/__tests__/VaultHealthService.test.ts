@@ -241,6 +241,62 @@ describe('VaultHealthService', () => {
             void findings;
         });
 
+        it('FIX-19-01-02: broken_links no longer fires for files that exist in the vault but are not in vectors', async () => {
+            const { service, db } = await createHealthService(99);
+            // SOURCE.md links to TARGET.md. The edge is in the graph.
+            // TARGET.md is NOT in the vectors table (embedding-index gap),
+            // but it DOES exist on the vault filesystem. The old logic
+            // would flag this as broken; the new logic skips it.
+            db.run(
+                `INSERT OR IGNORE INTO edges
+                  (source_path, target_path, link_type, property_name, confidence)
+                 VALUES ('SOURCE.md', 'TARGET.md', 'body', NULL, 1.0)`,
+            );
+
+            const obsidian = await import('obsidian');
+            const targetStub = Object.create(obsidian.TFile.prototype) as { path: string };
+            targetStub.path = 'TARGET.md';
+
+            (service as unknown as { app: { vault: { getAbstractFileByPath(p: string): unknown; getMarkdownFiles(): unknown[] }; metadataCache: { getFileCache(): unknown; getFirstLinkpathDest(): unknown } } }).app = {
+                vault: {
+                    getAbstractFileByPath: (p: string) => (p === 'TARGET.md' ? targetStub : null),
+                    getMarkdownFiles: () => [],
+                },
+                metadataCache: {
+                    getFileCache: () => null,
+                    getFirstLinkpathDest: () => null,
+                },
+            };
+
+            const findings = await service.runChecks(['broken_links']);
+            expect(findings.length).toBe(0);
+        });
+
+        it('FIX-19-01-02: broken_links still fires for files that truly are absent from the vault', async () => {
+            const { service, db } = await createHealthService(99);
+            db.run(
+                `INSERT OR IGNORE INTO edges
+                  (source_path, target_path, link_type, property_name, confidence)
+                 VALUES ('SOURCE.md', 'GHOST.md', 'body', NULL, 1.0)`,
+            );
+
+            (service as unknown as { app: { vault: { getAbstractFileByPath(p: string): unknown; getMarkdownFiles(): unknown[] }; metadataCache: { getFileCache(): unknown; getFirstLinkpathDest(): unknown } } }).app = {
+                vault: {
+                    getAbstractFileByPath: () => null,
+                    getMarkdownFiles: () => [],
+                },
+                metadataCache: {
+                    getFileCache: () => null,
+                    getFirstLinkpathDest: () => null,
+                },
+            };
+
+            const findings = await service.runChecks(['broken_links']);
+            expect(findings.length).toBe(1);
+            expect(findings[0].check).toBe('broken_links');
+            expect(findings[0].paths).toContain('GHOST.md');
+        });
+
         it('with backlinksProperty="Notizen", edges under "Notes" are not flagged at all', async () => {
             const { service, db } = await createHealthService(99);
             // A -> B under Notes (a different vault language convention).
