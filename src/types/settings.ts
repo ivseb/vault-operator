@@ -865,6 +865,15 @@ export interface ObsidianAgentSettings {
     // Knowledge Maintenance (FEATURE-1903)
     /** Frontmatter property name that defines the note category (e.g. "Kategorie"). */
     categoryProperty: string;
+    /**
+     * Frontmatter property name that holds the reciprocal backlink
+     * wikilinks (e.g. "Notizen" or "Notes"). Used by the Vault Health
+     * repair pass to write the reverse edge into the right key.
+     * FIX-19-01-01: was hardcoded to 'Notizen' inside the repair path,
+     * causing repairs to land on a different property than the
+     * original edge and re-detection on the next health check.
+     */
+    backlinksProperty: string;
     /** Frontmatter property name for the short summary (e.g. "Zusammenfassung"). */
     summaryProperty: string;
     /** Naming convention for source files (e.g. "Autor-Jahr_Titel"). */
@@ -1630,6 +1639,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     implicitThreshold: 0.7,
     enableSuggestionBanner: true,
     categoryProperty: 'Kategorie',
+    backlinksProperty: 'Notizen',
     summaryProperty: 'Zusammenfassung',
     sourceNamingConvention: 'Autor-Jahr_Titel',
     enableSynthesisButton: true,

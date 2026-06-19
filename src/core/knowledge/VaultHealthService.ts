@@ -65,14 +65,28 @@ export class VaultHealthService {
     // Public API
     // -----------------------------------------------------------------------
 
-    /** Run all health checks (or a subset). Returns findings sorted by severity. */
-    async runChecks(checks?: HealthCheckType[]): Promise<HealthFinding[]> {
+    /**
+     * Run all health checks (or a subset). Returns findings sorted by severity.
+     *
+     * FIX-19-01-01: accepts an `options.backlinksProperty` so the
+     * `missing_backlinks` check only fires on edges that live under
+     * the configured property. Without this filter the SQL flagged
+     * every one-sided frontmatter edge regardless of property, which
+     * caused the repair to write into the wrong key and the same
+     * finding to reappear on the next run.
+     */
+    async runChecks(
+        checks?: HealthCheckType[],
+        options?: { backlinksProperty?: string },
+    ): Promise<HealthFinding[]> {
         if (this.running) return this.findings;
         if (!this.knowledgeDB.isOpen()) return [];
 
         this.running = true;
         this.cancelled = false;
         this.findings = [];
+
+        const backlinksProperty = options?.backlinksProperty;
 
         try {
             const db = this.getDB();
@@ -93,7 +107,7 @@ export class VaultHealthService {
                 if (this.cancelled) break;
                 switch (check) {
                     case 'orphans': this.checkOrphans(db); break;
-                    case 'missing_backlinks': this.checkMissingBacklinks(db); break;
+                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty); break;
                     case 'broken_links': this.checkBrokenLinks(db); break;
                     case 'weak_clusters': this.checkWeakClusters(db); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
@@ -387,18 +401,35 @@ export class VaultHealthService {
         }
     }
 
-    private checkMissingBacklinks(db: SqlJsDatabase): void {
+    private checkMissingBacklinks(db: SqlJsDatabase, backlinksProperty?: string): void {
+        // FIX-19-01-01: scope the missing-backlink predicate to the
+        // configured property when available. The reciprocity rule is
+        // per-property: an edge under `Notes:` only needs a reverse
+        // edge under the same `Notes:` to be considered satisfied;
+        // mixing `Notes:` and `Notizen:` between source and target
+        // creates a phantom one-sided edge that the old repair path
+        // tried to fix by writing yet another property name. Both
+        // the outer edge and the searched-for reverse edge are
+        // pinned to the configured property.
+        const outerProperty = backlinksProperty ? 'AND e1.property_name = ?' : '';
+        const innerProperty = backlinksProperty ? 'AND e2.property_name = ?' : '';
+        const params: unknown[] = backlinksProperty
+            ? [backlinksProperty, backlinksProperty]
+            : [];
         const result = db.exec(
             `SELECT e1.source_path, e1.target_path
              FROM edges e1
              WHERE e1.link_type = 'frontmatter'
+               ${outerProperty}
                AND NOT EXISTS (
                    SELECT 1 FROM edges e2
                    WHERE e2.source_path = e1.target_path
                      AND e2.target_path = e1.source_path
                      AND e2.link_type = 'frontmatter'
+                     ${innerProperty}
                )
              LIMIT 200`,
+            params,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
@@ -752,15 +783,42 @@ export class VaultHealthService {
                             ? existing.map(String)
                             : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
 
-                        const normalized = new Set(currentLinks.map(l =>
-                            l.replace(/^\[\[/, '').replace(/\]\]$/, '').trim(),
-                        ));
+                        // FIX-19-01-01: strip aliases (`[[Foo|Bar]]`) and
+                        // path-segments so a wikilink like `[[Notes/A|A]]`
+                        // matches both the bare name `A` and the full
+                        // path `Notes/A.md`. The previous dedup only
+                        // stripped the brackets, which let the same edge
+                        // get written twice as `[[Source]]` next to an
+                        // existing `[[Source|Alias]]`.
+                        const stripBrackets = (s: string) =>
+                            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+                        const stripAlias = (s: string) => {
+                            const pipe = s.indexOf('|');
+                            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
+                        };
+                        const lastSegment = (s: string) => {
+                            const seg = s.split('/').pop() ?? s;
+                            return seg.replace(/\.md$/, '');
+                        };
+                        const normalized = new Set<string>();
+                        for (const l of currentLinks) {
+                            const bare = stripAlias(stripBrackets(l));
+                            normalized.add(bare);
+                            normalized.add(lastSegment(bare));
+                        }
 
                         let added = 0;
                         for (const sourcePath of sources) {
                             const sourceNormalized = sourcePath.replace(/\.md$/, '');
-                            if (!normalized.has(sourcePath) && !normalized.has(sourceNormalized)) {
+                            const sourceLast = lastSegment(sourceNormalized);
+                            if (
+                                !normalized.has(sourcePath) &&
+                                !normalized.has(sourceNormalized) &&
+                                !normalized.has(sourceLast)
+                            ) {
                                 currentLinks.push(`[[${sourceNormalized}]]`);
+                                normalized.add(sourceNormalized);
+                                normalized.add(sourceLast);
                                 added++;
                             }
                         }

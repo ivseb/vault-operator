@@ -82,7 +82,9 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     }
                 }
 
-                const findings = await healthService.runChecks();
+                const findings = await healthService.runChecks(undefined, {
+                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
+                });
                 const formatted = healthService.formatFindings(findings);
                 callbacks.pushToolResult(formatted);
                 callbacks.log(`Vault health check: ${findings.length} finding(s)`);

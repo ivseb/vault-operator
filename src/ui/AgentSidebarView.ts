@@ -3571,7 +3571,9 @@ export class AgentSidebarView extends ItemView {
                     return;
                 }
                 new Notice('Running vault health check...');
-                await this.plugin.vaultHealthService.runChecks();
+                await this.plugin.vaultHealthService.runChecks(undefined, {
+                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
+                });
                 const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {
                     new Notice('No issues found. Vault is healthy.');

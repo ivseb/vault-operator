@@ -1671,7 +1671,9 @@ export default class ObsidianAgentPlugin extends Plugin {
             if ((this.settings.enableVaultHealthCheck ?? true) && this.knowledgeDB) {
                 this.vaultHealthService = new VaultHealthService(this.app, this.knowledgeDB);
                 this.app.workspace.onLayoutReady(() => {
-                    void this.vaultHealthService?.runChecks().then(() => {
+                    void this.vaultHealthService?.runChecks(undefined, {
+                        backlinksProperty: this.settings.backlinksProperty ?? 'Notizen',
+                    }).then(() => {
                         // Update badge in sidebar view after health check completes
                         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
                         if (leaves.length > 0 && this.vaultHealthService) {

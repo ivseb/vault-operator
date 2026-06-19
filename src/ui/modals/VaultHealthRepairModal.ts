@@ -9,7 +9,7 @@
  * FIX-15: Detailed findings + selective repair
  */
 
-import { Modal, Notice, setIcon, Platform } from 'obsidian';
+import { Modal, Notice, setIcon, Platform, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
@@ -1041,11 +1041,18 @@ export class VaultHealthRepairModal extends Modal {
             edgesResult = healthService.cleanupOrphanedEdges();
         }
 
+        // FIX-19-01-01: backlinksProperty came from settings, not
+        // hardcoded 'Notizen'. The original hardcoded value caused
+        // repairs to land on a different property than the user's
+        // existing edges, so the reverse-edge predicate kept firing.
+        const backlinksProperty = this.plugin.settings.backlinksProperty ?? 'Notizen';
+        const categoryProperty = this.plugin.settings.categoryProperty ?? 'Kategorie';
+
         if (selectedTypes.has('missing_backlinks')) {
             progress.setText('Inserting missing backlinks...');
             backlinksResult = await healthService.fixMissingBacklinks(
-                'Notizen',
-                this.plugin.settings.categoryProperty ?? 'Kategorie',
+                backlinksProperty,
+                categoryProperty,
             );
         }
 
@@ -1057,37 +1064,98 @@ export class VaultHealthRepairModal extends Modal {
         if (selectedTypes.has('missing_backlinks')) {
             progress.setText('Cleaning up invalid links...');
             cleanupResult = await healthService.cleanupInvalidBacklinks(
-                'Notizen',
-                this.plugin.settings.categoryProperty ?? 'Kategorie',
+                backlinksProperty,
+                categoryProperty,
             );
         }
+
+        // FIX-19-01-01: wait for Obsidian's metadataCache to settle
+        // after the frontmatter writes. processFrontMatter resolves
+        // after the disk write but BEFORE the metadataCache reparse
+        // (which runs on its own async tick). A synchronous
+        // extractAll() right after would otherwise re-read the
+        // STALE cache and write the OLD edge set back into the DB,
+        // leaving the reverse-edge predicate firing again.
+        progress.setText('Waiting for vault index to settle...');
+        await this.waitForMetadataCacheSettle(affectedPaths);
 
         // Re-extract graph data before re-checking (FIX-13)
         progress.setText('Verifying...');
         if (this.plugin.graphExtractor) {
-            this.plugin.graphExtractor.extractAll(this.app.vault);
+            // FIX-19-01-01: prefer per-file extraction over a full
+            // extractAll(). Per-file is O(touched) instead of O(vault)
+            // AND it lets us skip extraction for files whose
+            // metadataCache has not refreshed yet. extractAll stays
+            // as the safety net.
+            const extractor = this.plugin.graphExtractor;
+            let perFileSucceeded = 0;
+            for (const path of affectedPaths) {
+                const file = this.app.vault.getAbstractFileByPath(path);
+                if (file instanceof TFile) {
+                    try {
+                        extractor.extractFile(file);
+                        perFileSucceeded++;
+                    } catch (e) {
+                        console.warn('[VaultHealthRepair] extractFile failed for', path, e);
+                    }
+                }
+            }
+            if (perFileSucceeded === 0) {
+                extractor.extractAll(this.app.vault);
+            }
             if (this.plugin.ontologyStore) {
-                const catProp = this.plugin.settings.categoryProperty ?? 'Kategorie';
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
                     const cache = this.app.metadataCache.getFileCache(file);
-                    if (cache?.frontmatter?.[catProp]) {
-                        const cat = Array.isArray(cache.frontmatter[catProp])
-                            ? (cache.frontmatter[catProp][0] ?? '').toString().trim()
-                            : cache.frontmatter[catProp].toString().trim();
+                    if (cache?.frontmatter?.[categoryProperty]) {
+                        const cat = Array.isArray(cache.frontmatter[categoryProperty])
+                            ? (cache.frontmatter[categoryProperty][0] ?? '').toString().trim()
+                            : cache.frontmatter[categoryProperty].toString().trim();
                         if (cat) categoryMap.set(file.path, cat);
                     }
                 }
                 this.plugin.ontologyStore.bootstrapFromEdges(
                     this.plugin.settings.mocPropertyNames ?? [],
-                    catProp,
+                    categoryProperty,
                     categoryMap,
                 );
             }
         }
 
-        const newFindings = await healthService.runChecks();
+        const newFindings = await healthService.runChecks(undefined, { backlinksProperty });
         this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, newFindings, checkpoint);
+    }
+
+    /**
+     * FIX-19-01-01: poll Obsidian's metadataCache until every touched
+     * file shows a frontmatter shape consistent with the post-repair
+     * state, OR up to a hard timeout. Obsidian fires
+     * `metadataCache.on('changed', file)` once it has re-parsed a
+     * mutated file; we listen for that event per-path and resolve
+     * the promise when all paths have either changed or timed out.
+     */
+    private async waitForMetadataCacheSettle(paths: string[]): Promise<void> {
+        if (!paths.length) return;
+        const pending = new Set(paths);
+        const TIMEOUT_MS = 3000;
+
+        await new Promise<void>((resolve) => {
+            const cleanup = () => {
+                this.app.metadataCache.off('changed', onChanged);
+                window.clearTimeout(timer);
+            };
+            const onChanged = (file: TFile) => {
+                if (pending.delete(file.path) && pending.size === 0) {
+                    cleanup();
+                    resolve();
+                }
+            };
+            this.app.metadataCache.on('changed', onChanged);
+            const timer = window.setTimeout(() => {
+                cleanup();
+                resolve();
+            }, TIMEOUT_MS);
+        });
     }
 
     // -----------------------------------------------------------------------
