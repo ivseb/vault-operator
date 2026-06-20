@@ -50,7 +50,14 @@ export class VaultHealthService {
     private knowledgeDB: KnowledgeDB;
     private findings: HealthFinding[] = [];
     private running = false;
-    private cancelled = false;
+    /**
+     * FIX-19-01-06: was `private cancelled`. Made public so the modal
+     * can defensively reset the flag before driving runRepair. The
+     * service's own runChecks resets it at the top, but no fix-method
+     * does, so a stuck-true flag from a prior path would silently
+     * short-circuit every fix loop on iteration 0.
+     */
+    cancelled = false;
     /** Incoming-connection threshold above which a note is flagged as god node (FEATURE-2003). */
     godNodeThreshold = 50;
     /** Callback to notify UI of updated findings (e.g. badge refresh). */
@@ -803,11 +810,22 @@ export class VaultHealthService {
     async fixMissingBacklinks(
         backlinksProperty = 'Notizen',
         categoryProperty = 'Kategorie',
-    ): Promise<{ entitiesFixed: number; linksAdded: number; basesCreated: number }> {
+    ): Promise<{
+        entitiesFixed: number;
+        linksAdded: number;
+        basesCreated: number;
+        // FIX-19-01-06: explicit transparency about why a target produced no
+        // mutation. The result screen surfaces these so the user can see WHY
+        // "130 entities" produced "0 links" instead of guessing.
+        entitiesWithExistingBase: number;
+        yamlErrorPaths: string[];
+    }> {
         const db = this.getDB();
         let entitiesFixed = 0;
         let linksAdded = 0;
         let basesCreated = 0;
+        let entitiesWithExistingBase = 0;
+        const yamlErrorPaths: string[] = [];
 
         const MAX_FRONTMATTER_BACKLINKS = 10;
         const BASE_CATEGORIES = new Set(['Thema', 'Konzept', 'Topic', 'Concept']);
@@ -829,7 +847,7 @@ export class VaultHealthService {
         );
 
         if (result.length === 0 || result[0].values.length === 0) {
-            return { entitiesFixed: 0, linksAdded: 0, basesCreated: 0 };
+            return { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] };
         }
 
         // Group by target entity
@@ -859,7 +877,17 @@ export class VaultHealthService {
                 if (useBase) {
                     // Create/update an embedded Base for this entity
                     const created = await this.ensureBacklinksBase(file, properties);
-                    if (created) basesCreated++;
+                    if (created) {
+                        basesCreated++;
+                    } else {
+                        // FIX-19-01-06: the Base existed already.
+                        // checkMissingBacklinks's base-filter SHOULD drop
+                        // this target from future findings; if it does
+                        // not, we have a separate detection bug. Track
+                        // the count so the result screen is honest about
+                        // what really happened.
+                        entitiesWithExistingBase++;
+                    }
                     // Clear the frontmatter Notizen property -- the Base handles it now
                     await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
                         const existing = fm[backlinksProperty];
@@ -928,11 +956,39 @@ export class VaultHealthService {
                 }
             } catch (e) {
                 console.warn(`[VaultHealth] Failed to fix backlinks for ${targetPath}:`, e);
+                // FIX-19-01-06: track YAML errors explicitly so the
+                // result screen surfaces them. Most "the repair did
+                // nothing" reports trace back to user notes with
+                // broken frontmatter that processFrontMatter cannot
+                // touch.
+                const msg = e instanceof Error ? e.message : String(e);
+                if (msg.includes('YAMLParseError') || msg.includes('YAML') || msg.includes('Map keys') || msg.includes('seq-item-ind')) {
+                    yamlErrorPaths.push(targetPath);
+                }
             }
         }
 
-        console.debug(`[VaultHealth] fixMissingBacklinks: ${entitiesFixed} entities, ${linksAdded} frontmatter links, ${basesCreated} bases created`);
-        return { entitiesFixed, linksAdded, basesCreated };
+        // FIX-19-01-06: auto-dismiss YAML-broken notes so they do not
+        // re-appear as auto-fixable missing_backlinks on every run.
+        // The user must fix the YAML manually; until then we should
+        // not propose a repair that we know will fail.
+        if (yamlErrorPaths.length > 0) {
+            try {
+                for (const p of yamlErrorPaths) {
+                    db.run(
+                        `INSERT OR REPLACE INTO dismissed_health_findings (check_type, path, dismissed_at)
+                         VALUES ('missing_backlinks', ?, ?)`,
+                        [p, new Date().toISOString()],
+                    );
+                }
+                this.knowledgeDB.markDirty();
+            } catch (e) {
+                console.warn('[VaultHealth] failed to auto-dismiss YAML-error paths', e);
+            }
+        }
+
+        console.debug(`[VaultHealth] fixMissingBacklinks: ${entitiesFixed} entities, ${linksAdded} frontmatter links, ${basesCreated} bases created, ${entitiesWithExistingBase} skipped (Base existed), ${yamlErrorPaths.length} skipped (YAML error)`);
+        return { entitiesFixed, linksAdded, basesCreated, entitiesWithExistingBase, yamlErrorPaths };
     }
 
     /**
