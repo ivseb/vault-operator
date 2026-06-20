@@ -1455,10 +1455,20 @@ export interface VaultHealthSettings {
      * off so existing users see no behaviour change until they opt in.
      */
     autoApplyRuleRepairs: boolean;
+
+    /**
+     * IMP-19-01-02: target folder for orphan-note auto-fix. When the
+     * user selects an `orphans` finding and applies repairs, the note
+     * is moved here via `app.fileManager.renameFile()`. Folder is
+     * auto-created. Default keeps the existing flat-vault convention
+     * (Inbox/Orphans/).
+     */
+    orphansTargetFolder: string;
 }
 
 export const DEFAULT_VAULT_HEALTH_SETTINGS: VaultHealthSettings = {
     autoApplyRuleRepairs: false,
+    orphansTargetFolder: 'Inbox/Orphans',
 };
 
 // ---------------------------------------------------------------------------

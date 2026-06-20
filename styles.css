@@ -120,6 +120,20 @@
     align-self: flex-start;
     margin-top: 6px;
 }
+/* IMP-19-01-02: sticky apply-bar at the top of the Findings tab.
+   Stays visible while the user scrolls through long finding lists. */
+.vault-health-apply-sticky {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    margin: 8px 0 12px 0;
+    padding: 6px 0;
+    background: var(--background-primary);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.vault-health-apply-sticky-btn {
+    width: 100%;
+}
 .resolve-conflict-modal .resolve-conflict-actions,
 .resolve-conflict-modal .resolve-conflict-confirm,
 .batch-resolve-modal .batch-resolve-actions,

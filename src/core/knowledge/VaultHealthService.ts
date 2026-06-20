@@ -1093,6 +1093,135 @@ export class VaultHealthService {
         return { notesFixed, valuesMovied: valuesMovied };
     }
 
+    /**
+     * IMP-19-01-02: move orphan notes (no incoming, no outgoing edges)
+     * into a configured target folder. Folder is created if missing.
+     * Idempotent: already-relocated notes are skipped.
+     *
+     * The caller hands in the list of orphan note paths and the target
+     * folder; we keep this method ignorant of the rest of the
+     * repair-selection state.
+     */
+    async moveOrphansToFolder(
+        orphanPaths: string[],
+        targetFolder: string,
+    ): Promise<{ notesMoved: number; notesSkipped: number }> {
+        let notesMoved = 0;
+        let notesSkipped = 0;
+
+        const folder = targetFolder.replace(/\/+$/, '');
+        try {
+            const existing = this.app.vault.getAbstractFileByPath(folder);
+            if (!existing) {
+                await this.app.vault.createFolder(folder);
+            }
+        } catch (e) {
+            console.warn('[VaultHealth] moveOrphansToFolder: createFolder failed', e);
+        }
+
+        for (const path of orphanPaths) {
+            if (this.cancelled) break;
+            const file = this.app.vault.getAbstractFileByPath(path);
+            if (!(file instanceof TFile)) { notesSkipped++; continue; }
+
+            // Skip notes that already live in the target folder (idempotency).
+            if (file.parent && file.parent.path === folder) {
+                notesSkipped++;
+                continue;
+            }
+
+            const newPath = `${folder}/${file.name}`;
+            try {
+                await this.app.fileManager.renameFile(file, newPath);
+                notesMoved++;
+            } catch (e) {
+                console.warn(`[VaultHealth] moveOrphansToFolder: rename failed for ${path}`, e);
+                notesSkipped++;
+            }
+            if (notesMoved % 10 === 0) {
+                await new Promise<void>(r => window.setTimeout(r, 0));
+            }
+        }
+
+        console.debug(`[VaultHealth] moveOrphansToFolder: ${notesMoved} moved, ${notesSkipped} skipped`);
+        return { notesMoved, notesSkipped };
+    }
+
+    /**
+     * IMP-19-01-02: link semantically similar notes (weak_clusters)
+     * by inserting a mutual wikilink under the configured backlinks
+     * property in BOTH notes. Mirrors the dedup/alias rules of
+     * `fixMissingBacklinks`.
+     */
+    async linkWeakClusters(
+        pairs: Array<{ a: string; b: string }>,
+        backlinksProperty: string,
+    ): Promise<{ pairsLinked: number; linksAdded: number }> {
+        let pairsLinked = 0;
+        let linksAdded = 0;
+
+        const stripBrackets = (s: string) =>
+            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+        const stripAlias = (s: string) => {
+            const pipe = s.indexOf('|');
+            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
+        };
+        const lastSegment = (s: string) => {
+            const seg = s.split('/').pop() ?? s;
+            return seg.replace(/\.md$/, '');
+        };
+
+        const insertLink = async (fileA: TFile, otherPath: string): Promise<number> => {
+            const otherNormalized = otherPath.replace(/\.md$/, '');
+            let added = 0;
+            await this.app.fileManager.processFrontMatter(fileA, (fm: Record<string, unknown>) => {
+                const existing = fm[backlinksProperty];
+                const links: string[] = Array.isArray(existing)
+                    ? existing.map(String)
+                    : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
+                const normalized = new Set<string>();
+                for (const l of links) {
+                    const bare = stripAlias(stripBrackets(l));
+                    normalized.add(bare);
+                    normalized.add(lastSegment(bare));
+                }
+                const otherLast = lastSegment(otherNormalized);
+                if (
+                    !normalized.has(otherPath) &&
+                    !normalized.has(otherNormalized) &&
+                    !normalized.has(otherLast)
+                ) {
+                    links.push(`[[${otherNormalized}]]`);
+                    fm[backlinksProperty] = links;
+                    added = 1;
+                }
+            });
+            return added;
+        };
+
+        for (const { a, b } of pairs) {
+            if (this.cancelled) break;
+            const fileA = this.app.vault.getAbstractFileByPath(a);
+            const fileB = this.app.vault.getAbstractFileByPath(b);
+            if (!(fileA instanceof TFile) || !(fileB instanceof TFile)) continue;
+
+            try {
+                const addedA = await insertLink(fileA, b);
+                const addedB = await insertLink(fileB, a);
+                linksAdded += addedA + addedB;
+                if (addedA + addedB > 0) pairsLinked++;
+            } catch (e) {
+                console.warn(`[VaultHealth] linkWeakClusters: pair (${a}, ${b}) failed`, e);
+            }
+            if (pairsLinked % 10 === 0) {
+                await new Promise<void>(r => window.setTimeout(r, 0));
+            }
+        }
+
+        console.debug(`[VaultHealth] linkWeakClusters: ${pairsLinked} pairs linked, ${linksAdded} links added`);
+        return { pairsLinked, linksAdded };
+    }
+
     /** Get the Kategorie value from a note's frontmatter cache. */
     private getNoteCategory(cache: ReturnType<typeof this.app.metadataCache.getFileCache>, categoryProperty: string): string {
         if (!cache?.frontmatter) return '';

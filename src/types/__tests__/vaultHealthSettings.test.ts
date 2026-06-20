@@ -21,9 +21,17 @@ describe('VaultHealthSettings (IMP-19-01-01)', () => {
         expect(DEFAULT_SETTINGS.vaultHealth.autoApplyRuleRepairs).toBe(false);
     });
 
-    it('VaultHealthSettings shape carries exactly one toggle today', () => {
-        const probe: VaultHealthSettings = { autoApplyRuleRepairs: true };
+    it('VaultHealthSettings shape carries autoApplyRuleRepairs + orphansTargetFolder', () => {
+        const probe: VaultHealthSettings = {
+            autoApplyRuleRepairs: true,
+            orphansTargetFolder: 'Inbox/Orphans',
+        };
         const keys = Object.keys(probe).sort();
-        expect(keys).toEqual(['autoApplyRuleRepairs']);
+        expect(keys).toEqual(['autoApplyRuleRepairs', 'orphansTargetFolder']);
+    });
+
+    it('IMP-19-01-02: orphansTargetFolder defaults to Inbox/Orphans', () => {
+        expect(DEFAULT_VAULT_HEALTH_SETTINGS.orphansTargetFolder).toBe('Inbox/Orphans');
+        expect(DEFAULT_SETTINGS.vaultHealth.orphansTargetFolder).toBe('Inbox/Orphans');
     });
 });

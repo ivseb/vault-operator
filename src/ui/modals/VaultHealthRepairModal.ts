@@ -63,8 +63,12 @@ function reviewSeverityToFindingSeverity(
     }
 }
 
+// IMP-19-01-02: orphans and weak_clusters now offer auto-fixes.
+// broken_links and god_nodes stay manual (broken needs decide-per-case,
+// god-nodes need a real refactor decision the user makes).
 const REPAIRABLE_CHECKS = new Set<HealthCheckType>([
     'missing_backlinks', 'category_mismatch', 'inconsistent_tags',
+    'orphans', 'weak_clusters',
 ]);
 
 const CHECK_LABELS: Record<string, string> = {
@@ -512,6 +516,7 @@ export class VaultHealthRepairModal extends Modal {
         // Undo, per-row error handling) is shared.
         if (repairableCount > 0) {
             this.renderAutoFixBanner(contentEl, repairableCount);
+            this.renderStickyApplyBar(contentEl);
         }
 
         // FEAT-19-18: Severity filter tabs.
@@ -718,8 +723,14 @@ export class VaultHealthRepairModal extends Modal {
 
     private updateRepairButton(): void {
         const btn = this.contentEl.querySelector('.vault-health-repair-btn');
-        if (!(btn instanceof HTMLButtonElement)) return;
-        btn.setText(`Repair selected (${this.selectedFindings.size})`);
+        if (btn instanceof HTMLButtonElement) {
+            btn.setText(`Repair selected (${this.selectedFindings.size})`);
+        }
+        // IMP-19-01-02: sticky top button shares the same counter.
+        const stickyBtn = this.contentEl.querySelector('.vault-health-apply-sticky-btn');
+        if (stickyBtn instanceof HTMLButtonElement) {
+            stickyBtn.setText(`Apply selected fixes (${this.selectedFindings.size})`);
+        }
     }
 
     /**
@@ -730,6 +741,30 @@ export class VaultHealthRepairModal extends Modal {
      * button at the bottom of the list stays untouched for selective
      * repairs.
      */
+    /**
+     * IMP-19-01-02: sticky apply-bar at the top of the Findings tab.
+     * Mirrors the bottom "Repair selected (N)" button so the user
+     * never has to scroll to the end of a long list to apply the
+     * selected fixes. Live-updates via .vault-health-apply-sticky-btn
+     * lookup in updateRepairButton.
+     */
+    private renderStickyApplyBar(parent: HTMLElement): void {
+        const bar = parent.createDiv('vault-health-apply-sticky');
+        const btn = bar.createEl('button', {
+            cls: 'mod-cta vault-health-apply-sticky-btn',
+            text: `Apply selected fixes (${this.selectedFindings.size})`,
+        });
+        btn.addEventListener('click', () => {
+            if (this.selectedFindings.size === 0) {
+                new Notice('No findings selected for repair.');
+                return;
+            }
+            btn.disabled = true;
+            btn.setText('Repairing...');
+            void this.runRepair();
+        });
+    }
+
     private renderAutoFixBanner(parent: HTMLElement, repairableCount: number): void {
         const banner = parent.createDiv('vault-health-autofix-banner');
         const desc = banner.createDiv('vault-health-autofix-desc');
@@ -963,6 +998,15 @@ export class VaultHealthRepairModal extends Modal {
                 return `Fix: Move ${this.formatPath(finding.paths[0])} to correct category property`;
             case 'inconsistent_tags':
                 return `Fix: Unify tag spelling`;
+            case 'orphans': {
+                const target = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
+                return `Fix: Move ${this.formatPath(finding.paths[0])} to ${target}/`;
+            }
+            case 'weak_clusters':
+                if (finding.paths.length >= 2) {
+                    return `Fix: Link ${this.formatPath(finding.paths[0])} <-> ${this.formatPath(finding.paths[1])} mutually`;
+                }
+                return 'Fix: Add mutual link';
             default:
                 return finding.description.slice(0, 120);
         }
@@ -1045,6 +1089,8 @@ export class VaultHealthRepairModal extends Modal {
         let backlinksResult = { entitiesFixed: 0, linksAdded: 0, basesCreated: 0 };
         let categoriesResult = { notesFixed: 0, valuesMovied: 0 };
         let cleanupResult = { notesProcessed: 0, linksRemoved: 0 };
+        let orphansResult = { notesMoved: 0, notesSkipped: 0 };
+        let weakLinkResult = { pairsLinked: 0, linksAdded: 0 };
 
         if (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch')) {
             progress.setText('Cleaning up orphaned edges...');
@@ -1077,6 +1123,35 @@ export class VaultHealthRepairModal extends Modal {
                 backlinksProperty,
                 categoryProperty,
             );
+        }
+
+        // IMP-19-01-02: orphans -> move to configured folder.
+        if (selectedTypes.has('orphans')) {
+            progress.setText('Moving orphan notes to inbox folder...');
+            const targetFolder = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
+            const orphanPaths: string[] = [];
+            for (const idx of this.selectedFindings) {
+                const f = this.findings[idx];
+                if (f.check === 'orphans') {
+                    for (const p of f.paths) {
+                        if (p.endsWith('.md')) orphanPaths.push(p);
+                    }
+                }
+            }
+            orphansResult = await healthService.moveOrphansToFolder(orphanPaths, targetFolder);
+        }
+
+        // IMP-19-01-02: weak_clusters -> mutual frontmatter link.
+        if (selectedTypes.has('weak_clusters')) {
+            progress.setText('Linking semantically similar notes...');
+            const pairs: Array<{ a: string; b: string }> = [];
+            for (const idx of this.selectedFindings) {
+                const f = this.findings[idx];
+                if (f.check === 'weak_clusters' && f.paths.length >= 2) {
+                    pairs.push({ a: f.paths[0], b: f.paths[1] });
+                }
+            }
+            weakLinkResult = await healthService.linkWeakClusters(pairs, backlinksProperty);
         }
 
         // FIX-19-01-01: wait for Obsidian's metadataCache to settle
@@ -1137,7 +1212,7 @@ export class VaultHealthRepairModal extends Modal {
         }
 
         const newFindings = await healthService.runChecks(undefined, { backlinksProperty });
-        this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, newFindings, checkpoint);
+        this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, orphansResult, weakLinkResult, newFindings, checkpoint);
     }
 
     /**
@@ -1181,6 +1256,8 @@ export class VaultHealthRepairModal extends Modal {
         backlinks: { entitiesFixed: number; linksAdded: number; basesCreated: number },
         categories: { notesFixed: number; valuesMovied: number },
         cleanup: { notesProcessed: number; linksRemoved: number },
+        orphans: { notesMoved: number; notesSkipped: number },
+        weakLinks: { pairsLinked: number; linksAdded: number },
         newFindings: HealthFinding[],
         checkpoint: CheckpointInfo | undefined,
     ): void {
@@ -1205,9 +1282,15 @@ export class VaultHealthRepairModal extends Modal {
         if (cleanup.linksRemoved > 0) {
             results.createEl('li', { text: `${cleanup.linksRemoved} invalid links removed` });
         }
+        if (orphans.notesMoved > 0) {
+            results.createEl('li', { text: `${orphans.notesMoved} orphan note(s) moved to inbox folder` });
+        }
+        if (weakLinks.pairsLinked > 0) {
+            results.createEl('li', { text: `${weakLinks.pairsLinked} weak cluster pair(s) linked (${weakLinks.linksAdded} backlinks added)` });
+        }
 
         const totalFixes = edges.edgesRemoved + backlinks.linksAdded + backlinks.basesCreated +
-            categories.valuesMovied + cleanup.linksRemoved;
+            categories.valuesMovied + cleanup.linksRemoved + orphans.notesMoved + weakLinks.linksAdded;
 
         if (totalFixes === 0) {
             contentEl.createEl('p', { text: 'No repairs needed. All clean.' });
