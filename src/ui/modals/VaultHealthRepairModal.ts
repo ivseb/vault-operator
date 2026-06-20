@@ -1090,6 +1090,13 @@ export class VaultHealthRepairModal extends Modal {
         const healthService = this.plugin.vaultHealthService;
         if (!healthService) return;
 
+        // FIX-19-01-06: defensive reset of the cancelled flag. The
+        // service shares this flag across all runChecks calls; if a
+        // prior runChecks early-returned before the reset at line 92
+        // (e.g. the running-guard fired), the flag could be stuck at
+        // true and every fix loop would short-circuit on iteration 0.
+        healthService.cancelled = false;
+
         // Checkpoint
         progress.setText('Creating checkpoint...');
         const taskId = `health-repair-${Date.now()}`;
@@ -1114,7 +1121,7 @@ export class VaultHealthRepairModal extends Modal {
         }
 
         let edgesResult = { edgesRemoved: 0 };
-        let backlinksResult = { entitiesFixed: 0, linksAdded: 0, basesCreated: 0 };
+        let backlinksResult = { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] as string[] };
         let categoriesResult = { notesFixed: 0, valuesMovied: 0 };
         let cleanupResult = { notesProcessed: 0, linksRemoved: 0 };
         let orphansResult = { notesMoved: 0, notesSkipped: 0, notesSkippedWithContext: 0 };
@@ -1257,6 +1264,10 @@ export class VaultHealthRepairModal extends Modal {
             silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
             orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
         });
+        // FIX-19-01-06: refresh the modal's internal copy of findings
+        // so any subsequent render in the same lifecycle sees the
+        // post-repair set (not the constructor-time snapshot).
+        this.findings = newFindings;
         this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, orphansResult, weakLinkResult, newFindings, checkpoint);
     }
 
@@ -1337,7 +1348,7 @@ export class VaultHealthRepairModal extends Modal {
 
     private showResult(
         edges: { edgesRemoved: number },
-        backlinks: { entitiesFixed: number; linksAdded: number; basesCreated: number },
+        backlinks: { entitiesFixed: number; linksAdded: number; basesCreated: number; entitiesWithExistingBase: number; yamlErrorPaths: string[] },
         categories: { notesFixed: number; valuesMovied: number },
         cleanup: { notesProcessed: number; linksRemoved: number },
         orphans: { notesMoved: number; notesSkipped: number; notesSkippedWithContext: number },
@@ -1358,6 +1369,35 @@ export class VaultHealthRepairModal extends Modal {
         if (backlinks.linksAdded > 0 || backlinks.basesCreated > 0) {
             results.createEl('li', {
                 text: `${backlinks.entitiesFixed} entities: ${backlinks.linksAdded} backlinks, ${backlinks.basesCreated} bases created`,
+            });
+        }
+        // FIX-19-01-06: explicit transparency. The "0 links added" case
+        // typically means the entity already had a Base (no-op) or
+        // its YAML is broken. Show both numbers so the user knows
+        // WHY a finding does not disappear.
+        if (backlinks.entitiesWithExistingBase > 0) {
+            results.createEl('li', {
+                text: `${backlinks.entitiesWithExistingBase} entities already had a Base (no frontmatter change needed)`,
+            });
+        }
+        if (backlinks.yamlErrorPaths.length > 0) {
+            const li = results.createEl('li');
+            li.appendText(`${backlinks.yamlErrorPaths.length} entities have broken YAML and were skipped (manual fix required):`);
+            const sub = li.createEl('ul', { cls: 'vault-health-yaml-errors' });
+            for (const p of backlinks.yamlErrorPaths.slice(0, 20)) {
+                const item = sub.createEl('li');
+                const link = item.createSpan({ cls: 'vault-health-note-link', text: this.formatPath(p) });
+                link.addEventListener('click', () => {
+                    this.close();
+                    void this.app.workspace.openLinkText(p, '');
+                });
+            }
+            if (backlinks.yamlErrorPaths.length > 20) {
+                sub.createEl('li', { text: `+${backlinks.yamlErrorPaths.length - 20} more (see console)` });
+            }
+            li.createEl('p', {
+                text: 'These notes are auto-dismissed for missing_backlinks until you fix the YAML.',
+                cls: 'vault-health-result-note',
             });
         }
         if (categories.notesFixed > 0) {
