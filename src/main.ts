@@ -184,6 +184,16 @@ export default class ObsidianAgentPlugin extends Plugin {
     frontmatterIndexer: FrontmatterIndexer | null = null;
     autoTriggerObserver: AutoTriggerObserver | null = null;
     topHubBlockGenerator: TopHubBlockGenerator | null = null;
+    /**
+     * FIX-19-01-03: set true while the Vault Health repair pass is
+     * mutating frontmatter. The global vault.on('modify') listener
+     * skips its synchronous `graphExtractor.extractFile(file)` call
+     * during the window so it cannot read the STALE metadataCache
+     * and overwrite the freshly-inserted reverse edges. The repair
+     * orchestrator owns its own extractAll/extractFile sequence
+     * once the cache has settled.
+     */
+    vaultHealthRepairInProgress = false;
     stufe3PeriodicJob: Stufe3PeriodicJob | null = null;
     private stufe3IntervalHandle: import('./util/scheduleRecurring').RecurringHandle | null = null;
     /** FEAT-19-19: Stufe-2 Activity-Trigger fuer Light-Web-Search-Update-Hints. */
@@ -1760,7 +1770,16 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (!autoIndex || !(file instanceof TFile) || !isIndexable(file)) return;
                 this.scheduleFileIndex(file.path);
                 if (file.extension === 'md') {
-                    this.graphExtractor?.extractFile(file);
+                    // FIX-19-01-03: during a Vault Health repair pass
+                    // the modify event fires before Obsidian's
+                    // metadataCache reparse settles, so a synchronous
+                    // extractFile here would read STALE frontmatter
+                    // and overwrite the freshly inserted reverse edge
+                    // that the repair just produced. The repair's
+                    // post-write extractAll handles the graph refresh.
+                    if (!this.vaultHealthRepairInProgress) {
+                        this.graphExtractor?.extractFile(file);
+                    }
                     this.implicitConnectionService?.recomputeForPath(file.path, this.settings.implicitThreshold);
                     this.ontologyStore?.updateForPath(file.path, this.settings.mocPropertyNames ?? []);
                     this.scheduleTopHubBlockRegen();

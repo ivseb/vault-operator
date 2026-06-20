@@ -1000,6 +1000,24 @@ export class VaultHealthRepairModal extends Modal {
         contentEl.createEl('h3', { text: 'Repair in progress...' });
         const progress = contentEl.createEl('p', { cls: 'vault-health-progress' });
 
+        // FIX-19-01-03: suspend the global vault.on('modify')
+        // extractFile call for the duration of the repair. Every
+        // processFrontMatter the repair runs fires that listener,
+        // which then reads STALE metadataCache and overwrites the
+        // fresh reverse edges we are about to insert. The repair
+        // owns its own settle + extractAll sequence at the end.
+        this.plugin.vaultHealthRepairInProgress = true;
+        try {
+            await this.doRepair(progress);
+        } finally {
+            this.plugin.vaultHealthRepairInProgress = false;
+        }
+    }
+
+    private async doRepair(progress: HTMLElement): Promise<void> {
+        const healthService = this.plugin.vaultHealthService;
+        if (!healthService) return;
+
         // Checkpoint
         progress.setText('Creating checkpoint...');
         const taskId = `health-repair-${Date.now()}`;
@@ -1074,12 +1092,17 @@ export class VaultHealthRepairModal extends Modal {
         // Re-extract graph data before re-checking (FIX-13)
         progress.setText('Verifying...');
         if (this.plugin.graphExtractor) {
-            // FIX-19-01-01: prefer per-file extraction over a full
-            // extractAll(). Per-file is O(touched) instead of O(vault)
-            // AND it lets us skip extraction for files whose
-            // metadataCache has not refreshed yet. extractAll stays
-            // as the safety net.
             const extractor = this.plugin.graphExtractor;
+            // FIX-19-01-03: per-file extraction was meant to be cheap
+            // (touched files only), BUT fixMissingBacklinks and
+            // cleanupInvalidBacklinks mutate a SUPERSET of the
+            // selectedFindings paths (their SQL iterates every
+            // one-sided edge in the DB, not just selected ones).
+            // Files outside affectedPaths never got refreshed,
+            // leaving stale edges in the DB and re-detection on the
+            // next runChecks. Always run extractAll to catch every
+            // mutated file regardless of which paths the selection
+            // tracked; per-file pass stays as a fast first pass.
             let perFileSucceeded = 0;
             for (const path of affectedPaths) {
                 const file = this.app.vault.getAbstractFileByPath(path);
@@ -1092,9 +1115,8 @@ export class VaultHealthRepairModal extends Modal {
                     }
                 }
             }
-            if (perFileSucceeded === 0) {
-                extractor.extractAll(this.app.vault);
-            }
+            void perFileSucceeded;
+            extractor.extractAll(this.app.vault);
             if (this.plugin.ontologyStore) {
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
@@ -1296,7 +1318,11 @@ export class VaultHealthRepairModal extends Modal {
                 if (p.endsWith('.md')) paths.add(p);
             }
         }
-        return [...paths].slice(0, 100);
+        // FIX-19-01-03: cap raised from 100 to 500. The cap exists
+        // only so the checkpoint snapshot does not balloon on huge
+        // batches; the re-extract path no longer depends on this set
+        // (extractAll always runs after the per-file pass).
+        return [...paths].slice(0, 500);
     }
 
     private updateBadge(findings: HealthFinding[]): void {
