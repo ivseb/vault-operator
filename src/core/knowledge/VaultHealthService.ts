@@ -65,14 +65,36 @@ export class VaultHealthService {
     // Public API
     // -----------------------------------------------------------------------
 
-    /** Run all health checks (or a subset). Returns findings sorted by severity. */
-    async runChecks(checks?: HealthCheckType[]): Promise<HealthFinding[]> {
+    /**
+     * Run all health checks (or a subset). Returns findings sorted by severity.
+     *
+     * FIX-19-01-01: accepts an `options.backlinksProperty` so the
+     * `missing_backlinks` check only fires on edges that live under
+     * the configured property. Without this filter the SQL flagged
+     * every one-sided frontmatter edge regardless of property, which
+     * caused the repair to write into the wrong key and the same
+     * finding to reappear on the next run.
+     */
+    async runChecks(
+        checks?: HealthCheckType[],
+        options?: {
+            backlinksProperty?: string;
+            /** FIX-19-01-05: drop `with_context` orphan findings entirely. */
+            silenceWithContextOrphans?: boolean;
+            /** FIX-19-01-05: user-defined path-prefix excludes for the orphan check. */
+            orphanExcludePathPrefixes?: string[];
+        },
+    ): Promise<HealthFinding[]> {
         if (this.running) return this.findings;
         if (!this.knowledgeDB.isOpen()) return [];
 
         this.running = true;
         this.cancelled = false;
         this.findings = [];
+
+        const backlinksProperty = options?.backlinksProperty;
+        const silenceWithContextOrphans = options?.silenceWithContextOrphans ?? false;
+        const orphanExcludePathPrefixes = options?.orphanExcludePathPrefixes ?? [];
 
         try {
             const db = this.getDB();
@@ -92,8 +114,11 @@ export class VaultHealthService {
             for (const check of checksToRun) {
                 if (this.cancelled) break;
                 switch (check) {
-                    case 'orphans': this.checkOrphans(db); break;
-                    case 'missing_backlinks': this.checkMissingBacklinks(db); break;
+                    case 'orphans': this.checkOrphans(db, {
+                        silenceWithContext: silenceWithContextOrphans,
+                        excludePathPrefixes: orphanExcludePathPrefixes,
+                    }); break;
+                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty); break;
                     case 'broken_links': this.checkBrokenLinks(db); break;
                     case 'weak_clusters': this.checkWeakClusters(db); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
@@ -296,14 +321,32 @@ export class VaultHealthService {
     // Individual checks
     // -----------------------------------------------------------------------
 
-    private checkOrphans(db: SqlJsDatabase): void {
+    private checkOrphans(
+        db: SqlJsDatabase,
+        opts?: { silenceWithContext?: boolean; excludePathPrefixes?: string[] },
+    ): void {
+        // FIX-19-01-05: build the user-defined excludePathPrefixes
+        // into the SQL pre-filter. The hardcoded Templates / Daily
+        // Notes / Attachements stay as default excludes; the user
+        // setting adds further folder prefixes (e.g. TaskNotes/).
+        const userExcludes = opts?.excludePathPrefixes ?? [];
+        const userExcludeClauses = userExcludes
+            .filter((p) => p.length > 0)
+            .map(() => `AND v.path NOT LIKE ?`)
+            .join('\n               ');
+        const userExcludeParams = userExcludes
+            .filter((p) => p.length > 0)
+            .map((p) => `${p}%`);
+
         const result = db.exec(
             `SELECT DISTINCT v.path FROM vectors v
              WHERE v.chunk_index = 0
                AND v.path NOT IN (SELECT DISTINCT target_path FROM edges)
                AND v.path NOT LIKE '%Templates%'
                AND v.path NOT LIKE '%Daily Notes%'
-               AND v.path NOT LIKE '%Attachements%'`,
+               AND v.path NOT LIKE '%Attachements%'
+               ${userExcludeClauses}`,
+            userExcludeParams,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
@@ -360,7 +403,19 @@ export class VaultHealthService {
             }
         }
 
-        if (withContext.length > 0) {
+        // FIX-19-01-04: split the two orphan kinds via metadata so
+        // the modal can offer the move-to-folder repair only for
+        // truly isolated orphans. with_context notes have outgoing
+        // edges and BELONG to a cluster; moving them to Inbox/Orphans/
+        // would destroy that context. They surface as findings (so
+        // the user can add the missing backlink) but they are not
+        // auto-repairable.
+        // FIX-19-01-05: respect the silenceWithContextOrphans setting.
+        // Users with embedded-Base hub notes get a visual backlink via
+        // the Base filter and do not need a Findings entry telling them
+        // to add a reciprocal wikilink. Default in the calling settings
+        // is silent; users who rely on property-reciprocity flip it off.
+        if (withContext.length > 0 && !opts?.silenceWithContext) {
             const details = withContext.slice(0, 20).map(p => {
                 const ctx = orphanContext.get(p);
                 const clusters = clusterInfo.get(p);
@@ -374,6 +429,7 @@ export class VaultHealthService {
                 severity: 'medium',
                 paths: withContext,
                 description: `${withContext.length} note(s) link to existing entities but are not linked back. These notes BELONG to existing clusters -- add backlinks from the target entities, do NOT create new entities.\n\nExamples:\n${details.join('\n')}`,
+                metadata: { orphanKind: 'with_context' },
             });
         }
 
@@ -383,22 +439,40 @@ export class VaultHealthService {
                 severity: 'medium',
                 paths: isolated,
                 description: `${isolated.length} note(s) have no links at all (neither outgoing MOC properties nor incoming links). Use semantic_search to find where they belong before creating new entities.`,
+                metadata: { orphanKind: 'isolated' },
             });
         }
     }
 
-    private checkMissingBacklinks(db: SqlJsDatabase): void {
+    private checkMissingBacklinks(db: SqlJsDatabase, backlinksProperty?: string): void {
+        // FIX-19-01-01: scope the missing-backlink predicate to the
+        // configured property when available. The reciprocity rule is
+        // per-property: an edge under `Notes:` only needs a reverse
+        // edge under the same `Notes:` to be considered satisfied;
+        // mixing `Notes:` and `Notizen:` between source and target
+        // creates a phantom one-sided edge that the old repair path
+        // tried to fix by writing yet another property name. Both
+        // the outer edge and the searched-for reverse edge are
+        // pinned to the configured property.
+        const outerProperty = backlinksProperty ? 'AND e1.property_name = ?' : '';
+        const innerProperty = backlinksProperty ? 'AND e2.property_name = ?' : '';
+        const params: unknown[] = backlinksProperty
+            ? [backlinksProperty, backlinksProperty]
+            : [];
         const result = db.exec(
             `SELECT e1.source_path, e1.target_path
              FROM edges e1
              WHERE e1.link_type = 'frontmatter'
+               ${outerProperty}
                AND NOT EXISTS (
                    SELECT 1 FROM edges e2
                    WHERE e2.source_path = e1.target_path
                      AND e2.target_path = e1.source_path
                      AND e2.link_type = 'frontmatter'
+                     ${innerProperty}
                )
              LIMIT 200`,
+            params,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
@@ -454,14 +528,27 @@ export class VaultHealthService {
     }
 
     private checkBrokenLinks(db: SqlJsDatabase): void {
-        // Only consider .md targets as broken links (skip attachments, PDFs, images, external refs)
+        // FIX-19-01-02: the `vectors` table is the embedding index,
+        // not the vault filesystem. A note can legitimately exist on
+        // disk without ever being embedded (embeddings disabled, the
+        // path is excluded from indexing, the note was just created,
+        // or it is empty). Using vectors as the "exists" predicate
+        // produced false-positive broken-link findings where the
+        // modal would render `[[X]]` as a clickable wikilink (Obsidian
+        // resolves it because the file exists) while the description
+        // claimed the note does not exist.
+        //
+        // The SQL stays the same (cheap pre-filter to keep the
+        // candidate set small), but every candidate is now verified
+        // against the vault filesystem and Obsidian's linkpath
+        // resolver before it becomes a finding.
         const result = db.exec(
             `SELECT DISTINCT source_path, target_path FROM edges
              WHERE target_path LIKE '%.md'
                AND target_path NOT IN (
                    SELECT DISTINCT path FROM vectors WHERE chunk_index = 0
                )
-             LIMIT 50`,
+             LIMIT 200`,
         );
         if (result.length === 0 || result[0].values.length === 0) return;
 
@@ -470,24 +557,60 @@ export class VaultHealthService {
             target: row[1] as string,
         }));
 
-        // Group by target (the broken link destination)
         const byTarget = new Map<string, string[]>();
         for (const p of pairs) {
-            // Skip targets that look like external references or non-vault paths
+            // Skip targets that look like external references or non-vault paths.
             if (p.target.includes('://') || p.target.startsWith('http')) continue;
+
+            // Verify against the vault filesystem. A direct path hit
+            // confirms the file exists; if the edge stored a wikilink
+            // basename rather than the full path, ask Obsidian's
+            // linkpath resolver from the source-note's directory.
+            if (this.existsInVault(p.target, p.source)) continue;
+
             const existing = byTarget.get(p.target) ?? [];
             existing.push(p.source);
             byTarget.set(p.target, existing);
         }
 
+        // Cap the surfaced set at 50 to keep the modal readable.
+        let surfaced = 0;
         for (const [target, sources] of byTarget) {
+            if (surfaced >= 50) break;
             this.findings.push({
                 check: 'broken_links',
                 severity: 'medium',
                 paths: [target, ...sources],
                 description: `[[${target}]] is referenced from ${sources.length} note(s) but does not exist in the vault`,
             });
+            surfaced++;
         }
+    }
+
+    /**
+     * FIX-19-01-02: vault-filesystem existence check for the
+     * broken-links predicate. Returns true when the target resolves
+     * to a real `TFile` either via direct path lookup or via
+     * Obsidian's linkpath resolver from the source-note's directory.
+     * Both lookups respect Obsidian's case rules and folder layout.
+     */
+    private existsInVault(targetPath: string, sourcePath: string): boolean {
+        const direct = this.app.vault.getAbstractFileByPath(targetPath);
+        if (direct instanceof TFile) return true;
+
+        // Try variants the graph extractor might have stored. Some
+        // extractors normalize wikilinks to bare basenames before
+        // writing to edges; others store full paths.
+        const withoutExt = targetPath.replace(/\.md$/, '');
+        const direct2 = this.app.vault.getAbstractFileByPath(withoutExt + '.md');
+        if (direct2 instanceof TFile) return true;
+
+        // Linkpath resolver respects Obsidian's "shortest path when
+        // unambiguous" rule. Resolves `[[Note]]` against any vault
+        // file named `Note.md` regardless of folder, with the
+        // source-note's directory as the resolution context.
+        const resolved = this.app.metadataCache.getFirstLinkpathDest(withoutExt, sourcePath);
+        return resolved instanceof TFile;
     }
 
     /**
@@ -752,15 +875,42 @@ export class VaultHealthService {
                             ? existing.map(String)
                             : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
 
-                        const normalized = new Set(currentLinks.map(l =>
-                            l.replace(/^\[\[/, '').replace(/\]\]$/, '').trim(),
-                        ));
+                        // FIX-19-01-01: strip aliases (`[[Foo|Bar]]`) and
+                        // path-segments so a wikilink like `[[Notes/A|A]]`
+                        // matches both the bare name `A` and the full
+                        // path `Notes/A.md`. The previous dedup only
+                        // stripped the brackets, which let the same edge
+                        // get written twice as `[[Source]]` next to an
+                        // existing `[[Source|Alias]]`.
+                        const stripBrackets = (s: string) =>
+                            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+                        const stripAlias = (s: string) => {
+                            const pipe = s.indexOf('|');
+                            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
+                        };
+                        const lastSegment = (s: string) => {
+                            const seg = s.split('/').pop() ?? s;
+                            return seg.replace(/\.md$/, '');
+                        };
+                        const normalized = new Set<string>();
+                        for (const l of currentLinks) {
+                            const bare = stripAlias(stripBrackets(l));
+                            normalized.add(bare);
+                            normalized.add(lastSegment(bare));
+                        }
 
                         let added = 0;
                         for (const sourcePath of sources) {
                             const sourceNormalized = sourcePath.replace(/\.md$/, '');
-                            if (!normalized.has(sourcePath) && !normalized.has(sourceNormalized)) {
+                            const sourceLast = lastSegment(sourceNormalized);
+                            if (
+                                !normalized.has(sourcePath) &&
+                                !normalized.has(sourceNormalized) &&
+                                !normalized.has(sourceLast)
+                            ) {
                                 currentLinks.push(`[[${sourceNormalized}]]`);
+                                normalized.add(sourceNormalized);
+                                normalized.add(sourceLast);
                                 added++;
                             }
                         }
@@ -984,6 +1134,169 @@ export class VaultHealthService {
 
         console.debug(`[VaultHealth] fixCategoryMismatches: ${notesFixed} notes, ${valuesMovied} values moved`);
         return { notesFixed, valuesMovied: valuesMovied };
+    }
+
+    /**
+     * IMP-19-01-02: move orphan notes (no incoming, no outgoing edges)
+     * into a configured target folder. Folder is created if missing.
+     * Idempotent: already-relocated notes are skipped.
+     *
+     * The caller hands in the list of orphan note paths and the target
+     * folder; we keep this method ignorant of the rest of the
+     * repair-selection state.
+     */
+    async moveOrphansToFolder(
+        orphanPaths: string[],
+        targetFolder: string,
+    ): Promise<{ notesMoved: number; notesSkipped: number; notesSkippedWithContext: number }> {
+        let notesMoved = 0;
+        let notesSkipped = 0;
+        let notesSkippedWithContext = 0;
+
+        const folder = targetFolder.replace(/\/+$/, '');
+        try {
+            const existing = this.app.vault.getAbstractFileByPath(folder);
+            if (!existing) {
+                await this.app.vault.createFolder(folder);
+            }
+        } catch (e) {
+            console.warn('[VaultHealth] moveOrphansToFolder: createFolder failed', e);
+        }
+
+        // FIX-19-01-04: live second-pass guard. Even if the caller
+        // accidentally passes a `with_context` orphan path, verify
+        // against the DB graph that the note has no outgoing
+        // frontmatter edges AND no ontology cluster membership. The
+        // user reported notes with `Themen: [[X]]` being moved to
+        // Inbox/Orphans/; this guard is the catch-all so no future
+        // caller can reproduce that.
+        const db = this.getDB();
+        const hasContext = (path: string): boolean => {
+            try {
+                const outgoing = db.exec(
+                    `SELECT 1 FROM edges WHERE source_path = ? AND link_type = 'frontmatter' LIMIT 1`,
+                    [path],
+                );
+                if (outgoing.length > 0 && outgoing[0].values.length > 0) return true;
+                const clustered = db.exec(
+                    `SELECT 1 FROM ontology WHERE entity_path = ? LIMIT 1`,
+                    [path],
+                );
+                if (clustered.length > 0 && clustered[0].values.length > 0) return true;
+            } catch {
+                // db unavailable; fail open (do not move).
+                return true;
+            }
+            return false;
+        };
+
+        for (const path of orphanPaths) {
+            if (this.cancelled) break;
+            const file = this.app.vault.getAbstractFileByPath(path);
+            if (!(file instanceof TFile)) { notesSkipped++; continue; }
+
+            // Skip notes that already live in the target folder (idempotency).
+            if (file.parent && file.parent.path === folder) {
+                notesSkipped++;
+                continue;
+            }
+
+            // Second-pass: confirm the note really has no outgoing context.
+            if (hasContext(path)) {
+                notesSkippedWithContext++;
+                continue;
+            }
+
+            const newPath = `${folder}/${file.name}`;
+            try {
+                await this.app.fileManager.renameFile(file, newPath);
+                notesMoved++;
+            } catch (e) {
+                console.warn(`[VaultHealth] moveOrphansToFolder: rename failed for ${path}`, e);
+                notesSkipped++;
+            }
+            if (notesMoved % 10 === 0) {
+                await new Promise<void>(r => window.setTimeout(r, 0));
+            }
+        }
+
+        console.debug(`[VaultHealth] moveOrphansToFolder: ${notesMoved} moved, ${notesSkipped} skipped, ${notesSkippedWithContext} skipped (has context)`);
+        return { notesMoved, notesSkipped, notesSkippedWithContext };
+    }
+
+    /**
+     * IMP-19-01-02: link semantically similar notes (weak_clusters)
+     * by inserting a mutual wikilink under the configured backlinks
+     * property in BOTH notes. Mirrors the dedup/alias rules of
+     * `fixMissingBacklinks`.
+     */
+    async linkWeakClusters(
+        pairs: Array<{ a: string; b: string }>,
+        backlinksProperty: string,
+    ): Promise<{ pairsLinked: number; linksAdded: number }> {
+        let pairsLinked = 0;
+        let linksAdded = 0;
+
+        const stripBrackets = (s: string) =>
+            s.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+        const stripAlias = (s: string) => {
+            const pipe = s.indexOf('|');
+            return pipe >= 0 ? s.slice(0, pipe).trim() : s;
+        };
+        const lastSegment = (s: string) => {
+            const seg = s.split('/').pop() ?? s;
+            return seg.replace(/\.md$/, '');
+        };
+
+        const insertLink = async (fileA: TFile, otherPath: string): Promise<number> => {
+            const otherNormalized = otherPath.replace(/\.md$/, '');
+            let added = 0;
+            await this.app.fileManager.processFrontMatter(fileA, (fm: Record<string, unknown>) => {
+                const existing = fm[backlinksProperty];
+                const links: string[] = Array.isArray(existing)
+                    ? existing.map(String)
+                    : (typeof existing === 'string' && existing.trim()) ? [existing] : [];
+                const normalized = new Set<string>();
+                for (const l of links) {
+                    const bare = stripAlias(stripBrackets(l));
+                    normalized.add(bare);
+                    normalized.add(lastSegment(bare));
+                }
+                const otherLast = lastSegment(otherNormalized);
+                if (
+                    !normalized.has(otherPath) &&
+                    !normalized.has(otherNormalized) &&
+                    !normalized.has(otherLast)
+                ) {
+                    links.push(`[[${otherNormalized}]]`);
+                    fm[backlinksProperty] = links;
+                    added = 1;
+                }
+            });
+            return added;
+        };
+
+        for (const { a, b } of pairs) {
+            if (this.cancelled) break;
+            const fileA = this.app.vault.getAbstractFileByPath(a);
+            const fileB = this.app.vault.getAbstractFileByPath(b);
+            if (!(fileA instanceof TFile) || !(fileB instanceof TFile)) continue;
+
+            try {
+                const addedA = await insertLink(fileA, b);
+                const addedB = await insertLink(fileB, a);
+                linksAdded += addedA + addedB;
+                if (addedA + addedB > 0) pairsLinked++;
+            } catch (e) {
+                console.warn(`[VaultHealth] linkWeakClusters: pair (${a}, ${b}) failed`, e);
+            }
+            if (pairsLinked % 10 === 0) {
+                await new Promise<void>(r => window.setTimeout(r, 0));
+            }
+        }
+
+        console.debug(`[VaultHealth] linkWeakClusters: ${pairsLinked} pairs linked, ${linksAdded} links added`);
+        return { pairsLinked, linksAdded };
     }
 
     /** Get the Kategorie value from a note's frontmatter cache. */
