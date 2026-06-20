@@ -63,13 +63,36 @@ function reviewSeverityToFindingSeverity(
     }
 }
 
-// IMP-19-01-02: orphans and weak_clusters now offer auto-fixes.
-// broken_links and god_nodes stay manual (broken needs decide-per-case,
-// god-nodes need a real refactor decision the user makes).
+// IMP-19-01-02 + FIX-19-01-04: auto-fix scope.
+// - missing_backlinks, category_mismatch, weak_clusters: deterministic fixes.
+// - orphans: only the `metadata.orphanKind === 'isolated'` finding is
+//   repairable (move to Inbox/Orphans/). `with_context` orphans have
+//   outgoing edges or cluster membership and need a manual "add
+//   incoming backlink" decision; `isRepairableFinding` enforces this
+//   per-finding rather than per-check.
+// - inconsistent_tags: NO fixInconsistentTags method exists; the
+//   finding is a manual-review hint ("consider unifying"). Removed
+//   from the auto-fix scope until a real implementation lands.
+// - broken_links + god_nodes: manual decisions.
 const REPAIRABLE_CHECKS = new Set<HealthCheckType>([
-    'missing_backlinks', 'category_mismatch', 'inconsistent_tags',
+    'missing_backlinks', 'category_mismatch',
     'orphans', 'weak_clusters',
 ]);
+
+/**
+ * FIX-19-01-04: per-finding repairable filter that respects the
+ * orphan-kind split. Use this instead of `REPAIRABLE_CHECKS.has(f.check)`
+ * whenever the auto-fix selects findings; the legacy check-type set
+ * is still useful for "could this category produce repairable
+ * findings" decisions.
+ */
+function isRepairableFinding(f: HealthFinding): boolean {
+    if (!REPAIRABLE_CHECKS.has(f.check)) return false;
+    if (f.check === 'orphans') {
+        return f.metadata?.orphanKind === 'isolated';
+    }
+    return true;
+}
 
 const CHECK_LABELS: Record<string, string> = {
     orphans: 'Orphaned notes',
@@ -503,7 +526,7 @@ export class VaultHealthRepairModal extends Modal {
         // Knowledge-review tab. Filter it out of the Findings view so
         // the same finding does not surface in both places.
         const findingsForView = this.findings.filter((f) => !KNOWLEDGE_REVIEW_CHECKS.has(f.check));
-        const repairableCount = findingsForView.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
+        const repairableCount = findingsForView.filter(isRepairableFinding).length;
         const totalCount = findingsForView.length;
 
         contentEl.createEl('h3', { text: `Vault health (${totalCount} findings)` });
@@ -583,8 +606,10 @@ export class VaultHealthRepairModal extends Modal {
 
                 const row = content.createDiv('vault-health-finding-row');
 
-                // Checkbox (repairable only)
-                if (isRepairable) {
+                // Checkbox (per-finding repairable check; FIX-19-01-04
+                // splits orphans by kind so with_context findings get
+                // no checkbox even though the section type is repairable).
+                if (isRepairableFinding(finding)) {
                     const checkbox = row.createEl('input', { type: 'checkbox' });
                     checkbox.checked = true;
                     this.selectedFindings.add(globalIdx);
@@ -788,7 +813,7 @@ export class VaultHealthRepairModal extends Modal {
     selectAllRepairable(): void {
         this.selectedFindings.clear();
         this.findings.forEach((f, idx) => {
-            if (REPAIRABLE_CHECKS.has(f.check)) {
+            if (isRepairableFinding(f)) {
                 this.selectedFindings.add(idx);
             }
         });
@@ -999,8 +1024,11 @@ export class VaultHealthRepairModal extends Modal {
             case 'inconsistent_tags':
                 return `Fix: Unify tag spelling`;
             case 'orphans': {
-                const target = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
-                return `Fix: Move ${this.formatPath(finding.paths[0])} to ${target}/`;
+                if (finding.metadata?.orphanKind === 'isolated') {
+                    const target = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
+                    return `Fix: Move ${finding.paths.length} truly orphan note(s) to ${target}/`;
+                }
+                return 'Manual review: add backlinks from the cluster hub (no auto-fix)';
             }
             case 'weak_clusters':
                 if (finding.paths.length >= 2) {
@@ -1089,7 +1117,7 @@ export class VaultHealthRepairModal extends Modal {
         let backlinksResult = { entitiesFixed: 0, linksAdded: 0, basesCreated: 0 };
         let categoriesResult = { notesFixed: 0, valuesMovied: 0 };
         let cleanupResult = { notesProcessed: 0, linksRemoved: 0 };
-        let orphansResult = { notesMoved: 0, notesSkipped: 0 };
+        let orphansResult = { notesMoved: 0, notesSkipped: 0, notesSkippedWithContext: 0 };
         let weakLinkResult = { pairsLinked: 0, linksAdded: 0 };
 
         if (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch')) {
@@ -1192,6 +1220,19 @@ export class VaultHealthRepairModal extends Modal {
             }
             void perFileSucceeded;
             extractor.extractAll(this.app.vault);
+
+            // FIX-19-01-04: drain Obsidian's vault.on('modify') queue
+            // before runChecks AND before the flag clears in the
+            // finally block. Otherwise late modify events fire on
+            // the touched files after the flag is false; the global
+            // extractFile listener then reads STALE metadataCache
+            // (which may still lag the disk write) and overwrites
+            // the just-extracted edges.
+            await this.waitForVaultModifyDrain(affectedPaths);
+            // One more extractAll after the drain catches any edges
+            // a late modify-listener call might have clobbered while
+            // the queue was unwinding.
+            extractor.extractAll(this.app.vault);
             if (this.plugin.ontologyStore) {
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
@@ -1213,6 +1254,45 @@ export class VaultHealthRepairModal extends Modal {
 
         const newFindings = await healthService.runChecks(undefined, { backlinksProperty });
         this.showResult(edgesResult, backlinksResult, categoriesResult, cleanupResult, orphansResult, weakLinkResult, newFindings, checkpoint);
+    }
+
+    /**
+     * FIX-19-01-04: drain Obsidian's `vault.on('modify')` event
+     * queue for every touched file. processFrontMatter resolves on
+     * disk write, but Obsidian dispatches the modify event on its
+     * own microtask tick; the queue can leak modify events AFTER
+     * we have already finished extractAll. If the
+     * `vaultHealthRepairInProgress` flag is cleared before that
+     * queue is empty, the global modify listener in main.ts runs
+     * `graphExtractor.extractFile(file)` with STALE metadataCache
+     * and overwrites the freshly-correct edges.
+     *
+     * We register a one-shot modify listener for the affected
+     * paths and resolve when every path has fired at least once,
+     * OR a 2-second hard timeout passes. The flag stays true for
+     * the whole drain window.
+     */
+    private async waitForVaultModifyDrain(paths: string[]): Promise<void> {
+        if (!paths.length) return;
+        const pending = new Set(paths);
+        const TIMEOUT_MS = 2000;
+        await new Promise<void>((resolve) => {
+            const cleanup = () => {
+                this.app.vault.off('modify', onModify);
+                window.clearTimeout(timer);
+            };
+            const onModify = (file: TFile) => {
+                if (pending.delete(file.path) && pending.size === 0) {
+                    cleanup();
+                    resolve();
+                }
+            };
+            this.app.vault.on('modify', onModify);
+            const timer = window.setTimeout(() => {
+                cleanup();
+                resolve();
+            }, TIMEOUT_MS);
+        });
     }
 
     /**
@@ -1256,7 +1336,7 @@ export class VaultHealthRepairModal extends Modal {
         backlinks: { entitiesFixed: number; linksAdded: number; basesCreated: number },
         categories: { notesFixed: number; valuesMovied: number },
         cleanup: { notesProcessed: number; linksRemoved: number },
-        orphans: { notesMoved: number; notesSkipped: number },
+        orphans: { notesMoved: number; notesSkipped: number; notesSkippedWithContext: number },
         weakLinks: { pairsLinked: number; linksAdded: number },
         newFindings: HealthFinding[],
         checkpoint: CheckpointInfo | undefined,
@@ -1285,6 +1365,11 @@ export class VaultHealthRepairModal extends Modal {
         if (orphans.notesMoved > 0) {
             results.createEl('li', { text: `${orphans.notesMoved} orphan note(s) moved to inbox folder` });
         }
+        if (orphans.notesSkippedWithContext > 0) {
+            results.createEl('li', {
+                text: `${orphans.notesSkippedWithContext} orphan(s) kept in place: they have outgoing edges or cluster membership and need a manual backlink, not a move`,
+            });
+        }
         if (weakLinks.pairsLinked > 0) {
             results.createEl('li', { text: `${weakLinks.pairsLinked} weak cluster pair(s) linked (${weakLinks.linksAdded} backlinks added)` });
         }
@@ -1297,7 +1382,7 @@ export class VaultHealthRepairModal extends Modal {
         }
 
         // Remaining findings
-        const remainingRepairable = newFindings.filter(f => REPAIRABLE_CHECKS.has(f.check)).length;
+        const remainingRepairable = newFindings.filter(isRepairableFinding).length;
         const totalRemaining = newFindings.length;
         contentEl.createEl('p', {
             cls: 'vault-health-remaining',

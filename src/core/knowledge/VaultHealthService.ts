@@ -374,6 +374,13 @@ export class VaultHealthService {
             }
         }
 
+        // FIX-19-01-04: split the two orphan kinds via metadata so
+        // the modal can offer the move-to-folder repair only for
+        // truly isolated orphans. with_context notes have outgoing
+        // edges and BELONG to a cluster; moving them to Inbox/Orphans/
+        // would destroy that context. They surface as findings (so
+        // the user can add the missing backlink) but they are not
+        // auto-repairable.
         if (withContext.length > 0) {
             const details = withContext.slice(0, 20).map(p => {
                 const ctx = orphanContext.get(p);
@@ -388,6 +395,7 @@ export class VaultHealthService {
                 severity: 'medium',
                 paths: withContext,
                 description: `${withContext.length} note(s) link to existing entities but are not linked back. These notes BELONG to existing clusters -- add backlinks from the target entities, do NOT create new entities.\n\nExamples:\n${details.join('\n')}`,
+                metadata: { orphanKind: 'with_context' },
             });
         }
 
@@ -397,6 +405,7 @@ export class VaultHealthService {
                 severity: 'medium',
                 paths: isolated,
                 description: `${isolated.length} note(s) have no links at all (neither outgoing MOC properties nor incoming links). Use semantic_search to find where they belong before creating new entities.`,
+                metadata: { orphanKind: 'isolated' },
             });
         }
     }
@@ -1105,9 +1114,10 @@ export class VaultHealthService {
     async moveOrphansToFolder(
         orphanPaths: string[],
         targetFolder: string,
-    ): Promise<{ notesMoved: number; notesSkipped: number }> {
+    ): Promise<{ notesMoved: number; notesSkipped: number; notesSkippedWithContext: number }> {
         let notesMoved = 0;
         let notesSkipped = 0;
+        let notesSkippedWithContext = 0;
 
         const folder = targetFolder.replace(/\/+$/, '');
         try {
@@ -1119,6 +1129,33 @@ export class VaultHealthService {
             console.warn('[VaultHealth] moveOrphansToFolder: createFolder failed', e);
         }
 
+        // FIX-19-01-04: live second-pass guard. Even if the caller
+        // accidentally passes a `with_context` orphan path, verify
+        // against the DB graph that the note has no outgoing
+        // frontmatter edges AND no ontology cluster membership. The
+        // user reported notes with `Themen: [[X]]` being moved to
+        // Inbox/Orphans/; this guard is the catch-all so no future
+        // caller can reproduce that.
+        const db = this.getDB();
+        const hasContext = (path: string): boolean => {
+            try {
+                const outgoing = db.exec(
+                    `SELECT 1 FROM edges WHERE source_path = ? AND link_type = 'frontmatter' LIMIT 1`,
+                    [path],
+                );
+                if (outgoing.length > 0 && outgoing[0].values.length > 0) return true;
+                const clustered = db.exec(
+                    `SELECT 1 FROM ontology WHERE entity_path = ? LIMIT 1`,
+                    [path],
+                );
+                if (clustered.length > 0 && clustered[0].values.length > 0) return true;
+            } catch {
+                // db unavailable; fail open (do not move).
+                return true;
+            }
+            return false;
+        };
+
         for (const path of orphanPaths) {
             if (this.cancelled) break;
             const file = this.app.vault.getAbstractFileByPath(path);
@@ -1127,6 +1164,12 @@ export class VaultHealthService {
             // Skip notes that already live in the target folder (idempotency).
             if (file.parent && file.parent.path === folder) {
                 notesSkipped++;
+                continue;
+            }
+
+            // Second-pass: confirm the note really has no outgoing context.
+            if (hasContext(path)) {
+                notesSkippedWithContext++;
                 continue;
             }
 
@@ -1143,8 +1186,8 @@ export class VaultHealthService {
             }
         }
 
-        console.debug(`[VaultHealth] moveOrphansToFolder: ${notesMoved} moved, ${notesSkipped} skipped`);
-        return { notesMoved, notesSkipped };
+        console.debug(`[VaultHealth] moveOrphansToFolder: ${notesMoved} moved, ${notesSkipped} skipped, ${notesSkippedWithContext} skipped (has context)`);
+        return { notesMoved, notesSkipped, notesSkippedWithContext };
     }
 
     /**

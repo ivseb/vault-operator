@@ -272,6 +272,58 @@ describe('VaultHealthService', () => {
             expect(findings.length).toBe(0);
         });
 
+        it('FIX-19-01-04: checkOrphans marks notes with outgoing frontmatter edges as orphanKind=with_context', async () => {
+            const { service, db } = await createHealthService(99);
+            // Source note has an outgoing frontmatter edge to Hub.
+            db.run(
+                `INSERT INTO edges (source_path, target_path, link_type, property_name, confidence)
+                 VALUES ('Notes/A.md', 'Notes/Hub.md', 'frontmatter', 'Themen', 1.0)`,
+            );
+            // Source has a vector row (chunk_index=0 = exists).
+            db.run(
+                `INSERT INTO vectors (path, chunk_index, text, vector, mtime, enriched)
+                 VALUES ('Notes/A.md', 0, '', X'00', 1, 0)`,
+            );
+            // No other note links TO Notes/A.md, so it is "no incoming"
+            // -> orphan predicate fires, but it has Themen outgoing
+            // -> must be classified as with_context, NOT isolated.
+
+            (service as unknown as { app: { vault: { getMarkdownFiles(): unknown[]; getAbstractFileByPath(p: string): unknown }; metadataCache: { getFileCache(): unknown } } }).app = {
+                vault: {
+                    getMarkdownFiles: () => [],
+                    getAbstractFileByPath: () => null,
+                },
+                metadataCache: { getFileCache: () => null },
+            };
+
+            const findings = await service.runChecks(['orphans']);
+            const orphanFinding = findings.find((f) => f.check === 'orphans');
+            expect(orphanFinding).toBeDefined();
+            expect(orphanFinding?.metadata?.orphanKind).toBe('with_context');
+            expect(orphanFinding?.paths).toContain('Notes/A.md');
+        });
+
+        it('FIX-19-01-04: checkOrphans marks notes with NO outgoing edges as orphanKind=isolated', async () => {
+            const { service, db } = await createHealthService(99);
+            db.run(
+                `INSERT INTO vectors (path, chunk_index, text, vector, mtime, enriched)
+                 VALUES ('Notes/Lonely.md', 0, '', X'00', 1, 0)`,
+            );
+
+            (service as unknown as { app: { vault: { getMarkdownFiles(): unknown[]; getAbstractFileByPath(p: string): unknown }; metadataCache: { getFileCache(): unknown } } }).app = {
+                vault: {
+                    getMarkdownFiles: () => [],
+                    getAbstractFileByPath: () => null,
+                },
+                metadataCache: { getFileCache: () => null },
+            };
+
+            const findings = await service.runChecks(['orphans']);
+            const orphanFinding = findings.find((f) => f.check === 'orphans');
+            expect(orphanFinding).toBeDefined();
+            expect(orphanFinding?.metadata?.orphanKind).toBe('isolated');
+        });
+
         it('FIX-19-01-02: broken_links still fires for files that truly are absent from the vault', async () => {
             const { service, db } = await createHealthService(99);
             db.run(
