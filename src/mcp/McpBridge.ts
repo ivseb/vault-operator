@@ -34,10 +34,10 @@ export const AGENT_INTERNAL_TOOLS = new Set([
     'update_settings', 'enable_plugin', 'call_plugin_api',
 ]);
 
-const TOOLS: McpToolDefinition[] = [
+export const TOOLS: McpToolDefinition[] = [
     {
         name: 'get_context',
-        description: 'ALWAYS call this first. Returns user profile, memory, behavioral patterns, vault statistics, available skills, and rules. Essential context for every conversation.',
+        description: 'Returns vault statistics, available skills, and rules. When strictSourceIsolation is off and the caller is the plugin itself, also returns user profile and memory context. Recommended as the first call of a session.',
         inputSchema: { type: 'object', properties: {}, required: [] },
     },
     {
@@ -104,10 +104,10 @@ const TOOLS: McpToolDefinition[] = [
         name: 'sync_session',
         description:
             'Legacy auto-tracking tool: replicates the current MCP-session conversation into Obsidian\'s chat history. ' +
-            'PREFER save_conversation for cross-surface use cases -- it provides Living-Document semantics ' +
-            '(conversation grows over multiple turns, no duplication) and Cross-Interface-Threads. Use sync_session ' +
-            'only as a one-shot session-end snapshot when you do not have the structured messages array. ' +
-            'IMPORTANT: pass source_interface to make the conversation appear in the correct History tab.',
+            'For cross-surface use cases, save_conversation is the preferred entry point: it provides Living-Document ' +
+            'semantics (the conversation grows over multiple turns, no duplication) and Cross-Interface-Threads. ' +
+            'sync_session is intended as a one-shot session-end snapshot when no structured messages array is available. ' +
+            'Passing source_interface lets the conversation appear in the matching History tab.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -158,9 +158,9 @@ const TOOLS: McpToolDefinition[] = [
         name: 'save_to_memory',
         description:
             'Persist a single fact or insight in Vault Operator Memory v2. Each call produces one fact entry. ' +
-            'Use for things you want available across all of Sebastian\'s chat tools (Vault Operator, ChatGPT, ' +
-            'Claude.ai, Claude Code, Perplexity). Tags are optional. The configured source_interface ' +
-            'tag (per connector config) labels the entry so it stays filterable later.',
+            'Use this when the user explicitly asks to remember something across their chat tools ' +
+            '(Vault Operator, Claude Desktop, Claude.ai, ChatGPT, Claude Code, Perplexity). Tags are optional. ' +
+            'The configured source_interface tag (per connector config) labels the entry so it stays filterable later.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -196,13 +196,13 @@ const TOOLS: McpToolDefinition[] = [
         description:
             'Copy a conversation from an external chat tool into Vault Operator\'s shared History sidebar. ' +
             'Conversations appear in the matching source-tab.\n\n' +
-            'LIVING-DOCUMENT BEHAVIOUR (default ON): when the user asks you to save the current ' +
-            'conversation again later in the same session, JUST CALL save_conversation AGAIN with ' +
-            'the new turns -- the plugin auto-detects the active conversation (within 30 minutes ' +
-            'from the same source_interface) and appends. You do NOT need to track the ' +
-            'conversation_id yourself. You can send either the FULL transcript (plugin computes ' +
-            'the delta) or only the NEW turns (plugin appends them as-is). For explicit control ' +
-            'pass the conversation_id from the previous result.\n\n' +
+            'Living-document behaviour (default on): when the user asks to save the current ' +
+            'conversation again later in the same session, call save_conversation again with ' +
+            'the new turns. The plugin auto-detects the active conversation (within 30 minutes ' +
+            'from the same source_interface) and appends. Tracking the conversation_id yourself ' +
+            'is optional. Either the full transcript (plugin computes the delta) or only the new ' +
+            'turns (plugin appends them as-is) can be sent. For explicit control, pass the ' +
+            'conversation_id from the previous result.\n\n' +
             'CROSS-INTERFACE THREADS: the first save_conversation result returns a ' +
             'cross_interface_thread_id. When the user continues the same topic in a different ' +
             'tool (e.g. claude-ai -> claude-code), pass that thread_id to link both conversations.\n\n' +
@@ -608,12 +608,10 @@ export class McpBridge {
                     protocolVersion: negotiated,
                     capabilities: { tools: {}, prompts: {}, resources: {} },
                     serverInfo: { name: 'Vault Operator', version: '1.0.0' },
-                    instructions: 'You are connected to Vault Operator, an intelligence backend for an Obsidian vault. '
-                        + 'Your role: You think, plan, and decide. Vault Operator searches, reads, writes, and remembers.\n\n'
-                        + 'WORKFLOW (mandatory order):\n'
-                        + '1. ALWAYS call get_context FIRST to load user profile, memory, preferences, and vault context.\n'
-                        + '2. Use search_vault, read_notes, write_vault, execute_vault_op as needed.\n'
-                        + '3. ALWAYS call sync_session as your LAST action to save the conversation to Obsidian.',
+                    instructions: 'Vault Operator is an Obsidian plugin that exposes vault search, read, write, and memory tools over MCP. '
+                        + 'A descriptive context prompt is available via prompts/list as "vault-operator-context" and can be selected by the user. '
+                        + 'Typical flow: call get_context for vault stats, use search_vault / read_notes / write_vault as needed, '
+                        + 'and call sync_session at the end of a session to save the transcript to Obsidian.',
                 };
             }
 
@@ -632,19 +630,19 @@ export class McpBridge {
             case 'prompts/list':
                 return {
                     prompts: [{
-                        name: 'My profile and preferences',
-                        description: 'Your user profile, communication preferences, behavioral patterns, and rules for working with this vault',
+                        name: 'vault-operator-context',
+                        description: 'Recommended tool use, user rules, and available skills for this vault. Select to pin as conversation context.',
                     }, {
-                        name: 'Available workflows',
-                        description: 'Skill-based workflows for complex tasks (presentations, research, document creation)',
+                        name: 'vault-operator-skills',
+                        description: 'Skill-based workflows for complex tasks (presentations, research, document creation).',
                     }],
                 };
 
             case 'prompts/get': {
                 const promptName = (request.params as { name?: string })?.name;
                 const allPrompts = await buildPrompts(this.plugin);
-                if (promptName === 'Available workflows') {
-                    // Return only skills portion
+                if (promptName === 'vault-operator-skills') {
+                    // Return only the skills portion of the context prompt.
                     const skillsText = allPrompts.find(p =>
                         typeof p.content === 'object' && p.content.text?.includes('Available Skills')
                     );
@@ -695,7 +693,7 @@ export class McpBridge {
             .slice(0, 30);
 
         const folderList = folders.length > 0
-            ? `\n\nExisting vault folders: ${folders.join(', ')}. ALWAYS use existing folders when creating files.`
+            ? `\n\nExisting vault folders: ${folders.join(', ')}. Prefer existing folders when creating files.`
             : '';
 
         // Rules hint
