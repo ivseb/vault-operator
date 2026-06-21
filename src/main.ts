@@ -55,6 +55,8 @@ import { TopHubBlockGenerator, type TopHubBlockState } from './core/memory/TopHu
 import { Stufe3PeriodicJob, ClusterMetadataStatePersistence } from './core/health/Stufe3PeriodicJob';
 import { Stufe2ActivityTrigger } from './core/health/Stufe2ActivityTrigger';
 import { FreshnessOrchestrator } from './core/health/FreshnessOrchestrator';
+import { FreshnessFrontmatterPatcher } from './core/health/FreshnessFrontmatterPatcher';
+import { FrontmatterWriter } from './core/ingest/FrontmatterWriter';
 import { FreshnessQueryBuilder } from './core/health/FreshnessQueryBuilder';
 import { FreshnessVerifier } from './core/health/FreshnessVerifier';
 import { FreshnessWebSearch } from './core/health/FreshnessWebSearch';
@@ -133,6 +135,38 @@ import { PluginReloader } from './core/self-development/PluginReloader';
 function extractUrlsFromText(text: string): string[] {
     const matches = text.match(/https?:\/\/[^\s)\]<>"']+/g) ?? [];
     return Array.from(new Set(matches));
+}
+
+/**
+ * Group URLs by effective top-level domain (eTLD+1 surrogate) and return
+ * the count of independent domain origins. Used by Stufe-3 to decide
+ * whether a finding is a "strong signal" (multiple independent sources)
+ * vs. multiple URLs on the same domain that may just be one news outlet
+ * republishing itself.
+ *
+ * FIX-19-20-02 from stability audit 2026-06-21: the old check counted
+ * raw URLs (`length >= 2`), so two links to the same domain (e.g. two
+ * pages on techcrunch.com) triggered a strongSignal. The new check
+ * groups by host suffix and demands at least three distinct domains.
+ *
+ * Pure surrogate -- no PSL parse, just the last two path segments of
+ * the hostname (so "blog.foo.co.uk" -> "co.uk" is a known limitation
+ * and would over-collapse; but no Stufe-3 source list lives in that
+ * shape today).
+ */
+function countIndependentDomains(urls: string[]): number {
+    const domains = new Set<string>();
+    for (const u of urls) {
+        try {
+            const host = new URL(u).hostname;
+            const parts = host.toLowerCase().split('.');
+            const eTld1 = parts.length >= 2 ? parts.slice(-2).join('.') : host.toLowerCase();
+            domains.add(eTld1);
+        } catch {
+            // unparseable URLs do not contribute to the signal
+        }
+    }
+    return domains.size;
 }
 
 export default class ObsidianAgentPlugin extends Plugin {
@@ -1518,6 +1552,20 @@ export default class ObsidianAgentPlugin extends Plugin {
                                 return null;
                             }
                         },
+                        // FIX-19-99-03: wire FreshnessFrontmatterPatcher so the
+                        // freshness.writeFrontmatter setting actually mirrors
+                        // verdicts into note frontmatter (single allowlisted
+                        // key `freshness:` per ADR-95). Pre-fix the Patcher
+                        // was implemented but never instantiated; the setting
+                        // had no effect.
+                        frontmatterPatcher: new FreshnessFrontmatterPatcher(
+                            new FrontmatterWriter(this.app, { storageMode: 'global' }),
+                        ),
+                        writeFrontmatterEnabled: () => this.settings.freshness.writeFrontmatter,
+                        getFileByPath: (path) => {
+                            const f = this.app.vault.getAbstractFileByPath(path);
+                            return f instanceof TFile ? f : null;
+                        },
                     });
                 })();
 
@@ -1585,7 +1633,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                             summary: text.slice(0, 600),
                             sources: extractUrlsFromText(text).slice(0, 5),
                             detectedAt: new Date().toISOString(),
-                            strongSignal: extractUrlsFromText(text).length >= 2,
+                            // FIX-19-20-02: domain-grouping over raw URL count.
+                            // Three independent domains required to flag a
+                            // finding as a strong signal.
+                            strongSignal: countIndependentDomains(extractUrlsFromText(text)) >= 3,
                             ...(noteVerdicts.length ? { notes: noteVerdicts } : {}),
                         }],
                         tokensUsed: text.length / 4 + verifierTokens,
@@ -1609,19 +1660,40 @@ export default class ObsidianAgentPlugin extends Plugin {
                     budgetExceededSink,
                     persistence,
                 );
-                // Wrapper: stuendlich check, run weekly via job's internal
-                // rolloverIfNewWeek + lastRun-Logik (vereinfacht via ClusterMeta-State).
+                // FIX-19-20-01: dediziertes stufe3-Flag statt autoTrigger.enabled
+                // (das war Co-Trigger fuer mehrere Auto-Trigger). Stuendlicher
+                // Check, woechentlicher Run via lastRunIso-Persistenz. Pre-Audit
+                // wurde lastRun nur ueber rolloverIfNewWeek im RAM gehalten und
+                // beim Plugin-Reload neu berechnet -- nach Reboot konnte Stufe-3
+                // theoretisch zweimal in einer Woche laufen.
                 this.stufe3IntervalHandle = scheduleRecurring(() => {
                     if (!this.stufe3PeriodicJob) return;
+                    const stufe3Cfg = this.settings.vaultIngest?.stufe3PeriodicJob;
+                    if (!stufe3Cfg?.enabled) return;
+
                     this.stufe3PeriodicJob.rolloverIfNewWeek();
-                    // Run heute nur wenn user explicitly enabled; aktuell
-                    // gating nur ueber suppressRun-Flag aus Settings (no-op
-                    // hooks oben verhindern Tokenverbrauch sowieso).
-                    if (this.settings.vaultIngest?.autoTrigger?.enabled) {
-                        void this.stufe3PeriodicJob.run().catch((e) => {
+
+                    // Persisted lastRunIso ueberprueft: wenn der letzte Run
+                    // weniger als 6 Tage her ist, ueberspringen. Sechs statt
+                    // sieben Tage als Margin, um den woechentlichen Rhythmus
+                    // nicht zu verschieben.
+                    const lastRunIso = stufe3Cfg.lastRunIso;
+                    if (lastRunIso) {
+                        const sinceMs = Date.now() - new Date(lastRunIso).getTime();
+                        if (Number.isFinite(sinceMs) && sinceMs < 6 * 86_400_000) return;
+                    }
+
+                    void this.stufe3PeriodicJob.run()
+                        .then(() => {
+                            const cfg = this.settings.vaultIngest?.stufe3PeriodicJob;
+                            if (cfg) {
+                                cfg.lastRunIso = new Date().toISOString();
+                                void this.saveSettings();
+                            }
+                        })
+                        .catch((e) => {
                             console.debug('[Stufe3] periodic run failed:', e);
                         });
-                    }
                 }, 3_600_000);
             }
 
@@ -1689,6 +1761,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                         backlinksProperty: this.settings.backlinksProperty ?? 'Notizen',
                         silenceWithContextOrphans: this.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                         orphanExcludePathPrefixes: this.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
+                        reciprocalProperties: this.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
                     }).then(() => {
                         // Update badge in sidebar view after health check completes
                         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);

@@ -19,11 +19,13 @@
  * Wayfinder entry: see `src/ARCHITECTURE.map`, row `freshness-orchestrator`.
  */
 
+import type { TFile } from 'obsidian';
 import type { FreshnessQueryBuilder } from './FreshnessQueryBuilder';
 import type { FreshnessVerifier } from './FreshnessVerifier';
 import type { FreshnessWebSearch } from './FreshnessWebSearch';
 import type { NoteFreshnessHistoryStore } from './NoteFreshnessHistoryStore';
 import type { NoteSelector } from './NoteSelector';
+import type { FreshnessFrontmatterPatcher } from './FreshnessFrontmatterPatcher';
 import type { NoteVerdict } from './types';
 
 interface SqlDb {
@@ -33,6 +35,8 @@ interface SqlDb {
 export type ReadNoteBodyFn = (path: string) => Promise<string | null>;
 export type GetTopEntitiesFn = (path: string) => string[];
 export type IsEnabledFn = () => boolean;
+export type IsWriteFrontmatterEnabledFn = () => boolean;
+export type GetFileByPathFn = (path: string) => TFile | null;
 
 export interface FreshnessOrchestratorDeps {
     selector: NoteSelector;
@@ -53,6 +57,21 @@ export interface FreshnessOrchestratorDeps {
      */
     enabled?: IsEnabledFn;
     now?: () => Date;
+    /**
+     * FIX-19-99-03 (FreshnessFrontmatterPatcher wiring): if both the
+     * patcher and the writeFrontmatter gate are provided AND the gate
+     * returns true, every persistVerdict run mirrors the verdict label
+     * into the note's `freshness:` frontmatter key via the allowlisted
+     * patcher. The patcher's allowlist (FRESHNESS_ALLOWLIST = ['freshness'])
+     * makes this safe -- no other YAML key can leak.
+     *
+     * Both fields stay optional so the orchestrator continues to work in
+     * test setups (which do not need a real Vault). main.ts wires the
+     * real callbacks.
+     */
+    frontmatterPatcher?: FreshnessFrontmatterPatcher;
+    writeFrontmatterEnabled?: IsWriteFrontmatterEnabledFn;
+    getFileByPath?: GetFileByPathFn;
 }
 
 export interface RunForClusterResult {
@@ -100,10 +119,31 @@ export class FreshnessOrchestrator {
             tokensUsed += verdict.tokensUsed;
 
             this.persistVerdict(verdict, now);
+            await this.maybeMirrorToFrontmatter(verdict);
             verdicts.push(verdict);
         }
 
         return { verdicts, tokensUsed };
+    }
+
+    /**
+     * FIX-19-99-03: optional frontmatter mirror. Gated behind the
+     * writeFrontmatter setting plus the presence of a patcher + file
+     * lookup, so test deps stay minimal.
+     */
+    private async maybeMirrorToFrontmatter(verdict: NoteVerdict): Promise<void> {
+        const patcher = this.deps.frontmatterPatcher;
+        const gate = this.deps.writeFrontmatterEnabled;
+        const getFile = this.deps.getFileByPath;
+        if (!patcher || !gate || !getFile) return;
+        if (!gate()) return;
+        const file = getFile(verdict.path);
+        if (!file) return;
+        try {
+            await patcher.writeHint(file, { label: verdict.verdict, replace: true });
+        } catch (err) {
+            console.warn('[FreshnessOrchestrator] frontmatter mirror failed:', err);
+        }
     }
 
     private persistVerdict(verdict: NoteVerdict, now: Date): void {

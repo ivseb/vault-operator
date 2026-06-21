@@ -3575,6 +3575,7 @@ export class AgentSidebarView extends ItemView {
                     backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                     orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
+                    reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
                 });
                 const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {

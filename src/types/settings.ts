@@ -1250,6 +1250,23 @@ export interface VaultIngestSettings {
         maxHintsPerDay: number;
     };
     /**
+     * FEAT-19-20 / FIX-19-20-01: Stufe-3 Periodic-Job dediziertes Gating.
+     *
+     * Vor dem Audit lief Stufe-3 an `autoTrigger.enabled` mit (stuendlicher
+     * Check, woechentlicher Run). Audit fand: das war Co-Trigger fuer
+     * mehrere unverwandte Auto-Trigger und damit unklar dokumentiert.
+     * Eigenes Flag macht die Opt-in-Semantik explizit; `lastRunIso`
+     * persistiert den letzten erfolgreichen Lauf (statt nur an
+     * `rolloverIfNewWeek` zu haengen, das beim Plugin-Restart neu
+     * berechnet wurde).
+     */
+    stufe3PeriodicJob: {
+        /** Default false: User muss Stufe-3-Job explizit aktivieren (kostet LLM-Tokens). */
+        enabled: boolean;
+        /** ISO-Timestamp des letzten erfolgreichen Runs. Leer = nie gelaufen. */
+        lastRunIso: string;
+    };
+    /**
      * FEAT-19-31 / IMP-19-31-01: vom User konfigurierbare Frontmatter-
      * Templates pro Ingest-Skill. Skill liest das angegebene File aus
      * dem Vault und nutzt das Frontmatter als Basis fuer die generierte
@@ -1339,6 +1356,10 @@ export const DEFAULT_VAULT_INGEST_SETTINGS: VaultIngestSettings = {
         minDaysSinceCheck: 30,
         perClusterCooldownDays: 7,
         maxHintsPerDay: 5,
+    },
+    stufe3PeriodicJob: {
+        enabled: false,
+        lastRunIso: '',
     },
 };
 
@@ -1488,6 +1509,21 @@ export interface VaultHealthSettings {
      * participate in the knowledge graph.
      */
     orphanExcludePathPrefixes: string[];
+
+    /**
+     * FIX-19-99-02 (cross-property reciprocity): pairs of frontmatter
+     * properties that count as semantically equivalent backlink
+     * relationships even though they have different names. Example:
+     * `[['Notizen', 'Quellen']]` declares that a `Quelle.Notizen ->
+     * Konzept` edge is satisfied when the `Konzept` has a reverse edge
+     * under either `Notizen` OR `Quellen` pointing back at the source.
+     *
+     * Default `[['Notizen', 'Quellen']]` reflects the common
+     * source-note-to-concept-note pattern (Quelle erwaehnt Konzept via
+     * `Notizen:`, Konzept zitiert Quelle via `Quellen:`). Set to `[]`
+     * to enforce strict same-property reciprocity.
+     */
+    reciprocalProperties: Array<[string, string]>;
 }
 
 export const DEFAULT_VAULT_HEALTH_SETTINGS: VaultHealthSettings = {
@@ -1495,6 +1531,7 @@ export const DEFAULT_VAULT_HEALTH_SETTINGS: VaultHealthSettings = {
     orphansTargetFolder: 'Inbox/Orphans',
     silenceWithContextOrphans: true,
     orphanExcludePathPrefixes: ['TaskNotes/', 'Inbox/Orphans/'],
+    reciprocalProperties: [['Notizen', 'Quellen']],
 };
 
 // ---------------------------------------------------------------------------

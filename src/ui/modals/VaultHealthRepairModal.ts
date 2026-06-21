@@ -1263,6 +1263,7 @@ export class VaultHealthRepairModal extends Modal {
             backlinksProperty,
             silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
             orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
+            reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
         });
         // FIX-19-01-06: refresh the modal's internal copy of findings
         // so any subsequent render in the same lifecycle sees the
