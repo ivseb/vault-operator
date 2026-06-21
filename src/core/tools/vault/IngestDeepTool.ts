@@ -219,10 +219,63 @@ export class IngestDeepTool extends BaseTool<'ingest_deep'> {
             return { takeAways };
         };
 
-        // TensionDetector mit Cosine-Pre-Filter via Vault-Search wuerde echten
-        // SemanticIndex-Hook erfordern. Vereinfacht: optional spaeter wenn
-        // SemanticIndex bereitgestellt; hier null.
-        const tensionDetector: TensionDetector | undefined = undefined;
+        // FIX-19-13-01: wire the TensionDetector against SemanticIndex +
+        // helper-api so tension-marker generation actually runs in
+        // ingest-deep. Pre-fix this was hardcoded to `undefined`, which made
+        // FEAT-19-13 "Released" only on paper -- DeepIngestPipeline saw a
+        // missing detector and skipped the marker step.
+        //
+        // The candidateLookup hits the semantic index (top-K cosine match);
+        // the classifier uses the helper-api so its tokens come out of the
+        // helper budget instead of the user-visible model budget. When
+        // either dependency is missing (e.g. embeddings not built yet),
+        // detector stays undefined and the pipeline degrades to "no
+        // markers" -- same observable behaviour as before, just no longer
+        // hardcoded.
+        const semanticIndex = this.plugin.semanticIndex;
+        const mainApi = this.plugin.apiHandler;
+        const helperApi = mainApi
+            ? (await import('../../helper-api')).getHelperApi(this.plugin, mainApi)
+            : null;
+        const tensionDetector: TensionDetector | undefined =
+            (semanticIndex && helperApi)
+                ? new TensionDetector(
+                    async (claim, topK) => {
+                        try {
+                            const hits = await semanticIndex.search(claim, topK);
+                            return hits.map((h) => ({
+                                path: h.path,
+                                summary: h.excerpt,
+                                excerpt: h.excerpt,
+                            }));
+                        } catch (err) {
+                            console.warn('[IngestDeepTool] tension candidateLookup failed:', err);
+                            return [];
+                        }
+                    },
+                    async ({ claim, candidates }) => {
+                        const fallback = { relationship: 'neutral' as const, targetNotePath: '', confidence: 0, rationale: '' };
+                        if (!helperApi.classifyText) return fallback;
+                        try {
+                            const prompt =
+                                `Behauptung: ${claim}\n\nKandidaten:\n` +
+                                candidates.map((c, i) => `${i + 1}. ${c.path}: ${c.excerpt.slice(0, 200)}`).join('\n') +
+                                `\n\nAntworte als JSON: { "relationship": "supports" | "contradicts" | "neutral", "targetNotePath": "<path>", "confidence": 0..1, "rationale": "..." }`;
+                            const raw = await helperApi.classifyText(prompt);
+                            const parsed = JSON.parse(raw) as { relationship: string; targetNotePath: string; confidence: number; rationale: string };
+                            return {
+                                relationship: parsed.relationship as 'supports' | 'contradicts' | 'neutral',
+                                targetNotePath: parsed.targetNotePath,
+                                confidence: parsed.confidence,
+                                rationale: parsed.rationale,
+                            };
+                        } catch (err) {
+                            console.warn('[IngestDeepTool] tension classifier failed:', err);
+                            return fallback;
+                        }
+                    },
+                )
+                : undefined;
 
         // FEAT-19-26: MOC-Update-Hook beim Cluster-Match aufrufen
         const onMOCPageUpdated = async (clusterName: string) => {
