@@ -36,6 +36,34 @@ interface ApiModelEntry {
     display_name?: string;
     created?: number;
     supported_parameters?: string[];
+    // FIX-26-99-04: OpenRouter (and a couple of OpenAI-compatible servers)
+    // ship pricing + context-window info inline with the model list. The
+    // legacy fetcher dropped these fields; ModelDiscoveryService now
+    // reads them so the UI can show real pricing instead of a placeholder.
+    context_length?: number;
+    pricing?: {
+        prompt?: string | number;
+        completion?: string | number;
+    };
+    top_provider?: {
+        context_length?: number;
+        max_completion_tokens?: number;
+    };
+}
+
+/**
+ * FIX-26-99-04: enriched return shape. The OpenRouter branch fills the
+ * optional fields; every other branch leaves them undefined so existing
+ * callers do not need to change. main.ts maps these into
+ * RawDiscoveredModel for ModelDiscoveryService.
+ */
+export interface FetchedModelEntry {
+    id: string;
+    label: string;
+    contextWindow?: number;
+    maxOutputTokens?: number;
+    pricingPromptUsd?: number;
+    pricingCompletionUsd?: number;
 }
 
 /** Shape of a single Ollama model entry. */
@@ -418,7 +446,7 @@ async function fetchProviderModels(
     baseUrl?: string,
     apiVersion?: string,
     bedrockCreds?: BedrockFetchCredentials,
-): Promise<{ id: string; label: string }[]> {
+): Promise<FetchedModelEntry[]> {
     if (provider === 'bedrock') {
         return fetchBedrockModels(bedrockCreds ?? {}, baseUrl);
     }
@@ -511,7 +539,25 @@ async function fetchProviderModels(
                 if (caps.length === 0) return true;
                 return caps.includes('tools') || caps.includes('tool_choice');
             })
-            .map((m) => ({ id: m.id as string, label: (m.name ?? m.id) as string }))
+            .map((m): FetchedModelEntry => {
+                const ppPrompt = m.pricing?.prompt;
+                const ppCompletion = m.pricing?.completion;
+                const toNum = (v: string | number | undefined): number | undefined => {
+                    if (v === undefined) return undefined;
+                    const n = typeof v === 'string' ? parseFloat(v) : v;
+                    return Number.isFinite(n) ? n : undefined;
+                };
+                const ctx = m.top_provider?.context_length ?? m.context_length;
+                const maxOut = m.top_provider?.max_completion_tokens;
+                return {
+                    id: m.id as string,
+                    label: (m.name ?? m.id) as string,
+                    contextWindow: ctx,
+                    maxOutputTokens: maxOut,
+                    pricingPromptUsd: toNum(ppPrompt),
+                    pricingCompletionUsd: toNum(ppCompletion),
+                };
+            })
             .sort((a, b) => a.id.localeCompare(b.id));
     }
 

@@ -712,9 +712,18 @@ export default class ObsidianAgentPlugin extends Plugin {
                     provider.apiVersion,
                     bedrockCreds,
                 );
+                // FIX-26-99-04: forward pricing + capability fields. The
+                // OpenRouter branch of fetchProviderModels fills these in
+                // (OpenRouter ships them inline with /v1/models); other
+                // providers leave them undefined and ModelDiscoveryService
+                // falls back to its built-in heuristics.
                 return raw.map((r): RawDiscoveredModel => ({
                     id: r.id,
                     displayName: r.label,
+                    contextWindow: r.contextWindow,
+                    maxOutputTokens: r.maxOutputTokens,
+                    pricingPromptUsd: r.pricingPromptUsd,
+                    pricingCompletionUsd: r.pricingCompletionUsd,
                 }));
             },
         );
