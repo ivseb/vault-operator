@@ -21,19 +21,27 @@ describe('VaultHealthSettings (IMP-19-01-01)', () => {
         expect(DEFAULT_SETTINGS.vaultHealth.autoApplyRuleRepairs).toBe(false);
     });
 
-    it('VaultHealthSettings shape carries the four current toggles', () => {
+    it('VaultHealthSettings shape carries the five current toggles', () => {
         const probe: VaultHealthSettings = {
             autoApplyRuleRepairs: true,
             orphansTargetFolder: 'Inbox/Orphans',
             silenceWithContextOrphans: true,
             orphanExcludePathPrefixes: ['TaskNotes/'],
+            reciprocalProperties: [['Notizen', 'Quellen']],
         };
         const keys = Object.keys(probe).sort();
         expect(keys).toEqual([
             'autoApplyRuleRepairs',
             'orphanExcludePathPrefixes',
             'orphansTargetFolder',
+            'reciprocalProperties',
             'silenceWithContextOrphans',
+        ]);
+    });
+
+    it('FIX-19-99-02: reciprocalProperties defaults to Notizen <-> Quellen pair', () => {
+        expect(DEFAULT_VAULT_HEALTH_SETTINGS.reciprocalProperties).toEqual([
+            ['Notizen', 'Quellen'],
         ]);
     });
 
