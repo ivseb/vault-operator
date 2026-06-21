@@ -5,8 +5,8 @@ import { withBase } from 'vitepress'
 <template>
   <section class="landing-hero">
     <a href="https://github.com/pssah4/vault-operator/releases" class="landing-badge" target="_blank" rel="noopener">
-      <span class="landing-badge-version">v2.14.9</span>
-      <span>MCP indirect prompt injection + soul.md leak fixed.</span>
+      <span class="landing-badge-version">v2.14.10</span>
+      <span>PDF parsing fixed across ingest, mirror, and semantic index.</span>
     </a>
 
     <h1 class="landing-title">Your Obsidian vault,<br>with a real AI agent.</h1>
