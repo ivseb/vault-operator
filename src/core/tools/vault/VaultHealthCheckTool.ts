@@ -16,11 +16,40 @@ import type ObsidianAgentPlugin from '../../../main';
 
 export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
     readonly name = 'vault_health_check' as const;
-    // Write when fix action is used, read-only for check
-    get isWriteOperation(): boolean { return false; }
+    // FIX-19-99-01: this tool's mutating actions (fix_backlinks, cleanup,
+    // fix_categories, cleanup_edges) modify frontmatter across hundreds of
+    // notes in one call. Pre-fix, isWriteOperation=false caused both
+    // approval and checkpoint to be skipped -- mass-edits ran without a
+    // restore point. The tool is in TOOL_GROUP_MAP.vault, which is
+    // auto-approved by default for the user's own notes, so flipping to
+    // true does not add UI friction. The Pipeline-level checkpoint still
+    // looks for `input.path` (which this tool has no concept of), so the
+    // tool builds an explicit multi-file snapshot itself before any
+    // mutating action via takeRepairSnapshot().
+    get isWriteOperation(): boolean { return true; }
 
     constructor(plugin: ObsidianAgentPlugin) {
         super(plugin);
+    }
+
+    /**
+     * Multi-file snapshot guard: collects every markdown file that the
+     * upcoming mass-repair could touch and commits one checkpoint before
+     * the repair runs. Idempotent if the checkpoint service is missing
+     * (returns null and lets the repair proceed, since vault data is also
+     * undo-able via Obsidian native).
+     */
+    private async takeRepairSnapshot(action: string): Promise<void> {
+        const cp = this.plugin.checkpointService;
+        if (!cp) return;
+        const all = this.plugin.app.vault.getMarkdownFiles().map((f) => f.path);
+        if (all.length === 0) return;
+        const taskId = `vault-health-${action}-${Date.now()}`;
+        try {
+            await cp.snapshot(taskId, all, `vault_health_check:${action}`);
+        } catch (err) {
+            console.warn('[VaultHealthCheck] pre-repair snapshot failed (proceeding anyway):', err);
+        }
     }
 
     getDefinition(): ToolDefinition {
@@ -86,12 +115,14 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                     backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                     orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
+                    reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
                 });
                 const formatted = healthService.formatFindings(findings);
                 callbacks.pushToolResult(formatted);
                 callbacks.log(`Vault health check: ${findings.length} finding(s)`);
 
             } else if (action === 'fix_backlinks') {
+                await this.takeRepairSnapshot('fix_backlinks');
                 // Batch-fix all missing backlinks in pure code (0 LLM tokens)
                 // Uses Base-strategy: Thema/Konzept get embedded Base, others get frontmatter (max 10)
                 const result = await healthService.fixMissingBacklinks(
@@ -107,6 +138,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 callbacks.log(`fix_backlinks: ${result.entitiesFixed} entities, ${result.linksAdded} links`);
 
             } else if (action === 'cleanup') {
+                await this.takeRepairSnapshot('cleanup');
                 // Remove invalid backlinks from frontmatter (non-.md, broken, duplicates)
                 // Also clears Notizen for Thema/Konzept notes (Bases handle those)
                 const result = await healthService.cleanupInvalidBacklinks(
@@ -122,6 +154,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 callbacks.log(`cleanup: ${result.notesProcessed} notes, ${result.linksRemoved} removed`);
 
             } else if (action === 'fix_categories') {
+                await this.takeRepairSnapshot('fix_categories');
                 try {
                     const result = await healthService.fixCategoryMismatches();
                     callbacks.pushToolResult(
@@ -137,6 +170,8 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 }
 
             } else if (action === 'cleanup_edges') {
+                // No pre-snapshot needed: cleanupOrphanedEdges only touches
+                // the knowledge.db edges table, not vault files.
                 const result = healthService.cleanupOrphanedEdges();
                 callbacks.pushToolResult(
                     `Orphaned edges cleaned: ${result.edgesRemoved} edges removed from deleted/trashed notes.\n` +

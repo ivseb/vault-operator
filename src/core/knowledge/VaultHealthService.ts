@@ -90,6 +90,22 @@ export class VaultHealthService {
             silenceWithContextOrphans?: boolean;
             /** FIX-19-01-05: user-defined path-prefix excludes for the orphan check. */
             orphanExcludePathPrefixes?: string[];
+            /**
+             * FIX-19-99-02: list of frontmatter-property pairs that count as
+             * reciprocal even though they have different names.
+             *
+             * Example: `[['Notizen', 'Quellen']]` means
+             *   - a `Quelle.Notizen -> Konzept` edge counts as satisfied if
+             *     the `Konzept` has a reverse edge under either `Notizen`
+             *     OR `Quellen` pointing back at the source.
+             *
+             * Use case from the v2.14.0 stability audit: source notes
+             * reference concepts via `Notizen:`, but the concept references
+             * the source back via `Quellen:`. Same-property reciprocity
+             * is the strict default; this option relaxes the check by
+             * the listed cross-property pairs.
+             */
+            reciprocalProperties?: ReadonlyArray<readonly [string, string]>;
         },
     ): Promise<HealthFinding[]> {
         if (this.running) return this.findings;
@@ -102,6 +118,7 @@ export class VaultHealthService {
         const backlinksProperty = options?.backlinksProperty;
         const silenceWithContextOrphans = options?.silenceWithContextOrphans ?? false;
         const orphanExcludePathPrefixes = options?.orphanExcludePathPrefixes ?? [];
+        const reciprocalProperties = options?.reciprocalProperties ?? [];
 
         try {
             const db = this.getDB();
@@ -125,7 +142,7 @@ export class VaultHealthService {
                         silenceWithContext: silenceWithContextOrphans,
                         excludePathPrefixes: orphanExcludePathPrefixes,
                     }); break;
-                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty); break;
+                    case 'missing_backlinks': this.checkMissingBacklinks(db, backlinksProperty, reciprocalProperties); break;
                     case 'broken_links': this.checkBrokenLinks(db); break;
                     case 'weak_clusters': this.checkWeakClusters(db); break;
                     case 'inconsistent_tags': this.checkInconsistentTags(db); break;
@@ -451,7 +468,11 @@ export class VaultHealthService {
         }
     }
 
-    private checkMissingBacklinks(db: SqlJsDatabase, backlinksProperty?: string): void {
+    private checkMissingBacklinks(
+        db: SqlJsDatabase,
+        backlinksProperty?: string,
+        reciprocalProperties: ReadonlyArray<readonly [string, string]> = [],
+    ): void {
         // FIX-19-01-01: scope the missing-backlink predicate to the
         // configured property when available. The reciprocity rule is
         // per-property: an edge under `Notes:` only needs a reverse
@@ -461,11 +482,33 @@ export class VaultHealthService {
         // tried to fix by writing yet another property name. Both
         // the outer edge and the searched-for reverse edge are
         // pinned to the configured property.
+        // FIX-19-99-02: cross-property reciprocity. The inner reverse-edge
+        // check accepts not just the configured backlinksProperty but every
+        // sibling listed in `reciprocalProperties`. So a
+        // `Quelle.Notizen -> Konzept` edge counts as satisfied when the
+        // `Konzept` has either a `Notizen` or a `Quellen` (or whichever
+        // pair the user configured) reverse edge pointing back. Default
+        // behaviour (empty list) keeps strict same-property reciprocity.
         const outerProperty = backlinksProperty ? 'AND e1.property_name = ?' : '';
-        const innerProperty = backlinksProperty ? 'AND e2.property_name = ?' : '';
+        let innerProperty = backlinksProperty ? 'AND e2.property_name = ?' : '';
         const params: unknown[] = backlinksProperty
             ? [backlinksProperty, backlinksProperty]
             : [];
+        if (backlinksProperty && reciprocalProperties.length > 0) {
+            const reverseProps = new Set<string>([backlinksProperty]);
+            for (const [a, b] of reciprocalProperties) {
+                if (a === backlinksProperty) reverseProps.add(b);
+                if (b === backlinksProperty) reverseProps.add(a);
+            }
+            if (reverseProps.size > 1) {
+                const placeholders = Array.from(reverseProps).map(() => '?').join(',');
+                innerProperty = `AND e2.property_name IN (${placeholders})`;
+                // Replace the second backlinksProperty parameter with the
+                // expanded property set; first parameter (outer) stays.
+                params.length = 1;
+                for (const p of reverseProps) params.push(p);
+            }
+        }
         const result = db.exec(
             `SELECT e1.source_path, e1.target_path
              FROM edges e1
