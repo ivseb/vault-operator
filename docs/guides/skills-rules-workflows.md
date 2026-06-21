@@ -1,9 +1,9 @@
 ---
-title: Skills, Rules & Workflows
+title: Skills, rules and workflows
 description: Create custom behaviors, constraints, and automated task sequences.
 ---
 
-# Skills, rules & workflows
+# Skills, rules and workflows
 
 Vault Operator's behavior is fully customizable. You can give it permanent instructions, teach it new abilities, and build reusable multi-step sequences, all without writing code.
 
@@ -12,9 +12,15 @@ Vault Operator's behavior is fully customizable. You can give it permanent instr
 | Type | What it does | Triggered by | Location |
 |------|-------------|-------------|----------|
 | Rules | Static instructions always injected into the system prompt | Always active (toggle on/off) | `.vault-operator/rules/*.md` |
-| Skills | Instruction sets injected when relevant keywords are detected | Automatic keyword matching | `.vault-operator/skills/{name}/SKILL.md` |
+| Skills | Instruction sets injected when relevant keywords are detected | Automatic keyword matching | See skill locations below |
 | Workflows | Multi-step sequences triggered by slash commands | `/workflow-name` in chat | `.vault-operator/workflows/*.md` |
-| Custom Prompts | Reusable templates with variables | `/` picker in chat | Settings > Custom Prompts |
+| Custom prompts | Reusable templates with variables | `/` picker in chat | Settings > Vault Operator > Customize > Prompts |
+
+Skills live in three subtrees, depending on origin:
+
+- Bundled skills: `.vault-operator/data/skills/{name}/SKILL.md` (shipped with the plugin, refreshed on update).
+- Plugin skills: `.vault-operator/data/skills/plugin/{name}/SKILL.md` (auto-generated from installed Obsidian plugins).
+- Your own skills: `.vault-operator/data/skills/{name}/SKILL.md` (created by you, persisted across updates).
 
 ## Rules
 
@@ -31,7 +37,7 @@ Never use bullet points. Use numbered lists instead.
 When summarizing notes, always include the creation date.
 ```
 
-Toggle rules on and off in **Settings > Vault Operator > Rules**. Disabled rules stay in the folder but stop being injected.
+Toggle rules on and off in **Settings > Vault Operator > Customize > Rules**. Disabled rules stay in the folder but stop being injected.
 
 :::tip When to use rules
 Rules work best for global constraints that should always apply: tone of voice, formatting preferences, language requirements, domain terminology.
@@ -72,17 +78,21 @@ Skills can be restricted to specific agents. A skill meant for the writing agent
 
 Vault Operator discovers your installed Obsidian plugins and can use them. There are three mechanisms.
 
-Plugin skills (automatic). On startup, Vault Operator scans all installed plugins and generates skill files that describe their capabilities. If you have Dataview installed, the agent knows it can run Dataview queries. If you have Templater, it knows about your templates. You can see these in **Settings > Skills > Plugin Skills** and toggle them on or off per plugin.
+Plugin skills (automatic). On startup, Vault Operator scans all installed plugins and generates skill files that describe their capabilities. If you have Dataview installed, the agent knows it can run Dataview queries. If you have Templater, it knows about your templates. You can see these in **Settings > Vault Operator > Customize > Skills > Plugin skills** and toggle them on or off per plugin.
 
-Plugin commands. The agent can run any Obsidian command through the `execute_command` tool. That includes commands from your plugins, like "Dataview: Refresh all views" or "Templater: Insert template". Commands require approval by default (configurable under Settings > Auto-Approve > Plugin Skills).
+Plugin commands. The agent can run any Obsidian command through the `execute_command` tool. That includes commands from your plugins, like "Dataview: Refresh all views" or "Templater: Insert template". Commands require approval by default (configurable under **Settings > Vault Operator > Agents > Auto-approve > Plugin skills**).
 
-Plugin API. For deeper integration, the agent can read data from plugin APIs using `call_plugin_api`. It can query Dataview results or read Omnisearch indexes. Write access to plugin APIs is off by default and requires explicit opt-in under Settings > Auto-Approve > Plugin API Writes.
+Plugin API. For deeper integration, the agent can read data from plugin APIs using `call_plugin_api`. It can query Dataview results or read Omnisearch indexes. Write access to plugin APIs is off by default and requires explicit opt-in under **Settings > Vault Operator > Agents > Auto-approve > Plugin API writes**.
 
 :::tip Rescan after installing plugins
-If you install a new plugin while Obsidian is running, go to **Settings > Skills** and click **"Rescan vault"** to pick it up. Otherwise it gets discovered on next restart.
+If you install a new plugin while Obsidian is running, go to **Settings > Vault Operator > Customize > Skills** and click **Rescan vault** to pick it up. Otherwise it gets discovered on next restart.
 :::
 
 You can also create your own skills that build on plugin capabilities. A "Project Dashboard" skill could use Dataview queries to generate a summary canvas, for example.
+
+### Skills that run scripts
+
+For binary formats (PPTX, DOCX, XLSX) or heavy compute (image processing with sharp, data transforms), a skill can call `run_skill_script`. The skill ships a Node script next to its `SKILL.md`, and the agent invokes it with arguments. Use this when the work is deterministic and would be expensive in tool calls (for example, building a 30-slide deck from a JSON outline, or batch-resizing image attachments).
 
 ## Workflows
 
@@ -115,7 +125,7 @@ Custom prompts are reusable message templates with variable placeholders. Two va
 
 Example: a prompt called "Explain Like I'm 5" with the template `Explain the following in simple terms a beginner would understand: {{activeFile}}`.
 
-Create and manage custom prompts in **Settings > Vault Operator > Custom Prompts**, or type `/` in the chat to browse and trigger them.
+Create and manage custom prompts in **Settings > Vault Operator > Customize > Prompts**, or type `/` in the chat to browse and trigger them.
 
 ## Choosing the right tool
 
@@ -124,7 +134,7 @@ Create and manage custom prompts in **Settings > Vault Operator > Custom Prompts
 | Set a permanent formatting or tone rule | Rule |
 | Teach the agent a domain-specific process | Skill |
 | Build a repeatable multi-step procedure | Workflow |
-| Save a frequently used prompt | Custom Prompt |
+| Save a frequently used prompt | Custom prompt |
 
 :::warning Keep rules focused
 Too many rules bloat the system prompt and can confuse the model. Prefer skills for specialized knowledge. They only activate when needed.
@@ -132,6 +142,6 @@ Too many rules bloat the system prompt and can confuse the model. Prefer skills 
 
 ## Next steps
 
-- [Office Documents](/guides/office-documents): Create presentations, documents, and spreadsheets
-- [Connectors](/guides/connectors): Hook up external tools and expose your vault
-- [Multi-Agent & Tasks](/guides/multi-agent): Hand work off to sub-agents
+- [Office documents](/guides/office-documents): create presentations, documents, and spreadsheets.
+- [Connectors](/guides/connectors): hook up external tools and expose your vault.
+- [Multi-agent and tasks](/guides/multi-agent): hand work off to sub-agents.

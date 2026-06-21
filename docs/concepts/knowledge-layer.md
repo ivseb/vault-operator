@@ -46,9 +46,9 @@ Stage 3 is implicit connections. Some notes are similar but have no explicit lin
 
 This stage is what separates the knowledge layer from a standard search engine. It surfaces relationships that exist semantically but not structurally. You might have two meeting notes from different projects that discuss the same technical problem. No link between them, no shared tags, but the implicit connection picks them up. The `dismissed_pairs` table lets you prune false positives. If the system keeps surfacing a pair that isn't actually related, you can dismiss it.
 
-Stage 4 is reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (Xenova/ms-marco-MiniLM-L-6-v2 via transformers.js WASM). Unlike the embedding model, which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) downloads the model from HuggingFace on first use and caches it locally.
+Stage 4 is reranking. All candidates from the first three stages are re-scored by a local cross-encoder model (`Xenova/ms-marco-MiniLM-L-6-v2` via transformers.js WASM). Unlike the embedding model, which encodes query and document separately, the cross-encoder processes the pair together and produces a more accurate relevance score. The `RerankerService` (`src/core/knowledge/RerankerService.ts`) loads the model from the local cache once it has been installed.
 
-The cross-encoder is small (about 80 MB) and runs entirely on CPU via WASM. First-time download takes a few seconds. After that it loads from the local cache in under a second.
+The cross-encoder ships as an optional asset. Install it from Settings > Vault Operator > Providers > Embeddings > Reranker model > Install. The download is around 80 MB and runs entirely on CPU via WASM. If the model is not installed, retrieval silently falls back to the first three stages (vector search, graph expansion, and implicit connections), so search still works without it.
 
 ## Indexing
 
@@ -71,11 +71,13 @@ Everything lives in a single SQLite database managed by `KnowledgeDB` (`src/core
 | `ingest_triage_log` | Triage decisions per source URI (FEAT-19-12) | `source_uri`, `decision`, `cluster_match`, `created_at` |
 
 The database supports three storage locations with a fallback chain:
-- Global: `~/.obsidian-agent/knowledge.db` (shared across vaults, desktop only)
-- Local: `{vault}/.obsidian-agent/knowledge.db`
+- Global: `~/.vault-operator/data/knowledge.db` (shared across vaults, desktop only)
+- Local: `{vault}/.vault-operator/data/knowledge.db` (default)
 - Obsidian Sync: `{vault}/{pluginDir}/knowledge.db`
 
-The schema is versioned (currently v10). When a schema change ships, `KnowledgeDB` runs migration logic on open. Daily snapshots in `.bak/{name}/{YYYY-MM-DD}.db` provide a 7-day recovery window if a write goes wrong, and a lock file prevents two plugin instances from corrupting the same database. Atomic writes plus a multi-file commit journal keep the database consistent across both `global` and `local`/`obsidian-sync` storage modes (FEATURE-0314).
+The agent folder was renamed from `.obsidian-agent` to `.vault-operator` in v2.13. Existing databases at the old path are still picked up.
+
+The schema is versioned (see `SCHEMA_VERSION` in `src/core/knowledge/KnowledgeDB.ts`). When a schema change ships, `KnowledgeDB` runs migration logic on open. Daily snapshots in `.bak/{name}/{YYYY-MM-DD}.db` provide a 7-day recovery window if a write goes wrong, and a lock file prevents two plugin instances from corrupting the same database. Atomic writes plus a multi-file commit journal keep the database consistent across both `global` and `local`/`obsidian-sync` storage modes.
 
 ## The ontology store
 

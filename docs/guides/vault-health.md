@@ -1,5 +1,5 @@
 ---
-title: Vault Health Check
+title: Vault health check
 description: Diagnose and repair structural problems in your vault, from orphans and broken links to category mismatches and overloaded hub notes.
 ---
 
@@ -7,15 +7,17 @@ description: Diagnose and repair structural problems in your vault, from orphans
 
 Any vault you keep for more than a few months accumulates rough edges. You rename a note and the wikilinks pointing at the old name quietly break. A Map of Content links outward but never gets linked back. One person writes `#meeting` everywhere while another part of the vault has drifted to `#meetings`. A topic note that started as a clean hub is now carrying eighty backlinks and has turned into a dumping ground.
 
-The vault health check is the feature that finds these problems and helps you fix them. It runs entirely in code against the knowledge database, so it doesn't spend any LLM tokens. Running it is effectively free.
+The vault health check finds these problems and helps you fix them.
 
 ## The health badge
 
-Open the Vault Operator sidebar and look for a small colored dot next to the vault health icon. That dot is the health badge.
+The badge is a stethoscope icon in the sidebar header, just left of the settings button. It stays hidden until a scan finds something. Once findings exist the icon appears and takes its colour from the highest severity in the result: low is the neutral accent, medium goes orange, high goes red.
 
-No dot means everything looks fine. Orange means there are medium-severity findings waiting. Red means at least one is high-severity. Click the icon to open the repair modal, or trigger a scan from the sidebar ellipsis menu. You can also just ask the agent:
+Click the icon to open the repair modal. To trigger a scan, use the sidebar ellipsis menu or just ask the agent:
 
 > "Run a health check on my vault."
+
+Under the hood the agent calls the `vault_health_check` tool. The check runs entirely in code against the knowledge database, so no LLM tokens are spent on the scan itself.
 
 ## What the check looks for
 
@@ -53,11 +55,13 @@ The modal footer shows a count of everything you've dismissed. Click it to open 
 
 There's no schedule. The scan is cheap enough that you could run it after every session, but in practice most users only run it when something prompts them: after importing a batch of notes, after reorganizing folders, when search results start feeling patchy, or as occasional housekeeping every few weeks.
 
-Once you've done a few of these, a session settles into a rhythm. Open the modal, deal with the red-dot items first. Batch-repair the obvious mechanical stuff. Use discuss on the few findings that actually need you to think. Dismiss the ones that were fine all along. Come back another day if there's still orange left over.
+Once you've done a few of these, a session settles into a rhythm. Open the modal, deal with the red (high-severity) items first. Batch-repair the obvious mechanical stuff. Use discuss on the few findings that actually need you to think. Dismiss the ones that were fine all along. Come back another day if there's still orange left over.
 
 ## Configuration
 
-The health check reads a few of your vault conventions from [Settings > Embeddings > Knowledge Properties](/reference/settings#knowledge-properties) so it can validate category and summary properties correctly. Set those once and the check uses them for every scan. The god-node threshold is also configurable if fifty connections feels too strict or too loose for your vault size.
+The health check reads a few vault conventions from [Settings > Vault Operator > Providers > Embeddings](/reference/settings#knowledge-properties) so it can validate category and summary properties correctly. Set those once and the check uses them for every scan. The god-node threshold is also configurable if fifty connections feels too strict or too loose for your vault size.
+
+For mechanical, low-risk repairs (like reformatting a malformed wikilink), you can let the agent apply them without asking. Toggle "Vault health auto-fix" under [Settings > Vault Operator > Vault > Vault](/reference/settings#vault). Anything ambiguous still goes through Discuss.
 
 ## Related
 

@@ -14,6 +14,7 @@
     "format": "prettier --write 'src/**/*.ts'",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
+    "docs:gen-tools": "node scripts/generate-tools-reference.mjs",
     "docs:preview": "vitepress preview docs",
     "codeql:db": "codeql database create codeql-db --language=javascript --source-root=src/ --overwrite",
     "codeql:analyze": "codeql database analyze codeql-db --format=sarif-latest --output=codeql-results.sarif codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls",

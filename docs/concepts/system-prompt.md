@@ -1,96 +1,108 @@
 ---
-title: System Prompt
-description: How the agent's system prompt is assembled from modular sections, skills, memory, and mode context.
+title: System prompt
+description: How the agent's system prompt is assembled from modular sections, skills, memory, and agent context.
 ---
 
 # System prompt
 
-The system prompt is the first thing the model sees. It tells the agent who it is, what tools it has, what rules to follow, and what the user's vault looks like. The prompt is not a static string. It is assembled from around 20 modular sections, filtered by the active mode, and enriched with runtime context like skills and memory.
+The system prompt is the first thing the model sees. It tells the agent who it is, what tools it has, what rules to follow, and what the vault looks like. The prompt is not a static string. It is assembled from around twenty modular sections, filtered by the active agent, and enriched with runtime context like skills and memory.
 
-The orchestrator is `buildSystemPromptForMode()` in `src/core/systemPrompt.ts`, and the sections live in `src/core/prompts/sections/`. Those are paths in the plugin **source code** (this repository), for contributors building from source. They are not files inside the installed plugin, so you will not find them in your vault or in `.obsidian/plugins/vault-operator/`.
+The orchestrator is `buildSystemPromptForMode()` in `src/core/systemPrompt.ts`, and the sections live in `src/core/prompts/sections/`. Those paths are in the plugin source code (this repository) for contributors building from source. They are not files inside the installed plugin, so you will not find them in your vault or in `.obsidian/plugins/vault-operator/`.
 
-:::tip Trimming the prompt as a user
-You do not need to edit source files to make the prompt smaller. Turn on **Settings > Loop > Lean system prompt** to switch to the compact prompt variants (it drops the long cost-heuristics text and collapses the plugin-skill catalogue, which re-expands when a skill is mentioned). It saves several thousand tokens without removing tool, safety, or response-format guidance.
+:::tip Trim the prompt as a user
+You do not need to edit source files to make the prompt smaller. Turn on Settings > Vault Operator > Advanced > Loop > Lean system prompt to switch to the compact prompt variants. It drops the long cost-heuristics text and collapses the plugin-skill catalogue, which re-expands once a skill is mentioned. The toggle saves several thousand tokens without removing tool, safety, or response-format guidance.
 :::
 
 ## Why modular?
 
-A monolithic prompt becomes unworkable past a few hundred lines. Vault Operator's prompt routinely exceeds 5,000 tokens because the agent needs to understand 80 tools, safety rules, vault conventions, and user-specific context. Modules solve two real problems. First, different modes need different prompts: a read-only mode shouldn't include write-tool descriptions, and subtasks should skip skills and memory to stay lean. With modules, you toggle sections on or off. Second, adding a skill or a new tool group shouldn't require editing a monolithic template. Each concern lives in its own file.
+A monolithic prompt becomes unworkable past a few hundred lines. The Vault Operator prompt routinely exceeds 5,000 tokens because the agent has to understand the full tool surface, safety rules, vault conventions, and user-specific context. Modules solve two real problems. First, agents need different prompts: a read-only configuration drops write-tool descriptions, and subtasks skip skills and memory to stay lean. With modules you toggle sections on or off. Second, adding a skill or a new tool group should not require rewriting one large template. Each concern lives in its own file.
 
 ## Assembly order
 
-Position matters. LLMs pay more attention to content near the top (primacy effect) and the bottom (recency effect). A second constraint turned out to be more important than primacy though: KV-cache efficiency.
+Position matters. Language models pay more attention to content near the top (primacy effect) and the bottom (recency effect). A second constraint turned out to be more important than primacy: KV-cache efficiency.
 
-Modern LLM APIs cache the key-value state of the prompt prefix. As long as the beginning of the prompt stays identical across calls, the cached tokens don't need to be recomputed. Anthropic's API offers this explicitly with a cache control parameter, while OpenAI and DeepSeek do automatic prefix caching. A single changed token at the start invalidates the entire cache for everything after it.
+Modern LLM APIs cache the key-value state of the prompt prefix. As long as the beginning of the prompt stays identical across calls, the cached tokens do not need to be recomputed. A single changed token at the start invalidates the entire cache for everything after it. Providers differ in how they expose this:
 
-The original prompt had the current timestamp at position 1. Every API call has a different timestamp, so we got zero cache hits across iterations. Moving the timestamp to the end and sorting all sections by stability made the first ~20,000 tokens cacheable across an entire task session. Over eight iterations, actual computation drops from 8 x 25,000 = 200,000 tokens to roughly 25,000 + 7 x 5,000 = 60,000 tokens.
+- Anthropic uses explicit `cache_control` markers on the system prompt.
+- Bedrock Claude uses explicit `cachePoint` markers.
+- OpenAI gpt-4o, gpt-4.1, o1, o3 and o4 do implicit prefix caching without a marker.
+- Gemini does not cache short-lived prompts in v2.14. TTL-based context caching is tracked separately and is not on by default.
 
-The sections are now ordered by stability, with the stable prefix first and dynamic content last:
+The original prompt had the current timestamp at position 1. Every API call has a different timestamp, so we got zero cache hits across iterations. Moving the timestamp to the end and sorting all sections by stability turned the first roughly 20,000 tokens into a cache-stable prefix across a task session. Over eight iterations, billed computation drops from 8 x 25,000 = 200,000 tokens to roughly 25,000 + 7 x 5,000 = 60,000 tokens on providers with prefix caching.
 
-**Stable prefix (cached across iterations within a session):**
+The sections are now ordered by stability, with the stable prefix first and dynamic content last. The exact order matches `buildSystemPromptForMode()` in `src/core/systemPrompt.ts:233`.
+
+Stable prefix (above the cache breakpoint, cached across iterations within a session):
 
 | # | Section | What it does |
-|---|---------|-------------|
-| 1 | Mode Definition | Sets the role, shaping everything that follows |
+|---|---------|--------------|
+| 1 | Mode definition | Sets the role (or a subagent profile override) that shapes everything below |
+| 1b | Cost-aware heuristics | Plan-first, tool tiers, anti-overthinking, budget awareness. Lean variant on auto-mode mid-tier loops. |
 | 2 | Capabilities | Compact summary of what the agent can do |
-| 3 | Obsidian Conventions | Vault-specific rules: frontmatter, wikilinks, etc. |
-| 4 | Tools | Tool list, filtered by the mode's `toolGroups` (the largest section, roughly 1,000 to 4,000 tokens depending on the active tool groups) |
-| 5 | Tool Routing | Tool selection rules and decision guidelines |
+| 3 | Obsidian conventions | Vault rules: frontmatter, wikilinks, attachments |
+| 4 | Tools | Compact tool catalogue, filtered by the agent's `toolGroups`. Full docs load on demand via `find_tool`. |
+| 5 | Tool routing | Tool selection rules and decision guidelines |
 | 6 | Objective | Task decomposition strategy |
-| 7 | Response Format | Output structure rules (skipped in subtasks) |
-| 8 | Security Boundary | Prompt injection defense, permission boundaries |
+| 7 | Response format | Output structure rules (omitted in subtasks) |
+| 8 | Security boundary | Prompt-injection defence, permission boundaries |
+| 8b | Skill directory | Stable list of every installed skill (name plus description). The model loads the full body on demand via `read_skill`. |
 
-**Dynamic suffix (can change per message or session, not cached):**
+Cache breakpoint (sentinel line, stripped before send): providers that need an explicit marker put it on everything above this line. Everything below changes per message or session and is not cached.
+
+Dynamic suffix:
 
 | # | Section | What it does |
-|---|---------|-------------|
-| 9 | Plugin Skills | Skills from installed Obsidian plugins |
-| 10 | Active Skills | High-priority workflow instructions (skipped in subtasks) |
-| 11 | Memory | User memory context (skipped in subtasks) |
-| 12 | Procedural Recipes | Learned and static recipes for known task patterns |
-| 13 | Self-Authored Skills | Skills created through the bundled `skill-creator` skill |
-| 14 | Custom Instructions + Rules | User's global + per-mode instructions, rules from `~/.obsidian-agent/rules/` |
-| 15 | Vault Context | Current vault state and structure |
-| 16 | Date/Time | Current timestamp (must be last, changes every call) |
+|---|---------|--------------|
+| 8c | Advisor hint | Suggests a single `consult_flagship` call after repeated failures (auto-mode only) |
+| 9 | Plugin skills | Plugin-skill catalogue (lean stub until a plugin skill is invoked) |
+| 10 | Memory | User memory context (skipped in subtasks) |
+| 11 | Procedural recipes | Recipes matched against the current message (skipped in subtasks) |
+| 12 | Custom instructions and rules | Global plus per-agent instructions and rule files from `{agentFolder}/rules/` |
+| 13 | Explicit instructions | Hard guardrails kept verbatim (e.g. tool-format reminders) |
+| 14 | Vault context | Current vault state and structure |
+| 15 | Date and time | Current timestamp. Must be last because it invalidates KV-cache. |
 
-Empty sections are filtered out before joining. If there's no memory context, the memory section is absent. No hollow headers, no wasted tokens.
+Empty sections are filtered out before joining. If there is no memory context, the memory section is absent. No hollow headers, no wasted tokens.
 
-Moving skills from position 3 to position 10 loses some primacy effect. To compensate, the system appends the current task list as the final user message before every LLM call, exploiting the model's recency bias. This technique is borrowed from Manus' context engineering approach.
+Moving skills out of the top of the prompt loses some primacy effect. To compensate, the system appends the current task list as the final user message before every LLM call, exploiting the model's recency bias. The technique is borrowed from Manus context engineering.
 
-## How skills get injected
+## How skills are presented
 
-Skills are markdown files that contain workflow instructions. They activate when a user message matches their trigger keywords:
+Skills are markdown files with workflow instructions for a specific task type. Two loaders feed them into the prompt:
 
-1. `SelfAuthoredSkillLoader` reads user and learned skills from the configured agent folder (default `~/.obsidian-agent/skills/`), and `BuiltinSkillMaterializer` writes bundled skills to that same folder on plugin load.
-2. The user's message is compared against each skill's trigger patterns.
-3. Matching skills are concatenated into the active skills section at position 10.
+1. `BuiltinSkillMaterializer` writes the bundled skills to disk on plugin load.
+2. `SelfAuthoredSkillLoader` reads user-created and learned skills from the configured agent folder. The default is `.vault-operator/data/skills/` (upgraded from `.obsidian-agent/skills/` in v2.13).
 
-Skills sit in the dynamic block because different messages activate different skills. Placing them in the stable prefix would invalidate the KV cache whenever the active skill set changes. To compensate for the reduced primacy, skills are marked with a `SKILL PRECEDENCE (MANDATORY)` header that the model treats as a strong instruction signal. The recency anchor (task list as last user message) provides additional reinforcement.
+All installed skills appear in section 8b above the cache breakpoint as a directory: name plus one-line description. The directory sits in the stable cached prefix so it does not invalidate the KV cache between turns. The directory wraps the entries in `<available_skills>...</available_skills>` and tells the model that when a skill matches the task it must call `read_skill({ name: "<name>" })` to load the full body, then follow that workflow step by step (the skill body OVERRIDES default tool selection and general guidelines for that task).
 
-Self-authored skills (ones created through the bundled `skill-creator` skill, written to disk with `write_file`) land at position 13, after active skills and memory. They supplement the primary skills rather than replacing them.
+The full skill body lives in the message stream as a tool result, not in the system prompt. This keeps the cache-stable prefix small and lets microcompaction trim older skill bodies once they are no longer needed.
 
-## How memory gets injected
+## How memory is injected
 
-The memory section pulls relevant entries from the user's memory database and injects them as context. Subtasks skip memory entirely to keep child prompts focused.
+The memory section pulls relevant entries from the user's memory database and inserts them as context. Subtasks skip memory entirely to keep child prompts focused.
 
 ## Token budget
 
-The system prompt cannot exceed the model's context window. When you add a long custom instruction or load several skills, the prompt grows. Core sections (tools, security boundary) are always present. Optional sections (memory, skills, custom instructions) can be trimmed or skipped based on available context.
+The system prompt cannot exceed the model's context window. Adding a long custom instruction or loading several skills makes the prompt grow. Core sections (tools, security boundary) are always present. Optional sections (memory, plugin-skill catalogue, custom instructions) can be trimmed or skipped depending on available context.
 
-Subtasks trim the hardest. A child task skips skills, memory, response format, recipes, self-authored skills, and custom instructions. It gets the tools, the rules, and the job, nothing more.
+Subtasks trim the hardest. A child task skips the skill directory, memory, response format, recipes, and custom instructions. It gets the tools, the rules, and the job, nothing more.
 
-## Per-mode customization
+## Per-agent customization
 
-Each mode provides a `roleDefinition` that goes into the mode definition section, and optional `customInstructions` appended to the custom instructions section. The `toolGroups` field controls which tools appear in the tools section.
-
-Two modes can produce very different system prompts from the same set of section modules. Ask mode gets a read-only role definition and no write tools. Agent mode gets the full set.
+Each agent provides a `roleDefinition` that goes into the mode-definition section, and optional `customInstructions` appended to the custom-instructions section. The `toolGroups` field controls which tools appear in the tools section. Two custom agents can produce very different system prompts from the same set of modules: a research configuration with only the read and vault groups gets a read-only role and no write tools, while the default agent gets the full set.
 
 ## Prompt caching
 
-The system prompt has two levels of caching. At the application level, `AgentTask` caches the assembled prompt per mode and rebuilds it only when the active mode changes, when a settings change affects tool availability, or when an explicit invalidation is triggered.
+Caching has two levels. At the application level, `AgentTask` caches the assembled prompt per agent and rebuilds it only when the active agent changes, when a settings change affects tool availability, or when an explicit invalidation triggers.
 
-At the API level, the stable prefix (positions 1-8) benefits from provider-level KV-cache. Anthropic's API receives a `cache_control` marker on the system prompt, and OpenAI and DeepSeek do automatic prefix caching. Because all dynamic content sits after the stable block, the first ~20,000 tokens are computed once per session and served from cache on subsequent iterations. This is the single biggest cost optimization in the system: it turns the system prompt from the second-largest cost block into a near-zero marginal cost per iteration.
+At the API level, the stable prefix benefits from provider-level KV-cache:
+
+- Anthropic and Bedrock receive an explicit cache marker on everything above the cache breakpoint.
+- OpenAI gpt-4o, gpt-4.1, o1, o3 and o4 hit their implicit prefix cache automatically.
+- Gemini does not cache short-lived prompts in v2.14.
+
+On providers that cache, all dynamic content sits below the breakpoint, so the first roughly 20,000 tokens are computed once per session and served from cache on subsequent iterations. This is the single biggest cost win in the system. It turns the system prompt from the second-largest cost block into a near-zero marginal cost per iteration.
 
 ## Power steering
 
-During long-running tasks, `AgentTask` injects a synthetic user message every N iterations. It contains the active mode's role definition, active skill names, and a reminder to stay on task. This isn't a system prompt change, it's a user-role message appended to the conversation history. The model treats it as a redirect.
+During long-running tasks, `AgentTask` injects a synthetic user message every N iterations. It contains the active agent's role definition, active skill names, and a reminder to stay on task. This is not a system-prompt change, it is a user-role message appended to the conversation history. The model treats it as a redirect.

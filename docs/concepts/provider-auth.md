@@ -98,7 +98,7 @@ The relevant source files:
 | `src/api/index.ts` | Factory function, provider routing |
 | `src/api/types.ts` | `ApiHandler` interface, stream types |
 | `src/api/providers/anthropic.ts` | Anthropic SDK integration |
-| `src/api/providers/openai.ts` | OpenAI-compatible provider (handles 6+ providers) |
+| `src/api/providers/openai.ts` | OpenAI-compatible provider (handles 7 provider types) |
 | `src/api/providers/bedrock.ts` | AWS Bedrock with SigV4 signing and `cachePoint` |
 | `src/api/providers/github-copilot.ts` | Copilot provider with custom fetch |
 | `src/api/providers/kilo-gateway.ts` | Kilo Gateway with device auth |

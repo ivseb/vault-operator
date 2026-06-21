@@ -5,7 +5,11 @@ description: Common issues and how to fix them.
 
 # Troubleshooting
 
-Fixes for the most common Vault Operator issues. If your problem isn't here, check the **Debug** tab in settings or ask in the community forum.
+Fixes for the most common Vault Operator issues. If your problem is not listed here, open Settings > Vault Operator > Advanced > Debug and check the latest log entries, or ask in the community forum.
+
+:::info Plugin name in Obsidian
+The plugin is called **Vault Operator** in Obsidian (Settings > Community plugins). It is not listed as "Obsidian Agent". The plugin id is `vault-operator`.
+:::
 
 ## Model connection issues
 
@@ -13,14 +17,14 @@ Symptom: "Connection failed" or "API key invalid" when testing a model.
 
 | Cause | Solution |
 |-------|----------|
-| Wrong API key | Double-check the key in **Settings > Models**. Regenerate it at the provider's website if unsure. |
+| Wrong API key | Re-enter the key in Settings > Vault Operator > Providers > Providers. Regenerate it at the provider's website if unsure. |
 | Expired key | Some providers expire keys after inactivity. Generate a new one. |
 | Wrong base URL | For Azure and custom endpoints, verify the full URL including `/v1` if required. |
-| Rate limited | Wait a few minutes and try again. Consider setting a rate limit in **Settings > Loop**. |
+| Rate limited | Wait a few minutes and try again. Consider setting a rate limit in Settings > Vault Operator > Advanced > Loop. |
 | Firewall or proxy | Obsidian uses Electron's network stack. Check that your firewall allows outbound HTTPS. |
 
-:::tip Test button
-Always use the **Test connection** button after adding or changing a model. It verifies the key, endpoint, and model name in one step.
+:::tip Test connection
+After adding or changing a model, use the **Test connection** action on the model row. It verifies the key, endpoint, and model id in one step.
 :::
 
 ## Semantic search not working
@@ -29,11 +33,16 @@ Symptom: `semantic_search` returns no results, or the agent says the index is no
 
 | Cause | Solution |
 |-------|----------|
-| No embedding model configured | Go to **Settings > Embeddings** and set up an embedding model (e.g., OpenAI `text-embedding-3-small`). |
-| Index not built | Click **Rebuild index** in **Settings > Embeddings**. First build can take a few minutes for large vaults. |
+| No embedding model configured | Go to Settings > Vault Operator > Providers > Embeddings and set up an embedding model (for example OpenAI `text-embedding-3-small`). |
+| Semantic index disabled | The **Build index** button stays greyed out until the semantic index is enabled. Turn on Settings > Vault Operator > Providers > Embeddings > Semantic index first. |
+| Index not built | Once enabled, click **Build index** in Settings > Vault Operator > Providers > Embeddings > Semantic index. The first build can take a few minutes for large vaults. |
 | Embedding API key missing | The embedding model may need its own API key. Check the embeddings settings. |
-| Auto-index disabled | If auto-index is off, new or changed notes won't be indexed. Enable it or rebuild manually. |
-| Vault too large | For vaults with 10,000+ notes, the initial build may take a while. Let it finish before searching. |
+| Auto-index off | The default for `semanticAutoIndex` is `never`. Pick `startup` or `mode-switch` in Settings > Vault Operator > Providers > Embeddings > Index configuration, or rebuild manually after changes. |
+| Vault too large | For vaults with 10,000 or more notes, the initial build takes a while. Let it finish before searching. |
+
+:::warning Force rebuild deletes the index
+**Force rebuild** drops the existing vectors before re-indexing. **Cancel** during a normal build keeps the partial progress. Only use force rebuild after a schema change or a corrupted index.
+:::
 
 ## Agent stuck in a loop
 
@@ -41,11 +50,11 @@ Symptom: The agent keeps calling tools repeatedly without making progress, or hi
 
 | Cause | Solution |
 |-------|----------|
-| Weak model | Smaller or older models sometimes repeat themselves. Switch to a stronger model (Claude Sonnet, GPT-4o). |
-| Consecutive error limit too high | Lower it in **Settings > Loop > Consecutive error limit** (default: 3). |
-| Max iterations too high | Set a reasonable cap in **Settings > Loop > Max iterations** (default: 25). |
-| Tool permission denied repeatedly | The agent asks for approval but you haven't responded. Approve or deny to let it continue. |
-| Context overflow | Enable **context condensing** in **Settings > Loop**. Lower the condensing threshold if you see 400-errors. |
+| Weak model | Smaller or older models sometimes repeat themselves. Switch to a flagship model (Claude Sonnet, GPT-4o, GPT-5-class). |
+| Consecutive error limit too high | Lower it in Settings > Vault Operator > Advanced > Loop > Consecutive error limit (default: 3). |
+| Max iterations too high | Set a reasonable cap in Settings > Vault Operator > Advanced > Loop > Max iterations (default: 25). |
+| Approval pending | The agent paused on an approval and is waiting for you. Approve or deny in the chat to let it continue. |
+| Context overflow | Enable **context condensing** in Settings > Vault Operator > Advanced > Loop. Lower the condensing threshold if you see 400-errors. |
 
 :::info Emergency stop
 Click the **Stop** button in the chat toolbar at any time to halt the agent. You can undo any changes already made via the checkpoint system.
@@ -57,10 +66,10 @@ Symptom: The agent says it cannot perform an action, or approvals keep appearing
 
 | Cause | Solution |
 |-------|----------|
-| Auto-approve not enabled | Go to **Settings > Permissions** and enable auto-approve for categories you trust. |
+| Auto-approve not enabled | Go to Settings > Vault Operator > Agents > Auto-approve and enable the categories you trust. |
 | File is in the ignore list | Check `.obsidian-agentignore` in your vault root. Remove the path if the agent should access it. |
 | File is protected | Check `.obsidian-agentprotected`. The agent can read but not write these files. |
-| Mode restricts tools | The current mode may not include the needed tool group. Switch to Agent mode or edit the mode's tools. |
+| Custom agent restricts tools | The active custom agent may not include the needed tool group. Switch to the **Default agent**, or edit the custom agent's tool groups in Settings > Vault Operator > Agents > Agents. |
 
 ## MCP server not connecting
 
@@ -68,11 +77,11 @@ Symptom: "Failed to connect" or "Server unreachable" when adding or using an MCP
 
 | Cause | Solution |
 |-------|----------|
-| Wrong transport type | Only **SSE** and **streamable-http** are supported. Stdio doesn't work in Obsidian's Electron runtime. |
-| Server not running | Verify the MCP server is running and accessible at the configured URL. |
+| Wrong transport type | Only **SSE** and **streamable-http** are supported. Stdio does not work in Obsidian's Electron runtime. |
+| Server not running | Verify the MCP server is running and reachable at the configured URL. |
 | Wrong URL | Check the server URL. Common format: `http://localhost:3000/sse` or `http://localhost:3000/mcp`. |
 | CORS issues | If the MCP server runs locally, it may need CORS headers. Check the server's documentation. |
-| Network timeout | Increase the connection timeout in the MCP server settings, or check your network. |
+| Network timeout | Increase the connection timeout on the server entry in Settings > Vault Operator > Customize > Connectors, or check your network. |
 
 ## Performance problems
 
@@ -81,10 +90,10 @@ Symptom: Obsidian feels slow, the agent takes a long time, or the UI lags.
 | Cause | Solution |
 |-------|----------|
 | Large vault indexing | The semantic index build runs in the background. Wait for it to finish. |
-| Too many concurrent sub-agents | Limit subtask depth in **Settings > Loop** (default: 2). |
+| Too many concurrent sub-agents | Lower the subtask depth cap in Settings > Vault Operator > Advanced > Loop (default: 2). |
 | Large context window | Enable context condensing to keep the conversation from growing too large. |
-| Many MCP servers | Each connected server maintains an active connection. Remove unused servers. |
-| Slow model | Local models on limited hardware can be slow. Try a smaller model or use a cloud provider. |
+| Many MCP servers | Each connected server maintains an active connection. Remove unused servers in Settings > Vault Operator > Customize > Connectors. |
+| Slow model | Local models on limited hardware can be slow. Try a smaller model or switch to a cloud provider. |
 
 ## Knowledge database errors
 
@@ -92,14 +101,14 @@ Symptom: The plugin logs "knowledge.db is corrupt", "database is locked", "integ
 
 | Cause | Solution |
 |-------|----------|
-| Corrupt write after a crash or power loss | The plugin runs an `integrity_check` and auto-recovers from the last good state on the next open. Reopen Obsidian. If it does not recover, restore from `.bak/{db-name}/{YYYY-MM-DD}.db` next to the active database (daily snapshots, 7-day retention). The active path depends on the storage mode: `~/.obsidian-agent/` (global), `{vault}/.obsidian-agent/` (local), or `{vault}/{pluginDir}/` (obsidian-sync). |
+| Corrupt write after a crash or power loss | The plugin runs an `integrity_check` and auto-recovers from the last good state on the next open. Reopen Obsidian. If recovery does not succeed, restore from `.bak/{db-name}/{YYYY-MM-DD}.db` next to the active database (daily snapshots, 7-day retention). The active path depends on the storage mode: `~/.vault-operator/` (global), `{vault}/.vault-operator/` (local), or `{vault}/{pluginDir}/` (obsidian-sync). The folder is `.obsidian-agent/` on installs upgraded from v2.12 or earlier. |
 | Another Obsidian window has the database open | A second running instance holds a lock file. Close the other window or restart Obsidian. |
-| Storage mode mismatch after switching `global`, `local`, or `obsidian-sync` | A switch resets the active database. Set the desired mode in **Settings > Embeddings > Storage location** and rebuild the index. |
+| Storage mode mismatch after switching `global`, `local`, or `obsidian-sync` | A switch resets the active database. Set the desired mode in Settings > Vault Operator > Providers > Embeddings > Index configuration and rebuild the index. |
 | Database wedged after a failed upgrade | Quit Obsidian. Move `knowledge.db` and `knowledge.db-journal` aside and copy the most recent file from the `.bak/` snapshot folder into place. Reopen. |
-| Semantic index missing after restoring a vault from backup | The index lives outside the vault. Open **Settings > Embeddings** and click **Rebuild index**. |
+| Semantic index missing after restoring a vault from backup | The index lives outside the vault. Open Settings > Vault Operator > Providers > Embeddings > Semantic index and click **Build index**. |
 
 :::warning Do not delete `knowledge.db` while Obsidian is running
-The lock file is held by the live process. Quit Obsidian first, then move or restore the file. Deleting it mid-run drops all embeddings, the memory store, and the conversation history index, and requires a full reindex.
+The lock file is held by the live process. Quit Obsidian first, then move or restore the file. Deleting it mid-run drops all embeddings, the memory store, and the conversation history index, and forces a full reindex.
 :::
 
 ## `write_file` is truncated mid-output
@@ -108,10 +117,10 @@ Symptom: The agent calls `write_file`, but the file ends mid-sentence or shows a
 
 | Cause | Solution |
 |-------|----------|
-| `max_tokens` too low for the model | Open **Settings > Models**, edit the active model, and switch on **Automatic (recommended)** for max output tokens. The plugin then clamps the output budget to the model's real ceiling minus the estimated input. |
-| Manual `max_tokens` plus a large thinking budget | For Anthropic and Bedrock, `max_tokens` covers the thinking budget AND the visible output. A configured `max_tokens=8192` with a `thinking_budget=10000` leaves nothing for the visible tool call. Set **Automatic** or raise `max_tokens` well above the thinking budget. |
+| `max_tokens` too low for the model | Open Settings > Vault Operator > Providers > Providers, edit the active model, and turn on **Automatic (recommended)** for max output tokens. The plugin then clamps the output budget to the model's real ceiling minus the estimated input. |
+| Manual `max_tokens` plus a large thinking budget | For Anthropic and Bedrock, `max_tokens` covers the thinking budget AND the visible output. A configured `max_tokens=8192` with a `thinking_budget=10000` leaves nothing for the visible tool call. Switch to **Automatic**, or raise `max_tokens` well above the thinking budget. |
 | Very long file in a single call | Ask the agent to split the file: `write_file` for the head section, then `append_to_file` calls for the following sections. The built-in prompt already nudges the model to do this for content above 2000 words. |
-| Repeated parse-error loop after a truncation | The agent now reports the real provider error back into the tool result and trips the consecutive-mistake circuit breaker after three retries (default). If the loop survives, click **Stop** and start a fresh conversation. |
+| Repeated parse-error loop after a truncation | The agent reports the real provider error back into the tool result and trips the consecutive-mistake circuit breaker after three retries (default). If the loop survives, click **Stop** and start a fresh conversation. |
 
 ## Context overflow on long conversations
 
@@ -119,21 +128,21 @@ Symptom: A 400 error with `context_length_exceeded`, `prompt is too long`, or th
 
 | Cause | Solution |
 |-------|----------|
-| Conversation too long for the model's context window | Enable **Context condensing** in **Settings > Loop**. The plugin keeps a stable cache-aligned prefix and condenses older turns. |
+| Conversation too long for the model's context window | Enable **Context condensing** in Settings > Vault Operator > Advanced > Loop. The plugin keeps a stable cache-aligned prefix and condenses older turns. |
 | Threshold set too high | Lower **Condensing threshold** to 0.6 or 0.7. The plugin also runs an emergency condensing pass on any 400 context-overflow error. |
-| Very large @-mention attached to the chat | Plaintext, Markdown, and XML attachments are now capped at 80,000 characters with a `read_file path=...` hint. Older builds injected the full text. Update the plugin, or split the source into smaller notes. |
-| Long tool output filling the context | Enable **Context externalization** in **Settings > Loop**. Large tool outputs are written to a temp file and the conversation keeps a compact reference (`read_file path=...`) instead of the full payload. |
+| Very large @-mention attached to the chat | Plaintext, Markdown, and XML attachments are capped at 80,000 characters with a `read_file path=...` hint. Older builds injected the full text. Update the plugin, or split the source into smaller notes. |
+| Long tool output filling the context | Enable **Context externalization** in Settings > Vault Operator > Advanced > Loop. Large tool outputs are written to a temp file and the conversation keeps a compact reference (`read_file path=...`) instead of the full payload. |
 
 ## Memory not extracting
 
-Symptom: The agent doesn't remember things from previous conversations.
+Symptom: The agent does not remember things from previous conversations.
 
 | Cause | Solution |
 |-------|----------|
-| Memory extraction disabled | Enable it in **Settings > Memory > Memory extraction**. |
+| Memory extraction disabled | Enable it in Settings > Vault Operator > Agents > Memory > Memory extraction. |
 | Chat history disabled | Memory extraction requires saved conversations. Enable **Chat history** first. |
-| Threshold too high | Lower the **Memory threshold** in settings (default: 0.7). A value of 0.5 captures more memories. |
-| Wrong memory model | If the memory model isn't configured or is offline, extraction silently fails. Check **Settings > Memory > Memory model**. |
+| Threshold too high | Lower the **Memory threshold** in Settings > Vault Operator > Agents > Memory (default: 0.7). A value of 0.5 captures more memories. |
+| Wrong memory model | If the memory model is not configured or is offline, extraction silently fails. Check Settings > Vault Operator > Agents > Memory > Memory model. |
 | Short conversations | Very brief exchanges may not contain extractable facts. This is normal. |
 
 ## Common error messages
@@ -141,14 +150,14 @@ Symptom: The agent doesn't remember things from previous conversations.
 | Error | Meaning | Fix |
 |-------|---------|-----|
 | `400: context_length_exceeded` | The conversation is too long for the model's context window. | Enable context condensing. Start a new chat for fresh context. |
-| `400: tool_use ids were found without tool_result` | Anthropic / Claude-via-Copilot rejected the request because the conversation history had an orphan tool call. Usually caused by an aborted stream or a resumed crashed conversation. | v2.5.0 sanitises the history automatically on every API call, so this should no longer surface. If it does, start a new conversation. |
+| `400: tool_use ids were found without tool_result` | Anthropic or Claude-via-Copilot rejected the request because the conversation history had an orphan tool call. Usually caused by an aborted stream or a resumed crashed conversation. | v2.5.0 sanitises the history automatically on every API call, so this should no longer surface. If it does, start a new conversation. |
 | `400: Unsupported parameter: 'max_tokens' is not supported` | Old Copilot code path sending the wrong token-limit parameter. | v2.5.0 sends `max_completion_tokens` for every Copilot model. Update Vault Operator. |
-| `401: Unauthorized` | Invalid or expired API key. | Re-enter the key in Settings > Models. |
-| `429: Rate limit exceeded` | Too many API calls in a short time. | Set a rate limit in Settings > Loop, or wait and retry. |
-| `ECONNREFUSED` | Local server (Ollama, LM Studio) isn't running. | Start the local server, then retry. |
-| `Checkpoint failed` | Could not create a file snapshot before editing. | Check disk space. Increase snapshot timeout in Settings > Vault. |
-| Drawio / Diagrams plugin says "Not a diagram file" when opening a file the agent wrote | Hand-authored `.drawio.svg` without a valid mxfile wrapper. | Delete the broken file. Ask the agent again. v2.5.0 blocks direct `write_file` for `.drawio.svg` and routes to the built-in `create_drawio` tool, which writes a plugin-compatible format. |
+| `401: Unauthorized` | Invalid or expired API key. | Re-enter the key in Settings > Vault Operator > Providers > Providers. |
+| `429: Rate limit exceeded` | Too many API calls in a short time. | Set a rate limit in Settings > Vault Operator > Advanced > Loop, or wait and retry. |
+| `ECONNREFUSED` | Local server (Ollama, LM Studio) is not running. | Start the local server, then retry. |
+| `Checkpoint failed` | Could not create a file snapshot before editing. | Check disk space. Adjust the snapshot timeout in Settings > Vault Operator > Vault > Vault. |
+| Drawio or Diagrams plugin says "Not a diagram file" when opening a file the agent wrote | Hand-authored `.drawio.svg` without a valid mxfile wrapper. | Delete the broken file. Ask the agent again. v2.5.0 blocks direct `write_file` for `.drawio.svg` and routes to the built-in `create_drawio` tool, which writes a plugin-compatible format. |
 
-:::tip Debug tab
-The **Debug** tab in settings shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for each provider. Start here when something behaves unexpectedly.
+:::tip Debug surface
+Settings > Vault Operator > Advanced > Debug shows the agent's internal ring buffer (last 100 log entries), the generated system prompt, and connection status for each provider. Start here when something behaves unexpectedly.
 :::

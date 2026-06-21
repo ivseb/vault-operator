@@ -1,5 +1,5 @@
 ---
-title: Power Features
+title: Power features
 description: "Advanced tools for research, automation, and self-introspection: anti-echo search, sandbox code execution, and self-development."
 ---
 
@@ -34,7 +34,7 @@ The agent then runs `anti_echo_search`, returns sources that frame the topic dif
 
 ## Sandbox code execution
 
-`evaluate_expression` runs a snippet of TypeScript in an isolated sandbox with vault access. It is the right answer when a task needs a loop, a computation, or a transformation that would otherwise mean calling `edit_file` 50 times.
+`evaluate_expression` runs a snippet of TypeScript in an isolated sandbox with vault access. `run_skill_script` runs a skill-supplied script in the same sandbox so a slash command can do batch work without writing the code inline. Both are the right answer when a task needs a loop, a computation, or a transformation that would otherwise mean calling `edit_file` 50 times.
 
 ### When to use it
 
@@ -48,7 +48,13 @@ The agent then runs `anti_echo_search`, returns sources that frame the topic dif
 - Read and write text and JSON files in the vault via a bridge that honors your permission settings.
 - Read and write binary data through `ctx.vault.readBinary` and `ctx.vault.writeBinary`.
 - Make HTTP requests via `ctx.requestUrl` (the Obsidian-safe wrapper, not raw `fetch`).
-- Import ESM packages from a CDN. The plugin bundles transitive dependencies automatically.
+- Import ESM packages from a CDN. The plugin bundles transitive dependencies automatically via `esbuild-wasm`, with `esm.sh?bundle` as the preferred source and jsdelivr as fallback.
+
+### How it runs
+
+- Each call is compiled with `esbuild-wasm` to a single ESM module, then executed via `new Function()` inside a worker. CSP allows `script-src 'unsafe-eval'` so the dynamic eval works.
+- Transitive `import` statements that point at `esm.sh` or jsdelivr URLs are resolved recursively and inlined, so a one-line `import { z } from "zod"` ends up with the full dependency graph bundled in the same module.
+- The bridge to the vault is a message channel. The script never touches the Obsidian API directly.
 
 ### What the sandbox cannot do
 
@@ -62,7 +68,7 @@ The agent then runs `anti_echo_search`, returns sources that frame the topic dif
 
 ### Approval and audit
 
-Sandbox runs need approval like any other write tool, even when the script does not write anything. The approval card shows the full source code before it runs. Sandbox execution is logged in the audit trail (**Settings > Log**) just like any other tool call.
+Sandbox runs need approval like any other write tool, even when the script does not write anything. The approval card shows the full source code before it runs. Sandbox execution is logged in the audit trail (**Settings > Vault Operator > Advanced > Log**) just like any other tool call.
 
 ## Self-development tools
 
@@ -88,7 +94,7 @@ Useful when something behaved oddly and you want the agent to introspect what ha
 
 Read the plugin's own TypeScript source code so the agent can answer "how does feature X work?" questions and propose code patches.
 
-**Setup:** This tool needs an optional source bundle (~5 MB) that ships outside the main plugin to keep Obsidian Sync fast for users who do not need it. Install it from **Settings > Optional Assets > Self-Development source > Install**. The bundle is verified by SHA256 against the plugin's GitHub release.
+**Setup:** This tool needs an optional source bundle (~5 MB) that ships outside the main plugin to keep Obsidian Sync fast for users who do not need it. Install it from **Settings > Vault Operator > Advanced > Optional assets > Self-development source > Install**. The bundle is verified by SHA256 against the plugin's GitHub release.
 
 > **Example prompt:** "Show me how `semantic_search` picks the embedding model" or "Propose a patch that lowers the default chunk size."
 

@@ -1,23 +1,53 @@
 ---
-title: Knowledge Ingest
-description: Integrate PDFs, web clips, and Office documents into your vault with block-level provenance and a triage step that filters before you read.
+title: Knowledge ingest
+description: Pull PDFs, web clips, and Office documents into your vault with block-level provenance, a quick single-pass capture, and a five-step sense-making session for sources that deserve real reading.
 ---
 
 # Knowledge ingest
 
 Adding a new source to a well-kept vault is more work than reading the source. You decide whether it is worth the effort, figure out where it belongs, link it to hubs that already exist, write a summary that keeps the caveats, and keep a way to trace any claim back to the paragraph that produced it. That is the bookkeeping layer that makes a vault useful six months later, and most people quietly skip it until everything is a mess.
 
-Vault Operator's ingest workflow does the bookkeeping with you. Two paths cover the daily cases: a quick single-pass `/ingest` for inbox capture, and a multi-turn `/ingest-deep` for sense-making on research papers, long reports, and anything that needs more than a summary.
+Vault Operator's ingest workflow does the bookkeeping with you. Two paths cover the daily cases: a single-pass `/ingest` for inbox capture, and a five-step `/ingest-deep` for sense-making on research papers, long reports, and anything that needs more than a summary.
 
-Both paths share three rules:
+Both paths share two rules:
 
-1. Triage first, read later.
-2. One source produces one or more notes that fit the vault, not a chat log.
-3. Every key statement in the output ends with a `↗` link that resolves to the exact block in the source. See [block-level provenance](/concepts/provenance) for the why.
+1. One source produces one or more notes that fit the vault, not a chat log.
+2. Every key statement in the output ends with a `↗` link that resolves to the exact block in the source. See [block-level provenance](/concepts/provenance) for the why.
 
-## Triage first
+## /ingest: single-pass capture
 
-Before any deep reading, the skill calls `ingest_triage` against the vault's own ontology. Ten seconds, about $0.05 per pass.
+For an inbox PDF, a webclip, or a meeting export. Drop the file into the chat or point the agent at a vault path:
+
+> "Ingest this report."
+
+The skill makes one tool call (`ingest_document`). No triage card, no decision dialog. The result is a single Markdown note containing:
+
+- Frontmatter: source path, source type, ingest date, plus the fields your template requires (author, year, summary, tags).
+- An overview section with two or three sentences capturing the core message.
+- A `## Key Take-Aways` section with key statements, each ending with a position marker (`↗` link, target shape depends on source type, see [provenance](/concepts/provenance)).
+- The full original text, appended automatically by the tool. No LLM token cost for the body.
+
+Click the `↗` and you land at the paragraph that produced the claim.
+
+Use `/ingest` when you want the source captured in the vault for later, without a structured sense-making session right now. If you want to triage the source first (cluster match, source diversity, tension hint), use `/ingest-deep` instead, which starts with exactly that step.
+
+## /ingest-deep: a guided five-step session
+
+For research papers, long reports, domain-specific DOCX/PPTX, anything that wants a real reading session. Five to fifteen minutes of dialog with the model.
+
+Since v2.12.0 the skill follows a strict five-step sequence. The agent will not improvise. You stay in control of every meaningful decision.
+
+| Step | What the agent does | What you do |
+|------|--------------------|-------------|
+| 1 | Triage and decision: `ingest_triage` runs against the vault's ontology (cluster match, tension hint, source diversity, related notes, related facts, related history), then asks: ingest, defer, or discard? | Read the triage card, then choose. If you defer or discard, the workflow ends. |
+| 2 | Output mode and topic selection: the agent reads the source, proposes a numbered topic table, then asks which topics to extract and which output mode to use. | Answer with "All" or a list of numbers, then pick an output mode. |
+| 3 | `ingest_deep` sets block IDs in the source. | Wait. |
+| 4 | The agent writes the sense-making note (one note or several zettel, depending on the chosen mode). | Review and approve. |
+| 5 | A single `update_frontmatter` on the source links every new note via the `Notizen:` property (or whatever your `backlinksProperty` is set to). | Done. |
+
+Behind the scenes that maps to nine tool calls. The user-visible plan is the five steps above. The agent stops at every `ask_followup_question` and waits for your answer. The stop sits at output-mode selection, not before it.
+
+### The triage card (step 1)
 
 Triage returns a single card with:
 
@@ -29,49 +59,16 @@ Triage returns a single card with:
 - **Related chat history.** Search across past conversation chunks that mention the same material.
 - **Recommendation.** Ingest, defer to later, or discard.
 
-If the recommendation is *discard* or *later*, the workflow stops there. The decision is logged so the same source never triggers triage twice. This is the cheapest possible filter against vault bloat.
+About ten seconds, around $0.05 per pass. If the recommendation is *discard* or *later*, the workflow stops there and the decision is logged so the same source does not trigger triage twice.
 
-## /ingest: quick single-pass
+The triage card stays in the chat for the whole session, so you can reread it before answering the output-mode question.
 
-For an inbox PDF, a webclip, or a meeting export. Drop the file into the chat or point the agent at a vault path:
-
-> "Ingest this report."
-
-The skill calls `ingest_document` once. The result is a single Markdown note containing:
-
-- Frontmatter: source path, source type, ingest date, cluster, plus the fields your templates require (author, year, summary, tags).
-- An overview section with two or three sentences capturing the core message.
-- A `## Key Take-Aways` section with key statements, each ending with a position marker (`↗` link, target shape depends on source type, see [provenance](/concepts/provenance)).
-- The full original text, appended automatically by the tool. No LLM token cost for the body.
-
-Click the `↗` and you land at the paragraph that produced the claim.
-
-Use `/ingest` when you want the source captured in the vault for later, without a structured sense-making session right now.
-
-## /ingest-deep: a guided seven-step session
-
-For research papers, long reports, domain-specific DOCX/PPTX, anything that wants a real reading session. Five to fifteen minutes of dialog with the model.
-
-Since v2.12.0 the skill follows a strict seven-step sequence. The agent will not improvise. You stay in control of every meaningful decision.
-
-| Step | What happens | You do |
-|------|--------------|--------|
-| 1 | `ingest_triage` on the source | wait (10 seconds) |
-| 2 | Triage card displayed: cluster + tension + recommendation + related notes from vault, memory, and history | read the card |
-| 3 | Agent asks: ingest, defer, or discard? | choose. If you defer or discard, the workflow ends |
-| 4 | Agent reads the source and proposes a numbered topic table | read the topics |
-| 5 | Agent asks: which topics do you want extracted? | answer with "All" or a list of numbers |
-| 6 | Agent asks: which output mode? (one sense-making note, multiple zettel, source-only with take-aways in chat, or stop) | choose |
-| 7 | `ingest_deep` runs with explicit block anchors, then derived notes are written one by one, then a single `update_frontmatter` on the source links every new note via the `Notizen:` property | review the proposals, approve, done |
-
-The triage card stays in the chat for the whole session, so you can reread it before answering step 3 or step 6.
-
-### Output modes (step 6)
+### Output modes (step 2)
 
 - **One sense-making note** (`source-plus-summary`). One dense note covering all chosen topics. Each take-away ends with a block-ref to the source.
 - **Multiple atomic zettel** (`source-plus-multi-zettel`). One bibliography note plus N atomic notes, Luhmann-style. For material that wants to be split.
 - **Source-only with take-aways in chat** (`source-only`). The triage card and a clean source note get written. Take-aways stay in the chat dialog. Per-aspect detail notes are created on demand later, once the dialog reveals what is worth a separate zettel.
-- **Stop.** You decided in step 6 that none of the modes fit. Nothing further is written. The triage decision is still logged.
+- **Stop.** You decided that none of the modes fit. Nothing further is written. The triage decision is still logged.
 
 Defaults are conservative. For a typical inbox source, "source-only with take-aways in chat" works best. The skill does not push every reading session into a giant sense-making note unless you ask for it.
 
@@ -93,31 +90,32 @@ When the deep-ingest dialog identifies a new entity that deserves its own note, 
 
 Since v2.12.0, chat attachments behave the way you would expect.
 
-When you drag a PDF (or DOCX, XLSX) into the chat, Vault Operator writes the binary to your Obsidian attachment folder (`attachmentFolderPath` from `.obsidian/app.json`, default `Attachements/`). The agent then references the file by its vault path, so follow-up turns can rename it, parse it, or ingest it without you re-uploading.
+When you drag a PDF (or DOCX, XLSX) into the chat, Vault Operator writes the binary to your Obsidian attachment folder (`attachmentFolderPath` from `.obsidian/app.json`, default `Attachments/`). The agent then references the file by its vault path, so follow-up turns can rename it, parse it, or ingest it without you re-uploading.
 
 This means `/ingest-deep` works directly on a chat-dropped PDF. No manual "save to vault first" step. The vault path appears in the `<attached_document>` block the agent receives, and the rest of the skill operates against that path.
 
 PPTX and POTX templates land in `Tools & Settings/Templates` instead, since that is where the office pipeline looks for them.
 
-## Configuration
+## Configuration {#frontmatter-template}
 
 Ingest reads its frontmatter templates and entity properties from settings.
 
-In **Settings > Vault > Ingest**:
+Under **Settings > Vault Operator > Vault > Vault**, in the Ingest section:
 
-- `ingestNoteTemplate`: vault-relative path to the Markdown template used by `/ingest`. The skill reads the frontmatter block and fills it from the source.
-- `ingestDeepNoteTemplate`: same idea for `/ingest-deep`.
-- `meetingSummaryNoteTemplate`: same idea for `/meeting-summary`.
+- `ingestNoteTemplate`: vault-relative path to the Markdown template used by `/ingest`. The skill reads the frontmatter block and fills it from the source. The First-Run Wizard preselects `Quelle Template.md` (German vaults) or `Source Template.md` (English vaults) inside the Templates folder configured in Obsidian's core Templates plugin (read from `.obsidian/templates.json`). Empty by default if the wizard was skipped.
+- `ingestDeepNoteTemplate`: same idea for `/ingest-deep`. Same default behaviour from the wizard.
+- `meetingSummaryTemplate`: same idea for `/meeting-summary`.
 - `pdfStrategy`: `page-refs` (default for `/ingest`) or `markdown-mirror` (forced for `/ingest-deep`).
 
-In **Settings > Embeddings > Knowledge Properties**:
+Under **Settings > Vault Operator > Providers > Embeddings**, in the Graph expansion section:
 
-- **Entity properties**: which frontmatter keys hold wikilinks to other notes (`Topics`, `Concepts`, `People`, `Projects`, `Sources`).
-- **Category property**: which key defines the note type. Default `Category`.
-- **Summary property**: which key holds the short summary. Default `Summary`.
-- **Source naming convention**: the filename pattern for sources. Default `Author-Year_Title`.
+- **Map-of-content property names**: which frontmatter keys hold wikilinks to other notes. Default: `Themen, Konzepte, Personen, Notizen, Meeting-Notes, Quellen` (six keys, German). Edit the list to match your vault, for example `Topics, Concepts, People, Notes, Meeting-Notes, Sources` for an English vault.
+- **Category property**: which key defines the note type. Default: `Kategorie`.
+- **Backlinks property**: which key holds the reverse link from a source to its derived notes. Default: `Notizen`. Used by step 5 of `/ingest-deep` and by the vault health repair pass.
+- **Summary property**: which key holds the short summary. Default: `Zusammenfassung`.
+- **Source naming convention**: the filename pattern for sources. Default: `Autor-Jahr_Titel`.
 
-Set these once to match what your vault already does. The agent uses them for every ingest run after that. See [Settings reference](/reference/settings) for the full list.
+These defaults reflect a German Zettelkasten vault. Translate them to match your vault once and the agent uses your conventions for every ingest run after that. See [Settings reference](/reference/settings) for the full list.
 
 ## Attachment cleanup
 
@@ -139,4 +137,4 @@ Ingest is the write-path side of the same story that [vault health](/guides/vaul
 - [Knowledge discovery](/guides/knowledge-discovery): the semantic index and graph that ingest uses to find existing entities.
 - [Vault health check](/guides/vault-health): repair work for entries that drifted.
 - [Memory and personalization](/guides/memory-personalization): how Vault Operator remembers your preferred categories and conventions over time.
-- [Tools reference](/reference/tools#knowledge-ingest-tools): the underlying `ingest_triage`, `ingest_document`, and `ingest_deep` tools.
+- [Tools reference](/reference/tools#knowledge-ingest): the underlying `ingest_triage`, `ingest_document`, and `ingest_deep` tools.

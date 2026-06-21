@@ -1,52 +1,62 @@
 ---
 title: Connectors
-description: MCP client for external tools, MCP server for Claude Desktop and ChatGPT, and remote access via Cloudflare relay.
+description: Connect external MCP tools to Vault Operator, expose your vault to Claude Desktop and ChatGPT, and reach it remotely via a Cloudflare relay.
 ---
 
 # Connectors
 
-Vault Operator can connect to external tools, expose your vault and memory layer to other AI applications, and let you reach it remotely. It does this through the Model Context Protocol (MCP) and a Cloudflare relay.
+Vault Operator can call tools that live in external MCP servers, expose your vault and memory layer to other AI clients, and let you reach it remotely. All of this lives under one tab: **Settings > Vault Operator > Customize > Connectors**.
 
-## MCP client: connect external tools
+The tab has three in-page sections:
+
+- **Local connector**: turn this Obsidian instance into an MCP server for Claude Desktop and similar local clients.
+- **Remote access**: pair the local server with a Cloudflare relay so ChatGPT, Perplexity, or another remote client can reach it.
+- **External tool servers**: list of MCP servers that Vault Operator calls out to.
+
+## External tool servers: call MCP tools from the agent
 
 The MCP client lets Vault Operator use tools that live in external MCP servers. You can extend what the agent can do without writing a plugin.
 
 ### What you can connect
 
 Any MCP-compatible server works. A few common examples:
+
 - Database tools (query SQLite, PostgreSQL, or other databases)
 - Web services (call APIs, fetch data)
-- Local tools (file system utilities, shell commands, custom scripts)
+- Local utilities exposed over HTTP (file system helpers, custom scripts)
 - Third-party integrations (GitHub, Slack, calendar services)
 
 ### Setup
 
-1. Open **Settings > Vault Operator > MCP**
+1. Open **Settings > Vault Operator > Customize > Connectors > External tool servers**
 2. Click **"+ Add Server"**
 3. Choose the transport type:
 
 | Transport | When to use |
-|-----------|------------|
-| stdio | Local servers running as command-line processes |
+|-----------|-------------|
 | Streamable HTTP | Modern remote servers (recommended) |
 | SSE | Older remote servers using Server-Sent Events (fallback) |
 
-4. Enter the server command or URL
+4. Enter the server URL
 5. Save. The agent picks up available tools automatically.
 
 Once connected, the agent calls external tools with `use_mcp_tool` and manages servers with `manage_mcp_server`.
+
+:::tip Stdio-only servers need a bridge
+Vault Operator does not start child processes for stdio MCP servers. If the server you want to use only ships a stdio binary (for example Playwright MCP), run it locally as an HTTP server first, then point Vault Operator at that URL. Example: `npx @playwright/mcp@latest --port 3001`, then add `http://localhost:3001` as a Streamable HTTP server.
+:::
 
 :::tip Discovery is automatic
 You don't need to tell the agent which tools are available. It reads the tool list from each connected MCP server and uses them when they fit your request.
 :::
 
-## MCP server: expose Vault Operator to other AI clients
+## Local connector: expose Vault Operator to other AI clients
 
 You can turn Vault Operator into an MCP server so Claude Desktop, ChatGPT, Perplexity, or any other MCP client can read and write your vault, memory, and history layers.
 
 ### Why this matters
 
-Most external AI clients cannot access your Obsidian notes on their own. With Vault Operator's MCP server enabled, they get structured access to:
+Most external AI clients cannot access your Obsidian notes on their own. With Vault Operator's local connector enabled, they get structured access to:
 
 - The vault: search and read notes, run vault operations
 - Persistent memory: cross-surface facts and preferences
@@ -61,25 +71,24 @@ Each external call carries a `source_interface` tag (`obsilo`, `claude-ai`, `cla
 | Read | `get_context`, `search_vault`, `read_notes`, `get_vault_note_metadata`, `get_vault_implicit_edges` | Vault, ontology, structural information |
 | Memory | `recall_memory`, `save_to_memory`, `update_memory` (deprecated) | Persistent facts and preferences across surfaces |
 | History | `save_conversation`, `close_conversation`, `search_history`, `sync_session` | Conversations as living documents, plus full-text search |
-| Write | `write_vault`, `execute_vault_op` | Create, edit, delete files; run any of ~60 vault operations |
+| Write | `write_vault`, `execute_vault_op` | Create, edit, delete files. Runs vault operations from the plugin's tool registry. |
 
-`execute_vault_op` is the gateway to all vault operations. It lists about 60 available tools at runtime, including `vault_health_check`, `semantic_search`, `create_pptx`, and others. The list is generated from the plugin's tool registry, so new tools show up automatically without any config changes.
+`execute_vault_op` is the gateway to all vault operations. It lists the available tools at runtime, including `vault_health_check`, `semantic_search`, `create_pptx`, and others. The list is generated from the plugin's tool registry, so new tools show up automatically without any config changes.
 
 `get_context` is meant to be called first in every conversation. It returns user profile, memory, behavioral patterns, vault statistics, available skills, and rules.
 
 ### Strict source isolation
 
-Sharing all of your memory layer with every external client is rarely what you want. **Settings > Memory > Cross-Surface Sync** has two switches:
+Strict source isolation is **off by default** for all surfaces. External clients see the full memory and history layer through `get_context`, `recall_memory`, and `search_history`.
 
-- **Strict source isolation** (default for non-Vault Operator callers): under strict mode, `get_context`, `recall_memory`, and `search_history` only return memory and history items tagged `source_interface = obsilo`. External clients see vault stats and structural info, but not your personal memory.
-- **Per-surface sync mode**: opt specific surfaces into shared memory if you want unified behaviour across them.
+Turn it on under **Settings > Vault Operator > Customize > Connectors > Cross-Surface Sync** when you want to keep your personal memory inside Vault Operator and only share structural vault info with external clients. With strict mode on, those three tools only return items tagged `source_interface = obsilo`.
 
-The default is conservative. Loosen it deliberately, per surface, when the trade-off is worth it.
+You can also enable per-surface sync to opt specific clients into shared memory after turning strict mode on.
 
 ### Setup for Claude Desktop
 
-1. Open **Settings > Vault Operator > MCP > Server** tab
-2. Enable the MCP server
+1. Open **Settings > Vault Operator > Customize > Connectors > Local connector**
+2. Enable the local connector
 3. Click **"Configure Claude Desktop"**. This writes the configuration into Claude Desktop's config file for you.
 4. Restart Claude Desktop
 
@@ -87,7 +96,7 @@ Claude Desktop now sees the vault, memory, and history as available tool sources
 
 ### Setup for ChatGPT (custom connector)
 
-1. In Vault Operator, open **Settings > MCP > Remote** and copy the relay URL (see Remote access below).
+1. In Vault Operator, open **Settings > Vault Operator > Customize > Connectors > Remote access** and copy the relay URL (see Remote access below).
 2. In ChatGPT, open **Settings > Connectors > Create custom connector**.
 3. Use the relay URL as the MCP server endpoint.
 4. Authorize. ChatGPT now has the same four tiers available, gated by your strict-source-isolation setting.
@@ -113,7 +122,7 @@ A Cloudflare Workers relay acts as a bridge between your local Vault Operator in
 ### Setup
 
 1. Deploy the Cloudflare Worker (see the relay deployment guide)
-2. In **Settings > Vault Operator > MCP > Remote**, enter your worker URL
+2. In **Settings > Vault Operator > Customize > Connectors > Remote access**, enter your worker URL
 3. Authenticate with the provided token
 4. The relay connects automatically when Obsidian is running
 
@@ -129,40 +138,13 @@ Multiple `save_conversation` calls within 30 minutes from the same source interf
 
 `sync_session` is the legacy bulk path: an external client sends an entire transcript at the end of a conversation. It is kept for clients that do not yet support per-turn `save_conversation`.
 
-## Provider overview
+## Provider setup lives elsewhere
 
-Vault Operator supports 12 AI providers. Most use a plain API key. A few use different auth flows.
-
-| Provider | Auth method | Notes |
-|----------|------------|-------|
-| GitHub Copilot | OAuth device flow | Uses your existing GitHub Copilot subscription. No separate API key needed. |
-| Kilo Gateway | Device auth + manual token | Community gateway with shared rate limits. |
-| AWS Bedrock | Bedrock API key (bearer) or AWS access keys | Region-aware, supports Claude on Bedrock. Cache-points enabled. |
-| ChatGPT (OAuth) | Sign in with ChatGPT | Uses your ChatGPT account against the Codex Responses API. |
-| Anthropic, OpenAI, Google Gemini, OpenRouter, Azure, Ollama, LM Studio, custom | API key (or local URL) | Paste your key or set the local endpoint in Settings > Models. |
-
-### Setting up GitHub Copilot
-
-1. Open **Settings > Vault Operator > Models > + Add Model**
-2. Select **GitHub Copilot** as the provider
-3. Click **"Sign in with GitHub"**. A device code appears.
-4. Open the GitHub URL, enter the code, and authorize
-5. Select a model (Claude or GPT via Copilot)
-
-### Setting up Kilo Gateway
-
-1. Select **Kilo Gateway** as the provider
-2. Choose **Device Auth** (recommended) or **Manual Token**
-3. For device auth: follow the on-screen flow to authenticate
-4. For manual token: paste your token from the Kilo dashboard
-
-:::tip Free access
-GitHub Copilot works if you already have a Copilot subscription. Kilo Gateway offers community access with shared limits. Both are good ways to try Vault Operator without buying a separate API key.
-:::
+Picking and authenticating AI providers (Anthropic, OpenAI, Gemini, OpenRouter, Azure, Ollama, LM Studio, custom, GitHub Copilot, Kilo Gateway, Bedrock, ChatGPT-OAuth) is covered in [Providers and models](/reference/providers). The Connectors tab is only about MCP and the relay.
 
 ## Next steps
 
 - [Unified Chat Memory](/concepts/unified-chat-memory): How memory and history flow across surfaces.
 - [MCP architecture](/concepts/mcp-architecture): The protocol details behind the connectors.
-- [Skills, Rules & Workflows](/guides/skills-rules-workflows): Customize the agent's behavior.
-- [Office Documents](/guides/office-documents): Create presentations and documents.
+- [Skills, Rules and Workflows](/guides/skills-rules-workflows): Customize the agent's behavior.
+- [Office documents](/guides/office-documents): Create presentations and documents.
