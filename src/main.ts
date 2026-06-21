@@ -1647,17 +1647,23 @@ export default class ObsidianAgentPlugin extends Plugin {
                                 + `Klick fuer Anti-Echo-Suche.`,
                             10_000,
                         );
-                        // Klick-Handler fuer dezenten Trigger; nur wenn Notice-API verfuegbar.
+                        // IMP-19-19-01: pre-fix the click only opened a
+                        // second Tipp-Notice with a string the user was
+                        // supposed to paste manually. Now the click opens
+                        // the sidebar and programmatically launches an
+                        // anti_echo_search task -- the Stufe-2 trigger
+                        // finally drives the ToolExecutionPipeline, which
+                        // is what the audit asked for.
                         const el = notice.messageEl;
                         if (el) {
                             el.classList.add('agent-u-cursor-pointer');
                             el.addEventListener('click', () => {
                                 notice.hide();
-                                new Notice(
-                                    `Tipp: "@anti_echo_search cluster:${info.cluster}" im Agent ausfuehren, `
-                                        + `um Gegenpositionen zu suchen.`,
-                                    8_000,
-                                );
+                                const prompt =
+                                    `Run @anti_echo_search for cluster "${info.cluster}" ` +
+                                    `to surface counter-positions. Use a focused query, ` +
+                                    `then summarise the most surprising finding back to me.`;
+                                void this.sendMessageToAgent(prompt);
                             });
                         }
                     },
