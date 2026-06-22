@@ -39,8 +39,17 @@ export interface InlineTriggerContext {
     selectionText: string;
     /** Editor mode at trigger time. Determines which actions are eligible. */
     editorMode: EditorMode;
-    /** Char-offset of the cursor (or selection-anchor) in the note buffer. */
+    /**
+     * Char-offset of the cursor (head) in the note buffer. For forward
+     * selections this is the END of the selection -- do NOT use this to
+     * compute the selection range. Use selectionFrom / selectionTo
+     * instead (FIX-33-DV-01 2026-06-22).
+     */
     cursorPos: number;
+    /** Char-offset where the selection BEGINS in the note buffer. */
+    selectionFrom?: number;
+    /** Char-offset where the selection ENDS in the note buffer (exclusive). */
+    selectionTo?: number;
     /** Vault-relative path of the active note. */
     notePath: string;
     /** Settings snapshot at trigger time. */

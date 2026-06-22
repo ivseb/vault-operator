@@ -22,6 +22,10 @@ export interface SelectionTriggerInput {
     selectionText: string;
     editorMode: EditorMode;
     cursorPos: number;
+    /** Char-offset where the selection BEGINS (anchor or head — whichever is smaller). */
+    selectionFrom?: number;
+    /** Char-offset where the selection ENDS (exclusive). */
+    selectionTo?: number;
     notePath: string;
 }
 
@@ -53,6 +57,8 @@ export class InlineTriggerResolver {
             selectionText: input.selectionText,
             editorMode: input.editorMode,
             cursorPos: input.cursorPos,
+            selectionFrom: input.selectionFrom,
+            selectionTo: input.selectionTo,
             notePath: input.notePath,
             settingsSnapshot: this.getSettingsSnapshot(),
         };

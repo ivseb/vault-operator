@@ -7831,15 +7831,23 @@
 }
 
 /* ── EditReviewModal (EPIC-33 Diff-UX-refresh, 2026-06-22) ───────── */
-/* Width: 50% of the Obsidian window, never below 720px so two columns
-   stay readable. Centered via the default Obsidian modal positioning. */
-.agent-edit-review-modal .modal {
-    width: 50vw;
-    min-width: 720px;
-    max-width: 95vw;
+/* this.modalEl.addClass('agent-edit-review-modal') puts the class on
+   the .modal element itself, NOT a parent -- so the correct selector
+   is .modal.agent-edit-review-modal. Obsidian's default rules set
+   width/max-width directly on .modal at higher specificity, so we use
+   !important to make the override stick. */
+.modal.agent-edit-review-modal {
+    width: 95vw !important;
+    min-width: 1200px !important;
+    max-width: 95vw !important;
+    /* Also enlarge the height so the side-by-side has vertical room. */
+    height: 88vh !important;
+    max-height: 88vh !important;
 }
-.agent-edit-review-modal .modal-content {
+.modal.agent-edit-review-modal .modal-content {
     padding: 0;
+    height: 100%;
+    overflow: hidden;
 }
 .agent-edit-review {
     display: flex;
@@ -8019,22 +8027,72 @@
     line-height: 1.5;
 }
 .agent-edit-review__line {
+    display: grid;
+    grid-template-columns: 44px 16px 1fr;
+    align-items: baseline;
     white-space: pre-wrap;
-    padding: 0 4px;
-    border-radius: 2px;
+    padding: 0;
+    border-radius: 0;
     min-height: 1.4em;
+    gap: 4px;
 }
-/* Left-side removed lines: subtle red tint with margin-symbol. */
+.agent-edit-review__lineno {
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    padding-right: 8px;
+    user-select: none;
+    border-right: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    font-size: var(--font-ui-smaller);
+}
+.agent-edit-review__line-status {
+    color: var(--text-muted);
+    font-weight: 700;
+    text-align: center;
+    user-select: none;
+    font-family: var(--font-monospace);
+}
+.agent-edit-review__line-text {
+    padding-right: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.agent-edit-review__column--before .agent-edit-review__line.is-removed .agent-edit-review__line-status {
+    color: var(--text-error);
+}
+.agent-edit-review__column--after .agent-edit-review__line.is-added .agent-edit-review__line-status {
+    color: var(--color-green);
+}
+/* Padding rows fill vertical space so Zeile N left lines up with Zeile N
+   right. They are non-editable and rendered as a faint dashed-out gap. */
+.agent-edit-review__line--padding {
+    background: repeating-linear-gradient(
+        45deg,
+        var(--background-secondary),
+        var(--background-secondary) 6px,
+        transparent 6px,
+        transparent 12px
+    );
+    color: transparent;
+    user-select: none;
+    pointer-events: none;
+}
+/* Left-side removed lines: subtle red tint across the row. */
 .agent-edit-review__column--before .agent-edit-review__line.is-removed {
     background: rgba(220, 53, 69, 0.13);
-    border-left: 3px solid rgba(220, 53, 69, 0.55);
-    padding-left: 6px;
 }
-/* Right-side added lines: subtle green tint with margin-symbol. */
+.agent-edit-review__column--before .agent-edit-review__line.is-removed .agent-edit-review__lineno {
+    background: rgba(220, 53, 69, 0.22);
+    color: var(--text-error);
+}
+/* Right-side added lines: subtle green tint across the row. */
 .agent-edit-review__column--after .agent-edit-review__line.is-added {
     background: rgba(40, 167, 69, 0.14);
-    border-left: 3px solid rgba(40, 167, 69, 0.55);
-    padding-left: 6px;
+}
+.agent-edit-review__column--after .agent-edit-review__line.is-added .agent-edit-review__lineno {
+    background: rgba(40, 167, 69, 0.22);
+    color: var(--color-green);
 }
 /* Fallback (un-typed) yellow tint for ambiguous changes. */
 .agent-edit-review__line.is-changed:not(.is-removed):not(.is-added) {
