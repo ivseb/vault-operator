@@ -15,7 +15,7 @@
  * wiring step.
  */
 
-import { MarkdownView, type App, type WorkspaceLeaf } from 'obsidian';
+import { MarkdownView, Menu, setIcon, type App, type WorkspaceLeaf } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { InlineActionRegistry } from './InlineActionRegistry';
 import { InlineTriggerResolver } from './InlineTriggerResolver';
@@ -34,7 +34,10 @@ import { resolveInlineActionsSettings } from './inlineSettings';
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/AgentSidebarView';
-import { SelectionWatcher } from './SelectionWatcher';
+// SelectionWatcher: per user feedback (2026-06-22) NOT used in the default
+// wiring -- auto-open-on-selection was blocking normal copy/read flows.
+// The module stays available for callers that explicitly want it.
+// import { SelectionWatcher } from './SelectionWatcher';
 import { InlineSkillFilter, type SkillCapabilityProbe, type SkillEntry } from './skills/InlineSkillFilter';
 import { InlineSkillAction } from './skills/InlineSkillAction';
 import { inlineDiffExtension, startDiffSession } from './diff/CodeMirrorDiffAdapter';
@@ -402,29 +405,63 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         registry,
         resolver,
         isEnabled: () => resolveInlineActionsSettings(plugin.settings.inlineActions).enabled,
-    });
-
-    // FEAT-33-01 SC-04: open the chat panel automatically when the
-    // user finishes a selection. Honours the floatingMenuEnabled setting
-    // (kept the same flag name so users do not have to re-discover it).
-    const watcher = new SelectionWatcher({
-        target: plugin.app.workspace.containerEl.ownerDocument,
-        onSettled: () => { orchestrator.triggerPanel(); },
-        minLength: 3,
-        debounceMs: 300,
-        isEnabled: () => {
-            const r = resolveInlineActionsSettings(plugin.settings.inlineActions);
-            return r.enabled && r.floatingMenuEnabled;
+        setIcon: (el, name) => setIcon(el, name),
+        showMoreMenu: (anchor, _ctx, _handle, dispatch) => {
+            // Obsidian Menu with the secondary actions. Lookup is on
+            // the toolbar (magnifier) so it does NOT appear here again.
+            const menu = new Menu();
+            menu.addItem(item => item
+                .setTitle('Rewrite')
+                .setIcon('pencil')
+                .onClick(() => dispatch('rewrite')));
+            menu.addItem(item => item
+                .setTitle('Translate to English')
+                .setIcon('languages')
+                .onClick(() => dispatch('translate')));
+            menu.addItem(item => item
+                .setTitle('Summarize (medium)')
+                .setIcon('file-text')
+                .onClick(() => dispatch('summarize')));
+            menu.addItem(item => item
+                .setTitle('Find action items')
+                .setIcon('check-square')
+                .onClick(() => dispatch('find-action-items')));
+            menu.addSeparator();
+            menu.addItem(item => item
+                .setTitle('Send selection to main chat')
+                .setIcon('arrow-up-right')
+                .onClick(() => dispatch('send-to-main')));
+            menu.showAtMouseEvent({
+                clientX: anchor.getBoundingClientRect().left,
+                clientY: anchor.getBoundingClientRect().bottom,
+            } as MouseEvent);
+        },
+        showPlusMenu: (anchor, _ctx) => {
+            // Minimal "+" menu for now -- the sidebar uses this for
+            // attachments/skills/prompts; the inline panel just shows
+            // a placeholder so the icon does something visible.
+            const menu = new Menu();
+            menu.addItem(item => item
+                .setTitle('Attach selection as context (already attached)')
+                .setIcon('paperclip')
+                .setDisabled(true));
+            menu.showAtMouseEvent({
+                clientX: anchor.getBoundingClientRect().left,
+                clientY: anchor.getBoundingClientRect().bottom,
+            } as MouseEvent);
         },
     });
-    watcher.start();
+
+    // Auto-Open-on-Selection per User-Feedback abgeschafft: nimmt die
+    // Moeglichkeit fuer normale Markier-Aktionen weg (Kopieren, Lesen).
+    // Trigger laeuft ab jetzt ausschliesslich ueber Hotkey (Cmd+Shift+I,
+    // default in main.ts addCommand) oder Rechtsklick-Editor-Menu.
     skillFilter; // suppress unused warning (kept available for Settings UI consumers)
 
     return {
         service,
         orchestrator,
         dispose: () => {
-            watcher.dispose();
             orchestrator.dispose();
             service.dispose();
         },

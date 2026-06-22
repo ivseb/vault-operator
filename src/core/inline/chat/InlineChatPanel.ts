@@ -1,24 +1,28 @@
 /**
- * InlineChatPanel -- compact floating chat UI for the inline-action surface (FEAT-33-05 / FEAT-33-01 UX-refresh).
+ * InlineChatPanel -- floating chat that mirrors the Sidebar-Chat composer (EPIC-33).
  *
- * Replaces the prior Floating-Menu + Notice-toast UX. When the user
- * triggers an inline action (hotkey / auto-on-selection / command-
- * palette) a small chat panel anchors near the cursor with:
- *   - Header: truncated selection anchor + close button
- *   - Toolbar: quick-action buttons (Lookup with magnifier, Rewrite,
- *     Translate, Summarize, Send-to-Main-Chat)
- *   - Body: streaming message turns (user + assistant)
- *   - Footer: input + send button for free-form follow-up
+ * UX per user feedback 2026-06-22:
+ * - Trigger only via hotkey (Cmd+Shift+I) or editor-menu, NO auto-open
+ * - Layout identical to sidebar-chat composer so users get the same
+ *   muscle memory: model button, "+" menu, magnifier (Lookup quick-
+ *   action, the inline-specific addition), "..." menu, send button
+ * - Selected text shown above the message body as a collapsible
+ *   preview (first 3 lines visible, "more" toggle reveals the rest)
  *
- * Layout mirrors the sidebar chat at a smaller scale (single column,
- * append-only, scroll-to-bottom on stream). Pure-DOM so jsdom-free
- * unit tests stay possible -- the actual streaming wiring is supplied
- * by the plugin entry-point as callbacks.
+ * Uses the existing Sidebar CSS classes (.chat-input-container,
+ * .chat-input-wrapper, .chat-textarea, .chat-toolbar, .toolbar-button,
+ * etc.) so the look is identical without copy-pasting styles. The
+ * panel adds a wrapper class (.agent-inline-panel) for positioning
+ * + an anchor section class (.agent-inline-panel__anchor) for the
+ * collapsible selection preview.
  *
- * Bot-Compliance: createElement + classList + textContent only.
- * Listeners are removed on close().
+ * Lucide icons are loaded via Obsidian's setIcon helper which is
+ * supplied via an optional setIconHook (so unit-tests run without
+ * Obsidian). The icons match the sidebar: 'plus', 'search', 'ellipsis',
+ * 'send-horizontal'.
  *
- * Related: FEAT-33-05, FEAT-33-01 (Trigger-Layer), ADR-138.
+ * Bot-Compliance: vanilla DOM only, no innerHTML, no inline style
+ * mutation beyond position/size, all event listeners detached in close().
  */
 
 import type { InlineTriggerContext } from '../InlineTriggerContext';
@@ -32,73 +36,64 @@ export type InlinePanelActionId =
     | 'find-action-items'
     | 'send-to-main';
 
-export interface InlinePanelAction {
-    id: InlinePanelActionId;
-    /** Single character or emoji icon shown on the toolbar button. */
-    icon: string;
-    /** Tooltip text. */
-    title: string;
-}
-
 export interface InlinePanelMessage {
     role: 'user' | 'assistant' | 'system';
-    /** Streaming destination. Empty initially when role='assistant'. */
     text: string;
 }
 
 export interface InlinePanelDispatchArgs {
     actionId: InlinePanelActionId;
-    /** User-typed prompt (only set for free-chat). */
     userInput: string;
-    /** TriggerContext at panel-open. Stable across the panel's lifetime. */
     ctx: InlineTriggerContext;
 }
 
 export interface InlinePanelHandle {
-    /** Append a NEW message bubble. Returns the bubble id for streaming. */
     appendMessage(message: InlinePanelMessage): string;
-    /** Stream text into an existing assistant bubble (concat). */
     appendStreamChunk(bubbleId: string, chunk: string): void;
-    /** Set status / error pill in the footer. */
     setStatus(text: string, level?: 'info' | 'error'): void;
-    /** Close the panel + detach listeners. */
     close(): void;
 }
 
+/**
+ * Optional hook so Obsidian's setIcon() can render Lucide icons.
+ * Unit-tests pass undefined and fall back to a plain text glyph.
+ */
+export type SetIconHook = (el: HTMLElement, name: string) => void;
+
 export interface InlineChatPanelOptions {
-    /** Container element the panel attaches to (e.g. document.body). */
     containerEl: HTMLElement;
-    /** TriggerContext at open time (selection, mode, note path). */
     ctx: InlineTriggerContext;
-    /**
-     * Position the panel near the user's cursor / selection. Clamped
-     * to viewport by the panel itself.
-     */
     position: { x: number; y: number };
-    /** Toolbar action set. */
-    actions: InlinePanelAction[];
-    /** Called when the user clicks a toolbar action or sends free-chat. */
     onDispatch: (args: InlinePanelDispatchArgs, handle: InlinePanelHandle) => void;
-    /** Optional close hook. */
+    /** Called by the "..." menu to surface secondary actions. */
+    onShowMoreMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    /** Called by the "+" menu to surface attach/context options. */
+    onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
     onClose?: () => void;
+    /** Bridge to Obsidian's setIcon() for Lucide rendering. */
+    setIcon?: SetIconHook;
 }
 
-const DEFAULT_WIDTH = 420;
-const DEFAULT_MAX_HEIGHT = 480;
-const ANCHOR_TRUNCATE = 80;
+const DEFAULT_WIDTH = 520;
+const PREVIEW_VISIBLE_LINES = 3;
 
 export class InlineChatPanel {
     private readonly containerEl: HTMLElement;
     private readonly ctx: InlineTriggerContext;
     private readonly position: { x: number; y: number };
-    private readonly actions: InlinePanelAction[];
     private readonly onDispatch: (args: InlinePanelDispatchArgs, handle: InlinePanelHandle) => void;
+    private readonly onShowMoreMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    private readonly onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
     private readonly onClose?: () => void;
+    private readonly setIcon: SetIconHook;
 
     private rootEl: HTMLElement | null = null;
     private bodyEl: HTMLElement | null = null;
     private inputEl: HTMLTextAreaElement | null = null;
     private statusEl: HTMLElement | null = null;
+    private previewEl: HTMLElement | null = null;
+    private previewToggleEl: HTMLElement | null = null;
+    private previewExpanded = false;
     private bubbleCounter = 0;
     private bubbleNodes = new Map<string, HTMLElement>();
 
@@ -108,14 +103,14 @@ export class InlineChatPanel {
         this.containerEl = options.containerEl;
         this.ctx = options.ctx;
         this.position = options.position;
-        this.actions = options.actions;
         this.onDispatch = options.onDispatch;
+        this.onShowMoreMenu = options.onShowMoreMenu;
+        this.onShowPlusMenu = options.onShowPlusMenu;
         this.onClose = options.onClose;
+        this.setIcon = options.setIcon ?? ((el, name) => { el.textContent = iconFallback(name); });
     }
 
-    get isOpen(): boolean {
-        return this.rootEl !== null;
-    }
+    get isOpen(): boolean { return this.rootEl !== null; }
 
     open(): InlinePanelHandle {
         this.close();
@@ -126,48 +121,21 @@ export class InlineChatPanel {
         root.setAttribute('aria-label', 'Inline AI chat');
         root.style.setProperty('position', 'absolute');
         root.style.setProperty('width', `${DEFAULT_WIDTH}px`);
-        root.style.setProperty('max-height', `${DEFAULT_MAX_HEIGHT}px`);
         root.style.setProperty('z-index', '1000');
 
-        // Header: selection anchor + close.
-        const header = doc.createElement('div');
-        header.classList.add('agent-inline-panel__header');
-        const anchorText = this.ctx.selectionText.trim();
-        const anchorEl = doc.createElement('div');
-        anchorEl.classList.add('agent-inline-panel__anchor');
-        anchorEl.textContent = anchorText.length > 0
-            ? truncate(anchorText, ANCHOR_TRUNCATE)
-            : '(no selection)';
-        anchorEl.setAttribute('title', anchorText);
+        // Selection preview (collapsible, 3 lines visible by default).
+        this.buildSelectionPreview(root, doc);
+
+        // Header close button (× in top-right corner).
         const closeBtn = doc.createElement('button');
         closeBtn.classList.add('agent-inline-panel__close');
         closeBtn.setAttribute('type', 'button');
         closeBtn.setAttribute('title', 'Close (Esc)');
         closeBtn.textContent = '×';
         closeBtn.addEventListener('click', (ev) => { ev.preventDefault(); this.close(); });
-        header.append(anchorEl, closeBtn);
-        root.appendChild(header);
+        root.appendChild(closeBtn);
 
-        // Toolbar with quick-action icon buttons.
-        const toolbar = doc.createElement('div');
-        toolbar.classList.add('agent-inline-panel__toolbar');
-        for (const action of this.actions) {
-            const btn = doc.createElement('button');
-            btn.classList.add('agent-inline-panel__tool');
-            btn.setAttribute('type', 'button');
-            btn.setAttribute('title', action.title);
-            btn.dataset.actionId = action.id;
-            btn.textContent = action.icon;
-            btn.addEventListener('click', (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-                this.dispatch(action.id, '');
-            });
-            toolbar.appendChild(btn);
-        }
-        root.appendChild(toolbar);
-
-        // Body: scrollable message area.
+        // Body: chat messages.
         const body = doc.createElement('div');
         body.classList.add('agent-inline-panel__body');
         root.appendChild(body);
@@ -180,40 +148,93 @@ export class InlineChatPanel {
         root.appendChild(status);
         this.statusEl = status;
 
-        // Footer: textarea + send.
-        const footer = doc.createElement('div');
-        footer.classList.add('agent-inline-panel__footer');
-        const input = doc.createElement('textarea');
-        input.classList.add('agent-inline-panel__input');
-        input.setAttribute('rows', '2');
-        input.setAttribute('placeholder', 'Ask about this selection… (Enter to send, Shift+Enter for newline)');
-        input.addEventListener('keydown', (ev) => {
-            if (ev.key === 'Enter' && ev.shiftKey === false && ev.isComposing === false) {
+        // Composer (sidebar-style: .chat-input-container > .chat-input-wrapper).
+        const composerContainer = doc.createElement('div');
+        composerContainer.classList.add('chat-input-container');
+        composerContainer.classList.add('agent-inline-panel__composer');
+        const wrapper = doc.createElement('div');
+        wrapper.classList.add('chat-input-wrapper');
+        composerContainer.appendChild(wrapper);
+
+        const textarea = doc.createElement('textarea');
+        textarea.classList.add('chat-textarea');
+        textarea.setAttribute('rows', '3');
+        textarea.setAttribute('placeholder', 'Type your message here…');
+        textarea.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Enter' && ev.shiftKey === false && ev.ctrlKey === false && ev.metaKey === false && ev.isComposing === false) {
                 ev.preventDefault();
                 this.sendFromInput();
             }
         });
-        const sendBtn = doc.createElement('button');
-        sendBtn.classList.add('agent-inline-panel__send');
-        sendBtn.setAttribute('type', 'button');
-        sendBtn.setAttribute('title', 'Send');
-        sendBtn.textContent = '↵';
+        wrapper.appendChild(textarea);
+        this.inputEl = textarea;
+
+        const toolbar = doc.createElement('div');
+        toolbar.classList.add('chat-toolbar');
+        const left = doc.createElement('div');
+        left.classList.add('chat-toolbar-left');
+        const right = doc.createElement('div');
+        right.classList.add('chat-toolbar-right');
+
+        // Model button (display-only here; the real selector lives in the
+        // sidebar settings -- this mirrors the sidebar visual layout).
+        const modelBtn = this.makeToolbarButton(doc, 'Auto');
+        modelBtn.classList.add('model-button');
+        modelBtn.setAttribute('title', 'Model (inherited from main chat)');
+        modelBtn.setAttribute('type', 'button');
+        left.appendChild(modelBtn);
+
+        // "+" menu (attach / context).
+        const plusBtn = this.makeIconButton(doc, 'plus', 'Add context');
+        plusBtn.classList.add('plus-button');
+        plusBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            if (this.onShowPlusMenu !== undefined) {
+                this.onShowPlusMenu(plusBtn, this.ctx);
+            }
+        });
+        left.appendChild(plusBtn);
+
+        // Magnifier = Lookup quick-action (the inline-specific addition).
+        const lookupBtn = this.makeIconButton(doc, 'search', 'Lookup selection');
+        lookupBtn.classList.add('lookup-button');
+        lookupBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            this.dispatch('lookup', '');
+        });
+        left.appendChild(lookupBtn);
+
+        // "..." menu (other actions: rewrite, translate, summarize, ...).
+        const ellipsisBtn = this.makeIconButton(doc, 'ellipsis', 'More actions');
+        ellipsisBtn.classList.add('ellipsis-button');
+        ellipsisBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            if (this.onShowMoreMenu !== undefined && this.rootEl !== null) {
+                this.onShowMoreMenu(ellipsisBtn, this.ctx, this.makeHandle());
+            }
+        });
+        left.appendChild(ellipsisBtn);
+
+        // Send button (right side).
+        const sendBtn = this.makeIconButton(doc, 'send-horizontal', 'Send');
+        sendBtn.classList.add('send-button');
         sendBtn.addEventListener('click', (ev) => { ev.preventDefault(); this.sendFromInput(); });
-        footer.append(input, sendBtn);
-        root.appendChild(footer);
-        this.inputEl = input;
+        right.appendChild(sendBtn);
+
+        toolbar.appendChild(left);
+        toolbar.appendChild(right);
+        wrapper.appendChild(toolbar);
+        root.appendChild(composerContainer);
 
         this.containerEl.appendChild(root);
         this.rootEl = root;
 
-        // Position + clamp.
+        // Position + clamp to viewport.
         const clamped = this.clampToViewport(this.position, root);
         root.style.setProperty('left', `${clamped.x}px`);
         root.style.setProperty('top', `${clamped.y}px`);
 
-        // Esc closes; outside-click does NOT close (the user might
-        // click in the editor to copy or check something while the
-        // panel stays open).
+        // Esc closes; outside-click does NOT close.
         this.boundKeyDown = (ev: KeyboardEvent) => {
             if (ev.key === 'Escape') {
                 ev.preventDefault();
@@ -222,8 +243,7 @@ export class InlineChatPanel {
         };
         doc.addEventListener('keydown', this.boundKeyDown);
 
-        // Focus the textarea so the user can start typing immediately.
-        try { input.focus(); } catch { /* jsdom-stub */ }
+        try { textarea.focus(); } catch { /* test stub */ }
 
         return this.makeHandle();
     }
@@ -237,6 +257,9 @@ export class InlineChatPanel {
         this.bodyEl = null;
         this.inputEl = null;
         this.statusEl = null;
+        this.previewEl = null;
+        this.previewToggleEl = null;
+        this.previewExpanded = false;
         this.bubbleNodes.clear();
         this.bubbleCounter = 0;
         if (this.boundKeyDown !== null) {
@@ -249,6 +272,87 @@ export class InlineChatPanel {
     }
 
     dispose(): void { this.close(); }
+
+    private buildSelectionPreview(root: HTMLElement, doc: Document): void {
+        const sel = this.ctx.selectionText;
+        if (sel.length === 0) return;
+
+        const section = doc.createElement('div');
+        section.classList.add('agent-inline-panel__anchor');
+
+        const label = doc.createElement('div');
+        label.classList.add('agent-inline-panel__anchor-label');
+        label.textContent = 'Selection';
+
+        const preview = doc.createElement('div');
+        preview.classList.add('agent-inline-panel__anchor-text');
+        preview.textContent = this.truncateToLines(sel, PREVIEW_VISIBLE_LINES);
+        this.previewEl = preview;
+
+        section.appendChild(label);
+        section.appendChild(preview);
+
+        // Show "Show more / less" toggle only if the selection has more
+        // than PREVIEW_VISIBLE_LINES lines or exceeds a soft char cap.
+        const lineCount = sel.split('\n').length;
+        const needsToggle = lineCount > PREVIEW_VISIBLE_LINES || sel.length > 240;
+        if (needsToggle) {
+            const toggle = doc.createElement('button');
+            toggle.classList.add('agent-inline-panel__anchor-toggle');
+            toggle.setAttribute('type', 'button');
+            toggle.textContent = 'Show more';
+            toggle.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                this.togglePreview();
+            });
+            section.appendChild(toggle);
+            this.previewToggleEl = toggle;
+        }
+
+        root.appendChild(section);
+    }
+
+    private togglePreview(): void {
+        if (this.previewEl === null || this.previewToggleEl === null) return;
+        this.previewExpanded = !this.previewExpanded;
+        if (this.previewExpanded === true) {
+            this.previewEl.textContent = this.ctx.selectionText;
+            this.previewEl.classList.add('agent-inline-panel__anchor-text--expanded');
+            this.previewToggleEl.textContent = 'Show less';
+        } else {
+            this.previewEl.textContent = this.truncateToLines(this.ctx.selectionText, PREVIEW_VISIBLE_LINES);
+            this.previewEl.classList.remove('agent-inline-panel__anchor-text--expanded');
+            this.previewToggleEl.textContent = 'Show more';
+        }
+    }
+
+    private truncateToLines(text: string, maxLines: number): string {
+        const lines = text.split('\n');
+        if (lines.length <= maxLines) return text;
+        return lines.slice(0, maxLines).join('\n') + '…';
+    }
+
+    private makeToolbarButton(doc: Document, label: string): HTMLButtonElement {
+        const btn = doc.createElement('button');
+        btn.classList.add('toolbar-button');
+        btn.setAttribute('type', 'button');
+        btn.textContent = label;
+        return btn;
+    }
+
+    private makeIconButton(doc: Document, iconName: string, tooltip: string): HTMLButtonElement {
+        const btn = doc.createElement('button');
+        btn.classList.add('toolbar-button');
+        btn.classList.add('toolbar-ghost');
+        btn.setAttribute('type', 'button');
+        btn.setAttribute('aria-label', tooltip);
+        btn.setAttribute('title', tooltip);
+        const iconSpan = doc.createElement('span');
+        iconSpan.classList.add('toolbar-icon');
+        this.setIcon(iconSpan, iconName);
+        btn.appendChild(iconSpan);
+        return btn;
+    }
 
     private dispatch(actionId: InlinePanelActionId, userInput: string): void {
         if (this.rootEl === null) return;
@@ -309,7 +413,7 @@ export class InlineChatPanel {
 
     private scrollToBottom(): void {
         if (this.bodyEl === null) return;
-        try { this.bodyEl.scrollTop = this.bodyEl.scrollHeight; } catch { /* jsdom-stub */ }
+        try { this.bodyEl.scrollTop = this.bodyEl.scrollHeight; } catch { /* jsdom stub */ }
     }
 
     private clampToViewport(pos: { x: number; y: number }, root: HTMLElement): { x: number; y: number } {
@@ -317,7 +421,7 @@ export class InlineChatPanel {
         if (win === null) return pos;
         const rect = root.getBoundingClientRect();
         const width = rect.width > 0 ? rect.width : DEFAULT_WIDTH;
-        const height = rect.height > 0 ? rect.height : DEFAULT_MAX_HEIGHT;
+        const height = rect.height > 0 ? rect.height : 320;
         const maxX = Math.max(0, win.innerWidth - width - 8);
         const maxY = Math.max(0, win.innerHeight - height - 8);
         return {
@@ -327,7 +431,12 @@ export class InlineChatPanel {
     }
 }
 
-function truncate(text: string, max: number): string {
-    if (text.length <= max) return text;
-    return `${text.slice(0, max - 1).trimEnd()}…`;
+function iconFallback(name: string): string {
+    switch (name) {
+        case 'plus': return '+';
+        case 'search': return '🔍';
+        case 'ellipsis': return '⋯';
+        case 'send-horizontal': return '↵';
+        default: return '◇';
+    }
 }

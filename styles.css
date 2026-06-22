@@ -7598,54 +7598,72 @@
     background: var(--background-secondary);
     border-bottom: 1px solid var(--background-modifier-border);
 }
+/* Selection preview at the top of the panel. */
 .agent-inline-panel__anchor {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-muted);
-    font-size: var(--font-ui-smaller);
-    font-style: italic;
+    position: relative;
+    padding: 8px 28px 8px 12px;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
 }
-.agent-inline-panel__close {
+.agent-inline-panel__anchor-label {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+.agent-inline-panel__anchor-text {
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    max-height: 4.4em;
+    overflow: hidden;
+}
+.agent-inline-panel__anchor-text--expanded {
+    max-height: 320px;
+    overflow-y: auto;
+}
+.agent-inline-panel__anchor-toggle {
     background: transparent;
     color: var(--text-muted);
     border: none;
     cursor: pointer;
-    font-size: 16px;
+    font-size: var(--font-ui-smaller);
+    padding: 4px 0 0 0;
+    text-decoration: underline;
+}
+.agent-inline-panel__anchor-toggle:hover {
+    color: var(--text-normal);
+}
+
+/* Close button (absolute top-right corner). */
+.agent-inline-panel__close {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
     line-height: 1;
     padding: 2px 6px;
     border-radius: 4px;
+    z-index: 1;
 }
 .agent-inline-panel__close:hover {
     background: var(--background-modifier-hover);
     color: var(--text-normal);
 }
-.agent-inline-panel__toolbar {
-    display: flex;
-    gap: 4px;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-    flex-wrap: wrap;
-}
-.agent-inline-panel__tool {
-    background: var(--background-primary);
-    color: var(--text-normal);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    cursor: pointer;
-    padding: 4px 8px;
-    font-size: 14px;
-    line-height: 1;
-}
-.agent-inline-panel__tool:hover {
-    background: var(--background-modifier-hover);
-    border-color: var(--interactive-accent);
-}
+
+/* Message body (flex column, scrollable). */
 .agent-inline-panel__body {
     flex: 1;
-    min-height: 80px;
+    min-height: 100px;
     max-height: 320px;
     overflow-y: auto;
     padding: 10px 12px;
@@ -7653,13 +7671,16 @@
     flex-direction: column;
     gap: 8px;
 }
+.agent-inline-panel__body:empty {
+    min-height: 40px;
+}
 .agent-inline-panel__bubble {
     padding: 8px 10px;
     border-radius: 6px;
     line-height: 1.4;
     white-space: pre-wrap;
     word-wrap: break-word;
-    max-width: 100%;
+    max-width: 92%;
 }
 .agent-inline-panel__bubble--user {
     background: var(--background-modifier-hover);
@@ -7677,6 +7698,8 @@
     font-size: var(--font-ui-smaller);
     font-style: italic;
 }
+
+/* Status pill. */
 .agent-inline-panel__status {
     padding: 4px 12px;
     font-size: var(--font-ui-smaller);
@@ -7688,41 +7711,23 @@
     color: var(--text-error);
     background: var(--background-modifier-error-hover);
 }
-.agent-inline-panel__footer {
-    display: flex;
-    align-items: flex-end;
-    gap: 6px;
-    padding: 8px 10px;
+
+/* Composer wrapper inside the panel: cap padding so the sidebar
+   styles do not push the panel beyond its width budget. */
+.agent-inline-panel__composer {
     border-top: 1px solid var(--background-modifier-border);
-    background: var(--background-secondary);
-}
-.agent-inline-panel__input {
-    flex: 1;
-    min-height: 36px;
-    max-height: 100px;
-    resize: vertical;
-    background: var(--background-primary);
-    color: var(--text-normal);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
     padding: 6px 8px;
-    font: inherit;
-    font-size: var(--font-ui-small);
 }
-.agent-inline-panel__input:focus {
-    outline: none;
-    border-color: var(--interactive-accent);
+/* Lookup-Button is the inline-specific quick-action sitting next to "+". */
+.agent-inline-panel .lookup-button {
+    /* Inherits .toolbar-button base styling from the sidebar; no extra
+       rules needed beyond hover hint that matches the sidebar buttons. */
 }
-.agent-inline-panel__send {
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    padding: 6px 12px;
-    font-size: 14px;
-    line-height: 1;
+.agent-inline-panel .lookup-button:hover {
+    color: var(--interactive-accent);
 }
-.agent-inline-panel__send:hover {
-    background: var(--interactive-accent-hover);
+/* Constrain the composer textarea so it fits the panel width. */
+.agent-inline-panel .chat-textarea {
+    min-height: 60px;
+    max-height: 140px;
 }

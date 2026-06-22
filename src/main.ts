@@ -2218,10 +2218,29 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.addCommand({
             id: 'open-inline-ai-menu',
             name: 'Open inline AI chat',
+            // EPIC-33: Cmd+Shift+I als Default-Hotkey. User kann den
+            // Hotkey ueber Settings -> Hotkeys umbinden, der Default
+            // wird beim ersten Plugin-Load gesetzt.
+            hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'i' }],
             callback: () => {
                 this.inlineActions?.orchestrator.triggerPanel();
             },
         });
+
+        // EPIC-33: Rechtsklick im Editor zeigt jetzt eine "Inline Chat"-Option
+        // mit dem Hotkey-Hint. Wirkt nur wenn eine Selection existiert.
+        this.registerEvent(
+            this.app.workspace.on('editor-menu', (menu, editor) => {
+                const selection = editor.getSelection();
+                if (selection.length === 0) return;
+                menu.addItem(item => item
+                    .setTitle('Inline Chat  (Cmd+Shift+I)')
+                    .setIcon('message-square')
+                    .onClick(() => {
+                        this.inlineActions?.orchestrator.triggerPanel();
+                    }));
+            }),
+        );
 
         // FEATURE-0319 Phase 5: Save active conversation to memory.
         // No default hotkey -- user assigns via Settings -> Hotkeys.

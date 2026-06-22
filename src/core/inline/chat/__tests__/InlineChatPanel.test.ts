@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { InlineChatPanel, type InlinePanelAction } from '../InlineChatPanel';
+import { InlineChatPanel, type InlineChatPanelOptions } from '../InlineChatPanel';
 import type { InlineTriggerContext } from '../../InlineTriggerContext';
 
 interface FakeNode {
@@ -12,7 +12,6 @@ interface FakeNode {
     text: string;
     value: string;
     attrs: Record<string, string>;
-    dataset: Record<string, string>;
     ownerDocument: FakeDocument;
     scrollTop: number;
     scrollHeight: number;
@@ -25,7 +24,7 @@ interface FakeNode {
     removeEventListener: (t: string, h: (ev: unknown) => void) => void;
     dispatch: (t: string, ev: unknown) => void;
     contains: (other: FakeNode) => boolean;
-    getBoundingClientRect: () => { width: number; height: number };
+    getBoundingClientRect: () => { width: number; height: number; left: number; bottom: number };
     click: () => void;
     focus: () => void;
     set textContent(v: string | null);
@@ -69,20 +68,13 @@ function makeNode(doc: FakeDocument, tag: string): FakeNode {
         text: '',
         value: '',
         attrs: {} as Record<string, string>,
-        dataset: {} as Record<string, string>,
         ownerDocument: doc,
         scrollTop: 0,
         scrollHeight: 100,
     } as Partial<FakeNode> as FakeNode;
 
-    node.appendChild = (child: FakeNode) => {
-        child.parent = node;
-        node.children.push(child);
-        return child;
-    };
-    node.append = (...children: FakeNode[]) => {
-        for (const c of children) node.appendChild(c);
-    };
+    node.appendChild = (child: FakeNode) => { child.parent = node; node.children.push(child); return child; };
+    node.append = (...children: FakeNode[]) => { for (const c of children) node.appendChild(c); };
     node.remove = () => {
         if (node.parent !== null) {
             const idx = node.parent.children.indexOf(node);
@@ -103,12 +95,12 @@ function makeNode(doc: FakeDocument, tag: string): FakeNode {
         if (idx >= 0) arr.splice(idx, 1);
     };
     node.dispatch = (t, ev) => { for (const h of node.listeners.get(t) ?? []) h(ev); };
-    node.contains = (other: FakeNode) => {
+    node.contains = (other) => {
         let cur: FakeNode | null = other;
         while (cur !== null) { if (cur === node) return true; cur = cur.parent; }
         return false;
     };
-    node.getBoundingClientRect = () => ({ width: 420, height: 240 });
+    node.getBoundingClientRect = () => ({ width: 520, height: 320, left: 0, bottom: 320 });
     node.click = () => node.dispatch('click', { preventDefault: () => {}, stopPropagation: () => {} });
     node.focus = () => { /* no-op */ };
     Object.defineProperty(node, 'textContent', {
@@ -139,7 +131,7 @@ function makeDocument(): FakeDocument {
     return doc;
 }
 
-function makeCtx(text = 'some selected text'): InlineTriggerContext {
+function makeCtx(text = 'hello world'): InlineTriggerContext {
     return {
         selectionText: text,
         editorMode: 'source',
@@ -149,13 +141,16 @@ function makeCtx(text = 'some selected text'): InlineTriggerContext {
     };
 }
 
-const DEFAULT_ACTIONS: InlinePanelAction[] = [
-    { id: 'lookup', icon: '🔍', title: 'Lookup' },
-    { id: 'rewrite', icon: '✏️', title: 'Rewrite' },
-    { id: 'send-to-main', icon: '↗', title: 'Send to chat' },
-];
+function findByClass(root: FakeNode, cls: string): FakeNode | null {
+    if (root.classList.contains(cls)) return root;
+    for (const child of root.children) {
+        const found = findByClass(child, cls);
+        if (found !== null) return found;
+    }
+    return null;
+}
 
-describe('InlineChatPanel (DOM-stub)', () => {
+describe('InlineChatPanel (Sidebar-Composer-Layout)', () => {
     let doc: FakeDocument;
     let container: FakeNode;
 
@@ -164,239 +159,173 @@ describe('InlineChatPanel (DOM-stub)', () => {
         container = doc.body.appendChild(doc.createElement('div'));
     });
 
-    it('isOpen is false before open()', () => {
-        const panel = new InlineChatPanel({
+    function newPanel(overrides: Partial<InlineChatPanelOptions> = {}): InlineChatPanel {
+        return new InlineChatPanel({
             containerEl: container as unknown as HTMLElement,
             ctx: makeCtx(),
             position: { x: 50, y: 50 },
-            actions: DEFAULT_ACTIONS,
             onDispatch: vi.fn(),
+            ...overrides,
         });
+    }
+
+    it('isOpen is false before open()', () => {
+        const panel = newPanel();
         expect(panel.isOpen).toBe(false);
     });
 
-    it('open() renders header + toolbar + body + footer', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx('lambda calculus'),
-            position: { x: 50, y: 50 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
+    it('open() renders Sidebar-style composer (chat-input-wrapper + chat-textarea + chat-toolbar)', () => {
+        const panel = newPanel();
         panel.open();
-
-        expect(container.children).toHaveLength(1);
         const root = container.children[0];
         expect(root.classList.contains('agent-inline-panel')).toBe(true);
-
-        // header (anchor + close), toolbar, body, status (hidden), footer
-        expect(root.children).toHaveLength(5);
-        expect(root.children[0].classList.contains('agent-inline-panel__header')).toBe(true);
-        expect(root.children[1].classList.contains('agent-inline-panel__toolbar')).toBe(true);
-        expect(root.children[2].classList.contains('agent-inline-panel__body')).toBe(true);
-        expect(root.children[3].classList.contains('agent-inline-panel__status')).toBe(true);
-        expect(root.children[4].classList.contains('agent-inline-panel__footer')).toBe(true);
+        expect(findByClass(root, 'chat-input-container')).not.toBeNull();
+        expect(findByClass(root, 'chat-input-wrapper')).not.toBeNull();
+        expect(findByClass(root, 'chat-textarea')).not.toBeNull();
+        expect(findByClass(root, 'chat-toolbar')).not.toBeNull();
+        expect(findByClass(root, 'chat-toolbar-left')).not.toBeNull();
+        expect(findByClass(root, 'chat-toolbar-right')).not.toBeNull();
     });
 
-    it('header shows truncated selection anchor', () => {
-        const longText = 'a'.repeat(200);
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(longText),
-            position: { x: 50, y: 50 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
+    it('toolbar has model + plus + lookup (magnifier) + ellipsis + send buttons', () => {
+        const panel = newPanel();
         panel.open();
-        const anchor = container.children[0].children[0].children[0];
-        expect(anchor.textContent.length).toBeLessThan(longText.length);
-        expect(anchor.textContent.endsWith('…')).toBe(true);
+        const root = container.children[0];
+        expect(findByClass(root, 'model-button')).not.toBeNull();
+        expect(findByClass(root, 'plus-button')).not.toBeNull();
+        expect(findByClass(root, 'lookup-button')).not.toBeNull();
+        expect(findByClass(root, 'ellipsis-button')).not.toBeNull();
+        expect(findByClass(root, 'send-button')).not.toBeNull();
     });
 
-    it('header shows "(no selection)" when selection is empty', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(''),
-            position: { x: 50, y: 50 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        panel.open();
-        const anchor = container.children[0].children[0].children[0];
-        expect(anchor.textContent).toBe('(no selection)');
-    });
-
-    it('toolbar renders one button per action with icon + title', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        panel.open();
-        const toolbar = container.children[0].children[1];
-        expect(toolbar.children).toHaveLength(3);
-        expect(toolbar.children[0].textContent).toBe('🔍');
-        expect(toolbar.children[0].getAttribute('title')).toBe('Lookup');
-        expect(toolbar.children[0].dataset.actionId).toBe('lookup');
-    });
-
-    it('clicking a toolbar action dispatches with empty userInput', () => {
+    it('clicking the magnifier dispatches the lookup action', () => {
         const onDispatch = vi.fn();
-        const ctx = makeCtx('text');
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx,
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch,
-        });
+        const panel = newPanel({ onDispatch });
         panel.open();
-        const lookupBtn = container.children[0].children[1].children[0];
-        lookupBtn.click();
+        const root = container.children[0];
+        const lookupBtn = findByClass(root, 'lookup-button');
+        expect(lookupBtn).not.toBeNull();
+        lookupBtn!.click();
         expect(onDispatch).toHaveBeenCalledTimes(1);
-        expect(onDispatch.mock.calls[0][0]).toEqual({
-            actionId: 'lookup',
-            userInput: '',
-            ctx,
-        });
+        expect(onDispatch.mock.calls[0][0]).toMatchObject({ actionId: 'lookup', userInput: '' });
     });
 
-    it('appendMessage adds a bubble with correct role class', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        const handle = panel.open();
-        handle.appendMessage({ role: 'user', text: 'hello' });
-        handle.appendMessage({ role: 'assistant', text: 'hi back' });
-        const body = container.children[0].children[2];
-        expect(body.children).toHaveLength(2);
-        expect(body.children[0].classList.contains('agent-inline-panel__bubble--user')).toBe(true);
-        expect(body.children[1].classList.contains('agent-inline-panel__bubble--assistant')).toBe(true);
-        expect(body.children[0].textContent).toBe('hello');
-        expect(body.children[1].textContent).toBe('hi back');
+    it('selection preview shows above the body with the actual text', () => {
+        const panel = newPanel({ ctx: makeCtx('first line\nsecond line') });
+        panel.open();
+        const root = container.children[0];
+        const preview = findByClass(root, 'agent-inline-panel__anchor-text');
+        expect(preview).not.toBeNull();
+        expect(preview!.textContent).toContain('first line');
+        expect(preview!.textContent).toContain('second line');
     });
 
-    it('appendStreamChunk concatenates text into an existing bubble', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        const handle = panel.open();
-        const id = handle.appendMessage({ role: 'assistant', text: '' });
-        handle.appendStreamChunk(id, 'foo ');
-        handle.appendStreamChunk(id, 'bar');
-        const bubble = container.children[0].children[2].children[0];
-        expect(bubble.textContent).toBe('foo bar');
+    it('selection preview truncates to 3 lines and offers "Show more" toggle', () => {
+        const longSelection = 'line 1\nline 2\nline 3\nline 4\nline 5';
+        const panel = newPanel({ ctx: makeCtx(longSelection) });
+        panel.open();
+        const root = container.children[0];
+        const preview = findByClass(root, 'agent-inline-panel__anchor-text');
+        expect(preview).not.toBeNull();
+        expect(preview!.textContent).toContain('line 3');
+        expect(preview!.textContent).not.toContain('line 4');
+        expect(preview!.textContent.endsWith('…')).toBe(true);
+
+        const toggle = findByClass(root, 'agent-inline-panel__anchor-toggle');
+        expect(toggle).not.toBeNull();
+        expect(toggle!.textContent).toBe('Show more');
+
+        toggle!.click();
+        expect(preview!.textContent).toContain('line 4');
+        expect(preview!.textContent).toContain('line 5');
+        expect(toggle!.textContent).toBe('Show less');
+
+        toggle!.click();
+        expect(preview!.textContent).not.toContain('line 4');
+        expect(toggle!.textContent).toBe('Show more');
+    });
+
+    it('preview toggle is omitted when selection has 3 or fewer lines', () => {
+        const panel = newPanel({ ctx: makeCtx('line 1\nline 2') });
+        panel.open();
+        const root = container.children[0];
+        expect(findByClass(root, 'agent-inline-panel__anchor-toggle')).toBeNull();
+    });
+
+    it('no preview section when selection is empty', () => {
+        const panel = newPanel({ ctx: makeCtx('') });
+        panel.open();
+        const root = container.children[0];
+        expect(findByClass(root, 'agent-inline-panel__anchor')).toBeNull();
     });
 
     it('Escape closes the panel', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
+        const panel = newPanel();
         panel.open();
         expect(panel.isOpen).toBe(true);
         doc.dispatch('keydown', { key: 'Escape', preventDefault: () => {} });
         expect(panel.isOpen).toBe(false);
     });
 
-    it('outside-click does NOT close (panel stays open for editor interaction)', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        panel.open();
-        // Simulate click outside (no listener registered for it).
-        expect(panel.isOpen).toBe(true);
-    });
-
     it('close button removes the panel', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
+        const panel = newPanel();
         panel.open();
-        const closeBtn = container.children[0].children[0].children[1];
-        closeBtn.click();
+        const root = container.children[0];
+        const closeBtn = findByClass(root, 'agent-inline-panel__close');
+        expect(closeBtn).not.toBeNull();
+        closeBtn!.click();
         expect(panel.isOpen).toBe(false);
         expect(container.children).toHaveLength(0);
     });
 
-    it('setStatus shows + flips error class when level=error', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        const handle = panel.open();
-        const status = container.children[0].children[3];
-        expect(status.classList.contains('agent-u-hidden')).toBe(true);
-        handle.setStatus('Working…');
-        expect(status.classList.contains('agent-u-hidden')).toBe(false);
-        expect(status.textContent).toBe('Working…');
-        handle.setStatus('Failed', 'error');
-        expect(status.classList.contains('agent-inline-panel__status--error')).toBe(true);
+    it('onShowMoreMenu fires when ellipsis is clicked', () => {
+        const onShowMoreMenu = vi.fn();
+        const panel = newPanel({ onShowMoreMenu });
+        panel.open();
+        const ellipsis = findByClass(container.children[0], 'ellipsis-button');
+        ellipsis!.click();
+        expect(onShowMoreMenu).toHaveBeenCalledTimes(1);
     });
 
-    it('open() while already open replaces the previous instance', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
+    it('onShowPlusMenu fires when plus is clicked', () => {
+        const onShowPlusMenu = vi.fn();
+        const panel = newPanel({ onShowPlusMenu });
+        panel.open();
+        const plus = findByClass(container.children[0], 'plus-button');
+        plus!.click();
+        expect(onShowPlusMenu).toHaveBeenCalledTimes(1);
+    });
+
+    it('appendMessage + streaming both land in the body', () => {
+        const panel = newPanel();
+        const handle = panel.open();
+        const id = handle.appendMessage({ role: 'assistant', text: 'A' });
+        handle.appendStreamChunk(id, 'B');
+        const body = findByClass(container.children[0], 'agent-inline-panel__body');
+        expect(body!.children).toHaveLength(1);
+        expect(body!.children[0].textContent).toBe('AB');
+    });
+
+    it('open() twice replaces previous instance', () => {
+        const panel = newPanel();
         panel.open();
         panel.open();
         expect(container.children).toHaveLength(1);
     });
 
-    it('positions the panel absolutely', () => {
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 120, y: 240 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-        });
-        panel.open();
-        const root = container.children[0];
-        expect(root.style.left).toBeTruthy();
-        expect(root.style.top).toBeTruthy();
-    });
-
-    it('onClose hook fires on close()', () => {
+    it('onClose fires once on user-initiated close', () => {
         const onClose = vi.fn();
-        const panel = new InlineChatPanel({
-            containerEl: container as unknown as HTMLElement,
-            ctx: makeCtx(),
-            position: { x: 0, y: 0 },
-            actions: DEFAULT_ACTIONS,
-            onDispatch: vi.fn(),
-            onClose,
-        });
+        const panel = newPanel({ onClose });
         panel.open();
         panel.close();
         expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('custom setIcon hook is invoked for every icon button', () => {
+        const setIcon = vi.fn();
+        const panel = newPanel({ setIcon });
+        panel.open();
+        // 4 icon buttons: plus, lookup, ellipsis, send.
+        expect(setIcon.mock.calls.map(c => c[1])).toEqual(['plus', 'search', 'ellipsis', 'send-horizontal']);
     });
 });

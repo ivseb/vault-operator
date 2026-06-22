@@ -22,10 +22,10 @@ import type { InlineTriggerResolver, SelectionTriggerInput } from '../InlineTrig
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 import {
     InlineChatPanel,
-    type InlinePanelAction,
     type InlinePanelActionId,
     type InlinePanelDispatchArgs,
     type InlinePanelHandle,
+    type SetIconHook,
 } from './InlineChatPanel';
 
 export interface EditorChatProbe {
@@ -43,16 +43,25 @@ export interface InlineChatOrchestratorOptions {
     resolver: InlineTriggerResolver;
     /** Live master-switch (settings.inlineActions.enabled). */
     isEnabled?: () => boolean;
+    /** Optional bridge to Obsidian's setIcon for Lucide rendering. */
+    setIcon?: SetIconHook;
+    /**
+     * Optional bridge for the "..." (more actions) menu. The plugin
+     * entry-point typically builds an Obsidian Menu and offers Rewrite,
+     * Translate, Summarize, Find-Action-Items, Send-to-Main here.
+     * Each menu item dispatches a panel-action by calling
+     * handle.appendMessage + handle.setStatus and then the registered
+     * InlineAction via the dispatcher exposed in the handle.
+     */
+    showMoreMenu?: (
+        anchor: HTMLElement,
+        ctx: InlineTriggerContext,
+        handle: InlinePanelHandle,
+        dispatch: (actionId: InlinePanelActionId) => void,
+    ) => void;
+    /** Optional bridge for the "+" menu. */
+    showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
 }
-
-const DEFAULT_TOOLBAR: InlinePanelAction[] = [
-    { id: 'lookup', icon: '🔍', title: 'Lookup' },
-    { id: 'rewrite', icon: '✏️', title: 'Rewrite' },
-    { id: 'translate', icon: '🌐', title: 'Translate to English' },
-    { id: 'summarize', icon: '📝', title: 'Summarize (medium)' },
-    { id: 'find-action-items', icon: '✓', title: 'Find action items' },
-    { id: 'send-to-main', icon: '↗', title: 'Send selection to main chat' },
-];
 
 /** Map panel-action ids onto registered InlineAction ids. */
 function panelActionToRegistryId(panelId: InlinePanelActionId): string | null {
@@ -72,6 +81,14 @@ export class InlineChatOrchestrator {
     private readonly registry: InlineActionRegistry;
     private readonly resolver: InlineTriggerResolver;
     private readonly isEnabled: () => boolean;
+    private readonly setIconHook?: SetIconHook;
+    private readonly showMoreMenu?: (
+        anchor: HTMLElement,
+        ctx: InlineTriggerContext,
+        handle: InlinePanelHandle,
+        dispatch: (actionId: InlinePanelActionId) => void,
+    ) => void;
+    private readonly showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
 
     private activePanel: InlineChatPanel | null = null;
 
@@ -80,6 +97,9 @@ export class InlineChatOrchestrator {
         this.registry = options.registry;
         this.resolver = options.resolver;
         this.isEnabled = options.isEnabled ?? (() => true);
+        this.setIconHook = options.setIcon;
+        this.showMoreMenu = options.showMoreMenu;
+        this.showPlusMenu = options.showPlusMenu;
     }
 
     /** Main entry from hotkey / command-palette / SelectionWatcher. */
@@ -99,9 +119,18 @@ export class InlineChatOrchestrator {
             containerEl: container,
             ctx,
             position: this.editorProbe.getPanelPosition(),
-            actions: DEFAULT_TOOLBAR,
             onDispatch: (args, handle) => { void this.handleDispatch(args, handle); },
+            onShowMoreMenu: this.showMoreMenu !== undefined
+                ? (anchor, c, handle) => {
+                    this.showMoreMenu!(anchor, c, handle, (actionId) => {
+                        // Dispatch helper for the secondary menu items.
+                        void this.handleDispatch({ actionId, userInput: '', ctx: c }, handle);
+                    });
+                }
+                : undefined,
+            onShowPlusMenu: this.showPlusMenu,
             onClose: () => { this.activePanel = null; },
+            setIcon: this.setIconHook,
         });
         panel.open();
         this.activePanel = panel;
