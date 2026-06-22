@@ -10,6 +10,26 @@
 import type { ParseResult } from '../types';
 import { openZipSafe, getXmlDoc, getElementsByLocalName } from './ooxmlHelpers';
 
+/**
+ * Excel hard limits per the OOXML spec (Excel 2007+):
+ *   - Columns: 16384 (A..XFD), zero-based max index = 16383
+ *   - Rows:    1048576, one-based max = 1048576
+ * Guards against AUDIT-034 M-8: a crafted cell ref like `ZZZZZZ1` or
+ * `A99999999999` would otherwise blow up colIdx/rowIdx and cause the
+ * render loop to allocate billions of cells. We clamp BOTH dimensions
+ * and validate the cell-ref shape before integer conversion.
+ */
+const EXCEL_MAX_COL = 16384;
+const EXCEL_MAX_ROW = 1048576;
+
+/**
+ * Cell-ref grammar: 1..3 uppercase letters (max column XFD), then a
+ * 1..7 digit positive row number (max row 1048576). Anything outside
+ * this shape (lowercase, leading zero row, empty, swapped order) is
+ * rejected up-front so callers do not have to second-guess the input.
+ */
+const CELL_REF_PATTERN = /^[A-Z]{1,3}[1-9]\d{0,6}$/;
+
 /** Parse column letter(s) to zero-based index: A=0, B=1, ..., Z=25, AA=26 */
 function colLetterToIndex(letters: string): number {
     let idx = 0;
@@ -19,14 +39,26 @@ function colLetterToIndex(letters: string): number {
     return idx - 1;
 }
 
-/** Extract column letters from a cell reference like "B5" -> "B" */
-function colFromRef(ref: string): string {
-    return ref.replace(/\d+/g, '');
-}
+/**
+ * Parse and validate an Excel cell reference like "B5" or "XFD1048576".
+ * Returns null when the ref is malformed or when the parsed col/row
+ * exceed Excel hard limits. Callers should skip the cell on null.
+ */
+export function parseAndValidateCellRef(
+    ref: string | null | undefined,
+): { colIdx: number; rowIdx: number } | null {
+    if (!ref || !CELL_REF_PATTERN.test(ref)) return null;
 
-/** Extract row number from a cell reference like "B5" -> 5 */
-function rowFromRef(ref: string): number {
-    return parseInt(ref.replace(/[A-Z]+/gi, ''), 10);
+    const match = ref.match(/^([A-Z]+)(\d+)$/);
+    if (!match) return null;
+
+    const colIdx = colLetterToIndex(match[1]);
+    const rowIdx = parseInt(match[2], 10);
+
+    if (!Number.isFinite(colIdx) || colIdx < 0 || colIdx >= EXCEL_MAX_COL) return null;
+    if (!Number.isFinite(rowIdx) || rowIdx < 1 || rowIdx > EXCEL_MAX_ROW) return null;
+
+    return { colIdx, rowIdx };
 }
 
 export async function parseXlsx(data: ArrayBuffer): Promise<ParseResult> {
@@ -83,10 +115,13 @@ export async function parseXlsx(data: ArrayBuffer): Promise<ParseResult> {
             const cells = getElementsByLocalName(row, 'c');
             for (const cell of cells) {
                 const ref = cell.getAttribute('r');
-                if (!ref) continue;
-
-                const colIdx = colLetterToIndex(colFromRef(ref));
-                const rowIdx = rowFromRef(ref);
+                // Validate shape and clamp BOTH col and row to Excel hard
+                // limits before they can leak into maxCol/maxRow. A single
+                // malformed `r="ZZZZZZ1"` would otherwise pin maxCol into
+                // the hundreds of millions and OOM the renderer below.
+                const parsed = parseAndValidateCellRef(ref);
+                if (!parsed) continue;
+                const { colIdx, rowIdx } = parsed;
                 maxCol = Math.max(maxCol, colIdx);
                 maxRow = Math.max(maxRow, rowIdx);
                 minRow = Math.min(minRow, rowIdx);

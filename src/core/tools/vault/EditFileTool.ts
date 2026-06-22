@@ -13,6 +13,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { validateVaultRelativePath } from './pathValidation';
 
 interface EditFileInput {
     path: string;
@@ -78,24 +79,40 @@ export class EditFileTool extends BaseTool<'edit_file'> {
             if (old_str === undefined || old_str === null) throw new Error('old_str parameter is required');
             if (new_str === undefined || new_str === null) throw new Error('new_str parameter is required');
 
+            // AUDIT-034 H-1 / SAST-1-02: normalise the path through the
+            // shared vault-relative validator BEFORE any adapter or Vault
+            // call. The previous "isHidden = startsWith(.)" gate accepted
+            // `.foo/../../etc/passwd` because the first segment starts
+            // with a dot, then handed the raw string to adapter.read /
+            // adapter.write -- arbitrary filesystem read+write outside
+            // the vault. validateVaultRelativePath rejects `..`, `.`,
+            // NUL bytes and url-encoded traversal, mirroring the pattern
+            // already used by MarkNoteAsMemorySourceTool,
+            // UnmarkNoteAsMemorySourceTool and IngestTriageTool.
+            const cleanPath = validateVaultRelativePath(path);
+            if (!cleanPath) {
+                throw new Error(`Invalid file path: ${path}`);
+            }
+
             // FEAT-29-05 follow-up: hidden folders (`.vault-operator/`,
             // `.obsidian/`, ...) live outside Obsidian's TFile index, so the
             // Vault API returns null. Fall back to the adapter -- it handles
             // raw filesystem paths regardless of whether Obsidian indexes
-            // them. WriteFileTool and ReadFileTool already do this.
-            const isHidden = path.split('/').some((seg) => seg.startsWith('.'));
+            // them. WriteFileTool and ReadFileTool already do this. Note:
+            // we use the validator-normalised cleanPath, not the raw input.
+            const isHidden = cleanPath.split('/').some((seg) => seg.startsWith('.'));
             let content: string;
             let file: TFile | null = null;
             if (isHidden) {
                 const adapter = this.app.vault.adapter;
-                if (!(await adapter.exists(path))) {
-                    throw new Error(`File not found: ${path}`);
+                if (!(await adapter.exists(cleanPath))) {
+                    throw new Error(`File not found: ${cleanPath}`);
                 }
-                content = await adapter.read(path);
+                content = await adapter.read(cleanPath);
             } else {
-                const found = this.app.vault.getAbstractFileByPath(path);
-                if (!found) throw new Error(`File not found: ${path}`);
-                if (!(found instanceof TFile)) throw new Error(`Path is not a file: ${path}`);
+                const found = this.app.vault.getAbstractFileByPath(cleanPath);
+                if (!found) throw new Error(`File not found: ${cleanPath}`);
+                if (!(found instanceof TFile)) throw new Error(`Path is not a file: ${cleanPath}`);
                 file = found;
                 content = await this.app.vault.read(file);
             }
@@ -112,7 +129,7 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                     // hit; better to error out so the agent adds disambiguating
                     // context.
                     throw new Error(
-                        `old_str matches ${fuzzy.matches} times in "${path}" after whitespace normalization. ` +
+                        `old_str matches ${fuzzy.matches} times in "${cleanPath}" after whitespace normalization. ` +
                         `Add more surrounding context to old_str so it identifies a single location.`
                     );
                 }
@@ -126,12 +143,12 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                         // but the user sees the pre-edit buffer.
                         await refreshOpenMarkdownViewsFor(this.app, file, normalized);
                     } else {
-                        await this.app.vault.adapter.write(path, normalized);
+                        await this.app.vault.adapter.write(cleanPath, normalized);
                     }
                     const stats = this.diffStats(content, normalized);
                     const { added, removed } = this.diffNums(content, normalized);
                     callbacks.pushToolResult(
-                        this.formatSuccess(`Edited ${path} (fuzzy match applied): ${stats}`) +
+                        this.formatSuccess(`Edited ${cleanPath} (fuzzy match applied): ${stats}`) +
                         `\n<diff_stats added="${added}" removed="${removed}"/>`
                     );
                     return;
@@ -147,14 +164,14 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                     ? ` Note: new_str is ${newStrSize} chars. Use write_file instead to replace the whole file, or append_to_file to add at the end. edit_file is for targeted small edits, not large rewrites -- retrying with the same large new_str will keep failing.`
                     : '';
                 throw new Error(
-                    `old_str not found in file "${path}". ` +
+                    `old_str not found in file "${cleanPath}". ` +
                     `Read the file first to get the exact bytes (whitespace, blank lines, trailing newlines all count) and retry with a shorter, more unique old_str.${sizeHint}`
                 );
             }
 
             if (occurrences > expected_replacements) {
                 throw new Error(
-                    `old_str appears ${occurrences} times in "${path}" but expected_replacements is ${expected_replacements}. ` +
+                    `old_str appears ${occurrences} times in "${cleanPath}" but expected_replacements is ${expected_replacements}. ` +
                     `Add more surrounding context to old_str to make it unique, or increase expected_replacements.`
                 );
             }
@@ -166,17 +183,17 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                 // FIX-01-07-03: see note above; same editor-buffer push.
                 await refreshOpenMarkdownViewsFor(this.app, file, newContent);
             } else {
-                await this.app.vault.adapter.write(path, newContent);
+                await this.app.vault.adapter.write(cleanPath, newContent);
             }
 
             const stats = this.diffStats(content, newContent);
             const replWord = expected_replacements === 1 ? 'replacement' : 'replacements';
             const { added, removed } = this.diffNums(content, newContent);
             callbacks.pushToolResult(
-                this.formatSuccess(`Edited ${path} (${expected_replacements} ${replWord}): ${stats}`) +
+                this.formatSuccess(`Edited ${cleanPath} (${expected_replacements} ${replWord}): ${stats}`) +
                 `\n<diff_stats added="${added}" removed="${removed}"/>`
             );
-            callbacks.log(`Successfully edited file: ${path}`);
+            callbacks.log(`Successfully edited file: ${cleanPath}`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('edit_file', error);

@@ -28,7 +28,7 @@ const guidesSidebar = [
       { text: 'Choosing a model', link: '/guides/choosing-a-model' },
       { text: 'Vault operations', link: '/guides/vault-operations' },
       { text: 'Knowledge discovery', link: '/guides/knowledge-discovery' },
-      { text: 'Knowledge workflow', link: '/guides/knowledge-workflow' },
+      { text: 'Knowledge workflow', link: '/tutorials/knowledge-workflow' },
       { text: 'Memory and personalization', link: '/guides/memory-personalization' },
       { text: 'Safety and control', link: '/guides/safety-control' },
     ],
@@ -134,6 +134,7 @@ export default withMermaid(
     vite: {
       build: { target: 'es2022' },
       esbuild: { target: 'es2022' },
+      optimizeDeps: { esbuildOptions: { target: 'es2022' } },
     },
     head: [
       ['meta', { property: 'og:title', content: 'Vault Operator, agentic AI operating layer for your vault' }],

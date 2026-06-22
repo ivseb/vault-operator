@@ -3,6 +3,41 @@ import { TemplateCatalogLoader } from '../TemplateCatalog';
 import type { TemplateCatalog, SlideType, SlideTypeShape } from '../types';
 
 // ------------------------------------------------------------------ //
+//  Stub plugin for loader instantiation                              //
+// ------------------------------------------------------------------ //
+
+interface StubAdapter {
+    exists: (p: string) => Promise<boolean>;
+    read: (p: string) => Promise<string>;
+    readBinary: (p: string) => Promise<ArrayBuffer>;
+    write: (p: string, c: string) => Promise<void>;
+    writeBinary: (p: string, c: ArrayBuffer) => Promise<void>;
+    mkdir: (p: string) => Promise<void>;
+    list: (p: string) => Promise<{ folders: string[]; files: string[] }>;
+}
+
+function makeLoaderStub(): TemplateCatalogLoader {
+    const adapter: StubAdapter = {
+        exists: async () => false,
+        read: async () => '',
+        readBinary: async () => new ArrayBuffer(0),
+        write: async () => undefined,
+        writeBinary: async () => undefined,
+        mkdir: async () => undefined,
+        list: async () => ({ folders: [], files: [] }),
+    };
+    const stubPlugin = {
+        app: {
+            vault: {
+                configDir: '.obsidian',
+                adapter,
+            },
+        },
+    } as unknown as ConstructorParameters<typeof TemplateCatalogLoader>[0];
+    return new TemplateCatalogLoader(stubPlugin);
+}
+
+// ------------------------------------------------------------------ //
 //  Test-Fixtures                                                       //
 // ------------------------------------------------------------------ //
 
@@ -276,3 +311,66 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
         });
     });
 });
+
+// ------------------------------------------------------------------ //
+//  Path-traversal guard (AUDIT-034 L-6 / SAST-R-09)                  //
+// ------------------------------------------------------------------ //
+
+describe('TemplateCatalogLoader.loadTemplate path-traversal guard', () => {
+    it('rejects parent-directory traversal', async () => {
+        const loader = makeLoaderStub();
+        await expect(loader.loadTemplate('../../etc/passwd')).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('rejects nested path segments with forward slash', async () => {
+        const loader = makeLoaderStub();
+        await expect(loader.loadTemplate('foo/bar')).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('rejects backslash separators', async () => {
+        const loader = makeLoaderStub();
+        await expect(loader.loadTemplate('foo\\bar')).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('rejects names starting with a dot', async () => {
+        const loader = makeLoaderStub();
+        await expect(loader.loadTemplate('.hidden')).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('rejects empty themeName', async () => {
+        const loader = makeLoaderStub();
+        await expect(loader.loadTemplate('')).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('accepts the bundled default themes through the guard', async () => {
+        const loader = makeLoaderStub();
+        // The guard itself must not reject the known-good names; we only
+        // assert the rejection message does not surface (loadBundledTheme
+        // is allowed to fail later when the bundled module is absent in
+        // the test runtime).
+        for (const name of ['executive', 'modern', 'minimal']) {
+            try {
+                await loader.loadTemplate(name);
+            } catch (e) {
+                expect((e as Error).message).not.toMatch(/path-traversal guard/);
+            }
+        }
+    });
+});
+
+describe('TemplateCatalogLoader.saveTheme path-traversal guard', () => {
+    it('rejects parent-directory traversal before any adapter write', async () => {
+        const loader = makeLoaderStub();
+        await expect(
+            loader.saveTheme('../escape', new ArrayBuffer(0), makeCatalog()),
+        ).rejects.toThrow(/path-traversal guard/);
+    });
+
+    it('rejects names containing path separators', async () => {
+        const loader = makeLoaderStub();
+        await expect(
+            loader.saveTheme('foo/bar', new ArrayBuffer(0), makeCatalog()),
+        ).rejects.toThrow(/path-traversal guard/);
+    });
+});
+

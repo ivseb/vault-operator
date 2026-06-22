@@ -18,7 +18,8 @@
     "docs:preview": "vitepress preview docs",
     "codeql:db": "codeql database create codeql-db --language=javascript --source-root=src/ --overwrite",
     "codeql:analyze": "codeql database analyze codeql-db --format=sarif-latest --output=codeql-results.sarif codeql/javascript-queries:codeql-suites/javascript-security-and-quality.qls",
-    "codeql:scan": "npm run codeql:db && npm run codeql:analyze"
+    "codeql:scan": "npm run codeql:db && npm run codeql:analyze",
+    "verify:esbuild-hashes": "bash scripts/update-esbuild-integrity.sh"
   },
   "keywords": [
     "obsidian",
@@ -96,6 +97,7 @@
     "qs": ">=6.15.2",
     "tmp": ">=0.2.6",
     "js-yaml": ">=4.2.0",
+    "zod": ">=4.4.0",
     "esbuild": "$esbuild"
   }
 }

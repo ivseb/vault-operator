@@ -23,7 +23,11 @@ const PLUGIN_VERSION = '2.14.15'
 
     <h1 class="lp-title">Your Obsidian vault,<br>with a real AI agent.</h1>
 
-    <p class="lp-sub">Learns your vault. Learns your workflows. Acts on both.</p>
+    <p class="lp-sub">
+      Block-level provenance from sense-making notes back to source paragraphs.
+      Hybrid semantic search, persistent memory, MCP server, multi-agent workflows.
+      Local-first. Open source. Free to use.
+    </p>
 
     <div class="lp-cta">
       <a :href="withBase('/tutorials/getting-started')" class="lp-btn lp-btn-primary">
@@ -107,12 +111,12 @@ const PLUGIN_VERSION = '2.14.15'
 }
 
 .lp-sub {
-  font-size: clamp(1.1rem, 2.4vw, 1.4rem);
+  font-size: clamp(1.05rem, 1.8vw, 1.25rem);
   color: var(--vp-c-text-2);
   margin: 0 0 2rem;
   font-weight: 500;
-  max-width: 720px;
-  line-height: 1.45;
+  max-width: 640px;
+  line-height: 1.5;
   text-wrap: balance;
 }
 

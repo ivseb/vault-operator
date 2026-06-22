@@ -54,3 +54,76 @@ describe('parsePdf (FIX-06-01-01)', () => {
         expect(loadPdfjsBundle).toHaveBeenCalledOnce();
     });
 });
+
+/**
+ * Regression-tests for AUDIT-034 L-3 (CWE-400 PDF page/byte cap).
+ *
+ * Pins MAX_PAGES=2000 and MAX_TEXT_BYTES=50 MB ceilings: a malicious PDF
+ * advertising 100k pages must be capped, and a single page with multi-MB
+ * of text must trigger an early break with a (truncated) sentinel.
+ */
+function makePdfStub(numPages: number, pageTextProvider: (page: number) => string) {
+    const getPage = vi.fn(async (pageNum: number) => ({
+        getTextContent: async () => ({
+            items: [{ str: pageTextProvider(pageNum) }],
+        }),
+    }));
+    return {
+        getPage,
+        numPages,
+    };
+}
+
+function makePluginWithStubbedPdfjs(pdfStub: { getPage: ReturnType<typeof vi.fn>; numPages: number }): ObsidianAgentPlugin {
+    const getDocument = vi.fn(() => ({
+        promise: Promise.resolve(pdfStub),
+    }));
+    return {
+        bundleLoader: {
+            loadPdfjsBundle: vi.fn().mockResolvedValue({
+                pdfjs: {
+                    GlobalWorkerOptions: { workerSrc: '' },
+                    getDocument,
+                },
+            }),
+        },
+    } as unknown as ObsidianAgentPlugin;
+}
+
+describe('parsePdf (AUDIT-034 L-3 caps)', () => {
+    it('caps numPages at MAX_PAGES (2000) and appends a truncation sentinel', async () => {
+        const pdfStub = makePdfStub(100_000, (page) => `page-${page}-body`);
+        const plugin = makePluginWithStubbedPdfjs(pdfStub);
+        const result = await parsePdf(makeBuffer(), plugin);
+        // Loop must stop at 2000 even though the document advertises 100k pages.
+        expect(pdfStub.getPage).toHaveBeenCalledTimes(2000);
+        expect(result.text).toContain('## Page 2000');
+        expect(result.text).not.toContain('## Page 2001');
+        expect(result.text).toContain('(truncated: PDF has 100000 pages, only the first 2000 were parsed)');
+        // pageCount in metadata stays the advertised value so callers can detect skew.
+        expect(result.metadata.pageCount).toBe(100_000);
+    });
+
+    it('breaks early when accumulated text exceeds MAX_TEXT_BYTES (50 MB)', async () => {
+        // Each page produces ~2 MB of text. 30 pages -> 60 MB total, must abort
+        // somewhere before page 30 with the byte-cap sentinel.
+        const bigChunk = 'x'.repeat(2 * 1024 * 1024);
+        const pdfStub = makePdfStub(50, () => bigChunk);
+        const plugin = makePluginWithStubbedPdfjs(pdfStub);
+        const result = await parsePdf(makeBuffer(), plugin);
+        expect(pdfStub.getPage.mock.calls.length).toBeLessThan(50);
+        expect(result.text).toContain('(truncated: text output exceeded');
+        // Output length stays under the cap plus the small sentinel string.
+        expect(result.text.length).toBeLessThan(50 * 1024 * 1024 + 1024);
+    });
+
+    it('does not append a truncation sentinel for a small PDF', async () => {
+        const pdfStub = makePdfStub(3, (page) => `page-${page}-body`);
+        const plugin = makePluginWithStubbedPdfjs(pdfStub);
+        const result = await parsePdf(makeBuffer(), plugin);
+        expect(pdfStub.getPage).toHaveBeenCalledTimes(3);
+        expect(result.text).not.toContain('(truncated');
+        expect(result.text).toContain('## Page 3');
+        expect(result.metadata.pageCount).toBe(3);
+    });
+});

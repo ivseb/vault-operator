@@ -1,44 +1,132 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
- * WebFetchTool - Fetch a URL and return readable content
+ * WebFetchTool - Fetch a URL and return readable content.
  *
- * Uses Obsidian's requestUrl() — no browser/Chromium required.
- * Converts HTML to Markdown for clean LLM consumption.
- * Adapted from Kilo Code's UrlContentFetcher pattern.
+ * Uses node:http / node:https directly so we can re-run the SSRF guard on every
+ * redirect hop (Obsidian's requestUrl follows redirects internally without an
+ * exposed cap, which would defeat per-hop validation). Converts HTML to Markdown
+ * for clean LLM consumption. Adapted from Kilo Code's UrlContentFetcher pattern.
  */
 
-import { requestUrl } from 'obsidian';
 import dns from 'dns';
+import net from 'net';
+import http from 'http';
+import https from 'https';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 
 /**
- * Check whether an IP address belongs to a private/internal network range.
- * Covers RFC 1918, loopback, link-local, and IPv6 equivalents.
+ * Strict IPv4 dotted-quad regex: exactly four 0-255 octets, no leading zeros beyond a single 0.
+ * `net.isIPv4` is the source of truth where available; this is the fallback shape check.
  */
-function isPrivateIP(ip: string): boolean {
+const IPV4_OCTET_RE = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+
+/**
+ * Strip surrounding IPv6 brackets and an optional zone-id suffix (fe80::1%eth0).
+ * Returns the bare address text suitable for net.isIP and pattern checks.
+ */
+function normalizeHostForIpCheck(host: string): string {
+    let h = host.trim().toLowerCase();
+    if (h.startsWith('[') && h.endsWith(']')) {
+        h = h.slice(1, -1);
+    }
+    // Strip IPv6 zone-id (RFC 6874) so fe80::1%eth0 still matches the link-local pattern.
+    const pct = h.indexOf('%');
+    if (pct >= 0) {
+        h = h.slice(0, pct);
+    }
+    return h;
+}
+
+/**
+ * Check whether an IP literal belongs to a private/internal network range.
+ * Covers RFC 1918, loopback, CGNAT (RFC 6598), link-local + APIPA, multicast, broadcast,
+ * unspecified, and IPv6 equivalents (loopback, link-local, ULA, IPv4-mapped wrappers).
+ * Accepts both bracketed and unbracketed IPv6 input.
+ */
+export function isPrivateIP(ip: string): boolean {
+    const bare = normalizeHostForIpCheck(ip);
+
     // IPv4
-    if (ip.includes('.')) {
-        const parts = ip.split('.').map(Number);
-        if (parts.length !== 4 || parts.some((p) => isNaN(p))) return false;
-        const [a, b] = parts;
+    if (net.isIPv4(bare)) {
+        const parts = bare.split('.');
+        // Each octet must be a strict integer in 0-255; reject anything else.
+        if (parts.length !== 4 || !parts.every((p) => IPV4_OCTET_RE.test(p))) return false;
+        const [a, b] = parts.map((p) => parseInt(p, 10));
         return (
-            a === 127 ||             // 127.0.0.0/8  loopback
-            a === 10 ||              // 10.0.0.0/8   RFC 1918
-            (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12 RFC 1918
-            (a === 192 && b === 168) ||          // 192.168.0.0/16 RFC 1918
-            (a === 169 && b === 254) ||          // 169.254.0.0/16 link-local / AWS metadata
-            a === 0                  // 0.0.0.0/8    "this" network
+            a === 0 ||                                   // 0.0.0.0/8     "this" network / unspecified
+            a === 10 ||                                  // 10.0.0.0/8    RFC 1918
+            a === 127 ||                                 // 127.0.0.0/8   loopback
+            (a === 100 && b >= 64 && b <= 127) ||        // 100.64.0.0/10 CGNAT (RFC 6598)
+            (a === 169 && b === 254) ||                  // 169.254.0.0/16 link-local / APIPA / cloud metadata
+            (a === 172 && b >= 16 && b <= 31) ||         // 172.16.0.0/12 RFC 1918
+            (a === 192 && b === 168) ||                  // 192.168.0.0/16 RFC 1918
+            (a >= 224 && a <= 239) ||                    // 224.0.0.0/4   multicast
+            (a >= 240 && a <= 255)                       // 240.0.0.0/4   reserved + 255.255.255.255 broadcast
         );
     }
+
     // IPv6
-    const norm = ip.toLowerCase();
-    return (
-        norm === '::1' ||                   // loopback
-        norm.startsWith('fe80') ||          // link-local fe80::/10
-        /^f[cd][0-9a-f]{2}:/.test(norm)    // unique-local fc00::/7
-    );
+    if (net.isIPv6(bare)) {
+        const norm = bare;
+
+        // Unspecified ::
+        if (norm === '::' || norm === '::0') return true;
+        // Loopback ::1
+        if (norm === '::1') return true;
+        // Link-local fe80::/10 (covers fe80, fe90, fea0, feb0 prefixes; first nibble after fe is 8-b)
+        if (/^fe[89ab][0-9a-f]?:/i.test(norm)) return true;
+        // Unique-local fc00::/7 (fc.. or fd..)
+        if (/^f[cd][0-9a-f]{2}:/.test(norm)) return true;
+        // Multicast ff00::/8
+        if (/^ff[0-9a-f]{2}:/.test(norm)) return true;
+
+        // IPv4-mapped IPv6 ::ffff:0:0/96 and IPv4-compatible ::a.b.c.d.
+        // Two shapes: ::ffff:127.0.0.1 (dotted) and ::ffff:7f00:1 (hex compressed).
+        const dottedMatch = /:((?:\d{1,3}\.){3}\d{1,3})$/.exec(norm);
+        if (dottedMatch) {
+            return isPrivateIP(dottedMatch[1]);
+        }
+        // Hex form: ::ffff:HHHH:HHHH or ::HHHH:HHHH (IPv4-compatible legacy).
+        const hexMatch = /^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(norm);
+        if (hexMatch) {
+            const hi = parseInt(hexMatch[1], 16);
+            const lo = parseInt(hexMatch[2], 16);
+            const a = (hi >> 8) & 0xff;
+            const b = hi & 0xff;
+            const c = (lo >> 8) & 0xff;
+            const d = lo & 0xff;
+            return isPrivateIP(`${a}.${b}.${c}.${d}`);
+        }
+        return false;
+    }
+
+    // Not a recognized IP literal.
+    return false;
+}
+
+/**
+ * Hostname suffix denylist: split-horizon corporate networks and common
+ * internal-only TLDs that should never be reachable from an agent fetch.
+ * Matched case-insensitively against the trimmed bracket-stripped hostname.
+ */
+const INTERNAL_HOSTNAME_SUFFIXES: ReadonlyArray<string> = [
+    '.localhost',
+    '.local',
+    '.internal',
+    '.intranet',
+    '.intra',
+    '.corp',
+    '.lan',
+    '.home',
+    '.home.arpa',
+];
+
+export function hasInternalSuffix(host: string): boolean {
+    const h = host.trim().toLowerCase();
+    if (h === 'localhost') return true;
+    return INTERNAL_HOSTNAME_SUFFIXES.some((suffix) => h.endsWith(suffix));
 }
 
 interface WebFetchInput {
@@ -99,69 +187,25 @@ export class WebFetchTool extends BaseTool<'web_fetch'> {
             return;
         }
 
-        // H-3 + M-2: Block SSRF with two-phase check.
-        // Phase 1: Reject obviously private hostnames (fast, no DNS).
-        // Phase 2: Resolve DNS and reject private resolved IPs (catches rebinding).
-        // TOCTOU note: requestUrl() resolves DNS independently, so a fast rebinding
-        // between our check and the actual request is theoretically possible but
-        // requires sub-second DNS TTL manipulation. This raises the bar significantly.
-        let parsedUrl: URL;
-        try {
-            parsedUrl = new URL(url);
-        } catch {
-            callbacks.pushToolResult(this.formatError(new Error('Invalid URL')));
+        // H-3 + M-2 + M-3 + L-5 + L-13 + L-14: Two-phase SSRF check, re-run on every redirect hop.
+        // Phase 1: Reject obviously private hostnames and split-horizon suffixes (fast, no DNS).
+        // Phase 2: Resolve DNS via the OS resolver (same path the network stack uses) and reject
+        //   any resolved private IP. Fail closed when lookup fails for non-IP hostnames so a
+        //   silently-swallowed DNS error cannot let the request slip through.
+        // TOCTOU note: a fast rebinding between our check and connect remains theoretically
+        // possible but requires sub-second TTL manipulation. The manual redirect loop ensures
+        // each hop in a redirect chain is re-validated, closing the L-14 redirect bypass.
+        const guardResult = await this.guardUrl(url);
+        if (!guardResult.ok) {
+            callbacks.pushToolResult(this.formatError(new Error(guardResult.reason)));
             return;
-        }
-
-        const host = parsedUrl.hostname.toLowerCase();
-
-        // Phase 1: Block obviously private hostnames
-        if (host === 'localhost' || isPrivateIP(host)) {
-            callbacks.pushToolResult(
-                this.formatError(new Error('Access to private/internal network addresses is not allowed'))
-            );
-            return;
-        }
-
-        // Phase 2: Resolve DNS and check resolved IPs
-        try {
-            const ips = await this.resolveHost(host);
-            const privateIp = ips.find(isPrivateIP);
-            if (privateIp) {
-                callbacks.pushToolResult(
-                    this.formatError(new Error(
-                        `Hostname "${host}" resolves to private IP ${privateIp} — access denied (SSRF protection)`
-                    ))
-                );
-                return;
-            }
-        } catch {
-            // DNS resolution failed — could be IP literal or non-resolvable host.
-            // IP literals are already checked in Phase 1. For non-resolvable hosts,
-            // let requestUrl() handle the error naturally.
         }
 
         try {
             callbacks.log(`Fetching: ${url}`);
 
             const TIMEOUT_MS = 15_000;
-            const timeoutPromise = new Promise<never>((_, reject) =>
-                window.setTimeout(() => reject(new Error(`Request timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS)
-            );
-
-            const response = await Promise.race([
-                requestUrl({
-                    url,
-                    method: 'GET',
-                    headers: {
-                        'User-Agent':
-                            'Mozilla/5.0 (compatible; ObsidianAgent/1.0; +https://obsidian.md)',
-                        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    },
-                    throw: false,
-                }),
-                timeoutPromise,
-            ]);
+            const response = await this.fetchWithRedirectGuard(url, TIMEOUT_MS);
 
             const statusCode = response.status;
 
@@ -212,30 +256,204 @@ export class WebFetchTool extends BaseTool<'web_fetch'> {
     }
 
     // ---------------------------------------------------------------------------
-    // DNS resolution helper (M-2: anti-rebinding)
+    // SSRF guard + redirect-safe fetcher (M-3, L-5, L-13, L-14)
     // ---------------------------------------------------------------------------
 
     /**
-     * Resolve a hostname to its IPv4 and IPv6 addresses.
-     * Used to detect DNS rebinding (hostname resolves to private IP).
+     * Validate a URL against the SSRF policy.
+     * Phase 1: scheme allowlist, bracket-stripped hostname checked against IP private ranges
+     *          and the internal-suffix denylist.
+     * Phase 2: OS-resolver lookup for non-IP hostnames; any private resolved IP rejects.
+     *          Lookup failures for non-IP hostnames fail closed (return reason), since a
+     *          silently-swallowed split-horizon NXDOMAIN previously let public-DNS misses
+     *          fall through to the network stack that DID resolve the internal name.
      */
-    private async resolveHost(hostname: string): Promise<string[]> {
-        const results: string[] = [];
-        const resolver = new dns.promises.Resolver();
-        // Short timeout — we don't want to delay the user for DNS issues
-        resolver.setServers(['8.8.8.8', '1.1.1.1']);
-
+    private async guardUrl(url: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+        let parsed: URL;
         try {
-            const ipv4 = await resolver.resolve4(hostname);
-            results.push(...ipv4);
-        } catch { /* no A records — ok */ }
+            parsed = new URL(url);
+        } catch {
+            return { ok: false, reason: 'Invalid URL' };
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return { ok: false, reason: 'URL must start with http:// or https://' };
+        }
+        const rawHost = parsed.hostname.toLowerCase();
+        const bareHost = normalizeHostForIpCheck(rawHost);
 
+        if (hasInternalSuffix(bareHost)) {
+            return {
+                ok: false,
+                reason: 'Access to private/internal network addresses is not allowed',
+            };
+        }
+        if (isPrivateIP(bareHost)) {
+            return {
+                ok: false,
+                reason: 'Access to private/internal network addresses is not allowed',
+            };
+        }
+
+        // IP literals do not need a DNS lookup.
+        if (net.isIP(bareHost)) {
+            return { ok: true };
+        }
+
+        // Phase 2: OS resolver. Use dns.promises.lookup so the same resolver the network
+        // stack uses on connect drives the decision. Split-horizon corporate DNS now
+        // returns the same answer to both our guard and the actual request.
         try {
-            const ipv6 = await resolver.resolve6(hostname);
-            results.push(...ipv6);
-        } catch { /* no AAAA records — ok */ }
+            const addrs = await dns.promises.lookup(bareHost, { all: true, verbatim: true });
+            if (addrs.length === 0) {
+                return {
+                    ok: false,
+                    reason: `Hostname "${bareHost}" could not be resolved`,
+                };
+            }
+            for (const addr of addrs) {
+                if (isPrivateIP(addr.address)) {
+                    return {
+                        ok: false,
+                        reason: `Hostname "${bareHost}" resolves to private address ${addr.address}; access denied (SSRF protection)`,
+                    };
+                }
+            }
+            return { ok: true };
+        } catch {
+            // Fail closed for hostnames we cannot resolve. IP literals are already accepted above.
+            return {
+                ok: false,
+                reason: `Hostname "${bareHost}" could not be resolved; refusing fetch (SSRF protection)`,
+            };
+        }
+    }
 
-        return results;
+    /**
+     * Fetch a URL with manual redirect handling. Each redirect hop is re-validated
+     * through guardUrl before it is followed, which closes the L-14 redirect-bypass gap
+     * (Obsidian's requestUrl follows redirects internally without re-running the guard).
+     * The actual transport is node:http / node:https; we never delegate to requestUrl
+     * because that would re-introduce the uncapped redirect chain.
+     */
+    private async fetchWithRedirectGuard(
+        initialUrl: string,
+        timeoutMs: number,
+    ): Promise<{ status: number; headers: Record<string, string>; text: string }> {
+        const MAX_REDIRECTS = 3;
+        let currentUrl = initialUrl;
+
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+            const response = await this.requestOnce(currentUrl, timeoutMs);
+
+            // Not a redirect: return the response payload.
+            if (response.status < 300 || response.status >= 400) {
+                return response;
+            }
+
+            // Redirect: resolve Location relative to current URL, validate, then continue.
+            const location = response.headers['location'] ?? response.headers['Location'];
+            if (!location) {
+                // Redirect status without a Location header: nothing safe to do, return as-is.
+                return response;
+            }
+            if (hop === MAX_REDIRECTS) {
+                throw new Error(
+                    `Redirect limit (${MAX_REDIRECTS}) exceeded while fetching ${initialUrl}`,
+                );
+            }
+            let nextUrl: string;
+            try {
+                nextUrl = new URL(location, currentUrl).toString();
+            } catch {
+                throw new Error(`Invalid redirect target "${location}" from ${currentUrl}`);
+            }
+            const guardResult = await this.guardUrl(nextUrl);
+            if (!guardResult.ok) {
+                throw new Error(
+                    `Redirect to "${nextUrl}" blocked: ${guardResult.reason}`,
+                );
+            }
+            currentUrl = nextUrl;
+        }
+        // Unreachable; the loop returns or throws.
+        throw new Error(`Redirect handling exited unexpectedly for ${initialUrl}`);
+    }
+
+    /**
+     * Single HTTP request via node:http / node:https that does NOT follow redirects.
+     * Returns the raw status, headers, and decoded body text. Times out after timeoutMs.
+     * We intentionally bypass Obsidian's requestUrl here because it follows redirects
+     * internally with no exposed cap, which would defeat the per-hop guard.
+     */
+    private requestOnce(
+        url: string,
+        timeoutMs: number,
+    ): Promise<{ status: number; headers: Record<string, string>; text: string }> {
+        return new Promise((resolve, reject) => {
+            let parsed: URL;
+            try {
+                parsed = new URL(url);
+            } catch {
+                reject(new Error(`Invalid URL: ${url}`));
+                return;
+            }
+            const isHttps = parsed.protocol === 'https:';
+            const lib = isHttps ? https : http;
+
+            const req = lib.request(
+                {
+                    protocol: parsed.protocol,
+                    hostname: parsed.hostname,
+                    port: parsed.port || (isHttps ? 443 : 80),
+                    path: `${parsed.pathname}${parsed.search}`,
+                    method: 'GET',
+                    headers: {
+                        'User-Agent':
+                            'Mozilla/5.0 (compatible; ObsidianAgent/1.0; +https://obsidian.md)',
+                        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        // Explicit identity: we do not decompress in this transport path.
+                        'Accept-Encoding': 'identity',
+                        Host: parsed.host,
+                    },
+                },
+                (res) => {
+                    // Socket-level rebinding defense: inspect the actual remoteAddress now
+                    // that the connection is established. Catches TOCTOU between guard and
+                    // connect even when the OS resolver agreed with our pre-check.
+                    const remote = res.socket && (res.socket as { remoteAddress?: string }).remoteAddress;
+                    if (remote && isPrivateIP(remote)) {
+                        req.destroy();
+                        reject(
+                            new Error(
+                                `Connection to "${parsed.hostname}" landed on private address ${remote}; access denied (SSRF protection)`,
+                            ),
+                        );
+                        return;
+                    }
+                    const chunks: Buffer[] = [];
+                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
+                    res.on('end', () => {
+                        const body = Buffer.concat(chunks).toString('utf8');
+                        const headers: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(res.headers)) {
+                            if (typeof v === 'string') headers[k] = v;
+                            else if (Array.isArray(v)) headers[k] = v.join(', ');
+                        }
+                        resolve({
+                            status: res.statusCode ?? 0,
+                            headers,
+                            text: body,
+                        });
+                    });
+                    res.on('error', (err) => reject(err));
+                },
+            );
+            req.on('error', (err) => reject(err));
+            req.setTimeout(timeoutMs, () => {
+                req.destroy(new Error(`Request timed out after ${timeoutMs / 1000}s`));
+            });
+            req.end();
+        });
     }
 
     // ---------------------------------------------------------------------------

@@ -27,6 +27,24 @@ const LEGACY_GLOBAL_DIR_NAMES = ['obsilo-shared', '.obsidian-agent'] as const;
 /** Legacy name. Used by onload migration to detect old installs. */
 export const LEGACY_GLOBAL_DIR_NAME = '.obsidian-agent';
 
+/** Owner-only file mode for POSIX. Windows relies on user-profile ACLs
+ *  and ignores POSIX modes, so the chmod path is platform-gated below. */
+const OWNER_ONLY_MODE = 0o600;
+const IS_WINDOWS = process.platform === 'win32';
+
+/** Best-effort chmod to 0o600. Skipped on Windows. Errors are swallowed
+ *  because they are non-fatal (the file content is already persisted) and
+ *  may surface on filesystems that do not honor POSIX modes (FAT, exFAT). */
+async function chmodOwnerOnly(absPath: string): Promise<void> {
+    if (IS_WINDOWS) return;
+    try {
+        await fsModule.promises.chmod(absPath, OWNER_ONLY_MODE);
+    } catch {
+        // Non-fatal: filesystem may not support POSIX modes. The audit
+        // remediation flagged this as best-effort (M-6 in AUDIT-034).
+    }
+}
+
 export class GlobalFileService implements FileAdapter {
     private root: string;
     private readonly vaultBasePath: string | undefined;
@@ -118,7 +136,12 @@ export class GlobalFileService implements FileAdapter {
         const abs = this.resolvePath(p);
         // Ensure parent directory exists
         await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-        await fsModule.promises.writeFile(abs, data, 'utf-8');
+        // M-6 (AUDIT-034): clamp mode to 0o600 so secrets, history, and
+        // memory facts are not world-readable on multi-user POSIX boxes.
+        // The mode option on writeFile only applies on create, so we also
+        // chmod after each write to cover overwrites.
+        await fsModule.promises.writeFile(abs, data, { encoding: 'utf-8', mode: OWNER_ONLY_MODE });
+        await chmodOwnerOnly(abs);
     }
 
     /** Binary read for SQLite DBs and other non-UTF8 payloads (FEATURE-0319b backup-zip). */
@@ -131,7 +154,11 @@ export class GlobalFileService implements FileAdapter {
     async writeBinary(p: string, data: Uint8Array): Promise<void> {
         const abs = this.resolvePath(p);
         await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-        await fsModule.promises.writeFile(abs, data);
+        // M-6 (AUDIT-034): same owner-only clamp as write(). Binary payloads
+        // include SQLite DBs (knowledge.db) which contain memory facts and
+        // history transcripts.
+        await fsModule.promises.writeFile(abs, data, { mode: OWNER_ONLY_MODE });
+        await chmodOwnerOnly(abs);
     }
 
     async mkdir(p: string): Promise<void> {
@@ -177,7 +204,11 @@ export class GlobalFileService implements FileAdapter {
         const abs = this.resolvePath(p);
         // Ensure parent directory exists
         await fsModule.promises.mkdir(pathModule.dirname(abs), { recursive: true });
-        await fsModule.promises.appendFile(abs, data, 'utf-8');
+        // M-6 (AUDIT-034): owner-only on create; chmod after every append
+        // to cover the case where the file already existed with a wider
+        // mode (e.g. created by a previous build before this fix).
+        await fsModule.promises.appendFile(abs, data, { encoding: 'utf-8', mode: OWNER_ONLY_MODE });
+        await chmodOwnerOnly(abs);
     }
 
     async stat(p: string): Promise<{ mtime: number; size: number } | null> {

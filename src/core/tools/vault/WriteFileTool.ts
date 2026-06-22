@@ -13,6 +13,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getAgentFolderPath } from '../../utils/agentFolder';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { validateVaultRelativePath } from './pathValidation';
 
 /**
  * BUG-018 follow-up: protected file extensions that the agent must NEVER
@@ -116,17 +117,30 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 throw new Error('Content parameter is required');
             }
 
+            // AUDIT-034 M-1: harden write_file against path-traversal at the
+            // tool boundary. Without this, the adapter fallback below would
+            // accept `.obsidian/../../tmp/pwned.md`: the raw startsWith check
+            // matched the configDir prefix and vault.adapter.write resolves
+            // relative to the vault basePath, putting the file outside the
+            // vault. Mirrors the convention used by MarkNoteAsMemorySource
+            // and IngestTriageTool. The normalized return value is used for
+            // every downstream lookup, write, and folder creation.
+            const safePath = validateVaultRelativePath(path);
+            if (!safePath) {
+                throw new Error(`Invalid path: ${path}`);
+            }
+
             // BUG-018: refuse halluzinated structured / binary formats so the
             // agent doesn't ship files that pass write_file but fail to open
             // in the consuming plugin / app (e.g. .drawio.svg without a valid
             // mxfile wrapper -> "Not a diagram file").
             for (const { pattern, redirect } of PROTECTED_FORMATS) {
-                if (pattern.test(path)) {
+                if (pattern.test(safePath)) {
                     callbacks.pushToolResult(
                         this.formatError(
                             new Error(
-                                `write_file refuses ${path} because this is a protected format. ${redirect} `
-                                    + 'Do NOT retry write_file with this extension — the file would be rejected by the consumer.',
+                                `write_file refuses ${safePath} because this is a protected format. ${redirect} `
+                                    + 'Do NOT retry write_file with this extension. The file would be rejected by the consumer.',
                             ),
                         ),
                     );
@@ -134,22 +148,25 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 }
             }
 
-            // Config-dir paths are not in the vault index — use adapter directly.
+            // Config-dir paths are not in the vault index. Use adapter directly.
             // FEATURE-0507: also covers the configurable agent folder.
+            // AUDIT-034 M-1: safePath has already been normalized and stripped
+            // of traversal segments, so the prefix check can no longer be
+            // bypassed by `.obsidian/../...`.
             const cfgDir = this.app.vault.configDir;
             const agentDir = getAgentFolderPath(this.plugin);
-            if (path.startsWith(`${cfgDir}/`) || path === agentDir || path.startsWith(`${agentDir}/`)) {
-                await this.writeViaAdapter(path, content, callbacks);
+            if (safePath.startsWith(`${cfgDir}/`) || safePath === agentDir || safePath.startsWith(`${agentDir}/`)) {
+                await this.writeViaAdapter(safePath, content, callbacks);
                 return;
             }
 
             // Check if file exists
-            const existingFile = this.app.vault.getAbstractFileByPath(path);
+            const existingFile = this.app.vault.getAbstractFileByPath(safePath);
 
             if (existingFile) {
                 // File exists - modify it
                 if (!(existingFile instanceof TFile)) {
-                    throw new Error(`Path exists but is not a file: ${path}`);
+                    throw new Error(`Path exists but is not a file: ${safePath}`);
                 }
 
                 const existingContent = await this.app.vault.read(existingFile);
@@ -163,25 +180,25 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 const added = Math.max(0, afterLines - beforeLines);
                 const removed = Math.max(0, beforeLines - afterLines);
                 callbacks.pushToolResult(
-                    this.formatSuccess(`File updated: ${path} (${content.length} chars)`) +
+                    this.formatSuccess(`File updated: ${safePath} (${content.length} chars)`) +
                     `\n<diff_stats added="${added}" removed="${removed}"/>`
                 );
-                callbacks.log(`Successfully updated file: ${path}`);
+                callbacks.log(`Successfully updated file: ${safePath}`);
             } else {
                 // File doesn't exist - create it
                 // First ensure parent folder exists
-                const parentPath = path.substring(0, path.lastIndexOf('/'));
+                const parentPath = safePath.substring(0, safePath.lastIndexOf('/'));
                 if (parentPath) {
                     await this.ensureFolderExists(parentPath);
                 }
 
-                await this.app.vault.create(path, content);
+                await this.app.vault.create(safePath, content);
                 const newLines = content.split('\n').length;
                 callbacks.pushToolResult(
-                    this.formatSuccess(`File created: ${path} (${content.length} chars)`) +
+                    this.formatSuccess(`File created: ${safePath} (${content.length} chars)`) +
                     `\n<diff_stats added="${newLines}" removed="0"/>`
                 );
-                callbacks.log(`Successfully created file: ${path}`);
+                callbacks.log(`Successfully created file: ${safePath}`);
             }
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
@@ -193,13 +210,24 @@ export class WriteFileTool extends BaseTool<'write_file'> {
      * Write via vault.adapter for paths outside the vault index (.obsidian/, .obsidian-agent/).
      * These paths are not tracked by Obsidian's file index, so vault.getAbstractFileByPath()
      * and vault.createFolder() don't work reliably for them.
+     *
+     * AUDIT-034 M-1: defense-in-depth. The caller already normalized the path
+     * via validateVaultRelativePath, but the adapter sink is the security-
+     * relevant boundary. Re-validate so that any future caller (refactor,
+     * new code path) cannot accidentally hand a traversal-laden string to
+     * vault.adapter.write / vault.adapter.mkdir.
      */
     private async writeViaAdapter(path: string, content: string, callbacks: ToolExecutionContext['callbacks']): Promise<void> {
+        const safePath = validateVaultRelativePath(path);
+        if (!safePath) {
+            throw new Error(`Invalid path: ${path}`);
+        }
+
         const adapter = this.app.vault.adapter;
-        const existed = await adapter.exists(path);
+        const existed = await adapter.exists(safePath);
 
         // Ensure parent directory exists
-        const parentPath = path.substring(0, path.lastIndexOf('/'));
+        const parentPath = safePath.substring(0, safePath.lastIndexOf('/'));
         if (parentPath) {
             const parentExists = await adapter.exists(parentPath);
             if (!parentExists) {
@@ -207,14 +235,14 @@ export class WriteFileTool extends BaseTool<'write_file'> {
             }
         }
 
-        await adapter.write(path, content);
+        await adapter.write(safePath, content);
 
         if (existed) {
-            callbacks.pushToolResult(this.formatSuccess(`File updated: ${path} (${content.length} chars)`));
-            callbacks.log(`Successfully updated file: ${path}`);
+            callbacks.pushToolResult(this.formatSuccess(`File updated: ${safePath} (${content.length} chars)`));
+            callbacks.log(`Successfully updated file: ${safePath}`);
         } else {
-            callbacks.pushToolResult(this.formatSuccess(`File created: ${path} (${content.length} chars)`));
-            callbacks.log(`Successfully created file: ${path}`);
+            callbacks.pushToolResult(this.formatSuccess(`File created: ${safePath} (${content.length} chars)`));
+            callbacks.log(`Successfully created file: ${safePath}`);
         }
     }
 

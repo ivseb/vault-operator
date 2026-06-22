@@ -9,6 +9,7 @@
 
 import { TFile, TFolder, requestUrl, Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 
 // ---------------------------------------------------------------------------
 // SandboxBridge
@@ -327,16 +328,31 @@ export class SandboxBridge {
     private static readonly MAX_WRITE_SIZE = 10 * 1024 * 1024; // 10 MB (Audit M-2)
 
     private validateVaultPath(path: string, isWrite = false): void {
-        if (path.includes('..') || path.startsWith('/') || path.startsWith('\\')) {
+        // AUDIT-034 L-1: delegate to the shared validateVaultRelativePath
+        // helper so SandboxBridge applies the same rules as the vault tools
+        // (segment-based `..` / `.`, NUL bytes, url-encoded traversal,
+        // backslash normalisation). Keeps the strict rejection of absolute
+        // paths that the inline check enforced. The empty string is the
+        // canonical vault-root identifier (normaliseVaultPath maps '/' to
+        // ''), so it must keep passing for vaultList('/').
+        if (typeof path === 'string' && (path.startsWith('/') || path.startsWith('\\'))) {
             throw new Error(`Invalid path: ${path}`);
+        }
+        let safe: string;
+        if (path === '') {
+            safe = '';
+        } else {
+            const checked = validateVaultRelativePath(path);
+            if (checked === null) {
+                throw new Error(`Invalid path: ${path}`);
+            }
+            safe = checked;
         }
 
         // Shai Hulud Mitigation: Block ALL writes to configDir (Audit L-2: Allowlist)
         if (isWrite) {
             const configDir = this.plugin.app.vault.configDir;
-            const normalized = path.replace(/\\/g, '/');
-
-            if (normalized.startsWith(`${configDir}/`) || normalized === configDir) {
+            if (safe.startsWith(`${configDir}/`) || safe === configDir) {
                 throw new Error(`Sandbox write blocked: ${configDir}/ is protected`);
             }
         }

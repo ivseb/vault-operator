@@ -12,6 +12,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getInternalAgentFolderPath } from '../../utils/agentFolder';
+import { validateVaultRelativePath } from './pathValidation';
 
 /**
  * Maximum characters to return. ~12500 tokens at 4 chars/token.
@@ -79,8 +80,19 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                 throw new Error('Path parameter is required');
             }
 
+            // AUDIT-034 M-2: validate at the entry of execute. The adapter
+            // fallback below uses FileSystemAdapter, which resolves
+            // relative segments via Node and would collapse `..` into a
+            // read outside the vault root. Same guard as MarkNoteAsMemorySourceTool
+            // and WriteFileTool.
+            const safePath = validateVaultRelativePath(path);
+            if (!safePath) {
+                callbacks.pushToolResult(this.formatError(`Invalid path: ${path}`));
+                return;
+            }
+
             // Get the file from vault (indexed files)
-            const file = this.app.vault.getAbstractFileByPath(path);
+            const file = this.app.vault.getAbstractFileByPath(safePath);
 
             let content: string;
             let filePath: string;
@@ -96,7 +108,7 @@ export class ReadFileTool extends BaseTool<'read_file'> {
             } else {
                 // Fallback 1: file might be in a hidden/dot folder (e.g. .obsidian-agent/)
                 // that Obsidian doesn't index. Use the adapter for direct filesystem access.
-                let resolvedPath = path;
+                let resolvedPath = safePath;
                 let exists = await this.app.vault.adapter.exists(resolvedPath);
 
                 // Fallback 2 (BUG-020): LLMs occasionally call
@@ -105,8 +117,8 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                 // (`<agent-folder>/tmp/task-<id>/result.md`). Retry against
                 // the prefixed path when the short form matches the
                 // externalisation pattern.
-                if (!exists && looksLikeExternalisedTmpPath(path)) {
-                    const prefixed = `${getInternalAgentFolderPath(this.plugin)}/${path}`;
+                if (!exists && looksLikeExternalisedTmpPath(safePath)) {
+                    const prefixed = `${getInternalAgentFolderPath(this.plugin)}/${safePath}`;
                     if (await this.app.vault.adapter.exists(prefixed)) {
                         resolvedPath = prefixed;
                         exists = true;
@@ -115,7 +127,7 @@ export class ReadFileTool extends BaseTool<'read_file'> {
 
                 if (!exists) {
                     callbacks.pushToolResult(
-                        this.formatError(new Error(`File not found: ${path}`)),
+                        this.formatError(new Error(`File not found: ${safePath}`)),
                     );
                     return;
                 }
@@ -152,7 +164,7 @@ export class ReadFileTool extends BaseTool<'read_file'> {
             } else {
                 callbacks.pushToolResult(result);
             }
-            callbacks.log(`Successfully read file: ${path} (${content.length} chars)`);
+            callbacks.log(`Successfully read file: ${safePath} (${content.length} chars)`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('read_file', error);

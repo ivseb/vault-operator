@@ -155,3 +155,116 @@ describe('ReadFileTool integration -- BUG-020 tmp retry', () => {
         expect(pushed[0]).toContain('File not found');
     });
 });
+
+/**
+ * AUDIT-034 M-2: Regression test for path traversal via the adapter
+ * fallback. Before the fix, ReadFileTool passed the raw `path` to
+ * vault.adapter.exists / vault.adapter.read; FileSystemAdapter resolves
+ * `..` segments through Node which lets the agent read arbitrary files
+ * outside the vault. The fix routes the input through validateVaultRelativePath
+ * at the entry of execute() and uses the normalized path everywhere.
+ */
+describe('ReadFileTool path traversal guard -- AUDIT-034 M-2', () => {
+    it('rejects parent-traversal segments before touching the adapter', async () => {
+        const adapterCalls: string[] = [];
+        const adapter: FakeAdapter = {
+            exists: (p) => { adapterCalls.push(`exists:${p}`); return Promise.resolve(true); },
+            read: (p) => { adapterCalls.push(`read:${p}`); return Promise.resolve('SECRET'); },
+        };
+        const plugin = {
+            app: {
+                vault: {
+                    adapter,
+                    getAbstractFileByPath: () => null, // force fallback path
+                },
+            },
+            settings: { agentFolderPath: '.obsidian-agent' },
+        } as unknown as import('../../../../main').default;
+
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: '../../etc/passwd' }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('Invalid path');
+        // The adapter must NEVER see the traversal input.
+        expect(adapterCalls).toEqual([]);
+    });
+
+    it('rejects parent-traversal segments embedded in a longer path', async () => {
+        const adapterCalls: string[] = [];
+        const adapter: FakeAdapter = {
+            exists: (p) => { adapterCalls.push(`exists:${p}`); return Promise.resolve(true); },
+            read: (p) => { adapterCalls.push(`read:${p}`); return Promise.resolve('SECRET'); },
+        };
+        const plugin = {
+            app: {
+                vault: {
+                    adapter,
+                    getAbstractFileByPath: () => null,
+                },
+            },
+            settings: { agentFolderPath: '.obsidian-agent' },
+        } as unknown as import('../../../../main').default;
+
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/../../../etc/passwd' }, makeContext(pushed));
+
+        expect(pushed[0]).toContain('Invalid path');
+        expect(adapterCalls).toEqual([]);
+    });
+
+    it('rejects NUL bytes and url-encoded traversal patterns', async () => {
+        const adapterCalls: string[] = [];
+        const adapter: FakeAdapter = {
+            exists: (p) => { adapterCalls.push(`exists:${p}`); return Promise.resolve(true); },
+            read: (p) => { adapterCalls.push(`read:${p}`); return Promise.resolve('SECRET'); },
+        };
+        const plugin = {
+            app: {
+                vault: {
+                    adapter,
+                    getAbstractFileByPath: () => null,
+                },
+            },
+            settings: { agentFolderPath: '.obsidian-agent' },
+        } as unknown as import('../../../../main').default;
+
+        const tool = new ReadFileTool(plugin);
+        const pushedNull: string[] = [];
+        await tool.execute({ path: 'foo\u0000bar.md' }, makeContext(pushedNull));
+        expect(pushedNull[0]).toContain('Invalid path');
+
+        const pushedEncoded: string[] = [];
+        await tool.execute({ path: '%2e%2e/secret.md' }, makeContext(pushedEncoded));
+        expect(pushedEncoded[0]).toContain('Invalid path');
+
+        expect(adapterCalls).toEqual([]);
+    });
+
+    it('strips a leading slash and reads the normalized vault-relative path', async () => {
+        const adapter: FakeAdapter = {
+            exists: (p) => Promise.resolve(p === 'notes/ok.md'),
+            read: (p) => Promise.resolve(p === 'notes/ok.md' ? 'safe body' : ''),
+        };
+        const plugin = {
+            app: {
+                vault: {
+                    adapter,
+                    getAbstractFileByPath: () => null,
+                },
+            },
+            settings: { agentFolderPath: '.obsidian-agent' },
+        } as unknown as import('../../../../main').default;
+
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: '/notes/ok.md' }, makeContext(pushed));
+
+        expect(pushed[0]).toContain('safe body');
+    });
+});

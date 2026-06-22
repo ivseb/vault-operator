@@ -376,6 +376,39 @@ export class GitHubCopilotAuthService {
     // ---------------------------------------------------------------------------
 
     async logout(): Promise<void> {
+        // Best-effort server-side revocation BEFORE clearing local state, so a
+        // previously exfiltrated access token cannot keep minting Copilot
+        // tokens (AUDIT-034 L-10). GitHub exposes a documented OAuth Apps
+        // endpoint for this: DELETE /applications/{client_id}/grant. It
+        // requires the OAuth app's client_id + client_secret as Basic auth.
+        // We do not bundle a client secret in the plugin (the Device Flow
+        // client app is public), so the call may be rejected. We send it
+        // anyway as defense-in-depth, log the outcome at debug, and ALWAYS
+        // clear local state below regardless of the network result.
+        const clientId = this.customClientId || DEFAULT_CLIENT_ID;
+        if (this.accessToken) {
+            try {
+                const res = await requestUrl({
+                    url: `https://api.github.com/applications/${encodeURIComponent(clientId)}/grant`,
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/vnd.github+json',
+                        'Authorization': `token ${this.accessToken}`,
+                        'X-GitHub-Api-Version': '2022-11-28',
+                    },
+                    body: JSON.stringify({ access_token: this.accessToken }),
+                    throw: false,
+                });
+                if (res.status >= 400) {
+                    console.debug(
+                        `[CopilotAuth] Best-effort grant revocation returned HTTP ${res.status}; clearing local credentials anyway.`,
+                    );
+                }
+            } catch (e) {
+                console.debug('[CopilotAuth] Best-effort grant revocation failed; clearing local credentials anyway.', e);
+            }
+        }
+
         this.accessToken = '';
         this.copilotToken = '';
         this.copilotTokenExpiresAt = 0;
