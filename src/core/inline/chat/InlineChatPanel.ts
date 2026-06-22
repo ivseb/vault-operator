@@ -47,9 +47,28 @@ export interface InlinePanelDispatchArgs {
     ctx: InlineTriggerContext;
 }
 
+export interface InlineCheckpointMarker {
+    label: string;
+    /** Short detail line (e.g. "Notes/Idee.md, 12:34"). */
+    detail?: string;
+    /** Click handler for the "Diff anzeigen" button. */
+    onShowDiff?: () => void;
+    /** Click handler for the "Zurück" / restore button. */
+    onRestore?: () => void;
+}
+
 export interface InlinePanelHandle {
     appendMessage(message: InlinePanelMessage): string;
     appendStreamChunk(bubbleId: string, chunk: string): void;
+    /**
+     * Insert text into the composer at the caret. Prefixed-command
+     * inserts (skill /slug, prompt #slug, workflow §slug) call this
+     * with their full surface form so the user sees the prefix the
+     * AgentTask resolver expects.
+     */
+    insertIntoComposer(text: string, mode?: 'replace' | 'prepend' | 'append'): void;
+    /** Replace the model-button label (after model picker selection). */
+    setModelLabel(label: string, tooltip?: string): void;
     /**
      * Replace the bubble's plain-text streaming content with rendered
      * markdown (via the panel's renderMarkdown hook). Called once the
@@ -57,6 +76,13 @@ export interface InlinePanelHandle {
      * hook is configured -- the bubble stays as plain text.
      */
     finalizeBubble(bubbleId: string): Promise<void>;
+    /**
+     * Render a checkpoint marker bubble below the chat history. The
+     * marker shows the action label, a timestamp detail and two
+     * buttons ("Diff anzeigen" + "Zurück"). Returns the bubble id so
+     * the caller can later remove it if needed.
+     */
+    appendCheckpointMarker(marker: InlineCheckpointMarker): string;
     setStatus(text: string, level?: 'info' | 'error'): void;
     close(): void;
 }
@@ -84,7 +110,12 @@ export interface InlineChatPanelOptions {
     /** Called by the "..." menu to surface secondary actions. */
     onShowMoreMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
     /** Called by the "+" menu to surface attach/context options. */
-    onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
+    onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    /** Called by the model button to open the model picker. */
+    onShowModelMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    /** Initial label for the model button (e.g. "Auto" or model id). */
+    initialModelLabel?: string;
+    initialModelTooltip?: string;
     onClose?: () => void;
     /** Bridge to Obsidian's setIcon() for Lucide rendering. */
     setIcon?: SetIconHook;
@@ -107,7 +138,11 @@ export class InlineChatPanel {
     private readonly position: { x: number; y: number };
     private readonly onDispatch: (args: InlinePanelDispatchArgs, handle: InlinePanelHandle) => void;
     private readonly onShowMoreMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
-    private readonly onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
+    private readonly onShowPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    private readonly onShowModelMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    private readonly initialModelLabel: string;
+    private readonly initialModelTooltip: string;
+    private modelButtonEl: HTMLElement | null = null;
     private readonly onClose?: () => void;
     private readonly setIcon: SetIconHook;
 
@@ -133,6 +168,9 @@ export class InlineChatPanel {
         this.onDispatch = options.onDispatch;
         this.onShowMoreMenu = options.onShowMoreMenu;
         this.onShowPlusMenu = options.onShowPlusMenu;
+        this.onShowModelMenu = options.onShowModelMenu;
+        this.initialModelLabel = options.initialModelLabel ?? 'Auto';
+        this.initialModelTooltip = options.initialModelTooltip ?? 'Model (inherited from main chat)';
         this.onClose = options.onClose;
         this.setIcon = options.setIcon ?? ((el, name) => { el.textContent = iconFallback(name); });
         this.renderMarkdownHook = options.renderMarkdown;
@@ -204,21 +242,29 @@ export class InlineChatPanel {
         const right = doc.createElement('div');
         right.classList.add('chat-toolbar-right');
 
-        // Model button (display-only here; the real selector lives in the
-        // sidebar settings -- this mirrors the sidebar visual layout).
-        const modelBtn = this.makeToolbarButton(doc, 'Auto');
+        // Model button: same visual treatment as the sidebar. Click
+        // opens the model picker (live wired by PluginWiring against
+        // plugin.settings.activeModels + activeModelKey).
+        const modelBtn = this.makeToolbarButton(doc, this.initialModelLabel);
         modelBtn.classList.add('model-button');
-        modelBtn.setAttribute('title', 'Model (inherited from main chat)');
+        modelBtn.setAttribute('title', this.initialModelTooltip);
         modelBtn.setAttribute('type', 'button');
+        modelBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            if (this.onShowModelMenu !== undefined && this.rootEl !== null) {
+                this.onShowModelMenu(modelBtn, this.ctx, this.makeHandle());
+            }
+        });
         left.appendChild(modelBtn);
+        this.modelButtonEl = modelBtn;
 
-        // "+" menu (attach / context).
+        // "+" menu (attach / context / skills / prompts / workflows).
         const plusBtn = this.makeIconButton(doc, 'plus', 'Add context');
         plusBtn.classList.add('plus-button');
         plusBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
-            if (this.onShowPlusMenu !== undefined) {
-                this.onShowPlusMenu(plusBtn, this.ctx);
+            if (this.onShowPlusMenu !== undefined && this.rootEl !== null) {
+                this.onShowPlusMenu(plusBtn, this.ctx, this.makeHandle());
             }
         });
         left.appendChild(plusBtn);
@@ -419,14 +465,107 @@ export class InlineChatPanel {
         this.dispatch('free-chat', value);
     }
 
+    /** Public accessor so callers (e.g. orchestrator hydrate-on-open)
+     *  can append messages without going through onDispatch. */
+    getHandle(): InlinePanelHandle { return this.makeHandle(); }
+
     private makeHandle(): InlinePanelHandle {
         return {
             appendMessage: (m) => this.appendMessage(m),
             appendStreamChunk: (id, c) => this.appendStreamChunk(id, c),
             finalizeBubble: (id) => this.finalizeBubble(id),
+            appendCheckpointMarker: (m) => this.appendCheckpointMarker(m),
+            insertIntoComposer: (text, mode) => this.insertIntoComposer(text, mode),
+            setModelLabel: (label, tooltip) => this.setModelLabel(label, tooltip),
             setStatus: (t, l) => this.setStatus(t, l),
             close: () => this.close(),
         };
+    }
+
+    private insertIntoComposer(text: string, mode: 'replace' | 'prepend' | 'append' = 'prepend'): void {
+        if (this.inputEl === null) return;
+        const cur = this.inputEl.value;
+        let next: string;
+        if (mode === 'replace') {
+            next = text;
+        } else if (mode === 'append') {
+            next = cur.length > 0 ? `${cur}${cur.endsWith(' ') ? '' : ' '}${text}` : text;
+        } else {
+            const trimmed = text.trimEnd();
+            next = cur.length > 0 ? `${trimmed} ${cur.trimStart()}` : `${trimmed} `;
+        }
+        this.inputEl.value = next;
+        try { this.inputEl.focus(); } catch { /* test stub */ }
+        const pos = this.inputEl.value.length;
+        try { this.inputEl.setSelectionRange(pos, pos); } catch { /* test stub */ }
+    }
+
+    private setModelLabel(label: string, tooltip?: string): void {
+        if (this.modelButtonEl === null) return;
+        this.modelButtonEl.textContent = label;
+        if (tooltip !== undefined) this.modelButtonEl.setAttribute('title', tooltip);
+    }
+
+    private appendCheckpointMarker(marker: InlineCheckpointMarker): string {
+        if (this.bodyEl === null) return '';
+        const doc = this.containerEl.ownerDocument;
+        const bubble = doc.createElement('div');
+        bubble.classList.add('agent-inline-panel__bubble');
+        bubble.classList.add('agent-inline-panel__bubble--checkpoint');
+
+        const head = doc.createElement('div');
+        head.classList.add('agent-inline-panel__checkpoint-head');
+        const iconEl = doc.createElement('span');
+        iconEl.classList.add('agent-inline-panel__checkpoint-icon');
+        this.setIcon(iconEl, 'history');
+        head.appendChild(iconEl);
+        const labelEl = doc.createElement('span');
+        labelEl.classList.add('agent-inline-panel__checkpoint-label');
+        labelEl.textContent = marker.label;
+        head.appendChild(labelEl);
+        bubble.appendChild(head);
+
+        if (marker.detail !== undefined && marker.detail.length > 0) {
+            const detail = doc.createElement('div');
+            detail.classList.add('agent-inline-panel__checkpoint-detail');
+            detail.textContent = marker.detail;
+            bubble.appendChild(detail);
+        }
+
+        const actions = doc.createElement('div');
+        actions.classList.add('agent-inline-panel__checkpoint-actions');
+        if (marker.onShowDiff !== undefined) {
+            const diffBtn = doc.createElement('button');
+            diffBtn.classList.add('agent-inline-panel__checkpoint-btn');
+            diffBtn.classList.add('agent-inline-panel__checkpoint-btn--diff');
+            diffBtn.setAttribute('type', 'button');
+            diffBtn.textContent = 'Diff anzeigen';
+            diffBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                try { marker.onShowDiff?.(); } catch (e) { console.warn('[inline-checkpoint] onShowDiff threw:', e); }
+            });
+            actions.appendChild(diffBtn);
+        }
+        if (marker.onRestore !== undefined) {
+            const restoreBtn = doc.createElement('button');
+            restoreBtn.classList.add('agent-inline-panel__checkpoint-btn');
+            restoreBtn.classList.add('agent-inline-panel__checkpoint-btn--restore');
+            restoreBtn.setAttribute('type', 'button');
+            restoreBtn.textContent = 'Zurück';
+            restoreBtn.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                try { marker.onRestore?.(); } catch (e) { console.warn('[inline-checkpoint] onRestore threw:', e); }
+            });
+            actions.appendChild(restoreBtn);
+        }
+        bubble.appendChild(actions);
+
+        this.bodyEl.appendChild(bubble);
+        this.bubbleCounter += 1;
+        const id = `c${this.bubbleCounter}`;
+        this.bubbleNodes.set(id, bubble);
+        this.scrollToBottom();
+        return id;
     }
 
     private appendMessage(message: InlinePanelMessage): string {

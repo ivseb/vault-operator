@@ -47,6 +47,9 @@ function makeHandle(): InlinePanelHandle & { _stream: string[]; _status: string[
         appendMessage: () => 'bubble-id',
         appendStreamChunk: (_id, chunk) => { stream.push(chunk); },
         finalizeBubble: async () => {},
+        appendCheckpointMarker: () => 'checkpoint-id',
+        insertIntoComposer: () => {},
+        setModelLabel: () => {},
         setStatus: (text) => { status.push(text); },
         close: () => {},
         _stream: stream,
@@ -62,8 +65,12 @@ function makePlugin(): import('../../../../main').default {
         settings: {
             advancedApi: {},
             currentMode: 'agent',
+            customPrompts: [],
         } as never,
-        app: { vault: { configDir: '.obsidian' } } as never,
+        app: {
+            vault: { configDir: '.obsidian' },
+            workspace: { getActiveFile: () => null },
+        } as never,
     } as unknown as import('../../../../main').default;
 }
 

@@ -86,7 +86,19 @@ export class PanelChatController {
         this.abortController = new AbortController();
         this.turnCounter += 1;
 
-        const userMessage = this.buildUserMessage(args.userInput);
+        // EPIC-33 Sidebar-parity: resolve /skill, #prompt, §workflow
+        // prefixes BEFORE we wrap the selection. Mirrors
+        // AgentSidebarView.handleSendMessage:1575-1638.
+        const expansionMod = await import('./composerExpansion');
+        const activeFile = this.plugin.app.workspace.getActiveFile?.();
+        const expanded = await expansionMod.expandComposerPrefix(this.plugin, {
+            text: args.userInput,
+            activeFilePath: activeFile?.path,
+            activeFileName: activeFile?.name,
+        });
+        const effectiveInput = expanded ?? args.userInput;
+
+        const userMessage = this.buildUserMessage(effectiveInput);
         const callbacks = this.buildCallbacks(args.handle, args.assistantBubbleId);
 
         if (this.plugin.apiHandler === null) {

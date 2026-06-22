@@ -32,11 +32,20 @@ import {
     type RenderMarkdownHook,
 } from './InlineChatPanel';
 import { PanelChatController } from './PanelChatController';
+import { applyInlineEdit, inlineTaskId } from '../InlineEditApplier';
+import { showEditReviewModal, showCheckpointReviewModal } from '../../../ui/edit-review/EditReviewModal';
+import type { EditReviewEntry, EditReviewDecision } from '../../../ui/edit-review/EditReviewPanel';
 
 export interface EditorChatProbe {
     probe(): SelectionTriggerInput | null;
     getPanelContainer(): HTMLElement | null;
     getPanelPosition(): { x: number; y: number };
+    /**
+     * Write back arbitrary content into the original editor selection
+     * range. Implemented by the live wiring via MarkdownView.editor.
+     * Returns true on success, false when no active editor matches.
+     */
+    writeBackToSelection?(args: { notePath: string; from: number; to: number; content: string }): Promise<boolean>;
 }
 
 export interface InlineChatOrchestratorOptions {
@@ -54,7 +63,11 @@ export interface InlineChatOrchestratorOptions {
         handle: InlinePanelHandle,
         dispatch: (actionId: InlinePanelActionId) => void,
     ) => void;
-    showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
+    showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    /** Model-picker (live wired against plugin.settings.activeModels). */
+    showModelMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    /** Initial model-button label (resolved once at panel-open). */
+    getInitialModelLabel?: () => { label: string; tooltip: string };
 }
 
 /** Quick-actions map onto registered InlineAction ids. */
@@ -97,7 +110,9 @@ export class InlineChatOrchestrator {
         handle: InlinePanelHandle,
         dispatch: (actionId: InlinePanelActionId) => void,
     ) => void;
-    private readonly showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
+    private readonly showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    private readonly showModelMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext, handle: InlinePanelHandle) => void;
+    private readonly getInitialModelLabel?: () => { label: string; tooltip: string };
 
     private activePanel: InlineChatPanel | null = null;
     private activeController: PanelChatController | null = null;
@@ -112,6 +127,8 @@ export class InlineChatOrchestrator {
         this.renderMarkdownHook = options.renderMarkdown;
         this.showMoreMenu = options.showMoreMenu;
         this.showPlusMenu = options.showPlusMenu;
+        this.showModelMenu = options.showModelMenu;
+        this.getInitialModelLabel = options.getInitialModelLabel;
     }
 
     triggerPanel(): void {
@@ -128,10 +145,13 @@ export class InlineChatOrchestrator {
         // the panel lifetime. Closing the panel disposes the controller.
         this.activeController = new PanelChatController({ plugin: this.plugin, ctx });
 
+        const initialModel = this.getInitialModelLabel?.() ?? { label: 'Auto', tooltip: 'Model' };
         const panel = new InlineChatPanel({
             containerEl: container,
             ctx,
             position: this.editorProbe.getPanelPosition(),
+            initialModelLabel: initialModel.label,
+            initialModelTooltip: initialModel.tooltip,
             onDispatch: (args, handle) => { void this.handleDispatch(args, handle); },
             onShowMoreMenu: this.showMoreMenu !== undefined
                 ? (anchor, c, handle) => {
@@ -141,6 +161,7 @@ export class InlineChatOrchestrator {
                 }
                 : undefined,
             onShowPlusMenu: this.showPlusMenu,
+            onShowModelMenu: this.showModelMenu,
             onClose: () => {
                 if (this.activeController !== null) {
                     this.activeController.dispose();
@@ -153,6 +174,40 @@ export class InlineChatOrchestrator {
         });
         panel.open();
         this.activePanel = panel;
+        void this.hydrateInlineCheckpoints(panel.getHandle(), ctx);
+    }
+
+    /**
+     * On panel re-open for the same note, surface the recent inline
+     * checkpoints as marker bubbles so the user can jump back. Reads
+     * from the shadow-repo via checkpointService.loadCheckpointsForTask
+     * with the stable inlineTaskId(notePath). Best-effort, defensive --
+     * any failure stays silent so the panel still opens cleanly.
+     */
+    private async hydrateInlineCheckpoints(
+        handle: InlinePanelHandle,
+        ctx: InlineTriggerContext,
+    ): Promise<void> {
+        try {
+            const svc = this.plugin.checkpointService;
+            if (svc === null || svc === undefined) return;
+            const tid = inlineTaskId(ctx.notePath);
+            const list = await svc.loadCheckpointsForTask(tid);
+            if (list.length === 0) return;
+            // Last three, oldest-first so the most recent ends up at the
+            // bottom right before the composer.
+            const recent = list.slice(-3);
+            for (const cp of recent) {
+                const time = new Date(cp.timestamp).toLocaleTimeString();
+                handle.appendCheckpointMarker({
+                    label: `${cp.toolName ?? 'Inline-Edit'} • ${time}`,
+                    detail: cp.filesChanged.join(', '),
+                    onRestore: () => { void this.restoreCheckpoint(cp); },
+                });
+            }
+        } catch (e) {
+            console.debug('[inline-checkpoint] hydrate failed:', e);
+        }
     }
 
     closePanel(): void {
@@ -207,7 +262,24 @@ export class InlineChatOrchestrator {
         const label = panelActionLabel(args.actionId);
         const assistantId = handle.appendMessage({ role: 'assistant', text: '' });
         handle.setStatus(`${label}…`);
-        const callbacks = this.buildPanelCallbacks(handle, assistantId);
+
+        // Edit-actions (Rewrite) collect the stream so we can hand the
+        // collected text to the EditReviewModal once the LLM is done.
+        // Display-only actions (Lookup, Find-Items, Translate, Summarize)
+        // just stream into the bubble.
+        const isEditAction = args.actionId === 'rewrite';
+        let collected = '';
+        const callbacks: AgentTaskCallbacks = {
+            onText: (chunk) => {
+                if (isEditAction === true) collected += chunk;
+                handle.appendStreamChunk(assistantId, chunk);
+            },
+            onToolStart: () => {},
+            onToolResult: () => {},
+            onComplete: () => { handle.setStatus('Done'); },
+            onError: (err) => { handle.setStatus(`Error: ${err.message}`, 'error'); },
+        };
+
         try {
             await action.execute(args.ctx, callbacks);
         } catch (e) {
@@ -217,15 +289,121 @@ export class InlineChatOrchestrator {
         // Render markdown + wire links once the action's stream has
         // completed (and the appendix chunk -- if any -- has landed).
         await handle.finalizeBubble(assistantId);
+
+        if (isEditAction === true && collected.length > 0) {
+            await this.openReviewAndApply(args.ctx, collected, label, handle);
+        }
     }
 
-    private buildPanelCallbacks(handle: InlinePanelHandle, assistantBubbleId: string): AgentTaskCallbacks {
-        return {
-            onText: (chunk) => handle.appendStreamChunk(assistantBubbleId, chunk),
-            onToolStart: () => {},
-            onToolResult: () => {},
-            onComplete: () => { handle.setStatus('Done'); },
-            onError: (err) => { handle.setStatus(`Error: ${err.message}`, 'error'); },
-        };
+    /**
+     * Edit-action follow-up: open the EditReviewModal, snapshot via
+     * checkpointService, write back into the editor selection, and
+     * render a checkpoint marker bubble in the panel.
+     */
+    private async openReviewAndApply(
+        ctx: InlineTriggerContext,
+        proposedText: string,
+        actionLabel: string,
+        handle: InlinePanelHandle,
+    ): Promise<void> {
+        const probe = this.editorProbe;
+        if (probe.writeBackToSelection === undefined) {
+            handle.setStatus('Editor-Anbindung fehlt — Änderung nicht anwendbar.', 'error');
+            return;
+        }
+        handle.setStatus('Bereit zum Anwenden — bestätige im Diff-Dialog.');
+
+        // FIX-33-DV-01 (2026-06-22): use the explicit selectionFrom/To
+        // captured at trigger time. ctx.cursorPos is the caret head and
+        // for forward selections points to the END, so the old
+        // (cursorPos, cursorPos+length) range wrote BEHIND the selection
+        // and silently dropped user edits.
+        const selFrom = ctx.selectionFrom ?? ctx.cursorPos;
+        const selTo = ctx.selectionTo ?? (ctx.cursorPos + ctx.selectionText.length);
+
+        const result = await applyInlineEdit({
+            app: this.plugin.app,
+            checkpointService: this.plugin.checkpointService,
+            notePath: ctx.notePath,
+            selection: {
+                from: selFrom,
+                to: selTo,
+                text: ctx.selectionText,
+            },
+            proposedText,
+            actionLabel: `Inline-AI: ${actionLabel}`,
+            taskId: inlineTaskId(ctx.notePath),
+            toolName: `inline:${actionLabel.toLowerCase()}`,
+            openReview: async (entry: EditReviewEntry): Promise<EditReviewDecision | null> => {
+                const r = await showEditReviewModal({
+                    app: this.plugin.app,
+                    entries: [entry],
+                    source: `Inline-AI: ${actionLabel}`,
+                    title: 'Änderung prüfen',
+                });
+                if (r.decisions === null) return null;
+                return r.decisions[0] ?? null;
+            },
+            writeBack: async (finalContent: string) => {
+                const ok = await probe.writeBackToSelection!({
+                    notePath: ctx.notePath,
+                    from: selFrom,
+                    to: selTo,
+                    content: finalContent,
+                });
+                if (ok === false) throw new Error('No matching active editor');
+            },
+        });
+
+        if (result.status === 'applied') {
+            handle.setStatus('Übernommen.');
+            const ts = result.checkpoint?.timestamp ?? '';
+            const time = ts.length > 0 ? new Date(ts).toLocaleTimeString() : '';
+            const detail = `${ctx.notePath}${time.length > 0 ? ' • ' + time : ''}`;
+            handle.appendCheckpointMarker({
+                label: `${actionLabel} angewendet`,
+                detail,
+                onShowDiff: () => {
+                    if (result.checkpoint === undefined) return;
+                    void this.showCheckpointDiff(ctx.notePath, result.checkpoint, ctx.selectionText, result.finalContent ?? '');
+                },
+                onRestore: () => {
+                    if (result.checkpoint === undefined) return;
+                    void this.restoreCheckpoint(result.checkpoint);
+                },
+            });
+        } else if (result.status === 'discarded') {
+            handle.setStatus(result.error ?? 'Verworfen.');
+        } else if (result.status === 'skipped') {
+            handle.setStatus(result.error ?? 'Übersprungen.');
+        }
     }
+
+    private async showCheckpointDiff(
+        notePath: string,
+        checkpoint: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+        oldContent: string,
+        newContent: string,
+    ): Promise<void> {
+        showCheckpointReviewModal({
+            app: this.plugin.app,
+            entries: [{ path: notePath, before: oldContent, after: newContent }],
+            source: `Checkpoint ${new Date(checkpoint.timestamp).toLocaleString()}`,
+            title: 'Checkpoint anzeigen',
+            onRestore: async () => { await this.restoreCheckpoint(checkpoint); },
+        });
+    }
+
+    private async restoreCheckpoint(
+        checkpoint: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+    ): Promise<void> {
+        const svc = this.plugin.checkpointService;
+        if (svc === null || svc === undefined) return;
+        try {
+            await svc.restore(checkpoint);
+        } catch (e) {
+            console.warn('[inline-checkpoint] restore failed:', e);
+        }
+    }
+
 }

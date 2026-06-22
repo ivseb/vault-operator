@@ -16,6 +16,7 @@
  */
 
 import { Component, MarkdownRenderer, MarkdownView, Menu, setIcon, type App, type WorkspaceLeaf } from 'obsidian';
+import { getModelKey } from '../../types/settings';
 import type ObsidianAgentPlugin from '../../main';
 import { InlineActionRegistry } from './InlineActionRegistry';
 import { InlineTriggerResolver } from './InlineTriggerResolver';
@@ -45,7 +46,7 @@ import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/AgentSidebarView';
 // import { SelectionWatcher } from './SelectionWatcher';
 import { InlineSkillFilter, type SkillCapabilityProbe, type SkillEntry } from './skills/InlineSkillFilter';
 import { InlineSkillAction } from './skills/InlineSkillAction';
-import { inlineDiffExtension, startDiffSession } from './diff/CodeMirrorDiffAdapter';
+import { inlineDiffExtension } from './diff/CodeMirrorDiffAdapter';
 import { InlineChatOrchestrator, type EditorChatProbe } from './chat/InlineChatOrchestrator';
 
 /**
@@ -63,6 +64,14 @@ function buildEditorProbe(plugin: ObsidianAgentPlugin): EditorSelectionProbe {
             const cursor = editor.getCursor();
             // Convert {line, ch} into absolute char offset.
             const cursorPos = editor.posToOffset(cursor);
+            // FIX-33-DV-01 (2026-06-22): editor.getCursor() returns the HEAD,
+            // which for a forward selection is the END. The InlineEditApplier
+            // writeBackToSelection needs the actual selection range, not
+            // head+length. Read getCursor('from')/('to') explicitly.
+            const fromPos = editor.getCursor('from');
+            const toPos = editor.getCursor('to');
+            const selectionFrom = editor.posToOffset(fromPos);
+            const selectionTo = editor.posToOffset(toPos);
             // Determine editor mode: 'source' / 'live-preview' / 'reading'.
             // Obsidian's MarkdownView.getMode() returns 'source' (incl. live-preview)
             // or 'preview'. We map 'preview' -> 'reading'.
@@ -76,6 +85,8 @@ function buildEditorProbe(plugin: ObsidianAgentPlugin): EditorSelectionProbe {
                 selectionText: selection ?? '',
                 editorMode,
                 cursorPos,
+                selectionFrom,
+                selectionTo,
                 notePath,
             };
         },
@@ -368,45 +379,17 @@ function buildSkillProbe(plugin: ObsidianAgentPlugin): SkillCapabilityProbe {
 /**
  * Build action-aware callbacks for the legacy InlineActionService
  * trigger path (kept for /coding test wiring + command-palette dispatch
- * shortcuts that bypass the chat panel). For Rewrite the streamed text
- * feeds the CodeMirror diff session; for other actions we no-op since
- * the chat panel owns the surface now.
- *
- * The chat panel itself supplies its own AgentTaskCallbacks in
- * InlineChatOrchestrator.buildPanelCallbacks -- those land the LLM
- * output in the panel's message body.
+ * shortcuts that bypass the chat panel). The hot path goes through
+ * InlineChatOrchestrator.openReviewAndApply which owns the new
+ * EditReviewModal flow (EPIC-33 Diff-UX-refresh 2026-06-22). This
+ * legacy factory keeps a no-op surface so action.execute() does not
+ * crash when no panel handle is present.
  */
 function buildActionAwareCallbacks(
-    plugin: ObsidianAgentPlugin,
+    _plugin: ObsidianAgentPlugin,
     actionId: string,
-    ctx: import('./InlineTriggerContext').InlineTriggerContext,
+    _ctx: import('./InlineTriggerContext').InlineTriggerContext,
 ): import('../AgentTask').AgentTaskCallbacks {
-    if (actionId === 'rewrite') {
-        let collected = '';
-        return {
-            onText: (chunk) => { collected += chunk; },
-            onToolStart: () => {},
-            onToolResult: () => {},
-            onComplete: () => {
-                try {
-                    const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
-                    if (view === null) return;
-                    const editor = view.editor;
-                    const from = ctx.cursorPos;
-                    const selLen = ctx.selectionText.length;
-                    if (selLen === 0 || collected.length === 0) return;
-                    const cmView = (editor as unknown as { cm?: import('@codemirror/view').EditorView }).cm;
-                    if (cmView === undefined) return;
-                    startDiffSession(cmView, { from, to: from + selLen, proposedText: collected });
-                } catch (e) {
-                    console.debug('[inline-action] rewrite diff-start failed:', e);
-                }
-            },
-            onError: (err) => {
-                console.warn('[inline-action] rewrite error:', err);
-            },
-        };
-    }
     return {
         onText: () => {},
         onToolStart: () => {},
@@ -540,6 +523,21 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         probe: () => editorProbe.probe(),
         getPanelContainer: () => editorProbe.getMenuContainer(),
         getPanelPosition: () => editorProbe.getMenuPosition(),
+        writeBackToSelection: async ({ notePath, from, to, content }) => {
+            const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+            if (view === null) return false;
+            if (view.file?.path !== notePath) return false;
+            const editor = view.editor;
+            try {
+                const fromPos = editor.offsetToPos(from);
+                const toPos = editor.offsetToPos(to);
+                editor.replaceRange(content, fromPos, toPos);
+                return true;
+            } catch (e) {
+                console.warn('[inline-wiring] writeBackToSelection failed:', e);
+                return false;
+            }
+        },
     };
     const orchestrator = new InlineChatOrchestrator({
         plugin,
@@ -593,19 +591,110 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                 clientY: anchor.getBoundingClientRect().bottom,
             } as MouseEvent);
         },
-        showPlusMenu: (anchor, _ctx) => {
-            // Minimal "+" menu for now -- the sidebar uses this for
-            // attachments/skills/prompts; the inline panel just shows
-            // a placeholder so the icon does something visible.
+        showPlusMenu: (anchor, _ctx, handle) => {
+            // Mirrors AgentSidebarView.showPlusMenu (sidebar:636-664):
+            // attach file, add vault file (@-link), insert skill /slug,
+            // insert prompt #slug, insert workflow §slug. Picker
+            // pop-ups are skipped here -- on-click prepends the prefix
+            // form to the composer so the AgentTask slash-expansion
+            // logic picks it up at send time (PanelChatController.sendTurn).
             const menu = new Menu();
             menu.addItem(item => item
-                .setTitle('Attach selection as context (already attached)')
+                .setTitle('Attach file (Sidebar)')
                 .setIcon('paperclip')
+                .setDisabled(true)
+                .onClick(() => { /* placeholder -- attachments live in sidebar surface for now */ }));
+            menu.addSeparator();
+            // Insert skill: list all enabled self-authored skills.
+            const skills = (plugin as unknown as { selfAuthoredSkillLoader?: { getAllSkills: () => Array<{ name: string; description: string }> } }).selfAuthoredSkillLoader?.getAllSkills() ?? [];
+            if (skills.length > 0) {
+                const skillSub = new Menu();
+                skills.forEach((s: { name: string; description: string }) => {
+                    const slug = s.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+                    skillSub.addItem(item => item
+                        .setTitle(s.name)
+                        .setIcon('sparkles')
+                        .onClick(() => handle.insertIntoComposer(`/${slug}`, 'prepend')));
+                });
+                menu.addItem(item => item
+                    .setTitle('Insert skill...')
+                    .setIcon('sparkles')
+                    .onClick((evt) => skillSub.showAtMouseEvent(evt as unknown as MouseEvent)));
+            } else {
+                menu.addItem(item => item.setTitle('No skills installed').setIcon('sparkles').setDisabled(true));
+            }
+            // Insert prompt: list custom prompts for the active mode.
+            const activeMode = plugin.settings.currentMode;
+            const prompts = (plugin.settings.customPrompts ?? []).filter((p: { enabled?: boolean; mode?: string }) =>
+                p.enabled !== false && (p.mode === undefined || p.mode === activeMode || p.mode === '')
+            );
+            if (prompts.length > 0) {
+                const promptSub = new Menu();
+                prompts.forEach((p: { name: string; slug: string }) => {
+                    promptSub.addItem(item => item
+                        .setTitle(p.name)
+                        .setIcon('message-square-quote')
+                        .onClick(() => handle.insertIntoComposer(`#${p.slug}`, 'prepend')));
+                });
+                menu.addItem(item => item
+                    .setTitle('Insert prompt...')
+                    .setIcon('message-square-quote')
+                    .onClick((evt) => promptSub.showAtMouseEvent(evt as unknown as MouseEvent)));
+            } else {
+                menu.addItem(item => item.setTitle('No prompts configured').setIcon('message-square-quote').setDisabled(true));
+            }
+            // Insert workflow: synchronously not available (loader is async); show stub.
+            menu.addItem(item => item
+                .setTitle('Insert workflow... (Sidebar)')
+                .setIcon('workflow')
                 .setDisabled(true));
             menu.showAtMouseEvent({
                 clientX: anchor.getBoundingClientRect().left,
                 clientY: anchor.getBoundingClientRect().bottom,
             } as MouseEvent);
+        },
+        showModelMenu: (anchor, _ctx, handle) => {
+            // Mirrors AgentSidebarView.showModelMenu (sidebar:862-924):
+            // list enabled activeModels, mark the current pick with a
+            // check, write through to plugin.settings.activeModelKey,
+            // refresh the model-button label.
+            const enabled = plugin.settings.activeModels.filter(m => m.enabled !== false);
+            const menu = new Menu();
+            if (enabled.length === 0) {
+                menu.addItem(item => item
+                    .setTitle('No models enabled -- open Settings')
+                    .setIcon('settings')
+                    .onClick(() => {
+                        plugin.app.setting?.open();
+                    }));
+            } else {
+                const currentKey = plugin.settings.activeModelKey;
+                enabled.forEach(model => {
+                    const key = getModelKey(model);
+                    const label = model.displayName ?? model.name;
+                    menu.addItem(item => item
+                        .setTitle(label)
+                        .setChecked(currentKey === key)
+                        .onClick(async () => {
+                            plugin.settings.activeModelKey = key;
+                            await plugin.saveSettings();
+                            handle.setModelLabel(label, label);
+                        }));
+                });
+            }
+            menu.showAtMouseEvent({
+                clientX: anchor.getBoundingClientRect().left,
+                clientY: anchor.getBoundingClientRect().bottom,
+            } as MouseEvent);
+        },
+        getInitialModelLabel: () => {
+            const key = plugin.settings.activeModelKey;
+            const model = plugin.settings.activeModels.find(m => getModelKey(m) === key);
+            if (model !== undefined) {
+                const label = model.displayName ?? model.name;
+                return { label, tooltip: label };
+            }
+            return { label: 'Auto', tooltip: 'No model selected -- click to pick' };
         },
     });
 
