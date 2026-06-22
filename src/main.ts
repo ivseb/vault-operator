@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform } from 'obsidian';
+import { formatHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
@@ -2218,24 +2219,30 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.addCommand({
             id: 'open-inline-ai-menu',
             name: 'Open inline AI chat',
-            // EPIC-33: Cmd+Shift+I als Default-Hotkey. User kann den
-            // Hotkey ueber Settings -> Hotkeys umbinden, der Default
-            // wird beim ersten Plugin-Load gesetzt.
+            // EPIC-33: Mod+Shift+I als cross-platform Default-Hotkey.
+            // 'Mod' resolves to Cmd on macOS, Ctrl on Windows/Linux.
+            // Note: Ctrl+Shift+I is the DevTools shortcut in Electron
+            // apps including Obsidian on Win/Linux. The first plugin
+            // that registers wins, but the user can rebind via Settings
+            // -> Hotkeys if there's a collision.
             hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'i' }],
             callback: () => {
                 this.inlineActions?.orchestrator.triggerPanel();
             },
         });
 
-        // EPIC-33: Rechtsklick im Editor zeigt jetzt eine "Inline Chat"-Option
-        // mit dem Hotkey-Hint. Wirkt nur wenn eine Selection existiert.
+        // EPIC-33: Rechtsklick-Menue zeigt die Inline-Chat-Option mit
+        // OS-spezifischem Hotkey-Hint (Mac symbols vs. Ctrl+Shift+I).
+        // Icon: 'slash' = Vault Operator brand icon (consistent with
+        // ribbon + commands).
         this.registerEvent(
             this.app.workspace.on('editor-menu', (menu, editor) => {
                 const selection = editor.getSelection();
                 if (selection.length === 0) return;
+                const hint = formatHotkeyHint(Platform);
                 menu.addItem(item => item
-                    .setTitle('Inline Chat  (Cmd+Shift+I)')
-                    .setIcon('message-square')
+                    .setTitle(`Inline AI chat  (${hint})`)
+                    .setIcon('slash')
                     .onClick(() => {
                         this.inlineActions?.orchestrator.triggerPanel();
                     }));

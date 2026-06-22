@@ -1,25 +1,28 @@
 /**
- * InlineChatOrchestrator -- glue between editor-trigger and InlineChatPanel (FEAT-33-05 UX-refresh).
+ * InlineChatOrchestrator -- panel surface for the inline-action stack (EPIC-33).
  *
- * Replaces the older FloatingMenu trigger flow:
- * - On trigger (hotkey / auto-on-selection / command-palette) the
- *   orchestrator probes the active editor, builds the TriggerContext,
- *   and opens a single InlineChatPanel near the cursor.
- * - Toolbar-actions (Lookup, Rewrite, Translate, Summarize, Send-to-
- *   Main, Find-Action-Items) and free-chat all stream their LLM
- *   output into the panel's message body.
- * - Status pill captures errors / "thinking..." indicators.
+ * Owns the active InlineChatPanel + a per-panel PanelChatController.
+ * Free-chat (the textarea) drives a true Sidebar-style agent loop via
+ * AgentTaskRunner; quick-actions (Lookup, Rewrite, Translate, ...) run
+ * through the InlineActionRegistry and stream into the panel's
+ * assistant bubble.
  *
- * The orchestrator owns the active panel reference so re-triggering
- * focuses the existing panel instead of stacking copies.
+ * Key design points (per EPIC-33 audit synthesis):
+ *  - Free-chat NEVER goes through InlineChatAction (deleted) or
+ *    NoteWriter (deleted). The panel is the only conversation surface.
+ *  - Quick-action dispatch shows the action label as a STATUS PILL,
+ *    not as a synthetic `[Label]` user bubble (audit cleanup target).
+ *  - Multi-turn: the PanelChatController retains the MessageParam[]
+ *    history across turns; AgentTask mutates the array in place.
  *
- * Related: FEAT-33-05, FEAT-33-01 (Trigger-Layer surface), ADR-138.
+ * Related: PanelChatController, InlineChatPanel, EPIC-33 audit wd39z8ehx.
  */
 
 import type { AgentTaskCallbacks } from '../../AgentTask';
-import type { InlineAction, InlineActionRegistry } from '../InlineActionRegistry';
+import type { InlineActionRegistry } from '../InlineActionRegistry';
 import type { InlineTriggerResolver, SelectionTriggerInput } from '../InlineTriggerResolver';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
+import type ObsidianAgentPlugin from '../../../main';
 import {
     InlineChatPanel,
     type InlinePanelActionId,
@@ -27,43 +30,31 @@ import {
     type InlinePanelHandle,
     type SetIconHook,
 } from './InlineChatPanel';
+import { PanelChatController } from './PanelChatController';
 
 export interface EditorChatProbe {
-    /** Returns selection-input from active editor, or null. */
     probe(): SelectionTriggerInput | null;
-    /** Container the panel attaches to. */
     getPanelContainer(): HTMLElement | null;
-    /** Best-effort cursor coordinates for panel placement. */
     getPanelPosition(): { x: number; y: number };
 }
 
 export interface InlineChatOrchestratorOptions {
+    plugin: ObsidianAgentPlugin;
     editorProbe: EditorChatProbe;
     registry: InlineActionRegistry;
     resolver: InlineTriggerResolver;
-    /** Live master-switch (settings.inlineActions.enabled). */
     isEnabled?: () => boolean;
-    /** Optional bridge to Obsidian's setIcon for Lucide rendering. */
     setIcon?: SetIconHook;
-    /**
-     * Optional bridge for the "..." (more actions) menu. The plugin
-     * entry-point typically builds an Obsidian Menu and offers Rewrite,
-     * Translate, Summarize, Find-Action-Items, Send-to-Main here.
-     * Each menu item dispatches a panel-action by calling
-     * handle.appendMessage + handle.setStatus and then the registered
-     * InlineAction via the dispatcher exposed in the handle.
-     */
     showMoreMenu?: (
         anchor: HTMLElement,
         ctx: InlineTriggerContext,
         handle: InlinePanelHandle,
         dispatch: (actionId: InlinePanelActionId) => void,
     ) => void;
-    /** Optional bridge for the "+" menu. */
     showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
 }
 
-/** Map panel-action ids onto registered InlineAction ids. */
+/** Quick-actions map onto registered InlineAction ids. */
 function panelActionToRegistryId(panelId: InlinePanelActionId): string | null {
     switch (panelId) {
         case 'lookup': return 'lookup';
@@ -72,11 +63,25 @@ function panelActionToRegistryId(panelId: InlinePanelActionId): string | null {
         case 'summarize': return 'summarize:medium';
         case 'find-action-items': return 'find-action-items';
         case 'send-to-main': return 'send-to-main-chat';
-        case 'free-chat': return 'inline-chat';
+        case 'free-chat': return null; // handled by PanelChatController, not the registry
+    }
+}
+
+/** Human-readable label for a panel action (status pill copy). */
+function panelActionLabel(panelId: InlinePanelActionId): string {
+    switch (panelId) {
+        case 'lookup': return 'Lookup';
+        case 'rewrite': return 'Rewrite';
+        case 'translate': return 'Translate';
+        case 'summarize': return 'Summarize';
+        case 'find-action-items': return 'Find action items';
+        case 'send-to-main': return 'Send to main chat';
+        case 'free-chat': return 'Chat';
     }
 }
 
 export class InlineChatOrchestrator {
+    private readonly plugin: ObsidianAgentPlugin;
     private readonly editorProbe: EditorChatProbe;
     private readonly registry: InlineActionRegistry;
     private readonly resolver: InlineTriggerResolver;
@@ -91,8 +96,10 @@ export class InlineChatOrchestrator {
     private readonly showPlusMenu?: (anchor: HTMLElement, ctx: InlineTriggerContext) => void;
 
     private activePanel: InlineChatPanel | null = null;
+    private activeController: PanelChatController | null = null;
 
     constructor(options: InlineChatOrchestratorOptions) {
+        this.plugin = options.plugin;
         this.editorProbe = options.editorProbe;
         this.registry = options.registry;
         this.resolver = options.resolver;
@@ -102,7 +109,6 @@ export class InlineChatOrchestrator {
         this.showPlusMenu = options.showPlusMenu;
     }
 
-    /** Main entry from hotkey / command-palette / SelectionWatcher. */
     triggerPanel(): void {
         if (this.isEnabled() !== true) return;
         const input = this.editorProbe.probe();
@@ -111,9 +117,11 @@ export class InlineChatOrchestrator {
         if (container === null) return;
 
         const ctx = this.resolver.resolveFromSelection(input);
-
-        // Re-trigger: close the old one and open fresh so the anchor + position update.
         this.closePanel();
+
+        // Fresh controller per panel -- in-memory history scoped to
+        // the panel lifetime. Closing the panel disposes the controller.
+        this.activeController = new PanelChatController({ plugin: this.plugin, ctx });
 
         const panel = new InlineChatPanel({
             containerEl: container,
@@ -123,13 +131,18 @@ export class InlineChatOrchestrator {
             onShowMoreMenu: this.showMoreMenu !== undefined
                 ? (anchor, c, handle) => {
                     this.showMoreMenu!(anchor, c, handle, (actionId) => {
-                        // Dispatch helper for the secondary menu items.
                         void this.handleDispatch({ actionId, userInput: '', ctx: c }, handle);
                     });
                 }
                 : undefined,
             onShowPlusMenu: this.showPlusMenu,
-            onClose: () => { this.activePanel = null; },
+            onClose: () => {
+                if (this.activeController !== null) {
+                    this.activeController.dispose();
+                    this.activeController = null;
+                }
+                this.activePanel = null;
+            },
             setIcon: this.setIconHook,
         });
         panel.open();
@@ -141,11 +154,33 @@ export class InlineChatOrchestrator {
             this.activePanel.close();
             this.activePanel = null;
         }
+        if (this.activeController !== null) {
+            this.activeController.dispose();
+            this.activeController = null;
+        }
     }
 
     dispose(): void { this.closePanel(); }
 
     private async handleDispatch(args: InlinePanelDispatchArgs, handle: InlinePanelHandle): Promise<void> {
+        // Free-chat: drive the panel-scoped chat controller (true multi-turn).
+        if (args.actionId === 'free-chat') {
+            if (this.activeController === null) {
+                handle.setStatus('Panel not initialised.', 'error');
+                return;
+            }
+            handle.appendMessage({ role: 'user', text: args.userInput });
+            const assistantId = handle.appendMessage({ role: 'assistant', text: '' });
+            handle.setStatus('Thinking…');
+            await this.activeController.sendTurn({
+                userInput: args.userInput,
+                handle,
+                assistantBubbleId: assistantId,
+            });
+            return;
+        }
+
+        // Quick-action: status pill carries the label, no synthetic user bubble.
         const registryId = panelActionToRegistryId(args.actionId);
         if (registryId === null) {
             handle.setStatus(`Unknown action: ${args.actionId}`, 'error');
@@ -161,39 +196,16 @@ export class InlineChatOrchestrator {
             return;
         }
 
-        // Free-chat carries the user-typed prompt as a synthetic
-        // user-bubble; quick-actions just show a status pill.
-        if (args.actionId === 'free-chat') {
-            handle.appendMessage({ role: 'user', text: args.userInput });
-        } else {
-            handle.appendMessage({ role: 'user', text: `[${action.label}]` });
-        }
+        const label = panelActionLabel(args.actionId);
         const assistantId = handle.appendMessage({ role: 'assistant', text: '' });
-        handle.setStatus('Thinking…');
-
+        handle.setStatus(`${label}…`);
         const callbacks = this.buildPanelCallbacks(handle, assistantId);
         try {
-            await action.execute(this.augmentForFreeChat(args), callbacks);
+            await action.execute(args.ctx, callbacks);
         } catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
             handle.setStatus(`Error: ${err.message}`, 'error');
         }
-    }
-
-    /**
-     * When the user free-chats we want to feed the typed prompt into
-     * the InlineChatAction. The action's contract is to seed the
-     * conversation with the selection; we extend the user message via
-     * a synthetic selectionText override that includes both the
-     * selection AND the user question. Minimal patch -- richer
-     * multi-turn loops are a follow-up.
-     */
-    private augmentForFreeChat(args: InlinePanelDispatchArgs): InlineTriggerContext {
-        if (args.actionId !== 'free-chat') return args.ctx;
-        const combinedSelection = args.ctx.selectionText.length === 0
-            ? args.userInput
-            : `${args.ctx.selectionText}\n\nUser question: ${args.userInput}`;
-        return { ...args.ctx, selectionText: combinedSelection };
     }
 
     private buildPanelCallbacks(handle: InlinePanelHandle, assistantBubbleId: string): AgentTaskCallbacks {

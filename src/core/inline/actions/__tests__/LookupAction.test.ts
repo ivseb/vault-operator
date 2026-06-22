@@ -96,16 +96,16 @@ describe('LookupAction', () => {
             const caller = makeCaller();
             const action = new LookupAction({ caller });
             await action.execute(makeCtx('x'), makeCallbacks());
-            // System prompt should NOT contain the augmentation prefix.
             const sys = caller.stream.mock.calls[0][0].systemPrompt;
-            expect(sys).not.toContain('vault contains the following relevant notes');
+            expect(sys).not.toContain('Vault context (primary sources)');
         });
 
-        it('calls the pipeline when present', async () => {
+        it('passes vault augmentation into the system prompt under "Vault context"', async () => {
             const pipeline: VaultRagPipeline = {
                 augment: vi.fn(async () => ({
                     sources: [{ notePath: 'Notes/Lambda.md', excerpt: 'A foundational model of computation.', confidence: 0.82 }],
-                    promptAugmentation: 'Note Lambda.md: A foundational model of computation.',
+                    promptAugmentation: '### [[Notes/Lambda]] (score 0.82)\nA foundational model of computation.',
+                    tier: 'strong' as const,
                 })),
             };
             const caller = makeCaller();
@@ -118,48 +118,28 @@ describe('LookupAction', () => {
                 confidenceThreshold: 0.7,
             }));
             const sys = caller.stream.mock.calls[0][0].systemPrompt;
-            expect(sys).toContain('vault contains the following relevant notes');
+            expect(sys).toContain('Vault context (primary sources)');
             expect(sys).toContain('A foundational model of computation.');
         });
 
-        it('prepends a sources header to the streamed text when settings enable it', async () => {
+        it('appends a Vault-sources block AFTER the LLM stream (not before)', async () => {
             const pipeline: VaultRagPipeline = {
                 augment: vi.fn(async () => ({
                     sources: [{ notePath: 'Notes/Topic.md', excerpt: 'short excerpt', confidence: 0.9 }],
                     promptAugmentation: '...',
+                    tier: 'strong' as const,
                 })),
             };
             const caller = makeCaller();
-            const action = new LookupAction({
-                caller,
-                vaultRagPipeline: pipeline,
-                getRagSettings: () => ({ enabled: true, confidenceThreshold: 0.7, showSourcesInTooltip: true, topN: 5 }),
-            });
+            const action = new LookupAction({ caller, vaultRagPipeline: pipeline });
             const cb = makeCallbacks();
             await action.execute(makeCtx('x'), cb);
-            const firstText = (cb.onText as ReturnType<typeof vi.fn>).mock.calls[0][0];
-            expect(firstText).toContain('From your vault:');
-            expect(firstText).toContain('[[Notes/Topic]]');
-        });
-
-        it('omits source header when showSourcesInTooltip is false', async () => {
-            const pipeline: VaultRagPipeline = {
-                augment: vi.fn(async () => ({
-                    sources: [{ notePath: 'Notes/Topic.md', excerpt: 'x', confidence: 0.9 }],
-                    promptAugmentation: '...',
-                })),
-            };
-            const caller = makeCaller();
-            const action = new LookupAction({
-                caller,
-                vaultRagPipeline: pipeline,
-                getRagSettings: () => ({ enabled: true, confidenceThreshold: 0.7, showSourcesInTooltip: false, topN: 5 }),
-            });
-            const cb = makeCallbacks();
-            await action.execute(makeCtx('x'), cb);
-            // The first onText call should be the LLM mock output, not a source header.
-            const firstText = (cb.onText as ReturnType<typeof vi.fn>).mock.calls[0][0];
-            expect(firstText).not.toContain('From your vault:');
+            const calls = (cb.onText as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+            // First chunk = LLM body; appendix arrives AFTER.
+            expect(calls[0]).toBe('Mock explanation.');
+            const appendix = calls.find(c => c.includes('Vault sources'));
+            expect(appendix).toBeDefined();
+            expect(appendix).toContain('[[Notes/Topic]]');
         });
 
         it('skips RAG when settings.enabled is false', async () => {
@@ -181,7 +161,7 @@ describe('LookupAction', () => {
             const cb = makeCallbacks();
             await action.execute(makeCtx('x'), cb);
             const sys = caller.stream.mock.calls[0][0].systemPrompt;
-            expect(sys).not.toContain('vault contains the following relevant notes');
+            expect(sys).not.toContain('Vault context (primary sources)');
             expect(cb.onError).not.toHaveBeenCalled();
         });
 
@@ -193,6 +173,64 @@ describe('LookupAction', () => {
             await action.execute(makeCtx('x'), cb);
             expect(cb.onError).not.toHaveBeenCalled();
             expect(cb.onComplete).toHaveBeenCalled();
+        });
+    });
+
+    describe('Web fallback + edge aggregator (Lookup-Enhancement)', () => {
+        it('fires web search when vault tier is empty', async () => {
+            const pipeline: VaultRagPipeline = { augment: vi.fn(async () => ({ sources: [], promptAugmentation: '', tier: 'empty' as const })) };
+            const webSearch = vi.fn(async () => [
+                { title: 'Wikipedia', url: 'https://w/x', snippet: 'A topic.', score: 1 },
+            ]);
+            const webLookup = { search: webSearch } as unknown as import('../../lookup/InlineWebLookup').InlineWebLookup;
+            const action = new LookupAction({ caller: makeCaller(), vaultRagPipeline: pipeline, webLookup });
+            const cb = makeCallbacks();
+            await action.execute(makeCtx('quark'), cb);
+            expect(webSearch).toHaveBeenCalledWith('quark', 3);
+            const calls = (cb.onText as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+            expect(calls.find(c => c.includes('Web sources'))).toBeDefined();
+        });
+
+        it('does NOT fire web search when vault tier is strong', async () => {
+            const pipeline: VaultRagPipeline = {
+                augment: vi.fn(async () => ({
+                    sources: [{ notePath: 'A.md', excerpt: 'x', confidence: 0.9 }],
+                    promptAugmentation: '### [[A]] (score 0.90)\nx',
+                    tier: 'strong' as const,
+                })),
+            };
+            const webSearch = vi.fn(async () => []);
+            const webLookup = { search: webSearch } as unknown as import('../../lookup/InlineWebLookup').InlineWebLookup;
+            const action = new LookupAction({ caller: makeCaller(), vaultRagPipeline: pipeline, webLookup });
+            await action.execute(makeCtx('x'), makeCallbacks());
+            expect(webSearch).not.toHaveBeenCalled();
+        });
+
+        it('appends an explicit-connections block when the edge aggregator returns edges', async () => {
+            const aggregator = {
+                collect: vi.fn(async () => [
+                    { targetPath: 'Related.md', score: 1, type: 'backlink' as const, reason: 'Links to [[a]]' },
+                ]),
+            } as unknown as import('../../lookup/LookupEdgeAggregator').LookupEdgeAggregator;
+            const action = new LookupAction({ caller: makeCaller(), edgeAggregator: aggregator });
+            const cb = makeCallbacks();
+            await action.execute(makeCtx('x'), cb);
+            const calls = (cb.onText as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+            expect(calls.find(c => c.includes('Explicit connections'))).toBeDefined();
+            expect(calls.find(c => c.includes('[[Related]]'))).toBeDefined();
+        });
+
+        it('appends an implicit-connections block when implicit edges exist', async () => {
+            const aggregator = {
+                collect: vi.fn(async () => [
+                    { targetPath: 'Sim.md', score: 0.74, type: 'implicit-similarity' as const, reason: 'Semantic similarity 74%' },
+                ]),
+            } as unknown as import('../../lookup/LookupEdgeAggregator').LookupEdgeAggregator;
+            const action = new LookupAction({ caller: makeCaller(), edgeAggregator: aggregator });
+            const cb = makeCallbacks();
+            await action.execute(makeCtx('x'), cb);
+            const calls = (cb.onText as ReturnType<typeof vi.fn>).mock.calls.map(c => c[0]);
+            expect(calls.find(c => c.includes('Implicit connections'))).toBeDefined();
         });
     });
 });

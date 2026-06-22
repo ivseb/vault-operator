@@ -292,7 +292,7 @@ export class InlineChatPanel {
         section.appendChild(label);
         section.appendChild(preview);
 
-        // Show "Show more / less" toggle only if the selection has more
+        // Show a tiny chevron toggle only if the selection has more
         // than PREVIEW_VISIBLE_LINES lines or exceeds a soft char cap.
         const lineCount = sel.split('\n').length;
         const needsToggle = lineCount > PREVIEW_VISIBLE_LINES || sel.length > 240;
@@ -300,7 +300,12 @@ export class InlineChatPanel {
             const toggle = doc.createElement('button');
             toggle.classList.add('agent-inline-panel__anchor-toggle');
             toggle.setAttribute('type', 'button');
-            toggle.textContent = 'Show more';
+            toggle.setAttribute('aria-label', 'Expand selection preview');
+            toggle.setAttribute('title', 'Expand');
+            const iconSpan = doc.createElement('span');
+            iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
+            this.setIcon(iconSpan, 'chevron-down');
+            toggle.appendChild(iconSpan);
             toggle.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 this.togglePreview();
@@ -315,15 +320,27 @@ export class InlineChatPanel {
     private togglePreview(): void {
         if (this.previewEl === null || this.previewToggleEl === null) return;
         this.previewExpanded = !this.previewExpanded;
+        // Replace the chevron icon inside the toggle button.
+        this.previewToggleEl.empty?.();
+        while (this.previewToggleEl.firstChild !== null) {
+            this.previewToggleEl.removeChild(this.previewToggleEl.firstChild);
+        }
+        const iconSpan = this.containerEl.ownerDocument.createElement('span');
+        iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
         if (this.previewExpanded === true) {
             this.previewEl.textContent = this.ctx.selectionText;
             this.previewEl.classList.add('agent-inline-panel__anchor-text--expanded');
-            this.previewToggleEl.textContent = 'Show less';
+            this.setIcon(iconSpan, 'chevron-up');
+            this.previewToggleEl.setAttribute('title', 'Collapse');
+            this.previewToggleEl.setAttribute('aria-label', 'Collapse selection preview');
         } else {
             this.previewEl.textContent = this.truncateToLines(this.ctx.selectionText, PREVIEW_VISIBLE_LINES);
             this.previewEl.classList.remove('agent-inline-panel__anchor-text--expanded');
-            this.previewToggleEl.textContent = 'Show more';
+            this.setIcon(iconSpan, 'chevron-down');
+            this.previewToggleEl.setAttribute('title', 'Expand');
+            this.previewToggleEl.setAttribute('aria-label', 'Expand selection preview');
         }
+        this.previewToggleEl.appendChild(iconSpan);
     }
 
     private truncateToLines(text: string, maxLines: number): string {

@@ -7628,16 +7628,32 @@
     overflow-y: auto;
 }
 .agent-inline-panel__anchor-toggle {
+    position: absolute;
+    bottom: 4px;
+    right: 6px;
     background: transparent;
     color: var(--text-muted);
     border: none;
     cursor: pointer;
-    font-size: var(--font-ui-smaller);
-    padding: 4px 0 0 0;
-    text-decoration: underline;
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .agent-inline-panel__anchor-toggle:hover {
     color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+.agent-inline-panel__anchor-toggle-icon {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    line-height: 1;
+}
+.agent-inline-panel__anchor-toggle-icon svg {
+    width: 14px;
+    height: 14px;
 }
 
 /* Close button (absolute top-right corner). */

@@ -82,6 +82,15 @@ function makeNode(doc: FakeDocument, tag: string): FakeNode {
             node.parent = null;
         }
     };
+    (node as unknown as { removeChild: (c: FakeNode) => FakeNode }).removeChild = (child: FakeNode) => {
+        const idx = node.children.indexOf(child);
+        if (idx >= 0) node.children.splice(idx, 1);
+        child.parent = null;
+        return child;
+    };
+    Object.defineProperty(node, 'firstChild', {
+        get: () => (node.children.length > 0 ? node.children[0] : null),
+    });
     node.setAttribute = (k, v) => { node.attrs[k] = v; };
     node.getAttribute = (k) => node.attrs[k] ?? null;
     node.addEventListener = (t, h) => {
@@ -220,9 +229,10 @@ describe('InlineChatPanel (Sidebar-Composer-Layout)', () => {
         expect(preview!.textContent).toContain('second line');
     });
 
-    it('selection preview truncates to 3 lines and offers "Show more" toggle', () => {
+    it('selection preview truncates to 3 lines and offers a chevron toggle', () => {
         const longSelection = 'line 1\nline 2\nline 3\nline 4\nline 5';
-        const panel = newPanel({ ctx: makeCtx(longSelection) });
+        const setIcon = vi.fn();
+        const panel = newPanel({ ctx: makeCtx(longSelection), setIcon });
         panel.open();
         const root = container.children[0];
         const preview = findByClass(root, 'agent-inline-panel__anchor-text');
@@ -233,16 +243,21 @@ describe('InlineChatPanel (Sidebar-Composer-Layout)', () => {
 
         const toggle = findByClass(root, 'agent-inline-panel__anchor-toggle');
         expect(toggle).not.toBeNull();
-        expect(toggle!.textContent).toBe('Show more');
+        expect(toggle!.getAttribute('title')).toBe('Expand');
+        // Initial render: chevron-down icon requested via setIcon hook.
+        const initialIcons = setIcon.mock.calls.map(c => c[1]);
+        expect(initialIcons).toContain('chevron-down');
 
         toggle!.click();
         expect(preview!.textContent).toContain('line 4');
         expect(preview!.textContent).toContain('line 5');
-        expect(toggle!.textContent).toBe('Show less');
+        expect(toggle!.getAttribute('title')).toBe('Collapse');
+        const afterExpandIcons = setIcon.mock.calls.map(c => c[1]);
+        expect(afterExpandIcons).toContain('chevron-up');
 
         toggle!.click();
         expect(preview!.textContent).not.toContain('line 4');
-        expect(toggle!.textContent).toBe('Show more');
+        expect(toggle!.getAttribute('title')).toBe('Expand');
     });
 
     it('preview toggle is omitted when selection has 3 or fewer lines', () => {

@@ -28,8 +28,13 @@ import { RewriteAction } from './actions/RewriteAction';
 import { TranslateAction } from './actions/TranslateAction';
 import { SummarizeAction } from './actions/SummarizeAction';
 import { FindActionItemsAction } from './actions/FindActionItemsAction';
-import { InlineChatAction, type NoteWriter } from './chat/InlineChatAction';
+// InlineChatAction + NoteWriter retired per EPIC-33 audit (wd39z8ehx) --
+// the panel is now the only conversation surface, free-chat drives a real
+// AgentTaskRunner loop in PanelChatController. No more fence writes to notes.
 import { DefaultVaultRagPipeline, type SemanticIndexProbe } from './lookup/VaultRagPipeline';
+import { EmbeddingCache } from './lookup/EmbeddingCache';
+import { LookupEdgeAggregator } from './lookup/LookupEdgeAggregator';
+import { InlineWebLookup } from './lookup/InlineWebLookup';
 import { resolveInlineActionsSettings } from './inlineSettings';
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
@@ -112,20 +117,6 @@ function buildChatSidebarController(plugin: ObsidianAgentPlugin): ChatSidebarCon
     };
 }
 
-function buildNoteWriter(plugin: ObsidianAgentPlugin): NoteWriter {
-    const app = plugin.app;
-    return {
-        insertAtCursor: async ({ notePath, cursorPos, text }) => {
-            const view = app.workspace.getActiveViewOfType(MarkdownView);
-            if (view === null) return;
-            if (view.file?.path !== notePath) return;
-            const editor = view.editor;
-            const from = editor.offsetToPos(cursorPos);
-            editor.replaceRange(text, from, from);
-        },
-    };
-}
-
 /**
  * Builds an InlineLLMCaller backed by the plugin's active provider.
  * Defensive: returns onError when no apiHandler exists.
@@ -187,7 +178,6 @@ function buildSemanticIndexProbe(plugin: ObsidianAgentPlugin): SemanticIndexProb
             if (typeof fn !== 'function' || embedding.length === 0) return [];
             try {
                 const query = new Float32Array(embedding);
-                // pathPrefix undefined = exclude session:/episode:/fact:/... -> only notes.
                 const raw = fn.call(vectorStore, query, topN) as Array<{ path: string; text?: string; score?: number }>;
                 return raw.map((r) => ({
                     notePath: r.path,
@@ -196,6 +186,102 @@ function buildSemanticIndexProbe(plugin: ObsidianAgentPlugin): SemanticIndexProb
                 }));
             } catch (e) {
                 console.debug('[inline-rag] queryNoteVectors failed (LLM-only fallback):', e);
+                return [];
+            }
+        },
+        // Multi-chunk probe (EPIC-33 Lookup-Enhancement). Bypasses
+        // searchUniqueFiles (which dedupes per file) and reads the raw
+        // chunk list directly so the pipeline can group + tier multiple
+        // chunks per file with FULL chunk text (no 200-char slice).
+        queryNoteChunks: async ({ embedding, topK }) => {
+            const fnRaw = (vectorStore as { search?: (q: Float32Array, k: number) => Array<{ path: string; text?: string; score?: number; chunkIndex?: number }> }).search;
+            if (typeof fnRaw !== 'function' || embedding.length === 0) return [];
+            try {
+                const query = new Float32Array(embedding);
+                const raw = fnRaw.call(vectorStore, query, topK) as Array<{ path: string; text?: string; score?: number; chunkIndex?: number }>;
+                return raw
+                    .filter((r: { path: string }) => typeof r.path === 'string' && r.path.length > 0)
+                    .map((r: { path: string; text?: string; score?: number; chunkIndex?: number }, idx: number) => ({
+                        notePath: r.path,
+                        chunkIndex: typeof r.chunkIndex === 'number' ? r.chunkIndex : idx,
+                        text: typeof r.text === 'string' ? r.text : '',
+                        cosineSimilarity: typeof r.score === 'number' ? r.score : 0,
+                    }));
+            } catch (e) {
+                console.debug('[inline-rag] queryNoteChunks failed:', e);
+                return [];
+            }
+        },
+    };
+}
+
+/**
+ * Edge probe over Obsidian metadataCache + ImplicitConnectionService.
+ * All four methods are sync per Obsidian-API; the EdgeProbe interface
+ * uses sync signatures.
+ */
+function buildEdgeProbe(plugin: ObsidianAgentPlugin): import('./lookup/LookupEdgeAggregator').EdgeProbe {
+    const app = plugin.app;
+    const resolveFile = (path: string): import('obsidian').TFile | null => {
+        const f = app.vault.getAbstractFileByPath(path);
+        return f instanceof (require('obsidian').TFile) ? f as import('obsidian').TFile : null;
+    };
+    return {
+        getOutgoing: (notePath) => {
+            const file = resolveFile(notePath);
+            if (file === null) return [];
+            const cache = app.metadataCache.getFileCache(file);
+            if (cache === null || cache === undefined) return [];
+            const out: { targetPath: string }[] = [];
+            const linkRefs = [...(cache.links ?? []), ...(cache.embeds ?? [])];
+            for (const lc of linkRefs) {
+                const resolved = app.metadataCache.getFirstLinkpathDest(lc.link, notePath);
+                if (resolved !== null) {
+                    out.push({ targetPath: resolved.path });
+                }
+            }
+            return out;
+        },
+        getBacklinks: (notePath) => {
+            const file = resolveFile(notePath);
+            if (file === null) return [];
+            const api = (app.metadataCache as unknown as { getBacklinksForFile?: (f: import('obsidian').TFile) => { data: Record<string, unknown[]> } }).getBacklinksForFile;
+            if (typeof api !== 'function') return [];
+            try {
+                const bl = api.call(app.metadataCache, file);
+                if (bl === undefined || bl === null) return [];
+                return Object.keys(bl.data).map(sourcePath => ({ sourcePath }));
+            } catch (e) {
+                console.debug('[inline-edges] getBacklinks failed:', e);
+                return [];
+            }
+        },
+        getTags: (notePath) => {
+            const file = resolveFile(notePath);
+            if (file === null) return [];
+            const cache = app.metadataCache.getFileCache(file);
+            if (cache === null || cache === undefined) return [];
+            const out: string[] = [];
+            for (const t of cache.tags ?? []) {
+                if (typeof t.tag === 'string') out.push(t.tag);
+            }
+            const fmTags = cache.frontmatter?.tags;
+            if (Array.isArray(fmTags)) {
+                for (const t of fmTags) if (typeof t === 'string') out.push(t);
+            } else if (typeof fmTags === 'string') {
+                out.push(fmTags);
+            }
+            return out;
+        },
+        getImplicitNeighbors: (notePath, limit) => {
+            const svc = (plugin as unknown as { implicitConnectionService?: { getImplicitNeighbors?: (p: string, l: number) => { path: string; similarity: number }[] } }).implicitConnectionService;
+            if (svc === undefined || svc === null) return [];
+            const fn = svc.getImplicitNeighbors;
+            if (typeof fn !== 'function') return [];
+            try {
+                return fn.call(svc, notePath, limit);
+            } catch (e) {
+                console.debug('[inline-edges] getImplicitNeighbors failed:', e);
                 return [];
             }
         },
@@ -313,7 +399,6 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
     });
     const editorProbe = buildEditorProbe(plugin);
     const sidebarCtl = buildChatSidebarController(plugin);
-    const noteWriter = buildNoteWriter(plugin);
     const llmCaller = buildLLMCaller(plugin);
     const semProbe = buildSemanticIndexProbe(plugin);
 
@@ -322,12 +407,31 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
     // each one explicitly (matches Notion AI sub-menu shape).
     registry.register(new SendToMainChatAction({ controller: sidebarCtl }));
 
+    // EPIC-33 Lookup-Enhancement: per-panel-session embedding cache,
+    // multi-chunk RAG with tier-based scoring, edge-aggregator over
+    // metadataCache + ImplicitConnectionService, web-fallback via
+    // WebSearchProvider (respects settings.webTools privacy gates).
+    const embeddingCache = new EmbeddingCache({ capacity: 16 });
     const vaultRag: VaultRagPipeline | undefined = semProbe !== null
-        ? new DefaultVaultRagPipeline({ probe: semProbe })
+        ? new DefaultVaultRagPipeline({ probe: semProbe, embeddingCache })
         : undefined;
+    const edgeAggregator = new LookupEdgeAggregator({ probe: buildEdgeProbe(plugin) });
+    const webLookup = new InlineWebLookup({
+        getWebSettings: () => {
+            const w = plugin.settings.webTools;
+            return {
+                enabled: w?.enabled === true,
+                provider: (w?.provider ?? 'none') as 'brave' | 'tavily' | 'none',
+                braveApiKey: w?.braveApiKey ?? '',
+                tavilyApiKey: w?.tavilyApiKey ?? '',
+            };
+        },
+    });
     registry.register(new LookupAction({
         caller: llmCaller,
         vaultRagPipeline: vaultRag,
+        edgeAggregator,
+        webLookup,
         getRagSettings: () => {
             const r = resolveInlineActionsSettings(plugin.settings.inlineActions);
             return {
@@ -335,6 +439,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                 confidenceThreshold: r.vaultRagConfidenceThreshold,
                 showSourcesInTooltip: r.showVaultSourcesInTooltip,
                 topN: 5,
+                webFallbackEnabled: true,
             };
         },
     }));
@@ -344,7 +449,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
     registry.register(new SummarizeAction({ caller: llmCaller, length: 'short' }));
     registry.register(new SummarizeAction({ caller: llmCaller, length: 'medium' }));
     registry.register(new FindActionItemsAction({ caller: llmCaller }));
-    registry.register(new InlineChatAction({ caller: llmCaller, writer: noteWriter }));
+    // free-chat / inline-chat: handled by PanelChatController (not the registry).
 
     // FEAT-33-08: Skills marked as inline-eligible via settings appear
     // in the floating menu. The user opts a skill in via the Settings
@@ -401,6 +506,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         getPanelPosition: () => editorProbe.getMenuPosition(),
     };
     const orchestrator = new InlineChatOrchestrator({
+        plugin,
         editorProbe: chatProbe,
         registry,
         resolver,
