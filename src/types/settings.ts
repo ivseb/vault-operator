@@ -1248,6 +1248,23 @@ export interface InlineActionsSettings {
      * skill-actions group. Default 10. Set to 0 to hide skills entirely.
      */
     skillsTopN?: number;
+    /**
+     * FEAT-33-08: per-skill inline capability. Key is the skill name
+     * (matches SelfAuthoredSkill.name). Value carries the same shape
+     * as InlineActionCapability. Skills without an entry are silently
+     * excluded from the Floating-Menu.
+     *
+     * This mapping lives in settings (NOT in skill frontmatter) so
+     * (a) the existing skill schema is untouched, and (b) the user
+     * explicitly opts a skill in as an inline action via the Settings
+     * UI rather than the skill author dictating it.
+     */
+    skillCapabilities?: Record<string, {
+        eligible: boolean;
+        output_mode: 'preview-block' | 'inline-diff' | 'side-panel' | 'tooltip';
+        input_format: 'markdown' | 'plain';
+        max_selection_chars?: number;
+    }>;
 }
 
 // ---------------------------------------------------------------------------

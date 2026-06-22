@@ -2,6 +2,7 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTask } from '../core/AgentTask';
+import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
@@ -1956,10 +1957,15 @@ export class AgentSidebarView extends ItemView {
             contextTracker: this.contextTracker ?? undefined,
         });
 
-        const task = new AgentTask(
-            resolvedApiHandler,
-            this.plugin.toolRegistry,
-            {
+        // EPIC-33 / ADR-138 PR-1.2: Sidebar drives the agent loop via
+        // AgentTaskRunner. Encapsulates the 16-positional-parameter
+        // constructor in a named options object. Behaviour identical
+        // to the prior `new AgentTask(...)` -- callbacks unchanged,
+        // closures over view-local mutables preserved.
+        const task = new AgentTaskRunner({
+            api: resolvedApiHandler,
+            toolRegistry: this.plugin.toolRegistry,
+            callbacks: {
                 onIterationStart: (iteration) => {
                     // Show the steps block immediately so the user can expand it from the start.
                     ensureStepsBlock();
@@ -2576,19 +2582,19 @@ export class AgentSidebarView extends ItemView {
                     taskMonitor.onTaskTelemetry(data);
                 },
             },
-            this.modeService,
-            this.plugin.settings.advancedApi.consecutiveMistakeLimit,
-            this.plugin.settings.advancedApi.rateLimitMs,
-            this.plugin.settings.advancedApi.condensingEnabled ?? false,
-            this.plugin.settings.advancedApi.condensingThreshold ?? 80,
-            this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
-            this.plugin.settings.advancedApi.maxIterations ?? 25,
-            0,  // depth: root task starts at 0
-            this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
-            this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
-            this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
+            modeService: this.modeService,
+            consecutiveMistakeLimit: this.plugin.settings.advancedApi.consecutiveMistakeLimit,
+            rateLimitMs: this.plugin.settings.advancedApi.rateLimitMs,
+            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? false,
+            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
+            powerSteeringFrequency: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
+            maxIterations: this.plugin.settings.advancedApi.maxIterations ?? 25,
+            depth: 0,  // root task starts at 0
+            maxSubtaskDepth: this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
+            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
+            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
             modelOverrideActive,
-        );
+        });
 
         // Load enabled rules for this task (Sprint 3.2)
         const rulesLoader = this.plugin.rulesLoader;
@@ -2765,7 +2771,7 @@ export class AgentSidebarView extends ItemView {
             console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
         }
 
-        await task.run({
+        await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,

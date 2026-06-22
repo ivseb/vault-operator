@@ -34,6 +34,10 @@ import { resolveInlineActionsSettings } from './inlineSettings';
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/AgentSidebarView';
+import { SelectionWatcher } from './SelectionWatcher';
+import { InlineSkillFilter, type SkillCapabilityProbe, type SkillEntry } from './skills/InlineSkillFilter';
+import { InlineSkillAction } from './skills/InlineSkillAction';
+import { inlineDiffExtension, startDiffSession } from './diff/CodeMirrorDiffAdapter';
 
 /**
  * Live editor probe. Reads MarkdownView -> editor.getSelection() and
@@ -146,15 +150,52 @@ function buildLLMCaller(plugin: ObsidianAgentPlugin): InlineLLMCaller {
     };
 }
 
-function buildSemanticIndexProbe(_plugin: ObsidianAgentPlugin): SemanticIndexProbe | null {
-    // Welle 1: SemanticIndex / VectorStore wiring deferred to a follow-up
-    // session. The actual VectorStore.findNoteVectors signature takes a
-    // filter object, not (embedding, topN), and SemanticIndexService
-    // does not expose a public embedQuery method yet. Without the live
-    // probe, LookupAction falls back to LLM-only -- the Vault-RAG
-    // pipeline (FEAT-33-09) ships as a probe-ready module that the
-    // plugin entry-point can wire up once the public API stabilises.
-    return null;
+function buildSemanticIndexProbe(plugin: ObsidianAgentPlugin): SemanticIndexProbe | null {
+    // Live wiring over SemanticIndexService.embedTexts + VectorStore.searchUniqueFiles.
+    // Returns null when either dependency is not initialised so LookupAction
+    // falls back to LLM-only.
+    interface SiHost {
+        semanticIndex?: { embedTexts?: (texts: string[]) => Promise<Float32Array[]> } | null;
+        vectorStore?: {
+            searchUniqueFiles?: (q: Float32Array, topK: number, pathPrefix?: string) => Array<{ path: string; text: string; score: number }>;
+        } | null;
+    }
+    const host = plugin as unknown as SiHost;
+    const semantic = host.semanticIndex;
+    const vectorStore = host.vectorStore;
+    if (semantic === undefined || semantic === null) return null;
+    if (vectorStore === undefined || vectorStore === null) return null;
+    return {
+        embedText: async (text: string) => {
+            const fn = semantic.embedTexts;
+            if (typeof fn !== 'function') return [];
+            try {
+                const [vec] = await fn.call(semantic, [text]);
+                if (vec instanceof Float32Array) return Array.from(vec);
+                return [];
+            } catch (e) {
+                console.debug('[inline-rag] embedText failed (LLM-only fallback):', e);
+                return [];
+            }
+        },
+        queryNoteVectors: async ({ embedding, topN }) => {
+            const fn = vectorStore.searchUniqueFiles;
+            if (typeof fn !== 'function' || embedding.length === 0) return [];
+            try {
+                const query = new Float32Array(embedding);
+                // pathPrefix undefined = exclude session:/episode:/fact:/... -> only notes.
+                const raw = fn.call(vectorStore, query, topN) as Array<{ path: string; text?: string; score?: number }>;
+                return raw.map((r) => ({
+                    notePath: r.path,
+                    excerpt: r.text?.slice(0, 200),
+                    cosineSimilarity: typeof r.score === 'number' ? r.score : 0,
+                }));
+            } catch (e) {
+                console.debug('[inline-rag] queryNoteVectors failed (LLM-only fallback):', e);
+                return [];
+            }
+        },
+    };
 }
 
 function buildSettingsSnapshotProvider(plugin: ObsidianAgentPlugin): () => InlineSettingsSnapshot {
@@ -169,6 +210,103 @@ function buildSettingsSnapshotProvider(plugin: ObsidianAgentPlugin): () => Inlin
             customPromptIds: [],
         };
     };
+}
+
+/**
+ * Build a SkillCapabilityProbe over the active SelfAuthoredSkillLoader.
+ * The probe reads skill name + description from the loader and the
+ * inline-capability mapping from settings (FEAT-33-08 ADR-141).
+ * Returns an empty list when the loader is missing -- safe default.
+ */
+function buildSkillProbe(plugin: ObsidianAgentPlugin): SkillCapabilityProbe {
+    interface LoaderHost {
+        selfAuthoredSkillLoader?: { getAllSkills?: () => Array<{ name: string; description?: string }> } | null;
+    }
+    const host = plugin as unknown as LoaderHost;
+    return {
+        listSkills: (): SkillEntry[] => {
+            const loader = host.selfAuthoredSkillLoader;
+            if (loader === undefined || loader === null || typeof loader.getAllSkills !== 'function') return [];
+            const skills = loader.getAllSkills();
+            const caps = plugin.settings.inlineActions?.skillCapabilities ?? {};
+            return skills.map((s): SkillEntry => ({
+                id: s.name,
+                label: s.name,
+                description: s.description,
+                capability: caps[s.name],
+            }));
+        },
+    };
+}
+
+/**
+ * Build action-aware callbacks. For Rewrite the streamed text feeds
+ * the CodeMirror diff session. For other actions we surface text via
+ * an Obsidian Notice (compact preview-block until the dedicated
+ * preview UI ships). Errors always Notice.
+ */
+function buildActionAwareCallbacks(
+    plugin: ObsidianAgentPlugin,
+    actionId: string,
+    ctx: import('./InlineTriggerContext').InlineTriggerContext,
+): import('../AgentTask').AgentTaskCallbacks {
+    if (actionId === 'rewrite') {
+        let collected = '';
+        return {
+            onText: (chunk) => { collected += chunk; },
+            onToolStart: () => {},
+            onToolResult: () => {},
+            onComplete: () => {
+                try {
+                    const view = plugin.app.workspace.getActiveViewOfType(MarkdownView);
+                    if (view === null) return;
+                    const editor = view.editor;
+                    const from = ctx.cursorPos;
+                    const selLen = ctx.selectionText.length;
+                    if (selLen === 0 || collected.length === 0) return;
+                    // Find the selection in the doc; fallback to current
+                    // editor selection bounds.
+                    const cmView = (editor as unknown as { cm?: import('@codemirror/view').EditorView }).cm;
+                    if (cmView === undefined) return;
+                    startDiffSession(cmView, { from, to: from + selLen, proposedText: collected });
+                } catch (e) {
+                    console.debug('[inline-action] rewrite diff-start failed:', e);
+                }
+            },
+            onError: (err) => {
+                showActionNotice(plugin, actionId, `Error: ${err.message}`);
+            },
+        };
+    }
+    // Default: collect text, show via Notice on completion.
+    let collected = '';
+    return {
+        onText: (chunk) => { collected += chunk; },
+        onToolStart: () => {},
+        onToolResult: () => {},
+        onComplete: () => {
+            if (collected.length === 0) return;
+            showActionNotice(plugin, actionId, collected);
+        },
+        onError: (err) => {
+            showActionNotice(plugin, actionId, `Error: ${err.message}`);
+        },
+    };
+}
+
+function showActionNotice(plugin: ObsidianAgentPlugin, actionId: string, text: string): void {
+    try {
+        // Lazy obsidian import to avoid module-level dependency on the
+        // Notice singleton in unit tests.
+        const obsidian = require('obsidian') as { Notice?: new (msg: string, durationMs?: number) => unknown };
+        if (typeof obsidian.Notice === 'function') {
+            const truncated = text.length > 800 ? text.slice(0, 800) + '…' : text;
+            new obsidian.Notice(`[${actionId}]\n${truncated}`, 8000);
+        }
+    } catch {
+        // No-op in unit-test environments.
+        void plugin;
+    }
 }
 
 export interface InlineWiringResult {
@@ -220,6 +358,30 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
     registry.register(new FindActionItemsAction({ caller: llmCaller }));
     registry.register(new InlineChatAction({ caller: llmCaller, writer: noteWriter }));
 
+    // FEAT-33-08: Skills marked as inline-eligible via settings appear
+    // in the floating menu. The user opts a skill in via the Settings
+    // tab (skillCapabilities mapping). No-op when the loader is not yet
+    // initialised or no skill has been opted in.
+    const skillProbe = buildSkillProbe(plugin);
+    const skillFilter = new InlineSkillFilter({
+        probe: skillProbe,
+        topN: resolveInlineActionsSettings(plugin.settings.inlineActions).skillsTopN,
+    });
+    const skillInvoker = async (skill: SkillEntry, _ctx: import('./InlineTriggerContext').InlineTriggerContext, cbs: import('../AgentTask').AgentTaskCallbacks): Promise<void> => {
+        // Skill invocation through the existing invoke_skill tool is
+        // deferred: the Skill-Engine needs a typed entry-point that
+        // does not exist yet on the loader. For now, emit a stub
+        // notice so the user sees the skill was triggered.
+        cbs.onText(`[skill: ${skill.label}] invocation deferred -- wire SkillEngine.runSkill() to enable.`);
+        cbs.onComplete();
+    };
+    // Register each currently-eligible skill at wire time. The list is
+    // captured once; users adding skills later need to reload the plugin.
+    for (const entry of skillProbe.listSkills()) {
+        if (entry.capability?.eligible !== true) continue;
+        registry.register(new InlineSkillAction({ entry, invoker: skillInvoker }));
+    }
+
     const service = new InlineActionService({
         editorProbe,
         registry,
@@ -230,17 +392,37 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             onPick,
         }),
         isEnabled: () => resolveInlineActionsSettings(plugin.settings.inlineActions).enabled,
-        buildActionCallbacks: () => ({
-            onText: (chunk) => { console.debug('[inline-action] text', chunk); },
-            onToolStart: () => {},
-            onToolResult: () => {},
-            onComplete: () => {},
-            onError: (err) => { console.warn('[inline-action] error', err); },
-        }),
+        buildActionCallbacks: (action, ctx) => buildActionAwareCallbacks(plugin, action.id, ctx),
     });
+
+    // FEAT-33-03: register CodeMirror Diff-Decoration-Extension so
+    // Rewrite-Action streams land as inline diff with Accept/Reject.
+    try {
+        plugin.registerEditorExtension(inlineDiffExtension());
+    } catch (e) {
+        console.debug('[inline-actions] inline-diff-extension registration failed (non-fatal):', e);
+    }
+
+    // FEAT-33-01 SC-04: open the menu automatically when the user
+    // finishes a selection. Honours the floatingMenuEnabled setting.
+    const watcher = new SelectionWatcher({
+        target: plugin.app.workspace.containerEl.ownerDocument,
+        onSettled: () => { service.triggerMenu(); },
+        minLength: 3,
+        debounceMs: 300,
+        isEnabled: () => {
+            const r = resolveInlineActionsSettings(plugin.settings.inlineActions);
+            return r.enabled && r.floatingMenuEnabled;
+        },
+    });
+    watcher.start();
+    skillFilter; // suppress unused warning (kept available for Settings UI consumers)
 
     return {
         service,
-        dispose: () => service.dispose(),
+        dispose: () => {
+            watcher.dispose();
+            service.dispose();
+        },
     };
 }

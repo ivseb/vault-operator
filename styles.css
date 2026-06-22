@@ -5570,17 +5570,12 @@
 
 /* ── DiffReviewModal ─────────────────────────────────────────────────── */
 .diff-review-modal {
-    width: 70%;
-    height: 70%;
+    width: 70vw;
+    height: 70vh;
     max-width: none;
     max-height: none;
     display: flex;
     flex-direction: column;
-    position: fixed;
-    top: 15%;
-    left: 15%;
-    margin: 0;
-    transform: none;
 }
 .diff-review-modal .modal-content { flex: 1; overflow-y: auto; min-height: 0; }
 
@@ -7501,4 +7496,83 @@
     justify-content: flex-end;
     gap: 8px;
     margin-top: 20px;
+}
+
+/* ── Inline-Editor-AI-Actions (EPIC-33) ───────────────────────────── */
+.agent-inline-menu {
+    background: var(--background-secondary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 4px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    font-size: var(--font-ui-small);
+    user-select: none;
+}
+.agent-inline-menu__item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    color: inherit;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font: inherit;
+}
+.agent-inline-menu__item:hover,
+.agent-inline-menu__item:focus {
+    background: var(--background-modifier-hover);
+    outline: none;
+}
+.agent-inline-menu__item:active {
+    background: var(--background-modifier-active-hover);
+}
+.agent-inline-action-preview {
+    background: var(--background-primary-alt);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    font-size: var(--font-ui-small);
+}
+.agent-inline-action-preview__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+.agent-inline-action-preview__body {
+    white-space: pre-wrap;
+}
+.agent-inline-action-preview__actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.agent-inline-diff-add {
+    background: rgba(40, 167, 69, 0.18);
+    border-bottom: 1px solid rgba(40, 167, 69, 0.6);
+}
+.agent-inline-diff-remove {
+    background: rgba(220, 53, 69, 0.18);
+    text-decoration: line-through;
+    border-bottom: 1px solid rgba(220, 53, 69, 0.6);
+}
+.agent-inline-diff-hunk-actions {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 4px;
+}
+.agent-inline-diff-hunk-actions button {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--background-modifier-hover);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
 }

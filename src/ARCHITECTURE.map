@@ -349,3 +349,8 @@ ADR-141 | inline-skill-capability | Schema-Erweiterung Skill-Manifest: inlineAct
 ADR-142 | vault-rag-lookup-pipeline | Synchrone Pipeline: Embedding -> VectorStore.findNoteVectors(domain:'note') -> Confidence-Threshold 0.7 -> LLM-Augmentation -> Quellen-Tooltip. Fallback LLM-only.
 ADR-143 | conversation-block-storage | Markdown-Code-Fence vault-operator-chat-v1 mit JSON-Body. 20-Turn-Cap + Auto-Collapse. Indexierung via Phase D markdownIndexer.
 ADR-144 | inline-action-telemetry | OperationLogger-Erweiterung um 4 Event-Typen (inline_action_triggered/accepted/rejected/pinned). Privacy-Sanitization: kein Selection-Inhalt persistiert.
+
+# EPIC-33 polish wave (added 2026-06-22, alle Module live verkabelt)
+inline-selection-watcher  | src/core/inline/SelectionWatcher.ts                    | ADR-138 ADR-141 | new trigger: extend mouseup/keyup hooks oder Floating-Menu-Open-Logic
+inline-codemirror-diff    | src/core/inline/diff/CodeMirrorDiffAdapter.ts          | ADR-139         | new diff-visualisation: extend StateField/Effect + Decoration.mark/widget
+inline-actions-tab        | src/ui/settings/InlineActionsTab.ts                    | ADR-138 ADR-140 | new inline-action: add row im knownActions-Array + Setting
