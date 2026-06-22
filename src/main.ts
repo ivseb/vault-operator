@@ -2217,9 +2217,9 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         this.addCommand({
             id: 'open-inline-ai-menu',
-            name: 'Open inline AI menu',
+            name: 'Open inline AI chat',
             callback: () => {
-                this.inlineActions?.service.triggerMenu();
+                this.inlineActions?.orchestrator.triggerPanel();
             },
         });
 

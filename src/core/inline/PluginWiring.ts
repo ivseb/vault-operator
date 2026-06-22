@@ -38,6 +38,7 @@ import { SelectionWatcher } from './SelectionWatcher';
 import { InlineSkillFilter, type SkillCapabilityProbe, type SkillEntry } from './skills/InlineSkillFilter';
 import { InlineSkillAction } from './skills/InlineSkillAction';
 import { inlineDiffExtension, startDiffSession } from './diff/CodeMirrorDiffAdapter';
+import { InlineChatOrchestrator, type EditorChatProbe } from './chat/InlineChatOrchestrator';
 
 /**
  * Live editor probe. Reads MarkdownView -> editor.getSelection() and
@@ -240,10 +241,15 @@ function buildSkillProbe(plugin: ObsidianAgentPlugin): SkillCapabilityProbe {
 }
 
 /**
- * Build action-aware callbacks. For Rewrite the streamed text feeds
- * the CodeMirror diff session. For other actions we surface text via
- * an Obsidian Notice (compact preview-block until the dedicated
- * preview UI ships). Errors always Notice.
+ * Build action-aware callbacks for the legacy InlineActionService
+ * trigger path (kept for /coding test wiring + command-palette dispatch
+ * shortcuts that bypass the chat panel). For Rewrite the streamed text
+ * feeds the CodeMirror diff session; for other actions we no-op since
+ * the chat panel owns the surface now.
+ *
+ * The chat panel itself supplies its own AgentTaskCallbacks in
+ * InlineChatOrchestrator.buildPanelCallbacks -- those land the LLM
+ * output in the panel's message body.
  */
 function buildActionAwareCallbacks(
     plugin: ObsidianAgentPlugin,
@@ -264,8 +270,6 @@ function buildActionAwareCallbacks(
                     const from = ctx.cursorPos;
                     const selLen = ctx.selectionText.length;
                     if (selLen === 0 || collected.length === 0) return;
-                    // Find the selection in the doc; fallback to current
-                    // editor selection bounds.
                     const cmView = (editor as unknown as { cm?: import('@codemirror/view').EditorView }).cm;
                     if (cmView === undefined) return;
                     startDiffSession(cmView, { from, to: from + selLen, proposedText: collected });
@@ -274,43 +278,24 @@ function buildActionAwareCallbacks(
                 }
             },
             onError: (err) => {
-                showActionNotice(plugin, actionId, `Error: ${err.message}`);
+                console.warn('[inline-action] rewrite error:', err);
             },
         };
     }
-    // Default: collect text, show via Notice on completion.
-    let collected = '';
     return {
-        onText: (chunk) => { collected += chunk; },
+        onText: () => {},
         onToolStart: () => {},
         onToolResult: () => {},
-        onComplete: () => {
-            if (collected.length === 0) return;
-            showActionNotice(plugin, actionId, collected);
-        },
+        onComplete: () => {},
         onError: (err) => {
-            showActionNotice(plugin, actionId, `Error: ${err.message}`);
+            console.warn(`[inline-action ${actionId}] error:`, err);
         },
     };
 }
 
-function showActionNotice(plugin: ObsidianAgentPlugin, actionId: string, text: string): void {
-    try {
-        // Lazy obsidian import to avoid module-level dependency on the
-        // Notice singleton in unit tests.
-        const obsidian = require('obsidian') as { Notice?: new (msg: string, durationMs?: number) => unknown };
-        if (typeof obsidian.Notice === 'function') {
-            const truncated = text.length > 800 ? text.slice(0, 800) + '…' : text;
-            new obsidian.Notice(`[${actionId}]\n${truncated}`, 8000);
-        }
-    } catch {
-        // No-op in unit-test environments.
-        void plugin;
-    }
-}
-
 export interface InlineWiringResult {
     service: InlineActionService;
+    orchestrator: InlineChatOrchestrator;
     dispose: () => void;
 }
 
@@ -403,11 +388,28 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         console.debug('[inline-actions] inline-diff-extension registration failed (non-fatal):', e);
     }
 
-    // FEAT-33-01 SC-04: open the menu automatically when the user
-    // finishes a selection. Honours the floatingMenuEnabled setting.
+    // EPIC-33 UX-refresh: trigger opens the InlineChatPanel directly.
+    // The legacy InlineActionService.triggerMenu remains available via
+    // wiring.service but is no longer the default surface -- panel
+    // chat replaces the floating-menu + Notice-toast flow.
+    const chatProbe: EditorChatProbe = {
+        probe: () => editorProbe.probe(),
+        getPanelContainer: () => editorProbe.getMenuContainer(),
+        getPanelPosition: () => editorProbe.getMenuPosition(),
+    };
+    const orchestrator = new InlineChatOrchestrator({
+        editorProbe: chatProbe,
+        registry,
+        resolver,
+        isEnabled: () => resolveInlineActionsSettings(plugin.settings.inlineActions).enabled,
+    });
+
+    // FEAT-33-01 SC-04: open the chat panel automatically when the
+    // user finishes a selection. Honours the floatingMenuEnabled setting
+    // (kept the same flag name so users do not have to re-discover it).
     const watcher = new SelectionWatcher({
         target: plugin.app.workspace.containerEl.ownerDocument,
-        onSettled: () => { service.triggerMenu(); },
+        onSettled: () => { orchestrator.triggerPanel(); },
         minLength: 3,
         debounceMs: 300,
         isEnabled: () => {
@@ -420,8 +422,10 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
 
     return {
         service,
+        orchestrator,
         dispose: () => {
             watcher.dispose();
+            orchestrator.dispose();
             service.dispose();
         },
     };
