@@ -12,14 +12,36 @@
  * All detail configuration lives in `ProviderDetailModal.ts`.
  */
 
-import { App, setIcon } from 'obsidian';
+import { App, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
-import type { ModelTier, ProviderConfig, ProviderType } from '../../types/settings';
+import type { ModelTier, ObsidianAgentSettings, ProviderConfig, ProviderType } from '../../types/settings';
 import { getProviderBrandLabel } from '../../types/settings';
 import { ProviderDetailModal } from './ProviderDetailModal';
 import { confirmModal } from '../modals/PromptModal';
 import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
 import { t } from '../../i18n';
+
+/**
+ * AUDIT-034 M-5 / M-15. The plaintext-fallback acknowledgement flag is not
+ * yet part of the formal ObsidianAgentSettings schema (settings.ts is
+ * outside this fix's scope). We store it on the same settings object via a
+ * narrowly-typed shim so the user's "Dismiss" click survives reloads. When
+ * settings.ts is updated, this shim becomes a typed field with no runtime
+ * change required.
+ */
+type PlaintextFallbackAck = {
+    safeStoragePlaintextFallbackAcknowledged?: boolean;
+};
+
+function readAck(settings: ObsidianAgentSettings): boolean {
+    return (settings as ObsidianAgentSettings & PlaintextFallbackAck)
+        .safeStoragePlaintextFallbackAcknowledged === true;
+}
+
+function writeAck(settings: ObsidianAgentSettings, value: boolean): void {
+    (settings as ObsidianAgentSettings & PlaintextFallbackAck)
+        .safeStoragePlaintextFallbackAcknowledged = value;
+}
 
 const OAUTH_PROVIDER_TYPES: ProviderType[] = ['github-copilot', 'chatgpt-oauth'];
 const LOCAL_PROVIDER_TYPES: ProviderType[] = ['ollama', 'lmstudio', 'custom'];
@@ -32,6 +54,12 @@ export class ProvidersTab {
     ) {}
 
     build(containerEl: HTMLElement): void {
+        // AUDIT-034 M-5 / M-15: render the plaintext-fallback banner FIRST
+        // so the user sees it before any API-key UI. The banner is the
+        // persistent half of the warning; the one-time toast Notice fires
+        // from SafeStorageService at save time.
+        this.renderPlaintextFallbackBanner(containerEl);
+
         // Intro banner -- matches ModelsTab pattern
         const intro = containerEl.createDiv({ cls: 'vault-op-box vault-op-box--intro' });
         const introIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
@@ -60,6 +88,61 @@ export class ProvidersTab {
 
         // Add provider footer (dropdown picker + button), same shape as ModelsTab footer.
         this.renderAddProviderFooter(containerEl);
+    }
+
+    /**
+     * AUDIT-034 M-5 / M-15. Persistent warning banner shown whenever the
+     * OS keychain is unavailable. Rendered above every other piece of
+     * provider UI so API-key inputs cannot be edited without seeing the
+     * degraded-state notice first. Includes a "Dismiss" button that sets
+     * the acknowledged flag and fires the one-time toast Notice (so the
+     * user gets at least one explicit confirmation before silence).
+     */
+    private renderPlaintextFallbackBanner(containerEl: HTMLElement): void {
+        const safe = this.plugin.safeStorage;
+        if (!safe || safe.isAvailable()) return;
+
+        // Strings are inlined intentionally. AUDIT-034 scope keeps edits to
+        // SafeStorageService.ts and ProvidersTab.ts; the i18n locale file is
+        // out of scope, so the banner copy lives here until a follow-up
+        // commit lifts it into src/i18n/locales/en.ts.
+        const banner = containerEl.createDiv('vault-op-box vault-op-box--warning');
+        const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
+        setIcon(icon, 'shield-alert');
+        const text = banner.createDiv({ cls: 'vault-op-box__text' });
+        text.createEl('strong', {
+            text: 'API keys stored as plaintext',
+        });
+        text.createDiv({
+            text:
+                'The OS keychain is unavailable on this device, so Vault Operator cannot encrypt API keys, '
+                + 'OAuth tokens, or MCP secrets. These values are written as plain strings to data.json and are '
+                + 'visible to any process that can read the vault. Common cause: Linux installs without libsecret. '
+                + 'Install libsecret-1-0 and restart Obsidian to enable encryption.',
+        });
+
+        const acknowledged = readAck(this.plugin.settings);
+        const actionsRow = text.createDiv({ cls: 'vault-op-box__actions' });
+
+        if (!acknowledged) {
+            const dismissBtn = actionsRow.createEl('button', {
+                cls: 'mod-warning',
+                text: 'I understand, dismiss this warning',
+            });
+            dismissBtn.addEventListener('click', () => { void (async () => {
+                writeAck(this.plugin.settings, true);
+                // Fire the one-time toast once the user confirms so the
+                // ack is a real, conscious step, not an accidental click.
+                safe.notifyPlaintextFallbackOnce(Notice, false);
+                await this.plugin.saveSettings();
+                this.rerender();
+            })(); });
+        } else {
+            actionsRow.createSpan({
+                cls: 'vault-op-box__hint',
+                text: 'Warning acknowledged. The banner stays visible so the state remains clear.',
+            });
+        }
     }
 
     private renderProviderRow(table: HTMLElement, provider: ProviderConfig): void {

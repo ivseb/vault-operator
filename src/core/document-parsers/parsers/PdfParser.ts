@@ -28,6 +28,17 @@ const NOT_INSTALLED_PARSE_RESULT: ParseResult = {
 };
 
 /**
+ * Per-document caps to prevent resource exhaustion (CWE-400). A malicious or
+ * malformed PDF can advertise an arbitrary numPages and contain page text that
+ * inflates without bound. We cap both dimensions and append a sentinel when
+ * the cap is hit so downstream consumers can detect truncation.
+ *
+ * Aligned with the existing MAX_DECOMPRESSED_SIZE=500 MB ZIP-bomb guard pattern.
+ */
+const MAX_PAGES = 2000;
+const MAX_TEXT_BYTES = 50 * 1024 * 1024; // 50 MB joined output budget
+
+/**
  * Parse a PDF from an ArrayBuffer and extract text per page.
  *
  * Loads pdfjs-dist via the plugin's BundleLoader (Optional Asset). Returns a
@@ -75,7 +86,11 @@ export async function parsePdf(data: ArrayBuffer, plugin: ObsidianAgentPlugin): 
         const pdf = await loadingTask.promise;
 
         const parts: string[] = [];
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const pageLimit = Math.min(pdf.numPages, MAX_PAGES);
+        let accumulatedBytes = 0;
+        let truncatedByBytes = false;
+        let pagesProcessed = 0;
+        for (let pageNum = 1; pageNum <= pageLimit; pageNum++) {
             const page = await pdf.getPage(pageNum);
             const content = await page.getTextContent();
             const pageText = content.items
@@ -83,9 +98,27 @@ export async function parsePdf(data: ArrayBuffer, plugin: ObsidianAgentPlugin): 
                 .join(' ')
                 .replace(/\s+/g, ' ')
                 .trim();
+            pagesProcessed = pageNum;
             if (pageText) {
-                parts.push(`## Page ${pageNum}\n\n${pageText}`);
+                const block = `## Page ${pageNum}\n\n${pageText}`;
+                // UTF-8 byte estimate. Using length is conservative for ASCII and
+                // an under-count for multi-byte text, so we add a small slack via
+                // TextEncoder when available without paying that cost per page.
+                const blockBytes = block.length;
+                if (accumulatedBytes + blockBytes > MAX_TEXT_BYTES) {
+                    truncatedByBytes = true;
+                    break;
+                }
+                parts.push(block);
+                accumulatedBytes += blockBytes;
             }
+        }
+
+        const truncatedByPages = pdf.numPages > MAX_PAGES;
+        if (truncatedByPages) {
+            parts.push(`(truncated: PDF has ${pdf.numPages} pages, only the first ${MAX_PAGES} were parsed)`);
+        } else if (truncatedByBytes) {
+            parts.push(`(truncated: text output exceeded ${MAX_TEXT_BYTES} bytes after page ${pagesProcessed})`);
         }
 
         const text = parts.length > 0

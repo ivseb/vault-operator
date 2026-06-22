@@ -87,14 +87,63 @@ export abstract class BaseTool<TName extends ToolName = ToolName> {
 
     /**
      * Format content for the LLM
+     *
+     * AUDIT-034 L-15: attribute values are XML-escaped to prevent attribute
+     * injection via crafted metadata coming from vault paths, search hits, or
+     * external tool results.
      */
     protected formatContent(content: string, metadata?: Record<string, string>): string {
         const attrs = metadata
             ? Object.entries(metadata)
-                  .map(([key, value]) => `${key}="${value}"`)
+                  .map(([key, value]) => `${key}="${escapeXmlAttribute(value)}"`)
                   .join(' ')
             : '';
 
         return attrs ? `<content ${attrs}>\n${content}\n</content>` : content;
     }
+
+    /**
+     * Wrap untrusted content from external sources (web pages, document
+     * parsers, MCP responses, semantic-search excerpts) in a boundary tag the
+     * model recognises as user data, not as instructions.
+     *
+     * AUDIT-034 L-15 / L-16: aligns with wrapVaultContentForMcp at
+     * McpBridge.ts:866. The system prompt's SECURITY BOUNDARY section
+     * enumerates the recognised wrappers and how to treat them.
+     *
+     * @param source A short trust-domain label, e.g. "web", "mcp", "document".
+     * @param content Raw text returned by the tool.
+     * @param metadata Optional attribute map (url, server, tool, path).
+     */
+    protected formatUntrustedContent(
+        source: string,
+        content: string,
+        metadata?: Record<string, string>
+    ): string {
+        const baseAttrs: Record<string, string> = {
+            source,
+            trust: 'user-data',
+            ...(metadata ?? {}),
+        };
+        const attrs = Object.entries(baseAttrs)
+            .map(([key, value]) => `${key}="${escapeXmlAttribute(value)}"`)
+            .join(' ');
+        return `<untrusted-content ${attrs}>\n${content}\n</untrusted-content>`;
+    }
+}
+
+/**
+ * XML-attribute-escape helper. Exported for unit tests and reuse by
+ * subclasses that build their own boundary tags (WebFetchTool, UseMcpToolTool,
+ * SemanticSearchTool).
+ *
+ * AUDIT-034 L-15.
+ */
+export function escapeXmlAttribute(value: string): string {
+    return value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }

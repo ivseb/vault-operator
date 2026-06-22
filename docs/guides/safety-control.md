@@ -1,11 +1,13 @@
 ---
-title: Safety & Control
-description: Permissions, checkpoints, approvals, and the audit log. How to stay in control of what Vault Operator does.
+title: Safety and control
+description: Auto-approve, checkpoints, approvals, and the operation log. How to stay in control of what Vault Operator does.
 ---
 
-# Safety & Control
+# Safety and control
 
 Nothing changes in your vault without your knowledge.
+
+See also: [Checkpoints](../concepts/checkpoints.md) and [Governance](../concepts/governance.md).
 
 ## The approval system
 
@@ -13,57 +15,57 @@ Vault Operator is fail-closed by default. It asks before any action that modifie
 
 ### What an approval card shows
 
-When Vault Operator wants to do something, a card appears showing exactly what:
+When Vault Operator wants to do something, a card appears with the tool name and a short preview:
 
-- **Write a file:** the full content that will be written
-- **Edit a file:** a diff with lines added and removed
+- **Write a file:** path and a truncated preview of the content
+- **Edit a file:** path and a truncated preview of the edit
 - **Delete a file:** which file will be removed
-- **Move/rename:** source and destination paths
+- **Move or rename:** source and destination paths
 
-You can Allow once (approve this specific action) or Always allow (auto-approve this category from now on).
+Click the card to expand the full payload before deciding. You can Allow once (approve this specific action) or Always allow (auto-approve this category from now on).
 
-## Permission categories
+## Auto-approve categories
 
-You can enable auto-approve per category. Go to **Settings > Vault Operator > Permissions** to see the full list:
+You can enable auto-approve per category. Go to **Settings > Vault Operator > Agents > Auto-approve** to see the full list. The categories map one-to-one to the seven tool groups the agent uses internally.
 
 | Category | What it covers | Risk level |
-|----------|---------------|-----------|
-| **Read operations** | Reading files, listing folders, searching | Low (nothing changes) |
-| **Note edits** | Editing existing Markdown notes | Medium (changes your content) |
-| **Vault changes** | Creating, moving, or deleting files and folders | Medium-High (structural changes) |
-| **Web operations** | Fetching web pages, searching the internet | Low-Medium (external data access) |
-| **MCP calls** | Calling external tools via the Model Context Protocol | Medium (depends on the tool) |
-| **Subtasks** | Spawning background sub-agents | Low (inherits parent permissions) |
-| **Plugin skills** | Running built-in skill workflows | Low (guided multi-step tasks) |
-| **Plugin API reads** | Reading Obsidian plugin data | Low (read-only) |
-| **Plugin API writes** | Modifying Obsidian plugin settings | High (can change app behavior) |
-| **Recipes** | Running multi-step automated workflows | High (many actions in sequence) |
-| **Sandbox** | Executing code in the isolated sandbox | High (runs generated code) |
+|----------|----------------|------------|
+| **read** | Reading files, listing folders, searching, reading checkpoints | Low (nothing changes) |
+| **vault** | Frontmatter, tag and link lookups, semantic search, memory recall, daily notes | Low (read-side queries) |
+| **edit** | Writing, editing, moving, deleting files, frontmatter updates, canvas, office docs, ingest, restore checkpoint | High (changes your content and structure) |
+| **web** | Fetching pages, web search, anti-echo search | Medium (external data enters the vault) |
+| **agent** | Followup questions, completion signal, todo list, subtasks, mode and settings changes, plugin discovery, skill invocation | Medium (controls agent behaviour and settings) |
+| **mcp** | Calling external MCP tools | Medium (depends on the connected server) |
+| **skill** | Shell commands, recipes, plugin API calls, capability resolution, sandbox scripts | High (runs generated or scripted code) |
 
-:::warning Permissive mode
-If you auto-approve both web operations and note edits (or vault changes), Vault Operator shows a security warning. This combination means the agent could fetch content from the internet and write it to your vault without asking.
+:::warning Permissive combination
+If you auto-approve both **web** and **edit**, Vault Operator shows a security warning. The agent could fetch content from the internet and write it to your vault without asking.
 :::
 
 ## Reviewing changes
 
-### The approval card
+### Before the edit
 
-Before any write operation, an approval card appears in the chat. For file edits, it shows a color-coded diff with a badge like `+3 / -1` for lines added and removed. Read the diff before approving.
+The approval card shows the tool name and a truncated preview. Expand the card to see the full path and payload before approving.
+
+### After the edit
+
+Once the agent runs the tool, the chat shows a result row with a `+N / -M` diff badge for files that were edited. Click the row to inspect the full diff.
 
 ### The diff review modal
 
 After a task finishes, you can review all changes at once:
 
-1. The undo bar appears below the last message
-2. Click "Review changes" to open the diff review modal
-3. For each file, you see every change grouped by section (headings, paragraphs, code blocks)
-4. Decide per section: Keep, Undo, or Edit (modify the change manually)
+1. The undo bar appears below the last message.
+2. Click "Review changes" to open the diff review modal.
+3. For each file, you see every change grouped by section (headings, paragraphs, code blocks).
+4. Decide per section: Keep, Undo, or Edit (modify the change manually).
 
-This gives you fine-grained control. Keep most of a task's work while reverting one specific paragraph.
+This gives you per-section control. Keep most of a task's work while reverting one specific paragraph.
 
 ## Checkpoints and undo
 
-Vault Operator creates a checkpoint before the first modification to any file in a task. Checkpoints live in a shadow repository (via isomorphic-git) that does not touch your own git history.
+Vault Operator creates a checkpoint before the first modification to any file in a task. Checkpoints live in a shadow git repository (via isomorphic-git) that sits next to your vault, not inside it, so your own git history is untouched. For details see [Checkpoints](../concepts/checkpoints.md).
 
 ### The undo bar
 
@@ -78,34 +80,35 @@ Even if you auto-approve everything, the checkpoint system records the state bef
 
 ### How checkpoints work
 
-1. Vault Operator snapshots each file before its first modification in a task
-2. The snapshot is stored as a git commit in the shadow repository
-3. If you undo, the original content is restored from the snapshot
-4. Files that were newly created (didn't exist before the task) are deleted on undo
+1. Vault Operator snapshots each file before its first modification in a task.
+2. The shadow repo stores the snapshot as a git commit.
+3. If you undo, the original content comes back from the snapshot.
+4. Files that were newly created (did not exist before the task) get deleted on undo.
 
 Checkpoints are automatic. There is nothing to configure.
 
 ## The operation log
 
-Every tool call is recorded in a daily audit log file.
+Every tool call is recorded in a daily log file.
 
 Each entry records:
+
 - Timestamp
 - Tool name and parameters (sensitive values like API keys are redacted)
 - Success or failure
 - Duration
 
-**Location:** JSONL files (one per day) in your plugin directory under `logs/`, named by date (e.g. `2026-03-31.jsonl`).
+**Location:** JSONL files in your vault under `.vault-operator/data/logs/`, one per day, named by date (for example `2026-03-31.jsonl`).
 
-**Retention:** Logs are kept for 30 days, then automatically deleted. Browse recent logs in **Settings > Vault Operator > Log**.
+**Retention:** Logs are kept for 30 days, then deleted. Browse recent logs in **Settings > Vault Operator > Advanced > Log**.
 
 :::info No file content in logs
-The operation log records that a file was read or written, but not the full content. It logs file path and content length, not the actual text.
+The operation log records that a file was read or written, but not the full content. It logs path and content length, not the actual text.
 :::
 
 ## The ignore file
 
-Create `.obsidian-agentignore` in your vault root to define paths the agent should never access. Same syntax as `.gitignore`:
+Create `.obsidian-agentignore` in your vault root to define paths the agent must never access. Same syntax as `.gitignore`:
 
 ```
 # Private journal: agent cannot read or modify these
@@ -124,7 +127,7 @@ There is also `.obsidian-agentprotected` for files the agent can read but never 
 templates/
 ```
 
-Both files are protected themselves. The agent cannot modify or delete them.
+Both files are protected themselves. The agent cannot modify or delete them. See [Governance](../concepts/governance.md) for the full ignore and protect model.
 
 :::tip Always-blocked paths
 Vault Operator never accesses `.git/`, the Obsidian workspace cache, or internal config files, no matter how you configure it.
@@ -134,14 +137,18 @@ Vault Operator never accesses `.git/`, the Obsidian workspace cache, or internal
 
 1. Start with approvals on. Leave auto-approve disabled until you are comfortable with how Vault Operator works. Watch the approval cards to learn what the agent does.
 
-2. Enable categories gradually. Auto-approve reads first (low risk), then note edits once you trust the agent's judgment. Keep vault changes and sandbox on manual approval longer.
+2. Enable categories gradually. Turn on `read` first (low risk), then add others as you build trust. Keep `edit` and `skill` on manual approval longer.
 
-3. Avoid the permissive combination. Don't auto-approve web operations and writes at the same time unless you fully trust the content sources.
+3. Avoid the permissive combination. Do not auto-approve `web` and `edit` at the same time unless you fully trust the content sources.
 
 4. Use the ignore file. If you have sensitive notes (financial records, medical info, private journals), add them to `.obsidian-agentignore` before giving the agent broad permissions.
 
-5. Review the operation log now and then. A quick scan of recent logs shows what the agent has been doing and catches anything weird.
+5. Review the operation log now and then. A quick scan of recent logs shows what the agent has been doing and catches anything off.
 
 6. Back up your vault. Checkpoints give you undo inside Vault Operator, but a proper vault backup (Obsidian Sync, git, or a file-system backup) protects against everything else.
 
-7. Create a read-only custom agent for exploration. When you just want answers without changes, define a custom agent in **Settings > Vault Operator > Agents** with only the `read` and `vault` tool groups. Switch to it for read-only sessions where nothing in your vault can be modified.
+7. Run read-only sessions when you only want answers. Two paths that work today:
+   - Leave auto-approve off for `edit`, `skill`, and `mcp`, and decline any write card. The agent then has to ask for every change.
+   - Open the tool picker (knife icon in the chat header) and disable the `edit`, `web`, `agent`, `mcp`, and `skill` groups for the current agent. The override persists in `modeToolOverrides` and survives reloads.
+
+   The New agent modal currently grants every tool group on create. Per-agent tool filtering happens through the tool picker override, not through the create form.

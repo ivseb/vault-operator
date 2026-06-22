@@ -42,25 +42,28 @@ The `IgnoreService` (`src/core/governance/IgnoreService.ts`) enforces this. If i
 
 ## Approval categories
 
-Every tool is classified into an approval group. The group determines whether the operation runs automatically or needs human consent.
+Every tool call routes through the auto-approval check. The pipeline classifies the call into one of twelve approval groups, then looks up the matching toggle under Settings > Vault Operator > Agents > Auto-approve. If the toggle is on, the call runs without asking. If it is off, the approval modal opens.
 
-| Group | Examples | Default behavior |
-|-------|----------|-----------------|
-| `read` | read_file, search_files, semantic_search | Auto-approved |
-| `note-edit` | write_file, edit_file, append_to_file | Requires approval |
-| `vault-change` | create_folder, delete_file, move_file | Requires approval |
-| `ingest` | ingest_triage, ingest_document, ingest_deep | Triage is auto-approved (read-only). Document and deep ingest write source notes and require approval. |
-| `web` | web_fetch, web_search | Auto-approved when web tools are enabled |
-| `agent` | attempt_completion, switch_agent, update_todo_list, find_tool, inspect_self | Always auto-approved |
-| `subtask` | new_task | Configurable |
-| `mcp` | use_mcp_tool | Configurable |
-| `skill` | execute_command, call_plugin_api | Configurable |
-| `sandbox` | evaluate_expression | Requires explicit opt-in |
-| `self-modify` | manage_source, update_soul, update_settings | Always requires human approval, no bypass |
+| Group | Examples | Default behaviour |
+|-------|----------|-------------------|
+| `read` | `read_file`, `search_files`, `semantic_search`, `read_document` | Auto-approved when the read toggle is on |
+| `note-edit` | `write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, `ingest_document`, `ingest_deep`, `ingest_triage` | Requires approval unless the note-edits toggle is on |
+| `vault-change` | `create_folder`, `delete_file`, `move_file`, `create_pptx`, `create_docx`, `create_xlsx`, `restore_checkpoint` | Requires approval unless the vault-changes toggle is on |
+| `web` | `web_fetch`, `web_search`, `anti_echo_search` | Auto-approved when the web toggle is on |
+| `agent` | `attempt_completion`, `switch_agent`, `update_todo_list`, `find_tool`, `inspect_self`, `update_settings` | Always auto-approved |
+| `subtask` | `new_task` | Auto-approved when the subtasks toggle is on |
+| `mcp` | `use_mcp_tool` | Auto-approved when the MCP toggle is on |
+| `skill` | `execute_command`, `invoke_skill`, `run_skill_script`, `enable_plugin` | Auto-approved when the skills toggle is on |
+| `plugin-api` | `call_plugin_api` | Two toggles, one for read calls and one for write calls. The pipeline picks the toggle based on the call shape. |
+| `recipe` | `execute_recipe` | Auto-approved when the recipes toggle is on |
+| `sandbox` | `evaluate_expression` | Always asks. No auto-approve toggle. |
+| `self-modify` | `manage_source`, `update_soul` | Always asks. No auto-approve toggle, no bypass. |
 
-Self-modification tools are the strictest category. The agent can edit its own source code and settings, but a human must approve every change. There is no auto-approve setting for this group. Skill authoring goes through the built-in skill-creator skill plus the regular file tools (write_file, edit_file), so each new SKILL.md still passes through note-edit approval.
+The triage tool (`ingest_triage`) lives in the `note-edit` group because it writes the triage decision back into the source note frontmatter. The single-pass and deep ingest paths are also `note-edit`. There is no separate `ingest` group.
 
-For note edits, the approval UI can show a semantic diff grouped by Markdown structure (frontmatter, headings, lists, code blocks) instead of raw line hunks. You can approve, reject, or edit individual sections before confirming.
+Self-modification is the strictest category. The agent can edit its own source code and settings, but a human approves every change. Skill authoring goes through the built-in skill-creator skill plus the regular file tools (`write_file`, `edit_file`), so each new `SKILL.md` still passes through note-edit approval.
+
+For note edits, the approval modal can show a semantic diff grouped by Markdown structure (frontmatter, headings, lists, code blocks) instead of raw line hunks. You can approve, reject, or edit individual sections before confirming.
 
 ## Checkpoints
 
@@ -72,7 +75,7 @@ After any task, you can undo all changes. Every write operation gets its own che
 
 ## Audit log
 
-Every tool call is logged to a JSONL file via `OperationLogger` (`src/core/governance/OperationLogger.ts`). One file per day, stored at `.obsidian/plugins/vault-operator/logs/YYYY-MM-DD.jsonl`. Files older than 30 days are automatically deleted.
+Every tool call is logged to a JSONL file via `OperationLogger` (`src/core/governance/OperationLogger.ts`). One file per day, stored under the agent folder at `.vault-operator/data/logs/YYYY-MM-DD.jsonl`. Files older than 30 days get deleted automatically.
 
 Each entry records:
 

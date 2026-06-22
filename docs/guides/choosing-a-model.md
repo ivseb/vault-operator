@@ -1,5 +1,5 @@
 ---
-title: Choosing a Model
+title: Choosing a model
 description: Understand AI providers, how to configure them, and what matters for a good Vault Operator experience.
 ---
 
@@ -15,7 +15,7 @@ Vault Operator works with many providers and models. Not all of them are equally
 
 ## Provider-first, not model-first
 
-Vault Operator's setup is provider-centric, not model-centric. You configure a provider once (API key or OAuth). The plugin discovers the available models and sorts them into three tiers automatically.
+Vault Operator's setup is provider-centric, not model-centric. You configure a provider once (API key or OAuth). The plugin discovers the available models and sorts them into three tiers automatically via the [advisor pattern](/concepts/advisor-pattern).
 
 - **Budget tier**: cheap fast models for routine work. Also used as the fallback helper model.
 - **Main tier**: the default for chat.
@@ -27,7 +27,7 @@ If your active provider has no Frontier-tier model, the escalation tool is filte
 
 Vault Operator is an agent, not a chat assistant. The Main-tier model needs to:
 
-- Support tool use (function calling). It has to call Vault Operator's 80 tools.
+- Support tool use (function calling). The agent combines search, read, write, and plugin calls in one turn.
 - Follow instructions precisely. The system prompt is dense with rules, skills, and agent definitions.
 - Reason about multi-step tasks. Reading files, searching, editing, and verifying takes planning.
 
@@ -41,7 +41,7 @@ For background tasks like memory extraction, chat titling, or contextual retriev
 
 ## Provider categories
 
-Vault Operator supports three categories of providers, each with different trade-offs.
+Vault Operator supports twelve provider types (`anthropic`, `openai`, `gemini`, `ollama`, `lmstudio`, `openrouter`, `azure`, `custom`, `github-copilot`, `kilo-gateway`, `bedrock`, `chatgpt-oauth`). They fall into three categories, each with different trade-offs.
 
 ### Cloud providers (API key)
 
@@ -75,7 +75,7 @@ Models run on your machine. No data leaves your device. Free, but needs decent h
 
 ## How to add a model in Vault Operator
 
-1. Open **Settings > Vault Operator > Providers**
+1. Open **Settings > Vault Operator > Providers > Providers**
 2. Click **"+ Add provider"**
 3. Select a **provider type** from the dropdown
 4. Follow the provider-specific instructions:
@@ -99,17 +99,26 @@ You don't have to use the same model everywhere. Vault Operator splits model usa
 1. **Budget tier:** the cheapest slot. It doubles as the "helper" model used for context condensing, fast-path planning, `plan_presentation`, and recipe promotion, and the task router sends simple prompts here. Configure it in the provider's Budget tier slot. Pick the cheapest model that still understands the prompts (Claude Haiku, GPT-4o-mini, Gemini Flash, a local Ollama or MLX model).
 2. **Main tier (chat loop):** the default for every conversational turn. The active provider's Main slot.
 3. **Frontier tier (`consult_flagship`):** the on-demand escalation. The active provider's Frontier slot.
-4. **Per-agent overrides:** Ask agent can run on a tiny model, the default agent on the main one. Settings > Agents.
+4. **Per-agent overrides:** there is one built-in agent (Default agent). Custom agents can pin their own model (for example, a read-only agent on a tiny Budget model while the Default agent stays on Main). Settings > Vault Operator > Agents > Agents.
 
-Automatic routing to the Budget tier is controlled by **Settings > Agent behaviour > Loop > Task routing**. Turn that toggle off if you want every turn to use the Main tier instead. (Earlier docs called the Budget tier a separate "Helper model" setting; it is now the provider's Budget slot, and the Loop section is named "Task routing".)
+Automatic routing to the Budget tier is controlled by **Settings > Vault Operator > Agents > Loop > Task routing**. Turn that toggle off if you want every turn to use the Main tier instead. (Earlier docs called the Budget tier a separate "Helper model" setting; it is now the provider's Budget slot, and the Loop section is named "Task routing".)
 
-You can also pin a specific model for a single conversation through the chat-header model picker (shown as `mode=override` in the cost log). A pinned model always wins over the task router, so it will not be swapped to the Budget tier. The same picker has a per-conversation thinking on/off toggle.
+You can also pin a specific model for a single conversation through the chat-header model picker (shown as `mode=override` in the cost log). A pinned model always wins over the task router, so it will not be swapped to the Budget tier.
+
+## Reasoning effort and thinking
+
+Two controls steer how hard a model "thinks" before answering.
+
+- **Reasoning-effort slider** (model-native): pick `xhigh`, `high`, `medium`, `low`, or `minimal`. Pin-only, set per model on the provider config. Higher effort means longer responses and higher cost. The slider only renders for models that expose a native reasoning-effort parameter (for example OpenAI o-series, Claude with reasoning, DeepSeek reasoner via OpenAI-compat).
+- **Thinking toggle** (binary): on or off, set per conversation from the chat-header picker. For Anthropic this maps to extended thinking with the configured budget tokens. For Bedrock Claude it maps to the same budget via `budget_tokens`. For other providers the toggle is hidden if the model has no thinking mode.
+
+The two controls are independent. A model can be pinned to `high` effort with thinking off, or to `minimal` with thinking on.
 
 ## Embedding models
 
 Semantic search needs a separate embedding model. This is a specialized model that converts text into vectors for similarity search.
 
-Configure it in **Settings > Embeddings > add embedding model**. Common choices:
+Configure it in **Settings > Vault Operator > Providers > Embeddings**, section "Embedding models". Common choices:
 - Any OpenAI-compatible embedding endpoint
 - Local embedding models via Ollama (e.g., `nomic-embed-text`)
 - GitHub Copilot and Kilo Gateway also support embedding models
@@ -123,8 +132,8 @@ The embedding model only affects search quality. It has no effect on chat respon
 | Local only (Ollama/LM Studio) | Free | Requires capable hardware. Quality depends on model size. |
 | Free tiers (OpenRouter, Google) | Free | Rate-limited. Good for light usage. |
 | GitHub Copilot | Included in subscription | If you already pay for Copilot, no extra cost. |
-| Cloud API (light usage) | $5--15 | A few conversations per day. |
-| Cloud API (heavy usage) | $20--50+ | Daily power user with complex tasks. |
+| Cloud API (light usage) | $5 to $15 | A few conversations per day. |
+| Cloud API (heavy usage) | $20 to $50+ | Daily power user with complex tasks. |
 
 ## Next steps
 

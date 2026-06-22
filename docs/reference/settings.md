@@ -1,294 +1,404 @@
 ---
-title: Settings Reference
-description: Every Vault Operator setting explained, organized by tab with defaults and recommendations.
+title: Settings reference
+description: Every Vault Operator setting, organized by the six setting groups in Obsidian.
 ---
 
 # Settings reference
 
-All Vault Operator settings are in **Obsidian Settings > Vault Operator**. This page documents every section.
+All Vault Operator settings live under **Settings > Vault Operator**. The settings tab has six groups: Providers, Agents, Customize, Vault, Advanced, and Help. Each group has sub-tabs. This page walks every sub-tab in the order they appear.
 
-## Providers
+UI paths in this page use the format `Settings > Vault Operator > {Group} > {Sub-tab}` in sentence case, matching the labels in `src/i18n/locales/en.ts`.
 
-Configure AI providers. Each provider exposes its own model list and is mapped into three tiers (Budget, Main, Frontier) that the agent picks from based on the current task.
+## Providers group
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Provider list | All configured providers with type, display name, sign-in status, and tier mapping | Empty | Add at least one provider to start |
-| Active provider | The provider used for chat by default | First added | Pick the one with the strongest Main tier (Claude Sonnet 4.x, GPT-5, Gemini 2.x) |
-| + Add provider | Opens the provider detail modal | n/a | Start with one cloud and optionally one local |
-| Refresh | Pulls the provider's model list and auto-classifies the models into tiers | n/a | Click after sign-in; rerun if the provider releases new models |
-| Tier mapping | Manual override for Budget / Main / Frontier slots | Auto-classified | Keep auto unless you want a specific model |
-| Test connection | Verifies the provider's credentials and endpoint with a minimal request | n/a | Always test after adding or rotating credentials |
+### Providers
+
+`Settings > Vault Operator > Providers > Providers`
+
+Configure AI providers. Each provider exposes its own model list and is mapped to three tiers (Budget, Main, Frontier) that the agent picks from based on the current task.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Provider list | All configured providers with type, display name, sign-in status, and tier mapping | Empty | `src/types/settings.ts` (`providerConfigs[]`) |
+| Active provider | The provider used for chat by default | First added | `settings.activeProviderId` |
+| Add provider | Opens the provider detail modal | n/a | `ProviderDetailModal.ts` |
+| Refresh (in modal) | Pulls the provider's model list and auto-classifies models into tiers | n/a | `ProviderDetailModal.ts:985-993` |
+| Tier mapping | Manual override for Budget / Main / Frontier slots | Auto-classified | `model-registry.ts` |
+| Test connection | Verifies the provider's credentials and endpoint with a minimal request | n/a | `testModelConnection.ts` |
+
+The provider modal supports twelve provider types: Anthropic, OpenAI, Gemini, Ollama, LM Studio, OpenRouter, Azure, Custom (OpenAI-compatible), GitHub Copilot, Kilo Gateway, AWS Bedrock, and ChatGPT (OAuth). Ollama and LM Studio prefill their Base URL with the local default port. ChatGPT (OAuth) bills against your existing Plus or Pro subscription instead of a per-token key.
 
 :::tip Tiers and overrides
-The Main tier drives chat by default. The agent escalates to Frontier on hard synthesis steps via the `consult_flagship` tool (budget: 3 calls per task, 3000 tokens per call). The chat-header model picker lets you pin a specific provider/model for a single task without changing the active provider.
+The Main tier drives chat by default. The agent escalates to Frontier on hard synthesis steps via the `consult_flagship` tool (budget: 3 calls per task, 3000 tokens per call). The chat-header model picker lets you pin a specific provider and model for a single task without changing the active provider.
 :::
 
-:::info Local capabilities and providers
-Ollama and LM Studio prefill their Base URL field with the well-known default port. The Refresh button uses Ollama's native `/api/tags` endpoint to enumerate installed models. ChatGPT (OAuth) bills against your existing Plus or Pro subscription instead of a per-token API key.
+#### Per-model reasoning and thinking
+
+Each model row in the provider modal exposes reasoning controls when the underlying model supports them. Pin a specific model in the chat-header picker to use these. Auto mode uses the model's default.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Extended thinking | Enables Claude budget-token thinking on Sonnet 4.6, Opus 4.6 and older, Haiku, and 3.x models | Off | `BUILT_IN_MODELS` in `settings.ts` |
+| Thinking budget (tokens) | Token budget reserved for the model's internal reasoning before visible output | 10000 (Sonnet/Opus), 5000 (Haiku) | `BUILT_IN_MODELS` |
+| Reasoning effort | Effort level for adaptive Claude (Opus 4.7+, Fable, Mythos) and GPT-5 / o-series. Claude: Low, Medium, High, XHigh, Max. OpenAI: Minimal, Low, Medium, High | Model default | `model-registry.ts` |
+| Max output tokens | Output budget. Auto clamps to the model ceiling and remaining context room | Auto | `resolveOutputBudget` in `model-registry.ts` |
+
+:::info Caching reality
+Anthropic uses explicit `cache_control` blocks. Bedrock Claude uses explicit `bedrock-cachepoint`. OpenAI gpt-4o, 4.1, o1, o3, and o4 use implicit prefix caching. Gemini has no prefix caching in v2.14 (TTL context caching is deferred). DeepSeek is not a registered provider type.
 :::
 
-:::info Supported provider types
-The provider modal supports: Anthropic, OpenAI, Gemini, Ollama, LM Studio, OpenRouter, Azure, Custom (OpenAI-compatible), GitHub Copilot, Kilo Gateway, AWS Bedrock, and ChatGPT (OAuth).
+### Models (legacy)
+
+`Settings > Vault Operator > Providers > Models`
+
+Legacy view kept for back-compat. New work happens in the Providers sub-tab via provider modals. Use this only if you need to inspect or remove a model entry that predates the provider-only refactor.
+
+### Embeddings
+
+`Settings > Vault Operator > Providers > Embeddings`
+
+Configure the semantic index for meaning-based vault search. The Embeddings sub-tab has four sections: Embedding models, Semantic index, Index configuration, Graph expansion.
+
+#### Embedding models
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Embedding model list | Configured embedding models with provider, model id, and API key | Empty | `settings.embeddingModels` |
+| Add embedding model | Opens the embedding model modal | n/a | `EmbeddingsTab.ts` |
+
+The first-run wizard suggests OpenAI `text-embedding-3-small` or Google `text-embedding-004`. Other choices are fine if you bring your own provider.
+
+#### Semantic index
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Enable semantic index | Master toggle. Build index is blocked until this is on | Off | `settings.semanticIndexEnabled` |
+| Build index | Indexes the vault | n/a | `EmbeddingsTab.ts:230` |
+| Force rebuild | Deletes the index and re-indexes from scratch. Cancel keeps progress | n/a | `EmbeddingsTab.ts:294` |
+| Auto-index trigger | When to re-index automatically: never, on startup, on agent switch | `never` | `settings.semanticAutoIndex` (`settings.ts:1709`) |
+| Auto-reindex on change | Re-index when files change | `false` | `settings.semanticAutoIndexOnChange` (`settings.ts:1720`) |
+
+:::warning Build index is gated
+The Build index button shows "Enable semantic index first." until you turn the master toggle on. Re-indexing on change is off by default. You stay in manual mode unless you opt in.
 :::
 
-### Per-model reasoning and thinking
+#### Index configuration
 
-Each model row in the provider modal exposes reasoning controls when the underlying model supports them. Pin a specific model in the chat-header picker to use these (Auto mode uses defaults).
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Chunk size | Chunk size for embedding. Small 800, Medium 1200, Standard 2000, Large 3000 | Standard (2000) | `EmbeddingsTab.ts:394-400`, `en.ts:117-120` |
+| Reranking | Re-rank semantic search results for better relevance | Off | `settings.rerankerEnabled` |
+| Confidence-weighted ranking | Factor edge confidence into graph expansion | On | `settings.confidenceWeightedRanking` |
+| Knowledge freshness | Boost recently edited notes in search results | On | `settings.knowledgeFreshness` |
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Extended thinking | Enables Claude budget-token thinking on Sonnet 4.6, Opus 4.6 and older, Haiku, and 3.x models | Off | Turn on for hard synthesis with budget-token Claudes |
-| Thinking budget (tokens) | Token budget reserved for the model's internal reasoning before visible output | 10000 (Sonnet/Opus), 5000 (Haiku) | Raise for harder synthesis, lower to save cost |
-| Reasoning effort | Effort level for adaptive Claude (Opus 4.7+, Fable, Mythos) and GPT-5/o-series. Claude: Low, Medium, High, XHigh, Max. OpenAI: Minimal, Low, Medium, High | Model default | High or XHigh for complex tasks; Low for short answers |
-| Max output tokens (Auto) | Output budget is clamped to the model ceiling and remaining context room | Auto | Leave on Auto unless you have a specific reason to cap |
-
-## Embeddings
-
-Configure the semantic index for meaning-based vault search.
-
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Embedding model | The model used to generate text embeddings | None | OpenAI `text-embedding-3-small` (cheapest) |
-| API key | Separate key for the embedding provider | None | Can share the OpenAI key from Models |
-| Auto-index | Automatically index notes when they change | Off | Enable for vaults under 5,000 notes |
-| Rebuild index | Re-index the entire vault from scratch | n/a | Run after first setup or major vault changes |
-| Reranking | Re-rank semantic search results for better relevance | Off | Enable if search results feel imprecise |
-| Implicit connections | Discover hidden relationships between notes | Off | Enable for knowledge discovery use cases |
-| Graph enrichment | Add semantic similarity data to the Obsidian graph | Off | Enable if you use the graph view heavily |
-| Confidence-weighted ranking | Factor edge confidence into graph expansion | On | Leave on, it improves retrieval quality |
-| Knowledge freshness | Boost recently edited notes in search results | On | Leave on unless you prefer strict relevance over recency |
-| Community detection | Run Louvain clustering on the knowledge graph at startup | On | Needed for category-mismatch health checks |
-
-:::info Index size
-The semantic index stores embeddings locally. For a vault with 1,000 notes, expect roughly 10-20 MB of storage.
+:::info Reranker model
+The reranker uses `Xenova/ms-marco-MiniLM-L-6-v2` and is delivered as an optional asset. If the asset is not installed, the agent falls back silently to the vector score. Install under `Settings > Vault Operator > Advanced > Optional assets`.
 :::
 
-### Knowledge properties
+#### Graph expansion
 
-Vault conventions used by the [knowledge ingest](/guides/knowledge-ingest) workflow and [vault health check](/guides/vault-health). Set these once to match your vault's schema.
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Implicit connections | Discover hidden relationships between notes | Off | `settings.implicitConnectionsEnabled` |
+| Graph enrichment | Add semantic similarity edges to the Obsidian graph | Off | `settings.graphEnrichmentEnabled` |
+| Community detection | Run Louvain clustering on the knowledge graph at startup | On | `settings.communityDetectionEnabled` |
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Category property | Frontmatter key that holds the note's type or category | `Category` | Match whatever you already use (`type`, `kind`, etc.) |
-| Summary property | Frontmatter key for the short note summary | `Summary` | Match your existing convention (`abstract`, `tldr`) |
-| Source naming convention | Filename pattern for source notes created by ingest | `Author-Year_Title` | Keep short and sortable. Ingest uses this for PDFs |
-| MOC properties | Extra frontmatter keys that participate in Maps of Content | Empty | Add `related`, `parent`, or whatever you link through |
+#### Knowledge properties
 
-### Vault health check
+Vault conventions used by the knowledge ingest workflow and vault health check. Set these once to match your vault's schema.
 
-Diagnostic and repair pipeline for structural vault problems. See [Vault Health Check](/guides/vault-health) for the full workflow.
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Category property | Frontmatter key that holds the note's type or category | `Kategorie` | `settings.knowledgeIngestProperties.categoryProperty` (`settings.ts:1723-1730`) |
+| Summary property | Frontmatter key for the short note summary | `Zusammenfassung` | `settings.knowledgeIngestProperties.summaryProperty` |
+| Source naming convention | Filename pattern for source notes created by ingest | `Autor-Jahr_Titel` | `settings.knowledgeIngestProperties.sourceNamingConvention` |
+| MOC properties | Extra frontmatter keys that participate in Maps of Content | Empty | `settings.knowledgeIngestProperties.mocProperties` |
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Enable vault health check | Run structural checks automatically on vault open | On | Keep on. Scans are fast and use no LLM tokens |
-| Show health badge | Colored dot in the sidebar when findings exist | On | Keep on. It's the primary entry point to the repair modal |
-| God-node threshold | Connection count above which a note is flagged as overloaded | 50 | Raise it for very large vaults, lower it if you want stricter hygiene |
+:::info Built-in defaults are German
+The built-in templates ship with German defaults (Themen, Konzepte, Personen, Notizen, Meeting-Notes, Quellen). Adapt them in the same panel to match your vault's language and naming.
+:::
 
-## Web search
+### Web search
+
+`Settings > Vault Operator > Providers > Web search`
 
 Enable tools for accessing the internet.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Enable web tools | Allow the agent to use `web_fetch` and `web_search` | Off | Enable when you need current information |
-| Search provider | Which search API to use | Brave | Brave (free tier) or Tavily (better results) |
-| API key | Key for the selected search provider | None | Get a free key from your chosen provider |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Enable web tools | Allow the agent to use `web_fetch` and `web_search` | Off | `settings.webToolsEnabled` |
+| Search provider | Which search API to use | Brave | `settings.webSearchProvider` |
+| API key | Key for the selected search provider | None | `settings.webSearchApiKey` |
 
-## MCP (Model Context Protocol)
+## Agents group
 
-Connect external tool servers and expose Vault Operator as a server.
+### Agents
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Client servers | List of MCP servers the agent can call tools on | Empty | Add servers for external integrations |
-| + add server | Configure a new MCP server connection (SSE or streamable-http) | n/a | Only SSE and streamable-http transports work |
-| Test server | Verify connectivity to a configured server | n/a | Test after adding |
-| Vault Operator as MCP server | Expose Vault Operator's tools to external clients like Claude Desktop | Off | Enable to use Vault Operator from Claude Desktop |
+`Settings > Vault Operator > Agents > Agents`
 
-:::info Transport limitation
-Vault Operator runs inside Electron (Obsidian's runtime), so only **SSE** and **streamable-http** transports are supported. Stdio-based MCP servers do not work.
+Configure agents. One built-in agent ships: **Default agent**. You can add custom agents with their own system prompt, tool sets, and per-agent model overrides.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Default agent | The single built-in agent. All built-in tool groups are available | Built-in | `builtinModes.ts:58` |
+| Custom agents | User-defined agents with custom tool sets and system prompts | Empty | `settings.customModes` |
+| Per-agent model | Override which model an agent uses | Active provider's Main tier | `settings.modeModelKeys` |
+| Per-agent tool overrides | Restrict tool groups for an agent (`modeToolOverrides`) | None | `settings.modeToolOverrides` |
+| Per-agent skills | Attach specific skills to an agent | None | `settings.modeSkillKeys` |
+
+:::info There is only one built-in agent
+The earlier Ask + Agent split was removed in v2.11. For read-only behaviour, either restrict a custom agent's tool groups to `read` and `vault`, or set Auto-approve to "ask every time" for the write groups. The mid-conversation mode switcher was removed from the chat header in v2.11.
 :::
 
-## Modes
+### Auto-approve
 
-Configure agent modes. Each mode defines which tools, skills, and model the agent uses.
+`Settings > Vault Operator > Agents > Auto-approve`
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Ask mode | Read-only mode with only read and vault intelligence tools | Built-in | Keep as your safe exploration mode |
-| Agent mode | Full-access mode with all tools enabled | Built-in | Your primary working mode |
-| Custom modes | User-defined modes with custom tool sets and system prompts | Empty | Create modes for specific workflows (Researcher, Writer) |
-| Per-mode model | Override which model a mode uses | Global model | Set a fast model for Ask, a stronger one for Agent |
-| Per-mode tools | Select which tool groups are available in each mode | Varies by mode | Restrict tools to what the mode actually needs |
-| Per-mode skills | Attach specific skills to a mode | None | Attach relevant skills for the mode's purpose |
+Control what the agent can do without asking. See the [safety and control guide](/guides/safety-control) for details.
 
-## Permissions (auto-approve)
+The seven approval categories map to the seven `ToolGroup` values in `TOOL_GROUP_MAP` (`builtinModes.ts`).
 
-Control what the agent can do without asking. See [Safety & Control](/guides/safety-control) for details.
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Read | Auto-approve file reads, searches, listings, checkpoint inspectors | Off | `read` group: `read_file`, `read_document`, `list_files`, `search_files`, `list_checkpoints`, `read_checkpoint`, `diff_checkpoint` |
+| Vault | Auto-approve vault intelligence (semantic search, frontmatter, daily note, memory recall) | Off | `vault` group: `semantic_search`, `query_base`, `get_frontmatter`, `search_by_tag`, `vault_health_check`, `recall_memory`, `mark_for_memory`, `search_history`, etc. |
+| Edit | Auto-approve writes (file create, edit, append, move, delete, frontmatter update, ingest, checkpoint restore) | Off | `edit` group: `write_file`, `edit_file`, `append_to_file`, `create_folder`, `delete_file`, `move_file`, `update_frontmatter`, `generate_canvas`, `create_excalidraw`, `create_base`, `create_pptx`, `create_docx`, `create_xlsx`, `ingest_document`, `ingest_deep`, `ingest_triage`, `restore_checkpoint` |
+| Web | Auto-approve `web_fetch`, `web_search`, `anti_echo_search` | Off | `web` group |
+| Agent | Auto-approve agent control (followup questions, completion, todo updates, sub-tasks, agent switches, settings updates, skill invocation) | Off | `agent` group |
+| MCP | Auto-approve calls to external MCP servers (`use_mcp_tool`, `read_mcp_tool`) | Off | `mcp` group |
+| Skill | Auto-approve plugin command execution, recipes, plugin API calls, sandbox scripts | Off | `skill` group: `execute_command`, `execute_recipe`, `call_plugin_api`, `resolve_capability_gap`, `enable_plugin`, `probe_plugin`, `run_skill_script` |
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Read operations | Auto-approve file reads, searches, listings | Off | Safe to enable. Nothing changes. |
-| Note edits | Auto-approve editing existing notes | Off | Enable after you trust the agent's edits |
-| Vault changes | Auto-approve creating, moving, deleting files | Off | Keep off until comfortable |
-| Web operations | Auto-approve web fetches and searches | Off | Enable if you use web tools frequently |
-| MCP calls | Auto-approve calls to external MCP servers | Off | Enable per-server based on trust |
-| Subtasks | Auto-approve spawning sub-agents | Off | Safe to enable. Inherits parent permissions. |
-| Plugin skills | Auto-approve plugin command execution | Off | Enable for trusted plugin workflows |
-| Plugin API reads | Auto-approve reading plugin data | Off | Safe to enable. Read-only. |
-| Plugin API writes | Auto-approve modifying plugin settings | Off | Keep off. High risk. |
-| Recipes | Auto-approve multi-step CLI recipes | Off | Keep off. Runs external commands. |
-| Sandbox | Auto-approve code execution in the sandbox | Off | Keep off unless you trust generated code |
-
-:::warning Permissive combination
-Enabling both **web operations** and **note edits** (or vault changes) triggers a security warning. This combination lets the agent fetch internet content and write it to your vault without asking.
+:::warning Permissive combination warning
+Turning on **Web** together with **Edit** (or **Vault** writes) triggers a security warning. That combination lets the agent fetch internet content and write it into your vault without asking.
 :::
 
-## Loop (agent behavior)
+### Loop
+
+`Settings > Vault Operator > Agents > Loop`
 
 Control how the agent loop runs.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | Keep at 3. Prevents infinite error loops. |
-| Rate limit | Minimum milliseconds between API calls | 0 | Set to 500-1000 if you hit rate limits |
-| Max iterations | Maximum tool calls per conversation turn | 25 | Increase for complex tasks, decrease to limit cost |
-| Context condensing | Summarize older messages when context gets long | On | Keep on. Prevents context overflow errors. |
-| Condensing threshold | Percentage of context window before condensing triggers | 70% | Lower if you see 400-error context overflow |
-| Microcompaction | Compact older tool results in place when their token cost exceeds a threshold | On | Keep on. Cheaper than full condensing for long sessions. |
-| Rolling-summary threshold | Token threshold above which microcompaction triggers | 12000 | Lower if you see truncation, raise to keep more raw history |
-| Power steering | Re-inject key instructions every N messages | 4 | Keep at 4 for consistent behavior |
-| Subtask depth | Maximum nesting depth for sub-agents | 2 | Keep at 2 unless you need deep delegation |
-| Subtask token budget | Token budget per `new_task` spawn message | 8000 | Raise for research-profile subagents that need more context |
-| Cost-warn threshold | EUR cost threshold per task that triggers a warning notice | 0.50 | Lower if you want earlier warnings |
-| Default main-tier model | Which tier the chat loop uses by default | `mid` (Main) | Flip to `flagship` only if you run on a Frontier budget |
-| Helper model | The model used for context condensing, fast-path planning, `plan_presentation`, and recipe promotion | Falls back to active provider's Budget tier | Pick a small cheap model (Haiku, GPT-4o-mini, local Ollama). Fail-closed: invalid setting falls back to main. |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Consecutive error limit | How many consecutive tool errors before the agent stops | 3 | `settings.consecutiveMistakeLimit` |
+| Rate limit | Minimum milliseconds between API calls | 0 | `settings.rateLimitMs` |
+| Max iterations | Maximum tool calls per conversation turn | 25 | `settings.maxIterations` |
+| Context condensing | Summarize older messages when context gets long | On | `settings.condensingEnabled` |
+| Condensing threshold | Percentage of context window before condensing triggers | 70 | `settings.condensingThreshold` |
+| Microcompaction | Compact older tool results in place when their token cost exceeds a threshold | On | `settings.microcompactionEnabled` |
+| Rolling-summary threshold | Token threshold above which microcompaction triggers | 12000 | `settings.microcompactionThreshold` |
+| Power steering | Re-inject key instructions every N messages | 4 | `settings.powerSteeringFrequency` |
+| Subtask depth | Maximum nesting depth for sub-agents | 2 | `settings.subtaskMaxDepth` (`settings.ts:1696`) |
+| Subtask token budget | Token budget per `new_task` spawn message | 8000 | `settings.subtaskTokenBudget` |
+| Cost-warn threshold | EUR cost threshold per task that triggers a warning | 0.50 | `settings.costWarnThreshold` |
+| Default main-tier model | Which tier the chat loop uses by default | `mid` (Main) | `settings.defaultMainTier` |
+| Task routing (Helper model) | Model used for context condensing, fast-path planning, `plan_presentation`, and recipe promotion | Falls back to active provider's Budget tier | `settings.helperModelKey` |
 
-## Memory
+### Memory
+
+`Settings > Vault Operator > Agents > Memory`
 
 Configure how the agent remembers across conversations.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Chat history | Save conversation history for future reference | On | Keep on. Required for memory extraction. |
-| Chat history folder | Where to store conversation files in the vault | `Vault Operator/Chats` | Change if you prefer a different location |
-| Memory extraction | Automatically extract key facts from conversations | On | Keep on for personalization |
-| Memory model | Which model to use for memory extraction (background task) | Global model | Use a cheap model (Haiku, GPT-4o-mini) to save cost |
-| Memory threshold | Minimum relevance score for a memory to be saved | 0.7 | Lower for more memories, raise for fewer but higher quality |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Chat history | Save conversation history for future reference | On | `settings.chatHistoryEnabled` |
+| Chat history folder | Where to store conversation files in the vault | `Vault Operator/Chats` | `settings.chatHistoryFolder` |
+| Memory extraction | Automatically extract key facts from conversations | On | `settings.memoryExtractionEnabled` |
+| Memory threshold | Minimum relevance score for a memory to be saved | 0.7 | `settings.memoryThreshold` |
 
-## Rules
+:::info Memory model picker removed in FEAT-24-08
+The separate "Memory model" dropdown is gone. The Task routing helper model runs memory extraction.
+:::
+
+## Customize group
+
+### Rules
+
+`Settings > Vault Operator > Customize > Rules`
 
 Persistent instructions that guide the agent in every conversation.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Rule list | All active rules injected into the system prompt | Empty | Add rules for your writing style, vault conventions |
-| + add rule | Create a new rule (plain text or Markdown) | n/a | Keep rules concise and specific |
-| Import | Import rules from a file | n/a | Share rules across vaults |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Rule list | All active rules injected into the system prompt | Empty | `settings.rules` |
+| Add rule | Create a new rule (plain text or Markdown) | n/a | `RulesTab.ts` |
+| Import | Import rules from a file | n/a | `RulesTab.ts` |
 
-## Workflows & prompts
+### Workflows
 
-Pre-defined multi-step instructions and prompt templates.
+`Settings > Vault Operator > Customize > Workflows`
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Workflows | Slash-command triggered instruction sequences (type `/` in chat) | Built-in defaults | Create workflows for your repeated tasks |
-| Prompts | Reusable message templates with optional variables | Empty | Create prompts for common questions |
+Slash-command triggered instruction sequences. Type `/` in chat to invoke.
 
-## Skills
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Workflow list | All workflows with name, trigger, and body | Built-in defaults | `settings.workflows` |
+| Add workflow | Create a new workflow | n/a | `WorkflowsTab.ts` |
+
+### Skills
+
+`Settings > Vault Operator > Customize > Skills`
 
 Persistent instruction sets matched by keywords. Like mini-manuals the agent follows.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Skill list | All skills with name, trigger pattern, and body | Built-in defaults | Add skills for domain-specific tasks |
-| + add skill | Create a new skill | n/a | Include a clear trigger pattern and step-by-step instructions |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Skill list | All skills with name, trigger pattern, and body | Built-in bundled skills | `settings.skills` and `bundled-skills/` |
+| Add skill | Create a new skill | n/a | `SkillsTab.ts` |
 
-## Interface
+### Prompts
 
-Appearance and input behavior settings.
+`Settings > Vault Operator > Customize > Prompts`
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Auto-add active file | Automatically include the currently open note as context | On | Keep on. Helps the agent understand what you're looking at. |
-| Send key | Which key sends a message (Enter or Ctrl/Cmd+Enter) | Enter | Change to Ctrl+Enter if you write multi-line messages often |
-| Show date/time | Display timestamps in the chat | Off | Personal preference |
-| Chat history folder | Vault folder for saved conversations | `Vault Operator/Chats` | Also configurable in Memory tab |
-| Chat linking | Link chat sessions to notes for traceability | Off | Enable for project-based workflows |
-| Task extraction | Detect and extract tasks from agent responses | Off | Enable to auto-create tasks from conversations |
+Reusable message templates with optional variables.
 
-## Shell (plugin API & recipes)
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Prompt list | All prompts | Empty | `settings.customPrompts` |
+| Add prompt | Create a new prompt | n/a | `PromptsTab.ts` |
 
-Configure external tool integrations.
+### Connectors
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Plugin API | Allow the agent to call JavaScript APIs on other plugins | Off | Enable if you use Dataview, Omnisearch, or similar |
-| Command allowlist | Which Obsidian commands the agent can execute | None | Add specific command IDs you trust |
-| Recipes | Pre-validated CLI tool recipes (e.g., Pandoc export) | Built-in | Add recipes only for tools you have installed |
+`Settings > Vault Operator > Customize > Connectors`
 
-## Vault (checkpoints)
+Connect external tool servers and expose Vault Operator as a server. The Connectors sub-tab has three sections: Local connector, Remote access, External tool servers.
 
-Checkpoint and snapshot settings for the undo system.
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Local connector | Vault Operator as MCP server for desktop clients (Claude Desktop, ChatGPT, Perplexity) | Off | `settings.mcpServerEnabled` |
+| Remote access | Cloudflare-tunnelled long-polling endpoint with token-in-URL auth | Off | `settings.remoteTransportEnabled` |
+| External tool server list | MCP servers the agent can call tools on | Empty | `settings.mcpServers` |
+| Add server | Configure a new MCP server connection. Transport types: SSE, streamable-http | n/a | `ManageMcpServerTool.ts:7,51`, `McpTab.ts:372` |
+| Test server | Verify connectivity to a configured server | n/a | `McpTab.ts` |
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Enable checkpoints | Create snapshots before file modifications | On | Keep on. This powers the undo system. |
-| Snapshot timeout | Maximum time to wait for a snapshot to complete (ms) | 5000 | Increase for very large files |
-| Auto-cleanup | Automatically remove old checkpoints | On | Keep on to save storage |
-
-### Agent folder
-
-Vault-relative folder where Vault Operator keeps its own files: plugin skills, the vault-dna snapshot, externalised tmp results, and the local knowledge database. Default is `.vault-operator`.
-
-Use the **Pick folder...** button to choose an existing folder from a fuzzy picker (works the same on Windows, macOS, and Linux), or type a new path that will be created on next use. Existing files are not auto-migrated when you change this path. Move them manually if needed.
-
-## Log
-
-Daily audit trail of every tool call. Each tool invocation is appended to a JSONL log file under the plugin's data folder, with timestamp, tool name, arguments, result status, and approval decision.
-
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Date selector | Pick which day's log to load | Today | Use to review what the agent did yesterday or last week |
-| Load | Render the selected day's log as a table | n/a | Click after picking a date |
-| Download | Save the raw JSONL log for the selected day | n/a | Useful for audits, sharing with support, or external analysis |
-| Clear all | Delete every log file from disk | n/a | Use sparingly. Logs are the only post-hoc record of what the agent did |
-
-:::info Where logs live
-Logs are stored under the agent folder (`Settings > Vault > Agent folder`, default `.vault-operator/logs/`). Each day is a separate JSONL file. Logs do not contain conversation content, only tool calls.
+:::info Transport limitation
+Vault Operator runs inside Electron (Obsidian's runtime), so only SSE and streamable-http transports are supported. Stdio-based MCP servers do not work. To bridge a stdio-only server (for example Playwright MCP), run it locally with an HTTP wrapper such as `npx @playwright/mcp@latest --port 3001`.
 :::
 
-## Debug
+## Vault group
 
-Internal diagnostics and optional source bundle for self-development tools.
+### Vault
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Debug mode | Enable verbose logging to the developer console | Off | Enable while reproducing a bug. Disable for normal use, it generates a lot of output |
-| Self-Development source bundle | Optional one-time download (~5 MB) of the plugin's TypeScript source. Required for the `manage_source` tool, so the agent can answer "how does feature X work?" questions and propose patches. Downloaded from the plugin's GitHub release, verified by SHA256, stored under the agent folder | Not installed | Install only if you want the agent to introspect its own source code |
+`Settings > Vault Operator > Vault > Vault`
 
-:::tip Inspecting the running state
-Use the `inspect_self` tool from chat ("inspect your tools" or "show me your current settings") to see live introspection of the running plugin. It returns a Markdown summary of the actual runtime state, not guesses.
+Vault-level settings, including the agent folder, default output folder, and checkpoint behaviour.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Agent folder | Vault-relative folder where Vault Operator keeps plugin skills, vault-dna snapshot, externalised tmp results, cache, and the local knowledge database | `.vault-operator` | `DEFAULT_AGENT_FOLDER` (`agentFolder.ts:38`) |
+| Pick folder | Fuzzy-picker to choose an existing folder. Type a new path to create on next use | n/a | `VaultTab.ts` |
+| Default output folder | Where the agent writes new notes (including `/ingest` source notes) | `Inbox/` | `settings.defaultOutputFolder` (`settings.ts:1873`) |
+| Enable vault health check | Run structural checks automatically on vault open | On | `settings.vaultHealthEnabled` |
+| Show health badge | Stethoscope icon in the sidebar changes colour when findings exist | On | `AgentSidebarView.ts:287-298` |
+| God-node threshold | Connection count above which a note is flagged as overloaded | 50 | `settings.godNodeThreshold` |
+| Enable checkpoints | Create snapshots before file modifications | On | `settings.checkpointsEnabled` |
+| Snapshot timeout (ms) | Maximum time to wait for a snapshot to complete | 5000 | `settings.checkpointTimeoutMs` |
+| Auto-cleanup | Automatically remove old checkpoints | On | `settings.checkpointAutoCleanup` |
+
+:::info Agent folder layout
+The agent folder contains `data/` (skills, logs, telemetry, knowledge.db), `cache/` (backups, checkpoints, externalised tmp), and `assets/` (optional assets like the reranker model). Existing files are not auto-migrated when you change the path. The legacy name `.obsidian-agent` is still accepted for back-compat (upgraded in v2.13).
 :::
 
-## Backup
+### Backup
+
+`Settings > Vault Operator > Vault > Backup`
 
 Export and import your Vault Operator configuration. Useful when moving to a new device, sharing settings with a team, or restoring after a bad change.
 
-| Setting | What it does | Default | Recommendation |
-|---------|-------------|---------|----------------|
-| Export categories | Checkboxes for each settings category (models, rules, skills, workflows, prompts, modes, soul, memory) | All on | Uncheck categories that contain device-specific keys before sharing |
-| Export | Bundle the selected categories into a JSON file | n/a | Run before major settings changes or before sharing with another machine |
-| Select file (Import) | Pick a previously exported JSON file | n/a | Step 1 of import |
-| Import categories | Pick which categories from the file to import | All on | Skip categories that should keep their current values |
-| Confirm import | Apply the imported settings | n/a | Step 3 of import. Existing settings in the selected categories are overwritten |
-| Import legacy `soul.md` | Read `memory/soul.md` and add each bullet under Identity / Values / Anti-Patterns / Communication into the soul store. Idempotent. | n/a | One-off migration if you have an older `soul.md` from a prior plugin version |
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Export categories | Checkboxes for each settings category (providers, rules, skills, workflows, prompts, agents, soul, memory) | All on | `BackupTab.ts` |
+| Export | Bundle the selected categories into a JSON file | n/a | `BackupTab.ts` |
+| Select file (Import) | Pick a previously exported JSON file | n/a | `BackupTab.ts` |
+| Import categories | Pick which categories from the file to import | All on | `BackupTab.ts` |
+| Confirm import | Apply the imported settings. Existing settings in the selected categories are overwritten | n/a | `BackupTab.ts` |
+| Import legacy `soul.md` | Read `memory/soul.md` and add each bullet under Identity / Values / Anti-Patterns / Communication into the soul store. Idempotent | n/a | One-off migration from older plugin versions |
 
 :::warning API keys travel with the export
-A full export includes provider API keys. Treat the JSON file like a password vault: never commit it, never share it publicly. Uncheck **Models** before sharing if you want to keep keys private.
+A full export includes provider API keys. Treat the JSON file like a password vault: never commit it, never share it publicly. Uncheck **Providers** before sharing if you want to keep keys private.
 :::
 
-## Language
+## Advanced group
+
+### Interface
+
+`Settings > Vault Operator > Advanced > Interface`
+
+Appearance, input behaviour, and first-run setup.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Auto-add active file | Include the currently open note as context | On | `settings.autoAddActiveFile` |
+| Send with enter | Enter sends the message. Off means Ctrl/Cmd+Enter sends | On | `settings.sendWithEnter` (`settings.ts:1793`) |
+| Show date/time | Display timestamps in the chat | Off | `settings.showTimestamps` |
+| Chat linking | Link chat sessions to notes for traceability | Off | `settings.chatLinkingEnabled` |
+| Task extraction | Detect and extract tasks from agent responses | Off | `settings.taskExtractionEnabled` |
+| Restart setup | Re-runs the first-run wizard. Under the Setup section | n/a | `InterfaceTab.ts:42` |
+
+### Shell
+
+`Settings > Vault Operator > Advanced > Shell`
+
+Plugin API, command allowlist, and CLI recipes.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Plugin API | Allow the agent to call JavaScript APIs on other plugins (Dataview, Omnisearch, etc.) | Off | `settings.pluginApiEnabled` |
+| Command allowlist | Which Obsidian commands the agent can execute | Empty | `settings.allowedCommands` |
+| Recipes | Pre-validated CLI tool recipes (for example Pandoc export) | Built-in | `settings.recipes` |
+
+### Log
+
+`Settings > Vault Operator > Advanced > Log`
+
+Daily audit trail of every tool call. Each tool invocation is appended to a JSONL log file with timestamp, tool name, arguments, result status, and approval decision.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Date selector | Pick which day's log to load | Today | `LogTab.ts` |
+| Load | Render the selected day's log as a table | n/a | `LogTab.ts` |
+| Download | Save the raw JSONL log for the selected day | n/a | `LogTab.ts` |
+| Clear all | Delete every log file from disk | n/a | `LogTab.ts` |
+
+:::info Where logs live
+Logs are stored at `<vault>/.vault-operator/data/logs/<YYYY-MM-DD>.jsonl` (one file per day). Retention is 30 days. Logs do not contain conversation content, only tool calls.
+:::
+
+### Debug
+
+`Settings > Vault Operator > Advanced > Debug`
+
+Internal diagnostics.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Debug mode | Enable verbose logging to the developer console | Off | `settings.debugMode` |
+
+:::tip Inspecting the running state
+Use the `inspect_self` tool from chat ("inspect your tools" or "show me your current settings") to see live introspection of the running plugin. It returns a Markdown summary of the actual runtime state.
+:::
+
+### Optional assets
+
+`Settings > Vault Operator > Advanced > Optional assets`
+
+One-time downloads stored under `.vault-operator/assets/`. Install only what you need.
+
+| Setting | What it does | Default | Source |
+|---------|--------------|---------|--------|
+| Reranker model | `Xenova/ms-marco-MiniLM-L-6-v2` cross-encoder for semantic re-ranking | Not installed | `OptionalAssetManager` |
+| Self-development source | One-time download (~5 MB) of the plugin's TypeScript source. Required for the `manage_source` tool, so the agent can answer "how does feature X work?" questions and propose patches. Downloaded from the plugin's GitHub release, verified by SHA256 | Not installed | `OptionalAssetManager` |
+| Office assets | Bundled fonts and theme assets used by `create_pptx`, `create_docx`, `create_xlsx` | Not installed | `OptionalAssetManager` |
+
+### Language
+
+`Settings > Vault Operator > Advanced > Language`
 
 Set the agent's response language. The setting follows Obsidian's language by default. UI strings (settings labels, modals, errors) follow the Obsidian language separately.
+
+## Help group
+
+`Settings > Vault Operator > Help`
+
+The Help group is not a content tab. It opens the public documentation in a new window. Use the in-app `Restart setup` button under Interface to re-run the first-run wizard.

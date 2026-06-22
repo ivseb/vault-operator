@@ -75,8 +75,14 @@ export class SearchHistoryTool extends BaseTool<'search_history'> {
         const sessionFilter = typeof input.session_filter === 'string' ? input.session_filter : undefined;
 
         try {
-            const where: string[] = ['text LIKE ?'];
-            const params: unknown[] = [`%${query}%`];
+            // AUDIT-034 L-7: escape user-controlled LIKE wildcards before
+            // building the pattern. Without escape, query='%' would match
+            // every row in history_chunks -- effectively a top_k-row history
+            // dump primitive. Mirrors the MCP wrapper fix
+            // (src/mcp/tools/searchHistory.ts, AUDIT-016 M-2).
+            const escapedQuery = query.replace(/[%_\\]/g, '\\$&');
+            const where: string[] = ["text LIKE ? ESCAPE '\\'"];
+            const params: unknown[] = [`%${escapedQuery}%`];
             if (roleFilter) { where.push('role = ?'); params.push(roleFilter); }
             if (sessionFilter) { where.push('session_id = ?'); params.push(sessionFilter); }
             params.push(topK);

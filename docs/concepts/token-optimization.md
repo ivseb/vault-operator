@@ -1,6 +1,6 @@
 ---
-title: Token Optimization
-description: How Vault Operator reduces token costs by up to 90% through fast paths, cache alignment, and context externalization.
+title: Token optimization
+description: How Vault Operator reduces token costs through fast paths, cache alignment, and context externalization.
 ---
 
 # Token optimization
@@ -13,7 +13,7 @@ Vault Operator uses three complementary strategies that brought this down to 60,
 
 Without optimization:
 
-1. The system prompt includes dozens of tool definitions (each with input schemas, descriptions, examples). Vault Operator ships 80 tools today; roughly 58 are always loaded and 22 are deferred behind `find_tool`.
+1. The system prompt includes the schemas for every tool in the active tool groups (read, vault, edit, web, agent, mcp, skill). Niche tools are deferred behind `find_tool`, but a typical chat still ships dozens of schemas.
 2. Every tool result stays in the conversation history.
 3. The LLM re-reads everything on every turn, even parts that haven't changed.
 4. A task that could be done in 2 tool calls takes 8 because the agent plans one step at a time.
@@ -38,15 +38,23 @@ If the fast path fails or no recipe matches, Vault Operator falls back to the no
 
 LLM providers cache the key-value pairs computed from the prompt prefix. If the same prefix appears again, those computations are reused and you pay less.
 
-Vault Operator arranges the system prompt so stable content comes first and volatile content comes last. The stable prefix (positions 1-8) covers the role definition, tool definitions, rules, capabilities, mode instructions, and shared safety language. These rarely change inside a session. The volatile tail (positions 9-16) is active file context, retrieved memory, recipes, soul snippets, and the current date and time, which change every turn.
+Vault Operator arranges the system prompt so stable content comes first and volatile content comes last. The stable prefix covers the role definition, tool definitions, rules, capabilities, agent instructions, and shared safety language. These rarely change inside a session. The volatile tail covers active file context, retrieved memory, recipes, soul snippets, and the current date and time, which change every turn.
 
-Because tools, rules, and mode definitions don't change between turns, the LLM can cache them. This is provider-agnostic: Anthropic uses explicit cache markers, while OpenAI and Gemini do implicit prefix caching.
+Because tools, rules, and agent definitions don't change between turns, the provider can cache them. Cache support differs per provider:
+
+| Provider | Cache mode |
+|---|---|
+| Anthropic | Explicit, via `cache_control` blocks |
+| Bedrock (Claude) | Explicit, via `bedrock-cachepoint` |
+| OpenAI (gpt-4o, gpt-4.1, o1, o3, o4) | Implicit prefix caching |
+| Gemini | Not used in this version (TTL context caching is deferred) |
+| Other providers | None; the prompt structure still works, it just doesn't save money |
 
 ## Strategy 3: Context externalization
 
 When a tool returns a large result (say, the content of a 200-line note), keeping it in the conversation history means the LLM re-reads it on every subsequent turn.
 
-`ResultExternalizer` catches results larger than 2,000 characters, writes them to a temporary file under `.obsidian-agent/tmp/{taskId}/`, and replaces the result with a compact, tool-specific summary that includes a path the agent can re-read:
+`ResultExternalizer` catches results larger than 2,000 characters, writes them to a temporary file under `.vault-operator/cache/tmp/{taskId}/`, and replaces the result with a compact, tool-specific summary that includes a path the agent can re-read:
 
 ```
 [search_files] Found 42 matches.
@@ -54,7 +62,7 @@ Top files:
   - notes/foo.md
   - notes/bar.md
 ...
-Full results saved to: .obsidian-agent/tmp/<taskId>/search_files-3.md
+Full results saved to: .vault-operator/cache/tmp/<taskId>/search_files-3.md
 Use read_file("...") to see all matches with context.
 ```
 

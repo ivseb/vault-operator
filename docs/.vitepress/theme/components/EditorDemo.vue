@@ -639,30 +639,30 @@ onUnmounted(() => { gen++; clearAll(); observer?.disconnect() })
 </template>
 
 <style scoped>
-.ed-section { width: 100%; max-width: 1280px; margin: 0 auto; padding: 1.75rem 1.5rem 1.5rem; }
+.ed-section { width: 100%; max-width: 1080px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
 
 .ed-stage {
-  border-radius: 16px;
-  padding: clamp(14px, 3vw, 34px);
-  background: radial-gradient(120% 90% at 50% -20%, rgba(124, 58, 237, 0.20), transparent 55%), var(--vp-c-bg-soft);
+  border-radius: 14px;
+  padding: clamp(10px, 2vw, 22px);
+  background: radial-gradient(120% 90% at 50% -20%, rgba(124, 58, 237, 0.18), transparent 55%), var(--vp-c-bg-soft);
   border: 1px solid var(--vp-c-divider);
 }
 .ed-window {
   --ed-blue: #5b81e0;
   border: 1px solid var(--vp-c-divider);
-  border-radius: 11px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--vp-c-bg);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.22), 0 4px 14px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.18), 0 3px 10px rgba(0, 0, 0, 0.08);
 }
-.dark .ed-window { --ed-blue: #7aa0ff; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55); }
+.dark .ed-window { --ed-blue: #7aa0ff; box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5); }
 
 .ed-grid {
   display: grid;
   grid-template-columns: 46px 2fr 1fr;
-  grid-template-rows: 44px 1fr;
+  grid-template-rows: 40px 1fr;
   grid-template-areas: "hr he hv" "rb ed vo";
-  height: 640px;
+  height: 480px;
 }
 :deep(.ed-window svg) { width: 100%; height: 100%; display: block; }
 

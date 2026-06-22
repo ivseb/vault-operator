@@ -307,6 +307,11 @@ export class KiloAuthService {
     // ---------------------------------------------------------------------------
 
     async disconnect(): Promise<void> {
+        // AUDIT-034 L-10: server-side revocation is deferred until Kilo
+        // publishes a documented token-revocation endpoint. Until then
+        // disconnect() clears local credentials only; a previously exfiltrated
+        // token remains valid against the Kilo API until provider-side
+        // rotation catches up. Local state is always cleared.
         this.token = '';
         this.session = {
             authMode: '',

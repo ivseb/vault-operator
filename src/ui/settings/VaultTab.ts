@@ -985,19 +985,31 @@ export class VaultTab {
         }
         const nodePath = await import('path');
         const nodeOs = await import('os');
+        const nodeFs = await import('fs');
         const nodeCrypto = await import('crypto');
-        // Backup pfad mirror to main.ts:744 -- {homedir}/.vault-operator-migration-backups/{vault-hash}/
+        // Backup pfad mirror to main.ts -- {homedir}/.vault-operator-migration-backups/{vault-hash}/
         // ensures snapshots stay outside any sync container (iCloud, Obsidian-Sync).
-        const vaultIdHash = nodeCrypto
+        // AUDIT-034 Info-5: sha256 is the canonical hash; md5 path is probed as
+        // backward-compatibility fallback for backups written by older versions.
+        const vaultIdHashSha256 = nodeCrypto
+            .createHash('sha256')
+            .update(vaultBasePath)
+            .digest('hex')
+            .slice(0, 12);
+        const vaultIdHashMd5 = nodeCrypto
             .createHash('md5')
             .update(vaultBasePath)
             .digest('hex')
             .slice(0, 12);
-        const pluginDataDir = nodePath.join(
+        const backupsRoot = nodePath.join(
             nodeOs.homedir(),
             '.vault-operator-migration-backups',
-            vaultIdHash,
         );
+        const sha256Dir = nodePath.join(backupsRoot, vaultIdHashSha256);
+        const legacyMd5Dir = nodePath.join(backupsRoot, vaultIdHashMd5);
+        const pluginDataDir = nodeFs.existsSync(sha256Dir) || !nodeFs.existsSync(legacyMd5Dir)
+            ? sha256Dir
+            : legacyMd5Dir;
         const vaultParent = nodePath.dirname(vaultBasePath);
 
         const { listBackupFolders, restoreLayoutFromBackup } = await import(

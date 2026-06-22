@@ -1,9 +1,9 @@
 ---
-title: Memory & Personalization
+title: Memory and personalization
 description: How Vault Operator remembers your preferences, projects, and patterns, and how memory works across your other AI tools.
 ---
 
-# Memory & Personalization
+# Memory and personalization
 
 Vault Operator remembers what you care about, how you like to work, and what you have discussed before. The same memory store also takes input from the other AI tools you use, so a fact learned in Claude Code can surface in a Vault Operator conversation.
 
@@ -19,21 +19,21 @@ Three things happen automatically:
 - **At the end of each conversation**, Vault Operator extracts new facts from the transcript in a single LLM call. Facts that re-appear get a confirmation boost. Facts that contradict existing ones produce an edge so you keep the history.
 - **In the background**, importance scores age based on how often a fact gets used. Identity-level facts decay slowly (months). Event facts decay quickly (weeks). Nothing gets deleted; it sinks down the ranking until something more relevant takes its place.
 
-You can browse, edit, or soft-delete individual facts. **Settings > Memory > View memory** opens a viewer with a list of facts, edges, and the active communication style.
+You can browse, edit, or soft-delete individual facts. **Settings > Vault Operator > Agents > Memory > View memory** opens a viewer with a list of facts, edges, and the active communication style.
 
 :::tip You are in control
-Memory is just a SQLite file (`memory.db`). The viewer lets you remove anything that is wrong. Auto-extraction never overwrites a fact in place, so the original is always recoverable through the audit log.
+Memory is a SQLite file in `.vault-operator/data/memory.db`. The viewer lets you remove anything that is wrong. Auto-extraction never overwrites a fact in place, so the original is always recoverable through the audit log.
 :::
 
 ## Three layers, one store
 
-The internal architecture is the **Three-Layer Memory Architecture (3LMA)**:
+The internal architecture is the **Three-Layer Memory Architecture (3LMA)**. All three layers read and write the same SQLite file. Nothing here lives in markdown notes.
 
-| Layer | What it does |
-|-------|--------------|
-| **Facts** | Stores facts, edges, and communication styles |
-| **Retrieval** | Picks the right facts for the current conversation using topic inference and hybrid search |
-| **Updates** | Extracts new facts, resolves conflicts, ages importance over time |
+| Layer | What it does | Code |
+|-------|--------------|------|
+| **Store** | Facts, edges, communication styles, session summaries in `memory.db` | `KnowledgeDB` |
+| **Retrieval** | Picks the right facts for the current conversation using topic inference and hybrid search | `MemoryRetriever` |
+| **Updates** | Extracts new facts, resolves conflicts, ages importance over time, in one tool call per session | `SingleCallExtractor` |
 
 You will rarely need to think about which layer does what. The viewer shows facts; the agent retrieves and updates them. The full breakdown lives in [Memory](../concepts/memory-system).
 
@@ -54,11 +54,11 @@ To set this up, see [Connectors](./connectors).
 
 Family-shared accounts are a real concern. ChatGPT and Perplexity ship with **Manual** sync mode by default, which means saved conversations stay in history but do not flow into memory until you confirm. Your personal Claude tools default to **Auto**, where extraction runs immediately.
 
-Override per source in **Settings > Memory > Cross-Surface Sync**.
+Override per source in **Settings > Vault Operator > Agents > Memory > Cross-surface sync**.
 
 ### Living documents
 
-The other tools usually save the same conversation more than once as it grows. UCM treats those repeated saves as a living document: new turns get appended to the existing conversation instead of creating duplicates. The 30-minute window per MCP session keeps it predictable. **Settings > Memory > Living-Document by default** controls the global setting.
+The other tools usually save the same conversation more than once as it grows. UCM treats those repeated saves as a living document: new turns get appended to the existing conversation instead of creating duplicates. The 30-minute window per MCP session keeps it predictable. **Settings > Vault Operator > Agents > Memory > Living-document by default** controls the global setting.
 
 ## Chat history
 
@@ -73,7 +73,7 @@ To open the history:
 
 If you have a small, fast titling model configured (Haiku, Flash, or GPT-4o mini work well), Vault Operator titles conversations automatically. Without one, it falls back to the first 60 characters.
 
-## Chat-Linking
+## Chat linking
 
 When Vault Operator creates or edits a note, it can add a link back to the conversation in the note's frontmatter. Anyone reading the note later can jump straight to the chat that produced it.
 
@@ -83,7 +83,7 @@ How it works:
 - The value is a list of clickable links in the format `obsidian://vault-operator-chat?id=...`
 - Clicking a link opens Vault Operator and jumps straight to that conversation
 
-To configure Chat-Linking, go to **Settings > Vault Operator > Interface** and look for the "Auto-link chats in frontmatter" toggle.
+To configure chat linking, go to **Settings > Vault Operator > Advanced > Interface** and look for the "Auto-link chats in frontmatter" toggle.
 
 :::info Cost saving
 Use a cheap, fast model for titling, separate from your main model. Even small models handle short titles well.
@@ -105,29 +105,27 @@ Your answers go straight into the fact store as identity-kind facts with a high 
 
 You can mark any vault note as a memory source. Vault Operator runs the same extraction pipeline against it that runs after a conversation, with `source_uri='vault://...'`. Edits to the note retrigger extraction in the background. Long-form documents like `personal-profile.md` or `project-roadmap.md` become structured facts without losing the original.
 
-To mark a note, open the note in Obsidian and use the command **Vault Operator: Mark as memory source**. The note shows up in **Settings > Memory > Memory source notes** with the count of facts it has produced.
+To mark a note, ask the agent: "mark @note as a memory source". The agent calls `mark_note_as_memory_source` against the note path. Use `unmark_note_as_memory_source` to remove the mark, and `list_memory_source_notes` to see every note that currently feeds the fact store, with the count of facts each one has produced.
+
+To rewrite the agent's tone or your "soul card" (the short identity block included in the system prompt), ask the agent to call `update_soul` with the new text.
 
 ## Memory settings
 
-Open **Settings > Vault Operator > Memory** to configure:
+Open **Settings > Vault Operator > Agents > Memory** to configure:
 
 | Setting | What it does | Default |
 |---------|--------------|---------|
 | Enable memory | Master toggle for the entire memory system | On |
 | Auto-extract sessions | Run the single-call extractor when a conversation ends | On |
-| Memory model | Which AI model runs extraction (pick a cheap one) | Your first model |
-| Atomiser model | The model that turns transcripts into atomic facts | Same as Memory model |
 | Minimum messages | Conversations shorter than this threshold are skipped (range: 2 to 20) | 4 |
 | Chat history | Save conversations so you can browse and restore them | On |
-| Cross-Surface Sync > Default sync-mode | Auto or Manual when a source has no override | Auto |
-| Cross-Surface Sync > Living-Document by default | Treat repeated `save_conversation` calls as appends | On |
-| Cross-Surface Sync > Sync mode per provider | Override Auto vs Manual per source | Defaults above |
+| Cross-surface sync > Default sync mode | Auto or Manual when a source has no override | Auto |
+| Cross-surface sync > Living-document by default | Treat repeated `save_conversation` calls as appends | On |
+| Cross-surface sync > Sync mode per provider | Override Auto vs Manual per source | Defaults above |
 | View memory | Browse facts, edges, communication styles | n/a |
 | Delete all memory | Wipe the entire fact store and audit log (requires typing DELETE) | n/a |
 
-:::warning Pick a cheap memory model
-Single-call extraction runs after every qualifying conversation. A small model (Haiku, Flash, or GPT-4o mini) keeps the cost low. The task is structured and does not need a large model.
-:::
+The memory extractor reuses the agent's main model. There is no separate model dropdown anymore: the cost stays small because the extractor runs as a single structured tool call, not a free-form conversation.
 
 ## Tips
 
@@ -141,4 +139,4 @@ Single-call extraction runs after every qualifying conversation. A small model (
 
 5. Use sync mode per source if you share an AI account with family. Manual mode keeps the conversation in history but holds extraction back until you confirm.
 
-6. Keep Chat-Linking on. The frontmatter links give you an audit trail across notes, conversations, and tools.
+6. Keep chat linking on. The frontmatter links give you an audit trail across notes, conversations, and tools.

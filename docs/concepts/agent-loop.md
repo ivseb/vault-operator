@@ -27,7 +27,7 @@ That's it. Everything else on this page is about controlling, protecting, and ex
 
 ## What happens at each step
 
-The loop starts by assembling a system prompt from 16 modular sections: agent definition, available tools, active rules, loaded skills, memory context, and a few others. The system prompt is cached and only rebuilt when something changes, for example an agent switch or a tool availability toggle.
+The loop starts by assembling a system prompt from a stack of modular sections: agent definition, available tools, active rules, loaded skills, memory context, and a few others. The system prompt is cached and only rebuilt when something changes, for example an agent switch or a tool availability toggle.
 
 The assembled prompt and conversation history go to the AI provider. Vault Operator streams the response, firing `onText()` for each text chunk and collecting any `tool_use` blocks.
 
@@ -98,7 +98,7 @@ Context externalization intercepts large tool results before they enter the hist
 
 `ResultExternalizer` (`src/core/tool-execution/ResultExternalizer.ts`) handles this, called from `ToolExecutionPipeline` after each tool execution. Externalization is transparent to tools. They return full results as before, and the pipeline decides what enters the history.
 
-Temporary files live in `.vault-operator/tmp/{taskId}/` with deterministic names (`{toolName}-{callIndex}.md`). No timestamps, no random values, so file paths don't invalidate the KV cache. Cleanup happens after task completion, with a safety sweep on plugin startup for orphaned directories older than one hour.
+Temporary files live in `.vault-operator/cache/tmp/{taskId}/` with deterministic names (`{toolName}-{callIndex}.md`). No timestamps, no random values, so file paths don't invalidate the KV cache. Cleanup happens after task completion, with a safety sweep on plugin startup for orphaned directories older than one hour.
 
 During fast path execution, externalization is disabled. The final LLM call needs full content for a good summary, and with only two to three iterations the accumulation is minimal.
 
@@ -138,7 +138,7 @@ The parent's approval callback is forwarded to the child, so write operations fr
 
 When a child reaches `maxSubtaskDepth` (default 2), the `new_task` tool is removed from its available tools entirely, which prevents unbounded recursive spawning. Token usage from children accumulates into the parent's totals for accurate cost tracking.
 
-`new_task({profile: 'research'})` is the lean variant. It spawns a research-only subagent with a read-only tool allowlist (10 schemas instead of 34 in main) and a per-call token budget (default 8000). The role definition requires the subagent to put the concrete output the parent asked for into `attempt_completion.result`, not a meta-acknowledgement. This keeps the parent's context flat after the subtask returns.
+`new_task({profile: 'research'})` is the lean variant. It spawns a research-only subagent with a read-only tool allowlist and a per-call token budget (default 8000). The role definition requires the subagent to put the concrete output the parent asked for into `attempt_completion.result`, not a meta-acknowledgement. This keeps the parent's context flat after the subtask returns.
 
 ## Advisor escalation: `consult_flagship`
 
@@ -155,7 +155,7 @@ Four internal LLM calls do not run on the main chat model:
 - `plan_presentation` (the internal LLM call inside the `create_pptx` template flow)
 - Recipe promotion (the call that decides whether a finished task qualifies as a reusable recipe)
 
-All four route to the `helperModelKey` provider/model pair from Settings > Agent behaviour > Loop > Helper model. Fail-closed: if the setting is invalid the helper calls fall back to the main model. Pick the cheapest model that still understands the prompts (Claude Haiku, GPT-4o-mini, Gemini Flash, local Ollama). The helper is invisible to the user-visible turn; you only see it in the cost log.
+All four route to the `helperModelKey` provider/model pair from Settings > Vault Operator > Advanced > Loop > Task routing. Fail-closed: if the setting is invalid the helper calls fall back to the main model. Pick the cheapest model that still understands the prompts (Claude Haiku, GPT-4o-mini, Gemini Flash, local Ollama). The helper is invisible to the user-visible turn; you only see it in the cost log.
 
 ## Next
 

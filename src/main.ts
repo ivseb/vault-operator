@@ -796,16 +796,46 @@ export default class ObsidianAgentPlugin extends Plugin {
             // keeps multiple vaults on the same machine separate.
             // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time crypto require to hash the vault path; not a security-sensitive hash
             const nodeCrypto = require('crypto') as typeof import('crypto');
+            // AUDIT-034 Info-5: use sha256 instead of md5. Pure hygiene
+            // (CodeQL/SonarQube re-flag MD5 every audit). 12-char slice keeps
+            // the same path-bucket shape. For backward compatibility we still
+            // probe the legacy md5 directory and prefer it when present so
+            // existing migration backups stay accessible. New writes go to
+            // the sha256 directory.
+            const vaultIdInput = vaultBasePath || '__no_vault_path__';
             const vaultIdHash = nodeCrypto
-                .createHash('md5')
-                .update(vaultBasePath || '__no_vault_path__')
+                .createHash('sha256')
+                .update(vaultIdInput)
                 .digest('hex')
                 .slice(0, 12);
-            const safeBackupDir = nodePath.join(
+            const legacyVaultIdHashMd5 = nodeCrypto
+                .createHash('md5')
+                .update(vaultIdInput)
+                .digest('hex')
+                .slice(0, 12);
+            const sha256BackupDir = nodePath.join(
                 homeDir,
                 '.vault-operator-migration-backups',
                 vaultIdHash,
             );
+            const legacyMd5BackupDir = nodePath.join(
+                homeDir,
+                '.vault-operator-migration-backups',
+                legacyVaultIdHashMd5,
+            );
+            let safeBackupDir = sha256BackupDir;
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time fs require to probe legacy md5 backup dir
+                const nodeFs = require('fs') as typeof import('fs');
+                if (
+                    !nodeFs.existsSync(sha256BackupDir)
+                    && nodeFs.existsSync(legacyMd5BackupDir)
+                ) {
+                    safeBackupDir = legacyMd5BackupDir;
+                }
+            } catch {
+                // Probe failure is non-fatal; fall through to the sha256 path.
+            }
             // Cast-through-unknown legacy view so the deprecated property
             // access in the migration path does not trigger
             // `@typescript-eslint/no-deprecated`. The bot rejects every
@@ -1874,6 +1904,15 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
             if (this.memoryDB && this.memoryDB.getStorageLocation() !== 'obsidian-sync') {
                 targets.push({ name: 'memory', sourcePath: this.memoryDB.getAbsolutePath() });
+            }
+            // AUDIT-034 Info-4: HistoryDB inherits the per-write atomic .bak
+            // rotation via the storage adapter, but the 7-day rolling snapshot
+            // gap was not covered. Append it next to knowledge + memory so the
+            // chat-history index gets the same daily snapshot window. Skipped
+            // for obsidian-sync mode to avoid duplicating bytes through the
+            // sync provider.
+            if (this.historyDB && this.historyDB.getStorageLocation() !== 'obsidian-sync') {
+                targets.push({ name: 'history', sourcePath: this.historyDB.getAbsolutePath() });
             }
             if (targets.length > 0) {
                 this.snapshotTargets = targets;
@@ -4045,6 +4084,15 @@ function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, saved
     if (!saved || typeof saved !== 'object') return { ...defaults };
     const merged = { ...defaults } as Record<string, unknown>;
     for (const [key, savedValue] of Object.entries(saved)) {
+        // AUDIT-034 Info-6 (CWE-1321 hardening): JSON.parse stores __proto__
+        // as an own enumerable property, so Object.entries surfaces it. Skip
+        // the three prototype-pollution sentinels before any recursion so a
+        // hand-crafted data.json cannot mutate the merged object's prototype
+        // chain. saveData strips them via JSON.stringify anyway; this is
+        // defense in depth.
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            continue;
+        }
         const defaultValue = (defaults as Record<string, unknown>)[key];
         if (
             savedValue !== null

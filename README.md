@@ -1,6 +1,6 @@
 # Vault Operator
 
-**An autonomous AI agent inside your Obsidian vault.**
+**Agentic AI operating layer for your vault.**
 
 <p align="center">
   <img src="docs/public/vault-operator-demo.gif" alt="Vault Operator builds a Base and a Canvas from a vault query, inside Obsidian" width="820">
@@ -14,58 +14,79 @@ Free. Open source. Local-first. Works with cloud models, with your existing Chat
 
 ---
 
-## Why this is more than a sidebar AI chat
+## What people are saying
 
-A chatbot reads your prompt and answers. Vault Operator runs a loop: it picks tools, executes them against your vault, feeds the results back to the model, and continues until the task is done. That loop is the difference.
+> "Vault Operator might be the best Obsidian agentic AI plugin out there."
+> *Nick, Buy Me a Coffee*
 
-- **It acts on your vault, not just about it.** Reading, editing, creating, linking, refactoring. Not "here is what you could write", but the actual file in front of you.
-- **It learns your vault structure.** Folders, wikilinks, frontmatter, tags, plugins. It uses what is there instead of starting from scratch every turn.
-- **It learns you.** Three-tier memory across sessions: short-term session summaries, long-term durable facts, and a profile of how you write and how you like the agent to behave.
-- **It works across your AI surfaces.** Runs as an MCP server so ChatGPT, Claude Desktop, or Perplexity can read the same memory and history as the in-Obsidian agent. One thread of thinking, regardless of which AI client captured the idea.
-- **It picks the right model for each step.** Configure a provider once, the plugin sorts the models into Budget, Main, and Frontier tiers and routes work to the cheapest tier that still does the job.
+> "I've just discovered your wonderful plugin, which to me is way more than a simple plugin. It is a real harness inside Obsidian. That's awesome!"
+> *arkham000, GitHub*
+
+> "Vault Operator is one of the most interesting and powerful Obsidian plugins I've tried so far. The combination of agent functionality, vault access and document processing is particularly impressive."
+> *Stapledon-de, GitHub*
+
+> "Love your work with Vault Operator."
+> *mikaljrue, Buy Me a Coffee*
+
+> "Vault Operator plugin is exactly what I was looking for. The ability to plug in MCP, the support for various models and providers, the skills, and workflows. I am really looking forward to get my hands dirty. I am hoping I won't need to use VS Code + GitHub Copilot to help me manage my vault anymore."
+> *Buy Me a Coffee supporter*
+
+> "I have only just started, but this is real motivation to get back into Obsidian again."
+> *hkocam, Buy Me a Coffee (translated from German)*
+
+---
+
+## What you get
+
+A chatbot reads your prompt and answers. Vault Operator runs a loop: it picks an action, executes it against your vault, feeds the result back to the model, and continues until the task is done.
+
+- **Capture sources with block-level provenance.** Drop a PDF into the chat, get a source note where every key claim links back to the exact paragraph in the original.
+- **Three-layer memory across sessions.** Short-term session summaries, durable facts that survive resets, and a soul profile of how you write and how you want the agent to behave.
+- **Find notes by meaning, not by filename.** Local vector index, full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker, combined with weighted RRF.
+- **Build Word and Excel files, draft PowerPoint decks (PPTX in beta).** Turn project notes into a DOCX, structured data into an XLSX, or meeting notes into a draft PPTX.
+- **Run a vault health check.** Surfaces orphans, broken links, missing backlinks, weak clusters, and over-connected hubs. Every fix creates a checkpoint you can undo.
+- **Use the vault from ChatGPT, Claude Desktop, or Perplexity.** Vault Operator runs as an MCP server, so your other AI clients can read the same memory and history as the in-Obsidian agent.
+- **Hold the keys with auto-approve.** Fail-closed by default. Per-category toggles for read, write, plugin-API, command, MCP, and web. Sensitive folders are gated by a `.obsidian-agentignore` file.
+- **Reuse what Obsidian already exposes.** Plugin-API discovery lets the agent invoke installed plugins (Excalidraw, Dataview, Tasks) instead of duplicating their work.
 
 ---
 
 ## What it does for knowledge work
 
-The plugin is built around the daily reality of a serious vault: capturing new sources without losing context, finding what you wrote six months ago, building documents from material you already have, and keeping the whole thing navigable as it grows.
-
 ### Capture sources with provenance
 
-The most expensive failure mode in a knowledge vault is forgetting why you trusted a conclusion. A note without a path back to its source decays.
-
-Vault Operator solves this with block-level provenance. Drop a PDF into the chat, ask for an ingest, and the agent runs a triage step (ten seconds, looks at vault, memory, and chat history before reading anything), then produces a clean source note. Every key claim ends with a `↗` link that resolves to the exact paragraph in the source. One click and you are back at the original wording.
+Drop a PDF or a Markdown source into the chat and ask for an ingest. The agent produces a clean source note with block IDs on every key claim, so each fact links back to the exact paragraph in the original.
 
 Two paths:
 
-- **`/ingest`** for quick capture. One drop, one approval, one note. About three minutes.
-- **`/ingest-deep`** for sense-making. A guided seven-step dialog that asks which topics to extract and in what shape, then writes derived notes that all trace back to the source paragraph. Five to fifteen minutes for a real research paper.
+- **`/ingest`** for quick capture. Single-pass. One source, one note, about three minutes.
+- **`/ingest-deep`** for sense-making. A five-step guided dialog: triage and decision, output mode selection, deep ingest of the source, write the sense-making notes, set backlinks. Five to fifteen minutes for a real research paper.
 
 [Sense-making tutorial](https://pssah4.github.io/vault-operator/tutorials/deep-ingest) | [Block-level provenance concept](https://pssah4.github.io/vault-operator/concepts/provenance)
 
 ### Search by meaning, not by filename
 
-A local vector index over your vault, combined with full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker. Ask "what do I know about X?" and the agent finds notes whose meaning is related, even if none of them contain the words you used.
+A local vector index over your vault, plus full-text keyword search, graph expansion through wikilinks, and a local cross-encoder reranker. Ask "what do I know about X?" and the agent finds notes whose meaning is related, even when none of them contain the words you used.
 
-The background analysis also surfaces note pairs that discuss similar topics without any wikilink between them. This is the moment most vaults reveal hidden structure.
+The background analysis also surfaces note pairs that discuss similar topics without any wikilink between them, so you can spot connections you never wrote down.
 
 [Knowledge discovery guide](https://pssah4.github.io/vault-operator/guides/knowledge-discovery)
 
-### Build Word, Excel, and draft PPTX files (beta)
+### Build Word and Excel, draft PowerPoint (PPTX beta)
 
-Turn project notes into a Word document, structured data into Excel, or meeting notes into a draft PowerPoint deck. DOCX and XLSX output is clean and reliable. PPTX is in beta: the plugin ships with three default themes and five layouts, but real corporate template cloning is not supported in this version. For client-facing decks, treat the generated file as a starting point and finish the polish manually.
+Turn project notes into a Word document, structured data into Excel, or meeting notes into a draft PowerPoint deck. DOCX and XLSX output is clean and reliable. PPTX is in beta: corporate template cloning is not supported in this version, so treat client-facing decks as a starting point and finish them by hand.
 
-[Office documents guide (beta details)](https://pssah4.github.io/vault-operator/guides/office-documents)
+[Office documents guide](https://pssah4.github.io/vault-operator/guides/office-documents)
 
 ### Keep the vault navigable
 
-The vault health check audits your knowledge graph for orphaned notes, broken links, missing backlinks, weak clusters, inconsistent tags, and over-connected hub notes. Findings come with actions: apply a mechanical fix, open a discussion with the agent, or dismiss. Every repair creates a checkpoint you can undo.
+The vault health check audits your knowledge graph for orphans, broken links, missing backlinks, weak clusters, inconsistent tags, and over-connected hubs. Findings come with actions: apply a mechanical fix, open a discussion with the agent, or dismiss. Every repair creates a checkpoint you can undo.
 
 [Vault health check guide](https://pssah4.github.io/vault-operator/guides/vault-health)
 
 ### Stay in control
 
-Vault Operator is fail-closed. Write operations need your approval unless you opted into auto-approve for that category. Every task creates checkpoints in a shadow git repository (separate from your own git history). Click "Undo all changes" in the chat and the files go back. Sensitive folders can be locked from the agent via a `.obsidian-agentignore` file.
+Vault Operator is fail-closed. Write operations need your approval unless you opted into auto-approve for that category. Every task creates checkpoints in a shadow git repository (separate from your own git history). Click "Undo all changes" in the chat and the files go back. Sensitive folders are gated by a `.obsidian-agentignore` file at the vault root.
 
 [Safety and control guide](https://pssah4.github.io/vault-operator/guides/safety-control) | [Checkpoints concept](https://pssah4.github.io/vault-operator/concepts/checkpoints)
 
@@ -73,11 +94,13 @@ Vault Operator is fail-closed. Write operations need your approval unless you op
 
 ## Try it
 
-1. **Install.** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable.
-2. **Add a provider.** Settings > Vault Operator > Providers > "+ Add provider". A free [Google AI Studio](https://aistudio.google.com/app/apikey) key is enough to try everything.
-3. **Open the sidebar and ask a question.** "What are my most-linked notes?" works on any vault. The First-Run wizard walks you through the rest.
+Vault Operator requires Obsidian 1.13 or newer.
 
-For semantic search and the ingest workflows, also configure an embedding model in Settings > Embeddings. The [Quick Start tutorial](https://pssah4.github.io/vault-operator/tutorials/getting-started) covers every step.
+1. **Install.** Obsidian Settings > Community Plugins > Browse > "Vault Operator" > Install + Enable.
+2. **Add a provider.** Settings > Vault Operator > Providers > Providers > "+ Add provider". A free [Google AI Studio](https://aistudio.google.com/app/apikey) key is enough to try everything.
+3. **Open the sidebar and ask a question.** "What are my most-linked notes?" works on any vault. The first-run wizard walks you through the rest.
+
+For semantic search and the ingest workflows, also configure an embedding model in Settings > Vault Operator > Providers > Embeddings. The [Quick start tutorial](https://pssah4.github.io/vault-operator/tutorials/getting-started) covers every step.
 
 ---
 
@@ -107,9 +130,9 @@ npm install
 npm run build
 ```
 
-Then copy `main.js`, `manifest.json`, and `styles.css` from the repo root into `<vault>/.obsidian/plugins/vault-operator/`. For watch mode + auto-deploy during development, point `PLUGIN_DIR` in `.env` at your test vault and run `npm run dev`.
+Then copy `main.js`, `manifest.json`, and `styles.css` from the repo root into `<vault>/.obsidian/plugins/vault-operator/`. For watch mode and auto-deploy during development, point `PLUGIN_DIR` in `.env` at your test vault and run `npm run dev`.
 
-Requirements: Obsidian 1.4+ (1.8+ for Bases features), desktop only, Node.js 18+ for building.
+Requirements: Obsidian 1.13 or newer, desktop only, Node.js 18+ for building.
 
 ---
 

@@ -27,6 +27,49 @@
   --vp-home-hero-name-background: linear-gradient(135deg, #c4b5fd 0%, #7c3aed 50%, #5b21b6 100%);
   --vp-home-hero-image-background-image: linear-gradient(135deg, rgba(124, 58, 237, 0.25) 0%, rgba(91, 33, 182, 0.12) 100%);
   --vp-home-hero-image-filter: blur(56px);
+
+  /* ── Agent design tokens (brand-scoped, only what VitePress lacks) ── */
+
+  /* Raw brand RGB triplets, used for alpha-modulated tints */
+  --agent-brand-rgb: 124, 58, 237;
+  --agent-brand-deep-rgb: 91, 33, 182;
+
+  /* Brand surfaces / tints used in shadows + hover backgrounds */
+  --agent-brand-tint-weak: rgba(var(--agent-brand-rgb), 0.06);
+  --agent-brand-tint: rgba(var(--agent-brand-rgb), 0.08);
+  --agent-brand-tint-strong: rgba(var(--agent-brand-rgb), 0.14);
+  --agent-brand-glow: rgba(var(--agent-brand-rgb), 0.25);
+
+  /* Spacing scale */
+  --agent-space-1: 0.25rem;
+  --agent-space-2: 0.5rem;
+  --agent-space-3: 0.75rem;
+  --agent-space-4: 1rem;
+  --agent-space-6: 1.5rem;
+  --agent-space-8: 2rem;
+
+  /* Radius scale */
+  --agent-radius-sm: 4px;
+  --agent-radius-md: 8px;
+  --agent-radius-lg: 12px;
+
+  /* Elevation / shadow scale */
+  --agent-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --agent-shadow-md: 0 4px 12px var(--agent-brand-glow);
+  --agent-shadow-card: 0 4px 16px var(--agent-brand-tint);
+
+  /* Motion */
+  --agent-transition-fast: 0.15s ease;
+  --agent-transition-base: 0.2s ease;
+  --agent-transition-slow: 0.3s ease;
+
+  /* Link affordance */
+  --agent-link-underline-offset: 0.18em;
+  --agent-link-underline-thickness: 1px;
+
+  /* Layout */
+  --agent-content-max-width: 720px;
+  --agent-mobile-breakpoint: 720px;
 }
 
 /* Dark mode: lighter purple for readability on dark backgrounds */
@@ -35,23 +78,32 @@
   --vp-c-brand-2: #c4b5fd;
   --vp-c-brand-3: #7c3aed;
   --vp-c-brand-soft: rgba(167, 139, 250, 0.16);
+
+  /* Dark-mode brand uses a lighter purple, so retune the tint base */
+  --agent-brand-rgb: 167, 139, 250;
+  --agent-brand-deep-rgb: 124, 58, 237;
+
+  /* Shadows on dark surfaces need more lift to stay visible */
+  --agent-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --agent-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --agent-shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
 }
 
 /* ── Hero Section ──────────────────────────────────────────────── */
 
 /* Radial glow behind hero like original */
 .VPHero {
-  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.25), transparent);
+  background: radial-gradient(ellipse 80% 50% at 50% -10%, var(--agent-brand-glow), transparent);
 }
 
 /* Force single-column hero (no image), centered */
 .VPHero .container {
-  max-width: 720px;
+  max-width: var(--agent-content-max-width);
   margin: 0 auto;
 }
 
 .VPHero .main {
-  max-width: 720px;
+  max-width: var(--agent-content-max-width);
   text-align: center;
   margin: 0 auto;
 }
@@ -92,35 +144,37 @@
   background-color: #7c3aed;
   border-color: #7c3aed;
   color: white;
-  transition: all 0.2s ease;
+  transition: all var(--agent-transition-base);
 }
 
 .VPButton.brand:hover {
   background-color: #6d28d9;
   border-color: #6d28d9;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: var(--agent-shadow-md);
 }
 
 .VPButton.alt {
-  transition: all 0.2s ease;
+  transition: all var(--agent-transition-base);
 }
 
 .VPButton.alt:hover {
   transform: translateY(-1px);
+  background-color: var(--agent-brand-tint);
 }
 
 /* ── Feature Cards (Homepage) ──────────────────────────────────── */
 
 .VPFeatures .VPFeature {
-  transition: all 0.2s ease;
+  transition: all var(--agent-transition-base);
   border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
+  border-radius: var(--agent-radius-lg);
 }
 
 .VPFeatures .VPFeature:hover {
-  border-color: var(--vp-c-brand-soft);
-  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08);
+  border-color: var(--vp-c-brand-1);
+  background-color: var(--agent-brand-tint-weak);
+  box-shadow: var(--agent-shadow-card);
   transform: translateY(-2px);
 }
 
@@ -149,15 +203,34 @@
   padding-top: 0;
 }
 
+/* Body links get a subtle, always-visible underline so they read as links
+   without screaming brand color. Hover thickens + shifts hue. */
 .vp-doc a {
   color: var(--vp-c-brand-1);
-  text-decoration: none;
-  transition: color 0.15s ease;
+  text-decoration: underline;
+  text-decoration-thickness: var(--agent-link-underline-thickness);
+  text-decoration-color: var(--agent-brand-tint-strong);
+  text-underline-offset: var(--agent-link-underline-offset);
+  transition: color var(--agent-transition-fast),
+              text-decoration-color var(--agent-transition-fast),
+              text-decoration-thickness var(--agent-transition-fast);
 }
 
 .vp-doc a:hover {
   color: var(--vp-c-brand-2);
-  text-decoration: underline;
+  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
+}
+
+/* Headings and sidebar/nav anchors keep the original clean look (no underline). */
+.vp-doc h1 a,
+.vp-doc h2 a,
+.vp-doc h3 a,
+.vp-doc h4 a,
+.vp-doc h5 a,
+.vp-doc h6 a,
+.vp-doc .header-anchor {
+  text-decoration: none;
 }
 
 /* Better table styling */
@@ -165,34 +238,85 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: auto;
 }
 
 .vp-doc th {
   font-weight: 600;
   text-align: left;
-  white-space: nowrap;
 }
 
 .vp-doc td,
 .vp-doc th {
-  padding: 0.6rem 0.8rem;
+  padding: var(--agent-space-3) var(--agent-space-4);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+
+/* Inline code inside tables wraps instead of forcing horizontal scroll. */
+.vp-doc td code,
+.vp-doc th code {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .vp-doc tr:hover {
-  background-color: var(--vp-c-bg-soft);
+  background-color: var(--agent-brand-tint-weak);
+}
+
+/* Tighten cell padding on small screens. */
+@media (max-width: 720px) {
+  .vp-doc td,
+  .vp-doc th {
+    padding: var(--agent-space-2) var(--agent-space-3);
+    font-size: 0.85rem;
+  }
 }
 
 /* Code block refinement */
 .vp-doc div[class*='language-'] {
-  border-radius: 8px;
+  border-radius: var(--agent-radius-md);
   border: 1px solid var(--vp-c-divider);
+  position: relative;
 }
 
-/* Inline code */
+/* Inline code: align font-size to the body line-height so inline tokens
+   don't sit too small inside paragraphs. */
 .vp-doc :not(pre) > code {
-  border-radius: 4px;
-  padding: 0.15em 0.35em;
-  font-size: 0.88em;
+  border-radius: var(--agent-radius-sm);
+  padding: 0.15em 0.4em;
+  font-size: 0.92em;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+/* Copy button affordance: VitePress hides the button until block hover.
+   Pin it visibly into the top-right corner with a soft background so users
+   notice it without dragging the cursor across the block. */
+.vp-doc div[class*='language-'] > button.copy {
+  top: var(--agent-space-2);
+  right: var(--agent-space-2);
+  opacity: 0.6;
+  background-color: var(--vp-c-bg-soft);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: var(--agent-radius-sm);
+  transition: opacity var(--agent-transition-fast),
+              background-color var(--agent-transition-fast),
+              border-color var(--agent-transition-fast);
+}
+
+.vp-doc div[class*='language-']:hover > button.copy,
+.vp-doc div[class*='language-'] > button.copy:focus-visible {
+  opacity: 1;
+  border-color: var(--vp-c-brand-1);
+  background-color: var(--agent-brand-tint);
+}
+
+/* Language label sits next to the copy button, keep them from overlapping. */
+.vp-doc div[class*='language-'] > span.lang {
+  right: 3.25rem;
 }
 
 /* ── Sidebar Refinement ────────────────────────────────────────── */
@@ -210,10 +334,33 @@
   color: var(--vp-c-text-3);
 }
 
+/* Sidebar item hover: subtle brand-tinted background and a small inward shift
+   so the user feels which row is targeted. */
+.VPSidebar .VPSidebarItem > .item > .link {
+  border-radius: var(--agent-radius-sm);
+  padding: var(--agent-space-1) var(--agent-space-2);
+  transition: background-color var(--agent-transition-fast),
+              color var(--agent-transition-fast),
+              transform var(--agent-transition-fast);
+}
+
+.VPSidebar .VPSidebarItem > .item > .link:hover {
+  background-color: var(--agent-brand-tint-weak);
+  color: var(--vp-c-brand-1);
+  transform: translateX(2px);
+}
+
+/* Navbar menu item hover treatment, matched to the sidebar. */
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuGroup .button:hover {
+  background-color: var(--agent-brand-tint-weak);
+  border-radius: var(--agent-radius-sm);
+}
+
 /* ── Custom Containers (tip, warning, info) ────────────────────── */
 
 .vp-doc .custom-block {
-  border-radius: 8px;
+  border-radius: var(--agent-radius-md);
   margin: 1.2rem 0;
 }
 
@@ -236,31 +383,32 @@
 .VPNavBar,
 .VPSidebar,
 .VPContent {
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  transition: background-color var(--agent-transition-slow),
+              border-color var(--agent-transition-slow);
 }
 
 /* ── Homepage sections below hero ──────────────────────────────── */
 
 .vp-doc .roadmap {
-  max-width: 720px;
+  max-width: var(--agent-content-max-width);
   margin: 0 auto;
 }
 
 /* Developer section CTA on homepage */
 .vp-doc .VPButton.medium.brand {
   font-size: 0.9rem;
-  padding: 0.5rem 1.5rem;
-  border-radius: 8px;
+  padding: var(--agent-space-2) var(--agent-space-6);
+  border-radius: var(--agent-radius-md);
   background: var(--vp-c-brand-1);
   color: white;
   text-decoration: none;
-  transition: all 0.2s ease;
+  transition: all var(--agent-transition-base);
 }
 
 .vp-doc .VPButton.medium.brand:hover {
   background: var(--vp-c-brand-2);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+  box-shadow: var(--agent-shadow-md);
   text-decoration: none;
 }
 
@@ -306,12 +454,77 @@
   width: 260px;
   border: 1px solid var(--vp-c-divider);
   background: transparent;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color var(--agent-transition-base),
+              background var(--agent-transition-base);
 }
 
 .VPNavBarSearch .DocSearch-Button:hover {
   border-color: var(--vp-c-brand-1);
-  background: var(--vp-c-bg-soft);
+  background: var(--agent-brand-tint-weak);
+}
+
+/* ── Mermaid diagrams (vitepress-plugin-mermaid) ──────────────── */
+
+/* Mermaid renders inline SVG via Mermaid's default theme, which produces
+   light-on-light text in dark mode for some shapes (especially edge labels
+   and note shapes). Force readable foreground/background tokens. */
+
+.mermaid {
+  background-color: transparent;
+  margin: var(--agent-space-4) auto;
+  text-align: center;
+}
+
+/* Light mode: keep default Mermaid look but pin link/edge text. */
+.mermaid .edgeLabel,
+.mermaid .edgeLabel rect,
+.mermaid .edgeLabel foreignObject div {
+  background-color: var(--vp-c-bg);
+  color: var(--vp-c-text-1);
+}
+
+/* Dark mode: override Mermaid's hardcoded #333/#000 strokes + fills. */
+.dark .mermaid {
+  filter: none;
+}
+
+.dark .mermaid text,
+.dark .mermaid .nodeLabel,
+.dark .mermaid .edgeLabel p,
+.dark .mermaid .cluster-label,
+.dark .mermaid .actor,
+.dark .mermaid .messageText,
+.dark .mermaid .loopText,
+.dark .mermaid .noteText {
+  color: var(--vp-c-text-1);
+  fill: var(--vp-c-text-1);
+}
+
+/* edgeLabel needs both a readable foreground AND a matching background
+   (Mermaid defaults to white) so the label text doesn't sit on a white
+   sticker over a dark canvas. */
+.dark .mermaid .edgeLabel,
+.dark .mermaid .edgeLabel rect,
+.dark .mermaid .edgeLabel foreignObject div {
+  color: var(--vp-c-text-1);
+  fill: var(--vp-c-text-1);
+  background-color: var(--vp-c-bg);
+}
+
+/* Node shapes: keep stroke visible against dark background. */
+.dark .mermaid .node rect,
+.dark .mermaid .node polygon,
+.dark .mermaid .node circle,
+.dark .mermaid .node ellipse,
+.dark .mermaid .node path {
+  stroke: var(--vp-c-text-2);
+}
+
+/* Notes have white fill in default theme -- swap to bg-soft so text reads. */
+.dark .mermaid .note,
+.dark .mermaid rect.note {
+  fill: var(--vp-c-bg-soft);
+  stroke: var(--vp-c-divider);
 }
 
 /* ── Print styles ──────────────────────────────────────────────── */

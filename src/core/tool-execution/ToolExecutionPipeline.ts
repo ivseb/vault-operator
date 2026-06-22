@@ -29,6 +29,7 @@ import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
 import type { StigmergyTurn } from '../stigmergy/StigmergyAdapter';
+import type { ModeService } from '../modes/ModeService';
 import {
     emitStigmergyInvoked,
     emitStigmergyReturned,
@@ -288,6 +289,18 @@ export class ToolExecutionPipeline {
      */
     private stigmergyTurn?: StigmergyTurn;
 
+    /**
+     * AUDIT-034 M-9: ModeService used to enforce mode.toolGroups at the
+     * execution layer (not just in the schema). When set, executeTool
+     * rejects model-driven and MCP-driven dispatches of tools the active
+     * mode does not allow. FastPath / planner dispatches bypass the gate
+     * because recipes are user-authored.
+     *
+     * Optional: when undefined (legacy callers, MCP boundary that wires
+     * its own check), the pipeline falls back to the registry-only check.
+     */
+    private modeService?: ModeService;
+
 
     /** Tools eligible for result caching (read-only, deterministic within a task). */
     private static readonly CACHEABLE = new Set([
@@ -334,6 +347,16 @@ export class ToolExecutionPipeline {
         this.stigmergyTurn = turn;
     }
 
+    /**
+     * AUDIT-034 M-9: bind the ModeService so executeTool can enforce the
+     * active mode's toolGroups at dispatch time. Called by AgentTask after
+     * pipeline construction so the schema filter and the runtime check use
+     * the same source of truth. No-op when modeService is undefined.
+     */
+    setModeService(modeService: ModeService): void {
+        this.modeService = modeService;
+    }
+
     /** ADR-063: Clean up temp files after task completion. */
     async cleanupExternalized(): Promise<void> {
         await this.resultExternalizer?.cleanup();
@@ -368,6 +391,27 @@ export class ToolExecutionPipeline {
             if (!tool) {
                 const msg = `Unknown tool: ${toolCall.name}`;
                 return this.errorResult(toolCall.id, msg);
+            }
+
+            // 1b. AUDIT-034 M-9: enforce active-mode toolGroups at the
+            // execution layer. Schema-only filtering (ModeService.getToolDefinitions)
+            // does not stop a hallucinated or replayed tool name, and FastPath
+            // / MCP / subtask dispatch paths bypass the schema entirely. The
+            // runtime gate makes Custom Agents an actual security boundary.
+            // Bypass for 'fastpath' and 'planner' sources because those are
+            // user-authored recipes / internal classifiers, not model picks.
+            // 'model' (and undefined for legacy callers) and any other source
+            // are enforced.
+            const dispatchSourceForGate: DispatchSource = opts?.source ?? 'model';
+            const enforceModeGate = dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner';
+            if (enforceModeGate && this.modeService) {
+                const activeMode = this.modeService.getMode(this.mode) ?? this.modeService.getActiveMode();
+                if (!this.modeService.modeHasTool(activeMode, toolCall.name)) {
+                    const msg = `Tool "${toolCall.name}" is not available in mode "${activeMode.slug}". The active agent does not include this tool in its toolGroups.`;
+                    console.warn(`[Pipeline] Mode-gate denied: ${toolCall.name} not in ${activeMode.slug} (source=${dispatchSourceForGate})`);
+                    await this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                    return this.errorResult(toolCall.id, msg);
+                }
             }
 
             // 2. Governance: ignore / protected path check
@@ -630,11 +674,63 @@ export class ToolExecutionPipeline {
     // -------------------------------------------------------------------------
 
     /**
+     * AUDIT-034 M-10: Per-tool path-key map for multi-path tools whose
+     * vault-relevant inputs are NOT named `path`. Without this, move_file
+     * (source/destination), extract_zip (zip_path/target_folder),
+     * generate_canvas (source/output_path), plan_presentation (source) and
+     * the other listed entries silently bypassed IgnoreService. Each entry
+     * lists the input keys plus whether the key is read-only (only isIgnored
+     * is enforced) or write-side (isIgnored + isProtected when isWrite).
+     */
+    private static readonly PATH_INPUT_KEYS: Record<string, Array<{ key: string; write: boolean }>> = {
+        // single-path tools fall through to the default `path` handling below,
+        // but listing them here keeps the contract explicit and is harmless.
+        move_file: [
+            { key: 'source', write: true },
+            { key: 'destination', write: true },
+        ],
+        extract_zip: [
+            { key: 'zip_path', write: false },
+            { key: 'target_folder', write: true },
+        ],
+        generate_canvas: [
+            { key: 'source', write: false },
+            { key: 'output_path', write: true },
+        ],
+        plan_presentation: [
+            { key: 'source', write: false },
+        ],
+        restore_checkpoint: [
+            { key: 'path', write: true },
+        ],
+    };
+
+    /**
      * Check ignore/protected rules for file-path tools.
+     *
+     * Default behaviour: inspect `input.path`. For multi-path tools that
+     * declare their vault keys in PATH_INPUT_KEYS, iterate the declared
+     * keys instead so move_file / extract_zip / generate_canvas /
+     * plan_presentation / restore_checkpoint cannot bypass governance.
      */
     private validatePaths(toolCall: ToolUse, isWrite: boolean): ValidationResult {
         const ignoreService: IgnoreService | undefined = this.plugin.ignoreService;
         if (!ignoreService) return { allowed: true };
+
+        const keys = ToolExecutionPipeline.PATH_INPUT_KEYS[toolCall.name];
+        if (keys && keys.length > 0) {
+            for (const entry of keys) {
+                const value = toolCall.input?.[entry.key];
+                if (typeof value !== 'string' || value.length === 0) continue;
+                if (ignoreService.isIgnored(value)) {
+                    return { allowed: false, reason: ignoreService.getDenialReason(value) };
+                }
+                if (entry.write && isWrite && ignoreService.isProtected(value)) {
+                    return { allowed: false, reason: ignoreService.getDenialReason(value) };
+                }
+            }
+            return { allowed: true };
+        }
 
         const path = toolCall.input?.path as string | undefined;
         if (!path) return { allowed: true };
@@ -663,6 +759,12 @@ export class ToolExecutionPipeline {
 
         // Agent tools are normally auto-approved, EXCEPT update_settings when
         // touching autoApproval paths (AUDIT-006 H-3: prevent LLM self-escalation)
+        // AUDIT-034 M-11: configure_model always requires user approval because
+        // it can add a model + apiKey + baseUrl, switch the active model, or
+        // overwrite credentials. Without this carve-out a compromised turn could
+        // re-point the next createMessage payload to an attacker-controlled
+        // account (validateProviderUrl catches the worst pivot but not a stolen
+        // apiKey on a legitimate provider host).
         if (group === 'agent') {
             if (toolCall.name === 'update_settings') {
                 const action = (toolCall.input?.action as string ?? '').trim();
@@ -677,6 +779,13 @@ export class ToolExecutionPipeline {
                     }
                     return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
                 }
+            }
+            if (toolCall.name === 'configure_model') {
+                if (!extensions?.onApprovalRequired) {
+                    console.warn('[Pipeline] configure_model -- denying (fail-closed, always requires approval)');
+                    return { decision: 'rejected' };
+                }
+                return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
             }
             return { decision: 'auto' };
         }

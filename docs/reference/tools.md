@@ -1,228 +1,123 @@
 ---
-title: Tools Reference
-description: Complete list of all 80 tools available to the Vault Operator, organized by group.
+title: Tools reference
+outline: deep
 ---
 
 # Tools reference
 
-Vault Operator has 80 built-in tools across seven groups (read, vault, edit, web, agent, mcp, skill). The agent picks the right tool based on your request. You never call tools yourself.
+Generated from src/core/tools/toolMetadata.ts. Do not edit by hand. Regenerate with:
 
-:::tip How tools work
-When you ask Vault Operator to do something, it picks one or more tools, shows its plan in the activity block, and asks for approval before any write operation. See [Safety & Control](/guides/safety-control) for details.
-:::
+```bash
+node scripts/generate-tools-reference.mjs
+```
 
-## Tool groups at a glance
+Total: 74 tools across seven groups.
 
-The code defines seven canonical groups. Some groups split into thematic sub-tables below for easier scanning.
+## Read
 
-| Group | Tools | Modifies vault | Needs approval |
-|-------|-------|----------------|----------------|
-| Read | 11 | No | No |
-| Vault | 9 | No (except `open_note`) | No |
-| Edit | 22 | Yes | Yes |
-| Web | 3 | No | Yes (external access) |
-| Agent | 20 | Varies | Varies |
-| MCP | 2 | Depends on server | Yes |
-| Skill | 6 | Varies | Yes |
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `diff_checkpoint` | `diff_checkpoint(commitOid, path?)` | Diff a checkpoint snapshot against the current vault state. Without path: per-file summary. With path: line-level diff for that file.<br>Example: `diff_checkpoint("a1b2c3d4...", "Notes/Madrid.md")` | Before restore_checkpoint, to confirm what a restore would change. |
+| `list_checkpoints` | `list_checkpoints(taskId?, path?, limit?, verbose?)` | List automatic pre-write snapshots from the checkpoint shadow repository. Returns commitOids for read_checkpoint, diff_checkpoint and restore_checkpoint.<br>Example: `list_checkpoints(undefined, "Notes/Madrid.md")` | When the user wants to recover or inspect an earlier version of a note. Start here to find the commitOid. |
+| `list_files` | `list_files(path, recursive?)` | List files and folders in a directory. Use "/" for the vault root.<br>Example: `list_files("Projects/", true)` | To discover folder structure. Check vault_context first. it may already show what you need. |
+| `list_memory_source_notes` | `list_memory_source_notes(only_pending?)` | List vault notes registered as memory-source. Read-only. Returns path, registration timestamp, last extraction. | When the user asks which notes feed long-term memory, or to find notes awaiting re-extraction. |
+| `list_pinned_conversations` | `list_pinned_conversations(limit?)` | List chat conversations the user pinned to memory (via Star button or mark_for_memory). Read-only. Complementary to list_memory_source_notes. | When the user asks which chats are saved to memory, or which conversations contributed facts to long-term memory. |
+| `read_checkpoint` | `read_checkpoint(commitOid, path)` | Read the snapshot content of a single file from a specific checkpoint (the state before the matching write tool ran).<br>Example: `read_checkpoint("a1b2c3d4...", "Notes/Madrid.md")` | After list_checkpoints, to inspect what a note looked like at snapshot time. |
+| `read_document` | `read_document(path)` | Parse and extract text from Office/data documents (PPTX, XLSX, DOCX, PDF, JSON, XML, CSV). Returns structured Markdown text.<br>Example: `read_document("Reports/Q3-results.pptx")` | For binary document formats. Use read_file for plain text files (.md,.txt,.ts). |
+| `read_file` | `read_file(path)` | Read the complete content of a file. Use this before modifying any file.<br>Example: `read_file("Projects/meeting-2024-01-15.md")` | Before any edit, or when user asks to see content. NOT needed if content already in conversation. |
+| `read_skill` | `read_skill(name)` | Load the full step-by-step instructions of a skill listed in the SKILLS directory of your system prompt. Returns the workflow body as a tool result; follow it exactly for the current task.<br>Example: `read_skill({ name: "office-workflow" })` | BEFORE doing the work when the user's task matches a skill's purpose (read the SKILLS directory in your system prompt). Skip when no skill applies. |
+| `search_files` | `search_files(path, pattern, file_pattern?)` | Search for text or regex across files. Returns matching lines with line numbers.<br>Example: `search_files("/", "meeting.*agenda", "*.md")` | For exact text or regex matching. Use semantic_search for meaning-based queries. |
+| `search_history` | `search_history(query, top_k?)` | Keyword-search past conversations for messages that match the query. Returns matching messages with source conversation, role, timestamp, and a clickable obsidian:// link. | When the user references "we talked about X earlier" or "find that chat where I mentioned Y". Much wider than recall_memory. |
 
-## Read tools
+## Vault
 
-Tools for reading, searching, and exploring your vault, conversation history, skills, and checkpoints. They never modify anything.
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `get_daily_note` | `get_daily_note(offset?, create?)` | Read the daily note. offset=0 today (default), -1 yesterday, 1 tomorrow. create=true creates it if missing.<br>Example: `get_daily_note(0, true)` | To read or create today's daily note. Use offset=-1 for yesterday. |
+| `get_frontmatter` | `get_frontmatter(path)` | Read all YAML frontmatter fields of a note (tags, aliases, dates, status, custom properties).<br>Example: `get_frontmatter("Projects/active-project.md")` | To check tags, status, dates, or custom properties before updating them. |
+| `get_linked_notes` | `get_linked_notes(path, direction?)` | Get forward links and backlinks for a note. direction="both" (default), "forward", or "backlinks".<br>Example: `get_linked_notes("Projects/main-project.md", "both")` | To understand note relationships and graph connections. |
+| `get_vault_stats` | `get_vault_stats()` | Overview of the vault. note count, folder structure, top tags, recently modified files. Use when you need a broad picture of the vault that isn't already in the context block. | Only when vault_context block is insufficient. Rarely needed. |
+| `open_note` | `open_note(path, newLeaf?)` | Open a note in the Obsidian editor. Use after creating or editing a note to bring it into focus.<br>Example: `open_note("Projects/new-note.md", true)` | After creating or editing. so the user can see the result immediately. |
+| `query_base` | `query_base(path, view_name?, limit?)` | Query an Obsidian Bases file and return the notes that match its filter conditions.<br>Example: `query_base("Databases/meetings.base", "This Week")` | To query structured data from a.base file. Returns filtered, sorted results. |
+| `search_by_tag` | `search_by_tag(tags[], match?)` | Find all notes with given tags. match="any" (OR, default) or match="all" (AND). Tags with or without # both work.<br>Example: `search_by_tag(["meeting", "2024"], "all")` | For tag/category filtering. Use match="all" for AND, match="any" for OR. |
+| `semantic_search` | `semantic_search(query, top_k?)` | Find notes by meaning (semantic similarity). Returns the most relevant excerpts for a natural-language query. Requires the Semantic Index to be built in Settings.<br>Example: `semantic_search("project planning methodology", 5)` | For meaning-based queries about vault content ("What do I know about X?"). |
+| `vault_health_check` | `vault_health_check(checks?)` | Run structural health checks: orphaned notes, missing backlinks, broken links, weak clusters, inconsistent tags. Returns findings with fix suggestions. | To proactively maintain vault quality. Run periodically or when user asks about vault health. |
 
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `read_file` | Read the complete content of a Markdown or plain-text file. | Before editing a file, or when you ask to see content. |
-| `read_document` | Parse and extract text from Office and data files (PPTX, XLSX, DOCX, PDF, JSON, XML, CSV). Supports `start_page` / `end_page` for large files. | For binary document formats and large PDFs. |
-| `list_files` | List files and folders in a directory, optionally recursive. | To discover folder structure or find files by location. |
-| `search_files` | Search for text or regex patterns across files, returning matching lines with line numbers. | For exact text or pattern matching across your vault. |
-| `search_history` | Full-text search across past conversations, optionally filtered by source interface. | When the user references a past chat ("what did we say about X last week?"). |
-| `read_skill` | Load the full step-by-step body of a skill listed in the SKILLS directory of the system prompt. | Before doing the work when a skill matches the task. Skip when no skill applies. |
-| `list_memory_source_notes` | List all notes currently marked as memory sources. | To audit which notes drive the memory layer. |
-| `list_pinned_conversations` | List chat conversations pinned to memory. Read-only, complementary to `list_memory_source_notes`. | To audit which chats are saved to long-term memory. |
-| `list_checkpoints` | List checkpoints taken before edit-tool runs. | To find a snapshot to inspect or restore. |
-| `read_checkpoint` | Read the file contents stored in a specific checkpoint. | To inspect a snapshot before restoring it. |
-| `diff_checkpoint` | Show the diff between a checkpoint and the current vault state. | To preview what `restore_checkpoint` would change. |
+## Edit
 
-## Vault tools
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `append_to_file` | `append_to_file(path, content, separator?)` | Append content to the end of a file. Ideal for daily notes, logs, and additive entries.<br>Example: `append_to_file("Journal/daily.md", "## New Entry\n\nContent...")` | For daily notes, logs, and additive entries. Avoids the read-edit cycle. |
+| `create_base` | `create_base(path, view_name, filter_property?, filter_values?, columns?, sort_property?, sort_direction?, exclude_templates?)` | Create an Obsidian Bases (.base) database view file.<br>Example: `create_base("Databases/tasks.base", "Active", "status", ["active", "in-progress"], ["title", "status", "due"], "due", "asc")` | To create a structured database view from vault notes filtered by frontmatter. |
+| `create_docx` | `create_docx(output_path, sections, title?, theme?)` | Create a Word document (.docx) with structured sections, headings, bullets, and tables.<br>Example: `create_docx("Documents/report.docx", [{"heading":"Introduction","body":"Main text..."}])` | For creating Word documents. Never use write_file or evaluate_expression for.docx. |
+| `create_drawio` | `create_drawio(output_path, nodes, edges?, layout?)` | Create a Draw.io / diagrams.net flowchart (.drawio or.drawio.svg) with labeled nodes and directed arrows. The SVG variant renders in Obsidian and opens editable in the drawio-obsidian or obsidian-diagrams-net plugin. NEVER use write_file for.drawio files. the mxfile wrapper is strict.<br>Example: `create_drawio("Diagrams/flow.drawio.svg", [{"id":"a","label":"Idea","shape":"rounded"},{"id":"b","label":"Relevant?","shape":"rhombus"}], [{"from":"a","to":"b","label":"yes"}])` | User asks for a draw.io / diagrams.net diagram. Pick.drawio.svg if the diagram should render as a preview in Obsidian,.drawio for pure data. |
+| `create_excalidraw` | `create_excalidraw(output_path, elements, arrows?, title?, layout?)` | Create an Excalidraw drawing (.excalidraw.md) with labeled boxes and optional arrows between them. Format is handled automatically. never use write_file for.excalidraw.md files.<br>Example: `create_excalidraw("Drawings/overview.excalidraw.md", [{"id":"a","label":"Start"},{"id":"b","label":"End"}], [{"from":"a","to":"b"}])` | To create any Excalidraw visualization. Always prefer this over write_file for.excalidraw.md files. |
+| `create_folder` | `create_folder(path)` | Create a new folder (including parent folders).<br>Example: `create_folder("Projects/2024/Q1")` | Before writing files to a new location. Creates parent folders automatically. |
+| `create_pptx` | `create_pptx(output_path, slides, title?, template?, theme?)` | Create a PowerPoint presentation (.pptx) with template-based generation. Supports user templates (.pptx/.potx from vault) or bundled defaults (executive, modern, minimal).<br>Example: `create_pptx("Presentations/quarterly.pptx", [{"title":"Q1 Results","bullets":["Revenue +15%","Users +20k"]}], "Q1 Report", "executive")` | For creating PowerPoint files. Never use write_file or evaluate_expression for.pptx. |
+| `create_xlsx` | `create_xlsx(output_path, sheets)` | Create an Excel spreadsheet (.xlsx) with sheets, data rows, headers, and optional formulas.<br>Example: `create_xlsx("Data/budget.xlsx", [{"name":"Sheet1","headers":["Item","Cost"],"rows":[["Server",500],["Domain",12]]}])` | For creating Excel files. Never use write_file or evaluate_expression for.xlsx. |
+| `delete_file` | `delete_file(path)` | Move a file or empty folder to the trash (safe. recoverable).<br>Example: `delete_file("Archive/old-note.md")` | When user explicitly asks to delete. Moves to system trash (recoverable). |
+| `edit_file` | `edit_file(path, old_str, new_str, expected_replacements?)` | Replace a specific string in an existing file. Preferred for targeted edits. preserves surrounding content. old_str must exactly match the file content.<br>Example: `edit_file("note.md", "## Old Heading", "## New Heading")` | For targeted edits that preserve surrounding content. Always read_file first to get exact text. |
+| `extract_zip` | `extract_zip(zip_path, target_folder, overwrite?, strip_root_folder?)` | Unpack a.zip /.skill archive from the vault into a target folder. Enforces path-traversal + zip-bomb guards. NEVER unpack ZIPs via evaluate_expression. the sandbox cannot bundle jszip.<br>Example: `extract_zip("Inbox/skill.zip", ".vault-operator/cache/tmp/translator-input/skill", false, true)` | When you need to unpack a ZIP. e.g. Anthropic skill bundles for skill-translator, asset packs, exported skill archives. Use strip_root_folder=true when the archive wraps everything in a single top-level dir. |
+| `generate_canvas` | `generate_canvas(output_path, mode, source?, files?, max_notes?, draw_edges?)` | Create an Obsidian Canvas (.canvas) file visualizing notes and their wikilink connections. mode: "folder" \| "tag" \| "backlinks" \| "files".<br>Example: `generate_canvas("Maps/project-map.canvas", "folder", "Projects/", undefined, 20, true)` | To visualize note relationships. Use "files" mode with specific paths for custom selections. |
+| `ingest_deep` | `ingest_deep(source_path, ...)` | Deep-Ingest of a source note (BA-25 Karpathy pattern): creates a source note plus structured downstream notes (concepts, claims, evidence). Heavy operation, writes multiple notes. | After ingest_triage decided that a source warrants deep ingestion. |
+| `ingest_document` | `ingest_document(output_path, header_content, source_path?, attachment_index?)` | Create a Markdown source note from a PDF/Office activeDocument. You write the frontmatter + overview, the tool appends the full original text automatically.<br>Example: `ingest_document("Notes/Webb-2026_Report.md", "---\nKategorie: Quelle\n---\n## Ueberblick\n...", "Attachements/report.pdf")` | For converting PDFs and Office documents into Markdown source notes. Bypasses output token limits by appending the full document text programmatically. |
+| `ingest_triage` | `ingest_triage(source_path, ...)` | Quick triage of a source (article, PDF, vault note). Decides keep/skim/skip and writes a one-line decision into the triage log. | Before deciding whether to call ingest_deep on a new source. |
+| `mark_note_as_memory_source` | `mark_note_as_memory_source(note_path)` | Mark a vault note as memory-source. The note content gets extracted into the long-term memory store on the next maintenance pass. | For notes that contain durable facts (project briefs, glossaries, policy notes) you want the agent to remember beyond the current chat. |
+| `move_file` | `move_file(source, destination)` | Move or rename a file or folder.<br>Example: `move_file("Inbox/note.md", "Projects/note.md")` | To reorganize vault structure. Obsidian automatically updates wikilinks. |
+| `plan_presentation` | `plan_presentation(source, template, deck_mode, goal?, audience?)` | Plan a presentation from source material and corporate template. Generates a complete deck plan with content for every shape via internal LLM call.<br>Example: `plan_presentation("Notes/Q1-Review.md", "acme", "reading", "Stakeholder informieren")` | ALWAYS before create_pptx when using corporate templates. Reads source material, selects slide types, generates content for all shapes. |
+| `restore_checkpoint` | `restore_checkpoint(commitOid, path?, mode?)` | Roll a vault file (or every file a task touched) back to a checkpoint snapshot. Mode "file" restores one path, mode "task" restores all files in the checkpoint and trashes newly created ones.<br>Example: `restore_checkpoint("a1b2c3d4...", "Notes/Madrid.md")` | After list_checkpoints and diff_checkpoint, to recover an earlier version. Takes its own pre-restore snapshot, so the restore itself can be undone. |
+| `unmark_note_as_memory_source` | `unmark_note_as_memory_source(note_path)` | Remove the memory-source marker from a vault note. The note stays in the vault; only the extraction binding is removed. | When a previously useful source has become noise or stale and should stop feeding long-term memory. |
+| `update_base` | `update_base(path, view_name, filter_property?, filter_values?, columns?, sort_property?, sort_direction?)` | Add or replace a view in an existing Bases file.<br>Example: `update_base("Databases/tasks.base", "Completed", "status", ["done"], ["title", "completed"], "completed", "desc")` | To add or modify a view in an existing.base file. |
+| `update_frontmatter` | `update_frontmatter(path, updates, remove?)` | Set or update frontmatter fields without touching note content.<br>Example: `update_frontmatter("note.md", {"status": "done", "tags": ["review"]}, ["draft"])` | To set/update YAML frontmatter cleanly without touching note body. |
+| `write_file` | `write_file(path, content)` | Create a new file or completely replace an existing file's content. Use for new files or full rewrites. For PDF/document ingest, use ingest_document instead (it appends the original text automatically).<br>Example: `write_file("Inbox/summary.md", "# Summary\n\nKey findings...")` | For new files or complete rewrites. For targeted edits, prefer edit_file. For PDF/document ingest, use ingest_document. |
 
-Tools that understand your vault's structure, metadata, and connections.
+## Web
 
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `get_vault_stats` | Overview of your vault: note count, folder structure, top tags, recently modified files. | When you need a broad picture of your vault. |
-| `get_frontmatter` | Read all YAML frontmatter fields of a note (tags, aliases, dates, status, custom properties). | To check or inspect metadata before updating it. |
-| `search_by_tag` | Find all notes with given tags, supporting AND/OR matching and nested tags. | To filter notes by tags or categories. |
-| `get_linked_notes` | Get forward links and backlinks for a note. | To understand how notes connect in the graph. |
-| `get_daily_note` | Read (or create) a daily note for today, yesterday, or any offset. | To work with your daily notes. |
-| `open_note` | Open a note in the Obsidian editor. | After creating or editing a note so you can see the result. |
-| `semantic_search` | Find notes by meaning using embedding-based similarity search. | For natural-language questions about vault content ("What do I know about X?"). |
-| `query_base` | Query an Obsidian Bases database file and return matching records. | To retrieve structured data from a `.base` file. |
-| `vault_health_check` | Run structural checks on the knowledge graph: orphans, broken links, missing backlinks, weak clusters, inconsistent tags, category mismatches, god-nodes. | To audit vault quality or diagnose a specific issue area. Runs against the knowledge database, no LLM tokens used. See [Vault Health](/guides/vault-health). |
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `anti_echo_search` | `anti_echo_search(cluster, source_domain)` | Active web search for counter-positions to a cluster dominated by one source domain. Returns findings that contradict or qualify the dominant view. | When a knowledge cluster looks one-sided and the user asked for balance. Used by the periodic knowledge-maintenance job. |
+| `web_fetch` | `web_fetch(url, maxLength?, startIndex?)` | Fetch a URL and return its content as Markdown. Use for reading documentation, articles, or any public page. maxLength defaults to 20000 chars; use startIndex to paginate.<br>Example: `web_fetch("https://docs.example.com/api", 5000)` | To read a specific URL. Follow up from web_search results or user-provided links. |
+| `web_search` | `web_search(query, numResults?)` | Search the web and return titles, URLs, and snippets. Follow up with web_fetch to read a full page. Only available when Web Tools are enabled in settings.<br>Example: `web_search("obsidian plugin dataview API", 5)` | For external/current information ("latest", "aktuell", "im Internet"). NOT for vault content. |
 
-:::info Semantic search setup
-`semantic_search` requires an embedding model and a built index. Configure both in **Settings > Embeddings**. See [Knowledge Discovery](/guides/knowledge-discovery) for setup instructions.
-:::
+## Agent
 
-## Edit tools
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `ask_followup_question` | `ask_followup_question(question, options?)` | Ask the user a clarifying question when the request is ambiguous. Provide optional answer choices. Use sparingly. only when genuinely needed.<br>Example: `ask_followup_question("Which format do you prefer?", ["Markdown table", "Bullet list", "Canvas"])` | Only when genuinely ambiguous. Do not ask if you can infer from context. |
+| `attempt_completion` | `attempt_completion(result)` | End the task loop after a multi-step tool workflow. Only use this after tool calls. never for simple text responses. The result is a brief internal log entry (e.g. "Created summary note"), not the user-facing answer.<br>Example: `attempt_completion("Created summary note at Projects/summary.md")` | After a multi-step tool workflow to signal completion. NOT for simple text responses. |
+| `configure_model` | `configure_model(action, ...)` | Add, select, or test an LLM model. Manages the activeModels list and activeModelKey from the agent loop. | During onboarding or when the user asks to switch to a different LLM. Prefer update_settings for non-model toggles. |
+| `consult_flagship` | `consult_flagship(problem, relevant_context, failed_attempts, constraints)` | Escalate ONE hard synthesis step to a flagship-tier advisor subagent (read-only, 3000-token answer cap, max 3 calls per task). Use when the main loop is stuck on a problem that needs a stronger model.<br>Example: `consult_flagship({ problem: "How should I structure the cache invalidation here?", relevant_context: "...", failed_attempts: "...", constraints: "no new deps" })` | A genuinely hard architecture / synthesis question where the current tier keeps producing weak answers. NOT for routine reads or small clarifications. |
+| `evaluate_expression` | `evaluate_expression(expression, context?, dependencies?)` | Execute TypeScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl. For: batch operations across many files (5+), computations, data transforms, HTTP API calls, npm packages. NOT for: single-file edits (use read_file + edit_file/write_file instead) or binary file generation (DOCX, PPTX, XLSX, PDF).<br>Example: `evaluate_expression("const files = await ctx.vault.list('Projects/'); let count = 0; for (const f of files) { const c = await ctx.vault.read(f); count += (c.match(/- \\[ \\]/g) || []).length; } return '${count} open tasks'")` | ONLY when built-in tools cannot do the job: batch processing across 5+ files, computations, complex data transforms, HTTP requests, npm packages. NEVER for single-file operations. use read_file + edit_file/write_file instead. |
+| `find_tool` | `find_tool(query)` | Discover and activate specialised tools not in the default schema. Use when you need office-format creation (pptx/docx/xlsx), diagrams (canvas/excalidraw/drawio), base queries, expression evaluation, source management, or vault-health helpers. Keyword search (case-insensitive) ranks matches by name > label > description and activates the top results for the rest of the session.<br>Example: `find_tool({ query: "pptx" })` | The user asks for something the currently loaded tools do not cover. before giving up, try find_tool with a relevant keyword. |
+| `inspect_self` | `inspect_self(area)` | Live introspection of the running plugin (areas: settings, tools, capabilities, code). Returns a Markdown summary of the actual runtime state -- not guesses. | Before claiming a setting/tool/capability exists, especially when the user asks "what can you do" or after a recent code change. Avoids hallucinating features. |
+| `invoke_mcp_server` | `invoke_mcp_server(server_id, tool_name, args?)` | Call a tool exposed by a configured MCP server as a first-class step inside a skill workflow. The MCP server's approval policy still applies. Composition cycles and a max-depth of 5 are enforced across skill <-> mcp transitions.<br>Example: `invoke_mcp_server({ server_id: "notion", tool_name: "search_page", args: { query: "Q2 OKRs" } })` | When a skill workflow names an MCP-server tool as a building block. Equivalent to use_mcp_tool but participates in composition cycle/depth tracking. |
+| `invoke_skill` | `invoke_skill(skill_name, args?)` | Run another skill as a sub-skill. The sub-skill executes in an isolated subtask (own conversation, own attempt_completion). Its final result is returned as the tool_result. Composition cycles and a max-depth of 5 are enforced.<br>Example: `invoke_skill({ skill_name: "meeting-summary", args: { note: "2026-05-21.md" } })` | When the current skill's workflow explicitly names another skill as a building block. NOT for one-off questions that the current skill can answer itself. |
+| `manage_mcp_server` | `manage_mcp_server(action, name?, config?)` | Add, remove, update, list, or test MCP servers. Supported transports: SSE, streamable-http (no stdio). | When external tool servers could help beyond built-in tools. |
+| `manage_source` | `manage_source(action, name?, content?)` | Manage context sources -- persistent text blocks injected into every conversation. | When the user wants to always include certain context (project rules, style guides). |
+| `mark_for_memory` | `mark_for_memory(scope?)` | Save the current sidebar conversation (or the named scope) to long-term memory immediately. Triggers extraction now instead of at session end. | When the conversation contained a fact, decision, or preference the user wants persisted right away. |
+| `new_task` | `new_task(mode, message)` | Spawn a sub-agent (default slug "agent" -- the standard Agent). The sub-agent runs with a fresh conversation and returns its result. Use for agentic workflows: prompt chaining, orchestrator-worker, evaluator-optimizer, or routing.<br>Example: `new_task("agent", "Research all notes tagged #project and create a summary")` | Only for 5+ step tasks that benefit from context isolation or parallel processing. |
+| `read_agent_logs` | `read_agent_logs(action?, level?, since?, pattern?)` | Read the agent's own console logs (debug, warn, error) from the ring buffer. Supports filtering by level, time, and pattern. | For self-debugging when something looks off and the user wants the agent to introspect what happened. |
+| `recall_memory` | `recall_memory(query, top_k?)` | Search the user memory store (Memory v2 facts + edges) by cosine + keyword. Returns ranked facts with sources. | When the user references something likely stored in long-term memory ("what did we decide about X?") and the conversation history alone is not enough. |
+| `run_skill_script` | `run_skill_script(skill_name, script_name, args?)` | Execute a JavaScript helper script that lives in a self-authored skill folder under scripts/{script_name}.js. The script must export `async function execute(args)`; the return value is JSON-serialized back to the tool_result. Replaces the legacy code_modules pattern (FEAT-29-06).<br>Example: `run_skill_script("newsletter-digest", "aggregate", {"window_days": 7})` | For deterministic, repeatable steps the agent should not have to hallucinate each time (data aggregation, API calls, format conversion, binary file generation). The skill folder bundles the SKILL.md instructions WITH the scripts. |
+| `switch_agent` | `switch_agent(mode_slug, reason?)` | Switch to a different Agent when the current task is better handled by another. Each Agent has its own role definition + tool set; switching swaps both from the next iteration. | When the task profile changes during a conversation and a different role / toolset would help. |
+| `update_settings` | `update_settings(action, path?, value?, preset?)` | Change plugin settings programmatically. action="set" with path+value, or action="apply_preset" with a permissive/balanced/restrictive preset. API keys are NOT writable here -- use configure_model. | When the user explicitly asks to toggle an auto-approval flag, switch a feature on/off, or apply a permission preset. Always ask the user before changing a flag that affects safety. |
+| `update_soul` | `update_soul(action, key?, value?)` | Add, update, or replace an entry in the curated Soul (L2): values, principles, lessons, working preferences. | When the user shares a durable principle ("I always X") or lesson learned that should shape future agent behaviour. |
+| `update_todo_list` | `update_todo_list(todos)` | Publish your task plan as a visible checklist. Use ONLY for complex tasks with 3+ distinct steps. For simple tasks, execute directly. no plan needed. Format: one item per line with - [ ] (pending), - [~] (in progress), - [x] (done).<br>Example: `update_todo_list("- [x] Read source files\n- [~] Creating summary\n- [ ] Open note for user")` | Only for complex tasks with 3+ distinct steps. Not for simple operations. |
 
-Tools that create, modify, or delete files in your vault, plus knowledge ingest and memory-source curation. Each one triggers an approval prompt unless auto-approved.
+## MCP
 
-### File editing
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `read_mcp_tool` | `read_mcp_tool(server, name)` | Read the full description and a compact input-schema summary of a single MCP tool. Use when the MCP listing shows a truncated description and you need the full text before calling use_mcp_tool.<br>Example: `read_mcp_tool("notion", "create_page")` | When the MCP tool listing shows "... [full description: read_mcp_tool({ server, name })]" and you need the rest of the description or the input schema. |
+| `use_mcp_tool` | `use_mcp_tool(server_name, tool_name, arguments)` | Call a tool on an MCP server configured in settings.<br>Example: `use_mcp_tool("my-server", "get_data", {"query": "test"})` | For tools provided by configured MCP servers. Check Connected servers list first. |
 
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `write_file` | Create a new file or completely replace an existing file's content. | For new files or full rewrites. |
-| `edit_file` | Replace a specific string in an existing file, preserving surrounding content. | For targeted edits. The preferred way to modify files. |
-| `append_to_file` | Append content to the end of a file. | For daily notes, logs, and additive entries. |
-| `update_frontmatter` | Set, update, or remove frontmatter fields without touching note content. | To change metadata (tags, status, dates) cleanly. |
-| `create_folder` | Create a new folder, including parent folders if needed. | Before writing files to a new location. |
-| `delete_file` | Move a file or empty folder to the system trash (recoverable). | When you explicitly ask to delete something. |
-| `move_file` | Move or rename a file or folder. Obsidian auto-updates wikilinks. | To reorganize vault structure. |
-| `restore_checkpoint` | Restore a previous checkpoint, undoing one or more edit-tool runs. | When the user wants to revert recent changes. |
+## Skill
 
-### Diagrams, canvases, and Bases
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `generate_canvas` | Create an Obsidian Canvas (`.canvas`) visualizing notes and their connections. | To visualize note relationships as a spatial map. |
-| `create_excalidraw` | Create an Excalidraw drawing with labeled boxes and connections. | To create diagrams and visual overviews. |
-| `create_drawio` | Create a Draw.io / diagrams.net flowchart (`.drawio` or `.drawio.svg`) with nodes, shapes, and arrows. | For programmatically created flowcharts that the user then extends in the plugin. |
-| `create_base` | Create an Obsidian Bases (`.base`) database view from vault notes. | To build structured database views filtered by frontmatter. |
-| `update_base` | Add or replace a view in an existing Bases file. | To modify database views without recreating the file. |
-
-### Office documents
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `plan_presentation` *(beta)* | Plan a deck from source material and a theme via an internal AI call. Reads the source, picks layouts from the chosen theme catalog, and proposes content for every slide. Output is a structured plan, not a file. | Before `create_pptx` whenever a non-trivial deck is requested. |
-| `create_pptx` *(beta)* | Create a `.pptx` file from structured slide data using PptxGenJS. Five fixed layouts (title, section, content, two-column, closing), themed by color and font. Does not clone corporate `.pptx` templates. See [office documents](/guides/office-documents) for limitations. | For draft decks and internal-use presentations. For client-facing decks, expect to finish the polish in PowerPoint. |
-| `create_docx` | Create a `.docx` file with headings, sections, bullets, numbered lists, and tables via the `docx` library. Output is clean and reliable. | For Word documents. |
-| `create_xlsx` | Create an `.xlsx` file with sheets, headers, data rows, formulas, and column widths via `exceljs`. | For Excel spreadsheets. |
-
-### Knowledge ingest
-
-Tools for bringing external sources (PDFs, Office files, web clips) into the vault as structured notes with provenance back to the source.
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `ingest_triage` | Ten-second pre-triage of a source against the vault's ontology. Returns cluster match, source-diversity hint, tension hint, and a recommendation (ingest / later / discard). Costs about $0.05 per pass. | Before deep-reading a source, to decide whether it is worth the effort. |
-| `ingest_document` | Single-pass ingest of a document into one note: frontmatter, overview, key statements with `[[basename#Page N\|↗]]` provenance refs, and the full original text. | For quick inbox capture of PDFs, DOCX, PPTX, XLSX, or web clips. |
-| `ingest_deep` | Karpathy-style multi-turn deep ingest. Converts PDFs into a Markdown mirror with block IDs, then produces either a single dense sense-making note or a bibliography note plus N atomic zettel. Every claim carries a `[[mirror#^block-N\|↗]]` link to the exact paragraph. | For research papers, long reports, or anything that requires sense-making instead of summarization. See [Knowledge Ingest](/guides/knowledge-ingest). |
-
-### Memory-source curation
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `mark_note_as_memory_source` | Mark a vault note as a memory source. The frontmatter indexer will keep facts derived from it in sync as the note changes. | When a note holds canonical knowledge that should feed the memory layer. |
-| `unmark_note_as_memory_source` | Remove a note from the memory-source set. | When a note should no longer feed the memory layer. |
-
-## Web tools
-
-Tools for accessing the internet. Require Web Tools to be enabled in settings.
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `web_fetch` | Fetch a URL and return its content as Markdown. Supports pagination for long pages. | To read a specific web page, documentation, or article. |
-| `web_search` | Search the web and return titles, URLs, and snippets. | For current or external information not in your vault. |
-| `anti_echo_search` | Find sources that contradict or extend the current note instead of confirming it. | To break out of confirmation bias when researching a topic. |
-
-## Agent tools
-
-Internal tools the agent uses to manage its own workflow, memory, configuration, and composition with skills or MCP servers.
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `ask_followup_question` | Ask you a clarifying question with optional answer choices. | When your request is genuinely ambiguous. |
-| `attempt_completion` | Signal that a multi-step task is done and log a summary. | After completing a tool-based workflow. |
-| `update_todo_list` | Publish a visible task checklist for multi-step work. | For tasks with 3 or more distinct steps. |
-| `new_task` | Spawn a sub-agent with a fresh context for isolated or parallel work. The `profile: 'research'` option uses a lean read-only allowlist (10 tools) with a per-call token budget. | For tasks (5+ steps) that benefit from delegation. |
-| `switch_agent` | Switch to a different agent profile. UI trigger removed in v2.11 when Modes were renamed to Agents; the tool itself is still active. | When the current task needs a different set of tools or behavior. |
-| `consult_flagship` | Escalate one synthesis step to the active provider's Frontier-tier model. Read-only subagent, output capped at 3000 tokens, three calls per task. Filtered out of the schema entirely if the active provider has no Frontier-tier model. | After two consecutive failed attempts on the Main tier, or when the task explicitly demands the strongest model on one step (deep analysis, cross-document synthesis, dense reasoning). |
-| `evaluate_expression` | Execute TypeScript code in an isolated sandbox with vault access. | For batch operations, computations, data transforms, or API calls beyond built-in tools. |
-| `run_skill_script` | Run a script (TypeScript, Python, or shell) that ships in a skill's `scripts/` folder. | When a skill provides a script to do the work instead of free-form steps. |
-| `invoke_skill` | Invoke another skill as a sub-task with its own allowlist. Cycle detection and max-depth limits prevent runaway recursion. | When a skill composes work that another skill already encapsulates. |
-| `invoke_mcp_server` | Invoke an MCP server tool as a sub-task from inside a skill. | When a skill composes work that an external MCP server already exposes. |
-| `find_tool` | Look up which tool fits a task description, including deferred, custom, and plugin tools. | When the agent is unsure which tool to use, or to load a deferred tool's schema on demand. |
-| `inspect_self` | Read the agent's own configuration, available tools, agents, and active rules. | For debugging or when the user asks "what can you do?". |
-| `recall_memory` | Retrieve relevant facts and preferences from the persistent memory store, filtered by source interface (Obsidian, Claude Desktop, ChatGPT, etc.). | When the agent needs personal context to answer well. |
-| `mark_for_memory` | Mark a piece of information from the current conversation as memory-worthy. | When the user says "remember this" or shares a stable preference. |
-| `update_soul` | Update the user's soul layer (long-term identity, values, working style). | For deep, slow-changing personality updates, not day-to-day facts. |
-| `manage_source` | Manage context sources: persistent text blocks injected into every conversation. | To always include certain context like project rules. |
-| `manage_mcp_server` | Add, remove, or test MCP server connections. | To connect external tool servers. |
-| `configure_model` | Add, select, or test an LLM model configuration. | To set up a new AI model or switch the active one. |
-| `update_settings` | Change Vault Operator plugin settings or apply permission presets. | When you ask the agent to adjust its own configuration. |
-| `read_agent_logs` | Read the agent's internal console logs for self-debugging. | To diagnose errors or understand what happened. |
-
-## Skill tools
-
-The SKILL group covers tools that bridge the agent to other Obsidian plugins and to external shell recipes. Skills (the Markdown instruction files) use these tools as the building blocks for plugin-as-skills workflows.
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `execute_command` | Run an Obsidian command by ID (e.g., `daily-notes:open`). | To trigger any plugin's commands. |
-| `call_plugin_api` | Call a JavaScript API method on a plugin (Dataview, Omnisearch, etc.). | To retrieve structured data from plugins. |
-| `probe_plugin` | Probe an enabled plugin for its exposed commands and API surface. | When the agent needs to discover what a plugin can do before calling it. |
-| `enable_plugin` | Enable or disable an installed community plugin. | When a disabled plugin is needed for a task. |
-| `resolve_capability_gap` | Search for plugins that could help when no built-in tool matches. | When the agent cannot fulfill a request with existing tools. |
-| `execute_recipe` | Run a pre-defined recipe for external CLI tools (e.g., Pandoc export). | For validated command-line integrations. |
-
-## MCP tools
-
-| Tool | Description | When to use |
-|------|-------------|-------------|
-| `use_mcp_tool` | Call any tool provided by a connected MCP server. | When an external MCP server offers the functionality you need. |
-| `read_mcp_tool` | Read the full description and a compact input-schema summary for a single MCP tool. | When the MCP listing shows a truncated description and the agent needs the full text or schema before calling `use_mcp_tool`. |
-
-:::tip Agents control tool access
-Each agent (Ask, Agent, or your custom agents) can enable or disable specific tool groups. Configure per-agent tools in **Settings > Agents**. Ask only has read tools enabled by default.
-:::
-
-## Cross-surface tools (MCP outbound)
-
-Vault Operator also exposes a small surface to external AI clients (Claude Desktop, ChatGPT, Perplexity) via its own MCP server. These are not built-in tools the agent calls; they are entry points other AIs use to read and write Vault Operator's memory and history layers. See [MCP architecture](/concepts/mcp-architecture).
-
-- `get_context`: pull the user's memory, soul, skills, and rules (gated by strict source isolation setting).
-- `recall_memory`: cross-source memory retrieval.
-- `save_to_memory`: fact persistence with source tagging.
-- `save_conversation`: persist a conversation as a living document.
-- `search_history`: cross-source history search.
-- `execute_vault_op`: run vault operations (read, list, write) with the user's permission boundaries.
-- `read_notes`: bulk-read notes by path.
-- `search_vault`: search across the vault.
-- `update_memory`: legacy memory write, deprecated in favor of `save_to_memory`.
-- `sync_session`: legacy session sync from external clients.
-- `close_conversation`: close a living document explicitly.
-- `get_vault_implicit_edges` / `get_vault_note_metadata`: structural vault queries.
-
-## Quick-pick guide
-
-Common tasks mapped to the right tool.
-
-| You want to... | Best tool | Why not the alternative |
-|----------------|-----------|------------------------|
-| Find notes about a topic | `semantic_search` | `search_files` only matches exact text, not meaning |
-| Find an exact phrase | `search_files` | `semantic_search` finds similar meanings, not exact matches |
-| Check a note's tags | `get_frontmatter` | `read_file` reads the whole file, unnecessary for metadata |
-| Add a paragraph to a note | `edit_file` | `write_file` replaces the entire file |
-| Add an entry to a log | `append_to_file` | `edit_file` requires matching existing text |
-| Quickly capture a PDF | `ingest_document` | `read_document` reads but does not write a note |
-| Sense-make a research paper | `ingest_deep` | `ingest_document` is single-pass without dialog or block-refs |
-| Decide whether to read a source | `ingest_triage` | Reading the whole thing first defeats the point |
-| Create a Word document | `create_docx` | `write_file` cannot produce binary `.docx` format |
-| Create a PowerPoint | `plan_presentation` then `create_pptx` | Skipping `plan_presentation` leaves empty shapes |
-| Read a PDF or PPTX | `read_document` | `read_file` returns raw binary for non-text formats |
-| Run a Dataview query | `call_plugin_api` | `search_files` cannot execute Dataview logic |
-| Process 50 files at once | `evaluate_expression` | Calling `edit_file` 50 times is slow and error-prone |
-| Look something up online | `web_search` then `web_fetch` | Vault tools only search local files |
-| Create a visual map of notes | `generate_canvas` | Manual note arrangement is tedious |
-| Recall what we discussed last week | `search_history` | `read_file` cannot find conversations by content |
-
-## Notes on tool behavior
-
-- **Read tools run in parallel.** When the agent needs to read multiple files, it reads them all at once.
-- **Edit tools run sequentially.** Write operations go one at a time to avoid conflicts.
-- **Checkpoints run automatically.** Before any edit tool modifies a file, Vault Operator creates a snapshot so you can undo the change.
-- **`evaluate_expression` runs in a sandbox.** No direct file system access, no shell. Vault access goes through a bridge with the user's permission settings.
-- **Office-document tools self-check after output.** `create_pptx`, `create_docx`, `create_xlsx`, `generate_canvas`, and `create_excalidraw` produce real binary files that open in Microsoft Office, Google Docs, or LibreOffice. PPTX creation is in beta; see the [office documents guide](/guides/office-documents) for the practical constraints.
-- **Knowledge-ingest tools enforce provenance.** Every key statement in an ingest output carries a `[[source#position\|↗]]` link to the exact block, page, slide, or anchor in the source. See [Knowledge Ingest](/guides/knowledge-ingest).
-- **22 tools are deferred.** Rarely-used tools (checkpoints, Bases edits, diagram creators, `evaluate_expression`, `update_settings`, and others) stay out of the default system prompt to save tokens. The agent loads them on demand via `find_tool`. You do not have to do anything; this is transparent.
+| Tool | Signature | Description | When to use |
+| --- | --- | --- | --- |
+| `call_plugin_api` | `call_plugin_api(plugin_id, method, args?)` | Call a JavaScript API method on a plugin instance. Use for Dataview queries, Omnisearch searches, MetaEdit updates, and any plugin with a JS API.<br>Example: `call_plugin_api("dataview", "pages", {"query": "#meeting AND -#archived"})` | For structured data from plugins (Dataview, Omnisearch, MetaEdit). Returns data, not UI. |
+| `enable_plugin` | `enable_plugin(plugin_id, enable?)` | Enable or disable an installed Obsidian community plugin. Use when a disabled plugin could help with the task and the user agrees to activate it.<br>Example: `enable_plugin("obsidian-excalidraw-plugin", true)` | When a disabled plugin is needed. Ask the user before enabling. |
+| `execute_command` | `execute_command(command_id)` | Execute an Obsidian command by its ID. Use this to trigger plugin functionality. Check PLUGIN SKILLS in your context for available commands.<br>Example: `execute_command("daily-notes:open")` | For Obsidian-native plugin commands (templates, daily notes, note organization). Check.skill.md for command IDs. |
+| `execute_recipe` | `execute_recipe(recipe_id, params)` | Execute a pre-defined recipe for external tools (Pandoc PDF/DOCX export). No arbitrary shell -- only validated recipes.<br>Example: `execute_recipe("pandoc-pdf", {"input": "note.md", "output": "note.pdf"})` | For CLI tool integrations (Pandoc, LaTeX). Check dependency availability first. |
+| `probe_plugin` | `probe_plugin(plugin_id)` | Live read of a plugin's current commands and API methods. Use before the first call_plugin_api or execute_command on a freshly enabled plugin, or when the PLUGIN SKILLS section looks stale.<br>Example: `probe_plugin("dataview")` | Just-enabled lazy plugin (Dataview, Templater), post-update command rename, or before first call to a plugin you have not used this session. |
+| `resolve_capability_gap` | `resolve_capability_gap(capability, context?)` | When no tool or skill matches a task, check if a disabled or previously installed Obsidian plugin could help.<br>Example: `resolve_capability_gap("create mindmap visualization")` | When no existing tool or skill matches the task. Discovers disabled/uninstalled plugins. |

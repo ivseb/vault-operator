@@ -48,8 +48,32 @@ import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
+import DOMPurify from 'dompurify';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
+
+/**
+ * AUDIT-034 M-4: Defensive sanitization for rehydrated tool-step HTML.
+ *
+ * stepsBlockEl.outerHTML is persisted into the conversation JSON on every
+ * assistant turn and re-parsed on chat reload. All current writers are
+ * first-party safe (setText / createEl / createSpan), but if an attacker
+ * gains write access to the conversation JSON (untrusted sync, hostile MCP
+ * flow), the stored string would round-trip to the live Electron renderer
+ * unchecked. DOMPurify strips script / iframe / object / embed / link / meta
+ * tags plus event-handler attributes plus javascript: URLs before we ever
+ * touch the live DOM.
+ *
+ * RETURN_DOM_FRAGMENT gives back a sanitized DocumentFragment we can append
+ * via importNode + appendChild, matching the existing rehydration shape.
+ */
+const TOOL_STEPS_SANITIZE_CONFIG = {
+    RETURN_DOM_FRAGMENT: true as const,
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'frame', 'frameset'],
+    FORBID_ATTR: ['srcdoc', 'srcset', 'formaction', 'action', 'background', 'poster', 'ping'],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+};
 
 /**
  * Agent Sidebar View
@@ -3350,17 +3374,20 @@ export class AgentSidebarView extends ItemView {
         }
         // Re-inject the collapsed agent steps block above the markdown so
         // the user can still expand "what did the agent do?" after a chat
-        // reload. Parsed via DOMParser to avoid innerHTML and keep the
-        // review-bot rules clean.
+        // reload. Parsed via DOMPurify (AUDIT-034 M-4) so persisted HTML
+        // cannot smuggle script / iframe / event handlers / javascript:
+        // URLs into the live renderer if the conversation JSON was tampered
+        // with on disk.
         if (role === 'assistant' && toolStepsHtml) {
             const toolsEl = msgEl.createDiv('message-tools');
             try {
-                const parsed = new DOMParser().parseFromString(toolStepsHtml, 'text/html');
-                const root = parsed.body.firstElementChild;
+                const fragment = DOMPurify.sanitize(toolStepsHtml, TOOL_STEPS_SANITIZE_CONFIG);
+                // RETURN_DOM_FRAGMENT yields a DocumentFragment whose first
+                // element is the sanitized <details> root from stepsBlockEl.
+                // Import it into the live document before append so the node
+                // is owned by the right document.
+                const root = fragment.firstElementChild;
                 if (root) {
-                    // Imported nodes are detached from the parsed document;
-                    // appending them moves the (already-styled) <details>
-                    // tree into the live message element.
                     toolsEl.appendChild(activeDocument.importNode(root, true));
                     // Always start collapsed on rehydration so the chat
                     // doesn't visually explode when an old turn is reopened.

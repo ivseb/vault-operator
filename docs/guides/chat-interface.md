@@ -21,20 +21,22 @@ Open Vault Operator by clicking its icon in the left sidebar. The panel has thre
 - Message area in the center: your conversation, activity blocks, approval cards
 - Input bar at the bottom: text field, attachment button, send button
 
-## Model picker: thinking and reasoning effort
+## Thinking and reasoning effort {#thinking-and-reasoning-effort}
 
 The model picker controls which model the conversation runs on, plus two per-conversation reasoning controls that apply to the current chat without changing your saved settings.
 
-- **Auto** keeps the tier router on: it picks a model strength (Budget / Main / Frontier) based on the task. Pinning a specific model turns the router off for that conversation.
+- **Auto** keeps the tier router on: it picks a model strength (Budget, Main, or Frontier) based on the task. Pinning a specific model turns the router off for that conversation.
 - **Thinking** is an On/Off toggle. On models that support extended thinking it forces it on or off for this chat; on models without it, the toggle is ignored. The current state is shown on the chat header.
-- **Reasoning effort** is a slider that appears when you pin a model and turn thinking on. It uses the model's own native levels (Claude: Low / Medium / High / XHigh / Max; GPT-5 and o-series: Minimal / Low / Medium / High). The leftmost stop, **Auto**, sends no effort field, so the model keeps its own default. In Auto model mode the slider stays hidden, because the router is already choosing model strength for you.
+- **Reasoning effort** is a slider that appears when you pin a model and turn thinking on. It uses the model's own native levels (Claude: Low, Medium, High, XHigh, Max; GPT-5 and o-series: Minimal, Low, Medium, High). The leftmost stop, **Auto**, sends no effort field, so the model keeps its own default. In Auto model mode the slider stays hidden, because the router is already choosing model strength for you.
+
+Cross-reference: [Choosing a model](/guides/choosing-a-model#thinking-and-reasoning-effort) covers when to pin a model versus letting the router pick.
 
 ## Sending messages
 
 Type your message and press **Enter** to send. For multi-line messages, press **Shift+Enter** to add a new line.
 
-:::tip Configurable send key
-In **Settings > Vault Operator > Interface** you can change the send shortcut to **Ctrl+Enter** (or **Cmd+Enter** on Mac) if you prefer Enter for new lines.
+:::tip Send with enter toggle
+In **Settings > Vault Operator > Advanced > Interface**, the **Send with enter** toggle controls how Enter behaves. Turn it off if you prefer Enter for new lines and **Cmd+Enter** (or **Ctrl+Enter** on Windows and Linux) to send.
 :::
 
 ## Attachments
@@ -52,7 +54,7 @@ Three ways to attach a file:
 | Images | PNG, JPG, GIF, WebP | The agent can see and describe image content |
 | Office documents | PPTX, DOCX, XLSX | Content is extracted and added as context |
 | PDF | Any PDF file | Text is extracted for the agent to read |
-| Text files | Markdown, TXT, CSV, JSON | Added as plain text context |
+| Text files | Markdown, TXT, CSV, JSON, XML | Added as plain text context |
 
 :::warning 50 MB Limit
 Each attachment can be up to 50 MB. Very large files may use a significant portion of the model's context window, leaving less room for conversation.
@@ -108,7 +110,7 @@ Vault Operator saves every conversation automatically. To access your history:
 
 The history sidebar groups conversations by source tab: Vault Operator, Claude Desktop, ChatGPT, Perplexity, plus an "All" view. Each conversation carries the `source_interface` tag of where it came from, so you can see what came in via which surface without mixing it all together. Living documents (multiple turns within 30 minutes from the same source) appear as one entry with a turn count rather than separate conversations.
 
-Conversations are titled automatically based on their content. You can also jump to linked conversations directly from your notes. See [Memory & Personalization](/guides/memory-personalization) for chat-linking.
+Conversations are titled automatically based on their content. You can also jump to linked conversations directly from your notes. See [Memory & Personalization](/guides/memory-personalization) for chat linking.
 
 :::info Attachments live for one turn
 Files you drop into the chat are parsed once and made available for the same turn the user sent. From the next turn on, the parsed text is gone. Skills that need to operate on an attachment across multiple turns (like `/ingest-deep`) save the file to the vault first, then work against the vault path.

@@ -1,148 +1,171 @@
 <script setup lang="ts">
 import { withBase } from 'vitepress'
+
+/* Keep in sync with manifest.json on every release. */
+const PLUGIN_VERSION = '2.14.15'
 </script>
 
 <template>
-  <section class="landing-hero">
-    <a href="https://github.com/pssah4/vault-operator/releases" class="landing-badge" target="_blank" rel="noopener">
-      <span class="landing-badge-version">v2.14.15</span>
-      <span>Quieter discovery logs for unconfigured local providers.</span>
+  <section class="lp-hero">
+    <a
+      href="https://obsidian.md/plugins?id=vault-operator"
+      class="lp-badge"
+      target="_blank"
+      rel="noopener"
+    >
+      <span class="lp-badge-version">v{{ PLUGIN_VERSION }}</span>
+      <span class="lp-badge-divider" aria-hidden="true">·</span>
+      <span>See it in the Obsidian community plugins</span>
+      <svg class="lp-badge-arrow" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 17 17 7" /><path d="M8 7h9v9" />
+      </svg>
     </a>
 
-    <h1 class="landing-title">Your Obsidian vault,<br>with a real AI agent.</h1>
+    <h1 class="lp-title">Your Obsidian vault,<br>with a real AI agent.</h1>
 
-    <p class="landing-sub">Learns your vault and your workflows.</p>
-    <p class="landing-detail">
-      60+ tools. Block-level provenance from sense-making notes back to source paragraphs.<br>
-      Hybrid semantic search, persistent memory, cross-surface MCP, multi-agent workflows.<br>
+    <p class="lp-sub">
+      Block-level provenance from sense-making notes back to source paragraphs.
+      Hybrid semantic search, persistent memory, MCP server, multi-agent workflows.
       Local-first. Open source. Free to use.
     </p>
 
-    <div class="landing-cta">
-      <a :href="withBase('/tutorials/getting-started')" class="landing-btn-primary">Get Started</a>
-      <a :href="withBase('/guides/capabilities')" class="landing-btn-secondary">
-        What Vault Operator Can Do
+    <div class="lp-cta">
+      <a :href="withBase('/tutorials/getting-started')" class="lp-btn lp-btn-primary">
+        Get started
+      </a>
+      <a :href="withBase('/guides/capabilities')" class="lp-btn lp-btn-secondary">
+        What Vault Operator can do
       </a>
     </div>
   </section>
+
 </template>
 
 <style scoped>
-/* ── Hero Section ── */
-.landing-hero {
+@keyframes lp-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lp-hero { animation: none; }
+}
+
+.lp-hero {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 4.5rem 1.5rem 0;
-  gap: 0;
-  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124, 58, 237, 0.25), transparent);
+  padding: 4rem 1.5rem 0.5rem;
+  background: radial-gradient(ellipse 70% 45% at 50% -10%, rgba(124, 58, 237, 0.22), transparent);
+  animation: lp-fade-up 0.4s ease-out both;
 }
 
-/* ── Badge ── */
-.landing-badge {
+.lp-badge {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
   background: var(--vp-c-bg-soft);
   border: 1px solid var(--vp-c-divider);
   border-radius: 999px;
-  padding: 0.25rem 0.85rem;
-  font-size: 0.75rem;
+  padding: 0.3rem 0.95rem;
+  font-size: 0.78rem;
   color: var(--vp-c-text-2);
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
   text-decoration: none;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.landing-badge:hover {
+.lp-badge:hover {
   background: var(--vp-c-bg-elv);
   border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-text-1);
   text-decoration: none;
 }
-.landing-badge-version {
+.lp-badge-version {
   color: var(--vp-c-brand-1);
-  font-weight: 600;
+  font-weight: 700;
+}
+.lp-badge-divider {
+  opacity: 0.45;
+}
+.lp-badge-arrow {
+  opacity: 0.7;
+  transition: transform 0.15s;
+}
+.lp-badge:hover .lp-badge-arrow {
+  transform: translate(1px, -1px);
 }
 
-/* ── Title ── */
-.landing-title {
-  font-size: clamp(2.2rem, 5vw, 3.5rem);
+.lp-title {
+  font-size: clamp(2.6rem, 6vw, 4.2rem);
   font-weight: 800;
-  margin-bottom: 0.75rem;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+  margin: 0 0 1.1rem;
   background: linear-gradient(135deg, var(--vp-c-text-1) 30%, var(--vp-c-brand-1));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  line-height: 1.15;
+  max-width: 960px;
+  text-wrap: balance;
+  border: none;
+  padding: 0;
+}
+
+.lp-sub {
+  font-size: clamp(1.05rem, 1.8vw, 1.25rem);
+  color: var(--vp-c-text-2);
+  margin: 0 0 2rem;
+  font-weight: 500;
+  max-width: 640px;
+  line-height: 1.5;
   text-wrap: balance;
 }
 
-/* ── Sub text ── */
-.landing-sub {
-  font-size: clamp(1.15rem, 2.5vw, 1.35rem);
-  color: var(--vp-c-text-1);
-  max-width: 720px;
-  margin-bottom: 0.4rem;
-  line-height: 1.7;
-  text-wrap: pretty;
-  font-weight: 600;
-}
-.landing-detail {
-  font-size: clamp(0.95rem, 2vw, 1.1rem);
-  color: var(--vp-c-text-2);
-  max-width: 720px;
-  margin-bottom: 0.4rem;
-  line-height: 1.7;
-  text-wrap: pretty;
-}
-
-/* ── CTA ── */
-.landing-cta {
+.lp-cta {
   display: flex;
   gap: 0.75rem;
-  justify-content: center;
-  align-items: center;
   flex-wrap: wrap;
-  margin-top: 1rem;
-}
-.landing-btn-primary {
-  background: #7c3aed;
-  color: #fff;
-  padding: 0.6rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  transition: background 0.15s, transform 0.1s;
-  text-decoration: none;
-  display: inline-block;
-}
-.landing-btn-primary:hover {
-  background: #6d28d9;
-  transform: translateY(-1px);
-  text-decoration: none;
-}
-.landing-btn-secondary {
-  color: var(--vp-c-text-1);
-  border: 1px solid var(--vp-c-divider);
-  padding: 0.6rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  font-size: 0.9rem;
-  transition: border-color 0.15s, transform 0.1s;
-  text-decoration: none;
-  display: inline-block;
-}
-.landing-btn-secondary:hover {
-  border-color: var(--vp-c-brand-1);
-  transform: translateY(-1px);
-  text-decoration: none;
+  justify-content: center;
+  margin-bottom: 0;
 }
 
-/* ── Responsive ── */
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 1.7rem;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, color 0.15s;
+  border: 1px solid transparent;
+}
+.lp-btn:hover { transform: translateY(-1px); text-decoration: none; }
+
+.lp-btn-primary {
+  background: #7c3aed;
+  color: #fff;
+  border-color: #7c3aed;
+}
+.lp-btn-primary:hover {
+  background: #6d28d9;
+  border-color: #6d28d9;
+  color: #fff;
+}
+
+.lp-btn-secondary {
+  color: var(--vp-c-text-1);
+  border-color: var(--vp-c-divider);
+  background: transparent;
+}
+.lp-btn-secondary:hover {
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-text-1);
+}
+
 @media (max-width: 600px) {
-  .landing-hero {
-    padding: 3rem 1rem 0;
-  }
-  .landing-detail br { display: none; }
+  .lp-hero { padding: 2.75rem 1rem 0.25rem; }
+  .lp-title br { display: none; }
 }
 </style>

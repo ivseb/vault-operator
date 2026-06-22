@@ -236,14 +236,18 @@ export async function handleToolCall(
     }
 
     // AUDIT-015 M-1: Rate-Limit-Check vor jeglicher Verarbeitung.
-    // Caller-Key = mcpToken + source_interface (falls mitgegeben).
+    // AUDIT-034 L-9: Caller-Key basiert ausschliesslich auf dem
+    // bearer-geprueften mcpServerToken. Der client-supplied
+    // args.source_interface wurde frueher in den Key gemischt, was
+    // unbegrenzte Bucket-Multiplikation erlaubte (Bypass der
+    // expensive-Klasse) und ueberdies Map-Eintraege ueber lange
+    // Uptime akkumulieren liess. source_interface bleibt nur fuer
+    // OperationLogger-Telemetrie erhalten.
     // 429-Antwort mit retry_after-Sek wenn Limit ueberschritten.
     const rateLimiter = plugin.mcpRateLimiter;
     if (rateLimiter) {
         const { classifyTool } = await import('../McpRateLimiter');
-        const callerKey = `${plugin.settings.mcpServerToken ?? ''}:${
-            typeof args.source_interface === 'string' ? args.source_interface : 'unknown'
-        }`;
+        const callerKey = plugin.settings.mcpServerToken ?? 'unauthenticated';
         const decision = rateLimiter.consume(callerKey, classifyTool(tool));
         if (!decision.allowed) {
             return {
