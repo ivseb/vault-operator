@@ -900,6 +900,10 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         dispose: () => {
             orchestrator.dispose();
             service.dispose();
+            // AUDIT-EPIC-33 L-05: drop cached embeddings from RAM on
+            // plugin unload so the in-process LRU does not outlive the
+            // session.
+            embeddingCache.clear();
         },
     };
 }

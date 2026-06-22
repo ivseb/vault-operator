@@ -20,29 +20,45 @@ export interface EmbeddingCacheOptions {
     capacity?: number;
 }
 
+/**
+ * Cache entry keeps the original trimmed source text alongside the
+ * embedding so a hash collision (two distinct texts with the same
+ * FNV-1a + length-prefix) does not silently return the wrong vector.
+ * Audit ref: AUDIT-EPIC-33 M-02.
+ */
+interface CacheEntry {
+    text: string;
+    embedding: number[];
+}
+
 export class EmbeddingCache {
     private readonly capacity: number;
-    private readonly map = new Map<string, number[]>();
+    private readonly map = new Map<string, CacheEntry>();
 
     constructor(options: EmbeddingCacheOptions = {}) {
         this.capacity = Math.max(1, options.capacity ?? 16);
     }
 
     get(text: string): number[] | undefined {
-        const key = hashText(text);
-        const cached = this.map.get(key);
-        if (cached === undefined) return undefined;
+        const trimmed = text.trim();
+        const key = hashText(trimmed);
+        const entry = this.map.get(key);
+        if (entry === undefined) return undefined;
+        // Guard against hash collisions: only return the embedding when
+        // the cached source text matches the request verbatim.
+        if (entry.text !== trimmed) return undefined;
         // Re-insert to refresh LRU position.
         this.map.delete(key);
-        this.map.set(key, cached);
-        return cached;
+        this.map.set(key, entry);
+        return entry.embedding;
     }
 
     set(text: string, embedding: number[]): void {
         if (embedding.length === 0) return;
-        const key = hashText(text);
+        const trimmed = text.trim();
+        const key = hashText(trimmed);
         if (this.map.has(key)) this.map.delete(key);
-        this.map.set(key, embedding);
+        this.map.set(key, { text: trimmed, embedding });
         while (this.map.size > this.capacity) {
             const oldestKey = this.map.keys().next().value;
             if (oldestKey === undefined) break;
@@ -55,10 +71,10 @@ export class EmbeddingCache {
     get size(): number { return this.map.size; }
 }
 
-function hashText(text: string): string {
+function hashText(trimmed: string): string {
     // FNV-1a 32-bit on the trimmed text. Sufficient for an in-session
-    // cache; collisions are statistically irrelevant at N<=16.
-    const trimmed = text.trim();
+    // cache as long as the caller verifies the source text on hit
+    // (entry.text equality guard in get()).
     let hash = 0x811c9dc5;
     for (let i = 0; i < trimmed.length; i += 1) {
         hash ^= trimmed.charCodeAt(i);

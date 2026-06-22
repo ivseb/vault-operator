@@ -46,6 +46,17 @@ export class InlineSkillAction implements InlineAction {
     }
 
     async execute(ctx: InlineTriggerContext, callbacks: AgentTaskCallbacks): Promise<void> {
+        // Defense-in-depth: re-check the capability gate before
+        // invoking the skill engine. Floating-menu and Command-Palette
+        // both run isEligible upfront, but a malicious caller (or a
+        // skill manifest mutated between filter and execute) could
+        // otherwise bypass the eligibility constraints. AUDIT-EPIC-33 M-05.
+        if (this.isEligible(ctx) !== true) {
+            callbacks.onError(new Error(
+                `InlineSkillAction '${this.entry.id}' rejected -- capability check failed at execute-time`,
+            ));
+            return;
+        }
         try {
             await this.invoker(this.entry, ctx, callbacks);
         } catch (e) {

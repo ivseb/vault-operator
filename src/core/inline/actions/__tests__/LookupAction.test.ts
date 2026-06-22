@@ -97,10 +97,13 @@ describe('LookupAction', () => {
             const action = new LookupAction({ caller });
             await action.execute(makeCtx('x'), makeCallbacks());
             const sys = caller.stream.mock.calls[0][0].systemPrompt;
-            expect(sys).not.toContain('Vault context (primary sources)');
+            // The base prompt mentions the tag in its security warning;
+            // the actual augmentation block (with attributes) must NOT
+            // appear when no pipeline runs.
+            expect(sys).not.toContain('source="user_vault"');
         });
 
-        it('passes vault augmentation into the system prompt under "Vault context"', async () => {
+        it('passes vault augmentation into the system prompt inside a tagged untrusted block', async () => {
             const pipeline: VaultRagPipeline = {
                 augment: vi.fn(async () => ({
                     sources: [{ notePath: 'Notes/Lambda.md', excerpt: 'A foundational model of computation.', confidence: 0.82 }],
@@ -118,7 +121,8 @@ describe('LookupAction', () => {
                 confidenceThreshold: 0.7,
             }));
             const sys = caller.stream.mock.calls[0][0].systemPrompt;
-            expect(sys).toContain('Vault context (primary sources)');
+            expect(sys).toContain('<vault_context');
+            expect(sys).toContain('</vault_context>');
             expect(sys).toContain('A foundational model of computation.');
         });
 

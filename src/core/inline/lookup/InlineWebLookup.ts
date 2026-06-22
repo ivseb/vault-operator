@@ -37,20 +37,30 @@ export interface WebToolsSettingsShape {
     tavilyApiKey: string;
 }
 
+/** Hard limits to keep one Lookup-action bounded (AUDIT-EPIC-33 H-03). */
+const DEFAULT_TIMEOUT_MS = 5000;
+const MAX_SNIPPET_CHARS = 500;
+const MAX_TITLE_CHARS = 200;
+const MAX_URL_CHARS = 500;
+
 export interface InlineWebLookupOptions {
     /** Reads the live webTools settings on every call. */
     getWebSettings: () => WebToolsSettingsShape;
     /** Injectable provider call for unit tests. */
     fetchProvider?: typeof searchByProvider;
+    /** Optional override of the per-call timeout (ms). */
+    timeoutMs?: number;
 }
 
 export class InlineWebLookup {
     private readonly getWebSettings: () => WebToolsSettingsShape;
     private readonly fetchProvider: typeof searchByProvider;
+    private readonly timeoutMs: number;
 
     constructor(options: InlineWebLookupOptions) {
         this.getWebSettings = options.getWebSettings;
         this.fetchProvider = options.fetchProvider ?? searchByProvider;
+        this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     }
 
     async search(query: string, count = 3): Promise<WebLookupResult[]> {
@@ -66,11 +76,14 @@ export class InlineWebLookup {
         if (q.length === 0) return [];
 
         try {
-            const raw: WebSearchResult[] = await this.fetchProvider(providerName, q, count, apiKey);
+            const raw: WebSearchResult[] = await this.withTimeout(
+                this.fetchProvider(providerName, q, count, apiKey),
+                this.timeoutMs,
+            );
             return raw.slice(0, count).map((r, idx) => ({
-                title: r.title,
-                url: r.url,
-                snippet: r.snippet,
+                title: clamp(r.title, MAX_TITLE_CHARS),
+                url: clamp(r.url, MAX_URL_CHARS),
+                snippet: clamp(r.snippet, MAX_SNIPPET_CHARS),
                 score: Math.max(0, 1.0 - 0.1 * idx),
             }));
         } catch (e) {
@@ -78,6 +91,24 @@ export class InlineWebLookup {
             return [];
         }
     }
+
+    /**
+     * Race the provider call against a hard deadline. The underlying
+     * fetch keeps running for now (no AbortSignal threading through
+     * searchByProvider yet) but the inline action stops waiting.
+     */
+    private withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+        return new Promise<T>((resolve, reject) => {
+            const t = setTimeout(() => reject(new Error(`InlineWebLookup timeout after ${ms}ms`)), ms);
+            p.then(v => { clearTimeout(t); resolve(v); }, e => { clearTimeout(t); reject(e); });
+        });
+    }
+}
+
+function clamp(text: string, max: number): string {
+    if (typeof text !== 'string') return '';
+    if (text.length <= max) return text;
+    return `${text.slice(0, max - 1)}…`;
 }
 
 function buildQuery(text: string): string {

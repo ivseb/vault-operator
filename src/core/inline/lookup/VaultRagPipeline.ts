@@ -59,7 +59,14 @@ export type VaultSufficiencyTier = 'strong' | 'weak' | 'empty';
 /** Audit-derived tunables (no settings UI). */
 export const VAULT_SUFFICIENT_MIN_CHARS_STRONG = 600;
 export const VAULT_SUFFICIENT_MIN_CHARS_WEAK = 300;
-export const VAULT_WEAK_THRESHOLD_FLOOR = 0.5;
+/**
+ * Minimum cosine similarity for a chunk to count as a "weak" match
+ * that may still be injected into the prompt augmentation. Raised
+ * from 0.5 to 0.6 per AUDIT-EPIC-33 L-01 -- 0.5-matches are weak
+ * enough that injecting them poisons the LLM context more than it
+ * informs the answer.
+ */
+export const VAULT_WEAK_THRESHOLD_FLOOR = 0.6;
 export const VAULT_WEAK_TOP_MIN_SCORE = 0.6;
 /** Per-file chunk cap (top + best neighbour). */
 export const VAULT_MAX_CHUNKS_PER_FILE = 2;

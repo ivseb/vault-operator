@@ -185,12 +185,24 @@ describe('evaluateVaultSufficiency', () => {
         }];
         expect(evaluateVaultSufficiency(grouped, 0.7)).toBe('weak');
     });
-    it('returns "weak" for two below-threshold hits with top>=0.6', () => {
+    it('returns "weak" for two below-threshold hits both above floor 0.6 with top>=0.6', () => {
+        // AUDIT-EPIC-33 L-01: VAULT_WEAK_THRESHOLD_FLOOR raised from
+        // 0.5 to 0.6. Both hits must clear the floor; the previous
+        // version accepted 0.55 which is below the new floor.
+        const grouped = [
+            { notePath: 'A.md', bestScore: 0.65, chunks: [{ notePath: 'A.md', chunkIndex: 0, text: 'a'.repeat(200), cosineSimilarity: 0.65 }], excerptChars: 200 },
+            { notePath: 'B.md', bestScore: 0.62, chunks: [{ notePath: 'B.md', chunkIndex: 0, text: 'b'.repeat(150), cosineSimilarity: 0.62 }], excerptChars: 150 },
+        ];
+        expect(evaluateVaultSufficiency(grouped, 0.7)).toBe('weak');
+    });
+    it('returns "empty" when a second hit falls below the 0.6 floor', () => {
+        // AUDIT-EPIC-33 L-01: 0.55 is now below the floor; the
+        // pipeline must NOT accept this as a weak match anymore.
         const grouped = [
             { notePath: 'A.md', bestScore: 0.65, chunks: [{ notePath: 'A.md', chunkIndex: 0, text: 'a'.repeat(200), cosineSimilarity: 0.65 }], excerptChars: 200 },
             { notePath: 'B.md', bestScore: 0.55, chunks: [{ notePath: 'B.md', chunkIndex: 0, text: 'b'.repeat(150), cosineSimilarity: 0.55 }], excerptChars: 150 },
         ];
-        expect(evaluateVaultSufficiency(grouped, 0.7)).toBe('weak');
+        expect(evaluateVaultSufficiency(grouped, 0.7)).toBe('empty');
     });
     it('returns "empty" for low scores with too few chars', () => {
         const grouped = [{

@@ -37,6 +37,15 @@ import type ObsidianAgentPlugin from '../../../main';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 import type { InlinePanelHandle } from './InlineChatPanel';
 
+/**
+ * Hard cap on inline-chat turns per ADR-143 ("maximal 20 Turns").
+ * Reached when the conversation has accumulated 20 user/assistant pairs
+ * inside one panel session. Beyond that the panel emits a Notice and
+ * refuses further turns so the inline-chat block in the note stays
+ * readable and token-cost stays bounded. Audit ref: AUDIT-EPIC-33 M-04.
+ */
+export const INLINE_TURN_CAP = 20;
+
 export interface PanelChatControllerOptions {
     plugin: ObsidianAgentPlugin;
     ctx: InlineTriggerContext;
@@ -83,6 +92,17 @@ export class PanelChatController {
     get isModeReady(): boolean { return this.modeServiceReady !== null; }
 
     /**
+     * Returns true when the conversation has reached the per-block
+     * turn cap. The orchestrator queries this before dispatching a new
+     * quick-action or sendTurn so the user sees a single explanatory
+     * Notice instead of a silently failing call.
+     */
+    isAtTurnCap(): boolean {
+        const turns = Math.floor(this.uiMessages.length / 2);
+        return turns >= INLINE_TURN_CAP;
+    }
+
+    /**
      * Drop a steering message onto the queue. AgentTask drains via
      * the consumeSteeringMessages callback at every iteration start.
      * Returns false if no turn is currently running -- caller should
@@ -103,6 +123,11 @@ export class PanelChatController {
     }): Promise<void> {
         if (this.running === true) {
             args.handle.setStatus('Already running -- wait for the current turn to finish.', 'error');
+            return;
+        }
+        if (this.isAtTurnCap() === true) {
+            args.handle.setStatus(`Inline chat reached ${INLINE_TURN_CAP}-turn cap. Open the sidebar to continue this thread.`, 'error');
+            new Notice(`Inline chat reached ${INLINE_TURN_CAP}-turn cap.`);
             return;
         }
         this.running = true;
@@ -270,6 +295,11 @@ export class PanelChatController {
         userText: string;
         assistantText: string;
     }): Promise<void> {
+        if (this.isAtTurnCap() === true) {
+            console.debug(`[PanelChatController] quick-action dropped: ${INLINE_TURN_CAP}-turn cap reached`);
+            new Notice(`Inline chat reached ${INLINE_TURN_CAP}-turn cap; quick-action not recorded.`);
+            return;
+        }
         const convStore: ConversationStore | null = (this.plugin as { conversationStore?: ConversationStore | null }).conversationStore ?? null;
         if (convStore === null) {
             console.warn('[PanelChatController] recordQuickAction: no conversationStore');
