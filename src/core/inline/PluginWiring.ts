@@ -739,11 +739,10 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                 .setTitle('Find action items')
                 .setIcon('check-square')
                 .onClick(() => dispatch('find-action-items')));
-            menu.addSeparator();
-            menu.addItem(item => item
-                .setTitle('Send selection to main chat')
-                .setIcon('arrow-up-right')
-                .onClick(() => dispatch('send-to-main')));
+            // 'Send selection to main chat' retired 2026-06-22 per user
+            // feedback -- the panel IS the chat surface now, there is
+            // nowhere meaningful to forward to. The registered action
+            // stays available for callers that need it programmatically.
             menu.showAtMouseEvent({
                 clientX: anchor.getBoundingClientRect().left,
                 clientY: anchor.getBoundingClientRect().bottom,

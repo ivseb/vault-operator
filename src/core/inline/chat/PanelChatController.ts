@@ -141,16 +141,24 @@ export class PanelChatController {
         // first turn so the inline panel chat appears in Vault Operator's
         // main history list alongside sidebar chats. The conversation id
         // is reused across all subsequent turns of this panel session.
-        const convStore = (this.plugin as unknown as { conversationStore?: { create: (mode: string, model: string) => Promise<string>; save: (id: string, history: MessageParam[], ui: UiMessage[]) => Promise<void> } }).conversationStore;
+        // BUGFIX 2026-06-22: ConversationStore is declared `null` (not
+        // undefined) on the plugin -- the earlier undefined-only check
+        // dispatched into the null path and create() crashed silently,
+        // so the activeConversationId stayed null and save() bailed.
+        const convStoreRaw = (this.plugin as unknown as { conversationStore?: { create: (mode: string, model: string) => Promise<string>; save: (id: string, history: MessageParam[], ui: UiMessage[]) => Promise<void> } | null }).conversationStore;
+        const convStore = (convStoreRaw === null || convStoreRaw === undefined) ? undefined : convStoreRaw;
         if (this.activeConversationId === null && convStore !== undefined) {
             try {
                 const modelKey = this.plugin.settings.activeModelKey;
                 const model = this.plugin.settings.activeModels.find(m => getModelKey(m) === modelKey);
                 const modelDisplay = model?.displayName ?? model?.name ?? modelKey ?? 'inline-chat';
                 this.activeConversationId = await convStore.create(mode.slug, modelDisplay);
+                console.debug(`[PanelChatController] conversation created: ${this.activeConversationId}`);
             } catch (e) {
-                console.debug('[PanelChatController] conversationStore.create failed:', e);
+                console.warn('[PanelChatController] conversationStore.create failed:', e);
             }
+        } else if (convStore === undefined) {
+            console.debug('[PanelChatController] conversationStore not available -- chat will not persist to history');
         }
         // Track UI message (parallel to history so the store can rehydrate).
         this.uiMessages.push({ role: 'user', text: args.userInput, ts: new Date().toISOString() });
