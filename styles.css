@@ -7658,30 +7658,34 @@
 
 /* Close button (absolute top-right corner). */
 /* Close button: frameless icon button, mirrors the other icon
-   buttons in the panel (toolbar uses .toolbar-ghost from the
-   sidebar). No border, no hover-box -- just colour change. */
+   buttons in the panel. NO background ever (Obsidian's default
+   `button { background: var(--interactive-normal) }` would otherwise
+   render a tile on hover). `!important` is the cleanest way to
+   ensure no theme accidentally re-introduces the tile. */
+.agent-inline-panel__close,
+.agent-inline-panel__close:hover,
+.agent-inline-panel__close:focus,
+.agent-inline-panel__close:active,
+.agent-inline-panel__close:focus-visible {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
 .agent-inline-panel__close {
     position: absolute;
     top: 4px;
     right: 6px;
-    background: transparent;
     color: var(--text-muted);
-    border: none;
-    box-shadow: none;
     cursor: pointer;
     font-size: 18px;
     line-height: 1;
     padding: 2px 6px;
     z-index: 1;
 }
-.agent-inline-panel__close:hover,
-.agent-inline-panel__close:focus,
-.agent-inline-panel__close:active {
-    background: transparent;
-    border: none;
-    box-shadow: none;
+.agent-inline-panel__close:hover {
     color: var(--text-normal);
-    outline: none;
 }
 
 /* Message body (flex column, scrollable). */
@@ -7814,4 +7818,286 @@
 .agent-inline-panel .chat-textarea {
     min-height: 60px;
     max-height: 140px;
+}
+
+/* ── EditReviewModal (EPIC-33 Diff-UX-refresh, 2026-06-22) ───────── */
+.agent-edit-review-modal .modal {
+    width: min(1100px, 95vw);
+}
+.agent-edit-review-modal .modal-content {
+    padding: 0;
+}
+.agent-edit-review {
+    display: flex;
+    flex-direction: column;
+    height: 70vh;
+    min-height: 420px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
+.agent-edit-review__header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+}
+.agent-edit-review__title-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.agent-edit-review__title {
+    font-size: var(--font-ui-large);
+    font-weight: 600;
+}
+.agent-edit-review__subtitle {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.agent-edit-review__empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: var(--font-ui-medium);
+}
+
+.agent-edit-review__main {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+/* ── Left: file list ─────────────────────────────────────────────── */
+.agent-edit-review__filelist {
+    width: 240px;
+    border-right: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    overflow-y: auto;
+    flex-shrink: 0;
+    padding: 8px 0;
+}
+.agent-edit-review__filelist-heading {
+    padding: 4px 12px 8px 12px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.agent-edit-review__file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    border-radius: 0;
+}
+.agent-edit-review__file:hover {
+    background: var(--background-modifier-hover);
+}
+.agent-edit-review__file.is-selected {
+    background: var(--background-modifier-active-hover);
+    color: var(--text-on-accent);
+    background-color: var(--interactive-accent);
+}
+.agent-edit-review__file.is-selected .agent-edit-review__file-status,
+.agent-edit-review__file.is-selected .agent-edit-review__file-label {
+    color: var(--text-on-accent);
+}
+.agent-edit-review__file.is-skipped {
+    opacity: 0.5;
+    text-decoration: line-through;
+}
+.agent-edit-review__file-status {
+    width: 14px;
+    text-align: center;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+.agent-edit-review__file-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Right: diff view ────────────────────────────────────────────── */
+.agent-edit-review__diff {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.agent-edit-review__diff-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    background: var(--background-primary-alt);
+}
+.agent-edit-review__diff-path {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.agent-edit-review__skip-btn {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-size: var(--font-ui-smaller);
+}
+.agent-edit-review__skip-btn:hover {
+    color: var(--text-normal);
+    border-color: var(--background-modifier-border-hover);
+}
+.agent-edit-review__skip-btn.is-active {
+    background: var(--background-modifier-error-hover);
+    color: var(--text-error);
+    border-color: var(--text-error);
+}
+
+.agent-edit-review__columns {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 0;
+    gap: 1px;
+    background: var(--background-modifier-border);
+}
+.agent-edit-review__column {
+    display: flex;
+    flex-direction: column;
+    background: var(--background-primary);
+    min-width: 0;
+    min-height: 0;
+}
+.agent-edit-review__column-label {
+    padding: 6px 12px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--background-secondary);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.agent-edit-review__column-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    line-height: 1.5;
+}
+.agent-edit-review__line {
+    white-space: pre-wrap;
+    padding: 0 4px;
+    border-radius: 2px;
+}
+.agent-edit-review__line.is-changed {
+    background: rgba(255, 200, 0, 0.16);
+}
+.agent-edit-review__editor {
+    flex: 1;
+    margin: 0;
+    border: none;
+    padding: 12px 14px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    font-family: var(--font-monospace);
+    font-size: var(--font-ui-small);
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+}
+.agent-edit-review__editor:focus {
+    background: var(--background-primary);
+    box-shadow: inset 0 0 0 2px var(--interactive-accent);
+}
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.agent-edit-review__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+}
+.agent-edit-review__discard-btn,
+.agent-edit-review__apply-btn,
+.agent-edit-review__restore-btn {
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--font-ui-small);
+}
+.agent-edit-review__discard-btn {
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+}
+.agent-edit-review__discard-btn:hover {
+    color: var(--text-normal);
+    background: var(--background-modifier-hover);
+}
+
+/* Checkpoint-Marker-Bubble im InlineChatPanel */
+.agent-inline-panel__bubble--checkpoint {
+    background: var(--background-secondary);
+    border: 1px dashed var(--background-modifier-border);
+    align-self: stretch;
+    max-width: 100%;
+    padding: 6px 10px;
+    color: var(--text-muted);
+}
+.agent-inline-panel__checkpoint-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+}
+.agent-inline-panel__checkpoint-icon {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+}
+.agent-inline-panel__checkpoint-icon svg {
+    width: 14px;
+    height: 14px;
+}
+.agent-inline-panel__checkpoint-detail {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+.agent-inline-panel__checkpoint-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+.agent-inline-panel__checkpoint-btn {
+    background: transparent;
+    border: 1px solid var(--background-modifier-border);
+    color: var(--text-normal);
+    border-radius: 4px;
+    padding: 3px 10px;
+    font-size: var(--font-ui-smaller);
+    cursor: pointer;
+}
+.agent-inline-panel__checkpoint-btn:hover {
+    background: var(--background-modifier-hover);
 }
