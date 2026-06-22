@@ -7657,6 +7657,9 @@
 }
 
 /* Close button (absolute top-right corner). */
+/* Close button: frameless icon button, mirrors the other icon
+   buttons in the panel (toolbar uses .toolbar-ghost from the
+   sidebar). No border, no hover-box -- just colour change. */
 .agent-inline-panel__close {
     position: absolute;
     top: 4px;
@@ -7664,16 +7667,21 @@
     background: transparent;
     color: var(--text-muted);
     border: none;
+    box-shadow: none;
     cursor: pointer;
     font-size: 18px;
     line-height: 1;
     padding: 2px 6px;
-    border-radius: 4px;
     z-index: 1;
 }
-.agent-inline-panel__close:hover {
-    background: var(--background-modifier-hover);
+.agent-inline-panel__close:hover,
+.agent-inline-panel__close:focus,
+.agent-inline-panel__close:active {
+    background: transparent;
+    border: none;
+    box-shadow: none;
     color: var(--text-normal);
+    outline: none;
 }
 
 /* Message body (flex column, scrollable). */
@@ -7690,29 +7698,89 @@
 .agent-inline-panel__body:empty {
     min-height: 40px;
 }
+/* Message bubbles -- mirror the sidebar's .message-content pattern:
+   assistant text has NO background and NO border, user bubble carries
+   a subtle accent-tint with asymmetric radius. Identical numbers as
+   styles.css lines 350-484 (sidebar). */
 .agent-inline-panel__bubble {
-    padding: 8px 10px;
-    border-radius: 6px;
-    line-height: 1.4;
-    white-space: pre-wrap;
+    padding: 7px 10px;
+    border-radius: 8px;
+    line-height: 1.45;
+    font-size: 13px;
+    white-space: normal;
     word-wrap: break-word;
-    max-width: 92%;
+    max-width: 100%;
+    border: none;
+    background: transparent;
+    user-select: text;
+    cursor: text;
 }
 .agent-inline-panel__bubble--user {
-    background: var(--background-modifier-hover);
+    background: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-primary));
+    color: var(--text-normal);
     align-self: flex-end;
-    border: 1px solid var(--background-modifier-border);
+    max-width: 85%;
+    border-radius: 12px 12px 4px 12px;
+    padding: 6px 11px;
+    border: none;
 }
 .agent-inline-panel__bubble--assistant {
-    background: var(--background-primary-alt);
-    align-self: flex-start;
-    border: 1px solid var(--background-modifier-border);
+    background: transparent;
+    border: none;
+    align-self: stretch;
+    max-width: 100%;
+    padding: 4px 2px;
 }
 .agent-inline-panel__bubble--system {
-    background: var(--background-modifier-error-hover);
+    background: transparent;
     align-self: center;
     font-size: var(--font-ui-smaller);
     font-style: italic;
+    color: var(--text-muted);
+    border: none;
+}
+/* Rendered Markdown inside the assistant bubble: same paragraph
+   spacing + heading treatment as the sidebar .message-content. */
+.agent-inline-panel__bubble--assistant p {
+    margin: 0 0 8px 0;
+}
+.agent-inline-panel__bubble--assistant p:last-child { margin-bottom: 0; }
+.agent-inline-panel__bubble--assistant ul,
+.agent-inline-panel__bubble--assistant ol {
+    margin-left: 0;
+    padding-left: 16px;
+    margin-bottom: 8px;
+}
+.agent-inline-panel__bubble--assistant li { margin-bottom: 4px; }
+.agent-inline-panel__bubble--assistant h1,
+.agent-inline-panel__bubble--assistant h2,
+.agent-inline-panel__bubble--assistant h3,
+.agent-inline-panel__bubble--assistant h4 {
+    margin-top: 14px;
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+.agent-inline-panel__bubble--assistant h1:first-child,
+.agent-inline-panel__bubble--assistant h2:first-child,
+.agent-inline-panel__bubble--assistant h3:first-child {
+    margin-top: 0;
+}
+.agent-inline-panel__bubble--assistant code {
+    background: var(--background-secondary);
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: 0.92em;
+}
+.agent-inline-panel__bubble--assistant pre {
+    background: var(--background-secondary);
+    padding: 8px 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 8px 0;
+}
+.agent-inline-panel__bubble--assistant pre code {
+    background: transparent;
+    padding: 0;
 }
 
 /* Status pill. */
