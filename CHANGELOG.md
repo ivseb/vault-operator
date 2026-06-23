@@ -7,6 +7,38 @@ All notable changes to Vault Operator are documented here. Format follows
 ---
 
 
+## [3.0.1] -- 2026-06-23
+
+### Security
+
+Six Dependabot alerts on transitive dependencies cleared by bumping
+the `overrides` block in `package.json`. Neither package is reachable
+from the desktop-only plugin runtime (Hono's AWS adapters and CORS
+middleware never load in Obsidian, and DOMPurify is used through
+Mermaid for diagram sanitisation only), but the project's policy is
+to keep the dependency tree on patched releases regardless of reach.
+
+- **hono 4.12.23 -> 4.12.27** clears five advisories:
+  GHSA-j6c9-x7qj-28xf (CVE-2026-54287, AWS Lambda Set-Cookie merge),
+  GHSA-wwfh-h76j-fc44 (CVE-2026-54286, `serve-static` Windows path
+  traversal via `%5C`),
+  GHSA-88fw-hqm2-52qc (CVE-2026-54290, CORS reflects any Origin with
+  credentials -- the only High in the set),
+  GHSA-wgpf-jwqj-8h8p (CVE-2026-54289, Lambda@Edge repeated header
+  loss),
+  GHSA-rv63-4mwf-qqc2 (CVE-2026-54288, body-limit bypass via
+  understated `Content-Length`).
+- **dompurify 3.4.10 -> 3.4.11** clears GHSA-cmwh-pvxp-8882
+  (permanent `ALLOWED_ATTR` pollution via `setConfig()` -- incomplete
+  fix of the 3.4.7 hook-pollution patch).
+
+`overrides.hono` is now pinned to `>=4.12.25`, `overrides.dompurify`
+to `>=3.4.11`. Full test suite 3480/3481 green plus 1 expected fail,
+tsc clean, build clean.
+
+---
+
+
 ## [3.0.0] -- 2026-06-23
 
 ### Inline-Editor AI surface (EPIC-33)
