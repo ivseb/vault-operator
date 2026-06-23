@@ -55,6 +55,17 @@ export interface PanelChatControllerOptions {
      * after dispatch (sidebar pattern).
      */
     getAttachments?: () => { pending: Array<{ block: ContentBlock }>; clear: () => void } | null;
+    /**
+     * Hook the AgentTask checkpoint-pipeline emits into. Every write-
+     * tool snapshot (write_file, edit_file, append_to_file, etc.)
+     * fires once per checkpoint. The orchestrator turns the payload
+     * into an inline checkpoint marker so the panel mirrors the
+     * sidebar's live-marker behaviour during free-chat turns.
+     */
+    onCheckpoint?: (
+        checkpoint: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+        handle: import('./InlineChatPanel').InlinePanelHandle,
+    ) => void;
 }
 
 export class PanelChatController {
@@ -62,6 +73,10 @@ export class PanelChatController {
     private readonly ctx: InlineTriggerContext;
     private readonly modeService: ModeService;
     private readonly getAttachments?: () => { pending: Array<{ block: ContentBlock }>; clear: () => void } | null;
+    private readonly onCheckpointHook?: (
+        checkpoint: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+        handle: import('./InlineChatPanel').InlinePanelHandle,
+    ) => void;
     /**
      * In-memory chat history reused across turns (AgentTask mutates
      * in place). Mirrors AgentSidebarView.conversationHistory.
@@ -96,6 +111,7 @@ export class PanelChatController {
         // instance is safe and the sidebar's instance stays unchanged.
         this.modeService = new ModeService(options.plugin);
         this.getAttachments = options.getAttachments;
+        this.onCheckpointHook = options.onCheckpoint;
         this.sessionTaskId = `inline-${Date.now().toString(36)}-${Math.floor(Math.random() * 0xffffff).toString(16)}`;
     }
 
@@ -436,6 +452,15 @@ export class PanelChatController {
             onComplete: () => { handle.setStatus('Done'); },
             onAttemptCompletion: () => {},
             onError: (err) => { handle.setStatus(`Error: ${err.message}`, 'error'); },
+            onCheckpoint: (cp) => {
+                // Mirror AgentSidebarView.onCheckpoint: every snapshot
+                // taken by the write-tool pipeline becomes an inline
+                // checkpoint marker (Diff / Undo this / Undo from here
+                // / More menu). The orchestrator owns the surface
+                // because Restore/Diff need plugin-level services.
+                try { this.onCheckpointHook?.(cp, handle); }
+                catch (e) { console.debug('[PanelChatController] onCheckpoint hook threw:', e); }
+            },
             // Drain queued steering messages so AgentTask appends them
             // as user-role messages at the start of the next iteration.
             consumeSteeringMessages: (_iteration) => {

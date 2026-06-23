@@ -167,6 +167,11 @@ export class InlineChatOrchestrator {
                 const s = this.activeSurface as { attachments?: { pending: unknown[]; clear: () => void } } | null;
                 return s?.attachments as never ?? null;
             },
+            // Forward each AgentTask write-tool checkpoint to the
+            // panel as a live marker (Diff / Undo this / Undo from
+            // here / More menu), same wiring as the sidebar's
+            // onCheckpoint callback in AgentSidebarView.
+            onCheckpoint: (cp, handle) => { this.appendAgentCheckpointMarker(cp, ctx, handle); },
         });
 
         const initialModel = this.getInitialModelLabel?.() ?? { label: 'Auto', tooltip: 'Model' };
@@ -481,6 +486,77 @@ export class InlineChatOrchestrator {
             source: `Checkpoint ${new Date(checkpoint.timestamp).toLocaleString()}`,
             title: 'Checkpoint anzeigen',
             onRestore: async () => { await this.restoreCheckpoint(checkpoint); },
+        });
+    }
+
+    /**
+     * Render an inline checkpoint marker for a checkpoint emitted by
+     * AgentTask during a free-chat turn (write_file, edit_file, etc.).
+     * Same UI contract as the post-Rewrite marker -- sidebar-parity
+     * Diff / Undo this / Undo from here / More menu.
+     */
+    private appendAgentCheckpointMarker(
+        cp: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+        ctx: InlineTriggerContext,
+        handle: InlinePanelHandle,
+    ): void {
+        const files = cp.filesChanged.map((f) => f.split('/').pop()).filter(Boolean).join(', ');
+        const time = new Date(cp.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        handle.appendCheckpointMarker({
+            label: `Checkpoint ${time}`,
+            detail: files.length > 0 ? files : (cp.toolName ?? ''),
+            onShowDiff: () => { void this.showAgentCheckpointDiff(cp); },
+            onRestore: () => { void this.restoreCheckpoint(cp); },
+            onRestoreFromHere: () => { void this.restoreCheckpointsForward(cp); },
+            onMoreMenu: (anchor) => {
+                const menu = new Menu();
+                menu.addItem((item) => {
+                    item.setTitle('Chat ab hier löschen');
+                    item.setIcon('trash-2');
+                    item.onClick(() => {
+                        void this.restoreCheckpoint(cp);
+                        if (this.activePanel !== null) this.activePanel.close();
+                    });
+                });
+                const rect = anchor.getBoundingClientRect();
+                menu.showAtPosition({ x: rect.left, y: rect.bottom });
+            },
+        });
+        // ctx is captured for future enrichment (note-path attribution
+        // in the marker subtitle) -- not used right now but kept on
+        // the signature so callers always pass it.
+        void ctx;
+    }
+
+    /**
+     * Show the full multi-file diff modal for a checkpoint emitted by
+     * AgentTask. Different from showCheckpointDiff(notePath, cp, ...)
+     * above (used by openReviewAndApply) -- the agent-checkpoint case
+     * doesn't have a pre-written selection, so we read snapshot vs
+     * current vault content for every changed file.
+     */
+    private async showAgentCheckpointDiff(
+        cp: import('../../checkpoints/GitCheckpointService').CheckpointInfo,
+    ): Promise<void> {
+        const svc = this.plugin.checkpointService;
+        if (svc === null || svc === undefined) return;
+        const entries: EditReviewEntry[] = [];
+        for (const filePath of cp.filesChanged) {
+            const before = await svc.getSnapshotContent(cp, filePath);
+            if (before === null) continue;
+            let after = '';
+            try {
+                const file = this.plugin.app.vault.getFileByPath(filePath);
+                if (file !== null) after = await this.plugin.app.vault.read(file);
+            } catch { /* file deleted */ }
+            entries.push({ path: filePath, before, after });
+        }
+        if (entries.length === 0) return;
+        showCheckpointReviewModal({
+            app: this.plugin.app,
+            entries,
+            source: `Checkpoint ${new Date(cp.timestamp).toLocaleString()}`,
+            onRestore: async () => { await this.restoreCheckpoint(cp); },
         });
     }
 

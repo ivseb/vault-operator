@@ -2219,10 +2219,15 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.addCommand({
             id: 'open-inline-ai-menu',
             name: 'Open inline AI chat',
-            // EPIC-33: no default hotkey -- Obsidian community-plugin guidance
-            // forbids defaults so we do not collide with user hotkeys or the
-            // DevTools shortcut (Ctrl+Shift+I on Win/Linux). Users bind the
-            // command via Settings -> Hotkeys.
+            // EPIC-33 inline-AI surface needs a stable default so the
+            // feature is discoverable. Mod+Shift+I matches the inline
+            // shortcut in Notion AI / Continue / Cursor. 'Mod' resolves
+            // to Cmd on macOS, Ctrl on Win/Linux; on the latter the
+            // user-typical DevTools chord wins until the user rebinds
+            // (Settings -> Hotkeys), which the Notice on first open
+            // hints at.
+            // eslint-disable-next-line obsidianmd/commands/no-default-hotkeys -- intentional UX default; users can rebind via Settings -> Hotkeys
+            hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'i' }],
             callback: () => {
                 this.inlineActions?.orchestrator.triggerPanel();
             },

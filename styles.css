@@ -8164,12 +8164,31 @@
 /* Checkpoint marker in the inline panel inherits the sidebar
  * `.checkpoint-marker` rules (divider lines + ghost icon buttons). The
  * legacy `.agent-inline-panel__checkpoint-*` styles were removed when
- * the inline marker adopted the sidebar DOM (Task 2 of the EPIC-33
- * checkpoint-parity wave, 2026-06-23). The remaining
- * `.agent-inline-panel__bubble--checkpoint` modifier is only kept so
- * existing callers can still target inline-specific spacing without
- * touching the sidebar variant. */
+ * the inline marker adopted the sidebar DOM (EPIC-33 checkpoint-
+ * parity wave, 2026-06-23). The remaining
+ * `.agent-inline-panel__bubble--checkpoint` modifier raises the
+ * default opacity from the sidebar's 0.5 (decorative) to a fully
+ * visible state -- in the inline panel the marker IS the main
+ * post-edit affordance, not a separator between tool steps. */
 .agent-inline-panel__bubble--checkpoint {
     align-self: stretch;
     max-width: 100%;
+    padding: 4px 6px;
+}
+.agent-inline-panel__bubble--checkpoint.checkpoint-marker {
+    opacity: 1;
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+}
+.agent-inline-panel__bubble--checkpoint .checkpoint-label {
+    font-size: var(--font-ui-small);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.agent-inline-panel__bubble--checkpoint .checkpoint-action-btn {
+    opacity: 0.8;
+}
+.agent-inline-panel__bubble--checkpoint .checkpoint-action-btn:hover {
+    opacity: 1;
 }
