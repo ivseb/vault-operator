@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform } from 'obsidian';
+import { formatHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
 import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
@@ -143,6 +144,12 @@ export default class ObsidianAgentPlugin extends Plugin {
     declare settings: ObsidianAgentSettings;
     toolRegistry: ToolRegistry;
     apiHandler: ApiHandler | null = null;
+    /**
+     * EPIC-33: Inline-Editor-AI-Actions service. Instantiated by
+     * wireInlineActions() once the apiHandler and tool registry are
+     * ready. Disposed in onunload.
+     */
+    inlineActions: import('./core/inline/PluginWiring').InlineWiringResult | null = null;
     /**
      * EPIC-26 / FEAT-26-04: when a one-shot migration ran during onload
      * its summary lives here until the sidebar consumes it for the
@@ -494,6 +501,17 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.saveSettings();
         }
 
+        // 1a-bis. AUDIT-034 M-5 / M-15 -- surface the plaintext-fallback
+        //         state via a one-time toast Notice when the OS keychain
+        //         is unavailable. The persistent banner in ProvidersTab
+        //         carries the long-form explanation; this toast only fires
+        //         once per session and is suppressed entirely once the user
+        //         dismissed the banner (acknowledged flag in settings).
+        this.safeStorage.notifyPlaintextFallbackOnce(
+            Notice,
+            this.settings.safeStoragePlaintextFallbackAcknowledged === true,
+        );
+
         // 1b. EPIC-26 / FEAT-26-04 / ADR-123 -- one-shot migration from
         //     legacy activeModels[] to providerConfigs[]. Idempotent (no-op
         //     when schemaVersion is already set or providerConfigs is non-empty).
@@ -796,16 +814,46 @@ export default class ObsidianAgentPlugin extends Plugin {
             // keeps multiple vaults on the same machine separate.
             // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time crypto require to hash the vault path; not a security-sensitive hash
             const nodeCrypto = require('crypto') as typeof import('crypto');
+            // AUDIT-034 Info-5: use sha256 instead of md5. Pure hygiene
+            // (CodeQL/SonarQube re-flag MD5 every audit). 12-char slice keeps
+            // the same path-bucket shape. For backward compatibility we still
+            // probe the legacy md5 directory and prefer it when present so
+            // existing migration backups stay accessible. New writes go to
+            // the sha256 directory.
+            const vaultIdInput = vaultBasePath || '__no_vault_path__';
             const vaultIdHash = nodeCrypto
-                .createHash('md5')
-                .update(vaultBasePath || '__no_vault_path__')
+                .createHash('sha256')
+                .update(vaultIdInput)
                 .digest('hex')
                 .slice(0, 12);
-            const safeBackupDir = nodePath.join(
+            const legacyVaultIdHashMd5 = nodeCrypto
+                .createHash('md5')
+                .update(vaultIdInput)
+                .digest('hex')
+                .slice(0, 12);
+            const sha256BackupDir = nodePath.join(
                 homeDir,
                 '.vault-operator-migration-backups',
                 vaultIdHash,
             );
+            const legacyMd5BackupDir = nodePath.join(
+                homeDir,
+                '.vault-operator-migration-backups',
+                legacyVaultIdHashMd5,
+            );
+            let safeBackupDir = sha256BackupDir;
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports -- one-time fs require to probe legacy md5 backup dir
+                const nodeFs = require('fs') as typeof import('fs');
+                if (
+                    !nodeFs.existsSync(sha256BackupDir)
+                    && nodeFs.existsSync(legacyMd5BackupDir)
+                ) {
+                    safeBackupDir = legacyMd5BackupDir;
+                }
+            } catch {
+                // Probe failure is non-fatal; fall through to the sha256 path.
+            }
             // Cast-through-unknown legacy view so the deprecated property
             // access in the migration path does not trigger
             // `@typescript-eslint/no-deprecated`. The bot rejects every
@@ -998,7 +1046,11 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
         }
 
-        // MCP Client — connect to all configured servers
+        // MCP Client — connect to all configured servers.
+        // AUDIT-034 M-14: the SSRF guard runs inside McpClient.connect() and
+        // reads the per-server `allowLocalUrls` flag off each McpServerConfig.
+        // No global opt-in is needed here; the McpTab modal manages the flag
+        // per server.
         this.mcpClient = new McpClient();
         if (Object.keys(this.settings.mcpServers ?? {}).length > 0) {
             this.mcpClient.connectAll(this.settings.mcpServers).catch((e) =>
@@ -1875,6 +1927,15 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (this.memoryDB && this.memoryDB.getStorageLocation() !== 'obsidian-sync') {
                 targets.push({ name: 'memory', sourcePath: this.memoryDB.getAbsolutePath() });
             }
+            // AUDIT-034 Info-4: HistoryDB inherits the per-write atomic .bak
+            // rotation via the storage adapter, but the 7-day rolling snapshot
+            // gap was not covered. Append it next to knowledge + memory so the
+            // chat-history index gets the same daily snapshot window. Skipped
+            // for obsidian-sync mode to avoid duplicating bytes through the
+            // sync provider.
+            if (this.historyDB && this.historyDB.getStorageLocation() !== 'obsidian-sync') {
+                targets.push({ name: 'history', sourcePath: this.historyDB.getAbsolutePath() });
+            }
             if (targets.length > 0) {
                 this.snapshotTargets = targets;
                 // Run in background; never block plugin startup on snapshot I/O.
@@ -2144,6 +2205,58 @@ export default class ObsidianAgentPlugin extends Plugin {
             callback: () => this.activateView()
         });
 
+        // EPIC-33: Inline-Editor-AI-Actions wiring. Builds the action
+        // registry + floating-menu over the live editor and the active
+        // provider. No default hotkey -- user binds in Settings.
+        try {
+            const wiring = await import('./core/inline/PluginWiring');
+            this.inlineActions = wiring.wireInlineActions(this);
+        } catch (e) {
+            console.warn('[main] inline-actions wiring failed (non-fatal):', e);
+            this.inlineActions = null;
+        }
+
+        this.addCommand({
+            id: 'open-inline-ai-menu',
+            name: 'Open inline AI chat',
+            callback: () => {
+                this.inlineActions?.orchestrator.triggerPanel();
+            },
+        });
+        // EPIC-33: keep the inline-AI surface discoverable with a
+        // default chord without setting `hotkeys` on `addCommand`
+        // (Obsidian community guidelines discourage that). Register
+        // Mod+Shift+I on the app scope instead so 'Mod' resolves to
+        // Cmd on macOS / Ctrl on Win+Linux automatically. Users can
+        // still rebind the COMMAND via Settings -> Hotkeys -- both
+        // chords then trigger the same panel. The handler is owned
+        // by the plugin, so onunload removes it.
+        const inlineHotkeyHandler = this.app.scope.register(['Mod', 'Shift'], 'i', (ev: KeyboardEvent) => {
+            if (this.inlineActions === null || this.inlineActions === undefined) return false;
+            ev.preventDefault();
+            this.inlineActions.orchestrator.triggerPanel();
+            return false;
+        });
+        this.register(() => this.app.scope.unregister(inlineHotkeyHandler));
+
+        // EPIC-33: Rechtsklick-Menue zeigt die Inline-Chat-Option mit
+        // OS-spezifischem Hotkey-Hint (Mac symbols vs. Ctrl+Shift+I).
+        // Icon: 'slash' = Vault Operator brand icon (consistent with
+        // ribbon + commands).
+        this.registerEvent(
+            this.app.workspace.on('editor-menu', (menu, editor) => {
+                const selection = editor.getSelection();
+                if (selection.length === 0) return;
+                const hint = formatHotkeyHint(Platform);
+                menu.addItem(item => item
+                    .setTitle(`Inline AI chat  (${hint})`)
+                    .setIcon('square-slash')
+                    .onClick(() => {
+                        this.inlineActions?.orchestrator.triggerPanel();
+                    }));
+            }),
+        );
+
         // FEATURE-0319 Phase 5: Save active conversation to memory.
         // No default hotkey -- user assigns via Settings -> Hotkeys.
         this.addCommand({
@@ -2356,6 +2469,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     onunload(): void {
         console.debug('Unloading Vault Operator plugin');
+        // EPIC-33: dispose inline-actions before async cleanup so the
+        // floating-menu listeners detach immediately.
+        try {
+            this.inlineActions?.dispose();
+        } catch (e) {
+            console.debug('[main] inline-actions dispose error (non-fatal):', e);
+        }
+        this.inlineActions = null;
         // Fire-and-forget async cleanup (Plugin API expects synchronous return)
         void (async () => {
             // Flush any pending chat-links before shutdown
@@ -4045,6 +4166,15 @@ function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, saved
     if (!saved || typeof saved !== 'object') return { ...defaults };
     const merged = { ...defaults } as Record<string, unknown>;
     for (const [key, savedValue] of Object.entries(saved)) {
+        // AUDIT-034 Info-6 (CWE-1321 hardening): JSON.parse stores __proto__
+        // as an own enumerable property, so Object.entries surfaces it. Skip
+        // the three prototype-pollution sentinels before any recursion so a
+        // hand-crafted data.json cannot mutate the merged object's prototype
+        // chain. saveData strips them via JSON.stringify anyway; this is
+        // defense in depth.
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            continue;
+        }
         const defaultValue = (defaults as Record<string, unknown>)[key];
         if (
             savedValue !== null

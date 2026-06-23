@@ -11,8 +11,8 @@
  * spawn happens.
  */
 
-import { describe, it, expect, vi } from 'vitest';
-import { InvokeSkillTool } from '../InvokeSkillTool';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { InvokeSkillTool, _resetImportedSkillApprovalsForTest } from '../InvokeSkillTool';
 import {
     CompositionStackService,
     CompositionCycleError,
@@ -26,15 +26,26 @@ interface FakeSkill {
     body: string;
     /** FEAT-29-10 follow-up: optional skill-frontmatter tool allowlist. */
     allowedTools?: string[];
+    /**
+     * AUDIT-034 L-17: provenance discriminator. Defaults to `builtin` here so
+     * pre-existing tests keep exercising the trusted-skill code path; tests
+     * that target the imported-skill gate set this explicitly to `user`,
+     * `learned`, or a plugin id.
+     */
+    source?: string;
 }
 
 function makePlugin(skills: FakeSkill[]) {
     return {
         selfAuthoredSkillLoader: {
-            getSkill(name: string): { name: string; description: string; body: string; allowedTools: string[] } | undefined {
+            getSkill(name: string): { name: string; description: string; body: string; allowedTools: string[]; source: string } | undefined {
                 const s = skills.find((s) => s.name === name);
                 if (!s) return undefined;
-                return { ...s, allowedTools: s.allowedTools ?? [] };
+                return {
+                    ...s,
+                    allowedTools: s.allowedTools ?? [],
+                    source: s.source ?? 'builtin',
+                };
             },
         },
     } as unknown as import('../../../../main').default;
@@ -47,14 +58,29 @@ interface SpawnCall {
     overrides?: { maxIterations?: number; allowedTools?: string[] };
 }
 
+interface QuestionCall {
+    question: string;
+    options?: string[];
+}
+
 function makeContext(opts: {
     stack?: CompositionStackService;
     spawnResult?: string;
     spawnError?: Error;
+    /** AUDIT-034 L-17: simulate the user's answer to the approval prompt. */
+    questionAnswer?: string;
+    /** AUDIT-034 L-17: throw inside askQuestion (e.g. user dismissed). */
+    questionError?: Error;
+    /** AUDIT-034 L-17: do not wire askQuestion at all (headless mode). */
+    omitQuestionCallback?: boolean;
+    /** Override the active mode slug (default: 'agent'). */
+    mode?: string;
 }) {
     const pushed: string[] = [];
     const spawnCalls: SpawnCall[] = [];
-    const ctx = {
+    const questionCalls: QuestionCall[] = [];
+    const base = {
+        mode: opts.mode ?? 'agent',
         callbacks: {
             pushToolResult: (s: string) => pushed.push(s),
             log: (_: string) => {},
@@ -66,9 +92,23 @@ function makeContext(opts: {
             if (opts.spawnError) throw opts.spawnError;
             return opts.spawnResult ?? 'sub-skill result text';
         },
-    } as unknown as ToolExecutionContext;
-    return { ctx, pushed, spawnCalls };
+    } as Record<string, unknown>;
+    if (!opts.omitQuestionCallback) {
+        base.askQuestion = async (question: string, options?: string[]) => {
+            questionCalls.push({ question, options });
+            if (opts.questionError) throw opts.questionError;
+            return opts.questionAnswer ?? 'Allow';
+        };
+    }
+    const ctx = base as unknown as ToolExecutionContext;
+    return { ctx, pushed, spawnCalls, questionCalls };
 }
+
+// AUDIT-034 L-17: reset the per-session approval cache between cases so
+// approvals from one test do not leak into the next.
+beforeEach(() => {
+    _resetImportedSkillApprovalsForTest();
+});
 
 describe('InvokeSkillTool', () => {
     describe('happy path', () => {
@@ -293,5 +333,184 @@ describe('InvokeSkillTool', () => {
 
         await tool.execute({ skill_name: 'a' }, ctx);
         expect(pushed.join('\n')).toMatch(/spawnSubtask|subtask|depth/i);
+    });
+
+    // ---------------------------------------------------------------------
+    // AUDIT-034 L-17: provenance gate for imported skills.
+    // ---------------------------------------------------------------------
+    describe('AUDIT-034 L-17: imported-skill provenance gate', () => {
+        it('trusted skills (source=builtin) skip the approval prompt entirely', async () => {
+            const plugin = makePlugin([{
+                name: 'native', description: '', body: 'b', source: 'builtin',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls, questionCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'native' }, ctx);
+
+            expect(questionCalls).toHaveLength(0);
+            expect(spawnCalls).toHaveLength(1);
+        });
+
+        it('imported skills (source=user) prompt the user the first time', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: 'risky', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls, questionCalls } = makeContext({ questionAnswer: 'Allow' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            expect(questionCalls).toHaveLength(1);
+            expect(questionCalls[0].question).toContain('imported sub-skill');
+            expect(questionCalls[0].question).toContain('user');
+            expect(spawnCalls).toHaveLength(1);
+        });
+
+        it('imported skills are NOT re-prompted within the same session after Allow', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: '', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const ctxA = makeContext({ questionAnswer: 'Allow' });
+            await tool.execute({ skill_name: 'imported' }, ctxA.ctx);
+            expect(ctxA.questionCalls).toHaveLength(1);
+
+            const ctxB = makeContext({ questionAnswer: 'Allow' });
+            await tool.execute({ skill_name: 'imported' }, ctxB.ctx);
+            expect(ctxB.questionCalls).toHaveLength(0);
+            expect(ctxB.spawnCalls).toHaveLength(1);
+        });
+
+        it('Block answer prevents the spawn and surfaces a clear tool_error', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: '', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, pushed, spawnCalls } = makeContext({ questionAnswer: 'Block' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            expect(spawnCalls).toHaveLength(0);
+            expect(pushed.join('\n')).toMatch(/not approved/i);
+            expect(pushed.join('\n')).toMatch(/source: user/i);
+        });
+
+        it('fails closed when askQuestion is not wired (headless mode)', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: '', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, pushed, spawnCalls } = makeContext({ omitQuestionCallback: true });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            expect(spawnCalls).toHaveLength(0);
+            expect(pushed.join('\n')).toMatch(/not approved/i);
+        });
+
+        it('wraps imported skill bodies in <imported-skill> with a no-override hint', async () => {
+            const plugin = makePlugin([{
+                name: 'imported',
+                description: '',
+                body: '# Workflow\nDo X.',
+                source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({ questionAnswer: 'Allow' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            const msg = spawnCalls[0].message;
+            expect(msg).toContain('<imported-skill');
+            expect(msg).toContain('source="user"');
+            expect(msg).toContain('name="imported"');
+            expect(msg).toContain('</imported-skill>');
+            expect(msg).toContain('CANNOT override');
+        });
+
+        it('trusted skills are NOT wrapped in the imported-skill envelope', async () => {
+            const plugin = makePlugin([{
+                name: 'native', description: '', body: '# Workflow', source: 'builtin',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'native' }, ctx);
+
+            expect(spawnCalls[0].message).not.toContain('<imported-skill');
+            expect(spawnCalls[0].message).not.toContain('CANNOT override');
+        });
+
+        it('imported skills without allowedTools get a conservative read-only default (clamped to mode)', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: '', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({ questionAnswer: 'Allow' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            const allowed = spawnCalls[0].overrides?.allowedTools ?? [];
+            expect(allowed.length).toBeGreaterThan(0);
+            // Read-only default must include the core read tools and the
+            // completion primitive but NOT write tools.
+            expect(allowed).toContain('read_file');
+            expect(allowed).toContain('attempt_completion');
+            expect(allowed).not.toContain('write_file');
+            expect(allowed).not.toContain('edit_file');
+            expect(allowed).not.toContain('evaluate_expression');
+        });
+
+        it('imported skills cannot escalate allowedTools beyond the mode toolGroups', async () => {
+            const plugin = makePlugin([{
+                name: 'imported',
+                description: '',
+                body: 'b',
+                source: 'user',
+                // Skill frontmatter declares a write tool AND a fake tool.
+                // The clamp must drop the fake tool (not in any group) while
+                // keeping write_file, which is in the `edit` group of the
+                // built-in `agent` mode.
+                allowedTools: ['read_file', 'write_file', 'totally_fake_tool'],
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls } = makeContext({ questionAnswer: 'Allow' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            const allowed = spawnCalls[0].overrides?.allowedTools ?? [];
+            expect(allowed).toContain('read_file');
+            expect(allowed).toContain('write_file');
+            expect(allowed).not.toContain('totally_fake_tool');
+        });
+
+        it('records the source + imported flag in the success result', async () => {
+            const plugin = makePlugin([{
+                name: 'imported', description: '', body: 'b', source: 'user',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, pushed } = makeContext({ questionAnswer: 'Allow' });
+
+            await tool.execute({ skill_name: 'imported' }, ctx);
+
+            const result = pushed.join('\n');
+            expect(result).toContain('"source": "user"');
+            expect(result).toContain('"imported": true');
+        });
+
+        it('trusted skills with an empty allowedTools still report imported=false', async () => {
+            const plugin = makePlugin([{
+                name: 'native', description: '', body: 'b', source: 'bundled',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, pushed } = makeContext({});
+
+            await tool.execute({ skill_name: 'native' }, ctx);
+
+            const result = pushed.join('\n');
+            expect(result).toContain('"source": "bundled"');
+            expect(result).toContain('"imported": false');
+        });
     });
 });

@@ -1,13 +1,13 @@
 ---
-title: Knowledge Discovery
+title: Knowledge discovery
 description: Semantic search, knowledge graph, implicit connections, and local reranking.
 ---
 
-# Knowledge Discovery
+# Knowledge discovery
 
 Most search tools match exact words. Vault Operator understands meaning. A search for "improving focus" can find a note titled "Deep Work Techniques" even though the words do not overlap.
 
-**You will need:** an embedding model (OpenAI, Google, or a local model via Ollama) and a built index. See the [Settings reference](/reference/settings#embeddings) for the embedding settings, or follow [Your first knowledge workflow](/tutorials/knowledge-workflow) for a guided setup.
+**You will need:** an embedding model (OpenAI, Google, or a local model via Ollama), the semantic index enabled, and a built index. See the [Settings reference](/reference/settings#embeddings) for the embedding settings, or follow [Your first knowledge workflow](/tutorials/knowledge-workflow) for a guided setup.
 
 **Use this guide when:** you want to ask "what do I know about X?" instead of grep, you want the agent to follow links and tags from a seed note, or you want to find notes that should be linked but are not yet.
 
@@ -24,23 +24,26 @@ This means:
 
 ## Setup
 
-Semantic search requires an embedding model to convert text into embeddings. You set this up once; Vault Operator handles the rest.
+Semantic search requires an embedding model to convert text into embeddings. You set this up once, Vault Operator handles the rest.
 
-1. Open **Settings > Vault Operator > Embeddings**
-2. Choose an embedding model from the dropdown
-3. Click **Build Index** to process your vault
+1. Open **Settings > Vault Operator > Providers > Embeddings**
+2. Under **Embedding models**, add a model (for example OpenAI `text-embedding-3-small` or Google `text-embedding-004`)
+3. Under **Semantic index**, enable **Enable semantic index**
+4. Click **Build index** to process your vault
 
 :::tip Which embedding model?
-Any configured provider that supports embeddings will work. The default is qwen3-embedding-8b via OpenRouter, which gives strong multilingual results for most vaults. OpenAI embeddings are a solid alternative, and local models via Ollama work well if you want everything to stay on your machine.
+Any configured provider that supports embeddings will work. OpenAI `text-embedding-3-small` and Google `text-embedding-004` are fast, cheap, and well tested. Local models via Ollama (such as `nomic-embed-text`) work well if you want everything to stay on your machine. The plugin ships with no embedding model pre-configured, so pick one that matches your privacy needs.
 :::
 
 ### Building the index
 
-The first build processes every note in your vault. This can take a few minutes for large vaults (1000+ notes). After that, the index updates automatically:
+The first build processes every note in your vault. This can take a few minutes for large vaults (1000+ notes). After that, the index updates based on your settings:
 
-- On startup: new or changed files are re-indexed
-- On file changes: edits trigger re-indexing after a short delay
-- Manually: use the Rebuild Index button in settings at any time
+- On startup: new or changed files are re-indexed if **Auto-index strategy** is set to "on startup"
+- On file changes: edits trigger re-indexing if **Auto-index on file changes** is on (default: off)
+- Manually: use **Build index** for incremental updates, or **Force rebuild** to delete and rebuild from scratch
+
+The default auto-index strategy is "never", so you stay in control of when the index runs.
 
 :::info Your notes stay local
 Embeddings are stored in a local database inside your vault. If you use a cloud embedding model, note content is sent to the provider for processing, but the resulting embeddings live only on your machine. With a local model, nothing leaves your device.
@@ -68,11 +71,21 @@ Beyond search, Vault Operator builds a knowledge graph from the structure alread
 
 - **Wikilinks:** `[[note]]` connections between your notes
 - **Tags:** shared tags create implicit groupings
-- **MOC properties:** Maps of Content link related topics
+- **Map-of-content properties:** frontmatter fields like `topics`, `concepts`, `people` link related notes
 
-When the agent searches, it can expand results through the graph. If a search finds Note A, and Note A links to Note B, the agent can follow that link to pull in related content. You configure how many hops the graph expansion follows in settings.
+## Graph expansion
 
-**Example:** Searching for "machine learning" finds your note on Neural Networks. Graph expansion then follows its wikilinks to your notes on Training Data and Model Evaluation, notes that search alone would miss.
+After semantic search picks the top matches, graph expansion follows wikilinks and map-of-content properties one or more steps further to pull in related context. This is helpful when the top hit is a stub note that points at the real content elsewhere. It costs a few extra reads per search.
+
+Configure it under **Settings > Vault Operator > Providers > Embeddings > Graph expansion**:
+
+- **Expansion hops:** how far to follow links from each hit.
+  - **1 hop (direct links):** the safe default. Only notes directly linked from a hit are pulled in.
+  - **2 hops:** links of links. Broader recall, a bit more noise.
+  - **3 hops (broad):** wide net. Useful for very sparse vaults, expect off-topic results.
+- **Map-of-content property names:** comma-separated frontmatter keys to treat as edges (for example `topics, concepts, people`).
+
+**Example:** Searching for "machine learning" finds your note on Neural Networks. With 2 hops, graph expansion follows its wikilinks to Training Data and Model Evaluation, notes that search alone would miss.
 
 ## Implicit connections
 
@@ -90,7 +103,13 @@ After the initial search returns candidates, Vault Operator can run a second pas
 
 The reranker (based on ms-marco-MiniLM) reads each candidate alongside your query and produces a more accurate relevance score. False positives get pushed down; actually relevant results move up.
 
-Toggle it in **Settings > Vault Operator > Embeddings > Local Reranking**.
+Toggle it under **Settings > Vault Operator > Providers > Embeddings > Local reranking**.
+
+## HyDE (hypothetical document embeddings)
+
+For vague queries like "what are my goals?" a direct embedding of the query often misses the right notes. HyDE asks the model to first write a short hypothetical note that would answer the query, then embeds that text and searches with it. Recall improves for abstract questions.
+
+The trade-off: HyDE costs one extra model call per semantic search. Toggle it under **Settings > Vault Operator > Providers > Embeddings > Index configuration**.
 
 ## Contextual retrieval
 
@@ -114,7 +133,7 @@ The knowledge graph often contains natural clusters: groups of notes that link t
 
 ## God-node detection
 
-The flip side of a healthy hub is a note that has collected too many backlinks to still be useful. A topic note with eighty connections isn't an index anymore, it's a dumping ground. Vault Operator flags these "god nodes" as part of the vault health check so you can think about splitting them into more focused notes. The threshold is configurable in [Settings > Embeddings > Vault health check](/reference/settings#vault-health-check).
+The flip side of a healthy hub is a note that has collected too many backlinks to still be useful. A topic note with eighty connections is no longer an index, it's a dumping ground. Vault Operator flags these "god nodes" as part of the vault health check so you can think about splitting them into more focused notes. The threshold is configurable in [Settings > Vault Operator > Vault > Vault](/reference/settings#vault-health-check).
 
 ## Scanned PDFs and OCR
 
@@ -122,14 +141,19 @@ PDFs that contain only scanned images (no extractable text layer) are common in 
 
 ## Configuration
 
+All settings live under **Settings > Vault Operator > Providers > Embeddings**.
+
 | Setting | Where | Recommendation |
 |---------|-------|----------------|
-| **Embedding model** | Settings > Embeddings | Choose based on your privacy needs and provider |
-| **Chunk size** | Settings > Embeddings > Advanced | Default works well for most vaults. Smaller chunks (256 tokens) for short notes, larger (1024) for long-form writing |
-| **Excluded folders** | Settings > Embeddings > Excluded | Exclude templates, archive, or attachment folders to keep the index focused |
-| **Auto-index** | Settings > Embeddings | Keep enabled for automatic updates on file changes |
-| **Graph hops** | Settings > Embeddings > Graph | 1-2 hops is usually enough. More hops find broader connections but may include noise |
-| **Local reranking** | Settings > Embeddings | Enable for better result quality at minimal performance cost |
+| **Embedding model** | Embedding models | Add one model that matches your privacy needs and provider |
+| **Enable semantic index** | Semantic index | Must be on before you can build the index |
+| **Chunk size** | Index configuration | Pick one of: Small (800 chars), Medium (1200 chars), Standard (2000 chars, default), Large (3000 chars). Smaller for short atomic notes, larger for long journals |
+| **Excluded folders** | Index configuration | Skip templates, archive, or attachment folders to keep the index focused |
+| **Auto-index strategy** | Index configuration | Default "never" keeps you in control. Set to "on startup" for active vaults |
+| **Auto-index on file changes** | Index configuration | Default off. Turn on for API-based embedding models if you want live updates |
+| **HyDE** | Index configuration | Improves recall on vague queries, costs one extra model call per search |
+| **Expansion hops** | Graph expansion | 1 hop is the safe default, 2 hops for broader recall, 3 hops only for sparse vaults |
+| **Local reranking** | Local reranking | Enable for better result quality at minimal performance cost |
 
 :::warning Large vaults
 For vaults with 5000+ notes, the initial index build may take 10-20 minutes depending on your embedding model. After that, incremental updates are fast. Consider excluding attachment folders or archives you rarely search.
@@ -144,6 +168,6 @@ For vaults with 5000+ notes, the initial index build may take 10-20 minutes depe
 
 ## Next steps
 
-- [Vault Operations](/guides/vault-operations): Reading, writing, and organizing your files
-- [Memory & Personalization](/guides/memory-personalization): How Vault Operator remembers your preferences
-- [Settings Reference](/reference/settings): All embedding and search settings explained
+- [Vault operations](/guides/vault-operations): reading, writing, and organizing your files
+- [Memory and personalization](/guides/memory-personalization): how Vault Operator remembers your preferences
+- [Settings reference](/reference/settings): all embedding and search settings explained

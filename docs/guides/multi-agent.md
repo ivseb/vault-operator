@@ -1,9 +1,9 @@
 ---
-title: Multi-Agent & Tasks
+title: Multi-agent and tasks
 description: Sub-tasks, task extraction, and how Vault Operator delegates work to child agents.
 ---
 
-# Multi-agent & tasks
+# Multi-agent and tasks
 
 For complex work, a single agent conversation can get unwieldy. Vault Operator handles this with sub-agents: child agents that take on specific parts of a larger task on their own. It also pulls actionable tasks out of conversations and turns them into trackable notes.
 
@@ -11,7 +11,7 @@ For complex work, a single agent conversation can get unwieldy. Vault Operator h
 
 **Use this guide when:** a task is too large for one chat (researching three topics in parallel, processing a folder of files, comparing vault content against external research), or when you want extracted tasks to land as notes you can track.
 
-**You will know it works when:** the agent spawns a sub-task with `new_task`, you see it in the activity block as a nested chat, the result flows back into the parent, and (if task extraction is on) actionable checkboxes from the conversation appear as task notes in the configured folder.
+**You will know it works when:** the agent spawns a sub-task with `new_task`, the activity log shows lines prefixed with `[subtask]`, the result flows back into the parent, and (if task extraction is on) actionable checkboxes from the conversation appear as task notes in the configured folder.
 
 ### When to delegate vs. stay in one chat
 
@@ -38,20 +38,27 @@ The agent spawns sub-agents through the `new_task` tool. You don't call this too
 
 | Parameter | Purpose |
 |-----------|---------|
-| Agent profile | Which agent profile the child runs in (controls tools and system prompt) |
-| Message | The specific task description for the child |
-| Context | Relevant information passed from the parent conversation |
+| `mode` | Which agent the child runs as. Defaults to the Default agent. |
+| `message` | The full task description plus any context the child needs. The sub-agent cannot see the parent conversation, so the parent inlines everything relevant here. |
+| `profile` (optional) | Picks a lean sub-agent profile, for example `research`, which runs read-only and skips the escalation justification. |
 
 ### Depth guard
 
-Sub-agents can spawn their own sub-agents, but Vault Operator enforces a maximum depth of 2 levels. This prevents runaway chains:
+Vault Operator caps sub-agent nesting at 2 levels (`maxSubtaskDepth` in `Settings > Vault Operator > Advanced`). A sub-agent at level 2 cannot spawn another sub-agent. When the cap is hit, `new_task` returns an error and the agent must execute the work itself.
 
 ```
-Main Agent (level 0)
-  -> Sub-Agent A (level 1)
-      -> Sub-Agent A1 (level 2, maximum depth, cannot spawn further)
-  -> Sub-Agent B (level 1)
+Main agent (level 0)
+  -> Sub-agent A (level 1)
+      -> Sub-agent A1 (level 2, cap reached, cannot spawn further)
+  -> Sub-agent B (level 1)
 ```
+
+### Delegation patterns
+
+The Default agent's system prompt names two delegation patterns and the agent picks between them:
+
+- **Prompt chaining**: the parent runs steps sequentially, with each step depending on the previous result. Use when later work needs the earlier output.
+- **Orchestrator-Worker**: the parent fans out independent sub-tasks in parallel, then merges results. Use for the research fan-out below.
 
 ### Parallel execution
 
@@ -121,16 +128,16 @@ Task extraction works on any checklist the agent produces: project plans, follow
 
 1. Be ambitious. Multi-step requests like "research, compare, and summarize" are exactly what sub-agents are good at.
 2. Provide scope. Mention specific folders, tags, or file names so sub-agents know where to look.
-3. Check the activity block. You can see each sub-agent's tool calls in the parent's activity view.
+3. Watch the activity log. Sub-agent tool calls appear there with a `[subtask]` prefix.
 4. Use task extraction. When the agent gives you a plan, let it create task notes so nothing falls through the cracks.
 5. Trust the depth limit. Two levels of sub-agents cover most real-world scenarios. If you need more, break the work into separate conversations.
 
 :::warning Model quality matters
-Sub-agents consume additional API calls. Each child agent has its own conversation with the model. Use a capable model (Claude Sonnet or better) for multi-agent tasks. Smaller models may struggle with delegation decisions.
+Each sub-agent runs its own conversation, so costs add up fast. Pick at least Claude Sonnet or an equivalent model; smaller models often misjudge when to delegate.
 :::
 
 ## Next steps
 
-- [Skills, Rules & Workflows](/guides/skills-rules-workflows): Build workflows that use sub-agents
-- [Office Documents](/guides/office-documents): Hand off document creation to sub-agents
-- [Connectors](/guides/connectors): Hook up external tools for sub-agents to call
+- [Skills, rules and workflows](/guides/skills-rules-workflows): build workflows that use sub-agents
+- [Office documents](/guides/office-documents): hand off document creation to sub-agents
+- [Connectors](/guides/connectors): hook up external tools for sub-agents to call

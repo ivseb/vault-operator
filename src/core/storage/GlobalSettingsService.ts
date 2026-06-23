@@ -16,6 +16,10 @@
 import type { GlobalFileService } from './GlobalFileService';
 import type { ObsidianAgentSettings } from '../../types/settings';
 import type { SafeStorageService } from '../security/SafeStorageService';
+import {
+    encryptProviderCredentialsInPlace,
+    decryptProviderCredentialsInPlace,
+} from '../security/providerCredentialCrypto';
 
 // ---------------------------------------------------------------------------
 // Vault-local keys — everything NOT in this set is considered global
@@ -126,6 +130,14 @@ export class GlobalSettingsService {
         for (const model of models ?? []) {
             if (model.apiKey) model.apiKey = this.safeStorage.decrypt(model.apiKey);
         }
+        // AUDIT-034 H-3 / H-4: decrypt per-provider credentials inside
+        // providerConfigs[] and legacy_active_models_backup. Walker is
+        // shared with main.ts decryptSettings so the two paths cannot
+        // desync on the credential keys.
+        decryptProviderCredentialsInPlace(
+            settings as unknown as ObsidianAgentSettings,
+            this.safeStorage,
+        );
         const webTools = settings.webTools as { braveApiKey?: string; tavilyApiKey?: string } | undefined;
         if (webTools) {
             if (webTools.braveApiKey) webTools.braveApiKey = this.safeStorage.decrypt(webTools.braveApiKey);
@@ -140,6 +152,18 @@ export class GlobalSettingsService {
         }
         if (settings.kiloToken) {
             settings.kiloToken = this.safeStorage.decrypt(settings.kiloToken as string);
+        }
+        // AUDIT-034 H-2 / H-4: ChatGPT OAuth tokens (ADR-088) must be
+        // decrypted on load to match main.ts decryptSettings. Refresh
+        // token is long-lived, id_token carries email + accountId.
+        if (settings.chatgptOAuthAccessToken) {
+            settings.chatgptOAuthAccessToken = this.safeStorage.decrypt(settings.chatgptOAuthAccessToken as string);
+        }
+        if (settings.chatgptOAuthRefreshToken) {
+            settings.chatgptOAuthRefreshToken = this.safeStorage.decrypt(settings.chatgptOAuthRefreshToken as string);
+        }
+        if (settings.chatgptOAuthIdToken) {
+            settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken as string);
         }
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken as string);
@@ -164,6 +188,16 @@ export class GlobalSettingsService {
                 model.apiKey = this.safeStorage.encrypt(model.apiKey);
             }
         }
+        // AUDIT-034 H-3 / H-4: per-provider credentials in providerConfigs[]
+        // and legacy_active_models_backup must be encrypted on the same
+        // pass, otherwise the dual-write writes plaintext AWS secret
+        // keys + provider api keys into vault-operator-shared/settings.json
+        // (CWE-256 / CWE-312). Walker is shared with main.ts so the two
+        // paths cannot desync on the credential keys.
+        encryptProviderCredentialsInPlace(
+            copy as unknown as ObsidianAgentSettings,
+            this.safeStorage,
+        );
         const webTools = copy.webTools as { braveApiKey?: string; tavilyApiKey?: string } | undefined;
         if (webTools) {
             if (webTools.braveApiKey && !this.safeStorage.isEncrypted(webTools.braveApiKey)) {
@@ -182,6 +216,19 @@ export class GlobalSettingsService {
         }
         if (copy.kiloToken && !this.safeStorage.isEncrypted(copy.kiloToken as string)) {
             copy.kiloToken = this.safeStorage.encrypt(copy.kiloToken as string);
+        }
+        // AUDIT-034 H-2 / H-4: ChatGPT OAuth tokens (ADR-088) must be
+        // encrypted before they touch ~/vault-operator-shared/settings.json.
+        // Refresh token is long-lived (~30d), id_token carries email and
+        // accountId. The global file sits in a sync-prone directory.
+        if (copy.chatgptOAuthAccessToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccessToken as string)) {
+            copy.chatgptOAuthAccessToken = this.safeStorage.encrypt(copy.chatgptOAuthAccessToken as string);
+        }
+        if (copy.chatgptOAuthRefreshToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthRefreshToken as string)) {
+            copy.chatgptOAuthRefreshToken = this.safeStorage.encrypt(copy.chatgptOAuthRefreshToken as string);
+        }
+        if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken as string)) {
+            copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken as string);
         }
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken as string)) {
             copy.cloudflareApiToken = this.safeStorage.encrypt(copy.cloudflareApiToken as string);

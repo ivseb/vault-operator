@@ -2,6 +2,7 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTask } from '../core/AgentTask';
+import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
@@ -48,8 +49,32 @@ import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
+import DOMPurify from 'dompurify';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
+
+/**
+ * AUDIT-034 M-4: Defensive sanitization for rehydrated tool-step HTML.
+ *
+ * stepsBlockEl.outerHTML is persisted into the conversation JSON on every
+ * assistant turn and re-parsed on chat reload. All current writers are
+ * first-party safe (setText / createEl / createSpan), but if an attacker
+ * gains write access to the conversation JSON (untrusted sync, hostile MCP
+ * flow), the stored string would round-trip to the live Electron renderer
+ * unchecked. DOMPurify strips script / iframe / object / embed / link / meta
+ * tags plus event-handler attributes plus javascript: URLs before we ever
+ * touch the live DOM.
+ *
+ * RETURN_DOM_FRAGMENT gives back a sanitized DocumentFragment we can append
+ * via importNode + appendChild, matching the existing rehydration shape.
+ */
+const TOOL_STEPS_SANITIZE_CONFIG = {
+    RETURN_DOM_FRAGMENT: true as const,
+    FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'frame', 'frameset'],
+    FORBID_ATTR: ['srcdoc', 'srcset', 'formaction', 'action', 'background', 'poster', 'ping'],
+    ALLOW_DATA_ATTR: false,
+    ALLOW_UNKNOWN_PROTOCOLS: false,
+};
 
 /**
  * Agent Sidebar View
@@ -255,6 +280,23 @@ export class AgentSidebarView extends ItemView {
                 this.updateContextBadge();
             })
         );
+
+        // EPIC-33: refresh the history panel when the inline panel
+        // saves a new conversation, so the entry appears immediately
+        // (otherwise the user has to close+reopen the sidebar).
+        const onInlineSaved = (): void => {
+            this.historyPanel?.refresh();
+        };
+        this.app.workspace.containerEl.addEventListener(
+            'vault-operator:conversation-list-changed',
+            onInlineSaved,
+        );
+        this.register(() => {
+            this.app.workspace.containerEl.removeEventListener(
+                'vault-operator:conversation-list-changed',
+                onInlineSaved,
+            );
+        });
 
         this.showWelcomeMessage();
     }
@@ -1932,10 +1974,15 @@ export class AgentSidebarView extends ItemView {
             contextTracker: this.contextTracker ?? undefined,
         });
 
-        const task = new AgentTask(
-            resolvedApiHandler,
-            this.plugin.toolRegistry,
-            {
+        // EPIC-33 / ADR-138 PR-1.2: Sidebar drives the agent loop via
+        // AgentTaskRunner. Encapsulates the 16-positional-parameter
+        // constructor in a named options object. Behaviour identical
+        // to the prior `new AgentTask(...)` -- callbacks unchanged,
+        // closures over view-local mutables preserved.
+        const task = new AgentTaskRunner({
+            api: resolvedApiHandler,
+            toolRegistry: this.plugin.toolRegistry,
+            callbacks: {
                 onIterationStart: (iteration) => {
                     // Show the steps block immediately so the user can expand it from the start.
                     ensureStepsBlock();
@@ -2552,19 +2599,19 @@ export class AgentSidebarView extends ItemView {
                     taskMonitor.onTaskTelemetry(data);
                 },
             },
-            this.modeService,
-            this.plugin.settings.advancedApi.consecutiveMistakeLimit,
-            this.plugin.settings.advancedApi.rateLimitMs,
-            this.plugin.settings.advancedApi.condensingEnabled ?? false,
-            this.plugin.settings.advancedApi.condensingThreshold ?? 80,
-            this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
-            this.plugin.settings.advancedApi.maxIterations ?? 25,
-            0,  // depth: root task starts at 0
-            this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
-            this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
-            this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
+            modeService: this.modeService,
+            consecutiveMistakeLimit: this.plugin.settings.advancedApi.consecutiveMistakeLimit,
+            rateLimitMs: this.plugin.settings.advancedApi.rateLimitMs,
+            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? false,
+            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
+            powerSteeringFrequency: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
+            maxIterations: this.plugin.settings.advancedApi.maxIterations ?? 25,
+            depth: 0,  // root task starts at 0
+            maxSubtaskDepth: this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
+            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
+            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
             modelOverrideActive,
-        );
+        });
 
         // Load enabled rules for this task (Sprint 3.2)
         const rulesLoader = this.plugin.rulesLoader;
@@ -2741,7 +2788,7 @@ export class AgentSidebarView extends ItemView {
             console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
         }
 
-        await task.run({
+        await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,
@@ -3350,17 +3397,20 @@ export class AgentSidebarView extends ItemView {
         }
         // Re-inject the collapsed agent steps block above the markdown so
         // the user can still expand "what did the agent do?" after a chat
-        // reload. Parsed via DOMParser to avoid innerHTML and keep the
-        // review-bot rules clean.
+        // reload. Parsed via DOMPurify (AUDIT-034 M-4) so persisted HTML
+        // cannot smuggle script / iframe / event handlers / javascript:
+        // URLs into the live renderer if the conversation JSON was tampered
+        // with on disk.
         if (role === 'assistant' && toolStepsHtml) {
             const toolsEl = msgEl.createDiv('message-tools');
             try {
-                const parsed = new DOMParser().parseFromString(toolStepsHtml, 'text/html');
-                const root = parsed.body.firstElementChild;
+                const fragment = DOMPurify.sanitize(toolStepsHtml, TOOL_STEPS_SANITIZE_CONFIG);
+                // RETURN_DOM_FRAGMENT yields a DocumentFragment whose first
+                // element is the sanitized <details> root from stepsBlockEl.
+                // Import it into the live document before append so the node
+                // is owned by the right document.
+                const root = fragment.firstElementChild;
                 if (root) {
-                    // Imported nodes are detached from the parsed document;
-                    // appending them moves the (already-styled) <details>
-                    // tree into the live message element.
                     toolsEl.appendChild(activeDocument.importNode(root, true));
                     // Always start collapsed on rehydration so the chat
                     // doesn't visually explode when an old turn is reopened.
@@ -4654,8 +4704,10 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
-     * Open DiffReviewModal in checkpoint mode for a single checkpoint.
-     * Shows the diff between snapshot (pre-write) and current vault state.
+     * Open the EditReviewModal in checkpoint-mode for a single checkpoint
+     * (read-only side-by-side + Restore button). EPIC-33 Diff-UX-refresh
+     * (2026-06-22) replaced the section-accordion DiffReviewModal here so
+     * inline + sidebar use one consistent surface.
      */
     private async showCheckpointDiff(
         checkpoint: import('../core/checkpoints/GitCheckpointService').CheckpointInfo,
@@ -4663,8 +4715,8 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        const { DiffReviewModal } = await import('./DiffReviewModal');
-        const entries: import('./DiffReviewModal').FileDiffEntry[] = [];
+        const { showCheckpointReviewModal } = await import('./edit-review/EditReviewModal');
+        const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
         for (const filePath of checkpoint.filesChanged) {
             const before = await service.getSnapshotContent(checkpoint, filePath);
@@ -4676,32 +4728,30 @@ export class AgentSidebarView extends ItemView {
                 if (file) after = await this.app.vault.read(file);
             } catch { /* file deleted */ }
 
-            entries.push({ filePath, oldContent: before, newContent: after });
+            entries.push({ path: filePath, before, after });
         }
 
         if (entries.length === 0) return;
 
-        new DiffReviewModal(
-            this.app,
+        showCheckpointReviewModal({
+            app: this.app,
             entries,
-            {
-                mode: 'checkpoint',
-                checkpointInfo: checkpoint,
-                onRestore: async () => {
-                    const result = await service.restore(checkpoint);
-                    if (result && result.restored.length > 0) {
-                        const restoredFiles = result.restored.join(', ');
-                        const deletedNote = checkpoint.newFiles?.length
-                            ? ` Deleted: ${checkpoint.newFiles.join(', ')}.`
-                            : '';
-                        this.conversationHistory.push({
-                            role: 'user',
-                            content: `[System] Checkpoint restored. Files: ${restoredFiles}.${deletedNote} Vault state changed.`,
-                        });
-                    }
-                },
+            source: `Checkpoint ${new Date(checkpoint.timestamp).toLocaleString()}`,
+            title: 'Checkpoint anzeigen',
+            onRestore: async () => {
+                const result = await service.restore(checkpoint);
+                if (result && result.restored.length > 0) {
+                    const restoredFiles = result.restored.join(', ');
+                    const deletedNote = checkpoint.newFiles?.length
+                        ? ` Deleted: ${checkpoint.newFiles.join(', ')}.`
+                        : '';
+                    this.conversationHistory.push({
+                        role: 'user',
+                        content: `[System] Checkpoint restored. Files: ${restoredFiles}.${deletedNote} Vault state changed.`,
+                    });
+                }
             },
-        ).open();
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -4784,24 +4834,24 @@ export class AgentSidebarView extends ItemView {
             }
         }
 
-        // Build entries: old = earliest checkpoint, new = current vault
-        const { DiffReviewModal } = await import('./DiffReviewModal');
-        const entries: import('./DiffReviewModal').FileDiffEntry[] = [];
+        // Build entries: before = earliest checkpoint, after = current vault.
+        // EPIC-33 Diff-UX-refresh (2026-06-22) replaced the section-accordion
+        // DiffReviewModal with the unified EditReviewModal so inline + sidebar
+        // share a single review surface.
+        const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
+        const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
-        for (const [filePath, oldContent] of fileOldContent) {
-            let newContent = '';
+        for (const [filePath, before] of fileOldContent) {
+            let after = '';
             try {
                 const file = this.app.vault.getFileByPath(filePath);
-                if (file) newContent = await this.app.vault.read(file);
+                if (file) after = await this.app.vault.read(file);
             } catch { /* file may have been deleted */ }
 
-            // Skip files that haven't actually changed
-            if (oldContent === newContent) continue;
-
-            entries.push({ filePath, oldContent, newContent });
+            if (before === after) continue;
+            entries.push({ path: filePath, before, after });
         }
 
-        // Also handle newly created files (no checkpoint snapshot — oldContent is empty)
         const newFiles = new Set<string>();
         for (const cp of checkpoints) {
             if (cp.newFiles) {
@@ -4809,48 +4859,51 @@ export class AgentSidebarView extends ItemView {
             }
         }
         for (const filePath of newFiles) {
-            let newContent = '';
+            let after = '';
             try {
                 const file = this.app.vault.getFileByPath(filePath);
-                if (file) newContent = await this.app.vault.read(file);
+                if (file) after = await this.app.vault.read(file);
             } catch { continue; }
-            if (newContent) {
-                entries.push({ filePath, oldContent: '', newContent });
+            if (after) {
+                entries.push({ path: filePath, before: '', after, isNew: true });
             }
         }
 
         if (entries.length === 0) return;
 
-        new DiffReviewModal(
-            this.app,
+        const result = await showEditReviewModal({
+            app: this.app,
             entries,
-            { mode: 'review' },
-            (decisions) => {
-                void (async () => {
-                    // Apply user decisions: write back reverted/edited content
-                    for (const d of decisions) {
-                        if (!d.hasChanges) continue;
-                        try {
-                            const file = this.app.vault.getFileByPath(d.filePath);
-                            if (file instanceof TFile) {
-                                await this.app.vault.modify(file, d.finalContent);
-                            } else {
-                                await this.app.vault.adapter.write(d.filePath, d.finalContent);
-                            }
-                        } catch (e) {
-                            console.error(`[PostTaskReview] Failed to apply decision for ${d.filePath}:`, e);
-                        }
-                    }
-                    if (decisions.length > 0) {
-                        const files = decisions.map((d) => d.filePath).join(', ');
-                        this.conversationHistory.push({
-                            role: 'user',
-                            content: `[System] Post-task review: User reverted changes in ${decisions.length} file(s): ${files}. Vault state changed.`,
-                        });
-                    }
-                })();
-            },
-        ).open();
+            title: 'Änderungen prüfen',
+            source: `Aufgabe ${taskId}`,
+        });
+        if (result.decisions === null) return;
+
+        for (const d of result.decisions) {
+            if (d.skipped === true) continue;
+            try {
+                const file = this.app.vault.getFileByPath(d.path);
+                if (file instanceof TFile) {
+                    await this.app.vault.modify(file, d.finalContent);
+                    // Beat the CodeMirror stale-buffer cache that overwrites
+                    // vault.modify after the modal closes (FIX-01-07-03).
+                    const { refreshOpenMarkdownViewsFor } = await import('../core/utils/refreshMarkdownView');
+                    await refreshOpenMarkdownViewsFor(this.app, file, d.finalContent);
+                } else {
+                    await this.app.vault.adapter.write(d.path, d.finalContent);
+                }
+            } catch (e) {
+                console.error(`[PostTaskReview] Failed to apply decision for ${d.path}:`, e);
+            }
+        }
+        const applied = result.decisions.filter(d => d.skipped !== true);
+        if (applied.length > 0) {
+            const files = applied.map(d => d.path).join(', ');
+            this.conversationHistory.push({
+                role: 'user',
+                content: `[System] Post-task review: User edited ${applied.length} file(s): ${files}.`,
+            });
+        }
     }
 
     // -------------------------------------------------------------------------

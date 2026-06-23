@@ -13,6 +13,7 @@
 import * as crypto from 'crypto';
 import type { Vault } from 'obsidian';
 import type ObsidianAgentPlugin from '../../../main';
+import { assertSafePathSegment } from '../../utils/safePathName';
 import type { TemplateCatalog, SlideType, SlideTypeShape } from './types';
 
 /** Theme storage paths within the vault. */
@@ -46,8 +47,14 @@ export class TemplateCatalogLoader {
     /**
      * Load a template by theme name.
      * Checks user themes first, then bundled defaults.
+     *
+     * Path-traversal guard (AUDIT-034 L-6 / SAST-R-09): themeName lands in
+     * vault-relative filesystem paths, so we reject anything that is not a
+     * single safe path segment before any adapter call.
      */
     async loadTemplate(themeName: string): Promise<ResolvedTemplate> {
+        assertSafePathSegment(themeName, 'theme name');
+
         // Try user theme first
         const userTemplate = await this.loadUserTheme(themeName);
         if (userTemplate) return userTemplate;
@@ -67,8 +74,15 @@ export class TemplateCatalogLoader {
 
     /**
      * Load a user-ingested corporate theme from the vault.
+     *
+     * Defensive path-traversal guard (AUDIT-034 L-6 / SAST-R-09): the public
+     * entry point loadTemplate already validates themeName, but loadUserTheme
+     * is private and could be reached via future refactors. Re-checking here
+     * keeps the boundary local and avoids silent regressions.
      */
     private async loadUserTheme(themeName: string): Promise<ResolvedTemplate | null> {
+        assertSafePathSegment(themeName, 'theme name');
+
         const configDir = this.vault.configDir;
         const themeDir = `${configDir}/${THEME_BASE_DIR}/${themeName}`;
         const catalogPath = `${themeDir}/catalog.json`;
@@ -163,6 +177,11 @@ export class TemplateCatalogLoader {
         templateBuffer: ArrayBuffer,
         catalog: TemplateCatalog,
     ): Promise<string> {
+        // Path-traversal guard (AUDIT-034 L-6 / SAST-R-09): saveTheme writes
+        // into the vault under .obsilo/themes/{themeName}, so the segment
+        // must pass the shared allowlist before any adapter call.
+        assertSafePathSegment(themeName, 'theme name');
+
         const configDir = this.vault.configDir;
         const themeDir = `${configDir}/${THEME_BASE_DIR}/${themeName}`;
         const adapter = this.vault.adapter;

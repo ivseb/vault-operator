@@ -16,7 +16,7 @@ For every indexable file in your vault (Markdown by default, plus optional PDF, 
 - Optional contextual prefix per chunk if contextual retrieval is enabled (see below).
 - A staleness flag per chunk, set when the source file's mtime moves ahead of the row's mtime.
 
-The database itself (`knowledge.db`) lives under the agent folder (default `.obsidian-agent`). It uses the same atomic-write and snapshot machinery described in the [Troubleshooting](/reference/troubleshooting#knowledge-database-errors) page: an `integrity_check` runs on open, daily snapshots land in `.bak/`, and a lock file prevents two Obsidian instances from corrupting the file.
+The database itself (`knowledge.db`) lives at `<vault>/.vault-operator/data/knowledge.db`. Vaults upgraded from before v2.13 may still see the legacy `.obsidian-agent` folder. The current schema version is tracked in `src/core/knowledge/KnowledgeDB.ts` (`SCHEMA_VERSION`). The file uses the same atomic-write and snapshot machinery described in the [Troubleshooting](/reference/troubleshooting#knowledge-database-errors) page: an `integrity_check` runs on open, daily snapshots land in `.bak/`, and a lock file prevents two Obsidian instances from corrupting the file.
 
 ## Chunking
 
@@ -26,7 +26,7 @@ Binary document indexing (PDF, PPTX, XLSX, DOCX) is off by default. Enabling it 
 
 ## Embedding
 
-Each chunk is embedded by whichever model you picked in **Settings > Embeddings**. There is no built-in default; the onboarding flow recommends OpenAI `text-embedding-3-small` (cheapest cloud option), `openai/text-embedding-3-small` via OpenRouter (one key for everything), or `nomic-embed-text` via a local Ollama install (free, fully local). Custom OpenAI-compatible endpoints work too.
+Each chunk is embedded by whichever model you picked in **Settings > Vault Operator > Providers > Embeddings**. There is no built-in default; the onboarding flow recommends OpenAI `text-embedding-3-small` (cheapest cloud option), `openai/text-embedding-3-small` via OpenRouter (one key for everything), or `nomic-embed-text` via a local Ollama install (free, fully local). Custom OpenAI-compatible endpoints work too.
 
 Embeddings are batched (16 chunks per call by default) and the database commits every 20 files. These numbers balance memory use against latency and are configurable in `SemanticIndexService`.
 
@@ -36,7 +36,7 @@ Three triggers update the index:
 
 - **File-change listener.** Debounced. When you save a note, only that note's chunks are re-embedded. The rest of the index is untouched.
 - **Stale flag.** Every chunk carries an mtime. If the source file's mtime moves ahead, the chunk is marked stale and re-embedded on the next pass.
-- **Manual rebuild.** **Settings > Embeddings > Rebuild index** drops everything and starts over. Use it after changing the embedding model or the chunk size.
+- **Manual rebuild.** **Settings > Vault Operator > Providers > Embeddings > Rebuild index** drops everything and starts over. Use it after changing the embedding model or the chunk size.
 
 A queue serializes concurrent updates so the embedding API never gets pummeled.
 

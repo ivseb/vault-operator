@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
- * SafeStorageService — encrypts/decrypts API keys via Electron's safeStorage API.
+ * SafeStorageService -- encrypts/decrypts API keys via Electron's safeStorage API.
  *
  * Electron's safeStorage delegates to the OS keychain:
  *   - macOS: Keychain Services
@@ -11,9 +11,13 @@
  * The prefix allows detection of encrypted vs. plaintext values.
  *
  * Fallback: when safeStorage is unavailable, encrypt() returns plaintext
- * unchanged and decrypt() passes through plaintext values.
+ * unchanged and decrypt() passes through plaintext values. The service
+ * surfaces this degraded state via a one-time Obsidian Notice (see
+ * notifyPlaintextFallbackOnce). ProvidersTab additionally renders a
+ * persistent banner so the user can never miss the state.
  *
  * @see ADR-019-electron-safestorage.md
+ * @see AUDIT-034 finding M-5 / M-15
  */
 
 const ENCRYPTED_PREFIX = 'enc:v1:';
@@ -25,9 +29,22 @@ interface ElectronSafeStorage {
     decryptString(encrypted: Buffer): string;
 }
 
+// Minimal contract for the Obsidian Notice constructor. Kept as a local
+// type so the unit test can pass a fake without pulling in the obsidian
+// module (the test environment does not provide it).
+interface NoticeCtor {
+    new (message: string | DocumentFragment, timeout?: number): unknown;
+}
+
 export class SafeStorageService {
     private available: boolean;
     private storage: ElectronSafeStorage | null = null;
+    /**
+     * One-shot guard so the Notice fires at most once per plugin session,
+     * even if multiple callers (settings save, model save, OAuth refresh)
+     * touch the fallback path.
+     */
+    private fallbackNoticeShown = false;
 
     constructor() {
         try {
@@ -98,6 +115,53 @@ export class SafeStorageService {
     /** Check whether a value is already encrypted (has the enc:v1: prefix). */
     isEncrypted(value: string | undefined): boolean {
         return !!value && value.startsWith(ENCRYPTED_PREFIX);
+    }
+
+    /**
+     * AUDIT-034 M-5 / M-15. Surface the plaintext fallback state via a
+     * single Obsidian Notice per session when the OS keychain is missing
+     * AND the caller is about to (or already did) persist a secret. Caller
+     * provides the Notice constructor so this file does not have to depend
+     * on the obsidian module at type-check time, which keeps the existing
+     * unit tests happy.
+     *
+     * Returns true when this call fired the Notice, false otherwise.
+     */
+    notifyPlaintextFallbackOnce(noticeCtor: NoticeCtor | undefined, acknowledged: boolean): boolean {
+        if (this.available) return false;
+        if (this.fallbackNoticeShown) return false;
+        if (acknowledged) {
+            // User dismissed the persistent banner; respect that and stay
+            // silent for the rest of the session. The banner itself keeps
+            // being rendered on subsequent settings opens so the state is
+            // never lost, only the toast is suppressed.
+            this.fallbackNoticeShown = true;
+            return false;
+        }
+        this.fallbackNoticeShown = true;
+        if (typeof noticeCtor !== 'function') return false;
+        try {
+            // Side-effect constructor call: Obsidian's Notice DOM mount
+            // happens inside the constructor, no instance reference needed.
+            // eslint-disable-next-line no-new -- Notice is a side-effect UI primitive
+            new noticeCtor(
+                'OS keychain unavailable. API keys and OAuth tokens are stored as plaintext in data.json. '
+                + 'Open settings, providers tab for details.',
+                12000,
+            );
+        } catch (e) {
+            console.warn('[SafeStorage] Failed to surface plaintext-fallback notice:', e);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Test-only escape hatch so the Notice guard can be reset between
+     * unit-test cases. Intentionally not exported through any UI path.
+     */
+    _resetFallbackNoticeForTests(): void {
+        this.fallbackNoticeShown = false;
     }
 }
 

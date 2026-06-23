@@ -1,5 +1,5 @@
 ---
-title: Search Your Vault by Meaning
+title: Search your vault by meaning
 description: Set up an embedding model, build the semantic index, and run your first meaning-based search across your vault.
 ---
 
@@ -14,25 +14,31 @@ This tutorial gets semantic search running. Twenty minutes if you have an OpenAI
 
 ## Step 1: Pick an embedding model
 
-Semantic search needs an embedding model to convert your notes into vectors. Open **Settings > Embeddings** and pick one:
+Semantic search needs an embedding model to convert your notes into vectors. Open **Settings > Vault Operator > Providers > Embeddings** and pick one under **Embedding models**:
 
 | Option | Provider | Why |
 |--------|----------|-----|
-| Default | OpenRouter `qwen/qwen3-embedding-8b` | Strong quality, one API key covers chat and embeddings |
+| Strong quality | OpenRouter `qwen/qwen3-embedding-8b` | Good for retrieval. If you already use OpenRouter for chat, one API key covers both. |
 | Cheapest | OpenAI `text-embedding-3-small` | Fast, low cost, good quality |
 | Local | Ollama `nomic-embed-text` | Private, no API key needed |
 
 Enter your API key if the provider needs one, click **Test connection** to verify it works, and leave the other settings at their defaults.
 
-## Step 2: Build the index
+## Step 2: Enable the semantic index
 
-Still in **Settings > Embeddings**, click **Build index**. Vault Operator processes your notes in batches. A small vault (under 100 notes) finishes in about a minute, 500 notes take a few minutes, 2000+ notes run for ten to twenty minutes.
+Scroll to the **Semantic index** section in the same tab and turn on **Enable semantic index**. The **Build index** button stays disabled with the hint "Enable semantic index first." until you flip this toggle.
 
-The progress bar shows how many notes have been processed. You can keep editing notes in Obsidian while it runs. Changed files get re-indexed automatically.
+## Step 3: Build the index
+
+Still in **Settings > Vault Operator > Providers > Embeddings**, click **Build index**. Vault Operator processes your notes in batches. A small vault (under 100 notes) finishes in about a minute, 500 notes take a few minutes, 2000+ notes run for ten to twenty minutes.
+
+The progress bar shows how many notes have been processed. You can keep editing notes in Obsidian while it runs.
+
+Auto-reindex is off by default. After the first build, edited notes are not re-embedded automatically. To opt in, scroll to **Index configuration** in the same tab and set **Auto-index** to `startup` or `mode-switch`, and turn on **Re-index on change** if you want edits to be picked up between runs. Otherwise, click **Build index** again whenever you want to refresh the index.
 
 Wait for the confirmation that the first build is done before running the next step.
 
-## Step 3: Run your first meaning-based search
+## Step 4: Run your first meaning-based search
 
 Open the Vault Operator sidebar and ask a question that does not match any exact filename:
 
@@ -42,7 +48,7 @@ Instead of matching exact words, the agent finds notes whose meaning is related.
 
 Watch the activity block. You will see `semantic_search` being called. The results include a relevance score for each note.
 
-## Step 4: Try a graph-walking question
+## Step 5: Try a graph-walking question
 
 Once semantic search finds the relevant notes, the agent can follow wikilinks, backlinks, and shared tags to pull in related content. Ask something that benefits from connections:
 
@@ -50,9 +56,9 @@ Once semantic search finds the relevant notes, the agent can follow wikilinks, b
 
 In the activity block you will see semantic search first, then `get_linked_notes` or `search_by_tag` follow-ups. Notes that link to each other or share properties get added to the result set.
 
-## Step 5: Surface implicit connections (optional)
+## Step 6: Surface implicit connections (optional)
 
-Go to **Settings > Embeddings** and enable **Implicit connections**. This runs a background job that compares all your note vectors and flags pairs that are semantically similar but not linked.
+Go to **Settings > Vault Operator > Providers > Embeddings** and enable **Implicit connections**. This runs a background job that compares all your note vectors and flags pairs that are semantically similar but not linked.
 
 After the analysis completes (a few minutes on larger vaults), ask:
 

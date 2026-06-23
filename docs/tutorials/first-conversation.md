@@ -1,32 +1,30 @@
 ---
-title: Your First Conversation
-description: Learn the basics of chatting with Vault Operator, including modes, context, and how the agent thinks.
+title: Your first conversation
+description: Learn the basics of chatting with Vault Operator, including the default agent, context, and how the agent thinks.
 ---
 
 # Your first conversation
 
 Vault Operator is an agent that reads, writes, and searches your vault. A few concepts help before you start.
 
-## Modes
+## Default agent
 
-Vault Operator has two built-in modes:
+Vault Operator ships with one built-in agent, called **Default agent** (since 2026-05-18). It can read, write, edit, create, and delete files in your vault. There is no separate read-only mode and the agent does not switch behaviour mid-conversation.
 
-| Mode | What it does | When to use it |
-|------|-------------|----------------|
-| **Ask** | Read-only. Searches and analyzes but never changes your vault. | Questions, research, analysis |
-| **Agent** | Full access. Can read, write, edit, create, and delete files. | Active work, content creation, refactoring |
+If you want read-only behaviour, you have two options:
 
-Every chat starts in **Agent** mode. The agent itself can switch to **Ask** mid-conversation when the task is read-only. You can also change the default mode in **Settings > Modes**, and approvals still gate any write the Agent mode wants to perform.
+- Open **Settings > Vault Operator > Agents > Auto-approve** and set everything to "ask every time". The agent then needs an explicit click before any write.
+- Open **Settings > Vault Operator > Agents > Agents** and create a Custom Agent that excludes the `edit`, `vault`, `web`, `agent`, `mcp`, and `skill` tool groups. The custom agent can then only use the `read` group.
 
 :::tip Use approvals if you want safety
-The mode-switcher button is no longer in the chat header (it was removed in v2.11). If you want to explore without any risk of changes, keep the approval prompts on so every write needs an explicit click.
+The mode-switcher button was removed from the chat header in v2.11. If you want to explore without any risk of changes, keep the approval prompts on so every write needs an explicit click.
 :::
 
 ## Context: what the agent knows
 
 The agent sees:
 - Your message and the conversation history
-- The active note (if "Auto-add active note as context" is enabled in Settings > Interface)
+- The active note (if "Auto-add active note as context" is enabled in **Settings > Vault Operator > Advanced > Interface**)
 - Attached files (drag & drop or click the paperclip icon)
 - @-mentioned files (type `@` in the chat to search your vault)
 - Its memory of past conversations (if memory is enabled)
@@ -63,7 +61,8 @@ Enabling auto-approve for writes means the agent acts without asking. The checkp
 
 | Shortcut | Action |
 |----------|--------|
-| `Enter` | Send message (configurable: Ctrl/Cmd+Enter) |
+| `Enter` | Send message (default). |
+| `Ctrl/Cmd+Enter` | Send message when "Send with Enter" is turned off in settings. |
 | `Shift+Enter` | New line |
 | `/` | Open workflow/prompt picker |
 | `@` | Open file mention picker |
@@ -72,7 +71,7 @@ Enabling auto-approve for writes means the agent acts without asking. The checkp
 
 Be specific. "Summarize the meeting notes from March" works better than "summarize my notes."
 
-Use `@filename` to point the agent at specific notes instead of hoping it finds them. Pick the mode deliberately: Ask for questions, Agent for actions.
+Use `@filename` to point the agent at specific notes instead of hoping it finds them.
 
 The activity block shows exactly what the agent did, which is useful for learning how it works and for catching mistakes when it goes sideways.
 

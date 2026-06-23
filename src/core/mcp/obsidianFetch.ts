@@ -9,10 +9,34 @@
  * which have no CORS restrictions and support streaming responses.
  *
  * Signature matches MCP SDK's FetchLike: (url, init?) => Promise<Response>
+ *
+ * AUDIT-034 M-14: SSRF guard applied at every call site. The same allow/deny
+ * rules as providerUrlGuard reject the AWS / GCP metadata hosts and the
+ * 0.0.0.0 wildcard, and reject loopback or RFC 1918 hosts unless the caller
+ * explicitly opted in via the `x-obsilo-allow-local` request header. The
+ * header is set by McpClient when (and only when) the user enabled the
+ * "allow local MCP URLs" toggle in settings.
  */
 
 import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
+import { isLocalHostname, isPrivateIpHostname } from '../../api/providers/providerUrlGuard';
+
+/** Mirrors providerUrlGuard.BLOCKED_HOSTNAMES; kept in sync intentionally. */
+const BLOCKED_MCP_HOSTNAMES = new Set([
+    '0.0.0.0',
+    '::',
+    '[::]',
+    '169.254.169.254',
+    '[fd00:ec2::254]',
+    'fd00:ec2::254',
+    'metadata.google.internal',
+    '169.254.169.253',
+]);
+
+/** Internal opt-in header. Stripped from the outbound request before send. */
+export const MCP_ALLOW_LOCAL_HEADER = 'x-obsilo-allow-local';
+const ALLOW_LOCAL_HEADER = MCP_ALLOW_LOCAL_HEADER;
 
 /**
  * CORS-free fetch using Node.js http/https. Returns a standard Web Response
@@ -21,11 +45,16 @@ import { request as httpRequest } from 'node:http';
  */
 export function obsidianFetch(url: string | URL, init?: RequestInit): Promise<Response> {
     return new Promise((resolve, reject) => {
-        const parsedUrl = new URL(url.toString());
-        const isHttps = parsedUrl.protocol === 'https:';
-        const reqFn = isHttps ? httpsRequest : httpRequest;
+        let parsedUrl: URL;
+        try {
+            parsedUrl = new URL(url.toString());
+        } catch {
+            reject(new Error('MCP fetch rejected: invalid URL'));
+            return;
+        }
 
-        // Convert RequestInit headers to plain object
+        // Convert RequestInit headers to plain object up-front so we can read
+        // the opt-in flag before running the SSRF guard.
         const headers: Record<string, string> = {};
         if (init?.headers) {
             if (init.headers instanceof Headers) {
@@ -38,6 +67,45 @@ export function obsidianFetch(url: string | URL, init?: RequestInit): Promise<Re
                 Object.assign(headers, init.headers);
             }
         }
+
+        // Per-request opt-in to allow loopback / RFC 1918 MCP servers. The
+        // McpClient sets this when the user enabled the "allow local MCP
+        // URLs" setting. The header is stripped before the wire request so
+        // it never leaks to the remote server.
+        const allowLocal = (() => {
+            for (const k of Object.keys(headers)) {
+                if (k.toLowerCase() === ALLOW_LOCAL_HEADER) {
+                    const v = headers[k];
+                    delete headers[k];
+                    return v === '1' || v === 'true';
+                }
+            }
+            return false;
+        })();
+
+        // SSRF guard (AUDIT-034 M-14).
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+            reject(new Error(`MCP fetch rejected: unsupported protocol "${parsedUrl.protocol}"`));
+            return;
+        }
+        const hostname = parsedUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+        if (
+            BLOCKED_MCP_HOSTNAMES.has(hostname)
+            || BLOCKED_MCP_HOSTNAMES.has(parsedUrl.hostname.toLowerCase())
+        ) {
+            reject(new Error(`MCP fetch rejected: blocked host "${parsedUrl.host}"`));
+            return;
+        }
+        if (!allowLocal && (isLocalHostname(hostname) || isPrivateIpHostname(hostname))) {
+            reject(new Error(
+                `MCP fetch rejected: host "${parsedUrl.host}" resolves to a local or private network. `
+                + 'Enable "allow local MCP URLs" in settings to permit loopback or RFC 1918 hosts.',
+            ));
+            return;
+        }
+
+        const isHttps = parsedUrl.protocol === 'https:';
+        const reqFn = isHttps ? httpsRequest : httpRequest;
 
         const req = reqFn(
             {

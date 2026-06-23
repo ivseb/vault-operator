@@ -32,6 +32,11 @@ const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 
 const AUTH_AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
 const AUTH_TOKEN_URL = 'https://auth.openai.com/oauth/token';
+/**
+ * Best-effort revocation endpoint. Reverse-engineered from codex-cli; not part
+ * of a documented public contract. Failures are expected and ignored on logout.
+ */
+const AUTH_REVOKE_URL = 'https://auth.openai.com/oauth/revoke';
 
 /** Refresh access_token this many seconds before its expiry. */
 const REFRESH_BUFFER_SECONDS = 60;
@@ -251,7 +256,7 @@ export class ChatGptOAuthService {
         });
 
         if (res.status >= 400) {
-            const detail = safeJsonString(res.text);
+            const detail = extractOAuthError(res.text);
             throw new Error(`Token exchange failed (HTTP ${res.status}): ${detail}`);
         }
 
@@ -373,7 +378,7 @@ export class ChatGptOAuthService {
         if (this.generation !== gen) return; // logout/relogin happened during the call
 
         if (res.status >= 400) {
-            const detail = safeJsonString(res.text);
+            const detail = extractOAuthError(res.text);
             throw new Error(`Token refresh failed (HTTP ${res.status}): ${detail}`);
         }
 
@@ -387,6 +392,40 @@ export class ChatGptOAuthService {
     // ---------------------------------------------------------------------------
 
     async logout(): Promise<void> {
+        // Best-effort server-side revocation BEFORE clearing local state, so a
+        // previously exfiltrated refresh_token cannot keep minting access tokens
+        // (AUDIT-034 L-10). The endpoint is reverse-engineered; treat any 4xx
+        // or network error as expected and never block the logout itself. Local
+        // state is always cleared, even when revocation fails.
+        const tokenToRevoke = this.refreshToken || this.accessToken;
+        const hint = this.refreshToken ? 'refresh_token' : 'access_token';
+        if (tokenToRevoke) {
+            try {
+                const body = new URLSearchParams({
+                    token: tokenToRevoke,
+                    token_type_hint: hint,
+                    client_id: CLIENT_ID,
+                }).toString();
+                const res = await requestUrl({
+                    url: AUTH_REVOKE_URL,
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json',
+                    },
+                    body,
+                    throw: false,
+                });
+                if (res.status >= 400) {
+                    console.debug(
+                        `[ChatGptOAuth] Best-effort token revocation returned HTTP ${res.status}; clearing local credentials anyway.`,
+                    );
+                }
+            } catch (e) {
+                console.debug('[ChatGptOAuth] Best-effort token revocation failed; clearing local credentials anyway.', e);
+            }
+        }
+
         this.accessToken = '';
         this.refreshToken = '';
         this.idToken = '';
@@ -461,8 +500,40 @@ async function sha256Base64Url(input: string): Promise<string> {
     return crypto.createHash('sha256').update(input).digest('base64url');
 }
 
-function safeJsonString(text: string | undefined): string {
+/**
+ * Field-aware OAuth error extractor. Returns ONLY the documented OAuth 2.0
+ * error fields (RFC 6749 section 5.2: error, error_description, error_uri).
+ * Drops every other field. This prevents an upstream schema change from
+ * embedding a submitted code_verifier, refresh_token, or PKCE nonce inside a
+ * thrown Error message that may later land in logs (AUDIT-034 L-2).
+ *
+ * Exported for unit testing.
+ */
+export function extractOAuthError(text: string | undefined): string {
     if (!text) return '<empty>';
-    if (text.length > 500) return text.slice(0, 500) + '...';
-    return text;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch {
+        // Non-JSON body: do not echo raw text, just signal that something
+        // non-conforming came back. Echoing free-form text could include a
+        // reflected token if the upstream proxy ever inlines the request body.
+        return '<non-json error body>';
+    }
+    if (!parsed || typeof parsed !== 'object') return '<empty>';
+    const obj = parsed as Record<string, unknown>;
+    const parts: string[] = [];
+    const code = obj.error;
+    if (typeof code === 'string' && code.length > 0) {
+        parts.push(`error=${code.slice(0, 100)}`);
+    }
+    const description = obj.error_description;
+    if (typeof description === 'string' && description.length > 0) {
+        parts.push(`error_description=${description.slice(0, 300)}`);
+    }
+    const uri = obj.error_uri;
+    if (typeof uri === 'string' && uri.length > 0) {
+        parts.push(`error_uri=${uri.slice(0, 200)}`);
+    }
+    return parts.length > 0 ? parts.join(', ') : '<unrecognized error body>';
 }

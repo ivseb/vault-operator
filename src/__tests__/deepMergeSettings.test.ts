@@ -15,10 +15,15 @@ import { describe, it, expect } from 'vitest';
 
 // Re-Implement der Funktion fuer den Test (main.ts importiert obsidian
 // und kann nicht direkt importiert werden -- duplizieren ist hier OK).
+// AUDIT-034 Info-6: Re-Implementation mirrors the new prototype-pollution
+// guard (skip __proto__/constructor/prototype keys).
 function deepMergeSettings<T extends Record<string, unknown>>(defaults: T, saved: Partial<T>): T {
     if (!saved || typeof saved !== 'object') return { ...defaults };
     const merged = { ...defaults } as Record<string, unknown>;
     for (const [key, savedValue] of Object.entries(saved)) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            continue;
+        }
         const defaultValue = (defaults as Record<string, unknown>)[key];
         if (
             savedValue !== null
@@ -105,6 +110,36 @@ describe('deepMergeSettings (Live-Bug 2026-05-04)', () => {
         );
         expect((r.l1 as Record<string, unknown>).l2).toEqual({
             l3: { keep: 'default', overridden: 'saved', added: 'saved' },
+        });
+    });
+
+    describe('AUDIT-034 Info-6: prototype-pollution sentinel keys', () => {
+        it('skips a JSON-parsed __proto__ key without mutating the prototype chain', () => {
+            const polluted = JSON.parse('{"a": 1, "__proto__": {"polluted": true}}') as Record<string, unknown>;
+            const defaults = { a: 0, b: 'x' };
+            const merged = deepMergeSettings(defaults, polluted as Partial<typeof defaults>);
+            expect(merged.a).toBe(1);
+            expect(merged.b).toBe('x');
+            // No prototype mutation through merge.
+            expect((merged as Record<string, unknown>).polluted).toBeUndefined();
+            expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+            expect(Object.getPrototypeOf(merged)).toBe(Object.prototype);
+        });
+
+        it('skips a constructor key without overwriting the merged object constructor', () => {
+            const polluted = JSON.parse('{"a": 1, "constructor": {"bad": true}}') as Record<string, unknown>;
+            const defaults = { a: 0 };
+            const merged = deepMergeSettings(defaults, polluted as Partial<typeof defaults>);
+            expect(merged.a).toBe(1);
+            expect((merged as Record<string, unknown>).constructor).toBe(Object);
+        });
+
+        it('skips a prototype key', () => {
+            const polluted = JSON.parse('{"a": 1, "prototype": {"bad": true}}') as Record<string, unknown>;
+            const defaults = { a: 0 };
+            const merged = deepMergeSettings(defaults, polluted as Partial<typeof defaults>);
+            expect(merged.a).toBe(1);
+            expect((merged as Record<string, unknown>).prototype).toBeUndefined();
         });
     });
 });

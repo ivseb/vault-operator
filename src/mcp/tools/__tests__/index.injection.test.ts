@@ -56,3 +56,48 @@ describe('handleToolCall: no auto-inject of systemContext (FIX-23-09-01)', () =>
         expect(buildPrompts).not.toHaveBeenCalled();
     });
 });
+
+describe('handleToolCall: rate-limit caller-key ignores source_interface (AUDIT-034 L-9)', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('uses only the mcpServerToken as the caller key, not args.source_interface', async () => {
+        const consume = vi.fn(() => ({ allowed: true, remainingInWindow: 9, limitInWindow: 10 }));
+        const plugin = {
+            operationLogger: undefined,
+            conversationStore: undefined,
+            mcpRateLimiter: { consume, check: vi.fn(), record: vi.fn(), size: () => 0, cleanup: vi.fn() },
+            settings: { mcpServerToken: 'token-abc' },
+            app: { vault: { getMarkdownFiles: () => [] } },
+        } as unknown as ObsidianAgentPlugin;
+
+        await handleToolCall(plugin, 'get_context', { source_interface: 'claude-desktop' });
+        await handleToolCall(plugin, 'get_context', { source_interface: 'cline' });
+        await handleToolCall(plugin, 'get_context', { source_interface: 'attacker-supplied-string' });
+
+        expect(consume).toHaveBeenCalledTimes(3);
+        // All three calls must bucket under the same caller key, regardless
+        // of the client-supplied source_interface. This is the L-9 fix: an
+        // attacker can no longer multiply expensive-class buckets by varying
+        // source_interface.
+        for (const call of consume.mock.calls as unknown as unknown[][]) {
+            expect(call[0]).toBe('token-abc');
+        }
+    });
+
+    it('falls back to "unauthenticated" when no server token is configured', async () => {
+        const consume = vi.fn(() => ({ allowed: true, remainingInWindow: 9, limitInWindow: 10 }));
+        const plugin = {
+            operationLogger: undefined,
+            conversationStore: undefined,
+            mcpRateLimiter: { consume, check: vi.fn(), record: vi.fn(), size: () => 0, cleanup: vi.fn() },
+            settings: { mcpServerToken: undefined },
+            app: { vault: { getMarkdownFiles: () => [] } },
+        } as unknown as ObsidianAgentPlugin;
+
+        await handleToolCall(plugin, 'get_context', { source_interface: 'whatever' });
+
+        expect(consume).toHaveBeenCalledWith('unauthenticated', expect.any(String));
+    });
+});

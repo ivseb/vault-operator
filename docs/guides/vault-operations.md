@@ -1,13 +1,13 @@
 ---
-title: Vault Operations
+title: Vault operations
 description: How Vault Operator reads, writes, searches, and structures your vault.
 ---
 
-# Vault Operations
+# Vault operations
 
 Vault Operator can read, write, search, and organize files across your entire vault.
 
-**You will need:** Vault Operator installed, one model configured, and Agent mode active (writes need Agent mode). Auto-approval is off by default, which is the safe choice while you learn how the agent edits files.
+**You will need:** Vault Operator installed and one model configured. Auto-approve is off by default, which is the safe choice while you learn how the agent edits files. For read-only review, create a Custom Agent with only the `read` and `vault` groups, or set Auto-approve to ask every time.
 
 **Use this guide when:** you want to know which read, write, edit, search, and structure tools the agent has, when each fires, and how checkpoints protect you from a bad write.
 
@@ -21,7 +21,7 @@ Every tool call shows up in the [activity block](/guides/chat-interface#activity
 
 ## Reading your vault
 
-These tools let the agent look at your files without changing anything. They work in both Ask and Agent mode.
+These tools let the agent look at your files without changing anything. They are safe to leave on Auto-approve, since they never modify the vault.
 
 | Tool | What it does |
 |------|-------------|
@@ -47,7 +47,7 @@ Keyword search matches exact words. To find notes by meaning (e.g., "notes about
 
 ## Writing and editing
 
-These tools modify your vault. They only work in Agent mode and need approval by default.
+These tools modify your vault. Each call needs approval by default. You can change that under Settings > Vault Operator > Agents > Auto-approve.
 
 | Tool | What it does |
 |------|-------------|
@@ -123,8 +123,8 @@ Bases let you work with your notes as structured data, similar to a database vie
 
 **Example:** *"Create a Base of all notes tagged #book with columns for author, rating, and status from frontmatter"*
 
-:::info Requires Obsidian 1.8+
-Bases use Obsidian's built-in Bases feature. Make sure your Obsidian version supports it.
+:::info Built on Obsidian Bases
+Bases use Obsidian's built-in Bases feature. Vault Operator's minimum Obsidian version is 1.13.0, so Bases are always available.
 :::
 
 ## Tips
@@ -133,10 +133,10 @@ Bases use Obsidian's built-in Bases feature. Make sure your Obsidian version sup
 2. Use @-mentions for specific files. The agent doesn't have to search for them then.
 3. Let the agent chain tools. A request like "find all notes about X, summarize them, and create a new note with the summary" uses multiple tools automatically.
 4. Check the activity block to see which files were read or changed.
-5. Start in Ask mode if you just want to explore. Switch to Agent mode when you're ready to make changes.
+5. For read-only exploration, create a Custom Agent with only the `read` and `vault` groups, or set Auto-approve to ask every time so no write goes through without your confirmation.
 
 ## Next steps
 
-- [Knowledge Discovery](/guides/knowledge-discovery): Semantic search and the knowledge graph
-- [Chat Interface](/guides/chat-interface): Attachments, history, and shortcuts
-- [Office Documents](/guides/office-documents): Create PPTX, DOCX, and XLSX from your notes
+- [Knowledge discovery](/guides/knowledge-discovery): semantic search and the knowledge graph
+- [Chat interface](/guides/chat-interface): attachments, history, and shortcuts
+- [Office documents](/guides/office-documents): create PPTX, DOCX, and XLSX from your notes

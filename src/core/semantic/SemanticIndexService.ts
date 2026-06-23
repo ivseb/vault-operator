@@ -24,6 +24,21 @@ import type { ApiHandler } from '../../api/types';
 import type ObsidianAgentPlugin from '../../main';
 import * as path from 'path';
 import * as fs from '../security/safeFs';
+import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
+
+/**
+ * Escape a string for safe use inside an XML attribute value.
+ * Local copy of the helper in src/ui/sidebar/AttachmentHandler.ts; kept inline
+ * because that helper is module-private. AUDIT-034 L-8.
+ */
+function escapeXmlAttr(s: string): string {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
 
 // ---------------------------------------------------------------------------
 // Public interfaces
@@ -482,7 +497,7 @@ export class SemanticIndexService {
                         // Pass 1: embed chunks with title prefix (fast, no LLM call).
                         // Contextual Enrichment runs as Pass 2 in the background after build.
                         const vectors = await this.embedBatch(enrichedChunks);
-                        this.vectorStore.insertChunks(file.path, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
+                        this.vectorStore.insertNoteVector(file.path, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
                     } else {
                         // File shrank to a gated stub (or emptied): drop its old
                         // vectors. Side effect: gated files never store an mtime,
@@ -577,8 +592,8 @@ export class SemanticIndexService {
         const candidates = this.vectorStore.getStubCandidatePaths(STUB_SWEEP_MAX_TEXT_CHARS);
         let removed = 0;
         for (const p of candidates) {
-            // session:/episode: entries are not vault files; leave them alone.
-            if (p.startsWith('session:') || p.startsWith('episode:')) continue;
+            // session:/episode:-Eintraege werden bereits in getStubCandidatePaths
+            // ueber domain='note' herausgefiltert (Wave 1 Task 1.3, ADR-137).
             const ext = p.split('.').pop()?.toLowerCase() ?? '';
             if (SemanticIndexService.BINARY_DOCUMENT_EXTENSIONS.has(ext)) continue;
             if (SemanticIndexService.IMAGE_EXTENSIONS.has(ext)) continue;
@@ -618,7 +633,7 @@ export class SemanticIndexService {
                     ? [title + '\n\n' + chunks[0], ...chunks.slice(1)]
                     : chunks;
                 const vectors = await this.embedBatch(enrichedChunks);
-                this.vectorStore.insertChunks(filePath, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
+                this.vectorStore.insertNoteVector(filePath, enrichedChunks, vectors, file.stat?.mtime ?? 0, 0);
             } else {
                 this.vectorStore.deleteByPath(filePath);
             }
@@ -1002,7 +1017,7 @@ export class SemanticIndexService {
             if (chunks.length === 0) return;
 
             const vectors = await this.embedBatch(chunks);
-            this.vectorStore.insertChunks(`session:${sessionId}`, chunks, vectors, Date.now());
+            this.vectorStore.insertSessionVector(sessionId, chunks, vectors, Date.now());
             this.knowledgeDB.markDirty();
             console.debug(`[SemanticIndex] Indexed session summary: ${sessionId} (${chunks.length} chunks)`);
         } catch (e) {
@@ -1041,7 +1056,7 @@ export class SemanticIndexService {
             if (chunks.length === 0) return;
 
             const vectors = await this.embedBatch(chunks);
-            this.vectorStore.insertChunks(`episode:${episodeId}`, chunks, vectors, Date.now());
+            this.vectorStore.insertEpisodeVector(episodeId, chunks, vectors, Date.now());
             this.knowledgeDB.markDirty();
         } catch (e) {
             console.warn(`[SemanticIndex] Failed to index episode ${episodeId}:`, e);
@@ -1258,22 +1273,64 @@ export class SemanticIndexService {
             return chunks;
         }
 
-        // Build a compact document summary for the prompt: title + headings + first 1500 chars
-        // L-2: Sanitize user content to mitigate prompt injection via vault content
-        const sanitize = (text: string, maxLen: number): string =>
-            text.replace(/```/g, '').replace(/^(system|assistant|user):/gim, '').slice(0, maxLen);
-        const title = sanitize(filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? filePath, 200);
-        const headings = sanitize(fullContent.match(/^#{1,3} .+$/gm)?.slice(0, 10)?.join('\n') ?? '', 500);
-        const docContext = sanitize(fullContent, 1500);
+        // Build a compact document summary for the prompt: title + headings + first 1500 chars.
+        // AUDIT-034 M-13: Use the full INJECTION_PATTERNS neutralizer from
+        // sanitizeVaultContentForLLM instead of the prior inline strip (which only
+        // handled backticks and `^(system|assistant|user):` line prefixes). Vault
+        // content (web clips, third-party imports) can carry "ignore previous
+        // instructions", "<system>...</system>", "you are now ...", "[[system]]"
+        // patterns; the enriched prefix is stored and re-embedded, so an unmitigated
+        // injection becomes a stored, cross-session prompt-injection vector.
+        //
+        // AUDIT-034 L-8: Filename is interpolated into an XML attribute and must
+        // be escaped (a filename like `note" data="..."` would otherwise break the
+        // attribute boundary).
+        const safeDoc = sanitizeWithDetails(fullContent, filePath);
+        if (safeDoc.redactedCount > 0) {
+            console.debug(
+                `[SemanticIndex] enrichChunkWithContext: redacted ${safeDoc.redactedCount} ` +
+                    `prompt-injection pattern(s) in ${filePath}`,
+            );
+        }
+        // sanitizeWithDetails returns the body wrapped in BEGIN/END markers; we keep
+        // the inner already-redacted body for slicing into title/headings/docContext.
+        const sanitizedBody = safeDoc.text
+            .replace(/^={5,} BEGIN VAULT NOTE:[^\n]*\n[^\n]*\n[^\n]*\n\n/, '')
+            .replace(/\n={5,} END VAULT NOTE ={5,}$/, '')
+            .replace(/\n\n\[content truncated at \d+ characters; original note is longer\]$/, '');
+        const clamp = (text: string, maxLen: number): string => text.slice(0, maxLen);
+        const rawTitle = filePath.split('/').pop()?.replace(/\.\w+$/, '') ?? filePath;
+        // Title also goes through the sanitizer so that a hostile filename cannot
+        // smuggle a "ignore previous instructions" string via the title attribute.
+        const sanitizedTitle = sanitizeWithDetails(rawTitle, filePath).text
+            .replace(/^={5,} BEGIN VAULT NOTE:[^\n]*\n[^\n]*\n[^\n]*\n\n/, '')
+            .replace(/\n={5,} END VAULT NOTE ={5,}$/, '');
+        const title = escapeXmlAttr(clamp(sanitizedTitle, 200));
+        const headings = clamp(sanitizedBody.match(/^#{1,3} .+$/gm)?.slice(0, 10)?.join('\n') ?? '', 500);
+        const docContext = clamp(sanitizedBody, 1500);
 
         const enriched: string[] = [];
         for (const chunk of chunks) {
             // Respect cancel flag during enrichment (can take many seconds per chunk)
             if (this.cancelled) return chunks;
             try {
+                // Per-chunk sanitize: same INJECTION_PATTERNS coverage as the document body.
+                const safeChunk = sanitizeWithDetails(chunk, filePath);
+                if (safeChunk.redactedCount > 0) {
+                    console.debug(
+                        `[SemanticIndex] enrichChunkWithContext: redacted ${safeChunk.redactedCount} ` +
+                            `prompt-injection pattern(s) in chunk of ${filePath}`,
+                    );
+                }
+                const sanitizedChunkBody = safeChunk.text
+                    .replace(/^={5,} BEGIN VAULT NOTE:[^\n]*\n[^\n]*\n[^\n]*\n\n/, '')
+                    .replace(/\n={5,} END VAULT NOTE ={5,}$/, '')
+                    .replace(/\n\n\[content truncated at \d+ characters; original note is longer\]$/, '');
+                const chunkForPrompt = clamp(sanitizedChunkBody, 800);
+
                 const prompt =
                     `<document title="${title}">\n${headings ? `Headings:\n${headings}\n\n` : ''}${docContext}\n</document>\n\n` +
-                    `<chunk>\n${chunk.slice(0, 800)}\n</chunk>\n\n` +
+                    `<chunk>\n${chunkForPrompt}\n</chunk>\n\n` +
                     `First: Is this content time-sensitive? Reply <freshness>volatile</freshness> (changes rapidly, e.g. regulations, tech trends), ` +
                     `<freshness>evolving</freshness> (changes occasionally, e.g. research), or <freshness>stable</freshness> (rarely changes, e.g. history, math). ` +
                     `Then give a short (2-3 sentence) context that situates this chunk within the activeDocument. ` +
