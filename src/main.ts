@@ -2219,19 +2219,25 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.addCommand({
             id: 'open-inline-ai-menu',
             name: 'Open inline AI chat',
-            // EPIC-33 inline-AI surface needs a stable default so the
-            // feature is discoverable. Mod+Shift+I matches the inline
-            // shortcut in Notion AI / Continue / Cursor. 'Mod' resolves
-            // to Cmd on macOS, Ctrl on Win/Linux; on the latter the
-            // user-typical DevTools chord wins until the user rebinds
-            // (Settings -> Hotkeys), which the Notice on first open
-            // hints at.
-            // eslint-disable-next-line obsidianmd/commands/no-default-hotkeys -- intentional UX default; users can rebind via Settings -> Hotkeys
-            hotkeys: [{ modifiers: ['Mod', 'Shift'], key: 'i' }],
             callback: () => {
                 this.inlineActions?.orchestrator.triggerPanel();
             },
         });
+        // EPIC-33: keep the inline-AI surface discoverable with a
+        // default chord without setting `hotkeys` on `addCommand`
+        // (Obsidian community guidelines discourage that). Register
+        // Mod+Shift+I on the app scope instead so 'Mod' resolves to
+        // Cmd on macOS / Ctrl on Win+Linux automatically. Users can
+        // still rebind the COMMAND via Settings -> Hotkeys -- both
+        // chords then trigger the same panel. The handler is owned
+        // by the plugin, so onunload removes it.
+        const inlineHotkeyHandler = this.app.scope.register(['Mod', 'Shift'], 'i', (ev: KeyboardEvent) => {
+            if (this.inlineActions === null || this.inlineActions === undefined) return false;
+            ev.preventDefault();
+            this.inlineActions.orchestrator.triggerPanel();
+            return false;
+        });
+        this.register(() => this.app.scope.unregister(inlineHotkeyHandler));
 
         // EPIC-33: Rechtsklick-Menue zeigt die Inline-Chat-Option mit
         // OS-spezifischem Hotkey-Hint (Mac symbols vs. Ctrl+Shift+I).
