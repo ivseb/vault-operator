@@ -528,7 +528,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (this.settings.agentFolderPath === '.obsidian-agent'
             || this.settings.agentFolderPath === 'obsilo-vault') {
             this.settings.agentFolderPath = '.obsilo-vault';
-            await this.saveSettings();
+            // FIX-PERF-04: defer to flushSettings() after the migration chain
+            this.markSettingsDirty();
         }
 
         // 1a-bis. AUDIT-034 M-5 / M-15 -- surface the plaintext-fallback
@@ -568,7 +569,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // fast tier (Stage 2 in getHelperModel). The legacy explicit
                 // key would mask that fallback indefinitely.
                 this.settings.helperModelKey = '';
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 this.pendingMigrationSummary = migration.summary;
                 console.debug(
                     `[Plugin] EPIC-26 migration: ${migration.summary.providersCreated} providers, `
@@ -595,7 +597,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                     changed = true;
                 }
             }
-            if (changed) await this.saveSettings();
+            // FIX-PERF-04: batch with the rest of the migration chain
+            if (changed) this.markSettingsDirty();
         }
 
         // 1b-orphan-purge. EPIC-26 follow-up #2: users who migrated under
@@ -646,7 +649,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 am: this.settings.activeModels?.length ?? 0,
             });
             if (before !== after) {
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 console.debug('[Plugin] EPIC-26 orphan-purge: cleared stale legacy state');
             }
         }
@@ -692,13 +696,22 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }
             if (changed) {
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 console.debug(
                     '[Plugin] EPIC-26 openai cleanup: stripped non-chat modalities '
                     + 'and stale tier slots; refreshOnStartup will re-discover',
                 );
             }
         }
+
+        // FIX-PERF-04: flush all batched migration-block dirty-marks in
+        // one go. Migration blocks above call markSettingsDirty(); this
+        // is the single save that replaces 5+ separate saveSettings()
+        // calls. Idempotency-critical markers (parentDirMigrated,
+        // pluginDataDirsMigrated, layoutMigrationStatus) keep their own
+        // direct saveSettings() and are unaffected by this batching.
+        await this.flushSettings();
 
         // 1c. EPIC-26 / FEAT-26-02 -- ModelDiscoveryService for the new
         //     provider-only settings. Wraps fetchProviderModels with the
@@ -3223,6 +3236,23 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.globalSettingsService.saveGlobal(this.settings);
         }
         this.initApiHandler();
+        this.settingsDirty = false;
+    }
+
+    /**
+     * FIX-PERF-04: mark settings as needing a save, but coalesce many
+     * markSettingsDirty() calls during boot migration into a single
+     * flushSettings() at the end. Idempotency markers that MUST survive
+     * a doLoad crash still call saveSettings() directly.
+     */
+    private settingsDirty = false;
+    markSettingsDirty(): void {
+        this.settingsDirty = true;
+    }
+    async flushSettings(): Promise<void> {
+        if (this.settingsDirty) {
+            await this.saveSettings();
+        }
     }
 
     /** Reconnect all MCP servers from current settings. Called when MCP config changes. */
