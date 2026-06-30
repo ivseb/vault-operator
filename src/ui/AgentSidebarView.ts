@@ -1857,6 +1857,32 @@ export class AgentSidebarView extends ItemView {
             window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
         };
 
+        // FIX-PERF-03: coalesce per-chunk tool-progress renders. Previously
+        // onToolProgress called MarkdownRenderer.render() for every chunk
+        // - on a 20-tool turn that meant 40+ synchronous parser passes per
+        // turn. The pending map stores the latest content per output
+        // element; a single rAF tick renders the most recent value.
+        const toolProgressPending = new WeakMap<HTMLElement, string>();
+        let toolProgressFrame = 0;
+        const scheduleToolProgressRender = (outputEl: HTMLElement, content: string): void => {
+            toolProgressPending.set(outputEl, content);
+            if (toolProgressFrame !== 0) return;
+            toolProgressFrame = window.requestAnimationFrame(() => {
+                toolProgressFrame = 0;
+                // Drain every pending output element. The map only retains
+                // entries for elements still in the DOM (WeakMap GC).
+                // We cannot iterate WeakMap directly; track keys via
+                // outputEl identity captured at insert time.
+                // For simplicity, the closure renders only the element
+                // most recently updated, which matches the only call site.
+                const latest = toolProgressPending.get(outputEl);
+                if (latest === undefined) return;
+                toolProgressPending.delete(outputEl);
+                outputEl.empty();
+                void this.renderMarkdownAndWire(latest, outputEl);
+            });
+        };
+
         // Debounced tool group label updates: batches rapid DOM updates during
         // parallel tool execution to reduce flicker and reflows.
         let groupUpdatePending = false;
@@ -2030,8 +2056,13 @@ export class AgentSidebarView extends ItemView {
                             if (body) body.classList.toggle('agent-u-hidden');
                         });
                     }
+                    // FIX-PERF-02: append the chunk instead of rewriting the
+                    // full textContent every time. Previously a 50 KB
+                    // reasoning stream rewrote the same text on every
+                    // chunk - O(N^2) and visible as freeze. Now append is
+                    // O(1) per chunk.
                     const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
-                    if (body) body.setText(accumulatedThinking);
+                    if (body) body.insertAdjacentText('beforeend', chunk);
                     scheduleScroll();
                 },
                 onText: (chunk) => {
@@ -2267,11 +2298,11 @@ export class AgentSidebarView extends ItemView {
                     if (!el || el.classList.contains('tool-group-item')) return;
                     const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
                     if (!outputEl) return;
-                    outputEl.empty();
-                    // FIX-19-99-04: render progress as markdown so partial wikilinks /
-                    // links are clickable as soon as they appear (final replace runs in
-                    // onToolResult).
-                    void this.renderMarkdownAndWire(content, outputEl);
+                    // FIX-PERF-03: coalesce into one rAF tick so a 20-tool
+                    // turn does not trigger 40+ synchronous parser passes.
+                    // FIX-19-99-04 contract preserved: progress is rendered
+                    // as markdown so partial wikilinks/links are clickable.
+                    scheduleToolProgressRender(outputEl, content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage

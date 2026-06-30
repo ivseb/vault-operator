@@ -274,8 +274,14 @@ export class EmbeddingsTab {
         };
         refreshStatus();
 
-        // Poll every second so status stays current
-        const pollHandle = scheduleRecurring(refreshStatus, 1000);
+        // FIX-PERF-06: only refresh while the index is actually
+        // building. Outside of a build the status is stable and the
+        // per-second SQL query against knowledge.db was wasted work.
+        const pollHandle = scheduleRecurring(() => {
+            const idx = getIdx();
+            if (!idx || !idx.building) return;
+            refreshStatus();
+        }, 1000);
         const observer = new MutationObserver((mutations) => {
             for (const m of mutations) {
                 for (const node of Array.from(m.removedNodes)) {
