@@ -25,6 +25,7 @@ import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
+import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
@@ -2379,9 +2380,14 @@ export class AgentTask {
 
         let summary = '';
         try {
+            // FIX-COMPACT-05: replace MicroCompactor skeletons with a short
+            // placeholder so the helper LLM does not paraphrase the skeleton
+            // text ("[context-pruned] read_file result (5000 chars)...") into
+            // the summary. Pairing is preserved -- tool_use_id stays intact.
+            const strippedCondensingMessages = stripPrunedForCondense(condensingMessages);
             // BUG-017: condensing has its own pairing-fix higher up, but apply
             // the generic sanitize as well so any new edge case is caught.
-            const safeCondensingMessages = sanitizeAndLog(condensingMessages, 'condensing');
+            const safeCondensingMessages = sanitizeAndLog(strippedCondensingMessages, 'condensing');
             logInputBreakdown('condensing', systemPrompt, safeCondensingMessages, []);
             // FEAT-24-07 / ADR-115: route condensing through the optional helper model.
             const condensingApi = getHelperApi(this.toolRegistry.plugin, this.api);
