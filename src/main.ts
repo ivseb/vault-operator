@@ -344,6 +344,21 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     readyPromise!: Promise<void>;
 
+    /**
+     * FIX-PERF-28 (Welle 3): two-stage readiness.
+     *   shellReady     -> settings + ModeService construction done; sidebar
+     *                     can render its shell (input box, send button,
+     *                     mode dropdown). Resolves much earlier than
+     *                     readyPromise on a cold boot.
+     *   servicesReady  -> alias for readyPromise for now; will split into
+     *                     per-subsystem promises in follow-up commits
+     *                     (knowledgeReady, memoryReady, semanticReady, etc).
+     * Public surface is still internal-only in 3.x per decision 4.
+     */
+    shellReady!: Promise<void>;
+    servicesReady!: Promise<void>;
+    private markShellReady!: () => void;
+
     onload(): void {
         // FEAT-29-11 follow-up: register the Lucide "toolbox" SVG under the
         // same icon id so setIcon('toolbox', ...) renders on Obsidian builds
@@ -366,6 +381,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         // promise in its onOpen.
         let markReady: () => void = () => {};
         this.readyPromise = new Promise<void>((resolve) => { markReady = resolve; });
+        // FIX-PERF-28: shellReady fires earlier (after settings + migration
+        // flush) so the sidebar can render its input shell without waiting
+        // on KnowledgeDB / Memory / Semantic / MCP. servicesReady aliases
+        // readyPromise during the 3.x stabilization period.
+        this.shellReady = new Promise<void>((resolve) => { this.markShellReady = resolve; });
+        this.servicesReady = this.readyPromise;
 
         // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
         // immediately — before any async initialization runs.
@@ -712,6 +733,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // pluginDataDirsMigrated, layoutMigrationStatus) keep their own
         // direct saveSettings() and are unaffected by this batching.
         await this.flushSettings();
+
+        // FIX-PERF-28: shell is ready -- settings are loaded, migrations
+        // have flushed, ModeService is constructible. The sidebar can
+        // render its input shell now without waiting on KnowledgeDB,
+        // Memory, Semantic, MCP. Heavy subsystems below still finish
+        // before servicesReady resolves at the end of doLoad.
+        this.markShellReady();
 
         // 1c. EPIC-26 / FEAT-26-02 -- ModelDiscoveryService for the new
         //     provider-only settings. Wraps fetchProviderModels with the

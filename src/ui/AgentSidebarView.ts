@@ -225,11 +225,21 @@ export class AgentSidebarView extends ItemView {
 
         // BUG-026 (2026-04-19): wait for plugin.doLoad() to finish before
         // reading settings / mode service. Obsidian instantiates this view
-        // the moment registerView runs (layout restore), which during a BRAT
-        // hot reload is before settings exist. Without this guard the view
-        // threw "Cannot read properties of undefined (reading 'currentMode')"
-        // and the whole sidebar stayed broken.
-        const readiness = (this.plugin as unknown as { readyPromise?: Promise<void> }).readyPromise;
+        // the moment registerView runs (layout restore), which during a
+        // BRAT hot reload is before settings exist. Without this guard
+        // the view threw "Cannot read properties of undefined (reading
+        // 'currentMode')" and the whole sidebar stayed broken.
+        //
+        // FIX-PERF-28: prefer shellReady (settings + ModeService) over
+        // the full readyPromise so the sidebar paints its input shell
+        // while KnowledgeDB / Memory / Semantic / MCP are still booting
+        // in the background. Fall back to readyPromise on older plugin
+        // builds that have not introduced shellReady yet.
+        const pluginAsAny = this.plugin as unknown as {
+            shellReady?: Promise<void>;
+            readyPromise?: Promise<void>;
+        };
+        const readiness = pluginAsAny.shellReady ?? pluginAsAny.readyPromise;
         if (readiness) {
             try { await readiness; } catch { /* doLoad errors are surfaced elsewhere; keep rendering */ }
         }
