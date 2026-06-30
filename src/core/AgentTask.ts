@@ -21,7 +21,7 @@ import type { ModeService } from './modes/ModeService';
 import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
-import { QUALITY_GATES } from './tools/qualityGates';
+import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
@@ -1688,7 +1688,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
@@ -1714,7 +1714,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
