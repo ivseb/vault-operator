@@ -1313,10 +1313,20 @@ export class AgentTask {
                     // skill the model loaded itself via read_skill is in the
                     // message stream (until microcompaction prunes it); the model
                     // can re-call read_skill if it lost the steps.
-                    history.push({
-                        role: 'user',
-                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`,
-                    });
+                    // FIX-PERF-24: dedupe. If the previous history entry is
+                    // already a Power-Steering Reminder (frequency==1 edge
+                    // case, or after a no-op iteration that produced no
+                    // assistant message), do not stack a second identical
+                    // reminder back-to-back. Two identical user messages in a
+                    // row both burn cache and confuse the model.
+                    const reminder = `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`;
+                    const last = history[history.length - 1];
+                    const lastIsSameReminder = last?.role === 'user'
+                        && typeof last.content === 'string'
+                        && last.content === reminder;
+                    if (!lastIsSameReminder) {
+                        history.push({ role: 'user', content: reminder });
+                    }
                 }
 
                 // Soft limit: nudge the agent to wrap up at 60% of max iterations
