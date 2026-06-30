@@ -1891,11 +1891,25 @@
     flex-shrink: 0;
     cursor: pointer;
 }
-.mc-toggle input {
+/* Spezifitaet 0,1,2 -- gleicht Theme-Selektoren wie
+ * `.workspace-leaf input[type='checkbox']` aus. Ohne den `[type='checkbox']`
+ * Anker rendert Obsidian seinen Default-iOS-Toggle on top auf unsere
+ * Custom-Pille (Doppel-Toggle). `appearance: none` plus explizite
+ * background/box-shadow/border-Resets entkoppeln den input von jedem
+ * Theme-Override. */
+.mc-toggle input[type='checkbox'] {
+    appearance: none;
+    -webkit-appearance: none;
     opacity: 0;
     width: 0;
     height: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
     position: absolute;
+    pointer-events: none;
 }
 .mc-toggle-track {
     position: absolute;
