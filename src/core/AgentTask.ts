@@ -2098,47 +2098,51 @@ export class AgentTask {
      * Improved token estimate that accounts for structured content blocks.
      * ~4 chars/token for text, +150 for tool_use overhead, +50 for tool_result overhead.
      */
+    /**
+     * FIX-PERF-19: per-message token estimator. The original
+     * estimateTokens(messages: MessageParam[]) is now a thin wrapper.
+     * Hot paths (condense tail walk, per-iteration token math) call
+     * this directly to avoid allocating single-element arrays.
+     */
+    private estimateMessageTokens(m: MessageParam): number {
+        let count = 0;
+        if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+                if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'tool_use') {
+                    count += 150;
+                    if ('input' in block && block.input) {
+                        count += Math.ceil(JSON.stringify(block.input).length / 4);
+                    }
+                } else if (block.type === 'tool_result') {
+                    count += 50;
+                    if ('content' in block) {
+                        if (typeof block.content === 'string') {
+                            count += Math.ceil(block.content.length / 4);
+                        } else if (Array.isArray(block.content)) {
+                            for (const sub of block.content) {
+                                if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                else if (sub.type === 'image') count += 1000;
+                            }
+                        }
+                    }
+                } else if (block.type === 'image') {
+                    count += 1000;
+                }
+            }
+        } else if (typeof m.content === 'string') {
+            count += Math.ceil(m.content.length / 4);
+        }
+        return count;
+    }
+
     private estimateTokens(messages: MessageParam[]): number {
         let count = 0;
         for (const m of messages) {
-            if (Array.isArray(m.content)) {
-                for (const block of m.content) {
-                    if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
-                        // FIX-04-03-07: thinking persists on assistant messages
-                        // for DeepSeek reasoner round-trip. Counted at chars/4
-                        // so condensing fires on time when reasoning accumulates.
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'tool_use') {
-                        // tool_use overhead: id, name, type fields ~150 tokens
-                        count += 150;
-                        // input JSON payload
-                        if ('input' in block && block.input) {
-                            count += Math.ceil(JSON.stringify(block.input).length / 4);
-                        }
-                    } else if (block.type === 'tool_result') {
-                        // tool_result overhead: tool_use_id, type, is_error ~50 tokens
-                        count += 50;
-                        // content payload — string or multimodal array
-                        if ('content' in block) {
-                            if (typeof block.content === 'string') {
-                                count += Math.ceil(block.content.length / 4);
-                            } else if (Array.isArray(block.content)) {
-                                for (const sub of block.content) {
-                                    if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
-                                    else if (sub.type === 'image') count += 1000;
-                                }
-                            }
-                        }
-                    } else if (block.type === 'image') {
-                        // Image tokens (flat estimate)
-                        count += 1000;
-                    }
-                }
-            } else if (typeof m.content === 'string') {
-                count += Math.ceil(m.content.length / 4);
-            }
+            count += this.estimateMessageTokens(m);
         }
         return count;
     }
@@ -2182,7 +2186,7 @@ export class AgentTask {
 
         for (let i = history.length - 1; i >= 0; i--) {
             const msg = history[i];
-            const msgTokens = this.estimateTokens([msg]);
+            const msgTokens = this.estimateMessageTokens(msg);
 
             if (tail.length >= MIN_TAIL_MESSAGES && tailTokens + msgTokens > MAX_TAIL_TOKENS) {
                 break;
@@ -2213,7 +2217,7 @@ export class AgentTask {
                 // Case 1: Tail starts with tool_result — pull preceding assistant(tool_use) in
                 const prevMsg = history[tailStartIdx - 1];
                 tail.unshift(prevMsg);
-                tailTokens += this.estimateTokens([prevMsg]);
+                tailTokens += this.estimateMessageTokens(prevMsg);
             }
         }
 
