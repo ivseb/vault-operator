@@ -107,6 +107,13 @@ export interface AgentTaskCallbacks {
     consumeSteeringMessages?: (iteration: number) => string[];
     /** Called when the conversation history was condensed (context summarized) - includes token counts before/after */
     onContextCondensed?: (prevTokens?: number, newTokens?: number) => void;
+    /**
+     * FIX-COMPACT-02: fires when a condensing pass failed (helper API
+     * threw, returned empty text, etc.). History is left untouched. The
+     * UI can surface this so the user sees that condensing did NOT run
+     * instead of silently looping into the same over-threshold state.
+     */
+    onContextCondenseFailed?: (error: Error) => void;
     /** Called when a checkpoint is saved before a write tool */
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /**
@@ -362,8 +369,7 @@ export class AgentTask {
             console.warn('[AgentTask] Pre-compaction flush (rolling) failed (non-fatal):', e)
         );
         console.debug(`[AgentTask] Rolling summary at ~${estimatedTokens}t (mark ${rollingMark}t, full threshold ${threshold}t)`);
-        await this.condenseHistory(history, systemPrompt, abortSignal, toolCallLedger);
-        return true;
+        return await this.condenseHistory(history, systemPrompt, abortSignal, toolCallLedger);
     }
 
     /**
@@ -1537,29 +1543,31 @@ export class AgentTask {
                             await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                                 console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                             );
-                            await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // onContextCondensed is called inside condenseHistory with token counts
+                            const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                            // FIX-COMPACT-02: don't retry when the first pass already
+                            // failed -- the failure callback already fired, retrying
+                            // burns helper-api budget on the same broken call.
+                            if (firstOk) {
+                                let condensingRetries = 0;
+                                const MAX_CONDENSING_RETRIES = 2;
 
-                            // Validierung: Falls immer noch über Threshold, zweite Runde
-                            let condensingRetries = 0;
-                            const MAX_CONDENSING_RETRIES = 2;
+                                while (condensingRetries < MAX_CONDENSING_RETRIES) {
+                                    const postTokens = this.estimateTokens(history);
+                                    if (postTokens <= threshold) break;
 
-                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                const postTokens = this.estimateTokens(history);
-                                if (postTokens <= threshold) break;
+                                    console.warn(
+                                        `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
+                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
+                                    );
 
-                                console.warn(
-                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
-                                );
+                                    const retryOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                                    if (!retryOk) break;
+                                    condensingRetries++;
+                                }
 
-                                await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                                // onContextCondensed is called inside condenseHistory with token counts
-                                condensingRetries++;
-                            }
-
-                            if (condensingRetries > 0) {
-                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                                if (condensingRetries > 0) {
+                                    console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                                }
                             }
 
                             // Condensing is housekeeping for future messages — the model
@@ -1792,29 +1800,29 @@ export class AgentTask {
                         await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                             console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                         );
-                        await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                        // onContextCondensed is called inside condenseHistory with token counts
+                        const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                        // FIX-COMPACT-02: do not retry when the first pass already failed.
+                        if (firstOk) {
+                            let condensingRetries = 0;
+                            const MAX_CONDENSING_RETRIES = 2;
 
-                        // Validierung: Falls immer noch über Threshold, zweite Runde
-                        let condensingRetries = 0;
-                        const MAX_CONDENSING_RETRIES = 2;
+                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
+                                const postTokens = this.estimateTokens(history);
+                                if (postTokens <= threshold) break;
 
-                        while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                            const postTokens = this.estimateTokens(history);
-                            if (postTokens <= threshold) break;
+                                console.warn(
+                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
+                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
+                                );
 
-                            console.warn(
-                                `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
-                            );
+                                const retryOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                                if (!retryOk) break;
+                                condensingRetries++;
+                            }
 
-                            await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // onContextCondensed is called inside condenseHistory with token counts
-                            condensingRetries++;
-                        }
-
-                        if (condensingRetries > 0) {
-                            console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                            if (condensingRetries > 0) {
+                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                            }
                         }
                     } else {
                         // FEAT-24-02 second stage: earlier, gentler rolling summary.
@@ -1999,14 +2007,23 @@ export class AgentTask {
                     await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                         console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                     );
-                    await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
-                    // onContextCondensed is called inside condenseHistory with token counts
-                    emergencyRetried = true;
-                    console.debug('[AgentTask] Emergency condensing succeeded — retrying agent loop');
-                    continue;  // 6A: Retry the agent loop with condensed history
-                } catch {
-                    // Condensing itself failed — fall through to normal error handling
-                    console.warn('[AgentTask] Emergency condensing failed');
+                    // FIX-COMPACT-02: only mark emergency consumed when the
+                    // inner condense actually succeeded. Otherwise the next
+                    // overflow falls straight through to onError without a
+                    // second graceful attempt, even though no useful work
+                    // was done on this one.
+                    const condensed = await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
+                    if (condensed) {
+                        emergencyRetried = true;
+                        console.debug('[AgentTask] Emergency condensing succeeded — retrying agent loop');
+                        continue;  // 6A: Retry the agent loop with condensed history
+                    }
+                    console.warn('[AgentTask] Emergency condensing produced no result — propagating original error');
+                } catch (e) {
+                    // condenseHistory now catches helper-api errors itself;
+                    // anything reaching here is from the pre-flush hook or
+                    // unexpected. Fall through to normal error handling.
+                    console.warn('[AgentTask] Emergency condensing threw unexpectedly:', e);
                 }
             }
 
@@ -2192,14 +2209,20 @@ export class AgentTask {
      * Keeps the first message (original task) + last 4 messages intact;
      * replaces everything in between with a single summary block.
      */
+    /**
+     * FIX-COMPACT-02: returns true on a successful condense pass (history
+     * was spliced), false on any non-fatal skip (history too short, summary
+     * empty) or failure (helper-api threw). Callers that retry or fall
+     * back (emergency condensing, retry loop) MUST check this value.
+     */
     private async condenseHistory(
         history: MessageParam[],
         systemPrompt: string,
         abortSignal?: AbortSignal,
         toolCallLedger?: string,
-    ): Promise<void> {
+    ): Promise<boolean> {
         // Need at least first + 4 tail + some middle to condense
-        if (history.length < 7) return;
+        if (history.length < 7) return false;
 
         const firstMsg = history[0];
 
@@ -2296,7 +2319,7 @@ export class AgentTask {
         // After boundary adjustments, toSummarize might be too small to condense
         if (toSummarize.length < 3) {
             console.debug('[AgentTask] toSummarize too small after boundary fix — skipping condensing');
-            return;
+            return false;
         }
 
         // Pre-condensing logging
@@ -2357,12 +2380,22 @@ export class AgentTask {
             )) {
                 if (chunk.type === 'text') summary += chunk.text;
             }
-        } catch {
-            // Condensing failure is non-fatal — keep history unchanged
-            return;
+        } catch (e) {
+            // FIX-COMPACT-02: never swallow silently. The previous empty
+            // catch meant rate-limit / 5xx errors looped the agent into
+            // the same over-threshold state, and emergencyRetried got
+            // flipped even when the inner condense did nothing.
+            const err = e instanceof Error ? e : new Error(String(e));
+            console.warn('[AgentTask] Context condensing failed (history unchanged):', err.message);
+            this.taskCallbacks.onContextCondenseFailed?.(err);
+            return false;
         }
 
-        if (!summary.trim()) return;
+        if (!summary.trim()) {
+            console.warn('[AgentTask] Context condensing produced empty summary; history unchanged');
+            this.taskCallbacks.onContextCondenseFailed?.(new Error('empty summary from helper API'));
+            return false;
+        }
 
         // Splice history in-place
         history.splice(
@@ -2398,6 +2431,7 @@ export class AgentTask {
 
         // Notify callback with token counts
         this.taskCallbacks.onContextCondensed?.(preTokens, postTokens);
+        return true;
     }
 
     /** Resolve a mode slug or ModeConfig to a ModeConfig */

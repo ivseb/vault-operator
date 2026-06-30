@@ -2392,6 +2392,18 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
                 },
+                onContextCondenseFailed: (error: Error) => {
+                    // FIX-COMPACT-02: surface failed condensing so the user
+                    // sees that the helper-API call did NOT run, instead of
+                    // silently letting the loop re-enter the same over-
+                    // threshold state. Renders as a badge in the same footer.
+                    if (footerEl) {
+                        const badge = footerEl.createSpan('context-condense-failed-badge');
+                        badge.setText('Context condense failed: ' + error.message);
+                        footerEl.classList.remove('agent-u-hidden');
+                    }
+                    console.warn('[Sidebar] Context condense failed:', error.message);
+                },
                 // FEAT-24-08 / ADR-114 Steering-Hook: drain the queue and
                 // hand mid-run steering messages to AgentTask. Called by
                 // AgentTask once per iteration. Order preserved. Each
