@@ -135,12 +135,25 @@ export function getBuiltInMode(slug: string): ModeConfig | undefined {
     return BUILT_IN_MODES.find((m) => m.slug === slug);
 }
 
-/** Expand tool groups into a flat list of tool names */
+/**
+ * Expand tool groups into a flat list of tool names.
+ *
+ * FIX-PERF-17: memoized per group-set key. Groups are bounded
+ * (7 known values) so the cache stays tiny (<128 entries). Pure
+ * function, so the cache is safe forever; never invalidated.
+ */
+const expandToolGroupsCache = new Map<string, ToolName[]>();
 export function expandToolGroups(groups: ToolGroup[]): ToolName[] {
+    // Sorted-join key is stable across input orders.
+    const key = [...groups].sort().join(',');
+    const hit = expandToolGroupsCache.get(key);
+    if (hit !== undefined) return hit;
     const names: ToolName[] = [];
     for (const group of groups) {
         const tools = TOOL_GROUP_MAP[group];
         if (tools) names.push(...tools);
     }
-    return [...new Set(names)]; // deduplicate
+    const out = [...new Set(names)]; // deduplicate
+    expandToolGroupsCache.set(key, out);
+    return out;
 }
