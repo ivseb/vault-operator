@@ -660,6 +660,28 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'send-horizontal');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+
+        // FIX-PERF-28c: when the sidebar opened on shellReady (before
+        // servicesReady), disable the send button until services finish
+        // booting. The button re-enables itself as soon as servicesReady
+        // resolves. Existing aria-label is preserved.
+        const pluginAny = this.plugin as unknown as { servicesReady?: Promise<void>; readyPromise?: Promise<void> };
+        const services = pluginAny.servicesReady ?? pluginAny.readyPromise;
+        if (services) {
+            const sendEl = this.sendButton as HTMLButtonElement;
+            sendEl.disabled = true;
+            sendEl.classList.add('send-button-preparing');
+            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            services.then(() => {
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+                sendEl.removeAttribute('title');
+            }).catch(() => {
+                // doLoad errors are surfaced elsewhere; still enable the button.
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+            });
+        }
     }
 
     /**
