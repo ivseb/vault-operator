@@ -3,6 +3,12 @@
  */
 
 import type { EffortLevel } from './model-registry';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from '../core/condensingDefaults';
 
 // ---------------------------------------------------------------------------
 // CustomModel — single unified model entry (replaces per-provider LLMProvider)
@@ -1780,14 +1786,16 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     advancedApi: {
         consecutiveMistakeLimit: 3,
         rateLimitMs: 0,
-        condensingEnabled: true,
-        condensingThreshold: 80,
+        // FIX-COMPACT-03: route DEFAULT_SETTINGS through the shared
+        // condensing-defaults module (Runner + Sidebar use the same).
+        condensingEnabled: DEFAULT_CONDENSING_ENABLED,
+        condensingThreshold: DEFAULT_CONDENSING_THRESHOLD,
         powerSteeringFrequency: 0,
         maxIterations: 25,
         maxSubtaskDepth: 2,
         subtaskTokenBudget: 8000,           // FEAT-24-04 / ADR-113
-        microcompactionEnabled: true,       // FEAT-24-02
-        rollingSummaryThreshold: 50,        // FEAT-24-02
+        microcompactionEnabled: DEFAULT_MICROCOMPACTION_ENABLED,       // FEAT-24-02
+        rollingSummaryThreshold: DEFAULT_ROLLING_SUMMARY_THRESHOLD,    // FEAT-24-02
         costWarnThresholdEur: 0,            // FEAT-24-05 -- default disabled; opt-in
         telemetryRecordPromptPreview: false, // AUDIT-013 M-2: opt-in
     },

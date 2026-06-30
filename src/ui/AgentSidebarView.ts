@@ -2,6 +2,12 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
@@ -2720,14 +2726,18 @@ export class AgentSidebarView extends ItemView {
             modeService: this.modeService,
             consecutiveMistakeLimit: this.plugin.settings.advancedApi.consecutiveMistakeLimit,
             rateLimitMs: this.plugin.settings.advancedApi.rateLimitMs,
-            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? false,
-            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
+            // FIX-COMPACT-03: shared defaults so the sidebar fallback can
+            // never drift from the settings schema and the Runner. The
+            // previous `false` fallback silently disabled condensing for
+            // any user whose settings.advancedApi was undefined.
+            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED,
+            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? DEFAULT_CONDENSING_THRESHOLD,
             powerSteeringFrequency: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
             maxIterations: this.plugin.settings.advancedApi.maxIterations ?? 25,
             depth: 0,  // root task starts at 0
             maxSubtaskDepth: this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
-            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
-            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
+            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? DEFAULT_MICROCOMPACTION_ENABLED,
+            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? DEFAULT_ROLLING_SUMMARY_THRESHOLD,
             modelOverrideActive,
         });
 

@@ -46,6 +46,12 @@ import {
 } from './stigmergy/StigmergyAdapter';
 import { withTimeout } from './utils/withTimeout';
 import { getPerformanceMarks } from './observability/PerformanceMarks';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
@@ -303,14 +309,14 @@ export class AgentTask {
         modeService?: ModeService,
         consecutiveMistakeLimit = 0,
         rateLimitMs = 0,
-        condensingEnabled = true,
-        condensingThreshold = 70,
+        condensingEnabled = DEFAULT_CONDENSING_ENABLED,
+        condensingThreshold = DEFAULT_CONDENSING_THRESHOLD,
         powerSteeringFrequency = 0,
         maxIterations = 25,
         depth = 0,
         maxSubtaskDepth = 2,
-        microcompactionEnabled = true,
-        rollingSummaryThreshold = 50,
+        microcompactionEnabled = DEFAULT_MICROCOMPACTION_ENABLED,
+        rollingSummaryThreshold = DEFAULT_ROLLING_SUMMARY_THRESHOLD,
         modelOverrideActive = false,
         compositionStack?: CompositionStackService,
     ) {
