@@ -363,6 +363,24 @@ export default class ObsidianAgentPlugin extends Plugin {
     servicesReady!: Promise<void>;
     private markShellReady!: () => void;
 
+    /**
+     * FIX-PERF-28d: per-subsystem readiness promises. Each resolves at
+     * the moment its subsystem becomes safe to use. AgentTask.run and
+     * other consumers can `await plugin.semanticReady` instead of
+     * blocking on the full servicesReady when they only need that one
+     * subsystem. Same internal-only contract as shellReady (Decision 4).
+     */
+    knowledgeReady!: Promise<void>;
+    semanticReady!: Promise<void>;
+    memoryReady!: Promise<void>;
+    skillsReady!: Promise<void>;
+    mcpReady!: Promise<void>;
+    private markKnowledgeReady!: () => void;
+    private markSemanticReady!: () => void;
+    private markMemoryReady!: () => void;
+    private markSkillsReady!: () => void;
+    private markMcpReady!: () => void;
+
     onload(): void {
         // FEAT-29-11 follow-up: register the Lucide "toolbox" SVG under the
         // same icon id so setIcon('toolbox', ...) renders on Obsidian builds
@@ -391,6 +409,23 @@ export default class ObsidianAgentPlugin extends Plugin {
         // readyPromise during the 3.x stabilization period.
         this.shellReady = new Promise<void>((resolve) => { this.markShellReady = resolve; });
         this.servicesReady = this.readyPromise;
+        // FIX-PERF-28d: per-subsystem promises. Each resolves at the
+        // point its subsystem becomes safe to use.
+        this.knowledgeReady = new Promise<void>((resolve) => { this.markKnowledgeReady = resolve; });
+        this.semanticReady = new Promise<void>((resolve) => { this.markSemanticReady = resolve; });
+        this.memoryReady = new Promise<void>((resolve) => { this.markMemoryReady = resolve; });
+        this.skillsReady = new Promise<void>((resolve) => { this.markSkillsReady = resolve; });
+        this.mcpReady = new Promise<void>((resolve) => { this.markMcpReady = resolve; });
+        // Backstop: if a subsystem fails to construct, its promise must
+        // still resolve so consumers do not hang. doLoad's finally
+        // resolves any still-unresolved subsystem promise.
+        this.readyPromise.finally(() => {
+            this.markKnowledgeReady();
+            this.markSemanticReady();
+            this.markMemoryReady();
+            this.markSkillsReady();
+            this.markMcpReady();
+        });
 
         // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
         // immediately — before any async initialization runs.
@@ -1070,6 +1105,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Skills manager (Sprint 3.4) — now uses global storage
         this.skillsManager = new SkillsManager(this.globalFs);
         await this.skillsManager.initialize();
+        // FIX-PERF-28d: skills subsystem promise resolves here.
+        this.markSkillsReady();
 
         // VaultDNA: auto-discover plugins as skills (PAS-1)
         // Create scanner/registry immediately so references exist,
@@ -1133,6 +1170,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         // No global opt-in is needed here; the McpTab modal manages the flag
         // per server.
         this.mcpClient = new McpClient();
+        // FIX-PERF-28d: mcp client constructed; consumers can begin
+        // requesting servers via this.mcpClient. Actual server
+        // connections come later but the client API surface exists.
+        this.markMcpReady();
         if (Object.keys(this.settings.mcpServers ?? {}).length > 0) {
             this.mcpClient.connectAll(this.settings.mcpServers).catch((e) =>
                 console.warn('[Plugin] MCP connect failed (non-fatal):', e)
@@ -1324,6 +1365,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
                 console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e);
             });
+            // FIX-PERF-28d: knowledge subsystem ready (DB open or
+            // gracefully marked unavailable in the next block).
+            this.markKnowledgeReady();
             // FIX-18: If open() failed, null out to prevent cascading "not opened" errors
             if (!this.knowledgeDB.isOpen()) {
                 console.warn('[Plugin] KnowledgeDB not available — semantic features disabled for this session');
@@ -1455,6 +1499,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // land in the vector index.
                 plugin: this,
             });
+            // FIX-PERF-28d: semantic subsystem ready - consumers can
+            // semanticSearch / runBackgroundEnrichment from here.
+            this.markSemanticReady();
             const embeddingModel = this.getActiveEmbeddingModel();
             if (embeddingModel) this.semanticIndex.setEmbeddingModel(embeddingModel);
             // Contextual Retrieval: set API handler for prefix generation (FEATURE-1501)
@@ -1977,6 +2024,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const { MemorySourceStore } = await import('./core/knowledge/MemorySourceStore');
                 this.memorySourceStore = new MemorySourceStore(this.memoryDB);
             }
+            // FIX-PERF-28d: memory subsystem ready (DB open or marked
+            // gracefully unavailable above).
+            this.markMemoryReady();
         }
 
         // History DB (FEATURE-0320 Phase 6): per-message keyword + future cosine
