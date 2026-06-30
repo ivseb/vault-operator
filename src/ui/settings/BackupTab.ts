@@ -7,6 +7,7 @@ import type { GlobalFileService } from '../../core/storage/GlobalFileService';
 import { getAgentFolderPath, getPluginSkillsDir, getVaultDnaPath } from '../../core/utils/agentFolder';
 import { MANIFEST_FILENAME } from '../../util/pluginFiles';
 import { filterSecretsFromDataJson, stripRedactedFromImport } from '../../core/backup/BackupSecretFilter';
+import { validateVaultRelativePath } from '../../core/utils/safeVaultPath';
 import { t } from '../../i18n';
 
 // ── Backup category definitions ──────────────────────────────────────────────
@@ -763,6 +764,29 @@ export class BackupTab {
                         const fullPath = extraFileSet.has(fileEntry.path)
                             ? fileEntry.path
                             : (catDef.dir ? `${catDef.dir}/${fileEntry.path}` : fileEntry.path);
+                        // AUDIT-040 H-1 / FIX-29-40-01: validate the manifest-
+                        // supplied path before any mkdir/writeBinary call. A
+                        // tampered backup ZIP could otherwise write arbitrary
+                        // files (Zip-Slip via parent segments, absolute paths,
+                        // Windows drive letters or NUL bytes). extraFiles entries
+                        // must match the whitelist exactly; dir-walked entries
+                        // must stay under catDef.dir.
+                        if (extraFileSet.has(fileEntry.path)) {
+                            // Verbatim whitelist entry: must match one of the
+                            // declared extraFiles strings exactly AND pass the
+                            // base safety checks.
+                            const baseCheck = validateVaultRelativePath(fullPath);
+                            if (!baseCheck.ok) {
+                                throw new Error(`[Backup] Refused unsafe extraFile path (${baseCheck.reason}): ${fullPath}`);
+                            }
+                        } else {
+                            const check = validateVaultRelativePath(fullPath, {
+                                expectedPrefix: catDef.dir ?? '',
+                            });
+                            if (!check.ok) {
+                                throw new Error(`[Backup] Refused unsafe import path (${check.reason}): ${fullPath}`);
+                            }
+                        }
                         if (catDef.root === 'global') {
                             await this.globalFs.writeBinary(fullPath, data);
                         } else {
