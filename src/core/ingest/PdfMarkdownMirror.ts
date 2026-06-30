@@ -99,6 +99,13 @@ export class PdfMarkdownMirror {
             const resourceLink = `[${pdfFile.name}](${encodePathForMarkdownLink(pdfFile.path)})`;
             const fm = `---\ntitle: "${pdfFile.basename}"\ndescription:\nresource: "${resourceLink}"\ntags:\ntype:\n  - source\nmoc:\nrelated:\ntimestamp:\nuid:\n---\n\n`;
             const body = `# ${pdfFile.basename} (Markdown-Mirror)\n\n_Source: ${resourceLink}_\n\n${text}\n`;
+            // FIX-PERF-29: suppress the self-write event so any indexer
+            // subscribed via VaultEventDispatcher does not re-ingest the
+            // mirror file we just wrote (modify -> indexer -> reread loop).
+            const dispatcher = (this.plugin as unknown as {
+                vaultEventDispatcher?: { markSelfWrite(p: string): void };
+            }).vaultEventDispatcher;
+            dispatcher?.markSelfWrite(mirrorPath);
             const mirror = await this.app.vault.create(mirrorPath, fm + body);
             return { mirrorFile: mirror, chunks: text.split(/\n\n+/).length };
         } catch (err) {

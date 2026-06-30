@@ -256,6 +256,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     ringBuffer: ConsoleRingBuffer;
     /** FIX-PERF-39: central scheduler. Jobs migrate over time. */
     backgroundJobs: import('./core/background/BackgroundJobCoordinator').BackgroundJobCoordinator | null = null;
+    /** FIX-PERF-29: central vault-event dispatcher with self-write suppression. */
+    vaultEventDispatcher: import('./core/vault-events/VaultEventDispatcher').VaultEventDispatcher | null = null;
     selfAuthoredSkillLoader: SelfAuthoredSkillLoader | null = null;
     skillSnapshotService: SkillSnapshotService | null = null;
     skillWriteInterceptor: SkillWriteInterceptor | null = null;
@@ -422,6 +424,9 @@ export default class ObsidianAgentPlugin extends Plugin {
         // FIX-PERF-39: central background scheduler. Migrating jobs over.
         const { BackgroundJobCoordinator } = await import('./core/background/BackgroundJobCoordinator');
         this.backgroundJobs = new BackgroundJobCoordinator();
+        // FIX-PERF-29: central vault-event dispatcher. Consumers migrate over.
+        const { VaultEventDispatcher } = await import('./core/vault-events/VaultEventDispatcher');
+        this.vaultEventDispatcher = new VaultEventDispatcher(this.app.vault);
         this.ringBuffer.install();
 
         console.debug('Loading Vault Operator plugin');
@@ -2639,6 +2644,9 @@ export default class ObsidianAgentPlugin extends Plugin {
             // in-flight job awaits cleanly.
             await this.backgroundJobs?.dispose();
             this.backgroundJobs = null;
+            // FIX-PERF-29: detach all vault listeners.
+            this.vaultEventDispatcher?.dispose();
+            this.vaultEventDispatcher = null;
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
