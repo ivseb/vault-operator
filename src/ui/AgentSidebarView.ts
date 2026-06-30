@@ -1243,6 +1243,12 @@ export class AgentSidebarView extends ItemView {
      * Mirrors the <environment_details> pattern used by Kilo Code and Craft Agents.
      */
     private buildVaultContext(): string {
+        // FIX-PERF-33: cache the rendered context string. Previously a
+        // 3,653-file vault sorted the full list by mtime on every send-
+        // click. The cache is invalidated by vault.on('create' | 'delete'
+        // | 'rename' | 'modify') -- see ensureVaultContextWatcher() below.
+        if (this.vaultContextCache !== null) return this.vaultContextCache;
+        this.ensureVaultContextWatcher();
         try {
             const root = this.app.vault.getRoot();
             const folders: string[] = [];
@@ -1273,10 +1279,26 @@ export class AgentSidebarView extends ItemView {
             if (rootFiles.length > 0) lines.push(`Root files: ${rootFiles.join(', ')}`);
             if (recent.length > 0) lines.push(`Recently modified: ${recent.join(', ')}`);
             lines.push('</vault_context>');
-            return lines.join('\n');
+            const out = lines.join('\n');
+            this.vaultContextCache = out;
+            return out;
         } catch {
             return '';
         }
+    }
+
+    private vaultContextCache: string | null = null;
+    private vaultContextWatcherInstalled = false;
+    private ensureVaultContextWatcher(): void {
+        if (this.vaultContextWatcherInstalled) return;
+        this.vaultContextWatcherInstalled = true;
+        const invalidate = (): void => { this.vaultContextCache = null; };
+        // FIX-PERF-33: rebuild on any vault mutation. modify is included
+        // because the recent-modified list depends on mtime.
+        this.registerEvent(this.app.vault.on('create', invalidate));
+        this.registerEvent(this.app.vault.on('delete', invalidate));
+        this.registerEvent(this.app.vault.on('rename', invalidate));
+        this.registerEvent(this.app.vault.on('modify', invalidate));
     }
 
     /**
