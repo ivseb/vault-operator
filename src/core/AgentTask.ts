@@ -1395,7 +1395,21 @@ export class AgentTask {
                 // and Claude-via-Copilot inherits the same constraint.
                 const safeHistory = sanitizeAndLog(history, 'main-loop');
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
+                // MEAS-02: only the very first iteration of a fresh turn is
+                // the one the user clicked Send for. Subsequent iterations
+                // are tool-result follow-ups and have a different shape.
+                const isFirstTurnIteration = iteration === 0;
+                if (isFirstTurnIteration) {
+                    perfMarks.end('send.firstTurn.host', { log: true });
+                    perfMarks.start('send.firstTurn.provider');
+                }
+                let sawFirstChunk = false;
                 for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
+                    if (isFirstTurnIteration && !sawFirstChunk) {
+                        sawFirstChunk = true;
+                        perfMarks.end('send.firstTurn.provider', { log: true });
+                        perfMarks.point('send.firstToken', { log: true });
+                    }
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
                         if (chunk.requiresPassback) thinkingParts.push(chunk.text);

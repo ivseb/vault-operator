@@ -1540,6 +1540,15 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
+        // MEAS-02: TTFT split. point captures the send click; the
+        // span runs until AgentTask hands off to the provider, then
+        // the provider-span runs until the first stream chunk arrives.
+        // Placed after the steering early-return so it only fires for
+        // real turn starts.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.point('send.click', { log: true });
+        perfMarks.start('send.firstTurn.host');
+
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
 
