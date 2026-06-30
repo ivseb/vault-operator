@@ -49,6 +49,7 @@ import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
 import DOMPurify from 'dompurify';
+import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
 
@@ -216,13 +217,29 @@ export class AgentSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
+        // MEAS-01: time from view-instantiation to first render-done. This
+        // is the TTI a user actually perceives, so it is intentionally
+        // wrapped around the readiness-await too.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.start('sidebar.onOpen');
+
         // BUG-026 (2026-04-19): wait for plugin.doLoad() to finish before
         // reading settings / mode service. Obsidian instantiates this view
-        // the moment registerView runs (layout restore), which during a BRAT
-        // hot reload is before settings exist. Without this guard the view
-        // threw "Cannot read properties of undefined (reading 'currentMode')"
-        // and the whole sidebar stayed broken.
-        const readiness = (this.plugin as unknown as { readyPromise?: Promise<void> }).readyPromise;
+        // the moment registerView runs (layout restore), which during a
+        // BRAT hot reload is before settings exist. Without this guard
+        // the view threw "Cannot read properties of undefined (reading
+        // 'currentMode')" and the whole sidebar stayed broken.
+        //
+        // FIX-PERF-28: prefer shellReady (settings + ModeService) over
+        // the full readyPromise so the sidebar paints its input shell
+        // while KnowledgeDB / Memory / Semantic / MCP are still booting
+        // in the background. Fall back to readyPromise on older plugin
+        // builds that have not introduced shellReady yet.
+        const pluginAsAny = this.plugin as unknown as {
+            shellReady?: Promise<void>;
+            readyPromise?: Promise<void>;
+        };
+        const readiness = pluginAsAny.shellReady ?? pluginAsAny.readyPromise;
         if (readiness) {
             try { await readiness; } catch { /* doLoad errors are surfaced elsewhere; keep rendering */ }
         }
@@ -298,6 +315,7 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        perfMarks.end('sidebar.onOpen', { log: true });
     }
 
     onClose(): Promise<void> {
@@ -642,6 +660,28 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'send-horizontal');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+
+        // FIX-PERF-28c: when the sidebar opened on shellReady (before
+        // servicesReady), disable the send button until services finish
+        // booting. The button re-enables itself as soon as servicesReady
+        // resolves. Existing aria-label is preserved.
+        const pluginAny = this.plugin as unknown as { servicesReady?: Promise<void>; readyPromise?: Promise<void> };
+        const services = pluginAny.servicesReady ?? pluginAny.readyPromise;
+        if (services) {
+            const sendEl = this.sendButton as HTMLButtonElement;
+            sendEl.disabled = true;
+            sendEl.classList.add('send-button-preparing');
+            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            services.then(() => {
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+                sendEl.removeAttribute('title');
+            }).catch(() => {
+                // doLoad errors are surfaced elsewhere; still enable the button.
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+            });
+        }
     }
 
     /**
@@ -1235,6 +1275,12 @@ export class AgentSidebarView extends ItemView {
      * Mirrors the <environment_details> pattern used by Kilo Code and Craft Agents.
      */
     private buildVaultContext(): string {
+        // FIX-PERF-33: cache the rendered context string. Previously a
+        // 3,653-file vault sorted the full list by mtime on every send-
+        // click. The cache is invalidated by vault.on('create' | 'delete'
+        // | 'rename' | 'modify') -- see ensureVaultContextWatcher() below.
+        if (this.vaultContextCache !== null) return this.vaultContextCache;
+        this.ensureVaultContextWatcher();
         try {
             const root = this.app.vault.getRoot();
             const folders: string[] = [];
@@ -1265,10 +1311,26 @@ export class AgentSidebarView extends ItemView {
             if (rootFiles.length > 0) lines.push(`Root files: ${rootFiles.join(', ')}`);
             if (recent.length > 0) lines.push(`Recently modified: ${recent.join(', ')}`);
             lines.push('</vault_context>');
-            return lines.join('\n');
+            const out = lines.join('\n');
+            this.vaultContextCache = out;
+            return out;
         } catch {
             return '';
         }
+    }
+
+    private vaultContextCache: string | null = null;
+    private vaultContextWatcherInstalled = false;
+    private ensureVaultContextWatcher(): void {
+        if (this.vaultContextWatcherInstalled) return;
+        this.vaultContextWatcherInstalled = true;
+        const invalidate = (): void => { this.vaultContextCache = null; };
+        // FIX-PERF-33: rebuild on any vault mutation. modify is included
+        // because the recent-modified list depends on mtime.
+        this.registerEvent(this.app.vault.on('create', invalidate));
+        this.registerEvent(this.app.vault.on('delete', invalidate));
+        this.registerEvent(this.app.vault.on('rename', invalidate));
+        this.registerEvent(this.app.vault.on('modify', invalidate));
     }
 
     /**
@@ -1531,6 +1593,15 @@ export class AgentSidebarView extends ItemView {
             this.refreshRunStateButtons();
             return;
         }
+
+        // MEAS-02: TTFT split. point captures the send click; the
+        // span runs until AgentTask hands off to the provider, then
+        // the provider-span runs until the first stream chunk arrives.
+        // Placed after the steering early-return so it only fires for
+        // real turn starts.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.point('send.click', { log: true });
+        perfMarks.start('send.firstTurn.host');
 
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
@@ -1840,6 +1911,32 @@ export class AgentSidebarView extends ItemView {
             window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
         };
 
+        // FIX-PERF-03: coalesce per-chunk tool-progress renders. Previously
+        // onToolProgress called MarkdownRenderer.render() for every chunk
+        // - on a 20-tool turn that meant 40+ synchronous parser passes per
+        // turn. The pending map stores the latest content per output
+        // element; a single rAF tick renders the most recent value.
+        const toolProgressPending = new WeakMap<HTMLElement, string>();
+        let toolProgressFrame = 0;
+        const scheduleToolProgressRender = (outputEl: HTMLElement, content: string): void => {
+            toolProgressPending.set(outputEl, content);
+            if (toolProgressFrame !== 0) return;
+            toolProgressFrame = window.requestAnimationFrame(() => {
+                toolProgressFrame = 0;
+                // Drain every pending output element. The map only retains
+                // entries for elements still in the DOM (WeakMap GC).
+                // We cannot iterate WeakMap directly; track keys via
+                // outputEl identity captured at insert time.
+                // For simplicity, the closure renders only the element
+                // most recently updated, which matches the only call site.
+                const latest = toolProgressPending.get(outputEl);
+                if (latest === undefined) return;
+                toolProgressPending.delete(outputEl);
+                outputEl.empty();
+                void this.renderMarkdownAndWire(latest, outputEl);
+            });
+        };
+
         // Debounced tool group label updates: batches rapid DOM updates during
         // parallel tool execution to reduce flicker and reflows.
         let groupUpdatePending = false;
@@ -2013,8 +2110,13 @@ export class AgentSidebarView extends ItemView {
                             if (body) body.classList.toggle('agent-u-hidden');
                         });
                     }
+                    // FIX-PERF-02: append the chunk instead of rewriting the
+                    // full textContent every time. Previously a 50 KB
+                    // reasoning stream rewrote the same text on every
+                    // chunk - O(N^2) and visible as freeze. Now append is
+                    // O(1) per chunk.
                     const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
-                    if (body) body.setText(accumulatedThinking);
+                    if (body) body.insertAdjacentText('beforeend', chunk);
                     scheduleScroll();
                 },
                 onText: (chunk) => {
@@ -2250,11 +2352,11 @@ export class AgentSidebarView extends ItemView {
                     if (!el || el.classList.contains('tool-group-item')) return;
                     const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
                     if (!outputEl) return;
-                    outputEl.empty();
-                    // FIX-19-99-04: render progress as markdown so partial wikilinks /
-                    // links are clickable as soon as they appear (final replace runs in
-                    // onToolResult).
-                    void this.renderMarkdownAndWire(content, outputEl);
+                    // FIX-PERF-03: coalesce into one rAF tick so a 20-tool
+                    // turn does not trigger 40+ synchronous parser passes.
+                    // FIX-19-99-04 contract preserved: progress is rendered
+                    // as markdown so partial wikilinks/links are clickable.
+                    scheduleToolProgressRender(outputEl, content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage

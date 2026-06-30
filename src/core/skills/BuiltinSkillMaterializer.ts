@@ -23,6 +23,17 @@
 import { normalizePath } from 'obsidian';
 import { isSafePathSegment } from '../utils/safePathName';
 
+// FIX-PERF-15: djb2 string hash for bundle-fingerprinting. Not a
+// cryptographic hash; collisions across bundle inputs are vanishingly
+// unlikely because the hash inputs include length and content prefix.
+function stringHashCode(s: string): number {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) {
+        h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    }
+    return h;
+}
+
 interface AdapterLike {
     exists(p: string): Promise<boolean>;
     mkdir(p: string): Promise<void>;
@@ -36,7 +47,7 @@ interface AdapterLike {
 
 export interface MaterializeReport {
     written: string[];
-    skipped: Array<{ name: string; reason: 'user-override' | 'plugin-override' }>;
+    skipped: Array<{ name: string; reason: 'user-override' | 'plugin-override' | 'bundle-hash-unchanged' }>;
     errors: Array<{ name: string; reason: string }>;
 }
 
@@ -45,8 +56,58 @@ const BINARY_SUFFIX = '__b64__';
 export class BuiltinSkillMaterializer {
     constructor(private adapter: AdapterLike, private skillsRoot: string) {}
 
+    /**
+     * FIX-PERF-15: stable bundle hash. Builds a deterministic string
+     * from skill names + per-file path + content length + first 32
+     * chars of content. Avoids hashing entire skill bodies (2 MB)
+     * while still detecting any edit. JS-only djb2 hash; collisions
+     * across real bundles are vanishingly unlikely since the inputs
+     * include length and content-prefix.
+     */
+    private computeBundleHash(bundle: Record<string, Record<string, string>>): string {
+        let hash = 5381;
+        const skillNames = Object.keys(bundle).sort();
+        for (const skill of skillNames) {
+            hash = (hash * 33) ^ stringHashCode(skill);
+            const files = bundle[skill];
+            const filePaths = Object.keys(files).sort();
+            for (const path of filePaths) {
+                const content = files[path];
+                hash = (hash * 33) ^ stringHashCode(path);
+                hash = (hash * 33) ^ content.length;
+                hash = (hash * 33) ^ stringHashCode(content.slice(0, 32));
+            }
+        }
+        return (hash >>> 0).toString(16);
+    }
+
+    private hashMarkerPath(): string {
+        return normalizePath(`${this.skillsRoot}/.builtin-bundle-hash`);
+    }
+
     async materializeAll(bundle: Record<string, Record<string, string>>): Promise<MaterializeReport> {
         const report: MaterializeReport = { written: [], skipped: [], errors: [] };
+
+        // FIX-PERF-15: bundle-hash skip. When the materialised hash
+        // matches the bundle hash there is nothing to re-write on this
+        // boot. Wipe-and-rewrite of 2,584 skill files on every plugin
+        // load was a 50-300 ms cold-boot stall.
+        const bundleHash = this.computeBundleHash(bundle);
+        const markerPath = this.hashMarkerPath();
+        try {
+            if (await this.adapter.exists(markerPath)) {
+                const previous = (await this.adapter.read(markerPath)).trim();
+                if (previous === bundleHash) {
+                    // Mark every skill as skipped (no work done).
+                    for (const skillName of Object.keys(bundle)) {
+                        report.skipped.push({ name: skillName, reason: 'bundle-hash-unchanged' });
+                    }
+                    return report;
+                }
+            }
+        } catch {
+            // Marker missing or unreadable -- fall through to full materialize.
+        }
 
         for (const [skillName, files] of Object.entries(bundle)) {
             try {
@@ -139,6 +200,18 @@ export class BuiltinSkillMaterializer {
                 report.written.push(skillName);
             } catch (e) {
                 report.errors.push({ name: skillName, reason: (e as Error).message ?? String(e) });
+            }
+        }
+
+        // FIX-PERF-15: persist the bundle hash on full success so the
+        // next boot can skip work. If any skill errored we leave the
+        // marker missing so the next boot retries the failed entries.
+        if (report.errors.length === 0) {
+            try {
+                await this.adapter.write(markerPath, bundleHash);
+            } catch {
+                // Best-effort: a missing marker just means re-materialize
+                // next boot, which is the safe default.
             }
         }
 

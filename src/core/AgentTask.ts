@@ -21,7 +21,7 @@ import type { ModeService } from './modes/ModeService';
 import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
-import { QUALITY_GATES } from './tools/qualityGates';
+import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
@@ -45,6 +45,7 @@ import {
     type StigmergyTurn,
 } from './stigmergy/StigmergyAdapter';
 import { withTimeout } from './utils/withTimeout';
+import { getPerformanceMarks } from './observability/PerformanceMarks';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
@@ -392,6 +393,12 @@ export class AgentTask {
             subagentRoleOverride,
             subagentAllowedTools,
         } = config;
+        // MEAS-01: span around the entire agent turn. Label includes
+        // taskId so concurrent sub-agent runs do not collide on the
+        // active-spans map.
+        const perfMarks = getPerformanceMarks();
+        const turnLabel = `agent.run:${taskId}`;
+        perfMarks.start(turnLabel);
         // Resolve mode to ModeConfig
         let activeMode: ModeConfig = this.resolveMode(initialMode);
 
@@ -1306,10 +1313,20 @@ export class AgentTask {
                     // skill the model loaded itself via read_skill is in the
                     // message stream (until microcompaction prunes it); the model
                     // can re-call read_skill if it lost the steps.
-                    history.push({
-                        role: 'user',
-                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`,
-                    });
+                    // FIX-PERF-24: dedupe. If the previous history entry is
+                    // already a Power-Steering Reminder (frequency==1 edge
+                    // case, or after a no-op iteration that produced no
+                    // assistant message), do not stack a second identical
+                    // reminder back-to-back. Two identical user messages in a
+                    // row both burn cache and confuse the model.
+                    const reminder = `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`;
+                    const last = history[history.length - 1];
+                    const lastIsSameReminder = last?.role === 'user'
+                        && typeof last.content === 'string'
+                        && last.content === reminder;
+                    if (!lastIsSameReminder) {
+                        history.push({ role: 'user', content: reminder });
+                    }
                 }
 
                 // Soft limit: nudge the agent to wrap up at 60% of max iterations
@@ -1354,20 +1371,14 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
-                // ADR-061: Todo list as recency anchor — append to last user message.
-                // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
-                // We temporarily extend the last user message content (not push+splice, which
-                // would violate append-only and invalidate KV-cache).
-                let todoOriginalContent: string | ContentBlock[] | undefined;
-                if (currentTodoText && iteration > 0) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string') {
-                            todoOriginalContent = history[h].content;
-                            history[h] = { ...history[h], content: `${history[h].content as string}\n\n${currentTodoText}` };
-                            break;
-                        }
-                    }
-                }
+                // ADR-061 / FIX-PERF-22: Todo list as recency anchor.
+                // Previously this mutated `history` in place and then
+                // restored it after the stream finished. The mutation
+                // looked safe but the restore relied on `endsWith()`
+                // matching the exact todo text, which broke when the
+                // stream errored mid-flight (todo stayed glued onto the
+                // history). Now we build the anchored version inside
+                // safeHistory below and never touch the live history.
 
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
@@ -1386,9 +1397,37 @@ export class AgentTask {
                 // BUG-017: drop orphan tool_use / tool_result blocks before send.
                 // Anthropic returns 400 if any tool_use has no matching tool_result
                 // and Claude-via-Copilot inherits the same constraint.
-                const safeHistory = sanitizeAndLog(history, 'main-loop');
+                let safeHistory = sanitizeAndLog(history, 'main-loop');
+                // FIX-PERF-22: append the todo anchor to the LAST user
+                // message of the sanitized history only. The live history
+                // stays unmutated, so a mid-stream throw no longer leaves
+                // the todo glued onto the persisted transcript.
+                if (currentTodoText && iteration > 0) {
+                    for (let h = safeHistory.length - 1; h >= 0; h--) {
+                        const m = safeHistory[h];
+                        if (m.role === 'user' && typeof m.content === 'string') {
+                            safeHistory = safeHistory.slice();
+                            safeHistory[h] = { ...m, content: `${m.content}\n\n${currentTodoText}` };
+                            break;
+                        }
+                    }
+                }
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
+                // MEAS-02: only the very first iteration of a fresh turn is
+                // the one the user clicked Send for. Subsequent iterations
+                // are tool-result follow-ups and have a different shape.
+                const isFirstTurnIteration = iteration === 0;
+                if (isFirstTurnIteration) {
+                    perfMarks.end('send.firstTurn.host', { log: true });
+                    perfMarks.start('send.firstTurn.provider');
+                }
+                let sawFirstChunk = false;
                 for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
+                    if (isFirstTurnIteration && !sawFirstChunk) {
+                        sawFirstChunk = true;
+                        perfMarks.end('send.firstTurn.provider', { log: true });
+                        perfMarks.point('send.firstToken', { log: true });
+                    }
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
                         if (chunk.requiresPassback) thinkingParts.push(chunk.text);
@@ -1425,16 +1464,9 @@ export class AgentTask {
                     }
                 }
 
-                // Restore the original user message content (remove todo anchor)
-                if (todoOriginalContent !== undefined) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string'
-                            && (history[h].content as string).endsWith(currentTodoText)) {
-                            history[h] = { ...history[h], content: todoOriginalContent };
-                            break;
-                        }
-                    }
-                }
+                // FIX-PERF-22: todo restore block intentionally removed.
+                // The anchor was applied to safeHistory (a clone), not
+                // to live history, so there is nothing to restore.
 
                 // Build the assistant message content. Thinking first (mirrors
                 // the order the model produced: CoT before answer/tool), then
@@ -1483,7 +1515,23 @@ export class AgentTask {
                         const estimatedTokens = this.estimateTokens(history);
                         const contextWindow = this.getModelContextWindow();
                         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                        if (estimatedTokens > threshold) {
+                        // FIX-PERF-20: cache-aware defer. When the previous
+                        // turn served mostly from prefix cache (read >
+                        // create), condensing now would invalidate the
+                        // expensive prefix for marginal gain. Defer once,
+                        // re-evaluate next turn. Feature-flag default off
+                        // in 3.x per Decision 8.
+                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
+                        const cacheAware = advancedApi?.cacheAwareCondensing === true;
+                        const cacheBeatsThisTurn = totalCacheReadTokens > totalCacheCreationTokens
+                            && totalCacheReadTokens > 0;
+                        if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
+                            console.debug(
+                                `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
+                                + `(threshold ${threshold}t, cacheRead ${totalCacheReadTokens}t > `
+                                + `cacheCreate ${totalCacheCreationTokens}t)`,
+                            );
+                        } else if (estimatedTokens > threshold) {
                             // Pre-Compaction Memory Flush (Phase 5): extract important
                             // facts before they are compressed into a summary
                             await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
@@ -1667,7 +1715,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
@@ -1693,7 +1741,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
@@ -2066,6 +2114,7 @@ export class AgentTask {
                 console.warn('[AgentTask] onEpisodeData hook failed (non-fatal):', e);
             }
         }
+        perfMarks.end(turnLabel, { log: true });
     }
 
     // -------------------------------------------------------------------------
@@ -2076,47 +2125,51 @@ export class AgentTask {
      * Improved token estimate that accounts for structured content blocks.
      * ~4 chars/token for text, +150 for tool_use overhead, +50 for tool_result overhead.
      */
+    /**
+     * FIX-PERF-19: per-message token estimator. The original
+     * estimateTokens(messages: MessageParam[]) is now a thin wrapper.
+     * Hot paths (condense tail walk, per-iteration token math) call
+     * this directly to avoid allocating single-element arrays.
+     */
+    private estimateMessageTokens(m: MessageParam): number {
+        let count = 0;
+        if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+                if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'tool_use') {
+                    count += 150;
+                    if ('input' in block && block.input) {
+                        count += Math.ceil(JSON.stringify(block.input).length / 4);
+                    }
+                } else if (block.type === 'tool_result') {
+                    count += 50;
+                    if ('content' in block) {
+                        if (typeof block.content === 'string') {
+                            count += Math.ceil(block.content.length / 4);
+                        } else if (Array.isArray(block.content)) {
+                            for (const sub of block.content) {
+                                if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                else if (sub.type === 'image') count += 1000;
+                            }
+                        }
+                    }
+                } else if (block.type === 'image') {
+                    count += 1000;
+                }
+            }
+        } else if (typeof m.content === 'string') {
+            count += Math.ceil(m.content.length / 4);
+        }
+        return count;
+    }
+
     private estimateTokens(messages: MessageParam[]): number {
         let count = 0;
         for (const m of messages) {
-            if (Array.isArray(m.content)) {
-                for (const block of m.content) {
-                    if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
-                        // FIX-04-03-07: thinking persists on assistant messages
-                        // for DeepSeek reasoner round-trip. Counted at chars/4
-                        // so condensing fires on time when reasoning accumulates.
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'tool_use') {
-                        // tool_use overhead: id, name, type fields ~150 tokens
-                        count += 150;
-                        // input JSON payload
-                        if ('input' in block && block.input) {
-                            count += Math.ceil(JSON.stringify(block.input).length / 4);
-                        }
-                    } else if (block.type === 'tool_result') {
-                        // tool_result overhead: tool_use_id, type, is_error ~50 tokens
-                        count += 50;
-                        // content payload — string or multimodal array
-                        if ('content' in block) {
-                            if (typeof block.content === 'string') {
-                                count += Math.ceil(block.content.length / 4);
-                            } else if (Array.isArray(block.content)) {
-                                for (const sub of block.content) {
-                                    if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
-                                    else if (sub.type === 'image') count += 1000;
-                                }
-                            }
-                        }
-                    } else if (block.type === 'image') {
-                        // Image tokens (flat estimate)
-                        count += 1000;
-                    }
-                }
-            } else if (typeof m.content === 'string') {
-                count += Math.ceil(m.content.length / 4);
-            }
+            count += this.estimateMessageTokens(m);
         }
         return count;
     }
@@ -2160,7 +2213,7 @@ export class AgentTask {
 
         for (let i = history.length - 1; i >= 0; i--) {
             const msg = history[i];
-            const msgTokens = this.estimateTokens([msg]);
+            const msgTokens = this.estimateMessageTokens(msg);
 
             if (tail.length >= MIN_TAIL_MESSAGES && tailTokens + msgTokens > MAX_TAIL_TOKENS) {
                 break;
@@ -2191,7 +2244,7 @@ export class AgentTask {
                 // Case 1: Tail starts with tool_result — pull preceding assistant(tool_use) in
                 const prevMsg = history[tailStartIdx - 1];
                 tail.unshift(prevMsg);
-                tailTokens += this.estimateTokens([prevMsg]);
+                tailTokens += this.estimateMessageTokens(prevMsg);
             }
         }
 

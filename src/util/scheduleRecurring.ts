@@ -33,21 +33,25 @@ export function scheduleRecurring(
     let stopped = false;
     let timer: number | null = null;
 
-    const tick = (): void => {
+    // FIX-PERF-31: await the async result before scheduling the next
+    // tick. Previously the next setTimeout was queued the moment fn()
+    // returned, so a task slower than everyMs could overlap with the
+    // next tick and cause concurrent DB writes / duplicate work.
+    const tick = async (): Promise<void> => {
         if (stopped) return;
         try {
             const result = fn();
             if (result && typeof result.then === 'function') {
-                result.catch(() => { /* swallow */ });
+                await result;
             }
         } catch {
             // Swallow: a single failing tick must not break the recurrence.
         }
         if (stopped) return;
-        timer = window.setTimeout(tick, everyMs);
+        timer = window.setTimeout(() => { void tick(); }, everyMs);
     };
 
-    timer = window.setTimeout(tick, everyMs);
+    timer = window.setTimeout(() => { void tick(); }, everyMs);
 
     return {
         stop(): void {

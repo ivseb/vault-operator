@@ -1183,11 +1183,14 @@ export class VaultDNAScanner {
     startSync(): void {
         const enabledPlugins = this.app.plugins?.enabledPlugins;
         this.lastKnownEnabledSet = new Set(enabledPlugins ?? []);
-        // FEAT-29-03: 2s tick for sub-second plugin-enable visibility. Was 30s
-        // in v2.5; tighter polling is cheap (Set-diff on at most ~100 plugin
-        // ids) and the workspace.layout-change hook (main.ts) makes most
-        // user-driven activations instant anyway.
-        this.pollIntervalId = scheduleRecurring(() => { void this.checkForChanges(); }, 2_000);
+        // FIX-PERF-05: drop the 2s poll. The workspace.layout-change hook
+        // wired up in main.ts already triggers triggerImmediateSync()
+        // for every user-driven plugin enable/disable. The poll was a
+        // redundant safety net at ~30 wakeups/min and the dominant idle
+        // CPU source in this scanner. If a future bug shows that
+        // layout-change misses a path, restore polling here with a much
+        // longer interval (e.g. 30s) instead of reinstating the 2s tick.
+        this.pollIntervalId = null;
     }
 
     /**

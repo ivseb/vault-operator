@@ -147,8 +147,18 @@ export class AnthropicProvider implements ApiHandler {
         if (this.config.promptCachingEnabled) {
             markRollingHistoryBreakpoints(anthropicMessages);
             if (anthropicTools.length > 0) {
-                const last = anthropicTools[anthropicTools.length - 1] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
-                last.cache_control = { type: 'ephemeral' };
+                // FIX-PERF-21: pin the cache marker on attempt_completion when
+                // available instead of the literal last tool. attempt_completion
+                // is one of the most stable tools across mode switches and
+                // dynamic tool registrations; pinning the breakpoint there
+                // means the cache prefix stays warm even when the tail of
+                // the tool list changes (e.g. find_tool surfaces a deferred
+                // tool, mode switch swaps the toolset). Fallback to last
+                // tool preserves behaviour for unusual configurations.
+                const attemptIdx = anthropicTools.findIndex((t) => t.name === 'attempt_completion');
+                const targetIdx = attemptIdx !== -1 ? attemptIdx : anthropicTools.length - 1;
+                const target = anthropicTools[targetIdx] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
+                target.cache_control = { type: 'ephemeral' };
             }
         }
 
