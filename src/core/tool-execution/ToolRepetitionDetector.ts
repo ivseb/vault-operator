@@ -32,6 +32,18 @@ interface ToolCallEntry {
     outcome: ToolCallOutcome;
 }
 
+/**
+ * FIX-COMPACT-04: mode-switch annotations interleaved with tool calls.
+ * Stored separately from `allCalls` so they don't pollute `getToolSequence()`
+ * (only real tool invocations belong there), but the ledger renders them
+ * inline so the summarizer can see when the agent flipped modes.
+ */
+interface ModeSwitchEntry {
+    kind: 'mode-switch';
+    newMode: string;
+    after: number; // index into allCalls AT the time of the switch
+}
+
 export interface RepetitionCheck {
     blocked: boolean;
     reason?: string;
@@ -42,6 +54,8 @@ export class ToolRepetitionDetector {
     private allCalls: ToolCallEntry[] = [];
     /** Sliding window for repetition detection. */
     private recentKeys: string[] = [];
+    /** FIX-COMPACT-04: chronological mode-switch annotations. */
+    private modeSwitches: ModeSwitchEntry[] = [];
     private readonly windowSize = 15;
     private readonly maxExactRepetitions = 3;
     private readonly maxSimilarSearches = 3;
@@ -149,15 +163,31 @@ export class ToolRepetitionDetector {
     }
 
     /**
+     * FIX-COMPACT-04: annotate a mode switch in the ledger without
+     * wiping the recorded calls or the sliding window. AgentTask used to
+     * call reset() on every switch, which let Code -> Architect -> Code
+     * loops bypass the exact-repetition block and the "already failed"
+     * surface in the summarizer prompt.
+     */
+    markModeSwitch(newMode: string): void {
+        this.modeSwitches.push({
+            kind: 'mode-switch',
+            newMode,
+            after: this.allCalls.length,
+        });
+    }
+
+    /**
      * Structured tool-call ledger for injection into condensing prompt.
-     * Returns empty string if no calls recorded.
+     * Returns empty string if no calls AND no mode switches recorded.
      *
      * FIX-COMPACT-01: failed calls are rendered in a dedicated section so
      * the post-condense agent surfaces them explicitly instead of letting
      * the summarizer paraphrase them away.
+     * FIX-COMPACT-04: mode switches are rendered as their own section.
      */
     getLedger(): string {
-        if (this.allCalls.length === 0) return '';
+        if (this.allCalls.length === 0 && this.modeSwitches.length === 0) return '';
         const render = (entry: ToolCallEntry, idx: number): string => {
             let parsed: Record<string, unknown>;
             try { parsed = JSON.parse(entry.inputKey.slice(entry.tool.length + 1)); } catch { parsed = {}; }
@@ -182,6 +212,12 @@ export class ToolRepetitionDetector {
                 + failures.map(render).join('\n'),
             );
         }
+        if (this.modeSwitches.length > 0) {
+            const lines = this.modeSwitches.map((m, i) =>
+                `${i + 1}. mode switch -> ${m.newMode} (after ${m.after} tool call(s))`,
+            );
+            sections.push('MODE SWITCHES during this run:\n' + lines.join('\n'));
+        }
         return sections.join('\n\n');
     }
 
@@ -205,6 +241,7 @@ export class ToolRepetitionDetector {
     reset(): void {
         this.allCalls = [];
         this.recentKeys = [];
+        this.modeSwitches = [];
     }
 }
 

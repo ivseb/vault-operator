@@ -1301,8 +1301,15 @@ export class AgentTask {
                         }
                         this.taskCallbacks.onModeSwitch?.(pendingModeSwitch);
                     }
+                    // FIX-COMPACT-04: do NOT reset the repetition detector.
+                    // Resetting let Code -> Architect -> Code loops bypass
+                    // both the exact-repetition block and the "already
+                    // failed" surface in the post-condense summarizer.
+                    // The mistake counter still resets -- a mode switch is
+                    // a user correction and should not count old errors
+                    // against the new mode's tolerance budget.
+                    repetitionDetector.markModeSwitch(pendingModeSwitch);
                     pendingModeSwitch = null;
-                    repetitionDetector.reset();
                     consecutiveMistakes = 0;
                 }
 
