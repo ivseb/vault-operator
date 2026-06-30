@@ -57,6 +57,34 @@ import {
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
 
+/**
+ * FIX-COMPACT-07: structured event emitted once per condense pass.
+ * Receivers (TaskMonitor in the sidebar, offline analytics) persist these
+ * to a JSONL so the threshold can be tuned against empirical data.
+ */
+export interface CondenseTelemetryEvent {
+    /** Wall-clock start, ISO8601, of the helper-api call. */
+    startedAt: string;
+    /** ms from start to the success/failure decision. */
+    durationMs: number;
+    /** True when the splice ran; false on early-skip or helper-api failure. */
+    success: boolean;
+    /** Estimated history tokens BEFORE the splice (always recorded). */
+    prevTokens: number;
+    /** Estimated history tokens AFTER the splice (only meaningful on success). */
+    newTokens: number;
+    /** prevTokens - newTokens. Negative not possible (rounded to 0 on quirks). */
+    savedTokens: number;
+    /** True when getHelperApi returned a non-fallback handler. */
+    helperModelUsed: boolean;
+    /** Model id of the API that actually served the condense call (main or helper). */
+    modelId: string;
+    /** Tail size budget used for this pass (10k default, halved by retry loop). */
+    maxTailTokens: number;
+    /** When success=false, the truncated error message. */
+    errorMessage?: string;
+}
+
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
     onIterationStart?: (iteration: number) => void;
@@ -121,6 +149,12 @@ export interface AgentTaskCallbacks {
      * instead of silently looping into the same over-threshold state.
      */
     onContextCondenseFailed?: (error: Error) => void;
+    /**
+     * FIX-COMPACT-07: structured telemetry event for every condense pass
+     * (success and failure). Receivers typically persist to a JSONL file
+     * for offline tuning of the threshold and helper-model selection.
+     */
+    onCondenseTelemetry?: (event: CondenseTelemetryEvent) => void;
     /** Called when a checkpoint is saved before a write tool */
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /**
@@ -2257,6 +2291,12 @@ export class AgentTask {
         // Need at least first + 4 tail + some middle to condense
         if (history.length < 7) return false;
 
+        // FIX-COMPACT-07: telemetry start. The event fires from a single
+        // `emit()` helper at every exit path so we cannot forget a branch.
+        const telemetryStartedAt = new Date().toISOString();
+        const telemetryStartMs = Date.now();
+        const telemetryPrevTokens = this.estimateTokens(history);
+
         const firstMsg = history[0];
 
         // Smart tail: collect messages from end until maxTailTokens tokens or min 2 messages.
@@ -2352,6 +2392,18 @@ export class AgentTask {
         // After boundary adjustments, toSummarize might be too small to condense
         if (toSummarize.length < 3) {
             console.debug('[AgentTask] toSummarize too small after boundary fix — skipping condensing');
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed: false,
+                modelId: this.api.getModel().id,
+                maxTailTokens,
+                errorMessage: 'toSummarize too small after boundary fix',
+            });
             return false;
         }
 
@@ -2398,6 +2450,8 @@ export class AgentTask {
         }
 
         let summary = '';
+        let helperModelUsed = false;
+        let condensingModelId = this.api.getModel().id;
         try {
             // FIX-COMPACT-05: replace MicroCompactor skeletons with a short
             // placeholder so the helper LLM does not paraphrase the skeleton
@@ -2410,6 +2464,8 @@ export class AgentTask {
             logInputBreakdown('condensing', systemPrompt, safeCondensingMessages, []);
             // FEAT-24-07 / ADR-115: route condensing through the optional helper model.
             const condensingApi = getHelperApi(this.toolRegistry.plugin, this.api);
+            helperModelUsed = condensingApi !== this.api;
+            condensingModelId = condensingApi.getModel().id;
             for await (const chunk of condensingApi.createMessage(
                 systemPrompt,
                 safeCondensingMessages,
@@ -2426,12 +2482,36 @@ export class AgentTask {
             const err = e instanceof Error ? e : new Error(String(e));
             console.warn('[AgentTask] Context condensing failed (history unchanged):', err.message);
             this.taskCallbacks.onContextCondenseFailed?.(err);
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed,
+                modelId: condensingModelId,
+                maxTailTokens,
+                errorMessage: err.message.slice(0, 500),
+            });
             return false;
         }
 
         if (!summary.trim()) {
             console.warn('[AgentTask] Context condensing produced empty summary; history unchanged');
             this.taskCallbacks.onContextCondenseFailed?.(new Error('empty summary from helper API'));
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed,
+                modelId: condensingModelId,
+                maxTailTokens,
+                errorMessage: 'empty summary from helper API',
+            });
             return false;
         }
 
@@ -2469,6 +2549,18 @@ export class AgentTask {
 
         // Notify callback with token counts
         this.taskCallbacks.onContextCondensed?.(preTokens, postTokens);
+        // FIX-COMPACT-07: structured telemetry event for the successful pass.
+        this.taskCallbacks.onCondenseTelemetry?.({
+            startedAt: telemetryStartedAt,
+            durationMs: Date.now() - telemetryStartMs,
+            success: true,
+            prevTokens: preTokens,
+            newTokens: postTokens,
+            savedTokens: Math.max(0, preTokens - postTokens),
+            helperModelUsed,
+            modelId: condensingModelId,
+            maxTailTokens,
+        });
         return true;
     }
 

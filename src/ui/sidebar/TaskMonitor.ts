@@ -121,6 +121,18 @@ export class TaskMonitor {
         );
     }
 
+    /**
+     * FIX-COMPACT-07: persist a per-condense-pass telemetry event.
+     * Best-effort, never throws.
+     */
+    onCondenseTelemetry(event: import('../../core/telemetry/TaskTelemetry').CondenseTelemetryEntry): void {
+        void (async () => {
+            const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
+            const telemetry = new TaskTelemetry(fs);
+            await telemetry.recordCondense(event);
+        })().catch((e) => console.warn('[Telemetry] condense record failed (non-fatal):', e));
+    }
+
     private async persist(data: TaskTelemetryData): Promise<void> {
         const fs = new VaultDataFileAdapter(this.opts.app.vault.adapter);
         const telemetry = new TaskTelemetry(fs);

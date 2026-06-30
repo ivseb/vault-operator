@@ -2722,6 +2722,10 @@ export class AgentSidebarView extends ItemView {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
                     taskMonitor.onTaskTelemetry(data);
                 },
+                onCondenseTelemetry: (event) => {
+                    // FIX-COMPACT-07: per-condense JSONL for threshold tuning
+                    taskMonitor.onCondenseTelemetry(event);
+                },
             },
             modeService: this.modeService,
             consecutiveMistakeLimit: this.plugin.settings.advancedApi.consecutiveMistakeLimit,
