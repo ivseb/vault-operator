@@ -254,6 +254,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalSettingsService: GlobalSettingsService | null = null;
     // syncBridge removed (FEATURE-1508)
     ringBuffer: ConsoleRingBuffer;
+    /** FIX-PERF-39: central scheduler. Jobs migrate over time. */
+    backgroundJobs: import('./core/background/BackgroundJobCoordinator').BackgroundJobCoordinator | null = null;
     selfAuthoredSkillLoader: SelfAuthoredSkillLoader | null = null;
     skillSnapshotService: SkillSnapshotService | null = null;
     skillWriteInterceptor: SkillWriteInterceptor | null = null;
@@ -417,6 +419,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     private async doLoad(): Promise<void> {
         // 0. ConsoleRingBuffer — install FIRST so all subsequent logs are captured
         this.ringBuffer = new ConsoleRingBuffer(500);
+        // FIX-PERF-39: central background scheduler. Migrating jobs over.
+        const { BackgroundJobCoordinator } = await import('./core/background/BackgroundJobCoordinator');
+        this.backgroundJobs = new BackgroundJobCoordinator();
         this.ringBuffer.install();
 
         console.debug('Loading Vault Operator plugin');
@@ -2518,20 +2523,37 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.activeMcpSessions = new ActiveMcpSessions();
             // Eviction-Tick alle 5 Minuten -- entfernt abgelaufene
             // Sessions auch wenn keine MCP-Calls reinkommen.
-            this.activeMcpSessionsEvictHandle = scheduleRecurring(() => {
-                const removed = this.activeMcpSessions?.evictExpired() ?? 0;
-                if (removed > 0) {
-                    console.debug(`[ActiveMcpSessions] evicted ${removed} expired session(s)`);
-                }
-            }, 5 * 60 * 1000);
+            // FIX-PERF-39 migration: ActiveMcpSessions evict via
+            // BackgroundJobCoordinator. mcp resource tag prevents
+            // accidental overlap if MCP cleanup tasks grow more siblings.
+            this.backgroundJobs?.register({
+                id: 'mcp.active-sessions.evict',
+                resources: ['mcp'],
+                everyMs: 5 * 60 * 1000,
+                priority: 'low',
+                run: () => {
+                    const removed = this.activeMcpSessions?.evictExpired() ?? 0;
+                    if (removed > 0) {
+                        console.debug(`[ActiveMcpSessions] evicted ${removed} expired session(s)`);
+                    }
+                },
+            });
 
             // AUDIT-015 M-1: MCP Rate-Limiter, sliding window pro
             // (token, source_interface, rate-class). Cleanup alle 5 min.
             const { McpRateLimiter } = await import('./mcp/McpRateLimiter');
             this.mcpRateLimiter = new McpRateLimiter();
-            this.mcpRateLimiterCleanupHandle = scheduleRecurring(() => {
-                this.mcpRateLimiter?.cleanup();
-            }, 5 * 60 * 1000);
+            // FIX-PERF-39 migration: shares the 'mcp' resource tag with
+            // the evict job above so they cannot overlap.
+            this.backgroundJobs?.register({
+                id: 'mcp.rate-limiter.cleanup',
+                resources: ['mcp'],
+                everyMs: 5 * 60 * 1000,
+                priority: 'low',
+                run: () => {
+                    this.mcpRateLimiter?.cleanup();
+                },
+            });
 
             this.mcpBridge = new McpBridge(this);
             await this.mcpBridge.start().catch((e: unknown) =>
@@ -2613,6 +2635,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                 await this.flushPendingChatLinks(convId).catch(() => {});
             }
             await this.mcpClient?.disconnectAll();
+            // FIX-PERF-39: dispose coordinator before DB close so any
+            // in-flight job awaits cleanly.
+            await this.backgroundJobs?.dispose();
+            this.backgroundJobs = null;
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
