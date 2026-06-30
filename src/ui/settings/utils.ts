@@ -217,7 +217,18 @@ export function addSliderInput(
         void opts.onChange(v);
     };
 
+    // FIX-PERF-01: split into 'input' for the live value-label update
+    // (cheap, fires per drag-pixel) and 'change' for the persisted
+    // onChange callback (fires once on release). Previously the
+    // saveSettings()-bearing onChange ran on every drag tick - roughly
+    // 100 writes per second of slider movement.
     slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        if (Number.isFinite(v)) {
+            valueEl.setText(String(v));
+        }
+    });
+    slider.addEventListener('change', () => {
         const v = parseFloat(slider.value);
         if (Number.isFinite(v)) {
             valueEl.setText(String(v));
