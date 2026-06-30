@@ -1564,17 +1564,25 @@ export class AgentTask {
                             if (firstOk) {
                                 let condensingRetries = 0;
                                 const MAX_CONDENSING_RETRIES = 2;
+                                // FIX-COMPACT-06: halve the tail each retry instead
+                                // of repeating the identical 10k-tail call. Pass 2
+                                // -> 5k, pass 3 -> 2.5k. Floor at 1k.
+                                let nextTail = 10_000;
 
                                 while (condensingRetries < MAX_CONDENSING_RETRIES) {
                                     const postTokens = this.estimateTokens(history);
                                     if (postTokens <= threshold) break;
 
+                                    nextTail = Math.max(1_000, Math.floor(nextTail / 2));
                                     console.warn(
                                         `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
+                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
                                     );
 
-                                    const retryOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                                    const retryOk = await this.condenseHistory(
+                                        history, systemPrompt, abortSignal,
+                                        repetitionDetector.getLedger(), nextTail,
+                                    );
                                     if (!retryOk) break;
                                     condensingRetries++;
                                 }
@@ -1819,17 +1827,23 @@ export class AgentTask {
                         if (firstOk) {
                             let condensingRetries = 0;
                             const MAX_CONDENSING_RETRIES = 2;
+                            // FIX-COMPACT-06: adaptive tail (10k -> 5k -> 2.5k).
+                            let nextTail = 10_000;
 
                             while (condensingRetries < MAX_CONDENSING_RETRIES) {
                                 const postTokens = this.estimateTokens(history);
                                 if (postTokens <= threshold) break;
 
+                                nextTail = Math.max(1_000, Math.floor(nextTail / 2));
                                 console.warn(
                                     `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
+                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
                                 );
 
-                                const retryOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                                const retryOk = await this.condenseHistory(
+                                    history, systemPrompt, abortSignal,
+                                    repetitionDetector.getLedger(), nextTail,
+                                );
                                 if (!retryOk) break;
                                 condensingRetries++;
                             }
@@ -2228,23 +2242,28 @@ export class AgentTask {
      * was spliced), false on any non-fatal skip (history too short, summary
      * empty) or failure (helper-api threw). Callers that retry or fall
      * back (emergency condensing, retry loop) MUST check this value.
+     *
+     * FIX-COMPACT-06: `maxTailTokens` override lets the retry loop shrink
+     * the tail each pass (10k -> 5k -> 2.5k) instead of repeating an
+     * identical call. Default 10k preserves the historical behaviour.
      */
     private async condenseHistory(
         history: MessageParam[],
         systemPrompt: string,
         abortSignal?: AbortSignal,
         toolCallLedger?: string,
+        maxTailTokens: number = 10_000,
     ): Promise<boolean> {
         // Need at least first + 4 tail + some middle to condense
         if (history.length < 7) return false;
 
         const firstMsg = history[0];
 
-        // Smart tail: collect messages from end until 10k tokens or min 2 messages.
+        // Smart tail: collect messages from end until maxTailTokens tokens or min 2 messages.
         // IMPORTANT: We must never split a tool_use / tool_result pair across the
         // condensing boundary — Anthropic requires every tool_use block to be
         // immediately followed by a tool_result in the next message.
-        const MAX_TAIL_TOKENS = 10_000;
+        const MAX_TAIL_TOKENS = Math.max(1_000, maxTailTokens);
         const MIN_TAIL_MESSAGES = 2;
         const tail: MessageParam[] = [];
         let tailTokens = 0;
