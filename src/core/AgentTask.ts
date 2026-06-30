@@ -1515,7 +1515,23 @@ export class AgentTask {
                         const estimatedTokens = this.estimateTokens(history);
                         const contextWindow = this.getModelContextWindow();
                         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                        if (estimatedTokens > threshold) {
+                        // FIX-PERF-20: cache-aware defer. When the previous
+                        // turn served mostly from prefix cache (read >
+                        // create), condensing now would invalidate the
+                        // expensive prefix for marginal gain. Defer once,
+                        // re-evaluate next turn. Feature-flag default off
+                        // in 3.x per Decision 8.
+                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
+                        const cacheAware = advancedApi?.cacheAwareCondensing === true;
+                        const cacheBeatsThisTurn = totalCacheReadTokens > totalCacheCreationTokens
+                            && totalCacheReadTokens > 0;
+                        if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
+                            console.debug(
+                                `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
+                                + `(threshold ${threshold}t, cacheRead ${totalCacheReadTokens}t > `
+                                + `cacheCreate ${totalCacheCreationTokens}t)`,
+                            );
+                        } else if (estimatedTokens > threshold) {
                             // Pre-Compaction Memory Flush (Phase 5): extract important
                             // facts before they are compressed into a summary
                             await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
