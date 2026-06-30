@@ -109,6 +109,115 @@ export const PLUGIN_API_ALLOWLIST: AllowedApiMethod[] = [
         paramSchema: { propertyName: 'string', propertyValue: 'string', file: 'string' },
         maxReturnSize: 1_000,
     },
+
+    // ── Frontmatter Editor — read ───────────────────────────────────────────
+    // Curated surface for the frontmatter-editor plugin. Its API self-
+    // describes via describeActions(); these entries make the read methods
+    // auto-approvable and the write methods approval-gated without relying
+    // on the dynamic-discovery promotion path. Args are objects (opts), so
+    // paramSchema (simple types only) is omitted except where a scalar id
+    // applies.
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'describeActions',
+        isWrite: false,
+        description: 'Return the full action catalog (methods, params, examples) -- call first to learn the surface',
+        maxReturnSize: 50_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'listProperties',
+        isWrite: false,
+        description: 'List every frontmatter property in the vault with usage count, types and sample values',
+        maxReturnSize: 50_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'getMatchingPaths',
+        isWrite: false,
+        description: 'Resolve a NoteSelector to matching note paths plus a count (agent-friendly preview)',
+        maxReturnSize: 50_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'listSnapshots',
+        isWrite: false,
+        description: 'List undo snapshots (id, timestamp, affected note count), newest first',
+        maxReturnSize: 20_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'scan',
+        isWrite: false,
+        description: 'Scan the vault and return the full frontmatter property inventory',
+        maxReturnSize: 50_000,
+    },
+
+    // ── Frontmatter Editor — write (requires approval, snapshotted) ──────────
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'setProperty',
+        isWrite: true,
+        description: 'Set a frontmatter property on the selected notes (snapshotted, undoable)',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'deleteProperties',
+        isWrite: true,
+        description: 'Delete one or more frontmatter properties from the selected notes (snapshotted)',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'renameProperty',
+        isWrite: true,
+        description: 'Rename a frontmatter property across the selected notes (snapshotted)',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'copyProperty',
+        isWrite: true,
+        description: 'Copy values from source properties into a target property (snapshotted)',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'mergeProperties',
+        isWrite: true,
+        description: 'Merge source properties into a target and delete the sources (snapshotted)',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'cleanupRefusalTags',
+        isWrite: true,
+        description: 'Remove LLM refusal text from frontmatter and return a report (snapshotted; pass dryRun to preview)',
+        maxReturnSize: 50_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'dedupeWikilinks',
+        isWrite: true,
+        description: 'Collapse duplicate frontmatter wikilinks and return a report (snapshotted; pass dryRun to preview)',
+        maxReturnSize: 50_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'undoLast',
+        isWrite: true,
+        description: 'Restore the most recent snapshot, reverting the last action',
+        maxReturnSize: 10_000,
+    },
+    {
+        pluginId: 'frontmatter-editor',
+        method: 'restoreSnapshot',
+        isWrite: true,
+        description: 'Restore a specific snapshot by id',
+        paramSchema: { id: 'string' },
+        maxReturnSize: 10_000,
+    },
 ];
 
 /**

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import initSqlJs from 'sql.js';
+import { TFile } from 'obsidian';
 import { IngestTriageTool } from '../IngestTriageTool';
 import { IngestTriageLogStore } from '../../../ingest/IngestTriageLogStore';
 import { ClusterSourceStatsStore } from '../../../knowledge/ClusterSourceStatsStore';
@@ -258,6 +259,9 @@ describe('IngestTriageTool -- related-context search', () => {
         const historyDB = opts.historyDB
             ? ({ isOpen: () => true, getDB: () => opts.historyDB as never })
             : null;
+        // FIX-19-99-04: getAbstractFileByPath returns a TFile-shaped stub
+        // and fileToLinktext returns the basename -- mimics Obsidian's
+        // "shortest path when possible" setting for unique note names.
         return {
             knowledgeDB: stores.knowledgeDB,
             ingestTriageLogStore: stores.triageStore,
@@ -267,8 +271,19 @@ describe('IngestTriageTool -- related-context search', () => {
             historyDB,
             conversationStore: { list: () => [] },
             app: {
-                vault: { getAbstractFileByPath: () => null },
-                metadataCache: { getFileCache: () => null },
+                vault: {
+                    getAbstractFileByPath: (p: string) => {
+                        if (!p.endsWith('.md')) return null;
+                        const f = Object.create(TFile.prototype) as TFile & { path: string; basename: string };
+                        f.path = p;
+                        f.basename = p.split('/').pop()?.replace(/\.md$/, '') ?? p;
+                        return f;
+                    },
+                },
+                metadataCache: {
+                    getFileCache: () => null,
+                    fileToLinktext: (file: TFile & { basename: string }) => file.basename,
+                },
             },
         } as unknown as ObsidianAgentPlugin;
     }
@@ -327,8 +342,14 @@ describe('IngestTriageTool -- related-context search', () => {
         );
 
         expect(results[0]).toContain('Verwandte Notes (Vault)');
-        expect(results[0]).toContain('Notes/RelatedA.md');
-        expect(results[0]).toContain('Notes/RelatedB.md');
+        // FIX-19-99-04: wikilinks use the shortest unique path (basename
+        // for unique names), not the hardcoded full path. The mock
+        // fileToLinktext returns the basename, so the output must NOT
+        // contain the folder prefix.
+        expect(results[0]).toContain('[[RelatedA]]');
+        expect(results[0]).toContain('[[RelatedB]]');
+        expect(results[0]).not.toContain('[[Notes/RelatedA');
+        expect(results[0]).not.toContain('[[Notes/RelatedB');
         expect(semanticIndex.search).toHaveBeenCalledWith('LLM eval benchmarks', expect.any(Number));
     });
 

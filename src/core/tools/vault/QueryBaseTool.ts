@@ -18,6 +18,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { TFile } from 'obsidian';
+import { extractFilters, extractOrder } from './baseQueryParser';
 
 export class QueryBaseTool extends BaseTool<'query_base'> {
     readonly name = 'query_base' as const;
@@ -74,9 +75,11 @@ export class QueryBaseTool extends BaseTool<'query_base'> {
 
             const yaml = await this.app.vault.read(file);
 
-            // Extract the target view's filter conditions (simple text parsing)
-            const filters = this.extractFilters(yaml, viewName);
-            const orderFields = this.extractOrder(yaml, viewName);
+            // Extract the target view's filter conditions (simple text parsing).
+            // AUDIT-038 ISSUE-006: the parser was extracted into baseQueryParser
+            // so its view-boundary handling can be regression-tested.
+            const filters = extractFilters(yaml, viewName);
+            const orderFields = extractOrder(yaml, viewName);
 
             // Query vault
             const allFiles = this.app.vault.getMarkdownFiles();
@@ -129,75 +132,8 @@ export class QueryBaseTool extends BaseTool<'query_base'> {
     }
 
     // -------------------------------------------------------------------------
-    // Simple .base YAML parser (text-based, no full YAML parser needed for MVP)
+    // .base YAML parser lives in ./baseQueryParser (AUDIT-038 ISSUE-006)
     // -------------------------------------------------------------------------
-
-    private extractFilters(yaml: string, viewName: string): string[] {
-        // Find the right view block
-        const lines = yaml.split('\n');
-        let inTargetView = false;
-        let inFilters = false;
-        const filters: string[] = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-            // Detect view start
-            if (line.trim().startsWith('- type: table')) {
-                const nameLine = lines[i + 1]?.trim() ?? '';
-                const name = nameLine.replace('name:', '').trim();
-                inTargetView = !viewName || name === viewName;
-                inFilters = false;
-                continue;
-            }
-            if (!inTargetView) continue;
-            // Next top-level view resets state
-            if (line.startsWith('  - type:') && line !== lines[i]) {
-                if (inTargetView) break; // left the target view
-            }
-            if (line.trim() === 'filters:' || line.trim() === 'and:') {
-                inFilters = true;
-                continue;
-            }
-            if (inFilters) {
-                // Lines starting with '        - ' are filter conditions
-                const m = line.match(/^\s+- (.+)$/);
-                if (m) {
-                    filters.push(m[1].replace(/^'|'$/g, '').trim());
-                } else if (line.match(/^\s{4}[a-z]/) && !line.includes('- ')) {
-                    inFilters = false; // left filter block
-                }
-            }
-        }
-        return filters;
-    }
-
-    private extractOrder(yaml: string, viewName: string): string[] {
-        const lines = yaml.split('\n');
-        let inTargetView = false;
-        let inOrder = false;
-        const order: string[] = [];
-
-        for (const line of lines) {
-            if (line.trim().startsWith('- type: table')) {
-                inTargetView = false;
-                inOrder = false;
-                continue;
-            }
-            if (line.match(/^\s+name: /)) {
-                const name = line.replace(/^\s+name:\s*/, '').trim();
-                inTargetView = !viewName || name === viewName;
-                continue;
-            }
-            if (!inTargetView) continue;
-            if (line.trim() === 'order:') { inOrder = true; continue; }
-            if (inOrder) {
-                const m = line.match(/^\s+- (.+)$/);
-                if (m) order.push(m[1].trim());
-                else inOrder = false;
-            }
-        }
-        return order;
-    }
 
     private matchesFilters(file: TFile, fm: Record<string, unknown>, filters: string[]): boolean {
         for (const filter of filters) {

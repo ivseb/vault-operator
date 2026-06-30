@@ -102,6 +102,9 @@
     "tmp": ">=0.2.6",
     "js-yaml": ">=4.2.0",
     "zod": ">=4.4.0",
-    "esbuild": "$esbuild"
+    "esbuild": "$esbuild",
+    "image-size": ">=2.0.2",
+    "minimatch": ">=10.0.3",
+    "glob": ">=10.4.5"
   }
 }

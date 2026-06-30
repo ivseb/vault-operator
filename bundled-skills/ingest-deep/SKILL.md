@@ -1,6 +1,6 @@
 ---
 name: ingest-deep
-description: Deep ingest of a source (PDF/Markdown/URL/DOCX/PPTX/XLSX) in Karpathy multi-turn pattern. Forced Markdown conversion, block-refs to the source rendered as a discreet ↗ symbol. Mandatory step 1 is triage (cluster match, source diversity, tension hint).
+description: Deep ingest of a source (PDF/Markdown/URL/DOCX/PPTX/XLSX) in Karpathy multi-turn pattern. Forced Markdown conversion, OKF frontmatter, block-refs to the source rendered as a discreet ↗ symbol. Mandatory step 1 is triage (cluster match, source diversity, tension hint).
 trigger: ingest.deep|deep.ingest|karpathy|sense.?making|multi.?turn.*ingest|tiefe.*ingest|deep.?dive.*quelle
 source: bundled
 requiredTools: [ingest_triage, ingest_deep, ingest_document, read_file, write_file, update_frontmatter, get_frontmatter, ask_followup_question, move_file]
@@ -44,7 +44,7 @@ Danach folgst du diesen Tool-Calls in dieser Reihenfolge:
    `block_anchors` aus den ausgewaehlten Themen (Tool-Call).
 8. **`write_file`** fuer Sense-Making oder Zettel
    (1-N Tool-Calls je nach Modus). Entfaellt bei "Nur Source-Note".
-9. **`update_frontmatter`** der Source-Note (`Notizen:` += alle neuen
+9. **`update_frontmatter`** der Source-Note (`related:` += alle neuen
    Notes). Entfaellt bei "Nur Source-Note" / "Doch nicht ingesten".
 
 **Existierende Stub-Notes (Notes, die schon vorhanden sind aber leer
@@ -54,7 +54,7 @@ ob ergaenzen oder Variante anlegen. Niemals stillschweigend mit
 write_file ueberschreiben, niemals den Skill-Workflow ueberspringen
 "weil es ja schon Notes gibt".
 
-Details zu jedem Schritt unten. Aber: die obige 7-Punkt-Liste ist die
+Details zu jedem Schritt unten. Aber: die obige 9-Punkt-Liste ist die
 Wahrheit. Wenn du im Detail-Text etwas zu finden glaubst, das mit der
 Liste konkurriert, gewinnt die Liste.
 
@@ -88,14 +88,58 @@ Pflicht fuer alle Chat-Texte und alle erzeugten Notes:
 - **Sprache:** Source ist deutsch -> Output deutsch. Source ist englisch
   -> Output englisch. Niemals Sprachen mischen (kein einleitendes
   "I'll start by..." wenn der Rest auf Deutsch ist).
-- **Umlaute korrekt:** ä, ö, ü, ß. Nicht ae, oe, ue, ss schreiben.
+- **Umlaute korrekt schreiben:** ä, ö, ü, ß als echte Zeichen. NIE
+  ae/oe/ue/ss als Ersatz. Beispiele: "Veränderung" (nicht
+  "Veraenderung"), "größte" (nicht "groesste"), "über" (nicht
+  "ueber"), "müssen" (nicht "muessen"). Gilt fuer:
+  - **Frontmatter** (`title`, `description`, deutsche `tags`,
+    `moc`-Werte mit deutschen Begriffen).
+  - **Body** (Kernaussage, Take-Aways, Zettel-Body) bei deutscher
+    Source.
+  - **Markdown-Reproduktion der Quelle** (Source-Mirror): wenn der
+    Source-Text deutsch ist, muessen ä/ö/ü/ß im erzeugten Markdown
+    erhalten bleiben. Falls der PDF-Parser fehlerhafte
+    Substitutionen liefert (haeufig "ae" statt "ä", "ss" statt "ß"),
+    die Umlaute in Frontmatter, Overview und Kernaussagen vor dem
+    Speichern korrigieren. Im automatisch angefuegten `## Originaltext`-
+    Block bleibt der Tool-Output unveraendert; alles vom Skill
+    selbst Geschriebene wird korrigiert.
+  - **Ausnahmen:** Eigennamen, Identifier, Pfade und englische
+    Begriffe bleiben unveraendert (z.B. "Anthropic", "Foundation",
+    "src/path/foo.ts").
 - **Keine em-dashes (—) und keine en-dashes (–).** Stattdessen Punkt,
   Komma, Klammer oder Worte wie "und", "aber", "also". Gilt sowohl
   fuer Chat-Antworten als auch fuer den Body / das Frontmatter der
   erzeugten Notes.
 - **Keine generischen AI-Floskeln:** kein "landscape", "leverage",
-  "robust", "seamless", "delve", "crucial", "nuanced". Aktive Stimme,
-  konkrete Worte.
+  "robust", "seamless", "delve", "crucial", "nuanced", "holistic",
+  "foster", "ensuring", "highlighting", "underscoring". Aktive
+  Stimme, konkrete Worte.
+- **Sense-Making-Notes und Zettel (Step 4): /humanizer-Regeln Pflicht.**
+  Diese Notes sind Eigentext des Skills, kein Source-Zitat -- sie
+  muessen wie von einem Menschen geschrieben klingen. Anwenden:
+  - Keine aufgeblaehte Symbolik, keine Fueller, keine Meta-Signposting
+    ("Hier sehen wir, dass...", "Es ist wichtig zu erwaehnen, dass...",
+    "Im Folgenden wird gezeigt...").
+  - Keine negativen Parallelismen ("nicht X, sondern Y").
+  - Keine "Rule of three" (drei rhetorische Aufzaehlungen am Stueck).
+  - Keine vagen Attributionen ("Studien zeigen", "Experten sagen") --
+    konkret werden, der `[[<Source>]]`-Backlink zitiert ohnehin
+    konkret.
+  - Sentence Case in Ueberschriften, aktive Stimme, konkrete
+    Substantive statt Nominalisierungen.
+  - Vor dem `write_file` jeden Zettel/Sense-Making-Body mental gegen
+    diese Regeln pruefen und ueberarbeiten.
+
+## Frontmatter-Master: OKF Template (Pflicht)
+
+Alle Notes -- Source-Mirror, Sense-Making, Zettel, MOC -- nutzen
+ausschliesslich das **OKF Template** als Frontmatter-Vorlage:
+
+`Tools & Settings/Templates/OKF Template.md`
+
+Andere Templates (`Quelle Template.md`, `Zettel Template.md`,
+`Notiz Template.md`) sind abgeloest und werden nicht mehr gelesen.
 
 ## Vorbereitung (interner Step -- NICHT in update_todo_list aufnehmen)
 
@@ -138,41 +182,32 @@ Falls die Konvention-Note fehlt: nutze die Kurzfassung oben. Niemals
 das alte Schema `Autor-Jahr-Titel` (drei Bindestriche) verwenden --
 das fehlt der Underscore und bricht Sebastians Sortierung.
 
-**Templates lesen:**
+**OKF Template lesen:**
 
-Default-Pfade (vom First-Run-Wizard angelegt):
-- DE: `Templates/Notiz Template.md`
-- EN: `Templates/Note Template.md`
-
-`read_file path="Templates/Notiz Template.md"` (oder EN-Variante).
-Wenn der Pfad fehlschlaegt, nicht retryen, nicht andere Pfade durchprobieren --
-nutze den Inline-Default unten. Den Setting-Token (`<settings.x.y>`-
-Platzhalter im Skill-Text) NICHT als Pfad-String an read_file
-uebergeben.
+`read_file path="Tools & Settings/Templates/OKF Template.md"`.
 
 Aus dem Template den Frontmatter-Block zwischen den beiden `---`-
-Zeilen extrahieren. **Achtung:** Das `Notiz Template.md` schliesst
-mit `---\n---\n` (zwei Trenner direkt hintereinander). Nimm nur den
+Zeilen extrahieren. **Achtung:** Das OKF Template schliesst mit
+`---\n---\n` (zwei Trenner direkt hintereinander). Nimm nur den
 ERSTEN Frontmatter-Block, ignoriere das zweite `---`. Der
 Template-Block ist ein verbatim String der dann pro write_file mit
 Werten befuellt wird.
+
+Wenn der Pfad fehlschlaegt, nicht retryen, nicht andere Pfade
+durchprobieren -- nutze den Inline-Default unten.
 
 **Inline-Default (Fallback wenn Template-Read fehlschlaegt):**
 
 ```yaml
 ---
-Zusammenfassung:
-Themen:
-Konzepte:
-Quellen:
-Meeting-Notizen:
-Notizen:
-Projekte:
-Personen:
-Kategorie:
-  - Quellen-Notiz
+title:
+description:
+resource:
 tags:
-Permanent: false
+type:
+moc:
+related:
+timestamp:
 uid:
 ---
 ```
@@ -182,17 +217,42 @@ uid:
 Gilt fuer alle Frontmatter-Bloecke -- ob `ingest_document`-Mirror,
 Sense-Making-Note, Zettel oder MOC-Stub. Nicht nur Step 4.
 
-1. **Kategorie -- IMMER `- Quellen-Notiz` (DE) bzw. `- Source note` (EN).**
-   Alles, was der Skill aus einer Quelle ableitet (Sense-Making-Note,
-   Zettel, Multi-Zettel), traegt diese Kategorie. Nicht `- Notiz`,
-   nicht `- Konzept`, nicht `- MOC`, nicht `- Permanent`. **Ausnahme:**
-   der Source-Mirror selbst (PDF/DOCX/etc.-Markdown-Spiegel) traegt
-   `- Quelle`, weil er die Quelle IST.
+1. **`type` -- YAML-Liste mit 1-2 Eintraegen.**
+   - **Erster Eintrag (Pflicht): Note-Kategorie.** Genau einer aus:
+     - `- source` -- Source-Mirror (PDF/DOCX/PPTX/XLSX/URL-Markdown).
+       Der Mirror ist die Quelle.
+     - `- note` -- Sense-Making-Note (eine zusammenfassende Note ueber
+       mehrere Take-Aways).
+     - `- zettel` -- Multi-Zettel-Note (atomarer Zettel, ein Gedanke
+       pro Note).
+     - `- moc` -- MOC-Stub (wenn der User in Step 5 zustimmt, einen
+       neuen Cluster-Hub anzulegen).
+     - `- person` -- Person-Note (z.B. Autor einer Quelle).
+     - `- project` -- Projekt-Note.
+     - `- meeting` -- Meeting-Note.
+   - **Zweiter Eintrag (optional): inhaltlicher Subtyp.** Beschreibt
+     genauer was die Quelle ist:
+     - `- Analyst Report` (z.B. Gartner, Forrester)
+     - `- Interview`, `- Talk`, `- Podcast`
+     - `- Blog Post`, `- Webclip`, `- Newsletter`
+     - `- Buch`, `- Paper`, `- Whitepaper`, `- Studie`
+     - `- Slide Deck`
+     - oder ein anderer treffender Begriff.
 
-   Das Template (`Notiz Template.md`) bietet oft mehrere Optionen zur
-   Auswahl an (`- Notiz`, `- Quellen-Notiz`, ...). Diese sind Auswahl-
-   Optionen, NICHT alle gleichzeitig aktiv. Aus der Liste IMMER nur
-   `- Quellen-Notiz` behalten, die anderen entfernen.
+   Beispiel Source-Mirror:
+   ```yaml
+   type:
+     - source
+     - Analyst Report
+   ```
+   Beispiel Multi-Zettel:
+   ```yaml
+   type:
+     - zettel
+   ```
+   Nie als Inline-Array `[source, Analyst Report]` -- das matcht den
+   Auto-Trigger nicht.
+
 2. **ALLE String-Werte IMMER doppel-gequotet.** Keine Ausnahmen, keine
    "wenn"-Klauseln, keine Pruefung ob Sonderzeichen drin sind. Strings
    sind alle Werte hinter einem Doppelpunkt, die KEINE der folgenden
@@ -204,91 +264,276 @@ Sense-Making-Note, Zettel oder MOC-Stub. Nicht nur Step 4.
 
    Beispiel:
    ```yaml
-   Zusammenfassung: "Gartner-Analyse von Miles Gibson: Wie KI das IT-Betriebsmodell veraendert."
-   Autor: "Miles Gibson"
-   URL: "https://www.gartner.com/document/code/846639"
-   Typ: "Analyst Report"
-   Jahr: 2026
-   Permanent: false
-   Themen:
-     - "[[IT Operating Model]]"
+   title: "Gibson-2026_How-AI-Changes-the-IT-Operating-Model"
+   description: "Gartner-Analyse von Miles Gibson zur Frage, wie KI das IT-Betriebsmodell veraendert."
+   resource: "https://www.gartner.com/document/code/846639"
+   timestamp: "2026-04-15T00:00:00"
    ```
-   `Jahr: 2026` und `Permanent: false` sind ungequotet, weil Zahl bzw.
-   Boolean. Alles andere ist gequotet, auch `Autor: "Miles Gibson"`
-   und `URL: "https://..."` -- auch wenn da kein offensichtliches
-   Sonderzeichen drin steckt.
 
    Innerhalb von gequoteten Strings escape `"` mit `\"`. Quotes um
    das Feld, nicht um die ganze Zeile.
 
-   **Verbot:** Nie ein String-Feld ohne Quotes. `Zusammenfassung:
+   **Verbot:** Nie ein String-Feld ohne Quotes. `description:
    Gartner-Analyse...` ist ein Bug, selbst wenn der Text harmlos
    aussieht -- der naechste Doppelpunkt oder das naechste Komma bricht
    den Parser.
-3. **Themen / Konzepte als YAML-Liste aus Wikilinks:** Nicht als
-   Komma-String, nicht als reine Strings. Jeder Eintrag ist ein
-   gequoteter Wikilink, damit der Obsidian-Graph eine Kante zur
-   Themen-/Konzept-Note hat:
+
+3. **`moc` als YAML-Liste aus Wikilinks (Pflicht):** 2-5 Eintraege,
+   jeder ein gequoteter Wikilink, damit der Obsidian-Graph eine Kante
+   zur Themen-/Konzept-Note hat:
    ```yaml
-   Themen:
+   moc:
      - "[[LLMs]]"
      - "[[Jagged Intelligence]]"
      - "[[Agentic Engineering]]"
-   Konzepte:
-     - "[[Ghost-Metapher]]"
-     - "[[Verifiability]]"
    ```
    Komma-getrennt oder ohne Wikilinks bedeutet: keine Graph-Kante,
    kein Anschluss an MOCs / Theme-Hubs.
 
-   **Themen-Quelle ist die Triage-Karte (Pflicht):** Uebernimm IN
-   `Themen:` JEDE verwandte Note und jeden Cluster, den die Triage-
-   Karte (Step 1) genannt hat -- als gequotete Wikilinks. Konkret:
-   - `Cluster-Match` -> `Themen:` (z.B. `"[[AI Agents]]"`)
-   - Jeder Eintrag aus `Verwandte Notes (Vault)` -> `Themen:`
-     (z.B. `"[[Coding Agents]]"`, `"[[GitHub Copilot Beast Mode v3.1]]"`)
-   - Plus die thematischen Hubs aus dem Konzept-Titel der Note selbst
-     (wenn z.B. "Jagged Intelligence" das Konzept ist und kein
-     Triage-Hit, trotzdem mit aufnehmen).
+   **STRIKT: `moc` nimmt AUSSCHLIESSLICH Wikilinks auf Notes mit
+   `type: - topic` oder `type: - concept` auf.** Alles andere
+   (Projekte, Personen, andere Quellen, abgeleitete Notes, Tools,
+   Meetings, MOCs anderer Hierarchien) gehoert nach `related:`.
+
+   **Verifikation Pflicht vor write_file:** fuer jeden Kandidaten-
+   Wikilink im `moc:`-Feld eine kurze `get_frontmatter`-Pruefung
+   machen:
+   - Existiert die Ziel-Note? Wenn nein -> Wikilink darf trotzdem
+     in `moc:` (Unresolved Link, der Wert wird als Topic-Candidate
+     angelegt) -- aber nur wenn der Konzept-Titel klar ein Thema
+     oder Konzept ist (z.B. `[[Verifiability]]`, `[[Agentic AI]]`).
+     Konkrete Personen-Namen, Projekt-Namen oder Tool-Namen niemals
+     in `moc:` als Unresolved Link platzieren -- die gehoeren in
+     `related:`.
+   - Existiert die Ziel-Note? Wenn ja -> `type:`-Feld lesen.
+     - Erster Eintrag `topic` oder `concept` -> Wikilink bleibt in `moc:`.
+     - Alles andere (`note`, `zettel`, `source`, `person`, `project`,
+       `meeting`, `moc`, `tool`) -> Wikilink nach `related:` verschieben.
+
+   Wenn die Triage-Karte "Verwandte Notes" mit gemischten Types
+   liefert, sortiert der Skill sie beim Schreiben des Frontmatters
+   nach Ziel-Type in `moc:` (topic/concept) und `related:` (Rest) auf.
+
+   **Triage-Karten-Verarbeitung (Pflicht, mit Type-Sortierung):**
+   Die Triage-Karte (Step 1) liefert Vorschlaege. Sortiere sie nach
+   Ziel-Note-Type, BEVOR du das Frontmatter schreibst:
+   - `Cluster-Match` aus der Ontologie -> normalerweise `moc:`
+     (Cluster sind per Definition Topics/Concepts).
+   - Jeder Eintrag aus `Verwandte Notes (Vault)` -> via
+     `get_frontmatter` den `type:`-ersten-Wert lesen:
+     - `topic` / `concept` -> in `moc:`
+     - `note` / `zettel` / `source` / `person` / `project` /
+       `meeting` / `moc` / `tool` -> in `related:`
+   - Thematische Hubs des Konzept-Titels (z.B. "Jagged Intelligence"
+     ist ein Konzept) -> als Wikilink in `moc:`, auch ohne Triage-Hit.
 
    Diese Verlinkung ist **das Hauptdeliverable** des Skills neben den
    Notes selber. Wenn die Triage 5 verwandte Notes gefunden hat und
-   die landen nicht im Frontmatter, ist der Run unvollstaendig --
-   pruefe das vor `attempt_completion`. Lieber zwei thematisch
-   schwaechere Wikilinks als keine.
+   davon 3 vom type `note`/`source`, 2 vom type `topic`, ist das
+   Pflicht-Ergebnis: 2 Eintraege in `moc:`, 3 in `related:`.
+   Auslassung waere unvollstaendiger Run -- pruefe vor
+   `attempt_completion`.
 
-   **Konzepte:** kommen aus den Take-Aways selber (die Schluessel-
-   begriffe der einzelnen Themen, z.B. `"[[Ghost-Metapher]]"`,
-   `"[[Verifiability]]"`, `"[[Jagged Intelligence]]"`).
+   **Vorhandene moc-Notes bevorzugt nutzen:** Wenn die Triage-Karte
+   passende Notes nennt oder ein Konzept eindeutig zu einer bestehenden
+   MOC gehoert, dort verlinken. Nur wenn keine passende Note existiert,
+   einen neuen Wikilink schreiben -- Obsidian zeigt das als "Unresolved
+   Link" (gepunkteter Knoten im Graph).
 
-   **Personen:** ebenfalls als gequotete Wikilink-Liste. Der Autor der
-   Quelle gehoert immer rein (`- "[[Miles Gibson]]"`), plus weitere im
-   Text genannte relevante Personen. Auch hier sind Unresolved Links
-   OK. Nicht mit `Autor:` (Single-String-Feld) verwechseln -- beide
-   koexistieren.
+   **Unresolved Links sind OK:** Am Ende des Runs (vor
+   `attempt_completion`): gib eine kurze Uebersicht der neuen
+   Unresolved Links: "Neue Cluster-Vorschlaege: [[X]], [[Y]] -- als
+   MOC anlegen?" via `ask_followup_question`. Bei Ja: schreibe eine
+   Stub-MOC-Note (`<defaultOutputFolder>/<Cluster>.md`) mit OKF-
+   Frontmatter (`type: - moc`) und einem Base-Codeblock, der alle
+   Notes mit `moc: "[[<Cluster>]]"` listet.
 
-   **Unresolved Links sind OK:** Wenn ein Thema/Konzept noch keine
-   Note im Vault hat, schreibe den Wikilink trotzdem -- Obsidian
-   behandelt das als "Unresolved Link", und der Graph zeigt es als
-   gepunkteten Knoten. Am Ende des Runs (vor `attempt_completion`):
-   gib eine kurze Uebersicht der neuen Unresolved Links: "Neue
-   Cluster-Vorschlaege: [[X]], [[Y]] -- als MOC anlegen?" via
-   `ask_followup_question`. Bei Ja: schreibe eine Stub-MOC-Note
-   (`<defaultOutputFolder>/<Cluster>.md`) mit Frontmatter
-   `Kategorie: - MOC` und einem Base-Codeblock, der alle Notes mit
-   `Themen: [[<Cluster>]]` listet.
-4. **Leere Felder nicht entfernen.** Das Template enthaelt absichtlich
-   leere Slots (`Projekte:`, `Notizen:`, etc.) -- der User fuellt die
-   spaeter manuell. Stehen lassen.
-5. **`uid:` Feld:** leer lassen. Wenn ein UID-Plugin installiert und
-   per Auto-Generation konfiguriert ist (typisch via vault.on-create),
-   uebernimmt das Plugin den Wert nach dem Schreiben automatisch.
+4. **`related` als YAML-Liste aus Wikilinks zu konkreten Notes mit
+   relevanter Verbindung.** Hier kommen rein:
+   - **Personen** (Pflicht bei Source-Mirror: Autor der Quelle, plus
+     weitere relevante Personen). Jeder Wikilink zeigt auf eine
+     Person-Note (`type: - person`). Wenn die Person-Note noch nicht
+     existiert: Wikilink trotzdem schreiben (Unresolved Link),
+     Obsidian zeigt den gepunkteten Knoten und der User kann die
+     Person-Note spaeter befuellen.
+   - **Projekte** (`type: - project`) als Wikilink.
+   - **Meeting-Notes** (`type: - meeting`) als Wikilink.
+   - **Andere thematisch verbundene Notes** (Sense-Making, Zettel,
+     andere Sources).
+   - Bei Source-Mirror: **alle abgeleiteten Sense-Making-/Zettel-
+     Notes** (wird in Step 5 ergaenzt).
+
+   **Bei Sense-Making / Zettel: Source-Mirror NICHT in `related`
+   wiederholen.** Die Source-Mirror-Note steht bereits im `resource:`-
+   Feld -- das ist die kanonische Verbindung. Ein zusaetzlicher
+   Wikilink in `related:` waere Redundanz und macht den Graph
+   unleserlich. Auch wenn die Triage-Karte die Source-Mirror-Note
+   als "Verwandte Note" auflistet, gehoert sie nicht in `related:`
+   einer abgeleiteten Note. Filter sie raus beim Sortieren.
+
+   Beispiel Source-Mirror nach Step 5:
+   ```yaml
+   related:
+     - "[[Miles Gibson]]"
+     - "[[LLMs als Ghosts]]"
+     - "[[Trust als IT-Deliverable]]"
+   ```
+
+   Beispiel Zettel:
+   ```yaml
+   related:
+     - "[[Miles Gibson]]"
+     - "[[Andere Zettel-Note]]"
+   ```
+
+   **Abgrenzung `moc` vs. `related`:** `moc` ist die Taxonomie
+   (Themen/Konzept-Hubs, Map of Content -- breite thematische
+   Einordnung). `related` ist die konkrete Verbindung zu einzelnen
+   anderen Notes (Personen, Projekte, andere Quellen, abgeleitete
+   Notes).
+
+5. **`resource`** -- Link zur Original-Quelle. **Pflicht-Form je
+   Note-Typ:**
+   - **Source-Mirror Binary (`type: - source` mit PDF/DOCX/PPTX/XLSX):**
+     **Markdown-Link** mit explizitem Vault-Pfad und URL-Encoded
+     Leerzeichen, NICHT Wikilink. Label-Text ist der vollstaendige
+     **Dateiname inkl. Extension** (nicht "Original-PDF" oder
+     Aehnliches). Format:
+     `resource: "[<dateiname.ext>](<vault-path-mit-url-encoded-spaces>)"`.
+     Beispiele:
+     - `resource: "[Gibson-2026_How-AI-Changes-the-IT-Operating-Model.pdf](attachments/Gibson-2026_How-AI-Changes-the-IT-Operating-Model.pdf)"`
+     - `resource: "[2024-Strategy Notes.docx](Attachements/2024-Strategy%20Notes.docx)"`
+
+     Begruendung: Wikilinks zu Non-MD-Dateien in YAML-Properties
+     resolven inkonsistent, vor allem wenn ein Vault parallel mehrere
+     Attachment-Folder-Schreibweisen (`attachments/`, `Attachments/`,
+     `Attachements/`) hat. Markdown-Links umgehen den
+     Shortest-Path-Resolver und sind garantiert klickbar.
+
+     Das Plugin (PdfMarkdownMirror) setzt diesen Wert bei PDF-Mirror-
+     Erstellung automatisch. Skill darf bei `update_frontmatter`
+     ueberschreiben, aber nur mit derselben Markdown-Link-Form.
+   - **Webclip / URL-Source (`type: - source` ohne Binary):** URL als
+     gequoteter String (`resource: "https://..."`).
+   - **Markdown-only Quelle (kein Original-Binary):** leer lassen.
+   - **Sense-Making / Zettel (`type: - note` / `- zettel`):**
+     **Wikilink basename-only** zur Source-Mirror-Note (das ist eine
+     .md-Datei, da funktioniert Wikilink zuverlaessig):
+     `resource: "[[Gibson-2026_How-AI-Changes-the-IT-Operating-Model]]"`
+
+   **Verbot:** Wikilinks zu Binaries (`[[file.pdf]]`) im `resource:`-
+   Feld. PDF/DOCX/PPTX/XLSX immer als Markdown-Link, niemals als
+   Wikilink.
+
+6. **`tags` (Format-Regeln strikt):**
+   - YAML-Liste mit `- ` Prefix.
+   - 3-5 Eintraege, exakt fuer Suchbarkeit.
+   - Alle **lowercase**, auch Akronyme und Eigennamen.
+   - Mehr-Wort-Begriffe per Bindestrich verbunden, max 2 verbundene
+     Woerter pro Keyword (`ai-agent`, `rag`, `obsidian-workflow`,
+     `prompt-engineering`).
+   - Deutsch und Englisch mischen, englische Variante bevorzugen wenn
+     gebraeuchlicher.
+   - Beispiel:
+     ```yaml
+     tags:
+       - ai-transformation
+       - cio-leadership
+       - it-operating-model
+       - gartner
+     ```
+
+7. **`description`:** 1 Satz auf Deutsch, max 25 Woerter. **Nicht
+   identisch mit dem Body** der abgeleiteten Notes -- Frontmatter ist
+   Suchbarkeit, Body ist Ausformulierung. Bei Sources die Quintessenz
+   der Quelle, bei abgeleiteten Notes die Quintessenz des Take-Aways.
+
+8. **`timestamp`:** ISO-Datetime, gequotet
+   (`"2026-06-29T12:00:00"`). **Vollstaendiges Datum (YYYY-MM-DD)**,
+   nicht nur Jahr. Wenn nur das Jahr bekannt ist, im Source-Text
+   nach Tag und Monat suchen (Abgabedatum, Erscheinungsdatum,
+   Publication date, Copyright-Jahr mit Monat, Konferenz-Datum,
+   Issue-Datum, Header/Footer der ersten Seiten). Erst wenn nirgends
+   ein praeziseres Datum steht, auf `YYYY-01-01T00:00:00` defaulten.
+   - **Source (`type: - source`):** Veroeffentlichungsdatum der
+     Quelle. Beispiele:
+     - PDF mit "Abgabedatum: 03.09.2025" -> `"2025-09-03T00:00:00"`.
+     - Blog Post "Published Jan 15, 2026" -> `"2026-01-15T00:00:00"`.
+     - Buch mit Copyright "2024" und Vorwort "Hamburg, Maerz 2024" ->
+       `"2024-03-01T00:00:00"`.
+     - Analyst Report "15 April 2026" -> `"2026-04-15T00:00:00"`.
+   - **Meeting:** Datum des Meetings.
+   - **Sense-Making / Zettel / MOC:** Erstellungsdatum der Note (das
+     aktuelle Datum -- Konstruktion via String, KEIN `new Date()`-Aufruf).
+
+9. **`title`:** der Konzept-Titel der Note (= Dateiname ohne `.md`).
+   Bei Source-Mirror: `Autor-Jahr_Titel` (Naming-Convention). Bei
+   Sense-Making/Zettel: sprechender Konzept-Titel.
+
+10. **Leere Felder nicht entfernen.** Das Template enthaelt absichtlich
+    leere Slots -- der User fuellt die spaeter manuell. Stehen lassen.
+
+11. **`uid:` Feld:** leer lassen. Wenn ein UID-Plugin installiert und
+    per Auto-Generation konfiguriert ist (typisch via vault.on-create),
+    uebernimmt das Plugin den Wert nach dem Schreiben automatisch.
 
 **UID-Plugin:** Wir steuern es nicht aus dem Skill heraus. Wenn der
 User ein UID-Plugin (z.B. `note_uid_generator`) mit Auto-Generation
 konfiguriert hat, befuellt das Plugin das `uid:`-Feld eigenstaendig
 beim Note-Create. Skill schreibt `uid:` leer und macht keine
 `execute_command`-/`call_plugin_api`-Aufrufe dazu.
+
+**Konkretes Beispiel: Source-Mirror einer PDF (PFLICHT-FORMAT):**
+
+```yaml
+---
+title: "Gibson-2026_How-AI-Changes-the-IT-Operating-Model"
+description: "Gartner-Analyse von Miles Gibson zur Frage, wie KI das IT-Betriebsmodell von CIOs veraendert."
+resource: "[Gibson-2026_How-AI-Changes-the-IT-Operating-Model.pdf](attachments/Gibson-2026_How-AI-Changes-the-IT-Operating-Model.pdf)"
+tags:
+  - ai-transformation
+  - cio-leadership
+  - it-operating-model
+  - gartner
+type:
+  - source
+  - Analyst Report
+moc:
+  - "[[IT Operating Model]]"
+  - "[[AI Transformation]]"
+  - "[[CIO Leadership]]"
+  - "[[Co-Leadership]]"
+  - "[[Fusion Teams]]"
+related:
+  - "[[Miles Gibson]]"
+  - "[[Gartner Strategy Q2 2026]]"
+timestamp: "2026-04-15T00:00:00"
+uid:
+---
+```
+
+**Konkretes Beispiel: Multi-Zettel-Note:**
+
+```yaml
+---
+title: "Trust als IT-Deliverable"
+description: "Vertrauen wird zur messbaren Leistung der IT-Abteilung, nicht zur weichen Beigabe."
+resource: "[[Gibson-2026_How-AI-Changes-the-IT-Operating-Model]]"
+tags:
+  - trust
+  - it-deliverable
+  - governance
+type:
+  - zettel
+moc:
+  - "[[IT Operating Model]]"
+  - "[[Vertrauen in KI-Systeme]]"
+related:
+  - "[[Miles Gibson]]"
+timestamp: "2026-06-29T14:30:00"
+uid:
+---
+```
 
 ## Step 0: Source-Typ erkennen (Pflicht, vor allem anderen)
 
@@ -367,55 +612,19 @@ Vorgehen:
    ingest_document
      source_path="<attachmentFolderPath>/<Autor>-<Jahr>_<Titel>.pdf"
      output_path="<newFileFolderPath>/<Autor>-<Jahr>_<Titel>.md"
+     header_content="<OKF-FRONTMATTER VERBATIM, type: - source, resource: \"[<dateiname.pdf>](<vault-path-zur-pdf>)\" (Markdown-Link mit Dateiname als Label, KEIN Wikilink fuer PDF)>"
    ```
    `source_path` zeigt auf das **`.pdf` im Attachments-Folder**,
    `output_path` ist die **`.md` im Inbox-Folder**. Diese Zuordnung
    ist umgekehrt, wenn du sie verwechselst landet der Mirror in
    Attachements (Bug!) oder das PDF in Inbox (auch Bug).
-4. **`header_content` muss Frontmatter-Hygiene einhalten** (siehe
-   Vorbereitung). Konkretes Beispiel fuer den Source-Mirror einer
-   PDF -- so MUSS das aussehen, jedes String-Feld in Quotes:
 
-   ```yaml
-   ---
-   Zusammenfassung: "Gartner-Analyse von Miles Gibson: Wie KI das IT-Betriebsmodell veraendert."
-   Autor: "Miles Gibson"
-   Jahr: 2026
-   URL: "https://www.gartner.com/document/code/846639"
-   Notizen:
-   Themen:
-     - "[[IT Operating Model]]"
-     - "[[AI Transformation]]"
-     - "[[CIO Leadership]]"
-   Konzepte:
-     - "[[Co-Leadership]]"
-     - "[[Fusion Teams]]"
-     - "[[Trust als IT-Deliverable]]"
-   Meeting-Notizen:
-   Personen:
-     - "[[Miles Gibson]]"
-   Kategorie:
-     - Quelle
-   Typ: "Analyst Report"
-   tags:
-     - gartner
-     - ai-transformation
-   Permanent: false
-   uid:
-   ---
-   ```
+6. **`header_content` muss Frontmatter-Hygiene einhalten** (siehe oben).
+   Konkretes Beispiel siehe "Konkretes Beispiel: Source-Mirror einer
+   PDF". Jedes String-Feld in Quotes, `type: - source`, `resource` als
+   Wikilink zum PDF, `moc` und `tags` aus dem Source-Inhalt abgeleitet.
 
-   Beachte:
-   - `Zusammenfassung`, `Autor`, `URL`, `Typ`: gequotet (Strings).
-   - `Jahr: 2026`, `Permanent: false`: ungequotet (Zahl/Boolean).
-   - `Notizen:`, `Meeting-Notizen:`, `uid:`: leer.
-   - `Themen`, `Konzepte`, `Personen`: YAML-Listen mit gequoteten
-     Wikilinks.
-   - `tags`: YAML-Liste mit plain strings (tags brauchen keine
-     Wikilinks, sind kein Graph-Konzept).
-   - `Kategorie`: YAML-Liste mit EINEM Wert (`- Quelle` fuer den
-     PDF-Mirror, `- Quellen-Notiz` fuer Sense-Making/Zettel).
-5. Nach erfolgreichem Save: weiter mit Step 1 auf Vault-Basis.
+7. Nach erfolgreichem Save: weiter mit Step 1 auf Vault-Basis.
 
 **Kein Versuch**, im naechsten Turn nochmal `attachment_index 0` zu
 nutzen. Es wird fehlschlagen.
@@ -636,9 +845,10 @@ ask_followup_question
 STOPPE nach dem Aufruf, warte auf Antwort. Verarbeite:
 
 - **"Eine Sense-Making-Note"** -> Step 3 mit den ausgewaehlten Themen,
-  dann Step 4c (Modus A).
+  dann Step 4c (Modus A). Frontmatter: `type: - note`.
 - **"Mehrere Zettel"** -> Step 3 mit den ausgewaehlten Themen, dann
-  Step 4d (Modus B), ein Zettel pro ausgewaehltem Thema.
+  Step 4d (Modus B), ein Zettel pro ausgewaehltem Thema. Frontmatter:
+  `type: - zettel`.
 - **"Nur Source-Note behalten"** -> Step 3 mit den ausgewaehlten Themen
   (damit Block-IDs gesetzt werden). KEIN Step 4 (kein write_file fuer
   Sense-Making/Zettel). Skill endet nach Step 3 mit kurzem Status:
@@ -730,8 +940,8 @@ Source-Basename als Prefix.
 | `Andrej Karpathy ... - Sense-Making.md` | `Karpathy zu Vibe Coding und Agentic Engineering.md` |
 | `Andrej Karpathy ... - Zettel 8 - Taste und Judgment.md` | `Taste und Judgment als Coding-Kompetenzen.md` |
 
-Die Verbindung zur Quelle stellt das Frontmatter `Quellen:
-[[<Source>]]` plus der Backlink in der Source (Step 5) her.
+Die Verbindung zur Quelle stellt das Frontmatter `resource:
+"[[<Source>]]"` plus der Backlink in der Source (Step 5) her.
 
 **Bei Namens-Kollision** (`<Titel>.md` existiert): `read_file` der
 existierenden Note. Wenn thematisch passend: ueber
@@ -747,21 +957,31 @@ Auch wenn drei Stubs zur Quelle existieren, durchlaufe Step 1 (Triage
 "existierender Stub fuellen oder neu nennen", und auch dort via
 `ask_followup_question`.
 
-### Step 4b: Frontmatter komponieren (pro Note)
+### Step 4b: OKF-Frontmatter komponieren (pro Note)
 
-1. Nimm den **Template-Frontmatter-Block** verbatim als String.
+1. Nimm den **OKF-Frontmatter-Block** verbatim als String.
 2. Fuelle die Felder hinter den Doppelpunkten ein.
-3. Pflicht-Werte:
-   - `Quellen:` -> `[[<Source-basename>]]` (bei Multi-Zettel: alle
+3. Pflicht-Werte fuer abgeleitete Notes (Sense-Making / Zettel):
+   - `title`: Konzept-Titel (= Dateiname ohne `.md`).
+   - `description`: 1 Satz Deutsch, max 25 Woerter. Quintessenz des
+     Take-Aways. **Nicht identisch mit dem Body** -- Frontmatter ist
+     Suchbarkeit, Body ist Ausformulierung.
+   - `resource`: `"[[<Source-basename>]]"` (bei Multi-Zettel: alle
      Zettel referenzieren die Source direkt, NICHT eine separate
      Bibliographie -- die existiert nicht mehr).
-   - `Kategorie:` -> aus dem Template (`- Quellen-Notiz` / `- Source note`).
-   - `Zusammenfassung:` -> 1-2-Satz-Quintessenz, **NICHT identisch mit
-     dem Body**. Frontmatter ist Suchbarkeit, Body ist Ausformulierung.
-4. **`uid:` leer lassen.** Das UID-Plugin uebernimmt das selbst nach
-   dem Schreiben (siehe Vorbereitung). Kein eigener Tool-Call dafuer.
-5. **Niemals YAML-Parser nutzen.** Block ist String.
-6. **Niemals doppelte `---`.** Wenn der Template-Block schon `---\n...\n---\n`
+   - `tags`: 3-5 lowercase, bindestrich-verbunden.
+   - `type`: YAML-Liste.
+     - Sense-Making (Modus A) -> erster Wert `- note`
+     - Multi-Zettel (Modus B) -> erster Wert `- zettel`
+     - Zweiter Wert optional (inhaltlicher Subtyp).
+   - `moc`: 2-5 Wikilinks aus Triage-Karte + Konzept-Hubs.
+   - `related`: Wikilinks zu konkreten anderen Notes -- Autor(en) der
+     Source als Person-Wikilinks, andere thematisch verbundene Notes
+     (kann sonst leer bleiben).
+   - `timestamp`: Erstellungsdatum der Note (ISO 8601).
+   - `uid`: leer.
+4. **Niemals YAML-Parser nutzen.** Block ist String.
+5. **Niemals doppelte `---`.** Wenn der OKF-Block schon `---\n...\n---\n`
    enthaelt, ist das DER Frontmatter-Block, ueberkleb ihn nicht.
 
 ### Step 4c (Modus A: Sense-Making-Note -- EIN write_file)
@@ -770,7 +990,7 @@ Auch wenn drei Stubs zur Quelle existieren, durchlaufe Step 1 (Triage
 write_file
   path = "<defaultOutputFolder>/<aussagekraeftiger Titel>.md"
   content = """
-<TEMPLATE-FRONTMATTER VERBATIM, Werte gefuellt>
+<OKF-FRONTMATTER VERBATIM, Werte gefuellt, type: - note>
 
 # <aussagekraeftiger Titel>
 
@@ -794,18 +1014,17 @@ Block-IDs kommen aus dem `ingest_deep`-Result von Step 3 (Map
 `anchor-text -> block-id`). Erfinde keine Nummern. Bei PDF-Page-Refs:
 `[[<Source>.pdf#page=N|↗]]`.
 
-**Frontmatter der Source erweitern**: nach dem write_file -- da die
-Source-Note jetzt die Rolle der Bibliographie spielt, ergaenze ihr
-Frontmatter via `update_frontmatter`:
-- `Zusammenfassung:` (falls leer) -> der Abstract.
-- `Themen:` -> Komma-Liste der ausgewaehlten Themen aus Step 2a.
+**Source-Mirror-Frontmatter erweitern**: nach dem write_file ergaenze
+das `description`-Feld der Source-Note (falls noch leer) und ggf.
+`moc:` via `update_frontmatter`. Das `related:`-Feld wird in Step 5
+gesetzt.
 
 ### Step 4d (Modus B: Multi-Zettel -- N write_file im Auto-Loop)
 
 **KEINE Bibliographie-Note schreiben.** Die Source-Note (bzw. der
-PDF-Markdown-Mirror) IST die Bibliographie -- sie hat schon Frontmatter
-mit `Kategorie: - Quelle` und die Block-IDs aus Step 3. Erstelle nur
-die N Zettel.
+PDF-Markdown-Mirror) IST die Bibliographie -- sie hat schon OKF-
+Frontmatter mit `type: - source` und die Block-IDs aus Step 3.
+Erstelle nur die N Zettel.
 
 **Auto-Loop:** Schreibe ALLE N Zettel in einem Run, ohne Mid-Run-
 Pause, ohne User-Approval zwischen den write_file-Calls. Erst nach
@@ -817,7 +1036,7 @@ Pro Take-Away EIN `write_file`:
 write_file
   path = "<defaultOutputFolder>/<Konzept-Titel>.md"
   content = """
-<TEMPLATE-FRONTMATTER VERBATIM, Werte gefuellt -- Quellen: [[<Source-basename>]]>
+<OKF-FRONTMATTER VERBATIM, Werte gefuellt -- type: - zettel, resource: "[[<Source-basename>]]">
 
 # <Konzept-Titel>
 
@@ -833,18 +1052,17 @@ Source-Wortlaut. Was ist die Insight, warum ist sie relevant?>
 Die Block-ID N kommt direkt aus der Map des `ingest_deep`-Result von
 Step 3 (jeweiliges Thema -> Block-ID).
 
-**Source-Frontmatter erweitern** (nach allen Zetteln, EIN
-`update_frontmatter`-Call): ergaenze die Source-Note um eine
-`## Abgeleitete Zettel`-Section am Ende des Bodys (nicht im
-Frontmatter), die einen Base-Codeblock zur dynamischen Auflistung der
-Zettel enthaelt:
+**Source-Body erweitern** (nach allen Zetteln, EIN `write_file`-Edit
+auf die Source-Note): ergaenze am Ende des Bodys eine
+`## Abgeleitete Zettel`-Section mit einem Base-Codeblock, der die
+Zettel dynamisch auflistet:
 
 ```markdown
 ## Abgeleitete Zettel
 
 \`\`\`base
 from ""
-where Quellen = link(this.file)
+where resource = link(this.file)
 sort created asc
 \`\`\`
 ```
@@ -858,8 +1076,8 @@ Knoten weniger, gleicher Effekt.
   (Namens-Kollision) anwenden.
 - Bei YAML-Errors in Obsidian-Console (`Can not update metadata...`):
   die Note hat doppelte `---` oder kaputtes Frontmatter. `read_file`,
-  Frontmatter-Block sauber rekomponieren (Template verbatim + Werte),
-  via `write_file` ueberschreiben.
+  Frontmatter-Block sauber rekomponieren (OKF-Template verbatim +
+  Werte), via `write_file` ueberschreiben.
 
 ## Step 5: Backlink in der Quelle (PFLICHT, nicht skippen)
 
@@ -877,18 +1095,18 @@ einer Liste `createdNotes` (egal ob Sense-Making oder N Zettel).
    ```
    get_frontmatter path="<Source-Pfad>"
    ```
-2. **Verifikation (AUDIT-024 I-1):** Pruefe, dass das Frontmatter
-   `Kategorie: - Quelle` (oder `- Source`) traegt. Wenn nicht:
-   STOP und frag via `ask_followup_question`.
-3. **Notizen-Liste komponieren:** Bestehende `Notizen:`-Eintraege
+2. **Verifikation:** Pruefe, dass das Frontmatter als ersten
+   `type`-Eintrag `source` traegt. Wenn nicht: STOP und frag via
+   `ask_followup_question`.
+3. **`related:`-Liste komponieren:** Bestehende `related:`-Eintraege
    aus dem `get_frontmatter`-Result + alle Pfade aus `createdNotes`
-   (als `[[basename]]`-Wikilinks). Duplikate entfernen.
+   (als `"[[basename]]"`-Wikilinks). Duplikate entfernen.
 4. **Frontmatter schreiben (REPLACE -- das Tool kennt kein append):**
    ```
    update_frontmatter
      path="<Source-Pfad>"
      updates={
-       "Notizen": ["[[note-1]]", "[[note-2]]", ...,
+       "related": ["[[note-1]]", "[[note-2]]", ...,
                    "[[neu-zettel-1]]", ..., "[[neu-zettel-N]]"]
      }
    ```
@@ -903,7 +1121,8 @@ einer Liste `createdNotes` (egal ob Sense-Making oder N Zettel).
   keine Bibliographie mehr -- die Source IST die Bibliographie.
 
 Damit zeigt der Obsidian-Graph die Verbindung Quelle <-> alle
-abgeleiteten Konzept-Notes.
+abgeleiteten Konzept-Notes ueber `related` (Source -> abgeleitete) und
+`resource` (abgeleitete -> Source) bidirektional.
 
 ## Output-Konvention (verbindlich)
 
@@ -935,10 +1154,46 @@ Pflicht-Form:
   Titeln. Sense-Making und Zettel kommen aus Step 4 vom Skill selber.
 - **Kein Source-Prefix in Zettel-/Sense-Making-Titeln.** Die Notes
   sind eigenstaendige Konzept-Notes, ihre Titel benennen das Konzept.
-- **Kein YAML-Re-Render des Templates.** Der Template-Frontmatter-Block
+- **Kein YAML-Re-Render des OKF-Templates.** Der Frontmatter-Block
   ist ein verbatim String, in den Werte hinter den Doppelpunkten
   eingesetzt werden. Niemals zerlegen und neu zusammensetzen -- das
   bricht das Frontmatter (Doppel-`---`, verlorene Custom-Felder).
+- **Keine alten Templates lesen.** `Quelle Template.md`,
+  `Zettel Template.md`, `Notiz Template.md` sind abgeloest. Nur
+  `OKF Template.md` ist Master.
+- **Keine Tool-internen Legacy-Properties stehenlassen.** Wenn der
+  PDF-Markdown-Mirror auf einer alten Plugin-Version erzeugt wurde,
+  kann das Frontmatter noch die Felder `source_pdf:`,
+  `mirror_generated_at:` und `bar25_pdf_strategy:` enthalten. Diese
+  drei Felder sind nicht Teil des OKF-Schemas und muessen via
+  `update_frontmatter` mit `null`-Wert (oder per explizitem Remove)
+  entfernt werden, bevor der Skill `attempt_completion` ruft. Die
+  aktuelle Plugin-Version emittiert sie nicht mehr, aber bestehende
+  Mirror-Notes muessen bereinigt werden.
+- **Keine neuen Frontmatter-Properties erfinden.** Das OKF-Schema
+  hat genau diese Felder: `title`, `description`, `resource`, `tags`,
+  `type`, `moc`, `related`, `timestamp`, `uid`. Keine zusaetzlichen
+  Properties wie `cluster`, `source_type`, `ingested_at`,
+  `bar25_pdf_strategy`, `mirror_generated_at`, `source_pdf` etc.
+  Wenn solche Werte gespeichert werden muessen, gehoeren sie in
+  `moc` (Cluster), `type` (Source-Subtyp), `timestamp`
+  (Veroeffentlichungsdatum) oder den Body.
+- **Keine alten Properties verwenden.** Mapping ist abschliessend:
+  - `Zusammenfassung` -> `description` (1 Satz, max 25 Woerter)
+  - `Autor` -> `related` als Person-Wikilink (`"[[Vorname Nachname]]"`)
+  - `Jahr` -> `timestamp` (Veroeffentlichungsdatum als Datetime,
+    ISO 8601)
+  - `URL` -> `resource`
+  - `Notizen` -> `related`
+  - `Themen` + `Konzepte` -> `moc`
+  - `Meeting-Notizen` -> `related` (als Wikilink zur Meeting-Note)
+  - `Projekte` -> `related` (als Wikilink zur Projekt-Note)
+  - `Personen` -> `related` (als Wikilink zur Person-Note)
+  - `Quellen` -> `resource` (Single-Source-Bindung)
+  - `Kategorie` -> erster `type`-Eintrag
+  - `Typ` -> zweiter `type`-Eintrag (inhaltlicher Subtyp)
+  - `Permanent` -> entfaellt
+  - `ISBN` -> entfaellt (Naming-Convention `Autor-Jahr_Titel` reicht)
 - **Keine Transkript-Schnipsel als Zettel-Body.** Ein Zettel formuliert
   EINEN Gedanken in eigenen Worten in 1-3 Absaetzen. Roher Source-Text
   gehoert nicht in den Body -- referenziere stattdessen via Block-Ref.
@@ -955,14 +1210,14 @@ Pflicht-Form:
   dem `ingest_deep`-Result von Step 3 (Map `anchor-text -> block-id`).
   Wenn fuer ein Thema kein Block-ID generiert wurde (Anchor matchte
   nicht), referenziere die Source nur via `[[<Source>]]` ohne `#^block`.
-- **Step 0a (Templates lesen) NICHT in update_todo_list aufnehmen.**
-  Das ist Skill-interne Vorbereitung. Der User sieht nur Steps 1-5
-  im Plan.
+- **Vorbereitung NICHT in update_todo_list aufnehmen.** Das ist
+  Skill-interne Vorbereitung (OKF Template lesen, Naming-Convention,
+  app.json). Der User sieht nur Steps 1-5 im Plan.
 - **Skill nicht abschliessen ohne Step 5.** Solange das Source-
-  Frontmatter `Notizen:` nicht auf ALLE neu erstellten Notes zeigt,
+  Frontmatter `related:` nicht auf ALLE neu erstellten Notes zeigt,
   fehlt die bidirektionale Verbindung -- der Zettelkasten ist
   inkonsistent. Vor `attempt_completion`: pruefe via `get_frontmatter`,
-  dass jeder Pfad aus `createdNotes` in `Notizen:` steht.
+  dass jeder Pfad aus `createdNotes` in `related:` steht.
 - **Skill nicht abschliessen ohne Binary-Ablage.** Wenn die Quelle ein
   PDF/DOCX/XLSX war (Chat-Attachment oder vorher schon im Vault),
   muss das Original am Ende in
@@ -971,52 +1226,47 @@ Pflicht-Form:
   dort existiert. Wenn nicht: `move_file` von der aktuellen Position
   (Chat-Attachments werden automatisch im Vault gespeichert -- du
   musst sie nie via Drag-and-Drop anfordern, nur ggf. umbenennen).
-- **Skill nicht abschliessen ohne Kategorie-Check.** Vor
+- **Skill nicht abschliessen ohne type-Check.** Vor
   `attempt_completion`: pruefe via `get_frontmatter` fuer JEDE
-  neu erstellte Note (Sense-Making, Zettel), dass `Kategorie:` exakt
-  `- Quellen-Notiz` ist (DE) bzw. `- Source note` (EN). Wenn nicht
-  (z.B. `- Konzept` oder `- Notiz`): via `update_frontmatter`
-  korrigieren, dann nochmal pruefen.
-- **`update_frontmatter` ist REPLACE, nicht APPEND.** Bei `Notizen:`
+  neu erstellte Note, dass der ERSTE `type`-Eintrag korrekt ist:
+  - Source-Mirror -> `- source` (zweiter Eintrag idealerweise
+    inhaltlicher Subtyp wie `- Analyst Report`)
+  - Sense-Making-Note (Modus A) -> `- note`
+  - Multi-Zettel (Modus B) -> `- zettel`
+  - MOC-Stub -> `- moc`
+  Wenn nicht: via `update_frontmatter` korrigieren, dann nochmal pruefen.
+- **`update_frontmatter` ist REPLACE, nicht APPEND.** Bei `related:`
   IMMER vorher via `get_frontmatter` lesen, alte + neue Eintraege
   zusammen ins `updates`-Objekt schreiben. Sonst gehen die
-  bestehenden Notizen verloren.
-- **Keine un-gequoteten Wikilinks im Frontmatter.** `Quellen: [[Note]]`
-  ohne Quotes ist invalid YAML. Immer `Quellen: "[[Note]]"` oder als
+  bestehenden Eintraege verloren.
+- **Keine un-gequoteten Wikilinks im Frontmatter.** `resource: [[Note]]`
+  ohne Quotes ist invalid YAML. Immer `resource: "[[Note]]"` oder als
   gequotete Liste.
-- **Keine un-gequoteten String-Werte im Frontmatter.** `Zusammenfassung:
-  Gartner-Analyse...`, `Autor: Miles Gibson`, `URL: https://...`
+- **Keine un-gequoteten String-Werte im Frontmatter.** `description:
+  Gartner-Analyse...`, `title: Gibson-2026_...`, `resource: https://...`
   -- alles falsch ohne Quotes. Strings sind ALLES, was kein
   YAML-Listen-Eintrag, kein Boolean (`true`/`false`) und keine
   Zahl ist. Auch bei Step 0 (`ingest_document` mit `header_content`)
   gilt das.
-- **Keine Komma-Strings fuer Listen-Felder.** `Themen: A, B, C` ist
+- **Keine Komma-Strings fuer Listen-Felder.** `moc: A, B, C` ist
   EIN String. YAML-Liste mit `-` Bindestrichen schreiben, sonst
   greifen Obsidian-Tag-/Property-Filter nicht. Das gilt fuer JEDES
-  Wikilink-Property (`Themen`, `Konzepte`, `Personen`, `Quellen`,
-  `Notizen`). Block-Form (`Themen:\n  - "[[X]]"`) oder Flow-Form
-  (`Themen: ["[[X]]"]`) sind beide ok. Auch bei einem einzigen Wert
-  bleibt es eine ein-elementige Liste, damit spaetere Ergaenzungen den
-  Type nicht wechseln muessen.
-- **`Themen` und `Konzepte` sind kategoriegebunden, nicht
-  austauschbar.**
-  - `Themen:` zeigt ausschliesslich auf Notes mit `Kategorie: Thema`
-    (Hub-Notes, breit/generisch, z.B. `[[Agentic AI]]`).
-  - `Konzepte:` zeigt ausschliesslich auf Notes mit `Kategorie: Konzept`
-    (spezifisch/abgegrenzt, z.B. `[[AI Agents]]`).
-  - Cluster-Match aus der Triage-Karte ist ein **Thema** und gehoert
-    nach `Themen:`. Take-Away-Kernbegriffe sind **Konzepte** und
-    gehoeren nach `Konzepte:`. Verwandte-Notes aus der Triage werden
-    je nach `Kategorie:` der jeweiligen Ziel-Note einsortiert; im
-    Zweifel kurz `read_file` und das `Kategorie:`-Feld pruefen.
-- **Keine multi-value Kategorie.** Aus den Template-Optionen genau
-  EINE behalten.
-- **Kategorie ist NIE `- Konzept`, `- Notiz`, `- MOC` oder `- Permanent`
-  bei Ingest-Notes.** Aus Sources abgeleitete Notes (Sense-Making,
-  Zettel, Multi-Zettel) tragen IMMER `- Quellen-Notiz` (DE) bzw.
-  `- Source note` (EN). Das ist nicht verhandelbar -- der Konzept-
-  charakter einer Note steht im Titel und im Body, nicht in der
-  Kategorie. Ausnahme: Source-Mirror selbst, der traegt `- Quelle`.
+  Wikilink-Property (`moc`, `related`, `type`). Block-Form
+  (`moc:\n  - "[[X]]"`) oder Flow-Form (`moc: ["[[X]]"]`) sind
+  beide ok. Auch bei einem einzigen Wert bleibt es eine ein-elementige
+  Liste, damit spaetere Ergaenzungen den Type nicht wechseln muessen.
+- **Uppercase-Tags sind ein Bug.** `tags: AI-Agent` falsch.
+  Lowercase, bindestrich-verbunden: `tags: ai-agent`. Gilt fuer jede
+  Note.
+- **`type`-Liste hat 1-2 Eintraege, nicht mehr.** Erster Wert ist die
+  Note-Kategorie (`- source` | `- note` | `- zettel` | `- moc` |
+  `- person` | `- project` | `- meeting`), zweiter Wert ist der
+  optionale inhaltliche Subtyp (`- Analyst Report`, `- Interview`,
+  etc.). Keine drei Eintraege, kein leeres `type:`.
+- **`type` ist NIE leer oder generisch bei Ingest-Notes.** Aus Sources
+  abgeleitete Notes (Sense-Making, Zettel) tragen IMMER `- note` oder
+  `- zettel` als ersten Wert. Source-Mirror traegt IMMER `- source`
+  als ersten Wert. Das ist nicht verhandelbar.
 - **Keine Triage-Karte ohne Empfehlung.** Step 1 muss IMMER mit einer
   expliziten Empfehlung (Ingest / Spaeter / Verwerfen) plus
   Begruendung enden -- nicht nur die Karte zeigen und User entscheiden
@@ -1034,16 +1284,26 @@ Pflicht-Form:
 - **Keine semantischen `block_anchors`.** Anchors sind wortwoertliche
   Source-Phrasen (5-10 Woerter), nicht Konzept-Beschreibungen. Bei
   Mismatch: lieber kein Block-Ref als ein falscher.
-- **Keine Themen/Konzepte/Personen als reine Strings -- nicht in der
+- **Keine `moc`/`related`-Eintraege als reine Strings -- nicht in der
   Source-Mirror-Note, nicht in Zettel.** Immer als gequotete Wikilinks
   in YAML-Liste, sonst keine Graph-Kante. Die Frontmatter-Hygiene
   gilt auch fuer `ingest_document`'s `header_content`.
-- **Keine Themen-Auslassung aus der Triage.** Wenn die Triage-Karte
+- **Source-Mirror nie in `related:` der abgeleiteten Notes.** Bei
+  Sense-Making (Modus A) und Multi-Zettel (Modus B) gehoert die
+  Source-Mirror-Note ausschliesslich in `resource:`. Ein zusaetzlicher
+  `[[<Source-Mirror>]]`-Wikilink im `related:`-Feld ist Redundanz und
+  verboten. Triage-Karten-Eintraege, die auf die aktuelle Source
+  zeigen, beim Sortieren rausfiltern.
+- **Keine Wikilinks zu Binaries im `resource:`-Feld.** PDF/DOCX/PPTX/
+  XLSX werden als Markdown-Link `[Label](<vault-pfad>)` referenziert,
+  niemals als `[[file.pdf]]`-Wikilink. Wikilinks zu .md-Files (zur
+  Mirror-Note) sind hingegen Pflicht-Form fuer `resource:` bei
+  Sense-Making/Zettel-Notes.
+- **Keine moc-Auslassung aus der Triage.** Wenn die Triage-Karte
   `Cluster-Match` und `Verwandte Notes (Vault)` aufgelistet hat,
-  MÜSSEN diese Wikilinks im Frontmatter der erzeugten Notes (Themen-
-  Feld) erscheinen. Der Skill ist unvollständig wenn die Triage
-  z.B. 5 verwandte Notes gefunden hat und im Frontmatter nur 1
-  davon steht.
+  MUESSEN diese Wikilinks im `moc:`-Feld der erzeugten Notes
+  erscheinen. Der Skill ist unvollstaendig wenn die Triage z.B. 5
+  verwandte Notes gefunden hat und im `moc` nur 1 davon steht.
 - **Kein open_note + execute_command fuer UID-Setzung.** Das UID-
   Plugin (wenn vorhanden) macht's eigenstaendig via Auto-Generation
   beim Note-Create. Skill-eigene UID-Tool-Calls triggern unnoetige
@@ -1069,8 +1329,8 @@ Pflicht-Form:
 - **Keine neuen Ordner erstellen.** Erlaubt sind ausschliesslich:
   `Attachements/` (fuer Original-Binaries: PDF/DOCX/PPTX/XLSX), und
   `<defaultOutputFolder>/` (Default `Inbox/`, fuer alle Markdown-Notes
-  inkl. Mirror, Sense-Making, Bibliografie, Zettel). Kein `Sources/`,
-  kein `Knowledge/<cluster>/`. Wenn der defaultOutputFolder fehlt,
+  inkl. Mirror, Sense-Making, Zettel). Kein `Sources/`, kein
+  `Knowledge/<cluster>/`. Wenn der defaultOutputFolder fehlt,
   legt das Plugin ihn beim ersten Schreibvorgang an -- der Skill darf
   ihn nicht selber via `create_folder` anlegen.
 - **Keine Source-Duplikate.** Wenn die Quelle bereits als Markdown-Note
@@ -1099,7 +1359,8 @@ Attachment weg, KnowledgeDB nicht initialisiert, Provider-Quota voll):
 1. Extrahiere die Page-Struktur aus dem `<attached_document>`-Block in
    deinem Kontext (sucht nach `## Page N`-Headings).
 2. Schreibe via `write_file` eine Single-Note mit:
-   - Frontmatter (source, year, etc.)
+   - OKF-Frontmatter (title, description, resource, tags, type:
+     `- source`, moc, related, timestamp, uid)
    - `## Overview`
    - `## Kernaussagen` mit pro Aussage `[[<basename>#Page <N>|↗]]`-Marker
      -- Page-Number aus dem geparsten Text ableiten

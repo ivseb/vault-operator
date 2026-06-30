@@ -45,6 +45,22 @@ async function chmodOwnerOnly(absPath: string): Promise<void> {
     }
 }
 
+/**
+ * Optional hint to short-circuit the legacy-folder probe. When the caller
+ * already knows that the FEAT-29-01 layout migration is complete, the
+ * constructor lands directly on {vault}/{agentFolderPath}/data/ instead of
+ * probing legacy paths. This fixes a boot-race where saveSettings() calls
+ * that ran before the post-migration useVaultLocalRoot() hop would land
+ * in a stale legacy folder (obsilo-shared/) and shadow newer values on
+ * the next boot.
+ */
+export interface GlobalFileServiceLayoutHint {
+    /** Vault-relative agent folder (e.g. ".vault-operator"). */
+    agentFolderPath: string;
+    /** FEAT-29-01 migration status from vault-local settings. */
+    layoutMigrationStatus: 'pending' | 'in-progress' | 'complete' | string;
+}
+
 export class GlobalFileService implements FileAdapter {
     private root: string;
     private readonly vaultBasePath: string | undefined;
@@ -57,12 +73,32 @@ export class GlobalFileService implements FileAdapter {
      *   that path is used instead so their data is never abandoned.
      *   Falls back to ~/vault-operator-shared/ if no vaultBasePath.
      *
+     * @param layoutHint - When `layoutMigrationStatus === 'complete'` the
+     *   constructor skips the legacy probe and lands directly on
+     *   {vault}/{agentFolderPath}/data/. Same end-state as calling
+     *   useVaultLocalRoot() right after construction, but without the
+     *   intermediate window where the legacy root is active (which is what
+     *   leaked saveSettings() writes into obsilo-shared/ on every reload).
+     *
      * FEAT-29-01: after the layout migration completes, call
      * useVaultLocalRoot(agentFolderPath) to re-point the service at
      * {vault}/.vault-operator/data/.
      */
-    constructor(vaultBasePath?: string) {
+    constructor(vaultBasePath?: string, layoutHint?: GlobalFileServiceLayoutHint) {
         this.vaultBasePath = vaultBasePath;
+
+        // Boot-Race fix: if the FEAT-29-01 layout migration is already
+        // complete and we have a vault path, skip the legacy probe and land
+        // directly on the consolidated data root.
+        if (
+            vaultBasePath
+            && layoutHint?.layoutMigrationStatus === 'complete'
+            && layoutHint.agentFolderPath
+        ) {
+            this.root = pathModule.join(vaultBasePath, layoutHint.agentFolderPath, 'data');
+            return;
+        }
+
         const baseDir = vaultBasePath ? pathModule.dirname(vaultBasePath) : osModule.homedir();
 
         // Prefer existing legacy folders if they exist (preserves user data).

@@ -7,9 +7,12 @@
  * Part of Self-Development Phase 3: Sandbox + Dynamic Modules.
  */
 
-import { TFile, TFolder, requestUrl, Notice } from 'obsidian';
+import { TFile, TFolder, Notice } from 'obsidian';
+import https from 'https';
+import http from 'http';
 import type ObsidianAgentPlugin from '../../main';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
+import { followAllowlistedRedirects, type HopResponse } from './redirectGuard';
 
 // ---------------------------------------------------------------------------
 // SandboxBridge
@@ -222,23 +225,85 @@ export class SandboxBridge {
     ): Promise<{ status: number; text: string }> {
         this.checkCircuitBreaker();
         this.checkRequestRateLimit();
-        if (!this.isAllowedUrl(url)) {
-            throw new Error(
-                `URL not on allowlist: ${url}. Allowed: ${this.URL_ALLOWLIST.join(', ')}`
-            );
-        }
         // M-8: Validate options payload for prototype pollution
         if (options && this.hasPollutionKeys(options)) {
             throw new Error('Rejected: payload contains prototype pollution keys');
         }
         this.logBridgeOp('request-url', url);
-        const response = await requestUrl({
+        // AUDIT-038 ISSUE-004: per-hop allowlist validation. Obsidian's
+        // requestUrl follows 3xx internally without re-running our guard,
+        // so an allowlisted CDN that issues a redirect to a non-allowlisted
+        // host (or to AWS IMDS / RFC 1918) would silently complete. We talk
+        // to node:http(s) directly and re-validate every redirect target.
+        const response = await followAllowlistedRedirects(
             url,
-            method: options?.method,
-            body: options?.body,
-        });
+            (hopUrl) => this.fetchOnceWithoutRedirects(hopUrl, options),
+            (hopUrl) => this.isAllowedUrl(hopUrl),
+        );
         this.recordSuccess();
         return { status: response.status, text: response.text };
+    }
+
+    /**
+     * Single HTTP(S) request that does NOT follow redirects. Returns raw
+     * status / headers / body so {@link followAllowlistedRedirects} can
+     * decide per-hop whether to continue.
+     */
+    private fetchOnceWithoutRedirects(
+        url: string,
+        options?: { method?: string; body?: string },
+    ): Promise<HopResponse> {
+        return new Promise((resolve, reject) => {
+            let parsed: URL;
+            try {
+                parsed = new URL(url);
+            } catch {
+                reject(new Error(`Invalid URL: ${url}`));
+                return;
+            }
+            const isHttps = parsed.protocol === 'https:';
+            const lib = isHttps ? https : http;
+            const method = (options?.method ?? 'GET').toUpperCase();
+            const req = lib.request(
+                {
+                    protocol: parsed.protocol,
+                    hostname: parsed.hostname,
+                    port: parsed.port || (isHttps ? 443 : 80),
+                    path: `${parsed.pathname}${parsed.search}`,
+                    method,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (compatible; ObsidianAgent-Sandbox/1.0)',
+                        Accept: '*/*',
+                        Host: parsed.host,
+                    },
+                },
+                (res) => {
+                    const chunks: Buffer[] = [];
+                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
+                    res.on('end', () => {
+                        const headers: Record<string, string> = {};
+                        for (const [k, v] of Object.entries(res.headers)) {
+                            if (typeof v === 'string') headers[k] = v;
+                            else if (Array.isArray(v)) headers[k] = v.join(', ');
+                        }
+                        resolve({
+                            status: res.statusCode ?? 0,
+                            headers,
+                            text: Buffer.concat(chunks).toString('utf8'),
+                        });
+                    });
+                    res.on('error', (err: Error) => reject(err));
+                },
+            );
+            req.on('error', (err: Error) => reject(err));
+            req.setTimeout(15_000, () => {
+                req.destroy(new Error('Sandbox request timed out after 15s'));
+            });
+            if (options?.body && method !== 'GET' && method !== 'HEAD') {
+                req.write(options.body);
+            }
+            req.end();
+        });
     }
 
     // -----------------------------------------------------------------------

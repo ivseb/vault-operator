@@ -28,6 +28,18 @@ export interface PdfMarkdownMirrorOpts {
     mirrorFolder?: string;
 }
 
+/**
+ * URL-encode a vault-relative path for use inside a Markdown link target.
+ * Encodes spaces, parentheses and other URL-significant characters but
+ * keeps the `/` separator readable.
+ */
+function encodePathForMarkdownLink(path: string): string {
+    return path
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/');
+}
+
 export class PdfMarkdownMirror {
     private readonly mirrorFolder: string | undefined;
 
@@ -76,8 +88,17 @@ export class PdfMarkdownMirror {
             const arrayBuf = await this.app.vault.readBinary(pdfFile);
             const parsed = await parseDocument(arrayBuf, 'pdf', this.plugin);
             const text = parsed.text;
-            const fm = `---\nsource_pdf: "[[${pdfFile.basename}.pdf]]"\nmirror_generated_at: "${new Date().toISOString()}"\nbar25_pdf_strategy: markdown-mirror\n---\n\n`;
-            const body = `# ${pdfFile.basename} (Markdown-Mirror)\n\n_Wikilink zur Source: [[${pdfFile.basename}.pdf]]_\n\n${text}\n`;
+            // OKF frontmatter skeleton. The skill fills in description, tags,
+            // moc, related, timestamp and the optional second `type` value.
+            // `resource` is a Markdown-link with explicit vault path -- not
+            // a Wikilink. Wikilinks to non-md files (PDF) in YAML properties
+            // resolve inconsistently across Obsidian vaults, especially when
+            // multiple attachment folders (`attachments/`, `Attachments/`,
+            // `Attachements/`) coexist. A Markdown link bypasses the
+            // shortest-path resolver entirely.
+            const resourceLink = `[${pdfFile.name}](${encodePathForMarkdownLink(pdfFile.path)})`;
+            const fm = `---\ntitle: "${pdfFile.basename}"\ndescription:\nresource: "${resourceLink}"\ntags:\ntype:\n  - source\nmoc:\nrelated:\ntimestamp:\nuid:\n---\n\n`;
+            const body = `# ${pdfFile.basename} (Markdown-Mirror)\n\n_Source: ${resourceLink}_\n\n${text}\n`;
             const mirror = await this.app.vault.create(mirrorPath, fm + body);
             return { mirrorFile: mirror, chunks: text.split(/\n\n+/).length };
         } catch (err) {

@@ -2220,7 +2220,10 @@ export class AgentSidebarView extends ItemView {
                             // FIX-19-31-02: clear any <pre> left by onToolProgress so the
                             // final result replaces the live-preview instead of being appended.
                             outputEl.empty();
-                            outputEl.createEl('pre').setText(truncated);
+                            // FIX-19-99-04: render tool output as markdown so [[wikilinks]]
+                            // and [text](url) become clickable. Errors are swallowed because
+                            // a malformed tool output should not break the chat surface.
+                            void this.renderMarkdownAndWire(truncated, outputEl as HTMLElement);
                         }
                         details.open = isError;
                     }
@@ -2248,7 +2251,10 @@ export class AgentSidebarView extends ItemView {
                     const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
                     if (!outputEl) return;
                     outputEl.empty();
-                    outputEl.createEl('pre').setText(content);
+                    // FIX-19-99-04: render progress as markdown so partial wikilinks /
+                    // links are clickable as soon as they appear (final replace runs in
+                    // onToolResult).
+                    void this.renderMarkdownAndWire(content, outputEl);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage
@@ -2328,7 +2334,7 @@ export class AgentSidebarView extends ItemView {
                         // Hide during re-render to avoid flash of raw → markdown transition
                         contentEl.classList.add('agent-u-visibility-hidden');
                         contentEl.empty();
-                        void MarkdownRenderer.render(this.app, accumulatedText, contentEl, '', this);
+                        void this.renderMarkdownAndWire(accumulatedText, contentEl);
                         window.requestAnimationFrame(() => { contentEl.classList.remove('agent-u-visibility-hidden'); });
                     }
                     // Wrap resolve: after the user answers, show their answer as a
@@ -2465,7 +2471,7 @@ export class AgentSidebarView extends ItemView {
                     }
                     if (renderText) {
                         contentEl.empty();
-                        void MarkdownRenderer.render(this.app, renderText, contentEl, '', this);
+                        void this.renderMarkdownAndWire(renderText, contentEl);
                         contentEl.classList.remove('agent-u-visibility-hidden');
                     } else if (hasTools) {
                         // Tools ran but the model returned no text — show a neutral placeholder
@@ -2479,8 +2485,7 @@ export class AgentSidebarView extends ItemView {
                         footerEl.setText(time);
                         footerEl.classList.remove('agent-u-hidden');
                     }
-                    // Make internal links in the response clickable
-                    this.wireInternalLinks(contentEl);
+                    // Link wiring now happens inside renderMarkdownAndWire above.
                     // Convert inline [N] to clickable citation badges
                     this.wireCitationBadges(contentEl, parsedSources);
                     // Add response action bar (with sources indicator)
@@ -3515,7 +3520,7 @@ export class AgentSidebarView extends ItemView {
             }
         }
         const contentEl = msgEl.createDiv('message-content');
-        void MarkdownRenderer.render(this.app, markdown, contentEl, '', this);
+        void this.renderMarkdownAndWire(markdown, contentEl);
         // Restore action buttons for history messages
         if (role === 'assistant') {
             this.addResponseActions(msgEl, markdown);
@@ -3834,6 +3839,25 @@ export class AgentSidebarView extends ItemView {
     // -------------------------------------------------------------------------
     // Response action bar + link wiring
     // -------------------------------------------------------------------------
+
+    /**
+     * Render markdown into `containerEl` and wire any internal/wikilink
+     * anchors so they navigate via `openLinkText`. Awaits the render so
+     * the link wiring runs after Obsidian has actually inserted the
+     * anchors -- a sync `void MarkdownRenderer.render(...)` followed by
+     * `wireInternalLinks` races against post-processors and leaves
+     * freshly created anchors unwired (the bug behind unclickable
+     * [[wikilinks]] in chat responses, tool output and history reloads).
+     *
+     * Uses the active file as `sourcePath` so wikilink resolution has a
+     * context to fall back on -- matches the inline chat bridge in
+     * `PluginWiring.ts`.
+     */
+    private async renderMarkdownAndWire(markdown: string, containerEl: HTMLElement): Promise<void> {
+        const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
+        await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        this.wireInternalLinks(containerEl);
+    }
 
     /**
      * Make internal [[wikilinks]] and note links in the rendered markdown clickable.

@@ -18,6 +18,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import type { TriageDecision } from '../../ingest/IngestTriageLogStore';
 import { normalizeDomain } from '../../knowledge/ClusterSourceStatsStore';
+import { toShortestLinktext } from './shortestLinktext';
 
 /**
  * AUDIT-014 H-1 (CWE-22 Path Traversal):
@@ -409,7 +410,7 @@ export class IngestTriageTool extends BaseTool<'ingest_triage'> {
     ): string {
         const blocks: string[] = [];
         if (notes.length > 0) {
-            const items = notes.map((n) => `- [[${n.path}]] -- ${truncate(n.excerpt, 160)}`);
+            const items = notes.map((n) => `- [[${toShortestLinktext(this.plugin.app, n.path)}]] -- ${truncate(n.excerpt, 160)}`);
             blocks.push(['**Verwandte Notes (Vault)**', ...items].join('\n'));
         }
         if (facts.length > 0) {
