@@ -16,6 +16,7 @@ import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
+import { summarizeForLedger } from './tool-execution/summarizeForLedger';
 import { buildSystemPromptForMode } from './systemPrompt';
 import type { ModeService } from './modes/ModeService';
 import type { ModeConfig, CustomModel } from '../types/settings';
@@ -1723,10 +1724,13 @@ export class AgentTask {
                     // FIX-COMPACT-01: record both outcomes in the ledger so the
                     // post-condense agent sees failures explicitly instead of
                     // re-attempting an approach the summarizer paraphrased away.
+                    // FIX-COMPACT-08: per-tool result summary (read_file -> "L1-L420
+                    // of <path>", search_files -> "query -> N hits") gives the
+                    // summarizer a tighter signal than the blind 200-char prefix.
                     repetitionDetector.record(
                         toolUse.name,
                         toolUse.input,
-                        extractTextContent(result.content).slice(0, 200),
+                        summarizeForLedger(toolUse.name, toolUse.input, result.content),
                         iteration,
                         result.is_error ? 'failed' : 'success',
                     );
