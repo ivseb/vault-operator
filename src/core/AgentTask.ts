@@ -45,6 +45,7 @@ import {
     type StigmergyTurn,
 } from './stigmergy/StigmergyAdapter';
 import { withTimeout } from './utils/withTimeout';
+import { getPerformanceMarks } from './observability/PerformanceMarks';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
@@ -392,6 +393,12 @@ export class AgentTask {
             subagentRoleOverride,
             subagentAllowedTools,
         } = config;
+        // MEAS-01: span around the entire agent turn. Label includes
+        // taskId so concurrent sub-agent runs do not collide on the
+        // active-spans map.
+        const perfMarks = getPerformanceMarks();
+        const turnLabel = `agent.run:${taskId}`;
+        perfMarks.start(turnLabel);
         // Resolve mode to ModeConfig
         let activeMode: ModeConfig = this.resolveMode(initialMode);
 
@@ -2066,6 +2073,7 @@ export class AgentTask {
                 console.warn('[AgentTask] onEpisodeData hook failed (non-fatal):', e);
             }
         }
+        perfMarks.end(turnLabel, { log: true });
     }
 
     // -------------------------------------------------------------------------

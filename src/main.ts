@@ -17,6 +17,7 @@ import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
+import { getPerformanceMarks } from './core/observability/PerformanceMarks';
 import { initStigmergy, registerCapabilitiesIfChanged } from './core/stigmergy/StigmergyAdapter';
 import { getSubagentProfile, listSubagentProfileNames } from './core/agent/subagent-profiles';
 import { IgnoreService } from './core/governance/IgnoreService';
@@ -376,11 +377,20 @@ export default class ObsidianAgentPlugin extends Plugin {
             (leaf) => new AgentSidebarView(leaf, this)
         );
 
+        // MEAS-01: span around the async boot work. Resolves at the same
+        // point readyPromise resolves, so the duration equals the visible
+        // boot latency for any consumer that waits on readyPromise.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.start('plugin.boot');
+
         void this.doLoad()
             .catch((err) => {
                 console.error('[Boot] doLoad threw before completion:', err);
             })
-            .finally(() => markReady());
+            .finally(() => {
+                perfMarks.end('plugin.boot', { log: true });
+                markReady();
+            });
     }
 
     private async doLoad(): Promise<void> {

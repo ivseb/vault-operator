@@ -49,6 +49,7 @@ import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
 import DOMPurify from 'dompurify';
+import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
 
@@ -216,6 +217,12 @@ export class AgentSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
+        // MEAS-01: time from view-instantiation to first render-done. This
+        // is the TTI a user actually perceives, so it is intentionally
+        // wrapped around the readiness-await too.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.start('sidebar.onOpen');
+
         // BUG-026 (2026-04-19): wait for plugin.doLoad() to finish before
         // reading settings / mode service. Obsidian instantiates this view
         // the moment registerView runs (layout restore), which during a BRAT
@@ -298,6 +305,7 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        perfMarks.end('sidebar.onOpen', { log: true });
     }
 
     onClose(): Promise<void> {
