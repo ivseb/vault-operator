@@ -1361,20 +1361,14 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
-                // ADR-061: Todo list as recency anchor — append to last user message.
-                // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
-                // We temporarily extend the last user message content (not push+splice, which
-                // would violate append-only and invalidate KV-cache).
-                let todoOriginalContent: string | ContentBlock[] | undefined;
-                if (currentTodoText && iteration > 0) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string') {
-                            todoOriginalContent = history[h].content;
-                            history[h] = { ...history[h], content: `${history[h].content as string}\n\n${currentTodoText}` };
-                            break;
-                        }
-                    }
-                }
+                // ADR-061 / FIX-PERF-22: Todo list as recency anchor.
+                // Previously this mutated `history` in place and then
+                // restored it after the stream finished. The mutation
+                // looked safe but the restore relied on `endsWith()`
+                // matching the exact todo text, which broke when the
+                // stream errored mid-flight (todo stayed glued onto the
+                // history). Now we build the anchored version inside
+                // safeHistory below and never touch the live history.
 
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
@@ -1393,7 +1387,21 @@ export class AgentTask {
                 // BUG-017: drop orphan tool_use / tool_result blocks before send.
                 // Anthropic returns 400 if any tool_use has no matching tool_result
                 // and Claude-via-Copilot inherits the same constraint.
-                const safeHistory = sanitizeAndLog(history, 'main-loop');
+                let safeHistory = sanitizeAndLog(history, 'main-loop');
+                // FIX-PERF-22: append the todo anchor to the LAST user
+                // message of the sanitized history only. The live history
+                // stays unmutated, so a mid-stream throw no longer leaves
+                // the todo glued onto the persisted transcript.
+                if (currentTodoText && iteration > 0) {
+                    for (let h = safeHistory.length - 1; h >= 0; h--) {
+                        const m = safeHistory[h];
+                        if (m.role === 'user' && typeof m.content === 'string') {
+                            safeHistory = safeHistory.slice();
+                            safeHistory[h] = { ...m, content: `${m.content}\n\n${currentTodoText}` };
+                            break;
+                        }
+                    }
+                }
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
                 // MEAS-02: only the very first iteration of a fresh turn is
                 // the one the user clicked Send for. Subsequent iterations
@@ -1446,16 +1454,9 @@ export class AgentTask {
                     }
                 }
 
-                // Restore the original user message content (remove todo anchor)
-                if (todoOriginalContent !== undefined) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string'
-                            && (history[h].content as string).endsWith(currentTodoText)) {
-                            history[h] = { ...history[h], content: todoOriginalContent };
-                            break;
-                        }
-                    }
-                }
+                // FIX-PERF-22: todo restore block intentionally removed.
+                // The anchor was applied to safeHistory (a clone), not
+                // to live history, so there is nothing to restore.
 
                 // Build the assistant message content. Thinking first (mirrors
                 // the order the model produced: CoT before answer/tool), then
