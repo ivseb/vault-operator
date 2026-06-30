@@ -19,19 +19,53 @@
  * need to know which provider is active.
  */
 
-import {
+// FIX-PERF-13: convert SDK runtime imports to type-only at module
+// top-level so the @aws-sdk bundle (~120 KB minified) does not land in
+// main.js unless a user actually picks Bedrock. Runtime values are
+// pulled in via the lazy loader below the type imports.
+import type {
     BedrockRuntimeClient,
-    ConverseStreamCommand,
-    ConverseCommand,
-    type BedrockRuntimeClientConfig,
-    type ContentBlock as BedrockContentBlock,
-    type Message as BedrockMessage,
-    type SystemContentBlock,
-    type Tool as BedrockTool,
-    type ToolResultContentBlock,
-    type ConverseStreamCommandInput,
+    ConverseStreamCommand as ConverseStreamCommandType,
+    ConverseCommand as ConverseCommandType,
+    BedrockRuntimeClientConfig,
+    ContentBlock as BedrockContentBlock,
+    Message as BedrockMessage,
+    SystemContentBlock,
+    Tool as BedrockTool,
+    ToolResultContentBlock,
+    ConverseStreamCommandInput,
 } from '@aws-sdk/client-bedrock-runtime';
-import { NodeHttpHandler } from '@smithy/node-http-handler';
+interface BedrockSdk {
+    BedrockRuntimeClient: new (cfg: BedrockRuntimeClientConfig) => BedrockRuntimeClient;
+    ConverseStreamCommand: typeof ConverseStreamCommandType;
+    ConverseCommand: typeof ConverseCommandType;
+}
+let _bedrockSdkPromise: Promise<BedrockSdk> | null = null;
+function getBedrockSdk(): Promise<BedrockSdk> {
+    if (!_bedrockSdkPromise) {
+        _bedrockSdkPromise = import('@aws-sdk/client-bedrock-runtime').then((m) => ({
+            BedrockRuntimeClient: m.BedrockRuntimeClient,
+            ConverseStreamCommand: m.ConverseStreamCommand,
+            ConverseCommand: m.ConverseCommand,
+        }));
+    }
+    return _bedrockSdkPromise;
+}
+interface SmithySdk {
+    NodeHttpHandler: new () => unknown;
+}
+let _smithySdkPromise: Promise<SmithySdk> | null = null;
+function getSmithySdk(): Promise<SmithySdk> {
+    if (!_smithySdkPromise) {
+        _smithySdkPromise = import('@smithy/node-http-handler').then((m) => ({
+            NodeHttpHandler: m.NodeHttpHandler,
+        }));
+    }
+    return _smithySdkPromise;
+}
+// FIX-PERF-13: NodeHttpHandler runtime use is gated behind getSmithySdk()
+// (see top of file). Type-only retained import would still pull the
+// module type definitions but no runtime; leave it out entirely.
 import type { DocumentType } from '@smithy/types';
 import type { LLMProvider } from '../../types/settings';
 import type {
@@ -140,7 +174,10 @@ export function applyGatewayHeaderTransform(
 }
 
 export class BedrockProvider implements ApiHandler {
-    private client: BedrockRuntimeClient;
+    // FIX-PERF-13: client is built lazily on first send. Constructor
+    // only validates the config so misconfiguration is still caught at
+    // wire-up time without paying the SDK-import cost up front.
+    private clientPromise: Promise<BedrockRuntimeClient> | null = null;
     private config: LLMProvider;
 
     constructor(config: LLMProvider) {
@@ -173,81 +210,83 @@ export class BedrockProvider implements ApiHandler {
             throw new Error('[Bedrock] awsRegion is required (e.g. eu-central-1) -- either pick a region or give an endpoint URL containing one');
         }
 
-        const clientConfig: BedrockRuntimeClientConfig = {
-            region,
-            // Optional custom endpoint URL -- users can point at e.g.
-            // https://bedrock-runtime.eu-central-1.amazonaws.com explicitly.
-            // Falls back to the default regional endpoint when empty.
-            ...(config.baseUrl?.trim() ? { endpoint: config.baseUrl.trim() } : {}),
-            // FEAT-26-07: enterprise gateways typically do not set CORS
-            // headers, so Electron's window.fetch refuses the request with
-            // "Failed to fetch". NodeHttpHandler routes via node:https,
-            // which is not subject to CORS in the renderer. Same pattern
-            // the OpenAI/Custom provider uses via createNodeFetch(). The
-            // AWS auth modes keep the SDK default handler, which is fine
-            // for *.amazonaws.com (CORS-allowed by AWS).
-            ...(authMode === 'gateway' ? { requestHandler: new NodeHttpHandler() } : {}),
-        };
-
-        if (authMode === 'api-key') {
-            const apiKey = config.awsApiKey?.trim();
-            if (!apiKey) {
-                throw new Error('[Bedrock] API key is required when authMode is api-key');
-            }
-            clientConfig.token = { token: apiKey };
-            clientConfig.authSchemePreference = ['httpBearerAuth'];
-        } else if (authMode === 'access-key') {
-            const accessKeyId = config.awsAccessKey?.trim();
-            const secretAccessKey = config.awsSecretKey?.trim();
-            if (!accessKeyId || !secretAccessKey) {
+        // FIX-PERF-13: validate eagerly so wire-up errors surface
+        // at construction, but defer client construction to first use.
+        if (authMode === 'api-key' && !config.awsApiKey?.trim()) {
+            throw new Error('[Bedrock] API key is required when authMode is api-key');
+        }
+        if (authMode === 'access-key') {
+            if (!config.awsAccessKey?.trim() || !config.awsSecretKey?.trim()) {
                 throw new Error('[Bedrock] awsAccessKey and awsSecretKey are required when authMode is access-key');
             }
-            clientConfig.credentials = {
-                accessKeyId,
-                secretAccessKey,
-                ...(config.awsSessionToken ? { sessionToken: config.awsSessionToken.trim() } : {}),
+        }
+        if (authMode === 'gateway' && !config.gatewayHeaderValue?.trim()) {
+            throw new Error('[Bedrock] gatewayHeaderValue is required when authMode is gateway');
+        }
+        // Region stash for getClient.
+        this._resolvedRegion = region;
+    }
+
+    private _resolvedRegion = '';
+
+    private getClient(): Promise<BedrockRuntimeClient> {
+        if (this.clientPromise) return this.clientPromise;
+        this.clientPromise = (async () => {
+            const config = this.config;
+            const authMode = config.awsAuthMode ?? 'api-key';
+            const sdk = await getBedrockSdk();
+
+            const clientConfig: BedrockRuntimeClientConfig = {
+                region: this._resolvedRegion,
+                ...(config.baseUrl?.trim() ? { endpoint: config.baseUrl.trim() } : {}),
             };
-        } else {
-            // FEAT-26-07: 'gateway' mode -- the gateway terminates the AWS
-            // trust boundary. Provide dummy credentials so the SDK does not
-            // walk the default credential-provider chain (which would fail
-            // hard in the Electron renderer), and overwrite the auth headers
-            // in a finalizeRequest middleware below.
-            const headerValue = config.gatewayHeaderValue?.trim();
-            if (!headerValue) {
-                throw new Error('[Bedrock] gatewayHeaderValue is required when authMode is gateway');
+            if (authMode === 'gateway') {
+                const smithy = await getSmithySdk();
+                clientConfig.requestHandler = new smithy.NodeHttpHandler() as BedrockRuntimeClientConfig['requestHandler'];
             }
-            clientConfig.credentials = {
-                accessKeyId: 'vault-operator-gateway',
-                secretAccessKey: 'vault-operator-gateway',
-            };
-        }
+            if (authMode === 'api-key') {
+                clientConfig.token = { token: config.awsApiKey!.trim() };
+                clientConfig.authSchemePreference = ['httpBearerAuth'];
+            } else if (authMode === 'access-key') {
+                clientConfig.credentials = {
+                    accessKeyId: config.awsAccessKey!.trim(),
+                    secretAccessKey: config.awsSecretKey!.trim(),
+                    ...(config.awsSessionToken ? { sessionToken: config.awsSessionToken.trim() } : {}),
+                };
+            } else {
+                clientConfig.credentials = {
+                    accessKeyId: 'vault-operator-gateway',
+                    secretAccessKey: 'vault-operator-gateway',
+                };
+            }
 
-        this.client = new BedrockRuntimeClient(clientConfig);
+            const client = new sdk.BedrockRuntimeClient(clientConfig);
 
-        if (authMode === 'gateway') {
-            const headerName = (config.gatewayHeaderName?.trim() || DEFAULT_GATEWAY_HEADER_NAME);
-            // Non-null assertion safe -- the guard above already threw on empty.
-            const headerValue = config.gatewayHeaderValue!.trim();
-            this.client.middlewareStack.add(
-                (next) => async (args) => {
-                    const request = (args as { request?: { headers?: Record<string, string> } }).request;
-                    if (request && request.headers) {
-                        applyGatewayHeaderTransform(
-                            request as { headers: Record<string, string> },
-                            headerName,
-                            headerValue,
-                        );
-                    }
-                    return next(args);
-                },
-                {
-                    step: 'finalizeRequest',
-                    name: 'vault-operator-gateway-auth',
-                    priority: 'low',
-                },
-            );
-        }
+            if (authMode === 'gateway') {
+                const headerName = (config.gatewayHeaderName?.trim() || DEFAULT_GATEWAY_HEADER_NAME);
+                const headerValue = config.gatewayHeaderValue!.trim();
+                client.middlewareStack.add(
+                    (next) => async (args) => {
+                        const request = (args as { request?: { headers?: Record<string, string> } }).request;
+                        if (request && request.headers) {
+                            applyGatewayHeaderTransform(
+                                request as { headers: Record<string, string> },
+                                headerName,
+                                headerValue,
+                            );
+                        }
+                        return next(args);
+                    },
+                    {
+                        step: 'finalizeRequest',
+                        name: 'vault-operator-gateway-auth',
+                        priority: 'low',
+                    },
+                );
+            }
+            return client;
+        })();
+        return this.clientPromise;
     }
 
     getModel(): { id: string; info: ModelInfo } {
@@ -420,7 +459,9 @@ export class BedrockProvider implements ApiHandler {
             additionalModelRequestFields = undefined;
         }
 
-        const command = new ConverseStreamCommand({
+        const sdk = await getBedrockSdk();
+        const client = await this.getClient();
+        const command = new sdk.ConverseStreamCommand({
             modelId: this.config.model,
             messages: bedrockMessages,
             system,
@@ -432,7 +473,7 @@ export class BedrockProvider implements ApiHandler {
             ...(additionalModelRequestFields !== undefined ? { additionalModelRequestFields } : {}),
         });
 
-        const response = await this.client.send(command, { abortSignal });
+        const response = await client.send(command, { abortSignal });
         if (!response.stream) {
             throw new Error('[Bedrock] Converse stream returned no body');
         }
@@ -565,8 +606,10 @@ export class BedrockProvider implements ApiHandler {
         // parameter with a ValidationException, and the direct Anthropic and
         // OpenAI classify paths omit it too. The classification is short and
         // deterministic enough without it.
-        const response = await this.client.send(
-            new ConverseCommand({
+        const sdk = await getBedrockSdk();
+        const client = await this.getClient();
+        const response = await client.send(
+            new sdk.ConverseCommand({
                 modelId: this.config.model,
                 messages: [{ role: 'user', content: [{ text: prompt }] }],
                 inferenceConfig: { maxTokens: 50 },
