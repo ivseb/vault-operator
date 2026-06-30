@@ -38,31 +38,47 @@ export function sanitizeHistoryForApi(
         droppedEmptyMessages: 0,
     };
 
-    // Pass 1: collect every tool_result tool_use_id present anywhere in history.
-    // An assistant tool_use is "valid" if some later user message has a
-    // tool_result with the matching tool_use_id. Anthropic actually requires
-    // the result to be in the *immediately following* user message, but allowing
-    // any later result is enough to keep the transcript useful and the strict
-    // ordering check still happens server-side.
+    // FIX-PERF-18: single forward pass collects both sides plus an
+    // orphan-detection flag. Previously this ran three full walks
+    // (resolved-ids, emitted-ids, rebuild). On clean histories the
+    // rebuild was wasted work because nothing was orphan; the bail
+    // below returns the input untouched when both sides line up.
     const resolvedToolUseIds = new Set<string>();
+    const emittedToolUseIds = new Set<string>();
+    let anyToolUse = false;
     for (const msg of history) {
-        if (msg.role !== 'user' || !Array.isArray(msg.content)) continue;
+        if (!Array.isArray(msg.content)) continue;
         for (const block of msg.content) {
-            if (block.type === 'tool_result' && typeof block.tool_use_id === 'string') {
+            if (msg.role === 'user' && block.type === 'tool_result'
+                && typeof block.tool_use_id === 'string') {
                 resolvedToolUseIds.add(block.tool_use_id);
+            } else if (msg.role === 'assistant' && block.type === 'tool_use'
+                && typeof block.id === 'string') {
+                emittedToolUseIds.add(block.id);
+                anyToolUse = true;
             }
         }
     }
 
-    // Pass 2: collect every assistant tool_use id present anywhere in history.
-    const emittedToolUseIds = new Set<string>();
-    for (const msg of history) {
-        if (msg.role !== 'assistant' || !Array.isArray(msg.content)) continue;
-        for (const block of msg.content) {
-            if (block.type === 'tool_use' && typeof block.id === 'string') {
-                emittedToolUseIds.add(block.id);
-            }
+    // Fast path: if no tool_use AND no tool_result ever appeared,
+    // the history is trivially clean and we skip the rebuild. If
+    // either side appeared we must verify pairing before bailing.
+    if (!anyToolUse && resolvedToolUseIds.size === 0) {
+        return { history: history.slice(), stats };
+    }
+    // Both sides exist - check if every emitted tool_use has a result
+    // and every tool_result has an emitted tool_use. If so, bail.
+    let isClean = true;
+    for (const id of emittedToolUseIds) {
+        if (!resolvedToolUseIds.has(id)) { isClean = false; break; }
+    }
+    if (isClean) {
+        for (const id of resolvedToolUseIds) {
+            if (!emittedToolUseIds.has(id)) { isClean = false; break; }
         }
+    }
+    if (isClean) {
+        return { history: history.slice(), stats };
     }
 
     // Pass 3: rebuild history, dropping orphan blocks.
