@@ -14,12 +14,22 @@
 
 const SEARCH_TOOLS = new Set(['search_files', 'semantic_search', 'search_by_tag', 'web_search']);
 
+/**
+ * FIX-COMPACT-01: outcome flag distinguishes successful vs failed tool calls.
+ * The ledger renders failed entries under a dedicated "PREVIOUSLY FAILED"
+ * section so the post-condense summarizer surfaces failures explicitly to
+ * the agent (closing the "X klappt nicht, vergessen, X erneut" loop hole).
+ * Defaults to 'success' for callers that don't pass the flag.
+ */
+export type ToolCallOutcome = 'success' | 'failed';
+
 interface ToolCallEntry {
     tool: string;
     inputKey: string;
     queryTerms: Set<string>;
     resultSummary: string;
     iteration: number;
+    outcome: ToolCallOutcome;
 }
 
 export interface RepetitionCheck {
@@ -93,6 +103,7 @@ export class ToolRepetitionDetector {
         input: Record<string, unknown>,
         resultSummary: string,
         iteration: number,
+        outcome: ToolCallOutcome = 'success',
     ): void {
         const key = `${toolName}:${JSON.stringify(input)}`;
         const rawQ = input.query ?? input.pattern ?? '';
@@ -101,9 +112,11 @@ export class ToolRepetitionDetector {
             : '';
         const queryTerms = new Set(queryText.split(/\s+/).filter((t) => t.length > 2));
 
-        this.allCalls.push({ tool: toolName, inputKey: key, queryTerms, resultSummary, iteration });
+        this.allCalls.push({ tool: toolName, inputKey: key, queryTerms, resultSummary, iteration, outcome });
 
-        // Sliding window for exact-match detection
+        // Sliding window for exact-match detection. Failed calls also feed
+        // the window so an agent that keeps retrying the same broken call
+        // gets blocked the same way as a redundant successful one.
         this.recentKeys.push(key);
         if (this.recentKeys.length > this.windowSize) {
             this.recentKeys.shift();
@@ -130,7 +143,7 @@ export class ToolRepetitionDetector {
             ? (typeof rawQ === 'string' ? rawQ : '').toLowerCase()
             : '';
         const queryTerms = new Set(queryText.split(/\s+/).filter((t) => t.length > 2));
-        this.allCalls.push({ tool: toolName, inputKey: key, queryTerms, resultSummary, iteration });
+        this.allCalls.push({ tool: toolName, inputKey: key, queryTerms, resultSummary, iteration, outcome: 'success' });
         // Deliberately skip `recentKeys.push(key)` -- FastPath batches must
         // not feed the exact-repetition sliding window (ADR-133 rationale).
     }
@@ -138,20 +151,38 @@ export class ToolRepetitionDetector {
     /**
      * Structured tool-call ledger for injection into condensing prompt.
      * Returns empty string if no calls recorded.
+     *
+     * FIX-COMPACT-01: failed calls are rendered in a dedicated section so
+     * the post-condense agent surfaces them explicitly instead of letting
+     * the summarizer paraphrase them away.
      */
     getLedger(): string {
         if (this.allCalls.length === 0) return '';
-        const lines = this.allCalls.map((c, i) => {
-            // Extract key params (path, query, pattern) for readability
+        const render = (entry: ToolCallEntry, idx: number): string => {
             let parsed: Record<string, unknown>;
-            try { parsed = JSON.parse(c.inputKey.slice(c.tool.length + 1)); } catch { parsed = {}; }
+            try { parsed = JSON.parse(entry.inputKey.slice(entry.tool.length + 1)); } catch { parsed = {}; }
             const params = Object.entries(parsed)
                 .filter(([, v]) => typeof v === 'string' || typeof v === 'number')
                 .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
                 .join(', ');
-            return `${i + 1}. [iter ${c.iteration}] ${c.tool}(${params}) => ${c.resultSummary}`;
-        });
-        return 'Tool calls executed so far (DO NOT repeat these):\n' + lines.join('\n');
+            return `${idx + 1}. [iter ${entry.iteration}] ${entry.tool}(${params}) => ${entry.resultSummary}`;
+        };
+        const successes = this.allCalls.filter((c) => c.outcome === 'success');
+        const failures = this.allCalls.filter((c) => c.outcome === 'failed');
+        const sections: string[] = [];
+        if (successes.length > 0) {
+            sections.push(
+                'Tool calls executed so far (DO NOT repeat these):\n'
+                + successes.map(render).join('\n'),
+            );
+        }
+        if (failures.length > 0) {
+            sections.push(
+                'PREVIOUSLY FAILED TOOL CALLS (do not retry with same args; change approach instead):\n'
+                + failures.map(render).join('\n'),
+            );
+        }
+        return sections.join('\n\n');
     }
 
     /** Jaccard similarity coefficient on two word sets. */

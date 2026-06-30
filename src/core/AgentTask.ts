@@ -1656,15 +1656,16 @@ export class AgentTask {
                         conversationId,
                         readFiles,
                     });
-                    // Record successful calls in the ledger (for condensing preservation)
-                    if (!result.is_error) {
-                        repetitionDetector.record(
-                            toolUse.name,
-                            toolUse.input,
-                            extractTextContent(result.content).slice(0, 200),
-                            iteration,
-                        );
-                    }
+                    // FIX-COMPACT-01: record both outcomes in the ledger so the
+                    // post-condense agent sees failures explicitly instead of
+                    // re-attempting an approach the summarizer paraphrased away.
+                    repetitionDetector.record(
+                        toolUse.name,
+                        toolUse.input,
+                        extractTextContent(result.content).slice(0, 200),
+                        iteration,
+                        result.is_error ? 'failed' : 'success',
+                    );
                     // EPIC-26 / FEAT-26-06: flip plugin-skills lean -> full
                     // the first time a skill-group tool is invoked in this
                     // task. The next rebuildPromptCache picks up the change.
