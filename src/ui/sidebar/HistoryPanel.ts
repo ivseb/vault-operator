@@ -195,9 +195,17 @@ export class HistoryPanel {
             cls: 'history-panel-filter-input',
         });
         filterInput.value = this.filterText;
+        // FIX-PERF-35: debounce the filter so a 368-conversation list
+        // does not rebuild on every keystroke. 250 ms is short enough
+        // to feel snappy and long enough to coalesce typical typing.
+        let filterDebounce: number | null = null;
         filterInput.addEventListener('input', () => {
             this.filterText = filterInput.value;
-            this.renderList(listEl);
+            if (filterDebounce !== null) window.clearTimeout(filterDebounce);
+            filterDebounce = window.setTimeout(() => {
+                filterDebounce = null;
+                this.renderList(listEl);
+            }, 250);
         });
 
         // Memory-only toggle (FEATURE-0318): only meaningful when the

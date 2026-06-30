@@ -28,6 +28,7 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
+import { validateToolInput } from './inputSchemaValidator';
 import type { StigmergyTurn } from '../stigmergy/StigmergyAdapter';
 import type { ModeService } from '../modes/ModeService';
 import {
@@ -478,9 +479,10 @@ export class ToolExecutionPipeline {
             }
 
             // 2b. Input schema validation (AUDIT-006 H-5)
+            // FIX-PERF-09: validateToolInput is statically imported so
+            // the dynamic-import-per-call overhead is gone.
             const definition = tool.getDefinition();
             if (definition.input_schema?.properties && toolCall.input) {
-                const { validateToolInput } = await import('./inputSchemaValidator');
                 const schemaErrors = validateToolInput(toolCall.input, definition.input_schema);
                 if (schemaErrors.length > 0) {
                     const msg = schemaErrors.map(e => e.message).join('; ');
@@ -954,7 +956,11 @@ export class ToolExecutionPipeline {
     ): Promise<void> {
         const logger: OperationLogger | undefined = this.plugin.operationLogger;
         if (logger) {
-            await logger.log({
+            // FIX-PERF-08: fire-and-forget. Tool dispatch should not wait
+            // for a log write to land on disk. The logger has its own
+            // retry/queue; failures surface via .catch() instead of
+            // blocking the agent loop.
+            void logger.log({
                 timestamp: new Date().toISOString(),
                 taskId: this.taskId,
                 mode: this.mode,
@@ -964,12 +970,12 @@ export class ToolExecutionPipeline {
                 success,
                 durationMs,
                 error: errorMessage,
+            }).catch((err) => {
+                console.warn('[Pipeline] operationLogger.log failed (non-fatal):', err);
             });
-        } else {
+        } else if (this.plugin.settings.debugMode) {
             // Fallback: console only
-            if (this.plugin.settings.debugMode) {
-                console.debug(`[Pipeline] ${toolCall.name} — ${success ? 'ok' : 'error'} (${durationMs}ms)`);
-            }
+            console.debug(`[Pipeline] ${toolCall.name} — ${success ? 'ok' : 'error'} (${durationMs}ms)`);
         }
     }
 
