@@ -833,7 +833,6 @@ export interface ObsidianAgentSettings {
     semanticBatchSize: number;
     semanticAutoIndex: 'startup' | 'mode-switch' | 'never';
     semanticExcludedFolders: string[];
-    semanticStorageLocation: 'obsidian-sync' | 'local' | 'global';
     semanticIndexPdfs: boolean;
     /**
      * IMP-06-01-01: post-fix flags so the EmbeddingsTab "Reindex PDFs
@@ -1800,7 +1799,6 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticBatchSize: 20,
     semanticAutoIndex: 'never',
     semanticExcludedFolders: [],
-    semanticStorageLocation: 'global',
     semanticIndexPdfs: false,
     _pdfReindexHintShown: false,
     _pdfReindexCompleted: false,

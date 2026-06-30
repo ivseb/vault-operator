@@ -33,7 +33,6 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     'semanticBatchSize',
     'semanticAutoIndex',
     'semanticExcludedFolders',
-    'semanticStorageLocation',
     'semanticIndexPdfs',
     'semanticChunkSize',
     'hydeEnabled',

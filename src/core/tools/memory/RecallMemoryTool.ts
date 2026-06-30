@@ -21,6 +21,7 @@ import { FactStore } from '../../memory/FactStore';
 import type { Fact, FactKind } from '../../memory/FactStore';
 import type { RecallHit } from '../../memory/RecallHit';
 import { cosine } from '../../memory/cosine';
+import { toShortestLinktext } from '../vault/shortestLinktext';
 
 export class RecallMemoryTool extends BaseTool<'recall_memory'> {
     readonly name = 'recall_memory' as const;
@@ -285,7 +286,7 @@ export class RecallMemoryTool extends BaseTool<'recall_memory'> {
         }
         if (uri.startsWith('vault://')) {
             const path = uri.slice('vault://'.length);
-            return `${edgeType}: [[${path}]]`;
+            return `${edgeType}: [[${toShortestLinktext(this.plugin.app, path)}]]`;
         }
         if (uri.startsWith('https://') || uri.startsWith('http://')) {
             return `${edgeType}: <${uri}>`;

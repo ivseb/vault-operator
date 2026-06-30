@@ -468,10 +468,24 @@ export default class ObsidianAgentPlugin extends Plugin {
         //     otherwise the service would create a fresh empty folder beside
         //     the unrenamed legacy data.
         const vaultBasePath = (this.app.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
+        // Peek at the persisted settings BEFORE loadSettings() so the
+        // GlobalFileService constructor below can land directly on the
+        // consolidated layout when FEAT-29-01 is already complete. Without
+        // this peek the constructor probes for legacy folders, lands on
+        // `obsilo-shared/`, and every `saveSettings()` call between here and
+        // the post-migration `useVaultLocalRoot()` hop (~10 calls during
+        // boot) writes into the stale legacy folder — which then shadows
+        // the newer values from `.vault-operator/data/settings.json` on the
+        // next reload (latent setting-loss bug).
+        let savedFolderPath: string | undefined;
+        let savedLayoutMigrationStatus: string | undefined;
         try {
             const rawSaved = await this.loadData() as Record<string, unknown> | null;
-            const savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
+            savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
                 ? rawSaved.agentFolderPath
+                : undefined;
+            savedLayoutMigrationStatus = typeof rawSaved?._layoutMigrationStatus === 'string'
+                ? rawSaved._layoutMigrationStatus
                 : undefined;
             const { migrateFolderRename } = await import('./core/utils/migrateFolderRename');
             const renameReport = await migrateFolderRename(this.app, vaultBasePath, savedFolderPath);
@@ -482,8 +496,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             console.warn('[Plugin] Folder rename migration failed (non-fatal):', e);
         }
 
-        // 0c. Global file service — shared storage at {vault-parent}/obsilo-shared/ (FEATURE-1508 + folder rename)
-        this.globalFs = new GlobalFileService(vaultBasePath);
+        // 0c. Global file service — points at the consolidated vault-local
+        // data root when the layout migration is complete, otherwise probes
+        // the legacy vault-parent folders (vault-operator-shared / obsilo-shared
+        // / .obsidian-agent) to preserve existing user data.
+        const layoutHint = (savedFolderPath && savedLayoutMigrationStatus === 'complete')
+            ? { agentFolderPath: savedFolderPath, layoutMigrationStatus: 'complete' as const }
+            : undefined;
+        this.globalFs = new GlobalFileService(vaultBasePath, layoutHint);
         this.globalSettingsService = new GlobalSettingsService(this.globalFs, this.safeStorage);
         // Share the GlobalFileService with GlobalModeStore (consolidates all global I/O)
         setGlobalModeStoreFs(this.globalFs);
@@ -3492,9 +3512,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 },
             })
             : null;
-        // semanticStorageLocation ist die kanonische Storage-Mode-Setting fuer
-        // knowledge.db (siehe FEATURE-1508). Map fuer FrontmatterWriter.
-        const storageMode = (this.settings.semanticStorageLocation ?? 'global');
+        // FEATURE-1508: knowledge.db lebt vault-lokal (siehe KnowledgeDB-Init oben).
+        // Der FrontmatterWriter spiegelt den gleichen Mode wider.
+        const storageMode = 'local' as const;
         const job = new FrontmatterBackfillJob(
             this.app,
             this.noteSummaryStore,

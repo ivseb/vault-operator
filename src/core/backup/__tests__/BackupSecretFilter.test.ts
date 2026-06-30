@@ -11,10 +11,12 @@
 import { describe, it, expect } from 'vitest';
 import {
     filterSecretsFromDataJson,
+    stripRedactedFromImport,
     dataJsonContainsSecrets,
     getKnownSecretKeys,
     REDACTED_SENTINEL,
 } from '../BackupSecretFilter';
+import { __TEST_PROVIDER_CRED_KEYS } from '../../security/providerCredentialCrypto';
 
 describe('filterSecretsFromDataJson', () => {
     it('redacts the canonical secret keys at the top level', () => {
@@ -39,6 +41,45 @@ describe('filterSecretsFromDataJson', () => {
         const out = filterSecretsFromDataJson(input) as Record<string, string>;
         for (const k of Object.keys(input)) {
             expect(out[k]).toBe(REDACTED_SENTINEL);
+        }
+    });
+
+    it('AUDIT-038 ISSUE-001: redacts gateway + provider OAuth + ChatGPT-OAuth fields', () => {
+        // AUDIT-038 ISSUE-001 found these 5 secret-carrying fields were
+        // missing from KNOWN_SECRET_KEYS and from BackupTab.stripSensitiveFields.
+        // - gatewayHeaderValue / oauthToken: ProviderConfig credentials
+        //   already classified as secrets by providerCredentialCrypto.
+        // - chatgptOAuth(Access|Refresh|Id)Token: encrypted at rest per
+        //   ADR-088/ADR-089 but exported in cleartext.
+        const input = {
+            providerConfigs: [
+                { name: 'p1', gatewayHeaderValue: 'gw-secret', oauthToken: 'oauth-secret' },
+            ],
+            chatgptOAuthAccessToken: 'sk-chatgpt-access',
+            chatgptOAuthRefreshToken: 'sk-chatgpt-refresh',
+            chatgptOAuthIdToken: 'jwt-chatgpt-id',
+        };
+        const out = filterSecretsFromDataJson(input) as {
+            providerConfigs: Array<{ gatewayHeaderValue: string; oauthToken: string }>;
+            chatgptOAuthAccessToken: string;
+            chatgptOAuthRefreshToken: string;
+            chatgptOAuthIdToken: string;
+        };
+        expect(out.providerConfigs[0].gatewayHeaderValue).toBe(REDACTED_SENTINEL);
+        expect(out.providerConfigs[0].oauthToken).toBe(REDACTED_SENTINEL);
+        expect(out.chatgptOAuthAccessToken).toBe(REDACTED_SENTINEL);
+        expect(out.chatgptOAuthRefreshToken).toBe(REDACTED_SENTINEL);
+        expect(out.chatgptOAuthIdToken).toBe(REDACTED_SENTINEL);
+    });
+
+    it('AUDIT-038 ISSUE-001 drift-pin: every PROVIDER_CRED_KEY is in KNOWN_SECRET_KEYS', () => {
+        // If providerCredentialCrypto adds a new credential field without
+        // mirroring it into BackupSecretFilter, this fails BEFORE the
+        // export ever ships. Mirrors the discipline the H-1 test pin
+        // started for the manual stripSensitiveFields() list.
+        const keys = getKnownSecretKeys();
+        for (const credKey of __TEST_PROVIDER_CRED_KEYS) {
+            expect(keys.has(credKey)).toBe(true);
         }
     });
 
@@ -156,6 +197,89 @@ describe('dataJsonContainsSecrets', () => {
         expect(dataJsonContainsSecrets(null)).toBe(false);
         expect(dataJsonContainsSecrets(undefined)).toBe(false);
         expect(dataJsonContainsSecrets(42)).toBe(false);
+    });
+});
+
+describe('stripRedactedFromImport (AUDIT-039 H-1)', () => {
+    it('drops top-level REDACTED_SENTINEL values so DEFAULT_SETTINGS keep applying', () => {
+        const imported = {
+            githubCopilotAccessToken: REDACTED_SENTINEL,
+            kiloToken: REDACTED_SENTINEL,
+            chatgptOAuthAccessToken: REDACTED_SENTINEL,
+            defaultProvider: 'anthropic',
+            enabled: true,
+        };
+        const out = stripRedactedFromImport(imported) as Record<string, unknown>;
+        expect(out).not.toHaveProperty('githubCopilotAccessToken');
+        expect(out).not.toHaveProperty('kiloToken');
+        expect(out).not.toHaveProperty('chatgptOAuthAccessToken');
+        expect(out.defaultProvider).toBe('anthropic');
+        expect(out.enabled).toBe(true);
+    });
+
+    it('drops REDACTED_SENTINEL deep in providerConfigs', () => {
+        const imported = {
+            providerConfigs: [
+                { name: 'p1', apiKey: REDACTED_SENTINEL, gatewayHeaderValue: REDACTED_SENTINEL, model: 'opus' },
+                { name: 'p2', apiKey: 'real-leftover', oauthToken: REDACTED_SENTINEL },
+            ],
+        };
+        const out = stripRedactedFromImport(imported) as {
+            providerConfigs: Array<{ name: string; apiKey?: string; gatewayHeaderValue?: string; oauthToken?: string; model?: string }>;
+        };
+        expect(out.providerConfigs[0]).not.toHaveProperty('apiKey');
+        expect(out.providerConfigs[0]).not.toHaveProperty('gatewayHeaderValue');
+        expect(out.providerConfigs[0].model).toBe('opus');
+        expect(out.providerConfigs[1].apiKey).toBe('real-leftover');
+        expect(out.providerConfigs[1]).not.toHaveProperty('oauthToken');
+    });
+
+    it('round-trips faithfully: filter then strip yields no secret-key residue', () => {
+        const original = {
+            providerConfigs: [{ name: 'p', apiKey: 'sk-real', model: 'opus' }],
+            chatgptOAuthAccessToken: 'tok-real',
+            defaultProvider: 'anthropic',
+        };
+        const filtered = filterSecretsFromDataJson(original, false);
+        const restored = stripRedactedFromImport(filtered) as {
+            providerConfigs: Array<{ name: string; apiKey?: string; model?: string }>;
+            chatgptOAuthAccessToken?: string;
+            defaultProvider: string;
+        };
+        // Secret fields are gone (so DEFAULT_SETTINGS '' applies); non-secret survives.
+        expect(restored.providerConfigs[0]).not.toHaveProperty('apiKey');
+        expect(restored.providerConfigs[0].model).toBe('opus');
+        expect(restored).not.toHaveProperty('chatgptOAuthAccessToken');
+        expect(restored.defaultProvider).toBe('anthropic');
+    });
+
+    it('leaves real values that happen to share a key untouched (only drops the sentinel)', () => {
+        const imported = { apiKey: 'sk-real', awsApiKey: REDACTED_SENTINEL };
+        const out = stripRedactedFromImport(imported) as Record<string, string>;
+        expect(out.apiKey).toBe('sk-real');
+        expect(out).not.toHaveProperty('awsApiKey');
+    });
+
+    it('does not mutate the input', () => {
+        const imported = { apiKey: REDACTED_SENTINEL, nested: { secret: REDACTED_SENTINEL } };
+        const before = JSON.stringify(imported);
+        stripRedactedFromImport(imported);
+        expect(JSON.stringify(imported)).toBe(before);
+    });
+
+    it('handles arrays at the top level', () => {
+        const imported = [{ apiKey: REDACTED_SENTINEL }, { apiKey: 'sk-real' }];
+        const out = stripRedactedFromImport(imported) as Array<{ apiKey?: string }>;
+        expect(out[0]).not.toHaveProperty('apiKey');
+        expect(out[1].apiKey).toBe('sk-real');
+    });
+
+    it('passes primitives through unchanged', () => {
+        expect(stripRedactedFromImport(null)).toBe(null);
+        expect(stripRedactedFromImport(42)).toBe(42);
+        expect(stripRedactedFromImport('hi')).toBe('hi');
+        // The literal sentinel as a top-level scalar comes through (unlikely but defined).
+        expect(stripRedactedFromImport(REDACTED_SENTINEL)).toBe(REDACTED_SENTINEL);
     });
 });
 

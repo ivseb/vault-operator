@@ -19,6 +19,7 @@ import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
 import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 import { createNodeFetch } from './openai';
+import { validateProviderUrl } from './providerUrlGuard';
 
 /** The Claude-native reasoning-effort levels accepted by output_config.effort. */
 const CLAUDE_EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -81,6 +82,14 @@ export class AnthropicProvider implements ApiHandler {
         const defaultHeaders: Record<string, string> = {};
         if (gatewayMode) {
             defaultHeaders[headerName] = headerValue;
+        }
+
+        // AUDIT-038 ISSUE-002: SSRF guard on config.baseUrl. Without this
+        // a tainted ProviderConfig could pivot the Anthropic API call
+        // (or, worse, the gateway subscription header above) into the
+        // local network or AWS IMDS. OpenAI and Bedrock already do this.
+        if (config.baseUrl) {
+            validateProviderUrl('anthropic', config.baseUrl, { gatewayMode });
         }
 
         this.client = new Anthropic({

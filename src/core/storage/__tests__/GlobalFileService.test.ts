@@ -26,6 +26,90 @@ describe('GlobalFileService', () => {
         });
     });
 
+    /**
+     * Boot-Race fix: when the FEAT-29-01 layout migration is already complete,
+     * the constructor must skip the legacy-folder probe and land directly on
+     * {vault}/{agentFolderPath}/data/. Otherwise saveSettings() calls that run
+     * BEFORE the post-migration useVaultLocalRoot() hop will write into a stale
+     * legacy folder (obsilo-shared/) and shadow newer values on the next boot.
+     *
+     * Filesystem-grounded test (no mocking): physically create a vault-parent
+     * that contains BOTH a legacy `obsilo-shared/` and a `.vault-operator/data/`,
+     * pass the migration status to the constructor, and assert it ignores the
+     * legacy folder.
+     */
+    describe('constructor honors layout migration status (Boot-Race fix)', () => {
+        let tempBase: string;
+        let vaultParent: string;
+        let vaultRoot: string;
+
+        beforeEach(() => {
+            tempBase = realFs.mkdtempSync(pathModule.join(os.tmpdir(), 'gfs-boot-race-test-'));
+            vaultParent = pathModule.join(tempBase, 'Obsidian');
+            vaultRoot = pathModule.join(vaultParent, 'Nexus');
+            // Physically create both the legacy folder AND the consolidated layout
+            // so the legacy-probe (if it ran) would land on obsilo-shared/.
+            realFs.mkdirSync(pathModule.join(vaultParent, 'obsilo-shared'), { recursive: true });
+            realFs.mkdirSync(pathModule.join(vaultRoot, '.vault-operator', 'data'), {
+                recursive: true,
+            });
+
+            safeFs.resetForTest();
+            safeFs.initialize({
+                vaultRoot,
+                pluginDataDir: pathModule.join(vaultRoot, '.obsidian', 'plugins', 'vault-operator'),
+                agentConfigDir: pathModule.join(vaultRoot, '.obsidian-agent'),
+                systemTempDir: os.tmpdir(),
+                desktopConfigDirs: [],
+                extraRoots: [tempBase],
+            });
+        });
+
+        afterEach(() => {
+            safeFs.resetForTest();
+            try {
+                realFs.rmSync(tempBase, { recursive: true, force: true });
+            } catch {
+                // best-effort cleanup
+            }
+        });
+
+        it('lands on legacy obsilo-shared/ without the migration hint (regression baseline)', () => {
+            // Sanity check: confirms that the legacy-probe still works for users
+            // who never ran the FEAT-29-01 layout migration.
+            const service = new GlobalFileService(vaultRoot);
+            expect(service.getRoot()).toBe(pathModule.join(vaultParent, 'obsilo-shared'));
+        });
+
+        it('skips the legacy probe and uses .vault-operator/data when migration is complete', () => {
+            const service = new GlobalFileService(vaultRoot, {
+                agentFolderPath: '.vault-operator',
+                layoutMigrationStatus: 'complete',
+            });
+            expect(service.getRoot()).toBe(
+                pathModule.join(vaultRoot, '.vault-operator', 'data'),
+            );
+        });
+
+        it('still uses the legacy probe when migration is pending', () => {
+            const service = new GlobalFileService(vaultRoot, {
+                agentFolderPath: '.vault-operator',
+                layoutMigrationStatus: 'pending',
+            });
+            expect(service.getRoot()).toBe(pathModule.join(vaultParent, 'obsilo-shared'));
+        });
+
+        it('honors a custom agentFolderPath when migration is complete', () => {
+            const service = new GlobalFileService(vaultRoot, {
+                agentFolderPath: '.my-custom-folder',
+                layoutMigrationStatus: 'complete',
+            });
+            expect(service.getRoot()).toBe(
+                pathModule.join(vaultRoot, '.my-custom-folder', 'data'),
+            );
+        });
+    });
+
     describe('resolvePath', () => {
         it('should resolve relative paths within root', () => {
             const service = new GlobalFileService('/Users/test/Vault');
