@@ -50,6 +50,16 @@ const KNOWN_SECRET_KEYS: ReadonlySet<string> = new Set([
     'cloudflareApiToken',
     'relayToken',
     'mcpServerToken',
+    // AUDIT-038 ISSUE-001: provider-credential fields that
+    // providerCredentialCrypto encrypts at rest but the export path
+    // forgot. gatewayHeaderValue carries the Bedrock-gateway
+    // subscription key, oauthToken carries provider OAuth tokens, and
+    // the chatgpt* fields carry the ChatGPT-OAuth tuple (ADR-088/089).
+    'gatewayHeaderValue',
+    'oauthToken',
+    'chatgptOAuthAccessToken',
+    'chatgptOAuthRefreshToken',
+    'chatgptOAuthIdToken',
 ]);
 
 /** Returns the set of key names this filter treats as secrets. */
@@ -106,6 +116,42 @@ function deepClone<T>(v: T): T {
     if (v === null || v === undefined) return v;
     if (typeof v !== 'object') return v;
     return JSON.parse(JSON.stringify(v)) as T;
+}
+
+/**
+ * Inverse of filterSecretsFromDataJson(): walk an imported object tree
+ * and remove any field whose value is exactly REDACTED_SENTINEL.
+ *
+ * AUDIT-039 H-1: the export path replaces secret values with
+ * REDACTED_SENTINEL so it is visible on inspection that a value was
+ * stripped. On import, those sentinel strings must NOT be persisted
+ * into settings -- if they were, saveSettings would encrypt the literal
+ * "<<REDACTED>>" string and the user's real credential would be
+ * destroyed permanently. By deleting the field instead, DEFAULT_SETTINGS
+ * keeps providing the empty-string default and the user simply has to
+ * re-authenticate, matching the pre-fix behaviour.
+ *
+ * Pure and side-effect-free (returns a deep copy).
+ */
+export function stripRedactedFromImport(json: unknown): unknown {
+    return walkStrip(json);
+}
+
+function walkStrip(value: unknown): unknown {
+    if (value === null || value === undefined) return value;
+    if (Array.isArray(value)) {
+        return value.map((v) => walkStrip(v));
+    }
+    if (typeof value === 'object') {
+        const obj = value as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const [key, v] of Object.entries(obj)) {
+            if (v === REDACTED_SENTINEL) continue;
+            out[key] = walkStrip(v);
+        }
+        return out;
+    }
+    return value;
 }
 
 /**

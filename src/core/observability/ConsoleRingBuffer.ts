@@ -140,31 +140,46 @@ export class ConsoleRingBuffer {
     // -----------------------------------------------------------------------
 
     private push(level: LogLevel, args: unknown[]): void {
+        // FIX-PERF-07: cap per-message size before stringification so a
+        // mistaken console.debug(hugeBlob) does not stall the wrapper.
+        // 16 KB matches typical IDE log lines and is well above normal
+        // log content.
+        const MESSAGE_CAP = 16 * 1024;
         const message = args
             .map(a => {
                 if (typeof a === 'string') return a;
-                try { return JSON.stringify(a); }
+                try {
+                    const s = JSON.stringify(a);
+                    return s.length > MESSAGE_CAP ? s.slice(0, MESSAGE_CAP) + '...[truncated]' : s;
+                }
                 catch { return String(a); }
             })
             .join(' ');
+        const capped = message.length > MESSAGE_CAP
+            ? message.slice(0, MESSAGE_CAP) + '...[truncated]'
+            : message;
 
-        // Extract source from stack trace (caller of console.X)
+        // FIX-PERF-07: source-capture via `new Error().stack` is the
+        // single biggest per-call cost (allocates the full stack string
+        // every time). Gate it to errors only - the only level where the
+        // caller actually matters in practice.
         let source: string | undefined;
-        try {
-            const stack = new Error().stack;
-            if (stack) {
-                const lines = stack.split('\n');
-                // lines[0] = "Error", [1] = this.push, [2] = console.X wrapper, [3] = actual caller
-                source = lines[3]?.trim();
+        if (level === 'error') {
+            try {
+                const stack = new Error().stack;
+                if (stack) {
+                    const lines = stack.split('\n');
+                    source = lines[3]?.trim();
+                }
+            } catch {
+                // Stack trace extraction is best-effort
             }
-        } catch {
-            // Stack trace extraction is best-effort
         }
 
         const entry: LogEntry = {
             timestamp: Date.now(),
             level,
-            message,
+            message: capped,
             source,
             correlatedTool: this.currentTool ?? undefined,
         };

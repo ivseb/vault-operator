@@ -15,6 +15,7 @@
 import JSZip from 'jszip';
 import type { DataAdapter } from 'obsidian';
 import { normalizePath } from 'obsidian';
+import { isDangerousVaultPath } from '../utils/safeVaultPath';
 
 export interface SkillPackageImportInput {
     adapter: DataAdapter;
@@ -185,17 +186,11 @@ export async function importSkillPackage(
 
 // -- Helpers ----------------------------------------------------------------
 
+// FIX-29-40-01 (AUDIT-040 H-1): delegate to the shared utility so this
+// importer and BackupTab.doImport cannot drift. Kept as a thin wrapper
+// so the existing call sites do not need to change.
 function isDangerousPath(p: string): boolean {
-    if (!p) return true;
-    if (p.includes('\0')) return true;
-    if (p.startsWith('/')) return true;
-    // Windows absolute (C:\ / UNC)
-    if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
-    if (p.startsWith('\\\\')) return true;
-    // Parent-dir segments
-    const segments = p.split('/');
-    if (segments.some((s) => s === '..')) return true;
-    return false;
+    return isDangerousVaultPath(p);
 }
 
 function matchesWhitelist(p: string): boolean {

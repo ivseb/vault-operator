@@ -18,10 +18,35 @@
 
 import type { ModeConfig, ToolGroup } from '../../types/settings';
 import type { ToolName } from '../tools/types';
+import { TOOL_METADATA } from '../tools/toolMetadata';
 
 // ---------------------------------------------------------------------------
 // Tool group → tool name mapping (type-safe: values are ToolName, not string)
 // ---------------------------------------------------------------------------
+
+/**
+ * FIX-PERF-26 (Slice 1): derived TOOL_GROUP_MAP from TOOL_METADATA.
+ * This is the inversion of the per-tool `group` field. The hardcoded
+ * TOOL_GROUP_MAP below is preserved for the moment and a startup assert
+ * compares both so drift between the two surfaces (the BUG-021 / FIX-19-28
+ * cluster) is now detected at module-load time instead of via the
+ * builtinModes.coverage.test.ts which only fires in test runs.
+ *
+ * Removal of the hardcoded TOOL_GROUP_MAP below happens in a follow-up
+ * once the assert has been stable for one release. That removal is the
+ * remainder of FIX-PERF-26.
+ */
+function deriveToolGroupMapFromMetadata(): Record<ToolGroup, ToolName[]> {
+    const out: Record<string, ToolName[]> = {
+        read: [], vault: [], edit: [], web: [], agent: [], mcp: [], skill: [],
+    };
+    for (const [name, meta] of Object.entries(TOOL_METADATA)) {
+        const grp = (meta as { group?: string }).group;
+        if (!grp || !(grp in out)) continue;
+        out[grp].push(name as ToolName);
+    }
+    return out as Record<ToolGroup, ToolName[]>;
+}
 
 export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = {
     // IMP-01-07-01 checkpoint tools: registered since 2026-05-19 but missing
@@ -50,6 +75,27 @@ export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = 
     // FEAT-29-03 probe_plugin, FEAT-29-06 run_skill_script added 2026-06-21.
     skill: ['execute_command', 'execute_recipe', 'call_plugin_api', 'resolve_capability_gap', 'enable_plugin', 'probe_plugin', 'run_skill_script'],
 };
+
+// FIX-PERF-26: load-time drift check between TOOL_METADATA.group and
+// TOOL_GROUP_MAP. Logs a warning instead of throwing so a misalignment
+// caught in production reports loudly without bricking the plugin.
+{
+    const derived = deriveToolGroupMapFromMetadata();
+    const groups: ToolGroup[] = ['read', 'vault', 'edit', 'web', 'agent', 'mcp', 'skill'];
+    for (const g of groups) {
+        const a = new Set(TOOL_GROUP_MAP[g]);
+        const b = new Set(derived[g]);
+        const missingFromMetadata = [...a].filter((t) => !b.has(t));
+        const extraInMetadata = [...b].filter((t) => !a.has(t));
+        if (missingFromMetadata.length > 0 || extraInMetadata.length > 0) {
+            console.warn(
+                `[TOOL_GROUP_MAP] drift in group '${g}': `
+                + `present in TOOL_GROUP_MAP but missing TOOL_METADATA.group=${g}: ${missingFromMetadata.join(', ') || '(none)'}; `
+                + `present in TOOL_METADATA.group=${g} but missing TOOL_GROUP_MAP: ${extraInMetadata.join(', ') || '(none)'}`,
+            );
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Built-in mode definitions
@@ -135,12 +181,25 @@ export function getBuiltInMode(slug: string): ModeConfig | undefined {
     return BUILT_IN_MODES.find((m) => m.slug === slug);
 }
 
-/** Expand tool groups into a flat list of tool names */
+/**
+ * Expand tool groups into a flat list of tool names.
+ *
+ * FIX-PERF-17: memoized per group-set key. Groups are bounded
+ * (7 known values) so the cache stays tiny (<128 entries). Pure
+ * function, so the cache is safe forever; never invalidated.
+ */
+const expandToolGroupsCache = new Map<string, ToolName[]>();
 export function expandToolGroups(groups: ToolGroup[]): ToolName[] {
+    // Sorted-join key is stable across input orders.
+    const key = [...groups].sort().join(',');
+    const hit = expandToolGroupsCache.get(key);
+    if (hit !== undefined) return hit;
     const names: ToolName[] = [];
     for (const group of groups) {
         const tools = TOOL_GROUP_MAP[group];
         if (tools) names.push(...tools);
     }
-    return [...new Set(names)]; // deduplicate
+    const out = [...new Set(names)]; // deduplicate
+    expandToolGroupsCache.set(key, out);
+    return out;
 }

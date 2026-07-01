@@ -11,6 +11,7 @@
 
 import type { VaultDNAScanner } from './VaultDNAScanner';
 import type { PluginSkillMeta } from './types';
+import { getAllowedMethodsForPlugin } from '../tools/agent/pluginApiAllowlist';
 
 export class SkillRegistry {
     private scanner: VaultDNAScanner;
@@ -121,6 +122,15 @@ export class SkillRegistry {
                 lines.push(`- ${skill.name} [${type}] -- ${skill.description}`);
                 if (cmdList) {
                     lines.push(`  Commands: ${cmdList}`);
+                }
+                // Additional context for plugins whose API surface is on the
+                // built-in call_plugin_api allowlist. Renders the method
+                // names once so the agent knows what call_plugin_api can do
+                // for this plugin without a describeActions() round-trip.
+                const apiMethods = getAllowedMethodsForPlugin(skill.id);
+                if (apiMethods.length > 0) {
+                    const methodList = apiMethods.map((m) => m.method).join(', ');
+                    lines.push(`  API (call_plugin_api "${skill.id}" "<method>", args): ${methodList}`);
                 }
                 if (skill.needsSetup) {
                     lines.push('  [NEEDS SETUP -- read .skill.md for details]');

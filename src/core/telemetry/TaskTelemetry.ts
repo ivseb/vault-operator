@@ -14,7 +14,38 @@ import type { FileAdapter } from '../storage/types';
 
 const TELEMETRY_DIR = '.obsidian-agent/telemetry';
 const TELEMETRY_FILE = `${TELEMETRY_DIR}/tasks.jsonl`;
+const CONDENSE_FILE = `${TELEMETRY_DIR}/condense.jsonl`;
 const MAX_ENTRIES = 1000;
+const MAX_CONDENSE_ENTRIES = 2000;
+
+/**
+ * FIX-COMPACT-07: persistable shape of a single condense pass.
+ * Mirrors AgentTask.CondenseTelemetryEvent. Kept in this module to
+ * avoid a dependency loop with AgentTask.
+ */
+export interface CondenseTelemetryEntry {
+    startedAt: string;
+    durationMs: number;
+    success: boolean;
+    prevTokens: number;
+    newTokens: number;
+    savedTokens: number;
+    helperModelUsed: boolean;
+    modelId: string;
+    maxTailTokens: number;
+    errorMessage?: string;
+}
+
+export async function readRecentCondense(fs: FileAdapter, n: number = 200): Promise<CondenseTelemetryEntry[]> {
+    if (!(await fs.exists(CONDENSE_FILE))) return [];
+    const raw = await fs.read(CONDENSE_FILE);
+    const lines = raw.split('\n').filter(Boolean).slice(-n);
+    const entries: CondenseTelemetryEntry[] = [];
+    for (const line of lines) {
+        try { entries.push(JSON.parse(line) as CondenseTelemetryEntry); } catch { /* skip corrupt line */ }
+    }
+    return entries;
+}
 
 export interface TaskTelemetryEntry {
     /** ISO timestamp when the task started */
@@ -122,6 +153,32 @@ export class TaskTelemetry {
             }
         }
         await this.fs.write(TELEMETRY_FILE, existing + line);
+    }
+
+    /**
+     * FIX-COMPACT-07: persist a per-condense event. Bounded JSONL at
+     * .obsidian-agent/telemetry/condense.jsonl. Best-effort, never
+     * throws. Datapoints for tuning the threshold and helper-model
+     * selection over time.
+     */
+    async recordCondense(event: CondenseTelemetryEntry): Promise<void> {
+        try {
+            if (!(await this.fs.exists(TELEMETRY_DIR))) {
+                await this.fs.mkdir(TELEMETRY_DIR);
+            }
+            const line = JSON.stringify(event) + '\n';
+            let existing = '';
+            if (await this.fs.exists(CONDENSE_FILE)) {
+                existing = await this.fs.read(CONDENSE_FILE);
+                const lines = existing.split('\n').filter(Boolean);
+                if (lines.length >= MAX_CONDENSE_ENTRIES) {
+                    existing = lines.slice(-(MAX_CONDENSE_ENTRIES - 1)).join('\n') + '\n';
+                }
+            }
+            await this.fs.write(CONDENSE_FILE, existing + line);
+        } catch (e) {
+            console.warn('[TaskTelemetry] condense persist failed (non-fatal):', e);
+        }
     }
 
     /** Read recent entries for the analytics view. */

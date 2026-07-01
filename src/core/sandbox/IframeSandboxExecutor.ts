@@ -18,6 +18,7 @@ import type ObsidianAgentPlugin from '../../main';
 import type { ISandboxExecutor } from './ISandboxExecutor';
 import { SandboxBridge } from './SandboxBridge';
 import { SANDBOX_HTML } from './sandboxHtml';
+import { isFromOwnSandboxFrame } from './iframeSandboxSourceCheck';
 
 // ---------------------------------------------------------------------------
 // Types — Typed bridge message protocol
@@ -194,6 +195,12 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
             }, INIT_TIMEOUT_MS);
 
             const handler = (e: MessageEvent) => {
+                // AUDIT-038 ISSUE-005: gate the init handshake on
+                // event.source the same way handleMessage() gates
+                // steady-state traffic. A forged `sandbox-ready` from
+                // another renderer context (e.g. a sibling plugin) must
+                // not complete our initialization.
+                if (!isFromOwnSandboxFrame(e, this.iframe?.contentWindow ?? null)) return;
                 const data = e.data as { type?: string } | undefined;
                 if (data?.type === 'sandbox-ready') {
                     window.clearTimeout(timeout);
@@ -215,7 +222,9 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
     private async handleMessage(event: MessageEvent): Promise<void> {
         // H-2/M-10: Only accept messages from our sandbox iframe — prevents
         // other plugins in the same Electron renderer from spoofing messages.
-        if (event.source !== this.iframe?.contentWindow) return;
+        // AUDIT-038 ISSUE-005 made this the same helper the init handler uses
+        // so the two cannot drift.
+        if (!isFromOwnSandboxFrame(event, this.iframe?.contentWindow ?? null)) return;
 
         const msg = event.data as SandboxToPluginMessage | undefined;
         if (!msg || !('type' in msg)) return;

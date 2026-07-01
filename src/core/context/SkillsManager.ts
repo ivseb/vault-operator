@@ -38,6 +38,11 @@ export interface SkillMeta {
 export class SkillsManager {
     private readonly fs: FileAdapter;
     readonly skillsDir: string;
+    // FIX-PERF-32: cache the in-flight promise so two near-simultaneous
+    // callers (AgentSidebarView pre-send + AgentTask.run) share the same
+    // FS scan instead of duplicating it. invalidateCache() drops the
+    // cache when a skill file changes.
+    private cachedDiscover: Promise<SkillMeta[]> | null = null;
 
     constructor(fs: FileAdapter) {
         this.fs = fs;
@@ -57,8 +62,28 @@ export class SkillsManager {
 
     /**
      * Discover all skills by scanning for SKILL.md files.
+     * FIX-PERF-32: cached. Call invalidateCache() when a SKILL.md file
+     * is created, modified, deleted or renamed.
      */
     async discoverSkills(): Promise<SkillMeta[]> {
+        if (this.cachedDiscover) return this.cachedDiscover;
+        this.cachedDiscover = this.discoverSkillsUncached().catch((err) => {
+            // Do not stick a rejected promise in the cache; let the next
+            // caller retry the scan.
+            this.cachedDiscover = null;
+            throw err;
+        });
+        return this.cachedDiscover;
+    }
+
+    /**
+     * Drop the discoverSkills() cache. Call this on skill file events.
+     */
+    invalidateCache(): void {
+        this.cachedDiscover = null;
+    }
+
+    private async discoverSkillsUncached(): Promise<SkillMeta[]> {
         try {
             const exists = await this.fs.exists(this.skillsDir);
             if (!exists) return [];
@@ -94,6 +119,8 @@ export class SkillsManager {
      */
     async writeFile(path: string, content: string): Promise<void> {
         await this.fs.write(path, content);
+        // FIX-PERF-32: invalidate discoverSkills() cache on internal writes
+        if (path.endsWith('/SKILL.md')) this.invalidateCache();
     }
 
     /**
@@ -102,6 +129,8 @@ export class SkillsManager {
     async createSkill(dirPath: string, content: string): Promise<void> {
         await this.fs.mkdir(dirPath);
         await this.fs.write(`${dirPath}/SKILL.md`, content);
+        // FIX-PERF-32: new skill, cache must be rebuilt
+        this.invalidateCache();
     }
 
     /**
@@ -113,6 +142,9 @@ export class SkillsManager {
         } catch {
             // Non-fatal: file may already be gone
         }
+        // FIX-PERF-32: invalidate even on partial failure - the deletion
+        // may have succeeded before the throw.
+        this.invalidateCache();
         // Clean up empty parent directory (e.g. skills/my-skill/)
         const parentDir = path.substring(0, path.lastIndexOf('/'));
         if (parentDir) {

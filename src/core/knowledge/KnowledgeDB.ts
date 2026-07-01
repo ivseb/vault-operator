@@ -607,12 +607,23 @@ export class KnowledgeDB {
             // Stage 1: light B-tree touch
             candidate.exec('SELECT count(*) FROM schema_meta');
             candidate.exec('SELECT count(*) FROM vectors');
-            // Stage 2: PRAGMA integrity_check (returns 'ok' or list of errors)
-            const integrity = candidate.exec('PRAGMA integrity_check;');
+            // Stage 2: FIX-PERF-37 - switched from PRAGMA integrity_check
+            // (full audit, multi-second on 300 MB+ DBs) to
+            // PRAGMA quick_check, which catches the same blob/page
+            // corruption Stage 1 misses but takes milliseconds. The full
+            // integrity_check is still valuable after a crash and after
+            // schema migration; both call paths are intentionally NOT
+            // gated here yet (those triggers need the runtime-state.json
+            // marker which is the next slice of FIX-PERF-37). Today the
+            // worst case is a corruption pattern that quick_check sees as
+            // OK; Stage 1 plus the per-table B-tree touches above still
+            // catch the practical-world cases that integrity_check would
+            // surface in production (broken root pages, truncated blobs).
+            const integrity = candidate.exec('PRAGMA quick_check(1);');
             const verdict = integrity[0]?.values?.[0]?.[0];
             if (verdict !== 'ok') {
-                console.warn('[KnowledgeDB] integrity_check failed:', verdict);
-                throw new Error(`integrity_check returned ${String(verdict)}`);
+                console.warn('[KnowledgeDB] quick_check failed:', verdict);
+                throw new Error(`quick_check returned ${String(verdict)}`);
             }
             // DB is healthy -- assign and migrate
             this.db = candidate;

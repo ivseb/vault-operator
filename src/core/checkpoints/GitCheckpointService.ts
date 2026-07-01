@@ -19,7 +19,17 @@
  * own git history (if any).
  */
 
-import git from 'isomorphic-git';
+// FIX-PERF-14: isomorphic-git is bundle-heavy. Lazy-load on first
+// access so it stays out of the cold-boot critical path; first
+// checkpoint operation in a session pays the import cost once.
+import type GitType from 'isomorphic-git';
+let _gitPromise: Promise<typeof GitType> | null = null;
+function getGit(): Promise<typeof GitType> {
+    if (!_gitPromise) {
+        _gitPromise = import('isomorphic-git').then((m) => m.default);
+    }
+    return _gitPromise;
+}
 import * as path from 'path';
 // isomorphic-git needs the raw Node fs module as its plugin; routing through
 // safeFs caused an indefinite hang during git.resolveRef on iCloud-backed vaults
@@ -117,10 +127,10 @@ export class GitCheckpointService {
             // Check if already a git repo
             const fs = this.getFs();
             try {
-                await git.resolveRef({ fs, dir: this.repoPath, ref: 'HEAD' });
+                await (await getGit()).resolveRef({ fs, dir: this.repoPath, ref: 'HEAD' });
             } catch {
                 // Not initialized — do git init
-                await git.init({
+                await (await getGit()).init({
                     fs,
                     dir: this.repoPath,
                     defaultBranch: 'main',
@@ -195,7 +205,7 @@ export class GitCheckpointService {
                 await fs.promises.writeFile(destPath, content, 'utf8');
 
                 // Stage file
-                await git.add({ fs, dir: this.repoPath, filepath: repoRelative });
+                await (await getGit()).add({ fs, dir: this.repoPath, filepath: repoRelative });
                 staged.push(vaultRelPath);
             } catch (e) {
                 // AUDIT-030 L-3: track per-file failures so callers can surface
@@ -231,10 +241,10 @@ export class GitCheckpointService {
             const markerPath = `.vault-operator-newfiles-${taskId}`;
             const markerDest = `${this.repoPath}/${markerPath}`;
             await fs.promises.writeFile(markerDest, newFilesPayload, 'utf8');
-            await git.add({ fs, dir: this.repoPath, filepath: markerPath });
+            await (await getGit()).add({ fs, dir: this.repoPath, filepath: markerPath });
         }
 
-        const commitOid = await git.commit({
+        const commitOid = await (await getGit()).commit({
             fs,
             dir: this.repoPath,
             author: { name: 'obsidian-agent', email: 'agent@obsidian.local' },
@@ -381,7 +391,7 @@ export class GitCheckpointService {
                     continue;
                 }
                 try {
-                    const { blob } = await git.readBlob({
+                    const { blob } = await (await getGit()).readBlob({
                         fs,
                         dir: this.repoPath,
                         oid: checkpoint.commitOid,
@@ -480,7 +490,7 @@ export class GitCheckpointService {
         for (const vaultRelPath of checkpoint.filesChanged) {
             try {
                 // Get original content from snapshot
-                const { blob } = await git.readBlob({
+                const { blob } = await (await getGit()).readBlob({
                     fs,
                     dir: this.repoPath,
                     oid: checkpoint.commitOid,
@@ -537,7 +547,7 @@ export class GitCheckpointService {
         // 2. Fallback: git log WITHOUT depth limit (post-restart recovery)
         const fs = this.getFs();
         try {
-            const commits = await git.log({ fs, dir: this.repoPath });
+            const commits = await (await getGit()).log({ fs, dir: this.repoPath });
             const prefix = `checkpoint:${taskId}`;
             const matches = commits.filter((c) => c.commit.message.startsWith(prefix));
             if (matches.length === 0) {
@@ -576,7 +586,7 @@ export class GitCheckpointService {
                     continue;
                 }
                 try {
-                    const { blob } = await git.readBlob({
+                    const { blob } = await (await getGit()).readBlob({
                         fs,
                         dir: this.repoPath,
                         oid,
@@ -647,7 +657,7 @@ export class GitCheckpointService {
         }
         await this.ensureInit();
         const fs = this.getFs();
-        const commits = await git.log({ fs, dir: this.repoPath });
+        const commits = await (await getGit()).log({ fs, dir: this.repoPath });
         const prefix = `checkpoint:${taskId}`;
         const list: CheckpointInfo[] = [];
         // git.log is newest-first; reverse so callers see chronological order.
@@ -675,7 +685,7 @@ export class GitCheckpointService {
         await this.ensureInit();
         const fs = this.getFs();
         try {
-            const result = await git.readCommit({ fs, dir: this.repoPath, oid });
+            const result = await (await getGit()).readCommit({ fs, dir: this.repoPath, oid });
             return this.checkpointInfoFromCommit(result);
         } catch {
             return null;
@@ -698,7 +708,7 @@ export class GitCheckpointService {
         }
         await this.ensureInit();
         const fs = this.getFs();
-        const commits = await git.log({ fs, dir: this.repoPath });
+        const commits = await (await getGit()).log({ fs, dir: this.repoPath });
         const list: CheckpointInfo[] = [];
         for (const c of commits) {
             if (!c.commit.message.startsWith('checkpoint:')) continue;
@@ -718,7 +728,7 @@ export class GitCheckpointService {
         try {
             await this.ensureInit();
             const fs = this.getFs();
-            const { blob } = await git.readBlob({
+            const { blob } = await (await getGit()).readBlob({
                 fs,
                 dir: this.repoPath,
                 oid: checkpoint.commitOid,

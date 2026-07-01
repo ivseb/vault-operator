@@ -1181,20 +1181,31 @@ export class SemanticIndexService {
                     // hundreds of `texts=1` HTTP roundtrips on a Vault reindex).
                     const pendingEmbeds: Array<{ chunkId: number; enrichedText: string }> = [];
 
-                    // Phase A -- collect enriched texts (one LLM call per chunk).
-                    for (const chunk of chunks) {
+                    // FIX-PERF-30: Phase A bounded-concurrency. Previously
+                    // every chunk waited for the previous chunk's LLM call
+                    // to return. With a per-file context shared across
+                    // chunks, running up to ENRICH_CONCURRENCY enrich
+                    // calls in parallel cuts wallclock by roughly that
+                    // factor without changing call shape or output.
+                    const ENRICH_CONCURRENCY = 4;
+                    for (let i = 0; i < chunks.length; i += ENRICH_CONCURRENCY) {
                         if (this.enrichmentCancelled) break;
-                        try {
-                            const enrichedTexts = await this.enrichChunkWithContext(
-                                [chunk.text], filePath, fullContent,
-                            );
-                            pendingEmbeds.push({ chunkId: chunk.id, enrichedText: enrichedTexts[0] });
-                        } catch (e) {
-                            // Non-fatal: leave as unenriched, will retry next run
-                            console.warn(`[SemanticIndex] Enrichment failed for chunk ${chunk.id}:`, e);
-                            this.enrichmentProcessed++;
+                        const slice = chunks.slice(i, i + ENRICH_CONCURRENCY);
+                        const results = await Promise.allSettled(slice.map((chunk) =>
+                            this.enrichChunkWithContext([chunk.text], filePath, fullContent)
+                                .then((enrichedTexts) => ({ chunkId: chunk.id, enrichedText: enrichedTexts[0] })),
+                        ));
+                        for (let j = 0; j < results.length; j++) {
+                            const r = results[j];
+                            if (r.status === 'fulfilled') {
+                                pendingEmbeds.push(r.value);
+                            } else {
+                                console.warn(`[SemanticIndex] Enrichment failed for chunk ${slice[j].id}:`, r.reason);
+                                this.enrichmentProcessed++;
+                            }
                         }
-                        // Yield to UI thread between LLM calls
+                        // Yield to UI thread between batches so the
+                        // renderer never starves under enrichment load.
                         await new Promise<void>(r => window.setTimeout(r, 0));
                     }
 

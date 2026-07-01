@@ -6,6 +6,8 @@ import type { ObsidianAgentSettings } from '../../types/settings';
 import type { GlobalFileService } from '../../core/storage/GlobalFileService';
 import { getAgentFolderPath, getPluginSkillsDir, getVaultDnaPath } from '../../core/utils/agentFolder';
 import { MANIFEST_FILENAME } from '../../util/pluginFiles';
+import { filterSecretsFromDataJson, stripRedactedFromImport } from '../../core/backup/BackupSecretFilter';
+import { validateVaultRelativePath } from '../../core/utils/safeVaultPath';
 import { t } from '../../i18n';
 
 // ── Backup category definitions ──────────────────────────────────────────────
@@ -476,7 +478,11 @@ export class BackupTab {
                 };
 
                 if (cat.id === 'settings') {
-                    const json = JSON.stringify(this.stripSensitiveFields(this.plugin.settings), null, 2);
+                    // AUDIT-038 ISSUE-001: manual export now uses the same
+                    // BackupSecretFilter as AutoBackupRunner so the secret
+                    // allowlist cannot drift between the two paths.
+                    const filtered = filterSecretsFromDataJson(this.plugin.settings, false);
+                    const json = JSON.stringify(filtered, null, 2);
                     addToZip('data.json', new TextEncoder().encode(json));
                 } else if (cat.id === 'vault-dna') {
                     const path = getVaultDnaPath(this.plugin);
@@ -724,7 +730,14 @@ export class BackupTab {
                             console.warn('[BackupTab] Settings import: not a valid object, skipping');
                             continue;
                         }
-                        const imported = this.sanitizeSettings(raw as Record<string, unknown>);
+                        // AUDIT-039 H-1: drop REDACTED_SENTINEL values BEFORE
+                        // merging. Without this, the literal "<<REDACTED>>"
+                        // string from the export gets encrypted by
+                        // saveSettings and permanently corrupts credential
+                        // fields the user could otherwise simply
+                        // re-authenticate.
+                        const stripped = stripRedactedFromImport(raw) as Record<string, unknown>;
+                        const imported = this.sanitizeSettings(stripped);
                         this.plugin.settings = Object.assign({}, DEFAULT_SETTINGS, imported);
                         await this.plugin.saveSettings();
                         totalFiles++;
@@ -751,6 +764,29 @@ export class BackupTab {
                         const fullPath = extraFileSet.has(fileEntry.path)
                             ? fileEntry.path
                             : (catDef.dir ? `${catDef.dir}/${fileEntry.path}` : fileEntry.path);
+                        // AUDIT-040 H-1 / FIX-29-40-01: validate the manifest-
+                        // supplied path before any mkdir/writeBinary call. A
+                        // tampered backup ZIP could otherwise write arbitrary
+                        // files (Zip-Slip via parent segments, absolute paths,
+                        // Windows drive letters or NUL bytes). extraFiles entries
+                        // must match the whitelist exactly; dir-walked entries
+                        // must stay under catDef.dir.
+                        if (extraFileSet.has(fileEntry.path)) {
+                            // Verbatim whitelist entry: must match one of the
+                            // declared extraFiles strings exactly AND pass the
+                            // base safety checks.
+                            const baseCheck = validateVaultRelativePath(fullPath);
+                            if (!baseCheck.ok) {
+                                throw new Error(`[Backup] Refused unsafe extraFile path (${baseCheck.reason}): ${fullPath}`);
+                            }
+                        } else {
+                            const check = validateVaultRelativePath(fullPath, {
+                                expectedPrefix: catDef.dir ?? '',
+                            });
+                            if (!check.ok) {
+                                throw new Error(`[Backup] Refused unsafe import path (${check.reason}): ${fullPath}`);
+                            }
+                        }
                         if (catDef.root === 'global') {
                             await this.globalFs.writeBinary(fullPath, data);
                         } else {
@@ -810,31 +846,14 @@ export class BackupTab {
     }
 
     // ── Settings sanitization ──────────────────────────────────────────────
-
-    /**
-     * Strip API keys and tokens before export (AUDIT-006 H-4).
-     * Same field inventory as encryptSettingsForSave() in main.ts.
-     */
-    private stripSensitiveFields(settings: ObsidianAgentSettings): ObsidianAgentSettings {
-        const copy = JSON.parse(JSON.stringify(settings)) as ObsidianAgentSettings;
-        for (const model of copy.activeModels ?? []) {
-            if (model.apiKey) model.apiKey = '';
-        }
-        for (const model of copy.embeddingModels ?? []) {
-            if (model.apiKey) model.apiKey = '';
-        }
-        if (copy.webTools) {
-            copy.webTools.braveApiKey = '';
-            copy.webTools.tavilyApiKey = '';
-        }
-        copy.githubCopilotAccessToken = '';
-        copy.githubCopilotToken = '';
-        copy.kiloToken = '';
-        copy.cloudflareApiToken = '';
-        copy.relayToken = '';
-        copy.mcpServerToken = '';
-        return copy;
-    }
+    //
+    // AUDIT-038 ISSUE-001: the former private stripSensitiveFields() carried
+    // its own hand-rolled field list which drifted from BackupSecretFilter
+    // (which AutoBackupRunner uses). Both paths now share
+    // filterSecretsFromDataJson() so a new credential field cannot leak via
+    // one path while the other strips it. The shape-driven walker
+    // replaces secret values with REDACTED_SENTINEL instead of '' to make
+    // it explicit on inspection that a value was removed.
 
     /**
      * Sanitize imported settings: only copy known keys from DEFAULT_SETTINGS,

@@ -19,6 +19,7 @@ import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
 import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 import { createNodeFetch } from './openai';
+import { validateProviderUrl } from './providerUrlGuard';
 
 /** The Claude-native reasoning-effort levels accepted by output_config.effort. */
 const CLAUDE_EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -83,6 +84,14 @@ export class AnthropicProvider implements ApiHandler {
             defaultHeaders[headerName] = headerValue;
         }
 
+        // AUDIT-038 ISSUE-002: SSRF guard on config.baseUrl. Without this
+        // a tainted ProviderConfig could pivot the Anthropic API call
+        // (or, worse, the gateway subscription header above) into the
+        // local network or AWS IMDS. OpenAI and Bedrock already do this.
+        if (config.baseUrl) {
+            validateProviderUrl('anthropic', config.baseUrl, { gatewayMode });
+        }
+
         this.client = new Anthropic({
             // In gateway mode the SDK still requires a non-null apiKey, but
             // the actual auth travels via the custom header above. Send the
@@ -138,8 +147,18 @@ export class AnthropicProvider implements ApiHandler {
         if (this.config.promptCachingEnabled) {
             markRollingHistoryBreakpoints(anthropicMessages);
             if (anthropicTools.length > 0) {
-                const last = anthropicTools[anthropicTools.length - 1] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
-                last.cache_control = { type: 'ephemeral' };
+                // FIX-PERF-21: pin the cache marker on attempt_completion when
+                // available instead of the literal last tool. attempt_completion
+                // is one of the most stable tools across mode switches and
+                // dynamic tool registrations; pinning the breakpoint there
+                // means the cache prefix stays warm even when the tail of
+                // the tool list changes (e.g. find_tool surfaces a deferred
+                // tool, mode switch swaps the toolset). Fallback to last
+                // tool preserves behaviour for unusual configurations.
+                const attemptIdx = anthropicTools.findIndex((t) => t.name === 'attempt_completion');
+                const targetIdx = attemptIdx !== -1 ? attemptIdx : anthropicTools.length - 1;
+                const target = anthropicTools[targetIdx] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
+                target.cache_control = { type: 'ephemeral' };
             }
         }
 

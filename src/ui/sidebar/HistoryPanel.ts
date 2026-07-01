@@ -69,6 +69,8 @@ export class HistoryPanel {
     private sourceTab: SourceTab = 'all';
     /** FIX-23-01-01: when set, filter list to one cross-interface thread; null = no filter. */
     private threadFilter: string | null = null;
+    /** FIX-PERF-38: per-date-group lazy-render page size. */
+    private groupPageSize = new Map<DateGroup, number>();
 
     constructor(
         private store: ConversationStore,
@@ -195,9 +197,17 @@ export class HistoryPanel {
             cls: 'history-panel-filter-input',
         });
         filterInput.value = this.filterText;
+        // FIX-PERF-35: debounce the filter so a 368-conversation list
+        // does not rebuild on every keystroke. 250 ms is short enough
+        // to feel snappy and long enough to coalesce typical typing.
+        let filterDebounce: number | null = null;
         filterInput.addEventListener('input', () => {
             this.filterText = filterInput.value;
-            this.renderList(listEl);
+            if (filterDebounce !== null) window.clearTimeout(filterDebounce);
+            filterDebounce = window.setTimeout(() => {
+                filterDebounce = null;
+                this.renderList(listEl);
+            }, 250);
         });
 
         // Memory-only toggle (FEATURE-0318): only meaningful when the
@@ -258,13 +268,20 @@ export class HistoryPanel {
             groups.get(group)!.push(c);
         }
 
+        // FIX-PERF-38: cap initial render per group at PAGE_SIZE so a
+        // 368-conversation history paints in milliseconds. The user
+        // clicks "Show more" inside each group to expand on demand.
+        // The per-group counter survives renders (instance state).
+        const PAGE_SIZE = 50;
         for (const groupName of order) {
             const items = groups.get(groupName);
             if (!items || items.length === 0) continue;
 
             container.createDiv({ cls: 'history-group-label', text: t(DATE_GROUP_KEYS[groupName]) });
 
-            for (const conv of items) {
+            const visible = this.groupPageSize.get(groupName) ?? PAGE_SIZE;
+            const slice = items.slice(0, visible);
+            for (const conv of slice) {
                 const row = container.createDiv({
                     cls: `history-row${conv.id === this.activeConversationId ? ' history-row-active' : ''}`,
                 });
@@ -391,6 +408,21 @@ export class HistoryPanel {
                 row.addEventListener('click', () => {
                     this.onLoad(conv.id);
                     this.close();
+                });
+            }
+
+            // FIX-PERF-38: per-group "Show more" button. Reveals
+            // PAGE_SIZE more entries from the same group, then
+            // re-renders. Hidden once the group is fully expanded.
+            if (items.length > visible) {
+                const remaining = items.length - visible;
+                const more = container.createDiv({
+                    cls: 'history-row history-row-show-more',
+                    text: `Show ${Math.min(PAGE_SIZE, remaining)} more (${remaining} hidden)`,
+                });
+                more.addEventListener('click', () => {
+                    this.groupPageSize.set(groupName, visible + PAGE_SIZE);
+                    this.renderList(container);
                 });
             }
         }

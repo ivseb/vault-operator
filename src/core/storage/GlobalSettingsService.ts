@@ -33,7 +33,6 @@ const VAULT_LOCAL_KEYS = new Set<string>([
     'semanticBatchSize',
     'semanticAutoIndex',
     'semanticExcludedFolders',
-    'semanticStorageLocation',
     'semanticIndexPdfs',
     'semanticChunkSize',
     'hydeEnabled',
@@ -177,7 +176,14 @@ export class GlobalSettingsService {
     }
 
     private encryptGlobal(settings: Record<string, unknown>): Record<string, unknown> {
-        const copy = JSON.parse(JSON.stringify(settings)) as Record<string, unknown>;
+        // FIX-PERF-04: structuredClone replaces the JSON.parse(JSON.stringify)
+        // roundtrip. Deep-clones the full settings object faster and without
+        // the JSON-only-types restriction. Falls back to the legacy roundtrip
+        // when structuredClone is unavailable (older Electron) so behaviour
+        // stays identical.
+        const copy = (typeof structuredClone === 'function'
+            ? structuredClone(settings)
+            : JSON.parse(JSON.stringify(settings))) as Record<string, unknown>;
         if (!this.safeStorage.isAvailable()) {
             copy._encrypted = false;
             return copy;

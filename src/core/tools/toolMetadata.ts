@@ -33,9 +33,16 @@ export interface ToolMeta {
     /**
      * Whether this tool requires a quality gate (self-check checklist appended
      * to tool results). True when 2+ of: artifact-producing, multi-element
-     * structure, hard to manually correct. See qualityGates.ts.
+     * structure, hard to manually correct.
      */
     qualityGate?: boolean;
+    /**
+     * FIX-PERF-27: checklist text appended to the tool result when
+     * qualityGate is true. Living next to the metadata keeps the gate
+     * and the criteria in one place; previously a separate qualityGates.ts
+     * file held the strings and drifted out of sync with TOOL_METADATA.
+     */
+    qualityGateChecklist?: string;
     /**
      * FEATURE-1600 (Deferred Tool Loading): when true, this tool's schema is
      * NOT included in the default system prompt. The LLM can still discover
@@ -50,7 +57,7 @@ export interface ToolMeta {
     deferred?: boolean;
 }
 
-/** Alias used by qualityGates.ts for validation. */
+/** Type alias kept for external consumers that import ToolMetadataEntry. */
 export type ToolMetadataEntry = ToolMeta;
 
 /**
@@ -300,6 +307,12 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'To visualize note relationships. Use "files" mode with specific paths for custom selections.',
         commonMistakes: 'Omitting max_notes — large folders create unreadable canvases. Set a reasonable limit.',
         qualityGate: true,
+        qualityGateChecklist: `
+SELF-CHECK before responding (do NOT mention this to the user):
+- All nodes have connections (no orphans)?
+- Hierarchy is not too flat (>1 level) or too deep (>5 levels)?
+- Node labels are concise and descriptive?
+If ANY check fails, call generate_canvas again with corrections.`,
     },
     create_excalidraw: {
         group: 'edit', label: 'Excalidraw', icon: 'pencil',
@@ -309,6 +322,12 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'To create any Excalidraw visualization. Always prefer this over write_file for .excalidraw.md files.',
         commonMistakes: 'Using write_file for .excalidraw.md — always use create_excalidraw instead.',
         qualityGate: true,
+        qualityGateChecklist: `
+SELF-CHECK before responding (do NOT mention this to the user):
+- Elements are readable and not overlapping?
+- Connections between elements are logical?
+- Layout uses space effectively (not too cramped or sparse)?
+If ANY check fails, call create_excalidraw again with corrections.`,
     },
     create_drawio: {
         group: 'edit', label: 'Drawio Flowchart', icon: 'network',
@@ -353,6 +372,24 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'For creating PowerPoint files. Never use write_file or evaluate_expression for .pptx.',
         commonMistakes: 'Using write_file or evaluate_expression for .pptx -- always use create_pptx instead.',
         qualityGate: true,
+        qualityGateChecklist: `
+SELF-CHECK before responding (do NOT mention this to the user):
+1. Every title is an ACTION TITLE that passes the "So What?" test?
+2. Word count: <=25/slide (live) or <=170/slide (reading)?
+3. No slide has >5 bullets (live: >3)?
+4. Consecutive slides use DIFFERENT visual patterns (not copy-paste HTML)?
+5. Speaker notes on every slide (live: detailed, reading: optional)?
+6. Visual type escalation? (numbers->chart, metrics->KPIs, steps->process, NOT bullets)
+7. Tables: max 7 rows, max 5 columns? Split if exceeded?
+8. Storytelling framework applied (SCR, Problem-Solution, Status, or Data-Evidence)?
+9. Color scheme consistent with chosen theme palette?
+10. All elements within 1280x720 canvas bounds?
+11. Text readable (font-size >= 14px for body, >= 28px for titles)?
+12. No title-only slides (every slide has visual content)?
+13. In template mode: chosen slide types semantically fit the content (process != bullets, comparison != monologue)?
+14. In template mode: no slide type flagged as style-guide/component-library used for normal business content?
+15. If a chosen template slide expects images: real images provided, or a text-only alternative selected?
+If ANY check fails, call create_pptx again with corrections.`,
     },
     create_docx: {
         group: 'edit', label: 'Create DOCX', icon: 'file-text',
@@ -362,6 +399,12 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'For creating Word documents. Never use write_file or evaluate_expression for .docx.',
         commonMistakes: 'Using write_file or evaluate_expression for .docx -- always use create_docx instead.',
         qualityGate: true,
+        qualityGateChecklist: `
+SELF-CHECK before responding (do NOT mention this to the user):
+- Document has logical structure (intro, sections, conclusion)?
+- Headings reflect content accurately?
+- No section is empty or has only 1 sentence?
+If ANY check fails, call create_docx again with corrections.`,
     },
     ingest_document: {
         group: 'edit', label: 'Ingest document', icon: 'file-input',
@@ -380,6 +423,12 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'For creating Excel files. Never use write_file or evaluate_expression for .xlsx.',
         commonMistakes: 'Using write_file or evaluate_expression for .xlsx -- always use create_xlsx instead.',
         qualityGate: true,
+        qualityGateChecklist: `
+SELF-CHECK before responding (do NOT mention this to the user):
+- All columns have meaningful headers?
+- Data types are consistent within columns?
+- Formulas reference correct cells?
+If ANY check fails, call create_xlsx again with corrections.`,
     },
 
     // ── Web ───────────────────────────────────────────────────────────────

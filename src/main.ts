@@ -17,6 +17,7 @@ import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
+import { getPerformanceMarks } from './core/observability/PerformanceMarks';
 import { initStigmergy, registerCapabilitiesIfChanged } from './core/stigmergy/StigmergyAdapter';
 import { getSubagentProfile, listSubagentProfileNames } from './core/agent/subagent-profiles';
 import { IgnoreService } from './core/governance/IgnoreService';
@@ -253,6 +254,10 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalSettingsService: GlobalSettingsService | null = null;
     // syncBridge removed (FEATURE-1508)
     ringBuffer: ConsoleRingBuffer;
+    /** FIX-PERF-39: central scheduler. Jobs migrate over time. */
+    backgroundJobs: import('./core/background/BackgroundJobCoordinator').BackgroundJobCoordinator | null = null;
+    /** FIX-PERF-29: central vault-event dispatcher with self-write suppression. */
+    vaultEventDispatcher: import('./core/vault-events/VaultEventDispatcher').VaultEventDispatcher | null = null;
     selfAuthoredSkillLoader: SelfAuthoredSkillLoader | null = null;
     skillSnapshotService: SkillSnapshotService | null = null;
     skillWriteInterceptor: SkillWriteInterceptor | null = null;
@@ -343,6 +348,39 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     readyPromise!: Promise<void>;
 
+    /**
+     * FIX-PERF-28 (Welle 3): two-stage readiness.
+     *   shellReady     -> settings + ModeService construction done; sidebar
+     *                     can render its shell (input box, send button,
+     *                     mode dropdown). Resolves much earlier than
+     *                     readyPromise on a cold boot.
+     *   servicesReady  -> alias for readyPromise for now; will split into
+     *                     per-subsystem promises in follow-up commits
+     *                     (knowledgeReady, memoryReady, semanticReady, etc).
+     * Public surface is still internal-only in 3.x per decision 4.
+     */
+    shellReady!: Promise<void>;
+    servicesReady!: Promise<void>;
+    private markShellReady!: () => void;
+
+    /**
+     * FIX-PERF-28d: per-subsystem readiness promises. Each resolves at
+     * the moment its subsystem becomes safe to use. AgentTask.run and
+     * other consumers can `await plugin.semanticReady` instead of
+     * blocking on the full servicesReady when they only need that one
+     * subsystem. Same internal-only contract as shellReady (Decision 4).
+     */
+    knowledgeReady!: Promise<void>;
+    semanticReady!: Promise<void>;
+    memoryReady!: Promise<void>;
+    skillsReady!: Promise<void>;
+    mcpReady!: Promise<void>;
+    private markKnowledgeReady!: () => void;
+    private markSemanticReady!: () => void;
+    private markMemoryReady!: () => void;
+    private markSkillsReady!: () => void;
+    private markMcpReady!: () => void;
+
     onload(): void {
         // FEAT-29-11 follow-up: register the Lucide "toolbox" SVG under the
         // same icon id so setIcon('toolbox', ...) renders on Obsidian builds
@@ -365,6 +403,29 @@ export default class ObsidianAgentPlugin extends Plugin {
         // promise in its onOpen.
         let markReady: () => void = () => {};
         this.readyPromise = new Promise<void>((resolve) => { markReady = resolve; });
+        // FIX-PERF-28: shellReady fires earlier (after settings + migration
+        // flush) so the sidebar can render its input shell without waiting
+        // on KnowledgeDB / Memory / Semantic / MCP. servicesReady aliases
+        // readyPromise during the 3.x stabilization period.
+        this.shellReady = new Promise<void>((resolve) => { this.markShellReady = resolve; });
+        this.servicesReady = this.readyPromise;
+        // FIX-PERF-28d: per-subsystem promises. Each resolves at the
+        // point its subsystem becomes safe to use.
+        this.knowledgeReady = new Promise<void>((resolve) => { this.markKnowledgeReady = resolve; });
+        this.semanticReady = new Promise<void>((resolve) => { this.markSemanticReady = resolve; });
+        this.memoryReady = new Promise<void>((resolve) => { this.markMemoryReady = resolve; });
+        this.skillsReady = new Promise<void>((resolve) => { this.markSkillsReady = resolve; });
+        this.mcpReady = new Promise<void>((resolve) => { this.markMcpReady = resolve; });
+        // Backstop: if a subsystem fails to construct, its promise must
+        // still resolve so consumers do not hang. doLoad's finally
+        // resolves any still-unresolved subsystem promise.
+        this.readyPromise.finally(() => {
+            this.markKnowledgeReady();
+            this.markSemanticReady();
+            this.markMemoryReady();
+            this.markSkillsReady();
+            this.markMcpReady();
+        });
 
         // Register view SYNCHRONOUSLY so Obsidian can restore saved layout
         // immediately — before any async initialization runs.
@@ -376,16 +437,31 @@ export default class ObsidianAgentPlugin extends Plugin {
             (leaf) => new AgentSidebarView(leaf, this)
         );
 
+        // MEAS-01: span around the async boot work. Resolves at the same
+        // point readyPromise resolves, so the duration equals the visible
+        // boot latency for any consumer that waits on readyPromise.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.start('plugin.boot');
+
         void this.doLoad()
             .catch((err) => {
                 console.error('[Boot] doLoad threw before completion:', err);
             })
-            .finally(() => markReady());
+            .finally(() => {
+                perfMarks.end('plugin.boot', { log: true });
+                markReady();
+            });
     }
 
     private async doLoad(): Promise<void> {
         // 0. ConsoleRingBuffer — install FIRST so all subsequent logs are captured
         this.ringBuffer = new ConsoleRingBuffer(500);
+        // FIX-PERF-39: central background scheduler. Migrating jobs over.
+        const { BackgroundJobCoordinator } = await import('./core/background/BackgroundJobCoordinator');
+        this.backgroundJobs = new BackgroundJobCoordinator();
+        // FIX-PERF-29: central vault-event dispatcher. Consumers migrate over.
+        const { VaultEventDispatcher } = await import('./core/vault-events/VaultEventDispatcher');
+        this.vaultEventDispatcher = new VaultEventDispatcher(this.app.vault);
         this.ringBuffer.install();
 
         console.debug('Loading Vault Operator plugin');
@@ -468,10 +544,24 @@ export default class ObsidianAgentPlugin extends Plugin {
         //     otherwise the service would create a fresh empty folder beside
         //     the unrenamed legacy data.
         const vaultBasePath = (this.app.vault.adapter as unknown as { getBasePath?(): string }).getBasePath?.() ?? '';
+        // Peek at the persisted settings BEFORE loadSettings() so the
+        // GlobalFileService constructor below can land directly on the
+        // consolidated layout when FEAT-29-01 is already complete. Without
+        // this peek the constructor probes for legacy folders, lands on
+        // `obsilo-shared/`, and every `saveSettings()` call between here and
+        // the post-migration `useVaultLocalRoot()` hop (~10 calls during
+        // boot) writes into the stale legacy folder — which then shadows
+        // the newer values from `.vault-operator/data/settings.json` on the
+        // next reload (latent setting-loss bug).
+        let savedFolderPath: string | undefined;
+        let savedLayoutMigrationStatus: string | undefined;
         try {
             const rawSaved = await this.loadData() as Record<string, unknown> | null;
-            const savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
+            savedFolderPath = typeof rawSaved?.agentFolderPath === 'string'
                 ? rawSaved.agentFolderPath
+                : undefined;
+            savedLayoutMigrationStatus = typeof rawSaved?._layoutMigrationStatus === 'string'
+                ? rawSaved._layoutMigrationStatus
                 : undefined;
             const { migrateFolderRename } = await import('./core/utils/migrateFolderRename');
             const renameReport = await migrateFolderRename(this.app, vaultBasePath, savedFolderPath);
@@ -482,8 +572,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             console.warn('[Plugin] Folder rename migration failed (non-fatal):', e);
         }
 
-        // 0c. Global file service — shared storage at {vault-parent}/obsilo-shared/ (FEATURE-1508 + folder rename)
-        this.globalFs = new GlobalFileService(vaultBasePath);
+        // 0c. Global file service — points at the consolidated vault-local
+        // data root when the layout migration is complete, otherwise probes
+        // the legacy vault-parent folders (vault-operator-shared / obsilo-shared
+        // / .obsidian-agent) to preserve existing user data.
+        const layoutHint = (savedFolderPath && savedLayoutMigrationStatus === 'complete')
+            ? { agentFolderPath: savedFolderPath, layoutMigrationStatus: 'complete' as const }
+            : undefined;
+        this.globalFs = new GlobalFileService(vaultBasePath, layoutHint);
         this.globalSettingsService = new GlobalSettingsService(this.globalFs, this.safeStorage);
         // Share the GlobalFileService with GlobalModeStore (consolidates all global I/O)
         setGlobalModeStoreFs(this.globalFs);
@@ -498,7 +594,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (this.settings.agentFolderPath === '.obsidian-agent'
             || this.settings.agentFolderPath === 'obsilo-vault') {
             this.settings.agentFolderPath = '.obsilo-vault';
-            await this.saveSettings();
+            // FIX-PERF-04: defer to flushSettings() after the migration chain
+            this.markSettingsDirty();
         }
 
         // 1a-bis. AUDIT-034 M-5 / M-15 -- surface the plaintext-fallback
@@ -538,7 +635,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // fast tier (Stage 2 in getHelperModel). The legacy explicit
                 // key would mask that fallback indefinitely.
                 this.settings.helperModelKey = '';
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 this.pendingMigrationSummary = migration.summary;
                 console.debug(
                     `[Plugin] EPIC-26 migration: ${migration.summary.providersCreated} providers, `
@@ -565,7 +663,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                     changed = true;
                 }
             }
-            if (changed) await this.saveSettings();
+            // FIX-PERF-04: batch with the rest of the migration chain
+            if (changed) this.markSettingsDirty();
         }
 
         // 1b-orphan-purge. EPIC-26 follow-up #2: users who migrated under
@@ -616,7 +715,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 am: this.settings.activeModels?.length ?? 0,
             });
             if (before !== after) {
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 console.debug('[Plugin] EPIC-26 orphan-purge: cleared stale legacy state');
             }
         }
@@ -662,13 +762,29 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }
             if (changed) {
-                await this.saveSettings();
+                // FIX-PERF-04: batch with the rest of the migration chain
+                this.markSettingsDirty();
                 console.debug(
                     '[Plugin] EPIC-26 openai cleanup: stripped non-chat modalities '
                     + 'and stale tier slots; refreshOnStartup will re-discover',
                 );
             }
         }
+
+        // FIX-PERF-04: flush all batched migration-block dirty-marks in
+        // one go. Migration blocks above call markSettingsDirty(); this
+        // is the single save that replaces 5+ separate saveSettings()
+        // calls. Idempotency-critical markers (parentDirMigrated,
+        // pluginDataDirsMigrated, layoutMigrationStatus) keep their own
+        // direct saveSettings() and are unaffected by this batching.
+        await this.flushSettings();
+
+        // FIX-PERF-28: shell is ready -- settings are loaded, migrations
+        // have flushed, ModeService is constructible. The sidebar can
+        // render its input shell now without waiting on KnowledgeDB,
+        // Memory, Semantic, MCP. Heavy subsystems below still finish
+        // before servicesReady resolves at the end of doLoad.
+        this.markShellReady();
 
         // 1c. EPIC-26 / FEAT-26-02 -- ModelDiscoveryService for the new
         //     provider-only settings. Wraps fetchProviderModels with the
@@ -989,6 +1105,8 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Skills manager (Sprint 3.4) — now uses global storage
         this.skillsManager = new SkillsManager(this.globalFs);
         await this.skillsManager.initialize();
+        // FIX-PERF-28d: skills subsystem promise resolves here.
+        this.markSkillsReady();
 
         // VaultDNA: auto-discover plugins as skills (PAS-1)
         // Create scanner/registry immediately so references exist,
@@ -1052,6 +1170,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         // No global opt-in is needed here; the McpTab modal manages the flag
         // per server.
         this.mcpClient = new McpClient();
+        // FIX-PERF-28d: mcp client constructed; consumers can begin
+        // requesting servers via this.mcpClient. Actual server
+        // connections come later but the client API surface exists.
+        this.markMcpReady();
         if (Object.keys(this.settings.mcpServers ?? {}).length > 0) {
             this.mcpClient.connectAll(this.settings.mcpServers).catch((e) =>
                 console.warn('[Plugin] MCP connect failed (non-fatal):', e)
@@ -1243,6 +1365,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
                 console.warn('[Plugin] KnowledgeDB open failed (non-fatal):', e);
             });
+            // FIX-PERF-28d: knowledge subsystem ready (DB open or
+            // gracefully marked unavailable in the next block).
+            this.markKnowledgeReady();
             // FIX-18: If open() failed, null out to prevent cascading "not opened" errors
             if (!this.knowledgeDB.isOpen()) {
                 console.warn('[Plugin] KnowledgeDB not available — semantic features disabled for this session');
@@ -1374,6 +1499,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // land in the vector index.
                 plugin: this,
             });
+            // FIX-PERF-28d: semantic subsystem ready - consumers can
+            // semanticSearch / runBackgroundEnrichment from here.
+            this.markSemanticReady();
             const embeddingModel = this.getActiveEmbeddingModel();
             if (embeddingModel) this.semanticIndex.setEmbeddingModel(embeddingModel);
             // Contextual Retrieval: set API handler for prefix generation (FEATURE-1501)
@@ -1896,6 +2024,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const { MemorySourceStore } = await import('./core/knowledge/MemorySourceStore');
                 this.memorySourceStore = new MemorySourceStore(this.memoryDB);
             }
+            // FIX-PERF-28d: memory subsystem ready (DB open or marked
+            // gracefully unavailable above).
+            this.markMemoryReady();
         }
 
         // History DB (FEATURE-0320 Phase 6): per-message keyword + future cosine
@@ -2447,20 +2578,37 @@ export default class ObsidianAgentPlugin extends Plugin {
             this.activeMcpSessions = new ActiveMcpSessions();
             // Eviction-Tick alle 5 Minuten -- entfernt abgelaufene
             // Sessions auch wenn keine MCP-Calls reinkommen.
-            this.activeMcpSessionsEvictHandle = scheduleRecurring(() => {
-                const removed = this.activeMcpSessions?.evictExpired() ?? 0;
-                if (removed > 0) {
-                    console.debug(`[ActiveMcpSessions] evicted ${removed} expired session(s)`);
-                }
-            }, 5 * 60 * 1000);
+            // FIX-PERF-39 migration: ActiveMcpSessions evict via
+            // BackgroundJobCoordinator. mcp resource tag prevents
+            // accidental overlap if MCP cleanup tasks grow more siblings.
+            this.backgroundJobs?.register({
+                id: 'mcp.active-sessions.evict',
+                resources: ['mcp'],
+                everyMs: 5 * 60 * 1000,
+                priority: 'low',
+                run: () => {
+                    const removed = this.activeMcpSessions?.evictExpired() ?? 0;
+                    if (removed > 0) {
+                        console.debug(`[ActiveMcpSessions] evicted ${removed} expired session(s)`);
+                    }
+                },
+            });
 
             // AUDIT-015 M-1: MCP Rate-Limiter, sliding window pro
             // (token, source_interface, rate-class). Cleanup alle 5 min.
             const { McpRateLimiter } = await import('./mcp/McpRateLimiter');
             this.mcpRateLimiter = new McpRateLimiter();
-            this.mcpRateLimiterCleanupHandle = scheduleRecurring(() => {
-                this.mcpRateLimiter?.cleanup();
-            }, 5 * 60 * 1000);
+            // FIX-PERF-39 migration: shares the 'mcp' resource tag with
+            // the evict job above so they cannot overlap.
+            this.backgroundJobs?.register({
+                id: 'mcp.rate-limiter.cleanup',
+                resources: ['mcp'],
+                everyMs: 5 * 60 * 1000,
+                priority: 'low',
+                run: () => {
+                    this.mcpRateLimiter?.cleanup();
+                },
+            });
 
             this.mcpBridge = new McpBridge(this);
             await this.mcpBridge.start().catch((e: unknown) =>
@@ -2542,6 +2690,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                 await this.flushPendingChatLinks(convId).catch(() => {});
             }
             await this.mcpClient?.disconnectAll();
+            // FIX-PERF-39: dispose coordinator before DB close so any
+            // in-flight job awaits cleanly.
+            await this.backgroundJobs?.dispose();
+            this.backgroundJobs = null;
+            // FIX-PERF-29: detach all vault listeners.
+            this.vaultEventDispatcher?.dispose();
+            this.vaultEventDispatcher = null;
             // Stop background processes before closing DB
             this.semanticIndex?.cancelEnrichment();
             this.implicitConnectionService?.cancel();
@@ -3193,6 +3348,23 @@ export default class ObsidianAgentPlugin extends Plugin {
             await this.globalSettingsService.saveGlobal(this.settings);
         }
         this.initApiHandler();
+        this.settingsDirty = false;
+    }
+
+    /**
+     * FIX-PERF-04: mark settings as needing a save, but coalesce many
+     * markSettingsDirty() calls during boot migration into a single
+     * flushSettings() at the end. Idempotency markers that MUST survive
+     * a doLoad crash still call saveSettings() directly.
+     */
+    private settingsDirty = false;
+    markSettingsDirty(): void {
+        this.settingsDirty = true;
+    }
+    async flushSettings(): Promise<void> {
+        if (this.settingsDirty) {
+            await this.saveSettings();
+        }
     }
 
     /** Reconnect all MCP servers from current settings. Called when MCP config changes. */
@@ -3492,9 +3664,9 @@ export default class ObsidianAgentPlugin extends Plugin {
                 },
             })
             : null;
-        // semanticStorageLocation ist die kanonische Storage-Mode-Setting fuer
-        // knowledge.db (siehe FEATURE-1508). Map fuer FrontmatterWriter.
-        const storageMode = (this.settings.semanticStorageLocation ?? 'global');
+        // FEATURE-1508: knowledge.db lebt vault-lokal (siehe KnowledgeDB-Init oben).
+        // Der FrontmatterWriter spiegelt den gleichen Mode wider.
+        const storageMode = 'local' as const;
         const job = new FrontmatterBackfillJob(
             this.app,
             this.noteSummaryStore,

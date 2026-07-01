@@ -16,15 +16,17 @@ import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
 import { ToolRepetitionDetector } from './tool-execution/ToolRepetitionDetector';
+import { summarizeForLedger } from './tool-execution/summarizeForLedger';
 import { buildSystemPromptForMode } from './systemPrompt';
 import type { ModeService } from './modes/ModeService';
 import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
-import { QUALITY_GATES } from './tools/qualityGates';
+import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
+import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
@@ -45,9 +47,44 @@ import {
     type StigmergyTurn,
 } from './stigmergy/StigmergyAdapter';
 import { withTimeout } from './utils/withTimeout';
+import { getPerformanceMarks } from './observability/PerformanceMarks';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
 const COMPOSITION_MAX_DEPTH = 5;
+
+/**
+ * FIX-COMPACT-07: structured event emitted once per condense pass.
+ * Receivers (TaskMonitor in the sidebar, offline analytics) persist these
+ * to a JSONL so the threshold can be tuned against empirical data.
+ */
+export interface CondenseTelemetryEvent {
+    /** Wall-clock start, ISO8601, of the helper-api call. */
+    startedAt: string;
+    /** ms from start to the success/failure decision. */
+    durationMs: number;
+    /** True when the splice ran; false on early-skip or helper-api failure. */
+    success: boolean;
+    /** Estimated history tokens BEFORE the splice (always recorded). */
+    prevTokens: number;
+    /** Estimated history tokens AFTER the splice (only meaningful on success). */
+    newTokens: number;
+    /** prevTokens - newTokens. Negative not possible (rounded to 0 on quirks). */
+    savedTokens: number;
+    /** True when getHelperApi returned a non-fallback handler. */
+    helperModelUsed: boolean;
+    /** Model id of the API that actually served the condense call (main or helper). */
+    modelId: string;
+    /** Tail size budget used for this pass (10k default, halved by retry loop). */
+    maxTailTokens: number;
+    /** When success=false, the truncated error message. */
+    errorMessage?: string;
+}
 
 export interface AgentTaskCallbacks {
     /** Called at the start of each agentic loop iteration (0 = first/user message, 1+ = after tools) */
@@ -106,6 +143,19 @@ export interface AgentTaskCallbacks {
     consumeSteeringMessages?: (iteration: number) => string[];
     /** Called when the conversation history was condensed (context summarized) - includes token counts before/after */
     onContextCondensed?: (prevTokens?: number, newTokens?: number) => void;
+    /**
+     * FIX-COMPACT-02: fires when a condensing pass failed (helper API
+     * threw, returned empty text, etc.). History is left untouched. The
+     * UI can surface this so the user sees that condensing did NOT run
+     * instead of silently looping into the same over-threshold state.
+     */
+    onContextCondenseFailed?: (error: Error) => void;
+    /**
+     * FIX-COMPACT-07: structured telemetry event for every condense pass
+     * (success and failure). Receivers typically persist to a JSONL file
+     * for offline tuning of the threshold and helper-model selection.
+     */
+    onCondenseTelemetry?: (event: CondenseTelemetryEvent) => void;
     /** Called when a checkpoint is saved before a write tool */
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /**
@@ -295,14 +345,14 @@ export class AgentTask {
         modeService?: ModeService,
         consecutiveMistakeLimit = 0,
         rateLimitMs = 0,
-        condensingEnabled = true,
-        condensingThreshold = 70,
+        condensingEnabled = DEFAULT_CONDENSING_ENABLED,
+        condensingThreshold = DEFAULT_CONDENSING_THRESHOLD,
         powerSteeringFrequency = 0,
         maxIterations = 25,
         depth = 0,
         maxSubtaskDepth = 2,
-        microcompactionEnabled = true,
-        rollingSummaryThreshold = 50,
+        microcompactionEnabled = DEFAULT_MICROCOMPACTION_ENABLED,
+        rollingSummaryThreshold = DEFAULT_ROLLING_SUMMARY_THRESHOLD,
         modelOverrideActive = false,
         compositionStack?: CompositionStackService,
     ) {
@@ -361,8 +411,7 @@ export class AgentTask {
             console.warn('[AgentTask] Pre-compaction flush (rolling) failed (non-fatal):', e)
         );
         console.debug(`[AgentTask] Rolling summary at ~${estimatedTokens}t (mark ${rollingMark}t, full threshold ${threshold}t)`);
-        await this.condenseHistory(history, systemPrompt, abortSignal, toolCallLedger);
-        return true;
+        return await this.condenseHistory(history, systemPrompt, abortSignal, toolCallLedger);
     }
 
     /**
@@ -392,6 +441,12 @@ export class AgentTask {
             subagentRoleOverride,
             subagentAllowedTools,
         } = config;
+        // MEAS-01: span around the entire agent turn. Label includes
+        // taskId so concurrent sub-agent runs do not collide on the
+        // active-spans map.
+        const perfMarks = getPerformanceMarks();
+        const turnLabel = `agent.run:${taskId}`;
+        perfMarks.start(turnLabel);
         // Resolve mode to ModeConfig
         let activeMode: ModeConfig = this.resolveMode(initialMode);
 
@@ -1282,8 +1337,15 @@ export class AgentTask {
                         }
                         this.taskCallbacks.onModeSwitch?.(pendingModeSwitch);
                     }
+                    // FIX-COMPACT-04: do NOT reset the repetition detector.
+                    // Resetting let Code -> Architect -> Code loops bypass
+                    // both the exact-repetition block and the "already
+                    // failed" surface in the post-condense summarizer.
+                    // The mistake counter still resets -- a mode switch is
+                    // a user correction and should not count old errors
+                    // against the new mode's tolerance budget.
+                    repetitionDetector.markModeSwitch(pendingModeSwitch);
                     pendingModeSwitch = null;
-                    repetitionDetector.reset();
                     consecutiveMistakes = 0;
                 }
 
@@ -1306,10 +1368,20 @@ export class AgentTask {
                     // skill the model loaded itself via read_skill is in the
                     // message stream (until microcompaction prunes it); the model
                     // can re-call read_skill if it lost the steps.
-                    history.push({
-                        role: 'user',
-                        content: `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`,
-                    });
+                    // FIX-PERF-24: dedupe. If the previous history entry is
+                    // already a Power-Steering Reminder (frequency==1 edge
+                    // case, or after a no-op iteration that produced no
+                    // assistant message), do not stack a second identical
+                    // reminder back-to-back. Two identical user messages in a
+                    // row both burn cache and confuse the model.
+                    const reminder = `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`;
+                    const last = history[history.length - 1];
+                    const lastIsSameReminder = last?.role === 'user'
+                        && typeof last.content === 'string'
+                        && last.content === reminder;
+                    if (!lastIsSameReminder) {
+                        history.push({ role: 'user', content: reminder });
+                    }
                 }
 
                 // Soft limit: nudge the agent to wrap up at 60% of max iterations
@@ -1354,20 +1426,14 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
-                // ADR-061: Todo list as recency anchor — append to last user message.
-                // Manus pattern: task plan at the end maximizes recency bias, prevents goal drift.
-                // We temporarily extend the last user message content (not push+splice, which
-                // would violate append-only and invalidate KV-cache).
-                let todoOriginalContent: string | ContentBlock[] | undefined;
-                if (currentTodoText && iteration > 0) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string') {
-                            todoOriginalContent = history[h].content;
-                            history[h] = { ...history[h], content: `${history[h].content as string}\n\n${currentTodoText}` };
-                            break;
-                        }
-                    }
-                }
+                // ADR-061 / FIX-PERF-22: Todo list as recency anchor.
+                // Previously this mutated `history` in place and then
+                // restored it after the stream finished. The mutation
+                // looked safe but the restore relied on `endsWith()`
+                // matching the exact todo text, which broke when the
+                // stream errored mid-flight (todo stayed glued onto the
+                // history). Now we build the anchored version inside
+                // safeHistory below and never touch the live history.
 
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
@@ -1386,9 +1452,37 @@ export class AgentTask {
                 // BUG-017: drop orphan tool_use / tool_result blocks before send.
                 // Anthropic returns 400 if any tool_use has no matching tool_result
                 // and Claude-via-Copilot inherits the same constraint.
-                const safeHistory = sanitizeAndLog(history, 'main-loop');
+                let safeHistory = sanitizeAndLog(history, 'main-loop');
+                // FIX-PERF-22: append the todo anchor to the LAST user
+                // message of the sanitized history only. The live history
+                // stays unmutated, so a mid-stream throw no longer leaves
+                // the todo glued onto the persisted transcript.
+                if (currentTodoText && iteration > 0) {
+                    for (let h = safeHistory.length - 1; h >= 0; h--) {
+                        const m = safeHistory[h];
+                        if (m.role === 'user' && typeof m.content === 'string') {
+                            safeHistory = safeHistory.slice();
+                            safeHistory[h] = { ...m, content: `${m.content}\n\n${currentTodoText}` };
+                            break;
+                        }
+                    }
+                }
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
+                // MEAS-02: only the very first iteration of a fresh turn is
+                // the one the user clicked Send for. Subsequent iterations
+                // are tool-result follow-ups and have a different shape.
+                const isFirstTurnIteration = iteration === 0;
+                if (isFirstTurnIteration) {
+                    perfMarks.end('send.firstTurn.host', { log: true });
+                    perfMarks.start('send.firstTurn.provider');
+                }
+                let sawFirstChunk = false;
                 for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
+                    if (isFirstTurnIteration && !sawFirstChunk) {
+                        sawFirstChunk = true;
+                        perfMarks.end('send.firstTurn.provider', { log: true });
+                        perfMarks.point('send.firstToken', { log: true });
+                    }
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
                         if (chunk.requiresPassback) thinkingParts.push(chunk.text);
@@ -1425,16 +1519,9 @@ export class AgentTask {
                     }
                 }
 
-                // Restore the original user message content (remove todo anchor)
-                if (todoOriginalContent !== undefined) {
-                    for (let h = history.length - 1; h >= 0; h--) {
-                        if (history[h].role === 'user' && typeof history[h].content === 'string'
-                            && (history[h].content as string).endsWith(currentTodoText)) {
-                            history[h] = { ...history[h], content: todoOriginalContent };
-                            break;
-                        }
-                    }
-                }
+                // FIX-PERF-22: todo restore block intentionally removed.
+                // The anchor was applied to safeHistory (a clone), not
+                // to live history, so there is nothing to restore.
 
                 // Build the assistant message content. Thinking first (mirrors
                 // the order the model produced: CoT before answer/tool), then
@@ -1483,35 +1570,61 @@ export class AgentTask {
                         const estimatedTokens = this.estimateTokens(history);
                         const contextWindow = this.getModelContextWindow();
                         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                        if (estimatedTokens > threshold) {
+                        // FIX-PERF-20: cache-aware defer. When the previous
+                        // turn served mostly from prefix cache (read >
+                        // create), condensing now would invalidate the
+                        // expensive prefix for marginal gain. Defer once,
+                        // re-evaluate next turn. Feature-flag default off
+                        // in 3.x per Decision 8.
+                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
+                        const cacheAware = advancedApi?.cacheAwareCondensing === true;
+                        const cacheBeatsThisTurn = totalCacheReadTokens > totalCacheCreationTokens
+                            && totalCacheReadTokens > 0;
+                        if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
+                            console.debug(
+                                `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
+                                + `(threshold ${threshold}t, cacheRead ${totalCacheReadTokens}t > `
+                                + `cacheCreate ${totalCacheCreationTokens}t)`,
+                            );
+                        } else if (estimatedTokens > threshold) {
                             // Pre-Compaction Memory Flush (Phase 5): extract important
                             // facts before they are compressed into a summary
                             await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                                 console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                             );
-                            await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // onContextCondensed is called inside condenseHistory with token counts
+                            const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                            // FIX-COMPACT-02: don't retry when the first pass already
+                            // failed -- the failure callback already fired, retrying
+                            // burns helper-api budget on the same broken call.
+                            if (firstOk) {
+                                let condensingRetries = 0;
+                                const MAX_CONDENSING_RETRIES = 2;
+                                // FIX-COMPACT-06: halve the tail each retry instead
+                                // of repeating the identical 10k-tail call. Pass 2
+                                // -> 5k, pass 3 -> 2.5k. Floor at 1k.
+                                let nextTail = 10_000;
 
-                            // Validierung: Falls immer noch über Threshold, zweite Runde
-                            let condensingRetries = 0;
-                            const MAX_CONDENSING_RETRIES = 2;
+                                while (condensingRetries < MAX_CONDENSING_RETRIES) {
+                                    const postTokens = this.estimateTokens(history);
+                                    if (postTokens <= threshold) break;
 
-                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                const postTokens = this.estimateTokens(history);
-                                if (postTokens <= threshold) break;
+                                    nextTail = Math.max(1_000, Math.floor(nextTail / 2));
+                                    console.warn(
+                                        `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
+                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
+                                    );
 
-                                console.warn(
-                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
-                                );
+                                    const retryOk = await this.condenseHistory(
+                                        history, systemPrompt, abortSignal,
+                                        repetitionDetector.getLedger(), nextTail,
+                                    );
+                                    if (!retryOk) break;
+                                    condensingRetries++;
+                                }
 
-                                await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                                // onContextCondensed is called inside condenseHistory with token counts
-                                condensingRetries++;
-                            }
-
-                            if (condensingRetries > 0) {
-                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                                if (condensingRetries > 0) {
+                                    console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                                }
                             }
 
                             // Condensing is housekeeping for future messages — the model
@@ -1608,15 +1721,19 @@ export class AgentTask {
                         conversationId,
                         readFiles,
                     });
-                    // Record successful calls in the ledger (for condensing preservation)
-                    if (!result.is_error) {
-                        repetitionDetector.record(
-                            toolUse.name,
-                            toolUse.input,
-                            extractTextContent(result.content).slice(0, 200),
-                            iteration,
-                        );
-                    }
+                    // FIX-COMPACT-01: record both outcomes in the ledger so the
+                    // post-condense agent sees failures explicitly instead of
+                    // re-attempting an approach the summarizer paraphrased away.
+                    // FIX-COMPACT-08: per-tool result summary (read_file -> "L1-L420
+                    // of <path>", search_files -> "query -> N hits") gives the
+                    // summarizer a tighter signal than the blind 200-char prefix.
+                    repetitionDetector.record(
+                        toolUse.name,
+                        toolUse.input,
+                        summarizeForLedger(toolUse.name, toolUse.input, result.content),
+                        iteration,
+                        result.is_error ? 'failed' : 'success',
+                    );
                     // EPIC-26 / FEAT-26-06: flip plugin-skills lean -> full
                     // the first time a skill-group tool is invoked in this
                     // task. The next rebuildPromptCache picks up the change.
@@ -1667,7 +1784,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
@@ -1693,7 +1810,7 @@ export class AgentTask {
                         }
 
                         // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? QUALITY_GATES[toolUse.name] : undefined;
+                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
                         toolResultBlocks.push({
                             type: 'tool_result',
                             tool_use_id: toolUse.id,
@@ -1743,29 +1860,35 @@ export class AgentTask {
                         await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                             console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                         );
-                        await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                        // onContextCondensed is called inside condenseHistory with token counts
+                        const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
+                        // FIX-COMPACT-02: do not retry when the first pass already failed.
+                        if (firstOk) {
+                            let condensingRetries = 0;
+                            const MAX_CONDENSING_RETRIES = 2;
+                            // FIX-COMPACT-06: adaptive tail (10k -> 5k -> 2.5k).
+                            let nextTail = 10_000;
 
-                        // Validierung: Falls immer noch über Threshold, zweite Runde
-                        let condensingRetries = 0;
-                        const MAX_CONDENSING_RETRIES = 2;
+                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
+                                const postTokens = this.estimateTokens(history);
+                                if (postTokens <= threshold) break;
 
-                        while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                            const postTokens = this.estimateTokens(history);
-                            if (postTokens <= threshold) break;
+                                nextTail = Math.max(1_000, Math.floor(nextTail / 2));
+                                console.warn(
+                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
+                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
+                                );
 
-                            console.warn(
-                                `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES}`
-                            );
+                                const retryOk = await this.condenseHistory(
+                                    history, systemPrompt, abortSignal,
+                                    repetitionDetector.getLedger(), nextTail,
+                                );
+                                if (!retryOk) break;
+                                condensingRetries++;
+                            }
 
-                            await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // onContextCondensed is called inside condenseHistory with token counts
-                            condensingRetries++;
-                        }
-
-                        if (condensingRetries > 0) {
-                            console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                            if (condensingRetries > 0) {
+                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
+                            }
                         }
                     } else {
                         // FEAT-24-02 second stage: earlier, gentler rolling summary.
@@ -1950,14 +2073,23 @@ export class AgentTask {
                     await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
                         console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
                     );
-                    await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
-                    // onContextCondensed is called inside condenseHistory with token counts
-                    emergencyRetried = true;
-                    console.debug('[AgentTask] Emergency condensing succeeded — retrying agent loop');
-                    continue;  // 6A: Retry the agent loop with condensed history
-                } catch {
-                    // Condensing itself failed — fall through to normal error handling
-                    console.warn('[AgentTask] Emergency condensing failed');
+                    // FIX-COMPACT-02: only mark emergency consumed when the
+                    // inner condense actually succeeded. Otherwise the next
+                    // overflow falls straight through to onError without a
+                    // second graceful attempt, even though no useful work
+                    // was done on this one.
+                    const condensed = await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
+                    if (condensed) {
+                        emergencyRetried = true;
+                        console.debug('[AgentTask] Emergency condensing succeeded — retrying agent loop');
+                        continue;  // 6A: Retry the agent loop with condensed history
+                    }
+                    console.warn('[AgentTask] Emergency condensing produced no result — propagating original error');
+                } catch (e) {
+                    // condenseHistory now catches helper-api errors itself;
+                    // anything reaching here is from the pre-flush hook or
+                    // unexpected. Fall through to normal error handling.
+                    console.warn('[AgentTask] Emergency condensing threw unexpectedly:', e);
                 }
             }
 
@@ -2066,6 +2198,7 @@ export class AgentTask {
                 console.warn('[AgentTask] onEpisodeData hook failed (non-fatal):', e);
             }
         }
+        perfMarks.end(turnLabel, { log: true });
     }
 
     // -------------------------------------------------------------------------
@@ -2076,47 +2209,51 @@ export class AgentTask {
      * Improved token estimate that accounts for structured content blocks.
      * ~4 chars/token for text, +150 for tool_use overhead, +50 for tool_result overhead.
      */
+    /**
+     * FIX-PERF-19: per-message token estimator. The original
+     * estimateTokens(messages: MessageParam[]) is now a thin wrapper.
+     * Hot paths (condense tail walk, per-iteration token math) call
+     * this directly to avoid allocating single-element arrays.
+     */
+    private estimateMessageTokens(m: MessageParam): number {
+        let count = 0;
+        if (Array.isArray(m.content)) {
+            for (const block of m.content) {
+                if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
+                    count += Math.ceil(block.text.length / 4);
+                } else if (block.type === 'tool_use') {
+                    count += 150;
+                    if ('input' in block && block.input) {
+                        count += Math.ceil(JSON.stringify(block.input).length / 4);
+                    }
+                } else if (block.type === 'tool_result') {
+                    count += 50;
+                    if ('content' in block) {
+                        if (typeof block.content === 'string') {
+                            count += Math.ceil(block.content.length / 4);
+                        } else if (Array.isArray(block.content)) {
+                            for (const sub of block.content) {
+                                if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                else if (sub.type === 'image') count += 1000;
+                            }
+                        }
+                    }
+                } else if (block.type === 'image') {
+                    count += 1000;
+                }
+            }
+        } else if (typeof m.content === 'string') {
+            count += Math.ceil(m.content.length / 4);
+        }
+        return count;
+    }
+
     private estimateTokens(messages: MessageParam[]): number {
         let count = 0;
         for (const m of messages) {
-            if (Array.isArray(m.content)) {
-                for (const block of m.content) {
-                    if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
-                        // FIX-04-03-07: thinking persists on assistant messages
-                        // for DeepSeek reasoner round-trip. Counted at chars/4
-                        // so condensing fires on time when reasoning accumulates.
-                        count += Math.ceil(block.text.length / 4);
-                    } else if (block.type === 'tool_use') {
-                        // tool_use overhead: id, name, type fields ~150 tokens
-                        count += 150;
-                        // input JSON payload
-                        if ('input' in block && block.input) {
-                            count += Math.ceil(JSON.stringify(block.input).length / 4);
-                        }
-                    } else if (block.type === 'tool_result') {
-                        // tool_result overhead: tool_use_id, type, is_error ~50 tokens
-                        count += 50;
-                        // content payload — string or multimodal array
-                        if ('content' in block) {
-                            if (typeof block.content === 'string') {
-                                count += Math.ceil(block.content.length / 4);
-                            } else if (Array.isArray(block.content)) {
-                                for (const sub of block.content) {
-                                    if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
-                                    else if (sub.type === 'image') count += 1000;
-                                }
-                            }
-                        }
-                    } else if (block.type === 'image') {
-                        // Image tokens (flat estimate)
-                        count += 1000;
-                    }
-                }
-            } else if (typeof m.content === 'string') {
-                count += Math.ceil(m.content.length / 4);
-            }
+            count += this.estimateMessageTokens(m);
         }
         return count;
     }
@@ -2138,29 +2275,46 @@ export class AgentTask {
      * Keeps the first message (original task) + last 4 messages intact;
      * replaces everything in between with a single summary block.
      */
+    /**
+     * FIX-COMPACT-02: returns true on a successful condense pass (history
+     * was spliced), false on any non-fatal skip (history too short, summary
+     * empty) or failure (helper-api threw). Callers that retry or fall
+     * back (emergency condensing, retry loop) MUST check this value.
+     *
+     * FIX-COMPACT-06: `maxTailTokens` override lets the retry loop shrink
+     * the tail each pass (10k -> 5k -> 2.5k) instead of repeating an
+     * identical call. Default 10k preserves the historical behaviour.
+     */
     private async condenseHistory(
         history: MessageParam[],
         systemPrompt: string,
         abortSignal?: AbortSignal,
         toolCallLedger?: string,
-    ): Promise<void> {
+        maxTailTokens: number = 10_000,
+    ): Promise<boolean> {
         // Need at least first + 4 tail + some middle to condense
-        if (history.length < 7) return;
+        if (history.length < 7) return false;
+
+        // FIX-COMPACT-07: telemetry start. The event fires from a single
+        // `emit()` helper at every exit path so we cannot forget a branch.
+        const telemetryStartedAt = new Date().toISOString();
+        const telemetryStartMs = Date.now();
+        const telemetryPrevTokens = this.estimateTokens(history);
 
         const firstMsg = history[0];
 
-        // Smart tail: collect messages from end until 10k tokens or min 2 messages.
+        // Smart tail: collect messages from end until maxTailTokens tokens or min 2 messages.
         // IMPORTANT: We must never split a tool_use / tool_result pair across the
         // condensing boundary — Anthropic requires every tool_use block to be
         // immediately followed by a tool_result in the next message.
-        const MAX_TAIL_TOKENS = 10_000;
+        const MAX_TAIL_TOKENS = Math.max(1_000, maxTailTokens);
         const MIN_TAIL_MESSAGES = 2;
         const tail: MessageParam[] = [];
         let tailTokens = 0;
 
         for (let i = history.length - 1; i >= 0; i--) {
             const msg = history[i];
-            const msgTokens = this.estimateTokens([msg]);
+            const msgTokens = this.estimateMessageTokens(msg);
 
             if (tail.length >= MIN_TAIL_MESSAGES && tailTokens + msgTokens > MAX_TAIL_TOKENS) {
                 break;
@@ -2191,7 +2345,7 @@ export class AgentTask {
                 // Case 1: Tail starts with tool_result — pull preceding assistant(tool_use) in
                 const prevMsg = history[tailStartIdx - 1];
                 tail.unshift(prevMsg);
-                tailTokens += this.estimateTokens([prevMsg]);
+                tailTokens += this.estimateMessageTokens(prevMsg);
             }
         }
 
@@ -2242,7 +2396,19 @@ export class AgentTask {
         // After boundary adjustments, toSummarize might be too small to condense
         if (toSummarize.length < 3) {
             console.debug('[AgentTask] toSummarize too small after boundary fix — skipping condensing');
-            return;
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed: false,
+                modelId: this.api.getModel().id,
+                maxTailTokens,
+                errorMessage: 'toSummarize too small after boundary fix',
+            });
+            return false;
         }
 
         // Pre-condensing logging
@@ -2288,13 +2454,22 @@ export class AgentTask {
         }
 
         let summary = '';
+        let helperModelUsed = false;
+        let condensingModelId = this.api.getModel().id;
         try {
+            // FIX-COMPACT-05: replace MicroCompactor skeletons with a short
+            // placeholder so the helper LLM does not paraphrase the skeleton
+            // text ("[context-pruned] read_file result (5000 chars)...") into
+            // the summary. Pairing is preserved -- tool_use_id stays intact.
+            const strippedCondensingMessages = stripPrunedForCondense(condensingMessages);
             // BUG-017: condensing has its own pairing-fix higher up, but apply
             // the generic sanitize as well so any new edge case is caught.
-            const safeCondensingMessages = sanitizeAndLog(condensingMessages, 'condensing');
+            const safeCondensingMessages = sanitizeAndLog(strippedCondensingMessages, 'condensing');
             logInputBreakdown('condensing', systemPrompt, safeCondensingMessages, []);
             // FEAT-24-07 / ADR-115: route condensing through the optional helper model.
             const condensingApi = getHelperApi(this.toolRegistry.plugin, this.api);
+            helperModelUsed = condensingApi !== this.api;
+            condensingModelId = condensingApi.getModel().id;
             for await (const chunk of condensingApi.createMessage(
                 systemPrompt,
                 safeCondensingMessages,
@@ -2303,12 +2478,46 @@ export class AgentTask {
             )) {
                 if (chunk.type === 'text') summary += chunk.text;
             }
-        } catch {
-            // Condensing failure is non-fatal — keep history unchanged
-            return;
+        } catch (e) {
+            // FIX-COMPACT-02: never swallow silently. The previous empty
+            // catch meant rate-limit / 5xx errors looped the agent into
+            // the same over-threshold state, and emergencyRetried got
+            // flipped even when the inner condense did nothing.
+            const err = e instanceof Error ? e : new Error(String(e));
+            console.warn('[AgentTask] Context condensing failed (history unchanged):', err.message);
+            this.taskCallbacks.onContextCondenseFailed?.(err);
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed,
+                modelId: condensingModelId,
+                maxTailTokens,
+                errorMessage: err.message.slice(0, 500),
+            });
+            return false;
         }
 
-        if (!summary.trim()) return;
+        if (!summary.trim()) {
+            console.warn('[AgentTask] Context condensing produced empty summary; history unchanged');
+            this.taskCallbacks.onContextCondenseFailed?.(new Error('empty summary from helper API'));
+            this.taskCallbacks.onCondenseTelemetry?.({
+                startedAt: telemetryStartedAt,
+                durationMs: Date.now() - telemetryStartMs,
+                success: false,
+                prevTokens: telemetryPrevTokens,
+                newTokens: telemetryPrevTokens,
+                savedTokens: 0,
+                helperModelUsed,
+                modelId: condensingModelId,
+                maxTailTokens,
+                errorMessage: 'empty summary from helper API',
+            });
+            return false;
+        }
 
         // Splice history in-place
         history.splice(
@@ -2344,6 +2553,19 @@ export class AgentTask {
 
         // Notify callback with token counts
         this.taskCallbacks.onContextCondensed?.(preTokens, postTokens);
+        // FIX-COMPACT-07: structured telemetry event for the successful pass.
+        this.taskCallbacks.onCondenseTelemetry?.({
+            startedAt: telemetryStartedAt,
+            durationMs: Date.now() - telemetryStartMs,
+            success: true,
+            prevTokens: preTokens,
+            newTokens: postTokens,
+            savedTokens: Math.max(0, preTokens - postTokens),
+            helperModelUsed,
+            modelId: condensingModelId,
+            maxTailTokens,
+        });
+        return true;
     }
 
     /** Resolve a mode slug or ModeConfig to a ModeConfig */

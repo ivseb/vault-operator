@@ -90,10 +90,27 @@ export function logInputBreakdown(
     history: MessageParam[],
     tools: unknown[],
 ): void {
+    // FIX-PERF-10: pre-gate before the expensive JSON.stringify(tools)
+    // and per-message char walks. Cheap lower-bound estimate: system
+    // prompt length plus a coarse per-message size. If even the cheap
+    // estimate stays below the threshold, bail. Avoids the O(N x M)
+    // content-block walk on small turns (vast majority).
     const sysChars = systemPrompt.length;
-    // Tool schemas (name + description + input_schema) are sent in the API `tools`
-    // field, separate from the system prompt. Estimate via serialized size; this is
-    // where MCP-server tool schemas show up (ADR-117 / FEAT-24-06).
+    let cheapHistoryChars = 0;
+    for (const m of history) {
+        if (typeof m.content === 'string') {
+            cheapHistoryChars += m.content.length;
+        } else if (Array.isArray(m.content)) {
+            // Rough estimate: 200 chars per block. Lower-bound; the
+            // full walk runs below if we cross the threshold.
+            cheapHistoryChars += m.content.length * 200;
+        }
+    }
+    // Rough tools estimate: 1024 chars per tool definition. Avoids the
+    // 30-100 KB JSON.stringify on the full MCP schema list.
+    const cheapToolsChars = (Array.isArray(tools) ? tools.length : 0) * 1024;
+    if (sysChars + cheapToolsChars + cheapHistoryChars < THRESHOLD_CHARS) return;
+
     let toolsChars = 0;
     try { toolsChars = JSON.stringify(tools ?? []).length; } catch { toolsChars = 0; }
     const stats: MessageStat[] = history.map((m, i) => {

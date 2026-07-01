@@ -31,6 +31,12 @@ import type { ApiHandler } from '../../api/types';
 import type { ToolRegistry } from '../tools/ToolRegistry';
 import type { ModeService } from '../modes/ModeService';
 import type { CompositionStackService } from '../skills/CompositionStackService';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from '../condensingDefaults';
 
 /**
  * Construction options for the AgentTaskRunner. Mirrors the AgentTask
@@ -87,14 +93,17 @@ export class AgentTaskRunner {
             options.modeService,
             options.consecutiveMistakeLimit ?? 0,
             options.rateLimitMs ?? 0,
-            options.condensingEnabled ?? true,
-            options.condensingThreshold ?? 70,
+            // FIX-COMPACT-03: route every fallback through the shared
+            // defaults module so Runner, Sidebar and settings.ts can
+            // never drift apart again.
+            options.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED,
+            options.condensingThreshold ?? DEFAULT_CONDENSING_THRESHOLD,
             options.powerSteeringFrequency ?? 0,
             options.maxIterations ?? 25,
             options.depth ?? 0,
             options.maxSubtaskDepth ?? 2,
-            options.microcompactionEnabled ?? true,
-            options.rollingSummaryThreshold ?? 50,
+            options.microcompactionEnabled ?? DEFAULT_MICROCOMPACTION_ENABLED,
+            options.rollingSummaryThreshold ?? DEFAULT_ROLLING_SUMMARY_THRESHOLD,
             options.modelOverrideActive ?? false,
             options.compositionStack,
         );

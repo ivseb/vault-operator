@@ -2,6 +2,12 @@
 import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
+import {
+    DEFAULT_CONDENSING_ENABLED,
+    DEFAULT_CONDENSING_THRESHOLD,
+    DEFAULT_MICROCOMPACTION_ENABLED,
+    DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+} from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
@@ -49,6 +55,7 @@ import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
 import { t } from '../i18n';
 import DOMPurify from 'dompurify';
+import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
 export const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
 
@@ -143,6 +150,10 @@ export class AgentSidebarView extends ItemView {
 
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
+    // Session-local flag: the Frontmatter Operator recommendation toast is
+    // shown at most once per sidebar-view lifetime (in addition to the
+    // persistent frontmatterOperatorHintDismissed setting).
+    private frontmatterOperatorHintShownThisSession = false;
     // Last user message text — used by "Regenerate" action
     private lastUserMessage = '';
     // Last known active MarkdownView — tracked because clicking sidebar loses getActiveViewOfType
@@ -216,13 +227,29 @@ export class AgentSidebarView extends ItemView {
     }
 
     async onOpen(): Promise<void> {
+        // MEAS-01: time from view-instantiation to first render-done. This
+        // is the TTI a user actually perceives, so it is intentionally
+        // wrapped around the readiness-await too.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.start('sidebar.onOpen');
+
         // BUG-026 (2026-04-19): wait for plugin.doLoad() to finish before
         // reading settings / mode service. Obsidian instantiates this view
-        // the moment registerView runs (layout restore), which during a BRAT
-        // hot reload is before settings exist. Without this guard the view
-        // threw "Cannot read properties of undefined (reading 'currentMode')"
-        // and the whole sidebar stayed broken.
-        const readiness = (this.plugin as unknown as { readyPromise?: Promise<void> }).readyPromise;
+        // the moment registerView runs (layout restore), which during a
+        // BRAT hot reload is before settings exist. Without this guard
+        // the view threw "Cannot read properties of undefined (reading
+        // 'currentMode')" and the whole sidebar stayed broken.
+        //
+        // FIX-PERF-28: prefer shellReady (settings + ModeService) over
+        // the full readyPromise so the sidebar paints its input shell
+        // while KnowledgeDB / Memory / Semantic / MCP are still booting
+        // in the background. Fall back to readyPromise on older plugin
+        // builds that have not introduced shellReady yet.
+        const pluginAsAny = this.plugin as unknown as {
+            shellReady?: Promise<void>;
+            readyPromise?: Promise<void>;
+        };
+        const readiness = pluginAsAny.shellReady ?? pluginAsAny.readyPromise;
         if (readiness) {
             try { await readiness; } catch { /* doLoad errors are surfaced elsewhere; keep rendering */ }
         }
@@ -298,6 +325,7 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        perfMarks.end('sidebar.onOpen', { log: true });
     }
 
     onClose(): Promise<void> {
@@ -642,6 +670,28 @@ export class AgentSidebarView extends ItemView {
         });
         setIcon(this.sendButton.createSpan('toolbar-icon'), 'send-horizontal');
         this.sendButton.addEventListener('click', () => { void this.handleSendMessage(); });
+
+        // FIX-PERF-28c: when the sidebar opened on shellReady (before
+        // servicesReady), disable the send button until services finish
+        // booting. The button re-enables itself as soon as servicesReady
+        // resolves. Existing aria-label is preserved.
+        const pluginAny = this.plugin as unknown as { servicesReady?: Promise<void>; readyPromise?: Promise<void> };
+        const services = pluginAny.servicesReady ?? pluginAny.readyPromise;
+        if (services) {
+            const sendEl = this.sendButton as HTMLButtonElement;
+            sendEl.disabled = true;
+            sendEl.classList.add('send-button-preparing');
+            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            services.then(() => {
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+                sendEl.removeAttribute('title');
+            }).catch(() => {
+                // doLoad errors are surfaced elsewhere; still enable the button.
+                sendEl.disabled = false;
+                sendEl.classList.remove('send-button-preparing');
+            });
+        }
     }
 
     /**
@@ -1235,6 +1285,12 @@ export class AgentSidebarView extends ItemView {
      * Mirrors the <environment_details> pattern used by Kilo Code and Craft Agents.
      */
     private buildVaultContext(): string {
+        // FIX-PERF-33: cache the rendered context string. Previously a
+        // 3,653-file vault sorted the full list by mtime on every send-
+        // click. The cache is invalidated by vault.on('create' | 'delete'
+        // | 'rename' | 'modify') -- see ensureVaultContextWatcher() below.
+        if (this.vaultContextCache !== null) return this.vaultContextCache;
+        this.ensureVaultContextWatcher();
         try {
             const root = this.app.vault.getRoot();
             const folders: string[] = [];
@@ -1265,10 +1321,26 @@ export class AgentSidebarView extends ItemView {
             if (rootFiles.length > 0) lines.push(`Root files: ${rootFiles.join(', ')}`);
             if (recent.length > 0) lines.push(`Recently modified: ${recent.join(', ')}`);
             lines.push('</vault_context>');
-            return lines.join('\n');
+            const out = lines.join('\n');
+            this.vaultContextCache = out;
+            return out;
         } catch {
             return '';
         }
+    }
+
+    private vaultContextCache: string | null = null;
+    private vaultContextWatcherInstalled = false;
+    private ensureVaultContextWatcher(): void {
+        if (this.vaultContextWatcherInstalled) return;
+        this.vaultContextWatcherInstalled = true;
+        const invalidate = (): void => { this.vaultContextCache = null; };
+        // FIX-PERF-33: rebuild on any vault mutation. modify is included
+        // because the recent-modified list depends on mtime.
+        this.registerEvent(this.app.vault.on('create', invalidate));
+        this.registerEvent(this.app.vault.on('delete', invalidate));
+        this.registerEvent(this.app.vault.on('rename', invalidate));
+        this.registerEvent(this.app.vault.on('modify', invalidate));
     }
 
     /**
@@ -1532,6 +1604,15 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
+        // MEAS-02: TTFT split. point captures the send click; the
+        // span runs until AgentTask hands off to the provider, then
+        // the provider-span runs until the first stream chunk arrives.
+        // Placed after the steering early-return so it only fires for
+        // real turn starts.
+        const perfMarks = getPerformanceMarks();
+        perfMarks.point('send.click', { log: true });
+        perfMarks.start('send.firstTurn.host');
+
         const isHidden = this.nextMessageHidden;
         this.nextMessageHidden = false;
 
@@ -1786,6 +1867,31 @@ export class AgentSidebarView extends ItemView {
         }
 
         if (!resolvedApiHandler) {
+            // Post-reload race: onload() runs initApiHandler() near the end,
+            // but the sidebar view may still be open from before the reload
+            // and the user can hit "send" before initApiHandler completes.
+            // If a provider is actually configured, recover silently by
+            // rebuilding the handler here instead of showing a misleading
+            // "no model configured" screen. Only if the recovery attempt
+            // still yields null do we surface the setup guidance.
+            const hasProvidersConfigured =
+                (this.plugin.settings.providerConfigs ?? []).length > 0
+                || this.plugin.settings.activeModels.length > 0;
+            if (hasProvidersConfigured) {
+                console.debug('[Sidebar] apiHandler null on send with providers configured -- retrying initApiHandler once');
+                this.plugin.initApiHandler();
+                resolvedApiHandler = this.plugin.apiHandler;
+                if (!resolvedApiHandler) {
+                    // AUDIT-FEAT-14-07 L-3: emit a visible signal when the
+                    // retry did not recover a handler. The next branch will
+                    // show the setup message; this line makes the underlying
+                    // config problem discoverable in the console.
+                    console.warn('[Sidebar] apiHandler still null after retry -- provider configuration appears broken');
+                }
+            }
+        }
+
+        if (!resolvedApiHandler) {
             const activeKey = this.plugin.settings.activeModelKey;
             const activeModel = this.plugin.settings.activeModels.find((m) => getModelKey(m) === activeKey);
 
@@ -1838,6 +1944,32 @@ export class AgentSidebarView extends ItemView {
             if (scrollPending) return;
             scrollPending = true;
             window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
+        };
+
+        // FIX-PERF-03: coalesce per-chunk tool-progress renders. Previously
+        // onToolProgress called MarkdownRenderer.render() for every chunk
+        // - on a 20-tool turn that meant 40+ synchronous parser passes per
+        // turn. The pending map stores the latest content per output
+        // element; a single rAF tick renders the most recent value.
+        const toolProgressPending = new WeakMap<HTMLElement, string>();
+        let toolProgressFrame = 0;
+        const scheduleToolProgressRender = (outputEl: HTMLElement, content: string): void => {
+            toolProgressPending.set(outputEl, content);
+            if (toolProgressFrame !== 0) return;
+            toolProgressFrame = window.requestAnimationFrame(() => {
+                toolProgressFrame = 0;
+                // Drain every pending output element. The map only retains
+                // entries for elements still in the DOM (WeakMap GC).
+                // We cannot iterate WeakMap directly; track keys via
+                // outputEl identity captured at insert time.
+                // For simplicity, the closure renders only the element
+                // most recently updated, which matches the only call site.
+                const latest = toolProgressPending.get(outputEl);
+                if (latest === undefined) return;
+                toolProgressPending.delete(outputEl);
+                outputEl.empty();
+                void this.renderMarkdownAndWire(latest, outputEl);
+            });
         };
 
         // Debounced tool group label updates: batches rapid DOM updates during
@@ -2013,8 +2145,13 @@ export class AgentSidebarView extends ItemView {
                             if (body) body.classList.toggle('agent-u-hidden');
                         });
                     }
+                    // FIX-PERF-02: append the chunk instead of rewriting the
+                    // full textContent every time. Previously a 50 KB
+                    // reasoning stream rewrote the same text on every
+                    // chunk - O(N^2) and visible as freeze. Now append is
+                    // O(1) per chunk.
                     const body = thinkingEl.querySelector<HTMLElement>('.thinking-content');
-                    if (body) body.setText(accumulatedThinking);
+                    if (body) body.insertAdjacentText('beforeend', chunk);
                     scheduleScroll();
                 },
                 onText: (chunk) => {
@@ -2220,10 +2357,23 @@ export class AgentSidebarView extends ItemView {
                             // FIX-19-31-02: clear any <pre> left by onToolProgress so the
                             // final result replaces the live-preview instead of being appended.
                             outputEl.empty();
-                            outputEl.createEl('pre').setText(truncated);
+                            // FIX-19-99-04: render tool output as markdown so [[wikilinks]]
+                            // and [text](url) become clickable. Errors are swallowed because
+                            // a malformed tool output should not break the chat surface.
+                            void this.renderMarkdownAndWire(truncated, outputEl as HTMLElement);
                         }
                         details.open = isError;
                     }
+                    // Fire the Frontmatter Operator recommendation toast once
+                    // per session on the first successful update_frontmatter
+                    // call, only when the plugin is not already active. The
+                    // method itself gates on session flag + persistent
+                    // dismiss flag + active-plugin check, so calling it
+                    // unconditionally on the happy path is safe.
+                    if (!isError && name === 'update_frontmatter') {
+                        this.showFrontmatterOperatorRecommendation();
+                    }
+
                     // Track step completion and update outer block summary
                     stepsCompleted++;
                     if (isError) stepsHasError = true;
@@ -2247,8 +2397,11 @@ export class AgentSidebarView extends ItemView {
                     if (!el || el.classList.contains('tool-group-item')) return;
                     const outputEl = el.querySelector<HTMLElement>('.tool-call-output');
                     if (!outputEl) return;
-                    outputEl.empty();
-                    outputEl.createEl('pre').setText(content);
+                    // FIX-PERF-03: coalesce into one rAF tick so a 20-tool
+                    // turn does not trigger 40+ synchronous parser passes.
+                    // FIX-19-99-04 contract preserved: progress is rendered
+                    // as markdown so partial wikilinks/links are clickable.
+                    scheduleToolProgressRender(outputEl, content);
                 },
                 onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage
@@ -2283,6 +2436,18 @@ export class AgentSidebarView extends ItemView {
                             this.contextDisplay.update(usage, color);
                         }
                     }
+                },
+                onContextCondenseFailed: (error: Error) => {
+                    // FIX-COMPACT-02: surface failed condensing so the user
+                    // sees that the helper-API call did NOT run, instead of
+                    // silently letting the loop re-enter the same over-
+                    // threshold state. Renders as a badge in the same footer.
+                    if (footerEl) {
+                        const badge = footerEl.createSpan('context-condense-failed-badge');
+                        badge.setText('Context condense failed: ' + error.message);
+                        footerEl.classList.remove('agent-u-hidden');
+                    }
+                    console.warn('[Sidebar] Context condense failed:', error.message);
                 },
                 // FEAT-24-08 / ADR-114 Steering-Hook: drain the queue and
                 // hand mid-run steering messages to AgentTask. Called by
@@ -2328,7 +2493,7 @@ export class AgentSidebarView extends ItemView {
                         // Hide during re-render to avoid flash of raw → markdown transition
                         contentEl.classList.add('agent-u-visibility-hidden');
                         contentEl.empty();
-                        void MarkdownRenderer.render(this.app, accumulatedText, contentEl, '', this);
+                        void this.renderMarkdownAndWire(accumulatedText, contentEl);
                         window.requestAnimationFrame(() => { contentEl.classList.remove('agent-u-visibility-hidden'); });
                     }
                     // Wrap resolve: after the user answers, show their answer as a
@@ -2465,7 +2630,7 @@ export class AgentSidebarView extends ItemView {
                     }
                     if (renderText) {
                         contentEl.empty();
-                        void MarkdownRenderer.render(this.app, renderText, contentEl, '', this);
+                        void this.renderMarkdownAndWire(renderText, contentEl);
                         contentEl.classList.remove('agent-u-visibility-hidden');
                     } else if (hasTools) {
                         // Tools ran but the model returned no text — show a neutral placeholder
@@ -2479,8 +2644,7 @@ export class AgentSidebarView extends ItemView {
                         footerEl.setText(time);
                         footerEl.classList.remove('agent-u-hidden');
                     }
-                    // Make internal links in the response clickable
-                    this.wireInternalLinks(contentEl);
+                    // Link wiring now happens inside renderMarkdownAndWire above.
                     // Convert inline [N] to clickable citation badges
                     this.wireCitationBadges(contentEl, parsedSources);
                     // Add response action bar (with sources indicator)
@@ -2597,18 +2761,26 @@ export class AgentSidebarView extends ItemView {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
                     taskMonitor.onTaskTelemetry(data);
                 },
+                onCondenseTelemetry: (event) => {
+                    // FIX-COMPACT-07: per-condense JSONL for threshold tuning
+                    taskMonitor.onCondenseTelemetry(event);
+                },
             },
             modeService: this.modeService,
             consecutiveMistakeLimit: this.plugin.settings.advancedApi.consecutiveMistakeLimit,
             rateLimitMs: this.plugin.settings.advancedApi.rateLimitMs,
-            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? false,
-            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? 80,
+            // FIX-COMPACT-03: shared defaults so the sidebar fallback can
+            // never drift from the settings schema and the Runner. The
+            // previous `false` fallback silently disabled condensing for
+            // any user whose settings.advancedApi was undefined.
+            condensingEnabled: this.plugin.settings.advancedApi.condensingEnabled ?? DEFAULT_CONDENSING_ENABLED,
+            condensingThreshold: this.plugin.settings.advancedApi.condensingThreshold ?? DEFAULT_CONDENSING_THRESHOLD,
             powerSteeringFrequency: this.plugin.settings.advancedApi.powerSteeringFrequency ?? 0,
             maxIterations: this.plugin.settings.advancedApi.maxIterations ?? 25,
             depth: 0,  // root task starts at 0
             maxSubtaskDepth: this.plugin.settings.advancedApi.maxSubtaskDepth ?? 2,
-            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? true,
-            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? 50,
+            microcompactionEnabled: this.plugin.settings.advancedApi.microcompactionEnabled ?? DEFAULT_MICROCOMPACTION_ENABLED,
+            rollingSummaryThreshold: this.plugin.settings.advancedApi.rollingSummaryThreshold ?? DEFAULT_ROLLING_SUMMARY_THRESHOLD,
             modelOverrideActive,
         });
 
@@ -3017,6 +3189,49 @@ export class AgentSidebarView extends ItemView {
                     ...this.plugin.settings.taskExtraction,
                     taskNotesHintDismissed: true,
                 };
+                void this.plugin.saveSettings();
+                notice.hide();
+            });
+        });
+        const notice = new Notice(fragment, 12000);
+    }
+
+    /** Checks whether the Frontmatter Operator community plugin is currently enabled */
+    private isFrontmatterOperatorActive(): boolean {
+        const plugins = (this.app as unknown as { plugins?: { enabledPlugins?: Set<string> } }).plugins;
+        return plugins?.enabledPlugins?.has('frontmatter-operator') ?? false;
+    }
+
+    /**
+     * Non-blocking recommendation notice for the Frontmatter Operator plugin.
+     * Fires at most once per sidebar-view session and never again after the
+     * user clicks "Do not show again" (persisted via
+     * settings.frontmatterOperatorHintDismissed). English UI language per
+     * feedback_ui_language_and_naming.
+     */
+    private showFrontmatterOperatorRecommendation(): void {
+        if (this.frontmatterOperatorHintShownThisSession) return;
+        if (this.plugin.settings.frontmatterOperatorHintDismissed) return;
+        if (this.isFrontmatterOperatorActive()) return;
+        this.frontmatterOperatorHintShownThisSession = true;
+
+        const plugins = (this.app as unknown as { plugins?: { manifests?: Record<string, unknown> } }).plugins;
+        const isInstalled = !!plugins?.manifests?.['frontmatter-operator'];
+
+        const message = isInstalled
+            ? 'Frontmatter Operator is installed but disabled. Enable it in Community Plugins for bulk frontmatter operations and undoable snapshots.'
+            : 'Tip: Frontmatter Operator adds bulk operations, structural rename/delete, and undoable snapshots for YAML frontmatter. Install it from Community Plugins for advanced workflows.';
+
+        const fragment = createFragment((frag) => {
+            frag.createSpan({ text: message + ' ' });
+            const dismissLink = frag.createEl('a', {
+                text: 'Do not show again',
+                cls: 'agent-u-task-hint-dismiss',
+            });
+            dismissLink.addClass('agent-u-task-hint-dismiss-link');
+            dismissLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.plugin.settings.frontmatterOperatorHintDismissed = true;
                 void this.plugin.saveSettings();
                 notice.hide();
             });
@@ -3515,7 +3730,7 @@ export class AgentSidebarView extends ItemView {
             }
         }
         const contentEl = msgEl.createDiv('message-content');
-        void MarkdownRenderer.render(this.app, markdown, contentEl, '', this);
+        void this.renderMarkdownAndWire(markdown, contentEl);
         // Restore action buttons for history messages
         if (role === 'assistant') {
             this.addResponseActions(msgEl, markdown);
@@ -3834,6 +4049,25 @@ export class AgentSidebarView extends ItemView {
     // -------------------------------------------------------------------------
     // Response action bar + link wiring
     // -------------------------------------------------------------------------
+
+    /**
+     * Render markdown into `containerEl` and wire any internal/wikilink
+     * anchors so they navigate via `openLinkText`. Awaits the render so
+     * the link wiring runs after Obsidian has actually inserted the
+     * anchors -- a sync `void MarkdownRenderer.render(...)` followed by
+     * `wireInternalLinks` races against post-processors and leaves
+     * freshly created anchors unwired (the bug behind unclickable
+     * [[wikilinks]] in chat responses, tool output and history reloads).
+     *
+     * Uses the active file as `sourcePath` so wikilink resolution has a
+     * context to fall back on -- matches the inline chat bridge in
+     * `PluginWiring.ts`.
+     */
+    private async renderMarkdownAndWire(markdown: string, containerEl: HTMLElement): Promise<void> {
+        const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
+        await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        this.wireInternalLinks(containerEl);
+    }
 
     /**
      * Make internal [[wikilinks]] and note links in the rendered markdown clickable.
@@ -4400,6 +4634,95 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * Selector-carrying Frontmatter Operator API methods. Bulk-write ops
+     * that accept a NoteSelector under `select` can be previewed via the
+     * auto-approvable read method `getMatchingPaths`. Methods without a
+     * selector (undoLast, restoreSnapshot, cleanupRefusalTags with vault-
+     * wide default, dedupeWikilinks) render no preview.
+     */
+    private readonly FO_SELECTOR_METHODS = new Set([
+        'setProperty',
+        'deleteProperties',
+        'renameProperty',
+        'renameValues',
+        'copyProperty',
+        'mergeProperties',
+    ]);
+
+    /**
+     * Render an "Affects N note(s)" preview line in the approval card for
+     * Frontmatter Operator selector-based bulk writes. Returns a Promise
+     * that resolves once the preview has settled (success or failure) so
+     * the caller can gate the Allow-button on it (AUDIT-FEAT-14-07 L-5).
+     * Returns `null` when no preview is applicable to the current tool
+     * call -- the caller keeps normal button behaviour in that case.
+     *
+     * Reads only (getMatchingPaths is Tier-1 auto-approvable), so the
+     * preview itself does not trigger another approval prompt.
+     */
+    private maybeRenderFrontmatterOperatorPreview(
+        toolName: string,
+        input: Record<string, unknown>,
+        row: HTMLElement,
+    ): Promise<void> | null {
+        if (toolName !== 'call_plugin_api') return null;
+        if (input['plugin_id'] !== 'frontmatter-operator') return null;
+        const method = typeof input['method'] === 'string' ? input['method'] : '';
+        if (!this.FO_SELECTOR_METHODS.has(method)) return null;
+
+        // args on call_plugin_api is an ordered array; FO opts sit in args[0].
+        const args = Array.isArray(input['args']) ? input['args'] : [];
+        const opts = (args[0] ?? {}) as Record<string, unknown>;
+        const selector = opts['select'];
+        if (!selector || typeof selector !== 'object') return null;
+
+        const plugins = (this.app as unknown as {
+            plugins?: { plugins?: Record<string, { api?: Record<string, unknown> }> };
+        }).plugins;
+        const foInstance = plugins?.plugins?.['frontmatter-operator'];
+        const getMatchingPaths = foInstance?.api?.['getMatchingPaths'];
+        if (typeof getMatchingPaths !== 'function') return null;
+
+        // Insert placeholder immediately so it appears above the details toggle.
+        const previewEl = row.createDiv('tool-approval-fo-preview');
+        previewEl.setText('Resolving affected notes...');
+
+        // Async resolution. Failures silently remove the placeholder.
+        // AUDIT-FEAT-14-07 L-2: guard every DOM mutation with an isConnected
+        // check. When the user resolves the approval before getMatchingPaths
+        // returns, `row` has already been removed and previewEl is detached.
+        // Continuing to mutate a detached node wastes CPU and keeps a stale
+        // reference on `row`.
+        return (async () => {
+            try {
+                const result = await (getMatchingPaths as (s: unknown) => Promise<unknown>)(selector);
+                if (!previewEl.isConnected) return;
+                if (!result || typeof result !== 'object') {
+                    previewEl.remove();
+                    return;
+                }
+                const typed = result as { count?: unknown; paths?: unknown };
+                const count = typeof typed.count === 'number' ? typed.count : NaN;
+                const paths = Array.isArray(typed.paths) ? typed.paths.filter((p): p is string => typeof p === 'string') : [];
+                if (Number.isNaN(count)) {
+                    previewEl.remove();
+                    return;
+                }
+                previewEl.empty();
+                const label = count === 1 ? 'Affects 1 note.' : `Affects ${count} notes.`;
+                previewEl.createSpan({ text: label });
+                if (paths.length > 0) {
+                    const sample = paths.slice(0, 5).join(', ');
+                    const suffix = paths.length > 5 ? `, ... (+${count - 5} more)` : '';
+                    previewEl.createSpan('tool-approval-fo-preview-sample').setText(` ${sample}${suffix}`);
+                }
+            } catch {
+                if (previewEl.isConnected) previewEl.remove();
+            }
+        })();
+    }
+
+    /**
      * Format the raw tool input as a readable string for the details section.
      */
     private formatInputForDetails(input: Record<string, unknown>): string {
@@ -4458,6 +4781,12 @@ export class AgentSidebarView extends ItemView {
                 codePreview.createEl('code').setText(preview);
             }
 
+            // For Frontmatter Operator bulk writes: preview how many notes
+            // the selector matches BEFORE the user approves. Uses the
+            // auto-approvable read method getMatchingPaths, so the preview
+            // itself does not trigger another approval prompt.
+            const previewPromise = this.maybeRenderFrontmatterOperatorPreview(toolName, input, row);
+
             // Collapsible details for power users
             const detailsToggle = row.createEl('span', {
                 cls: 'tool-approval-details-toggle',
@@ -4494,6 +4823,25 @@ export class AgentSidebarView extends ItemView {
             const allowBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-allow-once', text: t('ui.approval.allowOnce') });
             const enableBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') });
             const denyBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-deny-small', text: '✕' });
+
+            // AUDIT-FEAT-14-07 L-5: gate the Allow-button on the preview
+            // for Frontmatter Operator bulk writes so the user cannot
+            // approve before seeing the affected-note count. The Deny-
+            // button stays enabled so the user can always bail out. A 2s
+            // hard timeout re-enables Allow even if the plugin call hangs.
+            if (previewPromise) {
+                allowBtn.disabled = true;
+                enableBtn.disabled = true;
+                const releaseTimeout = window.setTimeout(() => {
+                    allowBtn.disabled = false;
+                    enableBtn.disabled = false;
+                }, 2000);
+                void previewPromise.finally(() => {
+                    window.clearTimeout(releaseTimeout);
+                    allowBtn.disabled = false;
+                    enableBtn.disabled = false;
+                });
+            }
 
             const cleanup = () => row.remove();
 

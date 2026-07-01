@@ -28,6 +28,8 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
+import { validateToolInput } from './inputSchemaValidator';
+import { stableStringify } from '../utils/stableStringify';
 import type { StigmergyTurn } from '../stigmergy/StigmergyAdapter';
 import type { ModeService } from '../modes/ModeService';
 import {
@@ -295,6 +297,17 @@ export class ToolExecutionPipeline {
 
     /** Per-task result cache for read-only tools. Key = tool:sortedJSON(input). */
     private resultCache = new Map<string, string>();
+    /**
+     * FIX-PERF-23: per-path index of cache keys so write-tools can
+     * invalidate O(1) instead of substring-scanning every cached key.
+     */
+    private pathIndex = new Map<string, Set<string>>();
+    /**
+     * FIX-PERF-23: bounded result-cache size. Without a cap a long-
+     * running session could hoard arbitrary amounts of read-tool
+     * outputs. 200 entries is plenty for normal turn coverage.
+     */
+    private static readonly RESULT_CACHE_LIMIT = 200;
 
     /** ADR-063: Context Externalization — large results written to temp files. */
     private resultExternalizer: ResultExternalizer | null = null;
@@ -405,10 +418,14 @@ export class ToolExecutionPipeline {
         await this.resultExternalizer?.cleanup();
     }
 
-    /** Stable cache key: tool name + sorted JSON of input parameters. */
+    /**
+     * Stable cache key: tool name + deep-sorted JSON of input parameters.
+     * FIX-PERF-23: recursive sort so nested objects produce identical
+     * keys regardless of insertion order. The previous shallow sort
+     * leaked through to nested keys.
+     */
     private cacheKey(name: string, input: Record<string, unknown>): string {
-        const sortedKeys = Object.keys(input ?? {}).sort();
-        return `${name}:${JSON.stringify(input, sortedKeys)}`;
+        return `${name}:${stableStringify(input ?? {})}`;
     }
 
     /**
@@ -478,9 +495,10 @@ export class ToolExecutionPipeline {
             }
 
             // 2b. Input schema validation (AUDIT-006 H-5)
+            // FIX-PERF-09: validateToolInput is statically imported so
+            // the dynamic-import-per-call overhead is gone.
             const definition = tool.getDefinition();
             if (definition.input_schema?.properties && toolCall.input) {
-                const { validateToolInput } = await import('./inputSchemaValidator');
                 const schemaErrors = validateToolInput(toolCall.input, definition.input_schema);
                 if (schemaErrors.length > 0) {
                     const msg = schemaErrors.map(e => e.message).join('; ');
@@ -524,12 +542,16 @@ export class ToolExecutionPipeline {
             }
 
             // 3b. Cache invalidation: write tools invalidate cached reads for affected paths
+            // FIX-PERF-23: pathIndex Map gives O(1) per-path invalidation
+            // instead of the previous O(N) substring scan over every
+            // cached key.
             if (tool.isWriteOperation) {
                 const affectedPath = toolCall.input?.path as string | undefined;
                 if (affectedPath) {
-                    const pathJson = JSON.stringify(affectedPath);
-                    for (const [key] of this.resultCache) {
-                        if (key.includes(pathJson)) this.resultCache.delete(key);
+                    const keys = this.pathIndex.get(affectedPath);
+                    if (keys) {
+                        for (const key of keys) this.resultCache.delete(key);
+                        this.pathIndex.delete(affectedPath);
                     }
                 }
             }
@@ -675,8 +697,31 @@ export class ToolExecutionPipeline {
             await this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
 
             // Cache successful read-only results for deduplication (text-only, FULL content)
+            // FIX-PERF-23: enforce LRU cap + update pathIndex for O(1)
+            // write-invalidation.
             if (!executionHadError && ToolExecutionPipeline.CACHEABLE.has(toolCall.name)) {
-                this.resultCache.set(this.cacheKey(toolCall.name, toolCall.input), textContent);
+                const key = this.cacheKey(toolCall.name, toolCall.input);
+                this.resultCache.delete(key);
+                this.resultCache.set(key, textContent);
+                if (this.resultCache.size > ToolExecutionPipeline.RESULT_CACHE_LIMIT) {
+                    const oldest = this.resultCache.keys().next().value;
+                    if (oldest !== undefined) {
+                        this.resultCache.delete(oldest);
+                        for (const [path, keys] of this.pathIndex) {
+                            keys.delete(oldest);
+                            if (keys.size === 0) this.pathIndex.delete(path);
+                        }
+                    }
+                }
+                const path = toolCall.input?.path as string | undefined;
+                if (typeof path === 'string') {
+                    let bucket = this.pathIndex.get(path);
+                    if (!bucket) {
+                        bucket = new Set<string>();
+                        this.pathIndex.set(path, bucket);
+                    }
+                    bucket.add(key);
+                }
             }
 
             // 6b. ADR-063: Context Externalization — write large results to temp files
@@ -954,7 +999,11 @@ export class ToolExecutionPipeline {
     ): Promise<void> {
         const logger: OperationLogger | undefined = this.plugin.operationLogger;
         if (logger) {
-            await logger.log({
+            // FIX-PERF-08: fire-and-forget. Tool dispatch should not wait
+            // for a log write to land on disk. The logger has its own
+            // retry/queue; failures surface via .catch() instead of
+            // blocking the agent loop.
+            void logger.log({
                 timestamp: new Date().toISOString(),
                 taskId: this.taskId,
                 mode: this.mode,
@@ -964,12 +1013,12 @@ export class ToolExecutionPipeline {
                 success,
                 durationMs,
                 error: errorMessage,
+            }).catch((err) => {
+                console.warn('[Pipeline] operationLogger.log failed (non-fatal):', err);
             });
-        } else {
+        } else if (this.plugin.settings.debugMode) {
             // Fallback: console only
-            if (this.plugin.settings.debugMode) {
-                console.debug(`[Pipeline] ${toolCall.name} — ${success ? 'ok' : 'error'} (${durationMs}ms)`);
-            }
+            console.debug(`[Pipeline] ${toolCall.name} — ${success ? 'ok' : 'error'} (${durationMs}ms)`);
         }
     }
 

@@ -295,6 +295,8 @@ export class ToolRegistry {
             console.warn(`ToolRegistry: Tool '${tool.name}' already registered, overwriting`);
         }
         this.tools.set(tool.name, tool);
+        // FIX-PERF-16: invalidate definition cache on every mutation.
+        this.invalidateDefinitionCache();
     }
 
     /**
@@ -320,9 +322,34 @@ export class ToolRegistry {
      * `find_tool`. The full set is still available via `includeDeferred: true`
      * (used by the Settings UI, tests, and subtask spawners).
      */
+    // FIX-PERF-16: cache tool definitions. getDefinition() builds a
+    // ToolDefinition object every call; the registry rebuilds the full
+    // list 3-4 times per turn (system-prompt assembly, mode filter,
+    // stigmergy inventory). The cache is invalidated when the tool set
+    // changes (register / unregister).
+    private cachedAllDefinitions: ToolDefinition[] | null = null;
+    private cachedByName: Map<string, ToolDefinition> | null = null;
+
+    private buildDefinitionCache(): { all: ToolDefinition[]; byName: Map<string, ToolDefinition> } {
+        if (this.cachedAllDefinitions !== null && this.cachedByName !== null) {
+            return { all: this.cachedAllDefinitions, byName: this.cachedByName };
+        }
+        const all = this.getAllTools().map((tool) => tool.getDefinition());
+        const byName = new Map<string, ToolDefinition>();
+        for (const def of all) byName.set(def.name, def);
+        this.cachedAllDefinitions = all;
+        this.cachedByName = byName;
+        return { all, byName };
+    }
+
+    private invalidateDefinitionCache(): void {
+        this.cachedAllDefinitions = null;
+        this.cachedByName = null;
+    }
+
     getToolDefinitions(options?: { includeDeferred?: boolean }): ToolDefinition[] {
         const includeDeferred = options?.includeDeferred ?? true;
-        const all = this.getAllTools().map((tool) => tool.getDefinition());
+        const { all } = this.buildDefinitionCache();
         if (includeDeferred) return all;
         return all.filter((def) => !isDeferredTool(def.name));
     }
@@ -332,10 +359,13 @@ export class ToolRegistry {
      * (used by Mode system to restrict tool access)
      */
     getFilteredToolDefinitions(allowedTools: ToolName[]): ToolDefinition[] {
-        return allowedTools
-            .map((name) => this.getTool(name))
-            .filter((tool): tool is BaseTool => tool !== undefined)
-            .map((tool) => tool.getDefinition());
+        const { byName } = this.buildDefinitionCache();
+        const out: ToolDefinition[] = [];
+        for (const name of allowedTools) {
+            const def = byName.get(name);
+            if (def !== undefined) out.push(def);
+        }
+        return out;
     }
 
     /**
@@ -365,7 +395,10 @@ export class ToolRegistry {
      * Unregister a tool
      */
     unregister(name: ToolName): boolean {
-        return this.tools.delete(name);
+        const deleted = this.tools.delete(name);
+        // FIX-PERF-16: invalidate definition cache on every mutation.
+        if (deleted) this.invalidateDefinitionCache();
+        return deleted;
     }
 
     /**
