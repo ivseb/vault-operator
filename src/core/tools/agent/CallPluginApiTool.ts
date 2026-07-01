@@ -200,8 +200,15 @@ export class CallPluginApiTool extends BaseTool<'call_plugin_api'> {
                 ? serialized.slice(0, maxReturnSize) + `\n... [truncated, ${serialized.length} total bytes]`
                 : serialized;
 
+            // Frontmatter Operator write ops return an ActionResult with an
+            // optional `snapshotId`. Surface it in the tool result so the
+            // agent knows how to undo the action when the user asks. The
+            // hint uses the same call_plugin_api entry point so no new
+            // surface is introduced.
+            const undoHint = this.buildUndoHint(pluginId, allowedEntry?.isWrite === true, result);
+
             callbacks.pushToolResult(
-                this.formatContent(truncated, {
+                this.formatContent(truncated + undoHint, {
                     plugin: pluginId,
                     method: method,
                 }),
@@ -211,6 +218,31 @@ export class CallPluginApiTool extends BaseTool<'call_plugin_api'> {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('call_plugin_api', error);
         }
+    }
+
+    /**
+     * Build a one-line undo hint for Frontmatter Operator write results that
+     * carry a `snapshotId`. Returns an empty string for any other plugin,
+     * read ops, or results without a snapshotId. The hint is appended to
+     * the tool result so the agent has the exact call to restore this
+     * specific action if the user asks.
+     *
+     * AUDIT-FEAT-14-07 L-1: `snapshotId` is validated against a strict
+     * pattern before being interpolated into the JSON snippet. A malformed
+     * or malicious id (containing quotes, newlines, or JSON structure) is
+     * dropped: the caller still gets a plain result without the hint,
+     * which is safer than emitting broken JSON into the agent's context.
+     */
+    private buildUndoHint(pluginId: string, isWrite: boolean, result: unknown): string {
+        if (pluginId !== 'frontmatter-operator') return '';
+        if (!isWrite) return '';
+        if (!result || typeof result !== 'object') return '';
+        const snapshotId = (result as { snapshotId?: unknown }).snapshotId;
+        if (typeof snapshotId !== 'string' || snapshotId.length === 0) return '';
+        if (snapshotId.length > 128) return '';
+        if (!/^[A-Za-z0-9_-]+$/.test(snapshotId)) return '';
+        return `\n\nUndo this action: call_plugin_api("frontmatter-operator", "restoreSnapshot", {"id": "${snapshotId}"}). ` +
+            `Or call_plugin_api("frontmatter-operator", "undoLast") to revert the most recent action.`;
     }
 
     /**

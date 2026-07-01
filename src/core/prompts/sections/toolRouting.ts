@@ -29,7 +29,8 @@ export function getToolRoutingSection(configDir: string): string {
    Plugin config: check the plugin's SKILL.md for the settings schema, then write ${configDir}/plugins/{id}/data.json directly.
 8. SEARCH PICK (when Tier 2/3 search is justified):
    external/current -> web_search | topical vault -> semantic_search | tag filter -> search_by_tag | exact text -> search_files | structured .base -> query_base
-9. CITE WITH WIKILINKS [[Note Name]]. update_frontmatter > edit_file for YAML.
-10. attempt_completion ONLY for multi-step write tasks (questions/read-only: just write the answer).
-11. EXTERNALIZED RESULTS. Large tool results are saved to temp files; the compact summary in the result is often sufficient. Only read the full file when you need details.`;
+9. CITE WITH WIKILINKS [[Note Name]]. update_frontmatter > edit_file for YAML VALUE writes on a single note.
+10. FRONTMATTER STRUCTURE / BULK OPS. For structural CRUD across the vault (rename a property key, delete a property key, merge/copy between properties, rename values like "Interview"->"interview", or setting a value across a filter selection), use call_plugin_api("frontmatter-operator", "<method>", ...). Common methods: setProperty, renameProperty, renameValues, deleteProperties, mergeProperties, copyProperty, cleanupRefusalTags, dedupeWikilinks -- all snapshotted (undoLast / restoreSnapshot(id)). If the plugin is not listed under PLUGIN SKILLS, recommend the user installs "Frontmatter Operator" from Community Plugins for these operations, then use update_frontmatter iteratively as a fallback.
+11. attempt_completion ONLY for multi-step write tasks (questions/read-only: just write the answer).
+12. EXTERNALIZED RESULTS. Large tool results are saved to temp files; the compact summary in the result is often sufficient. Only read the full file when you need details.`;
 }
