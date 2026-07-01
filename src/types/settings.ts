@@ -1022,6 +1022,14 @@ export interface ObsidianAgentSettings {
      * never hidden.
      */
     safeStoragePlaintextFallbackAcknowledged?: boolean;
+    /**
+     * Whether the user has dismissed the one-time Frontmatter Operator plugin
+     * recommendation notice. Set to true when the user clicks "Do not show
+     * again" on the recommendation toast that fires after a successful
+     * update_frontmatter call while the frontmatter-operator plugin is not
+     * installed or not enabled. Once dismissed, the toast never fires again.
+     */
+    frontmatterOperatorHintDismissed?: boolean;
     /** Whether data has been migrated to global storage (~/.obsidian-agent/) — ADR-020 */
     _globalStorageMigrated?: boolean;
     /** Whether sync data has been migrated from plugin-dir to .obsilo-sync/ */
@@ -1943,6 +1951,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     },
     sandboxMode: 'auto',
     safeStoragePlaintextFallbackAcknowledged: false,
+    frontmatterOperatorHintDismissed: false,
     taskExtraction: {
         enabled: true,
         taskFolder: 'Tasks',

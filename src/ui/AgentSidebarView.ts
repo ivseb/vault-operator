@@ -150,6 +150,10 @@ export class AgentSidebarView extends ItemView {
 
     // Context: tracks whether user dismissed the auto-injected file for this turn
     private userDismissedContext = false;
+    // Session-local flag: the Frontmatter Operator recommendation toast is
+    // shown at most once per sidebar-view lifetime (in addition to the
+    // persistent frontmatterOperatorHintDismissed setting).
+    private frontmatterOperatorHintShownThisSession = false;
     // Last user message text — used by "Regenerate" action
     private lastUserMessage = '';
     // Last known active MarkdownView — tracked because clicking sidebar loses getActiveViewOfType
@@ -1863,6 +1867,31 @@ export class AgentSidebarView extends ItemView {
         }
 
         if (!resolvedApiHandler) {
+            // Post-reload race: onload() runs initApiHandler() near the end,
+            // but the sidebar view may still be open from before the reload
+            // and the user can hit "send" before initApiHandler completes.
+            // If a provider is actually configured, recover silently by
+            // rebuilding the handler here instead of showing a misleading
+            // "no model configured" screen. Only if the recovery attempt
+            // still yields null do we surface the setup guidance.
+            const hasProvidersConfigured =
+                (this.plugin.settings.providerConfigs ?? []).length > 0
+                || this.plugin.settings.activeModels.length > 0;
+            if (hasProvidersConfigured) {
+                console.debug('[Sidebar] apiHandler null on send with providers configured -- retrying initApiHandler once');
+                this.plugin.initApiHandler();
+                resolvedApiHandler = this.plugin.apiHandler;
+                if (!resolvedApiHandler) {
+                    // AUDIT-FEAT-14-07 L-3: emit a visible signal when the
+                    // retry did not recover a handler. The next branch will
+                    // show the setup message; this line makes the underlying
+                    // config problem discoverable in the console.
+                    console.warn('[Sidebar] apiHandler still null after retry -- provider configuration appears broken');
+                }
+            }
+        }
+
+        if (!resolvedApiHandler) {
             const activeKey = this.plugin.settings.activeModelKey;
             const activeModel = this.plugin.settings.activeModels.find((m) => getModelKey(m) === activeKey);
 
@@ -2335,6 +2364,16 @@ export class AgentSidebarView extends ItemView {
                         }
                         details.open = isError;
                     }
+                    // Fire the Frontmatter Operator recommendation toast once
+                    // per session on the first successful update_frontmatter
+                    // call, only when the plugin is not already active. The
+                    // method itself gates on session flag + persistent
+                    // dismiss flag + active-plugin check, so calling it
+                    // unconditionally on the happy path is safe.
+                    if (!isError && name === 'update_frontmatter') {
+                        this.showFrontmatterOperatorRecommendation();
+                    }
+
                     // Track step completion and update outer block summary
                     stepsCompleted++;
                     if (isError) stepsHasError = true;
@@ -3150,6 +3189,49 @@ export class AgentSidebarView extends ItemView {
                     ...this.plugin.settings.taskExtraction,
                     taskNotesHintDismissed: true,
                 };
+                void this.plugin.saveSettings();
+                notice.hide();
+            });
+        });
+        const notice = new Notice(fragment, 12000);
+    }
+
+    /** Checks whether the Frontmatter Operator community plugin is currently enabled */
+    private isFrontmatterOperatorActive(): boolean {
+        const plugins = (this.app as unknown as { plugins?: { enabledPlugins?: Set<string> } }).plugins;
+        return plugins?.enabledPlugins?.has('frontmatter-operator') ?? false;
+    }
+
+    /**
+     * Non-blocking recommendation notice for the Frontmatter Operator plugin.
+     * Fires at most once per sidebar-view session and never again after the
+     * user clicks "Do not show again" (persisted via
+     * settings.frontmatterOperatorHintDismissed). English UI language per
+     * feedback_ui_language_and_naming.
+     */
+    private showFrontmatterOperatorRecommendation(): void {
+        if (this.frontmatterOperatorHintShownThisSession) return;
+        if (this.plugin.settings.frontmatterOperatorHintDismissed) return;
+        if (this.isFrontmatterOperatorActive()) return;
+        this.frontmatterOperatorHintShownThisSession = true;
+
+        const plugins = (this.app as unknown as { plugins?: { manifests?: Record<string, unknown> } }).plugins;
+        const isInstalled = !!plugins?.manifests?.['frontmatter-operator'];
+
+        const message = isInstalled
+            ? 'Frontmatter Operator is installed but disabled. Enable it in Community Plugins for bulk frontmatter operations and undoable snapshots.'
+            : 'Tip: Frontmatter Operator adds bulk operations, structural rename/delete, and undoable snapshots for YAML frontmatter. Install it from Community Plugins for advanced workflows.';
+
+        const fragment = createFragment((frag) => {
+            frag.createSpan({ text: message + ' ' });
+            const dismissLink = frag.createEl('a', {
+                text: 'Do not show again',
+                cls: 'agent-u-task-hint-dismiss',
+            });
+            dismissLink.addClass('agent-u-task-hint-dismiss-link');
+            dismissLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.plugin.settings.frontmatterOperatorHintDismissed = true;
                 void this.plugin.saveSettings();
                 notice.hide();
             });
@@ -4552,6 +4634,95 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * Selector-carrying Frontmatter Operator API methods. Bulk-write ops
+     * that accept a NoteSelector under `select` can be previewed via the
+     * auto-approvable read method `getMatchingPaths`. Methods without a
+     * selector (undoLast, restoreSnapshot, cleanupRefusalTags with vault-
+     * wide default, dedupeWikilinks) render no preview.
+     */
+    private readonly FO_SELECTOR_METHODS = new Set([
+        'setProperty',
+        'deleteProperties',
+        'renameProperty',
+        'renameValues',
+        'copyProperty',
+        'mergeProperties',
+    ]);
+
+    /**
+     * Render an "Affects N note(s)" preview line in the approval card for
+     * Frontmatter Operator selector-based bulk writes. Returns a Promise
+     * that resolves once the preview has settled (success or failure) so
+     * the caller can gate the Allow-button on it (AUDIT-FEAT-14-07 L-5).
+     * Returns `null` when no preview is applicable to the current tool
+     * call -- the caller keeps normal button behaviour in that case.
+     *
+     * Reads only (getMatchingPaths is Tier-1 auto-approvable), so the
+     * preview itself does not trigger another approval prompt.
+     */
+    private maybeRenderFrontmatterOperatorPreview(
+        toolName: string,
+        input: Record<string, unknown>,
+        row: HTMLElement,
+    ): Promise<void> | null {
+        if (toolName !== 'call_plugin_api') return null;
+        if (input['plugin_id'] !== 'frontmatter-operator') return null;
+        const method = typeof input['method'] === 'string' ? input['method'] : '';
+        if (!this.FO_SELECTOR_METHODS.has(method)) return null;
+
+        // args on call_plugin_api is an ordered array; FO opts sit in args[0].
+        const args = Array.isArray(input['args']) ? input['args'] : [];
+        const opts = (args[0] ?? {}) as Record<string, unknown>;
+        const selector = opts['select'];
+        if (!selector || typeof selector !== 'object') return null;
+
+        const plugins = (this.app as unknown as {
+            plugins?: { plugins?: Record<string, { api?: Record<string, unknown> }> };
+        }).plugins;
+        const foInstance = plugins?.plugins?.['frontmatter-operator'];
+        const getMatchingPaths = foInstance?.api?.['getMatchingPaths'];
+        if (typeof getMatchingPaths !== 'function') return null;
+
+        // Insert placeholder immediately so it appears above the details toggle.
+        const previewEl = row.createDiv('tool-approval-fo-preview');
+        previewEl.setText('Resolving affected notes...');
+
+        // Async resolution. Failures silently remove the placeholder.
+        // AUDIT-FEAT-14-07 L-2: guard every DOM mutation with an isConnected
+        // check. When the user resolves the approval before getMatchingPaths
+        // returns, `row` has already been removed and previewEl is detached.
+        // Continuing to mutate a detached node wastes CPU and keeps a stale
+        // reference on `row`.
+        return (async () => {
+            try {
+                const result = await (getMatchingPaths as (s: unknown) => Promise<unknown>)(selector);
+                if (!previewEl.isConnected) return;
+                if (!result || typeof result !== 'object') {
+                    previewEl.remove();
+                    return;
+                }
+                const typed = result as { count?: unknown; paths?: unknown };
+                const count = typeof typed.count === 'number' ? typed.count : NaN;
+                const paths = Array.isArray(typed.paths) ? typed.paths.filter((p): p is string => typeof p === 'string') : [];
+                if (Number.isNaN(count)) {
+                    previewEl.remove();
+                    return;
+                }
+                previewEl.empty();
+                const label = count === 1 ? 'Affects 1 note.' : `Affects ${count} notes.`;
+                previewEl.createSpan({ text: label });
+                if (paths.length > 0) {
+                    const sample = paths.slice(0, 5).join(', ');
+                    const suffix = paths.length > 5 ? `, ... (+${count - 5} more)` : '';
+                    previewEl.createSpan('tool-approval-fo-preview-sample').setText(` ${sample}${suffix}`);
+                }
+            } catch {
+                if (previewEl.isConnected) previewEl.remove();
+            }
+        })();
+    }
+
+    /**
      * Format the raw tool input as a readable string for the details section.
      */
     private formatInputForDetails(input: Record<string, unknown>): string {
@@ -4610,6 +4781,12 @@ export class AgentSidebarView extends ItemView {
                 codePreview.createEl('code').setText(preview);
             }
 
+            // For Frontmatter Operator bulk writes: preview how many notes
+            // the selector matches BEFORE the user approves. Uses the
+            // auto-approvable read method getMatchingPaths, so the preview
+            // itself does not trigger another approval prompt.
+            const previewPromise = this.maybeRenderFrontmatterOperatorPreview(toolName, input, row);
+
             // Collapsible details for power users
             const detailsToggle = row.createEl('span', {
                 cls: 'tool-approval-details-toggle',
@@ -4646,6 +4823,25 @@ export class AgentSidebarView extends ItemView {
             const allowBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-allow-once', text: t('ui.approval.allowOnce') });
             const enableBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') });
             const denyBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-deny-small', text: '✕' });
+
+            // AUDIT-FEAT-14-07 L-5: gate the Allow-button on the preview
+            // for Frontmatter Operator bulk writes so the user cannot
+            // approve before seeing the affected-note count. The Deny-
+            // button stays enabled so the user can always bail out. A 2s
+            // hard timeout re-enables Allow even if the plugin call hangs.
+            if (previewPromise) {
+                allowBtn.disabled = true;
+                enableBtn.disabled = true;
+                const releaseTimeout = window.setTimeout(() => {
+                    allowBtn.disabled = false;
+                    enableBtn.disabled = false;
+                }, 2000);
+                void previewPromise.finally(() => {
+                    window.clearTimeout(releaseTimeout);
+                    allowBtn.disabled = false;
+                    enableBtn.disabled = false;
+                });
+            }
 
             const cleanup = () => row.remove();
 
