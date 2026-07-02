@@ -110,13 +110,55 @@ describe('TaskMonitor (FIX-24-05-02)', () => {
     // Source pin: AgentSidebarView must pass ALL onUsage parameters through
     // to TaskMonitor. The 2026-07 audit found the callback declared only 4
     // parameters, silently discarding modelId and routingMode.
-    it('AgentSidebarView forwards modelId and routingMode to TaskMonitor.onUsage', () => {
+    it('AgentSidebarView forwards modelId, routingMode and usageByModel to TaskMonitor.onUsage', () => {
         const source = fs.readFileSync(
             path.resolve(__dirname, '../../AgentSidebarView.ts'),
             'utf-8',
         );
         expect(source).toMatch(
-            /taskMonitor\.onUsage\(\s*inputTokens,\s*outputTokens,\s*cacheReadTokens,\s*cacheCreationTokens,\s*modelId,\s*routingMode,?\s*\)/,
+            /taskMonitor\.onUsage\(\s*inputTokens,\s*outputTokens,\s*cacheReadTokens,\s*cacheCreationTokens,\s*modelId,\s*routingMode,\s*usageByModel,?\s*\)/,
         );
+    });
+
+    // FIX-24-05-05: mixed-model tasks (advisor flagship, fast subagents,
+    // TaskRouter escalation, helper-model condensing) must be priced as the
+    // sum of per-model costs, not as one total under a single model id.
+    describe('per-model cost buckets (FIX-24-05-05)', () => {
+        it('prices mixed-model usage as the sum of per-model costs', () => {
+            const { monitor, footerTexts } = makeMonitor();
+            monitor.onUsage(2_000_000, 0, 0, 0, 'claude-opus-4-8', 'auto', {
+                'claude-haiku-4-5': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+                'claude-opus-4-8': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+            });
+            // Haiku $1 + Opus $5 = $6 -> 5,58 EUR. Single-id pricing would
+            // show 9,30 (all-Opus) or 1,86 (all-Haiku).
+            expect(footerTexts[0]).toContain('5,58');
+        });
+
+        it('falls back to single-model pricing when no buckets are provided', () => {
+            const { monitor, footerTexts } = makeMonitor();
+            monitor.onUsage(2_000_000, 0, 0, 0, 'claude-opus-4-8', 'auto');
+            expect(footerTexts[0]).toContain('9,30');
+        });
+
+        it('persists usageByModel and the summed cost in telemetry', async () => {
+            const { monitor } = makeMonitor();
+            const buckets = {
+                'claude-haiku-4-5': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+                'claude-opus-4-8': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+            };
+            monitor.onUsage(2_000_000, 0, 0, 0, 'claude-opus-4-8', 'auto', buckets);
+            monitor.onTaskTelemetry({
+                inputTokens: 2_000_000,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheCreationTokens: 0,
+                toolSequence: [],
+                iterations: 1,
+                outcome: 'completed',
+            });
+            await vi.waitFor(() => expect(recordSpy).toHaveBeenCalledTimes(1));
+            expect(recordSpy.mock.calls[0][0].usageByModel).toEqual(buckets);
+        });
     });
 });

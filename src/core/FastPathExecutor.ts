@@ -121,6 +121,8 @@ export class FastPathExecutor {
             outputTokens: number,
             cacheReadTokens?: number,
             cacheCreationTokens?: number,
+            /** FIX-24-05-05: model that served the planner call (helper or main). */
+            modelId?: string,
         ) => void,
     ) {}
 
@@ -333,7 +335,8 @@ export class FastPathExecutor {
                 if (chunk.type === 'text') responseText += chunk.text;
                 // FIX-24-05-04: planner tokens cost money too.
                 else if (chunk.type === 'usage') {
-                    this.onUsage?.(chunk.inputTokens, chunk.outputTokens, chunk.cacheReadTokens, chunk.cacheCreationTokens);
+                    this.onUsage?.(chunk.inputTokens, chunk.outputTokens, chunk.cacheReadTokens, chunk.cacheCreationTokens,
+                        internalApi.getModel().id);
                 }
             }
 

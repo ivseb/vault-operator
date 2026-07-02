@@ -89,4 +89,24 @@ describe('condenseHistory usage accounting (FIX-24-05-04)', () => {
         expect(aux.cacheRead).toBe(90);
         expect(aux.cacheCreation).toBe(12);
     });
+
+    // FIX-24-05-05: the condensing call may run on a different (helper)
+    // model than the main loop -- its usage must be attributed to the
+    // model that actually served it.
+    it('attributes condensing usage to the condensing model in usageByModel', async () => {
+        const task = new AgentTask(makeApiWithUsage(), makeToolRegistry(), makeCallbacks());
+        await (task as unknown as {
+            condenseHistory: (h: MessageParam[], sp: string) => Promise<boolean>;
+        }).condenseHistory(makeHistory(), 'sp');
+        const buckets = (task as unknown as {
+            usageByModel: Record<string, { input: number; output: number; cacheRead: number; cacheCreation: number }>;
+        }).usageByModel;
+        // No helper model configured -> condensing ran on the main mock api.
+        expect(buckets['mock-model']).toEqual({
+            input: 12_345,
+            output: 678,
+            cacheRead: 90,
+            cacheCreation: 12,
+        });
+    });
 });

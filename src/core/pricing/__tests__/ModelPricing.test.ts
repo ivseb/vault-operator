@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeCost, formatEur, getModelPrice } from '../ModelPricing';
+import { computeCost, computeCostForBuckets, addUsage, mergeUsageByModel, formatEur, getModelPrice, type UsageByModel } from '../ModelPricing';
 
 describe('ModelPricing', () => {
     it('matches exact model id case-insensitively', () => {
@@ -119,6 +119,58 @@ describe('ModelPricing', () => {
                 expect(price.cacheReadPerMillionUsd, id).toBeDefined();
                 expect(price.cacheReadPerMillionUsd!, id).toBeLessThan(price.inputPerMillionUsd);
             }
+        });
+    });
+
+    // FIX-24-05-05: mixed-model tasks must be priced per model, not as one
+    // total under a single model id.
+    describe('FIX-24-05-05 per-model cost buckets', () => {
+        it('sums per-model costs instead of pricing the total under one id', () => {
+            const buckets: UsageByModel = {
+                'claude-haiku-4-5': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+                'claude-opus-4-8': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+            };
+            const cost = computeCostForBuckets(buckets);
+            // Haiku $1 + Opus $5 = $6. A single-id computation would give
+            // either $2 (all-Haiku) or $10 (all-Opus).
+            expect(cost.totalUsd).toBeCloseTo(6, 5);
+            expect(cost.totalEur).toBeCloseTo(6 * 0.93, 5);
+        });
+
+        it('includes cache components per model', () => {
+            const buckets: UsageByModel = {
+                'claude-opus-4-8': { input: 0, output: 0, cacheRead: 1_000_000, cacheCreation: 1_000_000 },
+            };
+            const cost = computeCostForBuckets(buckets);
+            expect(cost.cacheReadCost).toBeCloseTo(0.5, 5);
+            expect(cost.cacheWriteCost).toBeCloseTo(6.25, 5);
+        });
+
+        it('addUsage creates buckets on demand and accumulates', () => {
+            const buckets: UsageByModel = {};
+            addUsage(buckets, 'claude-haiku-4-5', 100, 10);
+            addUsage(buckets, 'claude-haiku-4-5', 50, 5, 20, 30);
+            expect(buckets['claude-haiku-4-5']).toEqual({ input: 150, output: 15, cacheRead: 20, cacheCreation: 30 });
+        });
+
+        it('addUsage falls back to the unknown bucket for empty model ids', () => {
+            const buckets: UsageByModel = {};
+            addUsage(buckets, '', 100, 10);
+            expect(buckets['unknown']).toEqual({ input: 100, output: 10, cacheRead: 0, cacheCreation: 0 });
+        });
+
+        it('mergeUsageByModel adds source buckets into target', () => {
+            const target: UsageByModel = {
+                'claude-haiku-4-5': { input: 100, output: 10, cacheRead: 0, cacheCreation: 0 },
+            };
+            mergeUsageByModel(target, {
+                'claude-haiku-4-5': { input: 50, output: 5, cacheRead: 7, cacheCreation: 0 },
+                'claude-opus-4-8': { input: 200, output: 20, cacheRead: 0, cacheCreation: 0 },
+            });
+            expect(target['claude-haiku-4-5']).toEqual({ input: 150, output: 15, cacheRead: 7, cacheCreation: 0 });
+            expect(target['claude-opus-4-8']).toEqual({ input: 200, output: 20, cacheRead: 0, cacheCreation: 0 });
+            mergeUsageByModel(target, undefined);
+            expect(Object.keys(target).length).toBe(2);
         });
     });
 });

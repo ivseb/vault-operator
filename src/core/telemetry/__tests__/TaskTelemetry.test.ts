@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { cacheHitRate, formatTelemetryFooter } from '../TaskTelemetry';
+import { cacheHitRate, formatTelemetryFooter, TaskTelemetry } from '../TaskTelemetry';
+import type { FileAdapter } from '../../storage/types';
 
 describe('cacheHitRate (FEAT-24-05)', () => {
     it('returns null when there is no cache activity', () => {
@@ -52,5 +53,60 @@ describe('formatTelemetryFooter (FEAT-24-05)', () => {
     it('appends the subscription marker', () => {
         const s = formatTelemetryFooter({ inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costEur: 0.001, isSubscription: true });
         expect(s).toContain('(~ via Sub)');
+    });
+});
+
+// FIX-24-05-05: the persisted entry must carry the per-model breakdown and
+// price the task as the sum of per-model costs.
+describe('TaskTelemetry.record with usageByModel (FIX-24-05-05)', () => {
+    function makeFakeFs(): { fs: FileAdapter; files: Map<string, string> } {
+        const files = new Map<string, string>();
+        const dirs = new Set<string>();
+        const fs = {
+            exists: async (p: string) => files.has(p) || dirs.has(p),
+            read: async (p: string) => files.get(p) ?? '',
+            write: async (p: string, content: string) => { files.set(p, content); },
+            mkdir: async (p: string) => { dirs.add(p); },
+        } as unknown as FileAdapter;
+        return { fs, files };
+    }
+
+    it('computes cost as the sum over per-model buckets', async () => {
+        const { fs } = makeFakeFs();
+        const telemetry = new TaskTelemetry(fs);
+        const entry = await telemetry.record({
+            promptPreview: 'p',
+            modelId: 'claude-opus-4-8',
+            mode: 'agent',
+            inputTokens: 2_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            outcome: 'completed',
+            usageByModel: {
+                'claude-haiku-4-5': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+                'claude-opus-4-8': { input: 1_000_000, output: 0, cacheRead: 0, cacheCreation: 0 },
+            },
+        });
+        // Haiku $1 + Opus $5 = $6; single-id pricing would say $10.
+        expect(entry.costUsd).toBeCloseTo(6, 5);
+        expect(entry.usageByModel?.['claude-haiku-4-5']?.input).toBe(1_000_000);
+    });
+
+    it('keeps single-model pricing when no buckets are given', async () => {
+        const { fs } = makeFakeFs();
+        const telemetry = new TaskTelemetry(fs);
+        const entry = await telemetry.record({
+            promptPreview: 'p',
+            modelId: 'claude-opus-4-8',
+            mode: 'agent',
+            inputTokens: 2_000_000,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            outcome: 'completed',
+        });
+        expect(entry.costUsd).toBeCloseTo(10, 5);
+        expect(entry.usageByModel).toBeUndefined();
     });
 });

@@ -2403,12 +2403,14 @@ export class AgentSidebarView extends ItemView {
                     // as markdown so partial wikilinks/links are clickable.
                     scheduleToolProgressRender(outputEl, content);
                 },
-                onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode) => {
+                onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode, usageByModel) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage
                     // FIX-24-05-02: modelId + routingMode must reach the
                     // monitor, otherwise TaskRouter-routed tasks are priced
                     // on the configured main model.
-                    taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode);
+                    // FIX-24-05-05: usageByModel carries the per-model
+                    // breakdown for correct mixed-model pricing.
+                    taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode, usageByModel);
                 },
                 onTodoUpdate: (items) => {
                     lastTodoItems = items;

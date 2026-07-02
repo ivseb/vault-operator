@@ -31,6 +31,7 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { getHelperApi } from './helper-api';
+import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
 import { shouldRunTaskRouter } from './routing/TaskRouter';
 import { resolveLeanFlags } from './prompts/leanFlags';
 import { buildApiHandlerForModel } from '../api';
@@ -116,6 +117,13 @@ export interface AgentTaskCallbacks {
         cacheCreationTokens?: number,
         modelId?: string,
         routingMode?: 'auto' | 'override' | 'advisor' | 'subagent',
+        /**
+         * FIX-24-05-05: per-model breakdown of the reported totals. Mixed
+         * tasks (advisor, subagents, escalation, helper condensing) carry
+         * one bucket per model so consumers can price per model instead of
+         * billing the whole sum at `modelId` rates.
+         */
+        usageByModel?: UsageByModel,
     ) => void;
     /** Called when the task is complete (attempt_completion or natural end) */
     onComplete: () => void;
@@ -327,6 +335,14 @@ export class AgentTask {
      * include them.
      */
     private auxUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+    /**
+     * FIX-24-05-05: usage attributed to the model that actually served each
+     * call (main loop at chunk time, condensing/FastPath on the helper,
+     * subtasks merged from their own breakdowns). Reported alongside the
+     * totals so cost is computed per model.
+     */
+    private usageByModel: UsageByModel = {};
 
     /** FIX-24-05-04: hand out the collected auxiliary usage exactly once. */
     private drainAuxUsage(): { input: number; output: number; cacheRead: number; cacheCreation: number } {
@@ -803,11 +819,14 @@ export class AgentTask {
 
                     // FIX-24-05-04: collect planner-call usage so it lands
                     // in the task totals (footer + telemetry).
-                    const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc) => {
+                    const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc, servingModelId) => {
                         this.auxUsage.input += i;
                         this.auxUsage.output += o;
                         this.auxUsage.cacheRead += cr ?? 0;
                         this.auxUsage.cacheCreation += cc ?? 0;
+                        // FIX-24-05-05: the planner may run on the helper model.
+                        addUsage(this.usageByModel, servingModelId ?? this.api.getModel().id,
+                            i, o, cr ?? 0, cc ?? 0);
                     });
                     const fpCallbacks = {
                         pushToolResult: () => {},
@@ -928,6 +947,8 @@ export class AgentTask {
         let totalOutputTokens = 0;
         let totalCacheReadTokens = 0;
         let totalCacheCreationTokens = 0;
+        // FIX-24-05-05: fresh per-model breakdown per run.
+        this.usageByModel = {};
         // attempt_completion signal
         let completionResult: string | null = null;
         // Track whether the model streamed any text across all iterations.
@@ -1024,12 +1045,20 @@ export class AgentTask {
                     },
                     onComplete: () => { /* handled via Promise resolution */ },
                     onError: (err) => { throw err; },
-                    onUsage: (i, o, cr, cc, mid) => {
+                    onUsage: (i, o, cr, cc, mid, _rm, childUsageByModel) => {
                         // Akkumuliere Subtask-Tokens in Parent-Totals
                         totalInputTokens += i;
                         totalOutputTokens += o;
                         totalCacheReadTokens += cr ?? 0;
                         totalCacheCreationTokens += cc ?? 0;
+                        // FIX-24-05-05: merge the child's per-model breakdown;
+                        // fall back to attributing everything to the child's
+                        // reported model when no breakdown is available.
+                        if (childUsageByModel) {
+                            mergeUsageByModel(this.usageByModel, childUsageByModel);
+                        } else {
+                            addUsage(this.usageByModel, mid ?? '', i, o, cr ?? 0, cc ?? 0);
+                        }
                         // EPIC-26: tag the forwarded usage so the parent's
                         // cost log shows WHY this call ran on the reported
                         // model. `advisor` for the consult_flagship profile,
@@ -1046,7 +1075,7 @@ export class AgentTask {
                         // Intermediate levels would double-count: their own
                         // final report already includes these tokens.
                         if (shouldForwardSubtaskUsage(this.depth)) {
-                            this.taskCallbacks.onUsage?.(i, o, cr, cc, mid, routingMode);
+                            this.taskCallbacks.onUsage?.(i, o, cr, cc, mid, routingMode, childUsageByModel);
                         }
                     },
                     // K-1: Forward parent approval callback so subtask write ops are not
@@ -1554,6 +1583,12 @@ export class AgentTask {
                         totalOutputTokens += chunk.outputTokens;
                         totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
                         totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                        // FIX-24-05-05: attribute at chunk time -- TaskRouter
+                        // escalation swaps this.api mid-loop, so the model
+                        // serving THIS iteration is the one to bill.
+                        addUsage(this.usageByModel, this.api.getModel().id,
+                            chunk.inputTokens, chunk.outputTokens,
+                            chunk.cacheReadTokens ?? 0, chunk.cacheCreationTokens ?? 0);
                     }
                 }
 
@@ -1980,6 +2015,10 @@ export class AgentTask {
                                 totalOutputTokens += chunk.outputTokens;
                                 totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
                                 totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                                // FIX-24-05-05: recovery call runs on this.api too.
+                                addUsage(this.usageByModel, this.api.getModel().id,
+                                    chunk.inputTokens, chunk.outputTokens,
+                                    chunk.cacheReadTokens ?? 0, chunk.cacheCreationTokens ?? 0);
                             }
                         }
                     } catch (e) {
@@ -2013,6 +2052,9 @@ export class AgentTask {
                     // calls separately; here we mark whether the main loop ran
                     // on the chat-override path or the default tier-resolved path.
                     this.modelOverrideActive ? 'override' : 'auto',
+                    // FIX-24-05-05: per-model breakdown for correct pricing
+                    // of mixed-model tasks.
+                    this.usageByModel,
                 );
             }
 
@@ -2535,6 +2577,11 @@ export class AgentTask {
                     this.auxUsage.output += chunk.outputTokens;
                     this.auxUsage.cacheRead += chunk.cacheReadTokens ?? 0;
                     this.auxUsage.cacheCreation += chunk.cacheCreationTokens ?? 0;
+                    // FIX-24-05-05: condensing may run on the helper model --
+                    // attribute to the model that actually served it.
+                    addUsage(this.usageByModel, condensingModelId,
+                        chunk.inputTokens, chunk.outputTokens,
+                        chunk.cacheReadTokens ?? 0, chunk.cacheCreationTokens ?? 0);
                 }
             }
         } catch (e) {

@@ -29,6 +29,62 @@ export interface CostBreakdown {
     totalEur: number;
 }
 
+/** FIX-24-05-05: token usage attributed to one model. */
+export interface ModelUsage {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+}
+
+/**
+ * Per-model usage buckets keyed by model id. A task that mixes models
+ * (advisor flagship, fast-tier subagents, TaskRouter escalation, helper
+ * condensing) carries one bucket per model so cost can be computed per
+ * model instead of pricing the total under a single id.
+ */
+export type UsageByModel = Record<string, ModelUsage>;
+
+/** Add usage to the bucket for `modelId`, creating it on demand. */
+export function addUsage(
+    target: UsageByModel,
+    modelId: string,
+    input: number,
+    output: number,
+    cacheRead = 0,
+    cacheCreation = 0,
+): void {
+    const key = modelId || 'unknown';
+    const bucket = target[key] ?? (target[key] = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+    bucket.input += input;
+    bucket.output += output;
+    bucket.cacheRead += cacheRead;
+    bucket.cacheCreation += cacheCreation;
+}
+
+/** Merge all of `source`'s buckets into `target`. */
+export function mergeUsageByModel(target: UsageByModel, source: UsageByModel | undefined): void {
+    if (!source) return;
+    for (const [id, u] of Object.entries(source)) {
+        addUsage(target, id, u.input, u.output, u.cacheRead, u.cacheCreation);
+    }
+}
+
+/** Sum of per-model costs -- the correct price for a mixed-model task. */
+export function computeCostForBuckets(usageByModel: UsageByModel): CostBreakdown {
+    const total: CostBreakdown = { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalUsd: 0, totalEur: 0 };
+    for (const [id, u] of Object.entries(usageByModel)) {
+        const c = computeCost(id, u.input, u.output, u.cacheRead, u.cacheCreation);
+        total.inputCost += c.inputCost;
+        total.outputCost += c.outputCost;
+        total.cacheReadCost += c.cacheReadCost;
+        total.cacheWriteCost += c.cacheWriteCost;
+        total.totalUsd += c.totalUsd;
+        total.totalEur += c.totalEur;
+    }
+    return total;
+}
+
 const USD_TO_EUR = 0.93;
 
 /**
