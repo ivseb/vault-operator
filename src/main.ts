@@ -12,6 +12,7 @@ import {
     decryptProviderCredentialsInPlace,
 } from './core/security/providerCredentialCrypto';
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
+import { PriceCatalogService } from './core/pricing/PriceCatalogService';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
@@ -2145,6 +2146,14 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.warn('[Plugin] ConversationStore init failed (non-fatal):', e)
             );
         }
+
+        // IMP-24-05-02: live price catalog (OpenRouter) for the cost footer.
+        // Persisted snapshot applies immediately; refresh is non-blocking
+        // and capped at once per 24h. Offline behavior: static table.
+        const priceCatalog = new PriceCatalogService(this.globalFs);
+        void priceCatalog.load()
+            .then(() => priceCatalog.refreshIfStale())
+            .catch((e) => console.warn('[PriceCatalog] init failed (non-fatal):', e));
 
         // History indexer (FEATURE-0320 Phase 6): backfill on first run,
         // incrementally re-index after every conversation save. Indexer

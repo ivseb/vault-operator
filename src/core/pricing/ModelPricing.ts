@@ -160,10 +160,45 @@ const PRICING: Record<string, ModelPrice> = {
 /** Used when nothing matches -- midrange Sonnet pricing so UI never blanks. */
 const FALLBACK: ModelPrice = { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 };
 
+/**
+ * IMP-24-05-02: live price catalog (OpenRouter /v1/models, keys normalized
+ * by PriceCatalogService). Preferred over the static table when set -- it
+ * carries current vendor rates including intro pricing and models newer
+ * than any manual maintenance. The static table stays as offline fallback.
+ */
+let LIVE_CATALOG: Record<string, ModelPrice> | null = null;
+let LIVE_KEYS_BY_LENGTH: string[] = [];
+
+export function setLivePriceCatalog(catalog: Record<string, ModelPrice> | null): void {
+    LIVE_CATALOG = catalog && Object.keys(catalog).length > 0 ? catalog : null;
+    LIVE_KEYS_BY_LENGTH = LIVE_CATALOG
+        ? Object.keys(LIVE_CATALOG).sort((a, b) => b.length - a.length)
+        : [];
+}
+
+/**
+ * Incoming ids use vendor-specific spellings (Bedrock
+ * `eu.anthropic.claude-haiku-4-5-...`, OpenRouter
+ * `anthropic/claude-opus-4.8`). Live-catalog keys use the dashed form,
+ * so normalize version dots before matching.
+ */
+function normalizeForLiveLookup(modelId: string): string {
+    return modelId.toLowerCase().replace(/(\d)\.(\d)/g, '$1-$2');
+}
+
 /** Look up pricing for a model id. Falls back gracefully. */
 export function getModelPrice(modelId: string | undefined | null): ModelPrice {
     if (!modelId) return FALLBACK;
     const lower = modelId.toLowerCase();
+
+    // IMP-24-05-02: live catalog first (exact, then longest-substring).
+    if (LIVE_CATALOG) {
+        const norm = normalizeForLiveLookup(modelId);
+        if (LIVE_CATALOG[norm]) return LIVE_CATALOG[norm];
+        for (const key of LIVE_KEYS_BY_LENGTH) {
+            if (norm.includes(key)) return LIVE_CATALOG[key];
+        }
+    }
 
     // Exact match first
     if (PRICING[lower]) return PRICING[lower];
