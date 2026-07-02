@@ -40,6 +40,7 @@ import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
 import { resolveObsidianDraggedFiles } from './sidebar/dragManagerBridge';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
+import { LazyConversationId } from '../core/history/LazyConversationId';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
 import { OnboardingService } from '../core/memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../core/onboarding-status';
@@ -135,6 +136,8 @@ export class AgentSidebarView extends ItemView {
     private conversationHistory: MessageParam[] = [];
     // Chat History: active conversation tracking + UI messages for persistence
     private activeConversationId: string | null = null;
+    /** FIX-03-20-01: race-free lazy id creation when the store initializes late. */
+    private readonly lazyConversationId = new LazyConversationId();
     private uiMessages: UiMessage[] = [];
     private historyPanel: HistoryPanel | null = null;
 
@@ -1619,14 +1622,11 @@ export class AgentSidebarView extends ItemView {
         this.lastUserMessage = text;
 
         // Create a new conversation on first message (if history enabled)
+        // FIX-03-20-01: routed through the lazy ensurer so save paths that
+        // run before/after this share the same memoized create.
         if (!this.activeConversationId && this.plugin.conversationStore) {
-            const mode = this.modeService.getActiveMode().slug;
-            const modelKey = this.resolveEnabledModelKey(mode);
-            const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === modelKey);
-            this.activeConversationId = await this.plugin.conversationStore.create(
-                mode,
-                model?.displayName ?? model?.name ?? modelKey,
-            );
+            const ensured = this.ensureConversationId();
+            if (ensured) await ensured;
             // If the nav stack top is the "fresh-chat" sentinel (null), upgrade
             // it to this just-created conversation id. That keeps back/forward
             // consistent: visiting a fresh chat counts as one stack entry,
@@ -3077,6 +3077,7 @@ export class AgentSidebarView extends ItemView {
             void this.finalizeConversation(this.activeConversationId, msgs);
         }
         this.activeConversationId = null;
+        this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
@@ -3108,13 +3109,40 @@ export class AgentSidebarView extends ItemView {
         }
     }
 
+    /**
+     * FIX-03-20-01: create the conversation id as soon as the store allows.
+     * Returns null while no store exists (nothing to save against).
+     */
+    private ensureConversationId(): Promise<string> | null {
+        return this.lazyConversationId.ensure(
+            this.activeConversationId,
+            this.plugin.conversationStore,
+            () => {
+                const mode = this.modeService.getActiveMode().slug;
+                const modelKey = this.resolveEnabledModelKey(mode);
+                const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === modelKey);
+                return { mode, model: model?.displayName ?? model?.name ?? modelKey };
+            },
+            (id) => {
+                // Only adopt the id if the view still has none -- the user
+                // may have switched to a loaded conversation meanwhile.
+                if (!this.activeConversationId) this.activeConversationId = id;
+            },
+        );
+    }
+
     /** Save the current conversation to ConversationStore (non-blocking). */
     private saveCurrentConversation(): void {
         const store = this.plugin.conversationStore;
-        if (!store || !this.activeConversationId || this.uiMessages.length === 0) return;
-        const convId = this.activeConversationId;
+        if (!store || this.uiMessages.length === 0) return;
+        // FIX-03-20-01: a send during boot may predate store init. Create
+        // the id lazily now instead of silently skipping the save (this
+        // was how a completed chat could vanish from history entirely).
+        const ensured = this.ensureConversationId();
+        if (!ensured) return;
         const messagesSnapshot = [...this.uiMessages];
-        store.save(convId, this.conversationHistory, this.uiMessages).then(() => {
+        ensured.then(async (convId) => {
+            await store.save(convId, this.conversationHistory, this.uiMessages);
             // FEATURE-0320 Phase 6: re-index history_chunks after every save.
             void this.plugin.historyIndexer?.onConversationSaved(convId, messagesSnapshot);
         }).catch((e) => console.warn('[History] Save failed:', e));
@@ -3465,6 +3493,7 @@ export class AgentSidebarView extends ItemView {
         this.conversationHistory = data.messages;
         this.uiMessages = data.uiMessages;
         this.activeConversationId = id;
+        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         // Conversation switch drops any pending fullDocTexts too (FIX-19-28-05 audit).
@@ -3543,6 +3572,7 @@ export class AgentSidebarView extends ItemView {
         this.conversationHistory = [...state.history];
         this.uiMessages = [...state.uiMessages];
         this.activeConversationId = state.conversationId;
+        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         void this.attachments.consumeFullDocTexts();
@@ -3610,6 +3640,7 @@ export class AgentSidebarView extends ItemView {
         // If the deleted conversation is the active one, clear the chat
         if (this.activeConversationId === id) {
             this.activeConversationId = null;
+            this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
             this.uiMessages = [];
             this.conversationHistory = [];
             this.plugin.sessionFlags.clear(); // ADR-048
