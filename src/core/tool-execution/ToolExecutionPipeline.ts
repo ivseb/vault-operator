@@ -447,7 +447,18 @@ export class ToolExecutionPipeline {
         toolCall: ToolUse,
         callbacks: ToolCallbacks,
         extensions?: ContextExtensions,
-        opts?: { source?: DispatchSource },
+        opts?: {
+            source?: DispatchSource;
+            /**
+             * IMP-41-02-05 / ADR-151: dispatch trust level. 'user' keeps the
+             * historical gate bypass for user-authored recipes and internal
+             * planners; 'learned' (machine-promoted recipes, ADR-058 Gate 3)
+             * runs the full mode gate + subagent allowlist like model picks.
+             * Absent trust on a fastpath/planner source defaults to 'user'
+             * for legacy callers.
+             */
+            trust?: 'user' | 'learned';
+        },
     ): Promise<ToolResult> {
         const startTime = Date.now();
 
@@ -466,7 +477,11 @@ export class ToolExecutionPipeline {
             // active mode normally allows it. Same dispatch-source bypass
             // logic as the mode gate.
             const dispatchSourceForGate: DispatchSource = opts?.source ?? 'model';
-            const enforceModeGate = dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner';
+            // IMP-41-02-05: the bypass only ever applied because "recipes are
+            // user-authored" — machine-promoted (learned) recipes do not get
+            // that trust and run the full gates like model picks.
+            const enforceModeGate = (dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner')
+                || opts?.trust === 'learned';
             if (enforceModeGate && this.subagentAllowedTools !== undefined) {
                 if (this.subagentAllowedTools.has(toolCall.name) === false) {
                     const msg = `Tool "${toolCall.name}" is not in this subtask's allowlist.`;
