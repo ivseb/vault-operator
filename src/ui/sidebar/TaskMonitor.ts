@@ -17,7 +17,7 @@ import type { App } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { ApiHandler } from '../../api/types';
 import { getModelKey } from '../../types/settings';
-import { computeCost } from '../../core/pricing/ModelPricing';
+import { computeCost, computeCostForBuckets, type UsageByModel } from '../../core/pricing/ModelPricing';
 import { TaskTelemetry, formatTelemetryFooter } from '../../core/telemetry/TaskTelemetry';
 import { VaultDataFileAdapter } from '../../core/storage/VaultDataFileAdapter';
 
@@ -52,6 +52,20 @@ export interface TaskTelemetryData {
 const SUBSCRIPTION_PROVIDERS = new Set(['github-copilot', 'chatgpt-oauth']);
 
 export class TaskMonitor {
+    /**
+     * FIX-24-05-02: the model that actually served the last reported usage.
+     * The final onUsage of a task carries the routed model id; telemetry
+     * must persist that id, not the configured main model.
+     */
+    private lastActualModelId?: string;
+
+    /**
+     * FIX-24-05-05: the per-model breakdown of the last reported usage.
+     * Persisted with the telemetry entry so mixed-model tasks are priced
+     * per model there too.
+     */
+    private lastUsageByModel?: UsageByModel;
+
     constructor(private opts: TaskMonitorOptions) {}
 
     /**
@@ -71,20 +85,31 @@ export class TaskMonitor {
         cacheCreationTokens?: number,
         actualModelId?: string,
         routingMode?: 'auto' | 'override' | 'advisor' | 'subagent',
+        usageByModel?: UsageByModel,
     ): void {
         const cR = cacheReadTokens ?? 0;
         const cW = cacheCreationTokens ?? 0;
+        if (actualModelId) this.lastActualModelId = actualModelId;
+        if (usageByModel && Object.keys(usageByModel).length > 0) this.lastUsageByModel = usageByModel;
         const modelId = actualModelId ?? this.modelIdForCost();
         const provider = this.providerFor(modelId);
-        const cost = computeCost(modelId, inputTokens, outputTokens, cR, cW);
+        // FIX-24-05-05: mixed-model tasks are priced as the sum of
+        // per-model costs; without a breakdown fall back to single-id.
+        const cost = (usageByModel && Object.keys(usageByModel).length > 0)
+            ? computeCostForBuckets(usageByModel)
+            : computeCost(modelId, inputTokens, outputTokens, cR, cW);
         const isSubscription = provider !== undefined && SUBSCRIPTION_PROVIDERS.has(provider);
         // EPIC-26 / FEAT-26-01 / ADR-120: tag the [Cost] line with the
         // routing mode so it is easy to scan for advisor/subagent calls
         // when validating Welle 1 cost numbers.
         const modeTag = routingMode ?? 'auto';
 
+        // FIX-24-05-05: surface the per-model split in the cost log so
+        // mixed-model tasks are auditable from the console.
+        const mixedModels = usageByModel ? Object.keys(usageByModel) : [];
+        const mixedTag = mixedModels.length > 1 ? ` models=[${mixedModels.join(', ')}]` : '';
         console.debug(
-            `[Cost] model="${modelId}" provider=${provider ?? '?'} mode=${modeTag} ` +
+            `[Cost] model="${modelId}" provider=${provider ?? '?'} mode=${modeTag}${mixedTag} ` +
             `in=${inputTokens} out=${outputTokens} cacheR=${cR} cacheW=${cW} ` +
             `usd=${cost.totalUsd.toFixed(4)} eur=${cost.totalEur.toFixed(4)} subscription=${isSubscription}`,
         );
@@ -142,7 +167,8 @@ export class TaskMonitor {
         const recordPreview = this.opts.plugin.settings.advancedApi.telemetryRecordPromptPreview ?? false;
         await telemetry.record({
             promptPreview: recordPreview ? this.opts.promptPreview : '',
-            modelId: this.modelIdForCost(),
+            // FIX-24-05-02: prefer the model that actually served the task.
+            modelId: this.lastActualModelId ?? this.modelIdForCost(),
             mode: this.opts.mode,
             inputTokens: data.inputTokens,
             outputTokens: data.outputTokens,
@@ -150,6 +176,8 @@ export class TaskMonitor {
             cacheCreationTokens: data.cacheCreationTokens,
             outcome: data.outcome,
             errorMessage: data.errorMessage,
+            // FIX-24-05-05: per-model breakdown for correct mixed-model pricing.
+            usageByModel: this.lastUsageByModel,
         });
     }
 

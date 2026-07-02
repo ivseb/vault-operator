@@ -706,7 +706,19 @@ function* dispatchEvent(
         if (usage) {
             const input = num(usage.input_tokens) ?? num(usage.prompt_tokens) ?? 0;
             const output = num(usage.output_tokens) ?? num(usage.completion_tokens) ?? 0;
-            yield { type: 'usage', inputTokens: input, outputTokens: output };
+            // FIX-21-02-01 / IMP-18-01-02: input_tokens INCLUDES the cached
+            // prefix (input_tokens_details.cached_tokens). Report the
+            // non-cached part as inputTokens and the cached part separately,
+            // matching the other OpenAI-shaped providers, so the cost calc
+            // bills the cached prefix at the cache-read rate.
+            const details = usage.input_tokens_details as Record<string, unknown> | undefined;
+            const cachedIn = num(details?.cached_tokens) ?? 0;
+            yield {
+                type: 'usage',
+                inputTokens: Math.max(0, input - cachedIn),
+                outputTokens: output,
+                cacheReadTokens: cachedIn > 0 ? cachedIn : undefined,
+            };
         }
         // Drain any tool calls that didn't get an explicit done event
         for (const tc of toolCalls.values()) yield* finalizeToolCall(tc);

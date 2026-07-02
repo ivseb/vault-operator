@@ -12,8 +12,10 @@ import {
     decryptProviderCredentialsInPlace,
 } from './core/security/providerCredentialCrypto';
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
+import { PriceCatalogService } from './core/pricing/PriceCatalogService';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
+import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
@@ -2145,6 +2147,14 @@ export default class ObsidianAgentPlugin extends Plugin {
             );
         }
 
+        // IMP-24-05-02: live price catalog (OpenRouter) for the cost footer.
+        // Persisted snapshot applies immediately; refresh is non-blocking
+        // and capped at once per 24h. Offline behavior: static table.
+        const priceCatalog = new PriceCatalogService(this.globalFs);
+        void priceCatalog.load()
+            .then(() => priceCatalog.refreshIfStale())
+            .catch((e) => console.warn('[PriceCatalog] init failed (non-fatal):', e));
+
         // History indexer (FEATURE-0320 Phase 6): backfill on first run,
         // incrementally re-index after every conversation save. Indexer
         // is a no-op when historyDB or conversationStore is unavailable.
@@ -2308,7 +2318,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         // leaf through the 'empty' view state, then reactivating normally.
         this.app.workspace.onLayoutReady(() => {
             void (async () => {
-                const stale = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+                const existing = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+                // FIX-22-07-02: only rebuild genuinely stale leaves (view
+                // instance from a previous plugin load / deferred view).
+                // Views created by THIS plugin instance are live -- cycling
+                // them destroyed active chats when the user interacted
+                // during a slow boot.
+                const stale = existing.filter((leaf) => shouldRebuildSidebarLeaf(leaf.view, AgentSidebarView));
                 for (const leaf of stale) {
                     try {
                         await leaf.setViewState({ type: 'empty' });
@@ -2323,7 +2339,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 // "Send to sidebar chat". Default = true preserves the
                 // historical behaviour.
                 const autoOpen = this.settings.autoOpenSidebarOnStart ?? true;
-                if (stale.length === 0 && autoOpen === true) {
+                if (existing.length === 0 && autoOpen === true) {
                     await this.activateView();
                 }
                 // Memory v2 upgrade prompt -- BUG-031 follow-up. Fires only

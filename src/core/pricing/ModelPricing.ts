@@ -29,6 +29,62 @@ export interface CostBreakdown {
     totalEur: number;
 }
 
+/** FIX-24-05-05: token usage attributed to one model. */
+export interface ModelUsage {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheCreation: number;
+}
+
+/**
+ * Per-model usage buckets keyed by model id. A task that mixes models
+ * (advisor flagship, fast-tier subagents, TaskRouter escalation, helper
+ * condensing) carries one bucket per model so cost can be computed per
+ * model instead of pricing the total under a single id.
+ */
+export type UsageByModel = Record<string, ModelUsage>;
+
+/** Add usage to the bucket for `modelId`, creating it on demand. */
+export function addUsage(
+    target: UsageByModel,
+    modelId: string,
+    input: number,
+    output: number,
+    cacheRead = 0,
+    cacheCreation = 0,
+): void {
+    const key = modelId || 'unknown';
+    const bucket = target[key] ?? (target[key] = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 });
+    bucket.input += input;
+    bucket.output += output;
+    bucket.cacheRead += cacheRead;
+    bucket.cacheCreation += cacheCreation;
+}
+
+/** Merge all of `source`'s buckets into `target`. */
+export function mergeUsageByModel(target: UsageByModel, source: UsageByModel | undefined): void {
+    if (!source) return;
+    for (const [id, u] of Object.entries(source)) {
+        addUsage(target, id, u.input, u.output, u.cacheRead, u.cacheCreation);
+    }
+}
+
+/** Sum of per-model costs -- the correct price for a mixed-model task. */
+export function computeCostForBuckets(usageByModel: UsageByModel): CostBreakdown {
+    const total: CostBreakdown = { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalUsd: 0, totalEur: 0 };
+    for (const [id, u] of Object.entries(usageByModel)) {
+        const c = computeCost(id, u.input, u.output, u.cacheRead, u.cacheCreation);
+        total.inputCost += c.inputCost;
+        total.outputCost += c.outputCost;
+        total.cacheReadCost += c.cacheReadCost;
+        total.cacheWriteCost += c.cacheWriteCost;
+        total.totalUsd += c.totalUsd;
+        total.totalEur += c.totalEur;
+    }
+    return total;
+}
+
 const USD_TO_EUR = 0.93;
 
 /**
@@ -40,7 +96,7 @@ const USD_TO_EUR = 0.93;
  * on HTML pages with no stable machine-readable contract. A reminder is
  * pragmatic; a scraper would break with every redesign.
  */
-export const PRICING_LAST_UPDATED = '2026-05-14';
+export const PRICING_LAST_UPDATED = '2026-07-02';
 const PRICING_STALE_DAYS = 90;
 
 /**
@@ -63,26 +119,39 @@ export function getPricingAgeWarning(today: Date = new Date()): string | null {
  * If nothing matches, FALLBACK is used so the UI never shows blank.
  */
 const PRICING: Record<string, ModelPrice> = {
-    // Anthropic Claude
-    'claude-opus-4-7': { inputPerMillionUsd: 15, outputPerMillionUsd: 75, cacheReadPerMillionUsd: 1.5, cacheWritePerMillionUsd: 18.75 },
-    'claude-opus-4-6': { inputPerMillionUsd: 15, outputPerMillionUsd: 75, cacheReadPerMillionUsd: 1.5, cacheWritePerMillionUsd: 18.75 },
+    // Anthropic Claude. Opus dropped to 5/25 with Opus 4.5 (Nov 2025);
+    // only Opus 4.0/4.1 keep the legacy 15/75 rates. The bare
+    // 'claude-opus-4' key stays at 15/75 so opus-4-0/4-1 substring
+    // matches price correctly; newer generations have explicit entries.
+    'claude-fable-5': { inputPerMillionUsd: 10, outputPerMillionUsd: 50, cacheReadPerMillionUsd: 1, cacheWritePerMillionUsd: 12.5 },
+    'claude-opus-4-8': { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25 },
+    'claude-opus-4-7': { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25 },
+    'claude-opus-4-6': { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25 },
+    'claude-opus-4-5': { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: 0.5, cacheWritePerMillionUsd: 6.25 },
     'claude-opus-4': { inputPerMillionUsd: 15, outputPerMillionUsd: 75, cacheReadPerMillionUsd: 1.5, cacheWritePerMillionUsd: 18.75 },
+    // Sonnet 5 sticker price; intro pricing (2/10 through 2026-08-31) is
+    // deliberately not modeled -- sticker keeps the table stable.
+    'claude-sonnet-5': { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 },
     'claude-sonnet-4-6': { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 },
     'claude-sonnet-4-5': { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 },
     'claude-sonnet-4': { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 },
     'claude-haiku-4-5': { inputPerMillionUsd: 1, outputPerMillionUsd: 5, cacheReadPerMillionUsd: 0.1, cacheWritePerMillionUsd: 1.25 },
 
-    // OpenAI
-    'gpt-5': { inputPerMillionUsd: 5, outputPerMillionUsd: 20 },
-    'gpt-4.1': { inputPerMillionUsd: 2, outputPerMillionUsd: 8 },
-    'gpt-4o': { inputPerMillionUsd: 2.5, outputPerMillionUsd: 10 },
-    'gpt-4o-mini': { inputPerMillionUsd: 0.15, outputPerMillionUsd: 0.6 },
-    'o3': { inputPerMillionUsd: 60, outputPerMillionUsd: 240 },
-    'o4-mini': { inputPerMillionUsd: 1.1, outputPerMillionUsd: 4.4 },
+    // OpenAI. mini/nano variants need their own entries: the substring
+    // fallback would otherwise route them onto the full-size price.
+    'gpt-5-mini': { inputPerMillionUsd: 0.25, outputPerMillionUsd: 2, cacheReadPerMillionUsd: 0.025 },
+    'gpt-5-nano': { inputPerMillionUsd: 0.05, outputPerMillionUsd: 0.4, cacheReadPerMillionUsd: 0.005 },
+    'gpt-5': { inputPerMillionUsd: 1.25, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 0.125 },
+    'gpt-4.1': { inputPerMillionUsd: 2, outputPerMillionUsd: 8, cacheReadPerMillionUsd: 0.5 },
+    'gpt-4o': { inputPerMillionUsd: 2.5, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 1.25 },
+    'gpt-4o-mini': { inputPerMillionUsd: 0.15, outputPerMillionUsd: 0.6, cacheReadPerMillionUsd: 0.075 },
+    'o3-mini': { inputPerMillionUsd: 1.1, outputPerMillionUsd: 4.4, cacheReadPerMillionUsd: 0.55 },
+    'o3': { inputPerMillionUsd: 2, outputPerMillionUsd: 8, cacheReadPerMillionUsd: 0.5 },
+    'o4-mini': { inputPerMillionUsd: 1.1, outputPerMillionUsd: 4.4, cacheReadPerMillionUsd: 0.275 },
 
-    // Google
-    'gemini-2.5-pro': { inputPerMillionUsd: 1.25, outputPerMillionUsd: 10 },
-    'gemini-2.5-flash': { inputPerMillionUsd: 0.075, outputPerMillionUsd: 0.3 },
+    // Google (cache read = implicit caching, 75% discount on input)
+    'gemini-2.5-pro': { inputPerMillionUsd: 1.25, outputPerMillionUsd: 10, cacheReadPerMillionUsd: 0.3125 },
+    'gemini-2.5-flash': { inputPerMillionUsd: 0.3, outputPerMillionUsd: 2.5, cacheReadPerMillionUsd: 0.075 },
 
     // Meta (free tiers approximated)
     'llama-3': { inputPerMillionUsd: 0.2, outputPerMillionUsd: 0.6 },
@@ -91,10 +160,45 @@ const PRICING: Record<string, ModelPrice> = {
 /** Used when nothing matches -- midrange Sonnet pricing so UI never blanks. */
 const FALLBACK: ModelPrice = { inputPerMillionUsd: 3, outputPerMillionUsd: 15, cacheReadPerMillionUsd: 0.3, cacheWritePerMillionUsd: 3.75 };
 
+/**
+ * IMP-24-05-02: live price catalog (OpenRouter /v1/models, keys normalized
+ * by PriceCatalogService). Preferred over the static table when set -- it
+ * carries current vendor rates including intro pricing and models newer
+ * than any manual maintenance. The static table stays as offline fallback.
+ */
+let LIVE_CATALOG: Record<string, ModelPrice> | null = null;
+let LIVE_KEYS_BY_LENGTH: string[] = [];
+
+export function setLivePriceCatalog(catalog: Record<string, ModelPrice> | null): void {
+    LIVE_CATALOG = catalog && Object.keys(catalog).length > 0 ? catalog : null;
+    LIVE_KEYS_BY_LENGTH = LIVE_CATALOG
+        ? Object.keys(LIVE_CATALOG).sort((a, b) => b.length - a.length)
+        : [];
+}
+
+/**
+ * Incoming ids use vendor-specific spellings (Bedrock
+ * `eu.anthropic.claude-haiku-4-5-...`, OpenRouter
+ * `anthropic/claude-opus-4.8`). Live-catalog keys use the dashed form,
+ * so normalize version dots before matching.
+ */
+function normalizeForLiveLookup(modelId: string): string {
+    return modelId.toLowerCase().replace(/(\d)\.(\d)/g, '$1-$2');
+}
+
 /** Look up pricing for a model id. Falls back gracefully. */
 export function getModelPrice(modelId: string | undefined | null): ModelPrice {
     if (!modelId) return FALLBACK;
     const lower = modelId.toLowerCase();
+
+    // IMP-24-05-02: live catalog first (exact, then longest-substring).
+    if (LIVE_CATALOG) {
+        const norm = normalizeForLiveLookup(modelId);
+        if (LIVE_CATALOG[norm]) return LIVE_CATALOG[norm];
+        for (const key of LIVE_KEYS_BY_LENGTH) {
+            if (norm.includes(key)) return LIVE_CATALOG[key];
+        }
+    }
 
     // Exact match first
     if (PRICING[lower]) return PRICING[lower];

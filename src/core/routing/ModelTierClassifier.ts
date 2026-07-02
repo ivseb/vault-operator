@@ -183,8 +183,9 @@ function classifyByPattern(normalizedId: string): ModelTier | null {
 function classifyByPricing(completionUsd?: number): ModelTier | null {
     if (completionUsd === undefined || Number.isNaN(completionUsd)) return null;
     // OpenRouter quotes pricing as USD per token in their /v1/models API;
-    // callers multiply by 1_000_000 before handing the number in so this
-    // function speaks the same unit as the documented thresholds.
+    // fetchProviderModels converts to USD per 1M at the wire boundary
+    // (FIX-26-02-01) so this function speaks the same unit as the
+    // documented thresholds.
     if (completionUsd >= PRICING_THRESHOLDS.flagshipUsdPerMillion) return 'flagship';
     if (completionUsd >= PRICING_THRESHOLDS.midUsdPerMillion) return 'mid';
     if (completionUsd >= 0) return 'fast';
