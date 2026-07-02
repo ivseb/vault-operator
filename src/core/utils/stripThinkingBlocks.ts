@@ -25,7 +25,43 @@ export function stripThinkingBlocks(messages: readonly MessageParam[]): MessageP
             out.push(msg);
             continue;
         }
-        const filtered: ContentBlock[] = msg.content.filter((b) => b.type !== 'thinking');
+        const filtered: ContentBlock[] = msg.content.filter(
+            (b) => b.type !== 'thinking' && b.type !== 'redacted_thinking',
+        );
+        out.push({ ...msg, content: filtered });
+    }
+    return out;
+}
+
+/**
+ * IMP-41-01-05: passback preparation for Anthropic signed extended thinking.
+ *
+ * The API contract for tool_use loops requires the signed thinking blocks of
+ * the LAST assistant message to be echoed back; earlier turns may drop them
+ * (saves tokens, the API tolerates it). Unsigned thinking blocks (OpenAI
+ * reasoners, display-only remnants) would 400 and are stripped everywhere.
+ * Returns a NEW array; input is not mutated.
+ */
+export function prepareThinkingForPassback(messages: readonly MessageParam[]): MessageParam[] {
+    let lastAssistant = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') { lastAssistant = i; break; }
+    }
+    const out: MessageParam[] = [];
+    for (let i = 0; i < messages.length; i++) {
+        const msg = messages[i];
+        if (typeof msg.content === 'string') {
+            out.push(msg);
+            continue;
+        }
+        const isLastAssistant = i === lastAssistant;
+        const filtered: ContentBlock[] = msg.content.filter((b) => {
+            if (b.type === 'thinking') {
+                return isLastAssistant && typeof b.signature === 'string' && b.signature.length > 0;
+            }
+            if (b.type === 'redacted_thinking') return isLastAssistant;
+            return true;
+        });
         out.push({ ...msg, content: filtered });
     }
     return out;

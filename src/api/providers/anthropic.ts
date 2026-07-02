@@ -17,7 +17,7 @@ import type { ToolDefinition } from '../../core/tools/types';
 import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, modelUsesBudgetTokensThinking } from '../../types/model-registry';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
-import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
+import { stripThinkingBlocks, prepareThinkingForPassback } from '../../core/utils/stripThinkingBlocks';
 import { createNodeFetch } from './openai';
 import { validateProviderUrl } from './providerUrlGuard';
 
@@ -157,11 +157,17 @@ export class AnthropicProvider implements ApiHandler {
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
-        // FIX-04-03-07: defensive drop of any thinking blocks before the
-        // strict convertMessages map. Cross-provider switch (DeepSeek -> Anthropic)
-        // would otherwise hit "Unknown content block type". Anthropic's own
-        // signed extended-thinking round-trip needs a separate fix.
-        const anthropicMessages = this.convertMessages(stripThinkingBlocks(messages));
+        // IMP-41-01-05: with thinking enabled, signed thinking blocks of the
+        // last assistant turn are passed back (API contract for tool_use
+        // loops); unsigned blocks are stripped everywhere. With thinking
+        // disabled the legacy full strip applies (the API rejects thinking
+        // blocks on non-thinking requests). FIX-04-03-07 cross-provider
+        // safety is preserved: foreign reasoner blocks are unsigned and
+        // therefore never reach the wire.
+        const preparedMessages = (this.config.thinkingEnabled ?? false)
+            ? prepareThinkingForPassback(messages)
+            : stripThinkingBlocks(messages);
+        const anthropicMessages = this.convertMessages(preparedMessages);
 
         // Convert ToolDefinition[] to Anthropic's tool format
         const anthropicTools: Anthropic.Tool[] = tools.map((tool) => ({
@@ -287,8 +293,10 @@ export class AnthropicProvider implements ApiHandler {
             number,
             { id: string; name: string; inputJson: string }
         >();
-        // Track thinking blocks by index — yield streaming text then flush on stop
-        const thinkingAccumulator = new Map<number, { text: string }>();
+        // Track thinking blocks by index — yield streaming text then flush on stop.
+        // IMP-41-01-05: signature_delta events accumulate per block and are
+        // sealed as a thinking_signature chunk at content_block_stop.
+        const thinkingAccumulator = new Map<number, { text: string; signature: string }>();
 
         let inputTokens = 0;
         let outputTokens = 0;
@@ -320,7 +328,7 @@ export class AnthropicProvider implements ApiHandler {
                         inputJson: '',
                     });
                 } else if (event.content_block.type === 'thinking') {
-                    thinkingAccumulator.set(event.index, { text: '' });
+                    thinkingAccumulator.set(event.index, { text: '', signature: '' });
                 }
             }
 
@@ -334,18 +342,33 @@ export class AnthropicProvider implements ApiHandler {
                     if (tool) tool.inputJson += event.delta.partial_json;
                 }
 
-                // Anthropic extended thinking delta
+                // Anthropic extended thinking delta. requiresPassback so the
+                // loop persists the text into the assistant message; the
+                // signature below decides whether it is ever re-sent.
                 if (event.delta.type === 'thinking_delta') {
                     const thinking = thinkingAccumulator.get(event.index);
                     if (thinking) {
                         const chunk = event.delta.thinking;
                         thinking.text += chunk;
-                        yield { type: 'thinking', text: chunk } satisfies ApiStreamChunk;
+                        yield { type: 'thinking', text: chunk, requiresPassback: true } satisfies ApiStreamChunk;
                     }
+                }
+
+                // IMP-41-01-05: signature arrives in fragments after the text.
+                if (event.delta.type === 'signature_delta') {
+                    const thinking = thinkingAccumulator.get(event.index);
+                    if (thinking) thinking.signature += event.delta.signature;
                 }
             }
 
             if (event.type === 'content_block_stop') {
+                const closingThinking = thinkingAccumulator.get(event.index);
+                if (closingThinking && closingThinking.signature.length > 0) {
+                    yield {
+                        type: 'thinking_signature',
+                        signature: closingThinking.signature,
+                    } satisfies ApiStreamChunk;
+                }
                 thinkingAccumulator.delete(event.index);
 
                 // If this was a tool_use block, yield the complete tool call
@@ -426,6 +449,20 @@ export class AnthropicProvider implements ApiHandler {
                     return { type: 'text' as const, text: block.text };
                 }
 
+                // IMP-41-01-05: signed thinking round-trips verbatim. Unsigned
+                // blocks should have been filtered by prepareThinkingForPassback /
+                // stripThinkingBlocks; drop defensively rather than 400.
+                if (block.type === 'thinking') {
+                    if (block.signature) {
+                        return { type: 'thinking' as const, thinking: block.text, signature: block.signature };
+                    }
+                    return null;
+                }
+
+                if (block.type === 'redacted_thinking') {
+                    return { type: 'redacted_thinking' as const, data: block.data };
+                }
+
                 if (block.type === 'tool_use') {
                     return {
                         type: 'tool_use' as const,
@@ -456,7 +493,7 @@ export class AnthropicProvider implements ApiHandler {
                 }
 
                 throw new Error(`Unknown content block type: ${(block as ContentBlock).type}`);
-            });
+            }).filter((b): b is NonNullable<typeof b> => b !== null);
 
             return { role: msg.role, content };
         });

@@ -32,6 +32,7 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
+import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { abortableDelay } from '../api/retry';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
@@ -1515,11 +1516,12 @@ export class AgentTask {
                 const toolUses: ContentBlock[] = [];
                 const textParts: string[] = [];
                 // FIX-04-03-07: persist reasoning text only when the provider
-                // marks it for passback (currently the OpenAI-compatible provider
-                // for DeepSeek deepseek-reasoner). Anthropic / Bedrock thinking
-                // chunks lack signatures so they must not round-trip — they go
-                // to onThinking for display only.
-                const thinkingParts: string[] = [];
+                // marks it for passback (OpenAI-compatible reasoners AND, since
+                // IMP-41-01-05, Anthropic extended thinking). Anthropic seals
+                // each block with a thinking_signature chunk; the collector
+                // keeps signed segments verbatim (signature validates the exact
+                // text) and caps only the unsigned remainder.
+                const thinkingCollector = new ThinkingSegmentCollector();
                 // id -> actionable error message (from the provider). Kept as a Map
                 // so the model receives the real "split the write / don't double-emit"
                 // guidance as the tool_result, not a generic "retry with valid JSON".
@@ -1578,7 +1580,11 @@ export class AgentTask {
                     }
                     if (chunk.type === 'thinking') {
                         this.taskCallbacks.onThinking?.(chunk.text);
-                        if (chunk.requiresPassback) thinkingParts.push(chunk.text);
+                        if (chunk.requiresPassback) thinkingCollector.push(chunk.text);
+                    } else if (chunk.type === 'thinking_signature') {
+                        // IMP-41-01-05: seals the accumulated deltas as one
+                        // signed segment (Anthropic extended thinking).
+                        thinkingCollector.seal(chunk.signature);
                     } else if (chunk.type === 'text') {
                         hasStreamedText = true;
                         textParts.push(chunk.text);
@@ -1635,18 +1641,14 @@ export class AgentTask {
                 // AUDIT-037 L-1: the wire-side MAX_REASONING_CONTENT_CHARS cap
                 // only trims what is RE-SENT to the API. Without a turn-side
                 // cap the assistant history grew linearly with reasoning depth
-                // until condensing kicked in at 70%. Cap each turn at
-                // PER_TURN_THINKING_CAP characters so a max-effort session
-                // does not stall on RAM long before condensing reacts.
+                // until condensing kicked in at 70%. The collector caps the
+                // UNSIGNED remainder at PER_TURN_THINKING_CAP; signed segments
+                // stay verbatim (IMP-41-01-05 — the signature validates the
+                // exact text, a capped signed block would 400 on passback).
                 const assistantContent: ContentBlock[] = [];
-                if (thinkingParts.length > 0) {
-                    const joined = thinkingParts.join('');
+                if (thinkingCollector.hasContent()) {
                     const PER_TURN_THINKING_CAP = 50_000;
-                    const capped = joined.length > PER_TURN_THINKING_CAP
-                        ? joined.slice(0, PER_TURN_THINKING_CAP)
-                            + `\n[thinking truncated: ${joined.length - PER_TURN_THINKING_CAP} chars dropped to keep history bounded]`
-                        : joined;
-                    assistantContent.push({ type: 'thinking', text: capped });
+                    assistantContent.push(...thinkingCollector.finalize(PER_TURN_THINKING_CAP));
                 }
                 if (textParts.length > 0) {
                     assistantContent.push({ type: 'text', text: textParts.join('') });
