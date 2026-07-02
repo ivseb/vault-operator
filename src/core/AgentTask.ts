@@ -35,6 +35,7 @@ import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { splitToolBatch } from './agent/splitToolBatch';
 import { createInitialLoopState } from './agent/LoopState';
+import { AgentLoopEngine } from './agent/AgentLoopEngine';
 import { abortableDelay } from '../api/retry';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -349,6 +350,12 @@ export class AgentTask {
      * condensing trigger and output-budget clamping track real token rates.
      */
     private tokenEstimator = new TokenEstimator();
+
+    /**
+     * IMP-41-02-01b / ADR-145: engine owning the stream-consume phase.
+     * Stateless between turns; further loop phases migrate here in stages.
+     */
+    private loopEngine = new AgentLoopEngine();
 
     /**
      * FIX-24-05-05: usage attributed to the model that actually served each
@@ -1513,20 +1520,6 @@ export class AgentTask {
                 // history). Now we build the anchored version inside
                 // safeHistory below and never touch the live history.
 
-                const toolUses: ContentBlock[] = [];
-                const textParts: string[] = [];
-                // FIX-04-03-07: persist reasoning text only when the provider
-                // marks it for passback (OpenAI-compatible reasoners AND, since
-                // IMP-41-01-05, Anthropic extended thinking). Anthropic seals
-                // each block with a thinking_signature chunk; the collector
-                // keeps signed segments verbatim (signature validates the exact
-                // text) and caps only the unsigned remainder.
-                const thinkingCollector = new ThinkingSegmentCollector();
-                // id -> actionable error message (from the provider). Kept as a Map
-                // so the model receives the real "split the write / don't double-emit"
-                // guidance as the tool_result, not a generic "retry with valid JSON".
-                const toolErrors = new Map<string, string>();
-
                 // Stream the LLM response (pass abort signal for cancellation)
                 // BUG-017: drop orphan tool_use / tool_result blocks before send.
                 // Anthropic returns 400 if any tool_use has no matching tool_result
@@ -1571,64 +1564,39 @@ export class AgentTask {
                     perfMarks.end('send.firstTurn.host', { log: true });
                     perfMarks.start('send.firstTurn.provider');
                 }
-                let sawFirstChunk = false;
-                for await (const chunk of this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal)) {
-                    if (isFirstTurnIteration && !sawFirstChunk) {
-                        sawFirstChunk = true;
-                        perfMarks.end('send.firstTurn.provider', { log: true });
-                        perfMarks.point('send.firstToken', { log: true });
+                // IMP-41-02-01b / ADR-145: the engine owns chunk classification.
+                // The wrapper generator keeps the MEAS-02 first-token marks;
+                // usage-chunk side effects (estimator calibration, per-model
+                // billing at chunk time, FIX-24-05-05) live in the port.
+                const rawStream = this.api.createMessage(systemPrompt, safeHistory, tools, abortSignal);
+                const markedStream = (async function* (): AsyncIterable<import('../api/types').ApiStreamChunk> {
+                    let sawFirstChunk = false;
+                    for await (const chunk of rawStream) {
+                        if (isFirstTurnIteration && !sawFirstChunk) {
+                            sawFirstChunk = true;
+                            perfMarks.end('send.firstTurn.provider', { log: true });
+                            perfMarks.point('send.firstToken', { log: true });
+                        }
+                        yield chunk;
                     }
-                    if (chunk.type === 'thinking') {
-                        this.taskCallbacks.onThinking?.(chunk.text);
-                        if (chunk.requiresPassback) thinkingCollector.push(chunk.text);
-                    } else if (chunk.type === 'thinking_signature') {
-                        // IMP-41-01-05: seals the accumulated deltas as one
-                        // signed segment (Anthropic extended thinking).
-                        thinkingCollector.seal(chunk.signature);
-                    } else if (chunk.type === 'text') {
-                        loopState.hasStreamedText = true;
-                        textParts.push(chunk.text);
-                        this.taskCallbacks.onText(chunk.text);
-                    } else if (chunk.type === 'tool_use') {
-                        toolUses.push({
-                            type: 'tool_use',
-                            id: chunk.id,
-                            name: chunk.name,
-                            input: chunk.input,
-                        });
-                        // Notify UI that a tool is starting
-                        this.taskCallbacks.onToolStart(chunk.name, chunk.input);
-                    } else if (chunk.type === 'tool_error') {
-                        // BUG-3 / BUG-032: unparseable or truncated tool JSON — record
-                        // in history, skip execution, and count it as a mistake so a
-                        // repeated broken write trips consecutiveMistakeLimit instead
-                        // of looping until the context overflows.
-                        toolErrors.set(chunk.id, chunk.error);
-                        toolUses.push({ type: 'tool_use', id: chunk.id, name: chunk.name, input: {} });
-                        this.taskCallbacks.onToolStart(chunk.name, {});
-                        this.taskCallbacks.onToolResult(chunk.name, chunk.error, true);
-                        loopState.consecutiveMistakes++;
-                        loopState.totalToolErrors++;
-                    } else if (chunk.type === 'usage') {
-                        // Feature 6: Accumulate tokens across all agentic iterations
-                        loopState.totalInputTokens += chunk.inputTokens;
-                        loopState.totalOutputTokens += chunk.outputTokens;
-                        loopState.totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
-                        loopState.totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                })();
+                const streamResult = await this.loopEngine.consumeStream(markedStream, loopState, {
+                    onText: (text) => this.taskCallbacks.onText(text),
+                    onThinking: (text) => this.taskCallbacks.onThinking?.(text),
+                    onToolStart: (name, input) => this.taskCallbacks.onToolStart(name, input),
+                    onToolResult: (name, content, isError) => this.taskCallbacks.onToolResult(name, content, isError),
+                    onUsage: (inputTokens, outputTokens, cacheRead, cacheCreation) => {
                         // IMP-41-01-04: calibrate chars-per-token from the real
                         // prompt size (input + cache segments = full prompt).
-                        this.tokenEstimator.recordUsage(
-                            requestChars,
-                            chunk.inputTokens + (chunk.cacheReadTokens ?? 0) + (chunk.cacheCreationTokens ?? 0),
-                        );
+                        this.tokenEstimator.recordUsage(requestChars, inputTokens + cacheRead + cacheCreation);
                         // FIX-24-05-05: attribute at chunk time -- TaskRouter
                         // escalation swaps this.api mid-loop, so the model
                         // serving THIS iteration is the one to bill.
                         addUsage(this.usageByModel, this.api.getModel().id,
-                            chunk.inputTokens, chunk.outputTokens,
-                            chunk.cacheReadTokens ?? 0, chunk.cacheCreationTokens ?? 0);
-                    }
-                }
+                            inputTokens, outputTokens, cacheRead, cacheCreation);
+                    },
+                });
+                const { textParts, toolUses, toolErrors, thinking: thinkingCollector } = streamResult;
 
                 // FIX-PERF-22: todo restore block intentionally removed.
                 // The anchor was applied to safeHistory (a clone), not
