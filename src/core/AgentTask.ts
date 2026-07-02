@@ -30,6 +30,8 @@ import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
+import { decideLoopErrorAction } from './agent/loopErrorPolicy';
+import { abortableDelay } from '../api/retry';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
 import { shouldRunTaskRouter } from './routing/TaskRouter';
@@ -2152,12 +2154,20 @@ export class AgentTask {
 
             const err = error instanceof Error ? error : new Error(String(error));
 
+            // IMP-41-01-01 / ADR-146: structured error classification replaces
+            // the two message-regex checks. The policy is a pure function in
+            // loopErrorPolicy.ts; this catch block only executes its verdict.
+            const errorAction = decideLoopErrorAction(error, {
+                retriesUsed: rateLimitRetries,
+                maxRetries: RATE_LIMIT_MAX_RETRIES,
+                emergencyRetried,
+                historyLength: history.length,
+                rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
+            });
+
             // Emergency condensing on context overflow (400 "prompt too long" etc.)
             // Instead of failing, condense the history and let the user retry.
-            const isContextOverflow =
-                /context.?length|too.?long|too.?many.?tokens|max.?tokens|token.?limit|prompt.?too|content.?size|request.?too.?large/i
-                    .test(err.message);
-            if (isContextOverflow && history.length >= 7 && !emergencyRetried) {
+            if (errorAction.action === 'emergency-condense') {
                 console.warn('[AgentTask] Context overflow detected — attempting emergency condensing');
                 try {
                     // 6B: Pre-compaction memory flush before emergency condensing
@@ -2184,18 +2194,21 @@ export class AgentTask {
                 }
             }
 
-            // Rate limit retry: auto-retry on 429 with exponential backoff
-            const isRateLimit = /rate.?limit|429/i.test(err.message);
-            if (isRateLimit && rateLimitRetries < RATE_LIMIT_MAX_RETRIES) {
-                rateLimitRetries++;
-                const waitMs = RATE_LIMIT_BASE_WAIT_MS * Math.pow(2, rateLimitRetries - 1);
+            // Transient-error retry (IMP-41-01-01): rate-limit keeps the
+            // conservative 30s base when the provider sends no Retry-After;
+            // overloaded/5xx/network use the short 2s curve. The wait itself
+            // is abort-aware (no lingering sleep after Stop).
+            if (errorAction.action === 'retry') {
+                rateLimitRetries = errorAction.retryNumber;
+                const waitMs = errorAction.waitMs;
                 const waitSec = Math.round(waitMs / 1000);
-                console.warn(`[AgentTask] Rate limit hit — retry ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
-                this.taskCallbacks.onText(`\n\n*Rate limit reached -- automatically retrying in ${waitSec} seconds (${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
-                await new Promise<void>((r) => window.setTimeout(r, waitMs));
-                // Check if cancelled during wait
-                if (abortSignal?.aborted) {
-                    console.debug('[AgentTask] Abort signal detected during rate limit wait');
+                const label = errorAction.cls === 'rate-limit' ? 'Rate limit reached' : 'Temporary provider error';
+                console.warn(`[AgentTask] ${errorAction.cls} — retry ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
+                this.taskCallbacks.onText(`\n\n*${label} -- automatically retrying in ${waitSec} seconds (${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
+                try {
+                    await abortableDelay(waitMs, abortSignal);
+                } catch {
+                    console.debug('[AgentTask] Abort signal detected during retry wait');
                     this.taskCallbacks.onComplete();
                     return;
                 }

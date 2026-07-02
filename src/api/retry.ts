@@ -1,0 +1,174 @@
+/**
+ * Provider retry layer (IMP-41-01-01, ADR-146).
+ *
+ * Structured error classification for all provider call sites. Detection order:
+ * SDK/HTTP status and error.type first, network codes second, message regex
+ * only as a last resort. AgentTask consumes the classes for its loop-level
+ * retry/emergency-condense decisions; executeWithRetry wraps non-loop call
+ * sites (helpers, probes).
+ */
+
+export type ProviderErrorClass =
+    | 'rate-limit'
+    | 'overloaded'
+    | 'server'
+    | 'network'
+    | 'context-overflow'
+    | 'auth'
+    | 'client'
+    | 'abort'
+    | 'unknown';
+
+export const RETRY_BASE_DELAY_MS = 2000;
+export const RETRY_MAX_ATTEMPTS = 4;
+const RETRY_AFTER_MIN_MS = 1000;
+const RETRY_AFTER_MAX_MS = 120_000;
+
+const NETWORK_CODES = new Set([
+    'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE', 'UND_ERR_SOCKET',
+]);
+
+const CONTEXT_OVERFLOW_RE =
+    /context.?length|too.?long|too.?many.?tokens|token.?limit|prompt.?too|content.?size|request.?too.?large|exceeds.*context/i;
+const RATE_LIMIT_RE = /rate.?limit|\b429\b/i;
+const NETWORK_RE = /fetch failed|network|socket hang up|connection (reset|refused|closed)/i;
+
+interface ErrorShape {
+    message?: unknown;
+    name?: unknown;
+    status?: unknown;
+    code?: unknown;
+    error?: { type?: unknown };
+    headers?: unknown;
+}
+
+/**
+ * Classify a provider error. Structured fields win over message text so a 401
+ * whose body happens to mention "rate limit" stays auth (no retry storm on a
+ * bad key).
+ */
+export function classifyProviderError(err: unknown): ProviderErrorClass {
+    if (typeof err !== 'object' || err === null) return 'unknown';
+    const e = err as ErrorShape;
+    const message = typeof e.message === 'string' ? e.message : '';
+
+    if (e.name === 'AbortError' || e.code === 'ABORT_ERR') return 'abort';
+
+    const status = typeof e.status === 'number' ? e.status : undefined;
+    const errorType = typeof e.error?.type === 'string' ? e.error.type : undefined;
+
+    if (errorType === 'overloaded_error') return 'overloaded';
+    if (status !== undefined) {
+        if (status === 429) return 'rate-limit';
+        if (status === 529) return 'overloaded';
+        if (status === 401 || status === 403) return 'auth';
+        if (status >= 500) return 'server';
+        if (status >= 400) {
+            return CONTEXT_OVERFLOW_RE.test(message) ? 'context-overflow' : 'client';
+        }
+    }
+
+    if (typeof e.code === 'string' && NETWORK_CODES.has(e.code)) return 'network';
+
+    // Message-level fallbacks for errors without structured fields.
+    if (CONTEXT_OVERFLOW_RE.test(message)) return 'context-overflow';
+    if (RATE_LIMIT_RE.test(message)) return 'rate-limit';
+    if (NETWORK_RE.test(message)) return 'network';
+    return 'unknown';
+}
+
+export function isRetryable(cls: ProviderErrorClass): boolean {
+    return cls === 'rate-limit' || cls === 'overloaded' || cls === 'server' || cls === 'network';
+}
+
+function readRetryAfterHeader(headers: unknown): string | undefined {
+    if (typeof headers !== 'object' || headers === null) return undefined;
+    const h = headers as { get?: (k: string) => unknown } & Record<string, unknown>;
+    let raw: unknown;
+    if (typeof h.get === 'function') {
+        raw = h.get('retry-after') ?? h.get('Retry-After');
+    } else {
+        raw = h['retry-after'] ?? h['Retry-After'];
+    }
+    return typeof raw === 'string' ? raw : undefined;
+}
+
+/**
+ * Delay before retry `attempt` (1-based). Retry-After header (seconds or
+ * HTTP-date) wins, clamped to [1s, 120s]; otherwise exponential backoff from
+ * opts.baseDelayMs (default RETRY_BASE_DELAY_MS) with +-20 percent jitter.
+ */
+export function getRetryDelayMs(err: unknown, attempt: number, opts: { baseDelayMs?: number } = {}): number {
+    const headers = (typeof err === 'object' && err !== null)
+        ? (err as ErrorShape).headers
+        : undefined;
+    const retryAfter = readRetryAfterHeader(headers);
+    if (retryAfter !== undefined) {
+        const seconds = Number(retryAfter);
+        let ms: number | undefined;
+        if (Number.isFinite(seconds)) {
+            ms = seconds * 1000;
+        } else {
+            const dateMs = Date.parse(retryAfter);
+            if (Number.isFinite(dateMs)) ms = dateMs - Date.now();
+        }
+        if (ms !== undefined) {
+            return Math.min(RETRY_AFTER_MAX_MS, Math.max(RETRY_AFTER_MIN_MS, ms));
+        }
+    }
+    const baseDelay = opts.baseDelayMs ?? RETRY_BASE_DELAY_MS;
+    const base = baseDelay * Math.pow(2, Math.max(0, attempt - 1));
+    const jitter = 1 + (Math.random() * 0.4 - 0.2);
+    return Math.round(base * jitter);
+}
+
+function abortError(): Error {
+    const err = new Error('Retry aborted');
+    err.name = 'AbortError';
+    return err;
+}
+
+/**
+ * Sleep that rejects with AbortError the moment the signal fires, instead of
+ * waiting out the full delay and checking afterwards.
+ */
+export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) { reject(abortError()); return; }
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        const onAbort = (): void => {
+            clearTimeout(timer);
+            reject(abortError());
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+/**
+ * Run `fn`, retrying transient provider failures. Non-retryable classes and
+ * abort propagate immediately; the backoff wait itself is abort-aware.
+ */
+export async function executeWithRetry<T>(
+    fn: () => Promise<T>,
+    opts: { abortSignal?: AbortSignal; maxAttempts?: number } = {},
+): Promise<T> {
+    const maxAttempts = opts.maxAttempts ?? RETRY_MAX_ATTEMPTS;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (opts.abortSignal?.aborted) throw abortError();
+        try {
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            const cls = classifyProviderError(err);
+            if (!isRetryable(cls) || attempt === maxAttempts) throw err;
+            const delay = getRetryDelayMs(err, attempt);
+            console.debug(`[retry] ${cls} on attempt ${attempt}/${maxAttempts}, waiting ${delay}ms`);
+            await abortableDelay(delay, opts.abortSignal);
+        }
+    }
+    throw lastError;
+}
