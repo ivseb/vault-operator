@@ -33,6 +33,7 @@ import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
+import { splitToolBatch } from './agent/splitToolBatch';
 import { abortableDelay } from '../api/retry';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -1861,9 +1862,6 @@ export class AgentTask {
                     return result;
                 };
 
-                const allParallelSafe = validToolUses.length > 1
-                    && validToolUses.every(t => PARALLEL_SAFE.has(t.name));
-
                 const toolResultBlocks: ContentBlock[] = [];
 
                 // BUG-3 / BUG-032: error results for tools with unparseable/truncated
@@ -1878,65 +1876,56 @@ export class AgentTask {
                     });
                 }
 
-                if (allParallelSafe) {
-                    // Execute all read tools in parallel; collect results in original order.
-                    // onToolResult is called sequentially after all finish so the FIFO
-                    // queue in AgentSidebarView assigns results to the correct UI elements.
-                    const results = await Promise.all(validToolUses.map(runTool));
+                // Shared per-result bookkeeping: UI callback, mistake counter,
+                // router escalation, circuit breaker, quality-gate append.
+                // Identical for parallel and sequential paths (was duplicated).
+                const processToolResult = (toolUse: (typeof validToolUses)[number], result: { content: string | ToolResultContentBlock[]; is_error?: boolean }): void => {
+                    this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
-                    for (let i = 0; i < validToolUses.length; i++) {
-                        const toolUse = validToolUses[i];
-                        const result = results[i];
-
-                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
-
-                        if (result.is_error) { consecutiveMistakes++; totalToolErrors++; } else { consecutiveMistakes = 0; }
-                        // v2.10.0 TaskRouter: escalate to main model after 2 errors
-                        if (consecutiveMistakes >= 2) escalateToMain();
-                        if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                            throw new Error(
-                                `Agent stopped after ${consecutiveMistakes} consecutive errors. ` +
-                                `Check the tool results above or raise the limit in Settings → Advanced.`,
-                            );
-                        }
-
-                        // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
-                        toolResultBlocks.push({
-                            type: 'tool_result',
-                            tool_use_id: toolUse.id,
-                            content: appendQualityGate(result.content, gate),
-                            is_error: result.is_error,
-                        });
+                    if (result.is_error) { consecutiveMistakes++; totalToolErrors++; } else { consecutiveMistakes = 0; }
+                    // v2.10.0 TaskRouter: escalate to main model after 2 errors
+                    if (consecutiveMistakes >= 2) escalateToMain();
+                    if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
+                        throw new Error(
+                            `Agent stopped after ${consecutiveMistakes} consecutive errors. ` +
+                            `Check the tool results above or raise the limit in Settings → Advanced.`,
+                        );
                     }
-                } else {
-                    // Sequential execution: required for writes, control-flow, and mixed batches.
-                    for (const toolUse of validToolUses) {
-                        const result = await runTool(toolUse);
 
-                        this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
+                    // Append quality gate checklist to LLM history (not UI)
+                    const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
+                    toolResultBlocks.push({
+                        type: 'tool_result',
+                        tool_use_id: toolUse.id,
+                        content: appendQualityGate(result.content, gate),
+                        is_error: result.is_error,
+                    });
+                };
 
-                        if (result.is_error) { consecutiveMistakes++; totalToolErrors++; } else { consecutiveMistakes = 0; }
-                        // v2.10.0 TaskRouter: escalate to main model after 2 errors
-                        if (consecutiveMistakes >= 2) escalateToMain();
-                        if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                            throw new Error(
-                                `Agent stopped after ${consecutiveMistakes} consecutive errors. ` +
-                                `Check the tool results above or raise the limit in Settings → Advanced.`,
-                            );
-                        }
+                // IMP-41-02-02: maximal parallel-safe PREFIX runs concurrently,
+                // the rest sequentially in model order (a read AFTER a write may
+                // depend on that write — only the prefix is split). Replaces the
+                // all-or-nothing rule where one trailing write serialized every
+                // read before it.
+                const { parallelPrefix, sequentialRest } = splitToolBatch(validToolUses, PARALLEL_SAFE);
 
-                        // Append quality gate checklist to LLM history (not UI)
-                        const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
-                        toolResultBlocks.push({
-                            type: 'tool_result',
-                            tool_use_id: toolUse.id,
-                            content: appendQualityGate(result.content, gate),
-                            is_error: result.is_error,
-                        });
-
-                        if (completionResult !== null) break;
+                if (parallelPrefix.length > 0) {
+                    // Results are processed in original order after all finish so
+                    // the FIFO queue in AgentSidebarView assigns results to the
+                    // correct UI elements.
+                    const results = await Promise.all(parallelPrefix.map(runTool));
+                    for (let i = 0; i < parallelPrefix.length; i++) {
+                        processToolResult(parallelPrefix[i], results[i]);
                     }
+                }
+
+                for (const toolUse of sequentialRest) {
+                    // Abort between sequential tools: a long write chain should
+                    // stop at the next boundary, not run to batch end.
+                    if (abortSignal?.aborted) break;
+                    const result = await runTool(toolUse);
+                    processToolResult(toolUse, result);
+                    if (completionResult !== null) break;
                 }
 
                 // Add tool results as the next user message
