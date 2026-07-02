@@ -92,6 +92,13 @@ export type MessageParam = {
 
 export interface ApiHandler {
     /**
+     * IMP-41-02-03: provider type this handler serves, stamped by
+     * buildApiHandler. Consumed by the rate limiter and (W3) the circuit
+     * breaker for per-provider keying. Optional for hand-built test handlers.
+     */
+    providerType?: string;
+
+    /**
      * Send a message to the LLM and stream the response.
      * Tools are provided so the LLM can call them.
      * Pass an AbortSignal to support cancellation.

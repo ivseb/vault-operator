@@ -34,6 +34,7 @@ import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-p
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { abortableDelay } from '../api/retry';
+import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
 import { shouldRunTaskRouter } from './routing/TaskRouter';
@@ -1430,9 +1431,18 @@ export class AgentTask {
                 telemetryIterations++;
                 this.taskCallbacks.onIterationStart?.(iteration);
 
-                // Phase B: rate limiting — pause between iterations (skip on first)
-                if (iteration > 0 && this.rateLimitMs > 0) {
-                    await new Promise<void>((r) => window.setTimeout(r, this.rateLimitMs));
+                // Phase B: rate limiting (IMP-41-02-03). The legacy fixed
+                // sleep is mapped onto the shared token bucket, which lives
+                // in the ApiHandler wrapper — so helper calls, subtasks and
+                // FastPath planners are throttled too, not just this loop.
+                // Configured per iteration because TaskRouter escalation can
+                // swap this.api (and thus the bucket key) mid-task.
+                if (this.rateLimitMs > 0) {
+                    requestRateLimiter.configure(
+                        this.api.providerType ?? 'unknown',
+                        this.api.getModel().id,
+                        Math.max(1, Math.round(60_000 / this.rateLimitMs)),
+                    );
                 }
 
                 // Power Steering: inject a mode-role reminder on every Nth iteration
@@ -2232,6 +2242,14 @@ export class AgentTask {
             // is abort-aware (no lingering sleep after Stop).
             if (errorAction.action === 'retry') {
                 rateLimitRetries = errorAction.retryNumber;
+                // IMP-41-02-03: a classified 429 halves the shared bucket
+                // rate for a cooldown so parallel call sites back off too.
+                if (errorAction.cls === 'rate-limit') {
+                    requestRateLimiter.reportRateLimited(
+                        this.api.providerType ?? 'unknown',
+                        this.api.getModel().id,
+                    );
+                }
                 const waitMs = errorAction.waitMs;
                 const waitSec = Math.round(waitMs / 1000);
                 const label = errorAction.cls === 'rate-limit' ? 'Rate limit reached' : 'Temporary provider error';
