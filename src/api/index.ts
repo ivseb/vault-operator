@@ -15,6 +15,8 @@ import { ChatGptOAuthProvider } from './providers/chatgpt-oauth';
 import type { ApiHandler, ApiStream, MessageParam } from './types';
 import type { ToolDefinition } from '../core/tools/types';
 import { RequestRateLimiter, requestRateLimiter } from './RequestRateLimiter';
+import { ProviderHealth, providerHealth } from './ProviderHealth';
+import { classifyProviderError } from './retry';
 
 export type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ContentBlock, ModelInfo } from './types';
 
@@ -42,6 +44,44 @@ export function withRateLimit(
         return (async function* () {
             await limiter.acquire(providerType, handler.getModel().id, abortSignal);
             yield* handler.createMessage(systemPrompt, messages, tools, abortSignal);
+        })();
+    };
+    return wrapped;
+}
+
+/**
+ * IMP-41-03-02 / ADR-146: circuit-breaker decorator. Fails fast while the
+ * provider's breaker is open (microseconds instead of a retry cascade
+ * against a dead provider) and feeds outcomes back into the health record.
+ * Abort/auth outcomes never open the breaker (classified upstream).
+ */
+export function withCircuitBreaker(
+    handler: ApiHandler,
+    providerType: string,
+    health: ProviderHealth = providerHealth,
+): ApiHandler {
+    const wrapped: ApiHandler = Object.create(handler) as ApiHandler;
+    wrapped.createMessage = function (
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+    ): ApiStream {
+        return (async function* () {
+            if (!health.canRequest(providerType)) {
+                const wait = health.secondsUntilProbe(providerType);
+                throw new Error(
+                    `Provider "${providerType}" is currently unreachable (circuit open). `
+                    + `Next automatic attempt in ${wait}s.`,
+                );
+            }
+            try {
+                yield* handler.createMessage(systemPrompt, messages, tools, abortSignal);
+                health.reportSuccess(providerType);
+            } catch (err) {
+                health.reportFailure(providerType, classifyProviderError(err));
+                throw err;
+            }
         })();
     };
     return wrapped;
@@ -90,7 +130,12 @@ export function buildApiHandler(config: LLMProvider) {
     // is set (rateLimitMs mapping or future per-provider settings).
     handler.providerType = providerType;
     if (UNLIMITED_PROVIDER_TYPES.has(providerType)) return handler;
-    const wrapped = withRateLimit(handler, providerType);
+    // Composition order: breaker OUTERMOST so an open circuit fails fast
+    // without first waiting on (and consuming) a rate-limit token; the
+    // limiter then paces only requests that are actually going out. Both
+    // are no-ops until configured / until failures accumulate.
+    const limited = withRateLimit(handler, providerType);
+    const wrapped = withCircuitBreaker(limited, providerType);
     wrapped.providerType = providerType;
     return wrapped;
 }
