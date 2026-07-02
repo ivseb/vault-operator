@@ -1551,6 +1551,16 @@ export class AgentTask {
                 const requestChars = systemPrompt.length
                     + TokenEstimator.sumChars(safeHistory)
                     + JSON.stringify(tools).length;
+                // ADR-148: one-shot count_tokens seed before the FIRST request
+                // of a large task, where the estimator is still uncalibrated
+                // and a mis-estimate hurts most (output budget, condense gate).
+                if (iteration === 0 && typeof this.api.countTokens === 'function') {
+                    const uncalibrated = this.tokenEstimator.tokensForChars(requestChars);
+                    if (uncalibrated > 50_000) {
+                        const exact = await this.api.countTokens(systemPrompt, safeHistory, tools, abortSignal);
+                        if (exact) this.tokenEstimator.seed(requestChars, exact);
+                    }
+                }
                 // MEAS-02: only the very first iteration of a fresh turn is
                 // the one the user clicked Send for. Subsequent iterations
                 // are tool-result follow-ups and have a different shape.

@@ -117,6 +117,40 @@ export class AnthropicProvider implements ApiHandler {
         };
     }
 
+    /**
+     * IMP-41-01-04 / ADR-148: exact prompt token count via the SDK's
+     * count_tokens endpoint. Used once per task as a calibration seed for
+     * large prompts. Silent undefined on any failure (older bundled SDK,
+     * network, 4xx) — the caller falls back to the char heuristic.
+     */
+    async countTokens(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+    ): Promise<number | undefined> {
+        try {
+            const countFn = this.client.messages?.countTokens;
+            if (typeof countFn !== 'function') return undefined;
+            const result = await this.client.messages.countTokens({
+                model: this.config.model,
+                system: systemPrompt,
+                messages: this.convertMessages(stripThinkingBlocks(messages)),
+                tools: tools.map((tool) => ({
+                    name: tool.name,
+                    description: tool.description,
+                    input_schema: tool.input_schema,
+                })),
+            }, { signal: abortSignal });
+            const count = (result as { input_tokens?: unknown })?.input_tokens;
+            return typeof count === 'number' && count > 0 ? count : undefined;
+        } catch (e) {
+            console.debug('[AnthropicProvider] countTokens failed (non-fatal):',
+                e instanceof Error ? e.message : e);
+            return undefined;
+        }
+    }
+
     async *createMessage(
         systemPrompt: string,
         messages: MessageParam[],

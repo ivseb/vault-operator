@@ -104,4 +104,17 @@ export interface ApiHandler {
      * Returns the raw text response trimmed of whitespace.
      */
     classifyText?(prompt: string, abortSignal?: AbortSignal): Promise<string>;
+
+    /**
+     * IMP-41-01-04 / ADR-148: exact prompt token count for the given request
+     * shape, when the provider offers a counting endpoint (Anthropic
+     * count_tokens). Returns undefined on any failure — callers treat this
+     * as an optional calibration seed, never a blocker.
+     */
+    countTokens?(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+    ): Promise<number | undefined>;
 }
