@@ -226,6 +226,12 @@ export interface ApprovalResult {
     decision: 'auto' | 'approved' | 'rejected';
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
+    /**
+     * IMP-41-01-02: optional rejection context surfaced to the model (e.g.
+     * "Approval timed out after 10 minutes"). Without it the tool_result
+     * carries the generic "denied by user" line.
+     */
+    reason?: string;
 }
 
 /** Extra context injected by AgentTask for agent-control tools */
@@ -523,7 +529,7 @@ export class ToolExecutionPipeline {
             if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'subtask' || toolGroup === 'sandbox') {
                 const approval = await this.checkApproval(toolCall, extensions);
                 if (approval.decision === 'rejected') {
-                    return this.errorResult(toolCall.id, 'Operation denied by user');
+                    return this.errorResult(toolCall.id, approval.reason ?? 'Operation denied by user');
                 }
                 // FEAT-29-07: when the user approves a dynamically-discovered
                 // plugin-API call, count the approval. Once the per-method

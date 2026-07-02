@@ -49,6 +49,18 @@ export class LoopTab {
             },
         });
 
+        const approvalTimeoutSetting = new Setting(containerEl)
+            .setName(t('settings.loop.approvalTimeout'))
+            .setDesc(t('settings.loop.approvalTimeoutDesc'));
+        addSliderInput(approvalTimeoutSetting, {
+            min: 0, max: 60, step: 5,
+            value: this.plugin.settings.advancedApi.approvalTimeoutMinutes ?? 10,
+            onChange: async (v) => {
+                this.plugin.settings.advancedApi.approvalTimeoutMinutes = v;
+                await this.plugin.saveSettings();
+            },
+        });
+
         const maxIterSetting = new Setting(containerEl)
             .setName(t('settings.loop.maxIterations'))
             .setDesc(t('settings.loop.maxIterationsDesc'));
