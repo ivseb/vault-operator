@@ -34,6 +34,7 @@ import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-p
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { splitToolBatch } from './agent/splitToolBatch';
+import { createInitialLoopState } from './agent/LoopState';
 import { abortableDelay } from '../api/retry';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -653,7 +654,9 @@ export class AgentTask {
         //   - abort, thrown error, circuit-breaker trip,
         //     network/API failure                              -> 'abandon'
         // Set at the three return sites in run(); the finally reads it.
-        let stigmergyOutcome: 'accept' | 'abandon' = 'abandon';
+        // IMP-41-02-01a / ADR-145: explicit serializable loop state replaces
+        // the ~20 closure variables this function previously accumulated.
+        const loopState = createInitialLoopState();
         // FIX 2026-06-09 (Stigmergy substrate starvation RCA): a turn
         // graded 'iterate' previously called stigmergyTurn.iterate(),
         // which the upstream loop SDK uses to CANCEL the daemon's auto-
@@ -668,7 +671,6 @@ export class AgentTask {
         // text, no errors, didn't hit the cap) is reinforcement-worthy
         // (accept). Iteration-cap and error exits are negative evidence
         // (abandon). The 'iterate' state is gone.
-        let cleanNaturalExit = false;
 
         // pathGuidance: when Stigmergy has a pinned sequence or pinned-set for
         // this task, append the hint as an extra text block on the SAME user
@@ -939,9 +941,7 @@ export class AgentTask {
         // All closure-local (not `this.*`) so a subagent re-entry of run()
         // does NOT inherit the parent's snapshot. Consumed in the finally
         // block at the end of run().
-        let totalToolErrors = 0;
-        let attemptCompletionFired = false;
-        const fastPathFired = precedenceFastPathFired;
+        loopState.fastPathFired = precedenceFastPathFired;
 
         const MAX_ITERATIONS = this.maxIterations;
         const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
@@ -956,28 +956,18 @@ export class AgentTask {
         ]);
 
         // Feature 6: Accumulate token usage across all iterations
-        let totalInputTokens = 0;
-        let totalOutputTokens = 0;
-        let totalCacheReadTokens = 0;
-        let totalCacheCreationTokens = 0;
         // FIX-24-05-05: fresh per-model breakdown per run.
         this.usageByModel = {};
         // attempt_completion signal
-        let completionResult: string | null = null;
         // Track whether the model streamed any text across all iterations.
         // Used to decide if the completion result should be rendered as fallback.
-        let hasStreamedText = false;
         // Safety net: retry once if tools ran but model produced no visible response
-        let hasRetriedEmpty = false;
         // switch_mode signal (checked at end of each iteration)
-        let pendingModeSwitch: string | null = null;
         // Phase B: consecutive error tracking
-        let consecutiveMistakes = 0;
         // FEAT-32-02 PR 2.2: `repetitionDetector` was hoisted up above so
         // FastPath can feed it via `recordForEpisodeOnly`; declaration kept
         // out of this block to avoid TDZ for FastPath.
         // ADR-090 Lever 10: count loop iterations for telemetry.
-        let telemetryIterations = 0;
 
         // Wire up context extensions for agent-control tools
         const askQuestion = this.taskCallbacks.onQuestion
@@ -989,14 +979,14 @@ export class AgentTask {
             : undefined;
 
         const signalCompletion = (result: string) => {
-            completionResult = result;
+            loopState.completionResult = result;
             // FEAT-32-02 PR 2.2 / ADR-133: track for the episode `success`
             // flag in the finally block.
-            attemptCompletionFired = true;
+            loopState.attemptCompletionFired = true;
         };
 
         const switchMode = (slug: string) => {
-            pendingModeSwitch = slug;
+            loopState.pendingModeSwitch = slug;
         };
 
         // new_task: spawn a child AgentTask that runs in a fresh history and returns its result.
@@ -1060,10 +1050,10 @@ export class AgentTask {
                     onError: (err) => { throw err; },
                     onUsage: (i, o, cr, cc, mid, _rm, childUsageByModel) => {
                         // Akkumuliere Subtask-Tokens in Parent-Totals
-                        totalInputTokens += i;
-                        totalOutputTokens += o;
-                        totalCacheReadTokens += cr ?? 0;
-                        totalCacheCreationTokens += cc ?? 0;
+                        loopState.totalInputTokens += i;
+                        loopState.totalOutputTokens += o;
+                        loopState.totalCacheReadTokens += cr ?? 0;
+                        loopState.totalCacheCreationTokens += cc ?? 0;
                         // FIX-24-05-05: merge the child's per-model breakdown;
                         // fall back to attributing everything to the child's
                         // reported model when no breakdown is available.
@@ -1166,7 +1156,6 @@ export class AgentTask {
         let cachedPromptMode = '';
         let cachedSystemPrompt = '';
         let cachedTools: ToolDefinition[] = [];
-        let cacheInvalidated = false;
         // FEATURE-1600 (Deferred Tool Loading): tools that the LLM activated
         // via find_tool during this session. Injected into the prompt cache
         // until the task ends.
@@ -1190,7 +1179,7 @@ export class AgentTask {
 
         // EPIC-26 / FEAT-26-01 / ADR-120: reminder is rebuilt as part of the
         // prompt cache. The closure captures the current value of
-        // `consecutiveMistakes` (defined above) so a transition into
+        // `loopState.consecutiveMistakes` (defined above) so a transition into
         // mistakes>=2 produces the hint, and a reset drops it again.
         const rebuildPromptCache = () => {
             const webEnabled = this.modeService?.isWebEnabled() ?? false;
@@ -1214,7 +1203,7 @@ export class AgentTask {
                 // FEAT-24-04 / ADR-113: profile-spawn overrides; undefined on non-profile spawns.
                 subagentRoleOverride,
                 subagentAllowedTools,
-                consultFlagshipReminderActive: consecutiveMistakes >= 2,
+                consultFlagshipReminderActive: loopState.consecutiveMistakes >= 2,
                 consultFlagshipAvailable: advisorAvailable,
                 // EPIC-26 / FEAT-26-06: prompt-slim. Lean cost-heuristics when
                 // running on auto-mode (no override active). Lean plugin-skills
@@ -1225,7 +1214,7 @@ export class AgentTask {
                 ...resolveLeanFlags(
                     this.toolRegistry.plugin.settings.leanSystemPrompt ?? false,
                     this.modelOverrideActive,
-                    recentPluginSkillUsage,
+                    loopState.recentPluginSkillUsage,
                 ),
             });
             let baseTools = this.modeService
@@ -1319,7 +1308,7 @@ export class AgentTask {
             // real dispatch point in ToolExecutionPipeline.executeTool().
 
             cachedPromptMode = activeMode.slug;
-            cacheInvalidated = false;
+            loopState.cacheInvalidated = false;
         };
 
         /** FEATURE-1600: activate a deferred tool for the rest of this task. */
@@ -1327,11 +1316,11 @@ export class AgentTask {
             if (!isDeferredTool(toolName)) return;
             if (activatedDeferredTools.has(toolName)) return;
             activatedDeferredTools.add(toolName);
-            cacheInvalidated = true;
+            loopState.cacheInvalidated = true;
         };
 
         /** Called by UpdateSettingsTool when settings that affect tool availability change */
-        const invalidateToolCache = () => { cacheInvalidated = true; };
+        const invalidateToolCache = () => { loopState.cacheInvalidated = true; };
 
         // Emergency condensing retry: if the API rejects with context overflow,
         // condense and retry the entire loop once instead of aborting.
@@ -1353,7 +1342,6 @@ export class AgentTask {
             }
         };
 
-        let emergencyRetried = false;
 
         // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
         // of 3 consult_flagship calls; the 4th gets a tool_error so the
@@ -1361,7 +1349,6 @@ export class AgentTask {
         // costs. Counter resets per task (each spawn of AgentTask runs its
         // own loop).
         const ADVISOR_LIMIT = 3;
-        let advisorCallsUsed = 0;
         let lastReminderState = false;
 
         // EPIC-26 / FEAT-26-06: plugin-skill usage tracking. Starts false,
@@ -1372,32 +1359,34 @@ export class AgentTask {
             'execute_command', 'execute_recipe', 'call_plugin_api',
             'resolve_capability_gap', 'enable_plugin',
         ]);
-        let recentPluginSkillUsage = false;
         // Heuristic: detect @plugin-id mentions in the FIRST user message.
         // Conservative regex; the lean->full flip is fail-safe (false neg
         // just keeps the lean section longer).
         const firstUserMessage = history.find((m) => m.role === 'user')?.content;
         if (typeof firstUserMessage === 'string' && /@[a-z][a-z0-9-]{2,}/i.test(firstUserMessage)) {
-            recentPluginSkillUsage = true;
+            loopState.recentPluginSkillUsage = true;
         }
         const consumeAdvisorSlot = () => {
-            if (advisorCallsUsed >= ADVISOR_LIMIT) {
-                return { ok: false, used: advisorCallsUsed, limit: ADVISOR_LIMIT };
+            if (loopState.advisorCallsUsed >= ADVISOR_LIMIT) {
+                return { ok: false, used: loopState.advisorCallsUsed, limit: ADVISOR_LIMIT };
             }
-            advisorCallsUsed++;
-            return { ok: true, used: advisorCallsUsed, limit: ADVISOR_LIMIT };
+            loopState.advisorCallsUsed++;
+            return { ok: true, used: loopState.advisorCallsUsed, limit: ADVISOR_LIMIT };
         };
 
         // Rate limit retry: auto-retry on 429 errors with exponential backoff.
         // Max 3 retries with 30s, 60s, 120s waits.
         const RATE_LIMIT_MAX_RETRIES = 3;
         const RATE_LIMIT_BASE_WAIT_MS = 30_000;
-        let rateLimitRetries = 0;
 
         try {
         while (true) {
         try {
             for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+                // Mirror the loop counter into the serializable state so a
+                // (W3) resume snapshot knows where the task stood.
+                loopState.iteration = iteration;
+                loopState.phase = 'preamble';
                 // ADR-063: Sync iteration counter for deterministic externalization file names
                 pipeline.getExternalizer()?.nextIteration();
 
@@ -1408,14 +1397,14 @@ export class AgentTask {
                 }
 
                 // Apply any pending mode switch at the start of each iteration
-                if (pendingModeSwitch !== null) {
-                    const newMode = this.resolveMode(pendingModeSwitch);
+                if (loopState.pendingModeSwitch !== null) {
+                    const newMode = this.resolveMode(loopState.pendingModeSwitch);
                     if (newMode) {
                         activeMode = newMode;
                         if (this.modeService) {
-                            void this.modeService.switchMode(pendingModeSwitch);
+                            void this.modeService.switchMode(loopState.pendingModeSwitch);
                         }
-                        this.taskCallbacks.onModeSwitch?.(pendingModeSwitch);
+                        this.taskCallbacks.onModeSwitch?.(loopState.pendingModeSwitch);
                     }
                     // FIX-COMPACT-04: do NOT reset the repetition detector.
                     // Resetting let Code -> Architect -> Code loops bypass
@@ -1424,12 +1413,12 @@ export class AgentTask {
                     // The mistake counter still resets -- a mode switch is
                     // a user correction and should not count old errors
                     // against the new mode's tolerance budget.
-                    repetitionDetector.markModeSwitch(pendingModeSwitch);
-                    pendingModeSwitch = null;
-                    consecutiveMistakes = 0;
+                    repetitionDetector.markModeSwitch(loopState.pendingModeSwitch);
+                    loopState.pendingModeSwitch = null;
+                    loopState.consecutiveMistakes = 0;
                 }
 
-                telemetryIterations++;
+                loopState.telemetryIterations++;
                 this.taskCallbacks.onIterationStart?.(iteration);
 
                 // Phase B: rate limiting (IMP-41-02-03). The legacy fixed
@@ -1495,21 +1484,21 @@ export class AgentTask {
                     for (const msg of steering) {
                         history.push({ role: 'user', content: msg });
                     }
-                    cacheInvalidated = true;
+                    loopState.cacheInvalidated = true;
                 }
 
                 // EPIC-26 / FEAT-26-01 / ADR-120: re-render when the
                 // mistakes counter crosses the reminder threshold. The
                 // section lives below the cache marker so the stable
                 // prefix stays cached even on transitions.
-                const reminderShouldBeActive = consecutiveMistakes >= 2;
+                const reminderShouldBeActive = loopState.consecutiveMistakes >= 2;
                 if (reminderShouldBeActive !== lastReminderState) {
-                    cacheInvalidated = true;
+                    loopState.cacheInvalidated = true;
                     lastReminderState = reminderShouldBeActive;
                 }
 
                 // Rebuild system prompt + tool list when mode or tool availability changed
-                if (activeMode.slug !== cachedPromptMode || cacheInvalidated) {
+                if (activeMode.slug !== cachedPromptMode || loopState.cacheInvalidated) {
                     rebuildPromptCache();
                 }
                 const systemPrompt = cachedSystemPrompt;
@@ -1597,7 +1586,7 @@ export class AgentTask {
                         // signed segment (Anthropic extended thinking).
                         thinkingCollector.seal(chunk.signature);
                     } else if (chunk.type === 'text') {
-                        hasStreamedText = true;
+                        loopState.hasStreamedText = true;
                         textParts.push(chunk.text);
                         this.taskCallbacks.onText(chunk.text);
                     } else if (chunk.type === 'tool_use') {
@@ -1618,14 +1607,14 @@ export class AgentTask {
                         toolUses.push({ type: 'tool_use', id: chunk.id, name: chunk.name, input: {} });
                         this.taskCallbacks.onToolStart(chunk.name, {});
                         this.taskCallbacks.onToolResult(chunk.name, chunk.error, true);
-                        consecutiveMistakes++;
-                        totalToolErrors++;
+                        loopState.consecutiveMistakes++;
+                        loopState.totalToolErrors++;
                     } else if (chunk.type === 'usage') {
                         // Feature 6: Accumulate tokens across all agentic iterations
-                        totalInputTokens += chunk.inputTokens;
-                        totalOutputTokens += chunk.outputTokens;
-                        totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
-                        totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                        loopState.totalInputTokens += chunk.inputTokens;
+                        loopState.totalOutputTokens += chunk.outputTokens;
+                        loopState.totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+                        loopState.totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
                         // IMP-41-01-04: calibrate chars-per-token from the real
                         // prompt size (input + cache segments = full prompt).
                         this.tokenEstimator.recordUsage(
@@ -1670,8 +1659,8 @@ export class AgentTask {
                 // If no tool calls, the LLM is done — run condensing on text-only turns
                 if (toolUses.length === 0) {
                     // Safety net: if tools ran but model produced no visible response, retry once
-                    if (iteration > 0 && textParts.length === 0 && !hasRetriedEmpty) {
-                        hasRetriedEmpty = true;
+                    if (iteration > 0 && textParts.length === 0 && !loopState.hasRetriedEmpty) {
+                        loopState.hasRetriedEmpty = true;
                         history.push({
                             role: 'user',
                             content: '[System] You executed tools but produced no visible response. '
@@ -1696,13 +1685,13 @@ export class AgentTask {
                         // in 3.x per Decision 8.
                         const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
                         const cacheAware = advancedApi?.cacheAwareCondensing === true;
-                        const cacheBeatsThisTurn = totalCacheReadTokens > totalCacheCreationTokens
-                            && totalCacheReadTokens > 0;
+                        const cacheBeatsThisTurn = loopState.totalCacheReadTokens > loopState.totalCacheCreationTokens
+                            && loopState.totalCacheReadTokens > 0;
                         if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
                             console.debug(
                                 `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
-                                + `(threshold ${threshold}t, cacheRead ${totalCacheReadTokens}t > `
-                                + `cacheCreate ${totalCacheCreationTokens}t)`,
+                                + `(threshold ${threshold}t, cacheRead ${loopState.totalCacheReadTokens}t > `
+                                + `cacheCreate ${loopState.totalCacheCreationTokens}t)`,
                             );
                         } else if (estimatedTokens > threshold) {
                             // Pre-Compaction Memory Flush (Phase 5): extract important
@@ -1855,9 +1844,9 @@ export class AgentTask {
                     // EPIC-26 / FEAT-26-06: flip plugin-skills lean -> full
                     // the first time a skill-group tool is invoked in this
                     // task. The next rebuildPromptCache picks up the change.
-                    if (!recentPluginSkillUsage && SKILL_GROUP_TOOLS.has(toolUse.name)) {
-                        recentPluginSkillUsage = true;
-                        cacheInvalidated = true;
+                    if (!loopState.recentPluginSkillUsage && SKILL_GROUP_TOOLS.has(toolUse.name)) {
+                        loopState.recentPluginSkillUsage = true;
+                        loopState.cacheInvalidated = true;
                     }
                     return result;
                 };
@@ -1882,12 +1871,12 @@ export class AgentTask {
                 const processToolResult = (toolUse: (typeof validToolUses)[number], result: { content: string | ToolResultContentBlock[]; is_error?: boolean }): void => {
                     this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
-                    if (result.is_error) { consecutiveMistakes++; totalToolErrors++; } else { consecutiveMistakes = 0; }
+                    if (result.is_error) { loopState.consecutiveMistakes++; loopState.totalToolErrors++; } else { loopState.consecutiveMistakes = 0; }
                     // v2.10.0 TaskRouter: escalate to main model after 2 errors
-                    if (consecutiveMistakes >= 2) escalateToMain();
-                    if (this.consecutiveMistakeLimit > 0 && consecutiveMistakes >= this.consecutiveMistakeLimit) {
+                    if (loopState.consecutiveMistakes >= 2) escalateToMain();
+                    if (this.consecutiveMistakeLimit > 0 && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
                         throw new Error(
-                            `Agent stopped after ${consecutiveMistakes} consecutive errors. ` +
+                            `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors. ` +
                             `Check the tool results above or raise the limit in Settings → Advanced.`,
                         );
                     }
@@ -1925,7 +1914,7 @@ export class AgentTask {
                     if (abortSignal?.aborted) break;
                     const result = await runTool(toolUse);
                     processToolResult(toolUse, result);
-                    if (completionResult !== null) break;
+                    if (loopState.completionResult !== null) break;
                 }
 
                 // Add tool results as the next user message
@@ -1937,12 +1926,12 @@ export class AgentTask {
                 // loops above only check the limit for tools that actually ran; a
                 // turn whose only output was a broken tool call (the classic
                 // "write_file cut off mid-JSON" loop) never reaches that check, so
-                // do it here. consecutiveMistakes was already bumped per tool_error
+                // do it here. loopState.consecutiveMistakes was already bumped per tool_error
                 // in the streaming loop; it is reset by the first successful tool.
                 if (toolErrors.size > 0 && this.consecutiveMistakeLimit > 0
-                    && consecutiveMistakes >= this.consecutiveMistakeLimit) {
+                    && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
                     throw new Error(
-                        `Agent stopped after ${consecutiveMistakes} consecutive errors -- the last was a malformed or truncated tool call. `
+                        `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors -- the last was a malformed or truncated tool call. `
                         + `The model's tool call kept getting cut off before it finished. `
                         + `Fix: have the model split a large write into write_file (header + first section) then append_to_file for the rest, `
                         + `reduce the attached input, or raise Max output tokens in Settings -> Models.`,
@@ -1957,7 +1946,7 @@ export class AgentTask {
 
                 // Context Condensing: check only after history is fully consistent
                 // (assistant tool_calls + tool_results both present, no orphaned calls)
-                if (iteration > 0 && this.condensingEnabled && completionResult === null) {
+                if (iteration > 0 && this.condensingEnabled && loopState.completionResult === null) {
                     const estimatedTokens = this.estimateTokens(history);
                     const contextWindow = this.getModelContextWindow();
                     const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
@@ -2010,10 +1999,10 @@ export class AgentTask {
                 // when the model already streamed its answer as text (which is
                 // the intended flow). Only render as last-resort fallback for
                 // models that skip text streaming entirely (e.g. GPT-5-mini).
-                if (completionResult !== null) {
+                if (loopState.completionResult !== null) {
                     this.taskCallbacks.onAttemptCompletion?.();
-                    if (!hasStreamedText) {
-                        const resultText = completionResult as string;
+                    if (!loopState.hasStreamedText) {
+                        const resultText = loopState.completionResult as string;
                         if (resultText.trim()) {
                             this.taskCallbacks.onText?.(resultText);
                         }
@@ -2025,7 +2014,7 @@ export class AgentTask {
             // Hard limit recovery: if the loop exhausted iterations while the agent
             // was still working (last message is a tool_result), give it one final
             // text-only API call to deliver a response instead of silently stopping.
-            if (completionResult === null && !abortSignal?.aborted) {
+            if (loopState.completionResult === null && !abortSignal?.aborted) {
                 const lastMsg = history[history.length - 1];
                 const wasWorking = lastMsg?.role === 'user'
                     && Array.isArray(lastMsg.content)
@@ -2041,13 +2030,13 @@ export class AgentTask {
                         logInputBreakdown('hard-limit-recovery', cachedSystemPrompt, safeHistoryHardLimit, []);
                         for await (const chunk of this.api.createMessage(cachedSystemPrompt, safeHistoryHardLimit, [], abortSignal)) {
                             if (chunk.type === 'text') {
-                                hasStreamedText = true;
+                                loopState.hasStreamedText = true;
                                 this.taskCallbacks.onText(chunk.text);
                             } else if (chunk.type === 'usage') {
-                                totalInputTokens += chunk.inputTokens;
-                                totalOutputTokens += chunk.outputTokens;
-                                totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
-                                totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                                loopState.totalInputTokens += chunk.inputTokens;
+                                loopState.totalOutputTokens += chunk.outputTokens;
+                                loopState.totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
+                                loopState.totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
                                 // FIX-24-05-05: recovery call runs on this.api too.
                                 addUsage(this.usageByModel, this.api.getModel().id,
                                     chunk.inputTokens, chunk.outputTokens,
@@ -2068,17 +2057,17 @@ export class AgentTask {
             // into the totals so footer and telemetry include it.
             {
                 const aux = this.drainAuxUsage();
-                totalInputTokens += aux.input;
-                totalOutputTokens += aux.output;
-                totalCacheReadTokens += aux.cacheRead;
-                totalCacheCreationTokens += aux.cacheCreation;
+                loopState.totalInputTokens += aux.input;
+                loopState.totalOutputTokens += aux.output;
+                loopState.totalCacheReadTokens += aux.cacheRead;
+                loopState.totalCacheCreationTokens += aux.cacheCreation;
             }
-            if (totalInputTokens > 0 || totalOutputTokens > 0) {
+            if (loopState.totalInputTokens > 0 || loopState.totalOutputTokens > 0) {
                 this.taskCallbacks.onUsage?.(
-                    totalInputTokens,
-                    totalOutputTokens,
-                    totalCacheReadTokens > 0 ? totalCacheReadTokens : undefined,
-                    totalCacheCreationTokens > 0 ? totalCacheCreationTokens : undefined,
+                    loopState.totalInputTokens,
+                    loopState.totalOutputTokens,
+                    loopState.totalCacheReadTokens > 0 ? loopState.totalCacheReadTokens : undefined,
+                    loopState.totalCacheCreationTokens > 0 ? loopState.totalCacheCreationTokens : undefined,
                     this.api.getModel().id,
                     // EPIC-26 / FEAT-26-05: cost-log mode-tag at the root-task
                     // boundary. Subtask onUsage already tags advisor/subagent
@@ -2101,12 +2090,12 @@ export class AgentTask {
 
             // ADR-090 Lever 10: emit telemetry before completing
             this.taskCallbacks.onTaskTelemetry?.({
-                inputTokens: totalInputTokens,
-                outputTokens: totalOutputTokens,
-                cacheReadTokens: totalCacheReadTokens,
-                cacheCreationTokens: totalCacheCreationTokens,
+                inputTokens: loopState.totalInputTokens,
+                outputTokens: loopState.totalOutputTokens,
+                cacheReadTokens: loopState.totalCacheReadTokens,
+                cacheCreationTokens: loopState.totalCacheCreationTokens,
                 toolSequence: repetitionDetector.getToolSequence(),
-                iterations: telemetryIterations,
+                iterations: loopState.telemetryIterations,
                 outcome: 'completed',
             });
 
@@ -2124,17 +2113,17 @@ export class AgentTask {
             //   'iterate' grading triggered loop.iterate() which leaks
             //   the daemon buffer and deposits nothing, so it was a
             //   strictly-worse choice than abandon for our flow.
-            const hitIterationCap = telemetryIterations >= MAX_ITERATIONS;
+            const hitIterationCap = loopState.telemetryIterations >= MAX_ITERATIONS;
             const productiveToolWork = repetitionDetector.getToolSequence().length > 0;
-            cleanNaturalExit =
-                completionResult === null
-                && hasStreamedText
+            loopState.cleanNaturalExit =
+                loopState.completionResult === null
+                && loopState.hasStreamedText
                 && productiveToolWork
-                && totalToolErrors === 0
-                && consecutiveMistakes === 0
+                && loopState.totalToolErrors === 0
+                && loopState.consecutiveMistakes === 0
                 && !hitIterationCap;
-            stigmergyOutcome =
-                (completionResult !== null || cleanNaturalExit)
+            loopState.stigmergyOutcome =
+                (loopState.completionResult !== null || loopState.cleanNaturalExit)
                     ? 'accept'
                     : 'abandon';
 
@@ -2151,17 +2140,17 @@ export class AgentTask {
                 // FIX-24-05-04: include auxiliary usage in abort telemetry.
                 const auxAbort = this.drainAuxUsage();
                 this.taskCallbacks.onTaskTelemetry?.({
-                    inputTokens: totalInputTokens + auxAbort.input,
-                    outputTokens: totalOutputTokens + auxAbort.output,
-                    cacheReadTokens: totalCacheReadTokens + auxAbort.cacheRead,
-                    cacheCreationTokens: totalCacheCreationTokens + auxAbort.cacheCreation,
+                    inputTokens: loopState.totalInputTokens + auxAbort.input,
+                    outputTokens: loopState.totalOutputTokens + auxAbort.output,
+                    cacheReadTokens: loopState.totalCacheReadTokens + auxAbort.cacheRead,
+                    cacheCreationTokens: loopState.totalCacheCreationTokens + auxAbort.cacheCreation,
                     toolSequence: repetitionDetector.getToolSequence(),
-                    iterations: telemetryIterations,
+                    iterations: loopState.telemetryIterations,
                     outcome: 'aborted',
                 });
                 // VO/Stigmergy: abort is negative evidence -- no
                 // reinforcement of whatever partial path the agent took.
-                stigmergyOutcome = 'abandon';
+                loopState.stigmergyOutcome = 'abandon';
                 this.taskCallbacks.onComplete();
                 return;
             }
@@ -2189,9 +2178,9 @@ export class AgentTask {
             // the two message-regex checks. The policy is a pure function in
             // loopErrorPolicy.ts; this catch block only executes its verdict.
             const errorAction = decideLoopErrorAction(error, {
-                retriesUsed: rateLimitRetries,
+                retriesUsed: loopState.rateLimitRetries,
                 maxRetries: RATE_LIMIT_MAX_RETRIES,
-                emergencyRetried,
+                emergencyRetried: loopState.emergencyRetried,
                 historyLength: history.length,
                 rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
             });
@@ -2212,7 +2201,7 @@ export class AgentTask {
                     // was done on this one.
                     const condensed = await this.condenseHistory(history, cachedSystemPrompt, abortSignal);
                     if (condensed) {
-                        emergencyRetried = true;
+                        loopState.emergencyRetried = true;
                         console.debug('[AgentTask] Emergency condensing succeeded — retrying agent loop');
                         continue;  // 6A: Retry the agent loop with condensed history
                     }
@@ -2230,7 +2219,7 @@ export class AgentTask {
             // overloaded/5xx/network use the short 2s curve. The wait itself
             // is abort-aware (no lingering sleep after Stop).
             if (errorAction.action === 'retry') {
-                rateLimitRetries = errorAction.retryNumber;
+                loopState.rateLimitRetries = errorAction.retryNumber;
                 // IMP-41-02-03: a classified 429 halves the shared bucket
                 // rate for a cooldown so parallel call sites back off too.
                 if (errorAction.cls === 'rate-limit') {
@@ -2242,8 +2231,8 @@ export class AgentTask {
                 const waitMs = errorAction.waitMs;
                 const waitSec = Math.round(waitMs / 1000);
                 const label = errorAction.cls === 'rate-limit' ? 'Rate limit reached' : 'Temporary provider error';
-                console.warn(`[AgentTask] ${errorAction.cls} — retry ${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
-                this.taskCallbacks.onText(`\n\n*${label} -- automatically retrying in ${waitSec} seconds (${rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
+                console.warn(`[AgentTask] ${errorAction.cls} — retry ${loopState.rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES} in ${waitSec}s`);
+                this.taskCallbacks.onText(`\n\n*${label} -- automatically retrying in ${waitSec} seconds (${loopState.rateLimitRetries}/${RATE_LIMIT_MAX_RETRIES})...*\n\n`);
                 try {
                     await abortableDelay(waitMs, abortSignal);
                 } catch {
@@ -2258,12 +2247,12 @@ export class AgentTask {
             // FIX-24-05-04: include auxiliary usage in error telemetry.
             const auxError = this.drainAuxUsage();
             this.taskCallbacks.onTaskTelemetry?.({
-                inputTokens: totalInputTokens + auxError.input,
-                outputTokens: totalOutputTokens + auxError.output,
-                cacheReadTokens: totalCacheReadTokens + auxError.cacheRead,
-                cacheCreationTokens: totalCacheCreationTokens + auxError.cacheCreation,
+                inputTokens: loopState.totalInputTokens + auxError.input,
+                outputTokens: loopState.totalOutputTokens + auxError.output,
+                cacheReadTokens: loopState.totalCacheReadTokens + auxError.cacheRead,
+                cacheCreationTokens: loopState.totalCacheCreationTokens + auxError.cacheCreation,
                 toolSequence: repetitionDetector.getToolSequence(),
-                iterations: telemetryIterations,
+                iterations: loopState.telemetryIterations,
                 outcome: 'error',
                 errorMessage: err.message,
             });
@@ -2283,7 +2272,7 @@ export class AgentTask {
             // VO/Stigmergy: thrown error (parse failure, circuit-breaker
             // trip from consecutive tool errors, API/network failure after
             // retries) is negative evidence -- no reinforcement.
-            stigmergyOutcome = 'abandon';
+            loopState.stigmergyOutcome = 'abandon';
             return;  // Error — exit the emergency retry loop
         }
         } // while (true) — emergency condensing retry loop
@@ -2304,8 +2293,8 @@ export class AgentTask {
             // iterate -> substrate accumulated zero edges -> no pin
             // could ever form. The grading is now binary.
             await stigmergyTurn.end();
-            if (stigmergyOutcome === 'accept') {
-                await stigmergyTurn.accept(totalInputTokens + totalOutputTokens);
+            if (loopState.stigmergyOutcome === 'accept') {
+                await stigmergyTurn.accept(loopState.totalInputTokens + loopState.totalOutputTokens);
             } else {
                 await stigmergyTurn.abandon();
             }
@@ -2314,7 +2303,7 @@ export class AgentTask {
             // of truth for the episode payload). Fires for every exit path
             // -- success, iteration-cap, abort, error -- so RecipePromotion
             // sees the complete picture. `success` is derived from the
-            // already-graded stigmergyOutcome plus the closure counters.
+            // already-graded loopState.stigmergyOutcome plus the closure counters.
             try {
                 const toolSeq = repetitionDetector.getToolSequence();
                 if (toolSeq.length > 0) {
@@ -2326,16 +2315,16 @@ export class AgentTask {
                     // exit counts as success for episode-recording too,
                     // not just an explicit attempt_completion.
                     const episodeSuccess =
-                        stigmergyOutcome === 'accept'
-                        && totalToolErrors === 0
-                        && (attemptCompletionFired || cleanNaturalExit);
+                        loopState.stigmergyOutcome === 'accept'
+                        && loopState.totalToolErrors === 0
+                        && (loopState.attemptCompletionFired || loopState.cleanNaturalExit);
                     this.taskCallbacks.onEpisodeData?.({
                         toolSequence: toolSeq,
                         toolLedger: repetitionDetector.getLedger(),
                         success: episodeSuccess,
-                        mistakesEncountered: totalToolErrors,
-                        attemptCompletionFired,
-                        fastPathFired,
+                        mistakesEncountered: loopState.totalToolErrors,
+                        attemptCompletionFired: loopState.attemptCompletionFired,
+                        fastPathFired: loopState.fastPathFired,
                         stigmergy: stigmergyDecisionSnapshot,
                     });
                 }
