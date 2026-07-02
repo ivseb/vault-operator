@@ -295,6 +295,12 @@ export function modelSupportsTemperature(modelId: string): boolean {
     // (a future 4-10, 4-11) so later snapshots stay covered, while 4-6 and
     // earlier single-digit minors keep temperature.
     if (/^claude-opus-4-(?:[7-9]|\d\d+)\b/.test(normalized)) return false;
+    // FIX-04-03-12: Claude 5+ generation (sonnet-5, opus-5, haiku-5, future 6)
+    // dropped sampling parameters entirely. Live incident 2026-07-02: Bedrock
+    // global.anthropic.claude-sonnet-5 400s with "temperature is deprecated".
+    // Matches "claude-<family>-<major>=5..9 or two-digit major" but NOT
+    // dotted minors like claude-haiku-4-5 (major there is 4).
+    if (/^claude-[a-z]+-(?:[5-9]|\d\d+)\b/.test(normalized)) return false;
     // Anthropic Fable / Mythos families: sampling parameters removed
     if (/^claude-(fable|mythos)-/.test(normalized)) return false;
     // OpenAI GPT-5 family: default-only temperature
@@ -323,6 +329,9 @@ export function modelUsesBudgetTokensThinking(modelId: string): boolean {
     // Mirrors the minor-version matching in modelSupportsTemperature so a future
     // 4-10/4-11 stays covered while 4-6 and earlier keep budget_tokens.
     if (/^claude-opus-4-(?:[7-9]|\d\d+)\b/.test(normalized)) return false;
+    // FIX-04-03-12: Claude 5+ generation is adaptive-only (same lineup rule
+    // as modelSupportsTemperature).
+    if (/^claude-[a-z]+-(?:[5-9]|\d\d+)\b/.test(normalized)) return false;
     // Fable / Mythos families: adaptive only.
     if (/^claude-(fable|mythos)-/.test(normalized)) return false;
     return true;

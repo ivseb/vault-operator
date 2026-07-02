@@ -26,6 +26,7 @@ import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
+import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
@@ -337,6 +338,13 @@ export class AgentTask {
      * include them.
      */
     private auxUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+    /**
+     * IMP-41-01-04 / ADR-148: per-task calibrated chars-per-token factor.
+     * Fed by every usage chunk; consumed by estimateMessageTokens so the
+     * condensing trigger and output-budget clamping track real token rates.
+     */
+    private tokenEstimator = new TokenEstimator();
 
     /**
      * FIX-24-05-05: usage attributed to the model that actually served each
@@ -1537,6 +1545,12 @@ export class AgentTask {
                     }
                 }
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
+                // IMP-41-01-04 / ADR-148: char volume of THIS request, so the
+                // usage chunk below can calibrate the chars-per-token factor
+                // against the provider-reported real prompt size.
+                const requestChars = systemPrompt.length
+                    + TokenEstimator.sumChars(safeHistory)
+                    + JSON.stringify(tools).length;
                 // MEAS-02: only the very first iteration of a fresh turn is
                 // the one the user clicked Send for. Subsequent iterations
                 // are tool-result follow-ups and have a different shape.
@@ -1585,6 +1599,12 @@ export class AgentTask {
                         totalOutputTokens += chunk.outputTokens;
                         totalCacheReadTokens += chunk.cacheReadTokens ?? 0;
                         totalCacheCreationTokens += chunk.cacheCreationTokens ?? 0;
+                        // IMP-41-01-04: calibrate chars-per-token from the real
+                        // prompt size (input + cache segments = full prompt).
+                        this.tokenEstimator.recordUsage(
+                            requestChars,
+                            chunk.inputTokens + (chunk.cacheReadTokens ?? 0) + (chunk.cacheCreationTokens ?? 0),
+                        );
                         // FIX-24-05-05: attribute at chunk time -- TaskRouter
                         // escalation swaps this.api mid-loop, so the model
                         // serving THIS iteration is the one to bill.
@@ -2322,26 +2342,30 @@ export class AgentTask {
      * this directly to avoid allocating single-element arrays.
      */
     private estimateMessageTokens(m: MessageParam): number {
+        // IMP-41-01-04: char-based counts run through the calibrated
+        // chars-per-token factor (default 4.0 = legacy parity); structural
+        // surcharges (tool_use plumbing, images) stay fixed.
+        const toTokens = (chars: number): number => this.tokenEstimator.tokensForChars(chars);
         let count = 0;
         if (Array.isArray(m.content)) {
             for (const block of m.content) {
                 if (block.type === 'text' && 'text' in block && typeof block.text === 'string') {
-                    count += Math.ceil(block.text.length / 4);
+                    count += toTokens(block.text.length);
                 } else if (block.type === 'thinking' && 'text' in block && typeof block.text === 'string') {
-                    count += Math.ceil(block.text.length / 4);
+                    count += toTokens(block.text.length);
                 } else if (block.type === 'tool_use') {
                     count += 150;
                     if ('input' in block && block.input) {
-                        count += Math.ceil(JSON.stringify(block.input).length / 4);
+                        count += toTokens(JSON.stringify(block.input).length);
                     }
                 } else if (block.type === 'tool_result') {
                     count += 50;
                     if ('content' in block) {
                         if (typeof block.content === 'string') {
-                            count += Math.ceil(block.content.length / 4);
+                            count += toTokens(block.content.length);
                         } else if (Array.isArray(block.content)) {
                             for (const sub of block.content) {
-                                if (sub.type === 'text') count += Math.ceil(sub.text.length / 4);
+                                if (sub.type === 'text') count += toTokens(sub.text.length);
                                 else if (sub.type === 'image') count += 1000;
                             }
                         }
@@ -2351,7 +2375,7 @@ export class AgentTask {
                 }
             }
         } else if (typeof m.content === 'string') {
-            count += Math.ceil(m.content.length / 4);
+            count += toTokens(m.content.length);
         }
         return count;
     }

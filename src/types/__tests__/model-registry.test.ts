@@ -443,3 +443,43 @@ describe('modelUsesBudgetTokensThinking', () => {
         expect(modelUsesBudgetTokensThinking('totally-made-up-1234')).toBe(true);
     });
 });
+
+describe('Claude 5 generation sampling/thinking (FIX-04-03-12)', () => {
+    // Live incident 2026-07-02: Bedrock global.anthropic.claude-sonnet-5
+    // returned 400 "temperature is deprecated for this model" because no
+    // regex covered the Claude 5 generation. The whole 5+ lineup dropped
+    // sampling parameters and budget_tokens thinking.
+    it('flags Sonnet 5 as default-only temperature', () => {
+        expect(modelSupportsTemperature('claude-sonnet-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-sonnet-5-20260929')).toBe(false);
+    });
+
+    it('flags Sonnet 5 across normalized aliases (Bedrock global profile, OpenRouter)', () => {
+        expect(modelSupportsTemperature('global.anthropic.claude-sonnet-5')).toBe(false);
+        expect(modelSupportsTemperature('eu.anthropic.claude-sonnet-5-v1:0')).toBe(false);
+        expect(modelSupportsTemperature('anthropic/claude-sonnet-5')).toBe(false);
+    });
+
+    it('covers future 5+ generation members', () => {
+        expect(modelSupportsTemperature('claude-opus-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-haiku-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-sonnet-6')).toBe(false);
+    });
+
+    it('keeps temperature for pre-5 non-Opus models', () => {
+        expect(modelSupportsTemperature('claude-haiku-4-5')).toBe(true);
+        expect(modelSupportsTemperature('claude-3-5-sonnet-20241022')).toBe(true);
+        expect(modelSupportsTemperature('claude-sonnet-4-5')).toBe(true);
+    });
+
+    it('flags Sonnet 5 as adaptive-thinking (no budget_tokens)', () => {
+        expect(modelUsesBudgetTokensThinking('claude-sonnet-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('global.anthropic.claude-sonnet-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-opus-5')).toBe(false);
+    });
+
+    it('keeps budget_tokens for pre-5 non-Opus models', () => {
+        expect(modelUsesBudgetTokensThinking('claude-sonnet-4-5')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('claude-haiku-4-5')).toBe(true);
+    });
+});
