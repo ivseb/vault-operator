@@ -112,6 +112,16 @@ export class FastPathExecutor {
     constructor(
         private api: ApiHandler,
         private pipeline: ToolExecutionPipeline,
+        /**
+         * FIX-24-05-04: reports planner-call token usage to the owning task
+         * so those tokens land in the task totals (footer + telemetry).
+         */
+        private onUsage?: (
+            inputTokens: number,
+            outputTokens: number,
+            cacheReadTokens?: number,
+            cacheCreationTokens?: number,
+        ) => void,
     ) {}
 
     /**
@@ -321,6 +331,10 @@ export class FastPathExecutor {
                 abortSignal,
             )) {
                 if (chunk.type === 'text') responseText += chunk.text;
+                // FIX-24-05-04: planner tokens cost money too.
+                else if (chunk.type === 'usage') {
+                    this.onUsage?.(chunk.inputTokens, chunk.outputTokens, chunk.cacheReadTokens, chunk.cacheCreationTokens);
+                }
             }
 
             // BUG-024: tolerant JSON extraction. Some LLMs (Copilot Sonnet

@@ -285,6 +285,17 @@ export interface AgentTaskRunConfig {
     effortOverride?: 'low' | 'medium' | 'high' | 'auto';
 }
 
+/**
+ * FIX-24-05-03: only the root task (depth 0) forwards subtask usage
+ * reports upward -- there the receiver is the UI, which renders but does
+ * not accumulate. Intermediate tasks must NOT forward: their own final
+ * report already contains the accumulated child tokens, so forwarding as
+ * well counted grandchild tokens twice in the root totals.
+ */
+export function shouldForwardSubtaskUsage(depth: number): boolean {
+    return depth === 0;
+}
+
 export class AgentTask {
     private api: ApiHandler;
     private toolRegistry: ToolRegistry;
@@ -309,6 +320,20 @@ export class AgentTask {
     private depth: number;
     /** Maximum allowed sub-agent nesting depth. Children at this depth cannot spawn further. */
     private maxSubtaskDepth: number;
+    /**
+     * FIX-24-05-04: tokens spent by auxiliary LLM calls (context condensing,
+     * FastPath planner) that stream outside the main loop. Drained into the
+     * run() totals at every usage-report site so footer and telemetry
+     * include them.
+     */
+    private auxUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+    /** FIX-24-05-04: hand out the collected auxiliary usage exactly once. */
+    private drainAuxUsage(): { input: number; output: number; cacheRead: number; cacheCreation: number } {
+        const aux = this.auxUsage;
+        this.auxUsage = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+        return aux;
+    }
     /**
      * FEAT-24-02 (ADR-12 amendment): prune old tool_result contents to skeletons
      * at turn boundaries. Additive to the keep-first-last full condensing.
@@ -776,7 +801,14 @@ export class AgentTask {
                         ? this.modeService.getToolDefinitions(activeMode)
                         : this.toolRegistry.getToolDefinitions();
 
-                    const fastPath = new FastPathExecutor(this.api, pipeline);
+                    // FIX-24-05-04: collect planner-call usage so it lands
+                    // in the task totals (footer + telemetry).
+                    const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc) => {
+                        this.auxUsage.input += i;
+                        this.auxUsage.output += o;
+                        this.auxUsage.cacheRead += cr ?? 0;
+                        this.auxUsage.cacheCreation += cc ?? 0;
+                    });
                     const fpCallbacks = {
                         pushToolResult: () => {},
                         pushProgress: () => {},
@@ -1009,7 +1041,13 @@ export class AgentTask {
                             profile?.name === 'advisor' ? 'advisor'
                             : profile ? 'subagent'
                             : undefined;
-                        this.taskCallbacks.onUsage?.(i, o, cr, cc, mid, routingMode);
+                        // FIX-24-05-03: forward only at the root, where the
+                        // receiver is the UI (renders, does not accumulate).
+                        // Intermediate levels would double-count: their own
+                        // final report already includes these tokens.
+                        if (shouldForwardSubtaskUsage(this.depth)) {
+                            this.taskCallbacks.onUsage?.(i, o, cr, cc, mid, routingMode);
+                        }
                     },
                     // K-1: Forward parent approval callback so subtask write ops are not
                     // auto-rejected by the fail-closed fallback in ToolExecutionPipeline.
@@ -1954,6 +1992,15 @@ export class AgentTask {
             // v2.10.2: pass the model id from the api that actually served
             // this task so TaskMonitor can price the call correctly even
             // when TaskRouter routed it onto the helper model.
+            // FIX-24-05-04: merge auxiliary usage (condensing, FastPath)
+            // into the totals so footer and telemetry include it.
+            {
+                const aux = this.drainAuxUsage();
+                totalInputTokens += aux.input;
+                totalOutputTokens += aux.output;
+                totalCacheReadTokens += aux.cacheRead;
+                totalCacheCreationTokens += aux.cacheCreation;
+            }
             if (totalInputTokens > 0 || totalOutputTokens > 0) {
                 this.taskCallbacks.onUsage?.(
                     totalInputTokens,
@@ -2026,11 +2073,13 @@ export class AgentTask {
             const isAbortedSignal = abortSignal?.aborted === true;
             if (isAbort || isAbortedSignal) {
                 console.debug('[AgentTask] Task cancelled by user');
+                // FIX-24-05-04: include auxiliary usage in abort telemetry.
+                const auxAbort = this.drainAuxUsage();
                 this.taskCallbacks.onTaskTelemetry?.({
-                    inputTokens: totalInputTokens,
-                    outputTokens: totalOutputTokens,
-                    cacheReadTokens: totalCacheReadTokens,
-                    cacheCreationTokens: totalCacheCreationTokens,
+                    inputTokens: totalInputTokens + auxAbort.input,
+                    outputTokens: totalOutputTokens + auxAbort.output,
+                    cacheReadTokens: totalCacheReadTokens + auxAbort.cacheRead,
+                    cacheCreationTokens: totalCacheCreationTokens + auxAbort.cacheCreation,
                     toolSequence: repetitionDetector.getToolSequence(),
                     iterations: telemetryIterations,
                     outcome: 'aborted',
@@ -2112,11 +2161,13 @@ export class AgentTask {
             }
 
             // ADR-090 Lever 10: telemetry for error outcomes too
+            // FIX-24-05-04: include auxiliary usage in error telemetry.
+            const auxError = this.drainAuxUsage();
             this.taskCallbacks.onTaskTelemetry?.({
-                inputTokens: totalInputTokens,
-                outputTokens: totalOutputTokens,
-                cacheReadTokens: totalCacheReadTokens,
-                cacheCreationTokens: totalCacheCreationTokens,
+                inputTokens: totalInputTokens + auxError.input,
+                outputTokens: totalOutputTokens + auxError.output,
+                cacheReadTokens: totalCacheReadTokens + auxError.cacheRead,
+                cacheCreationTokens: totalCacheCreationTokens + auxError.cacheCreation,
                 toolSequence: repetitionDetector.getToolSequence(),
                 iterations: telemetryIterations,
                 outcome: 'error',
@@ -2477,6 +2528,14 @@ export class AgentTask {
                 abortSignal,
             )) {
                 if (chunk.type === 'text') summary += chunk.text;
+                // FIX-24-05-04: condensing tokens cost money too -- collect
+                // them so the run() totals (footer + telemetry) include them.
+                else if (chunk.type === 'usage') {
+                    this.auxUsage.input += chunk.inputTokens;
+                    this.auxUsage.output += chunk.outputTokens;
+                    this.auxUsage.cacheRead += chunk.cacheReadTokens ?? 0;
+                    this.auxUsage.cacheCreation += chunk.cacheCreationTokens ?? 0;
+                }
             }
         } catch (e) {
             // FIX-COMPACT-02: never swallow silently. The previous empty

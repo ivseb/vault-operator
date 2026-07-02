@@ -52,6 +52,13 @@ export interface TaskTelemetryData {
 const SUBSCRIPTION_PROVIDERS = new Set(['github-copilot', 'chatgpt-oauth']);
 
 export class TaskMonitor {
+    /**
+     * FIX-24-05-02: the model that actually served the last reported usage.
+     * The final onUsage of a task carries the routed model id; telemetry
+     * must persist that id, not the configured main model.
+     */
+    private lastActualModelId?: string;
+
     constructor(private opts: TaskMonitorOptions) {}
 
     /**
@@ -74,6 +81,7 @@ export class TaskMonitor {
     ): void {
         const cR = cacheReadTokens ?? 0;
         const cW = cacheCreationTokens ?? 0;
+        if (actualModelId) this.lastActualModelId = actualModelId;
         const modelId = actualModelId ?? this.modelIdForCost();
         const provider = this.providerFor(modelId);
         const cost = computeCost(modelId, inputTokens, outputTokens, cR, cW);
@@ -142,7 +150,8 @@ export class TaskMonitor {
         const recordPreview = this.opts.plugin.settings.advancedApi.telemetryRecordPromptPreview ?? false;
         await telemetry.record({
             promptPreview: recordPreview ? this.opts.promptPreview : '',
-            modelId: this.modelIdForCost(),
+            // FIX-24-05-02: prefer the model that actually served the task.
+            modelId: this.lastActualModelId ?? this.modelIdForCost(),
             mode: this.opts.mode,
             inputTokens: data.inputTokens,
             outputTokens: data.outputTokens,

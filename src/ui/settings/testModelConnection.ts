@@ -542,10 +542,14 @@ async function fetchProviderModels(
             .map((m): FetchedModelEntry => {
                 const ppPrompt = m.pricing?.prompt;
                 const ppCompletion = m.pricing?.completion;
-                const toNum = (v: string | number | undefined): number | undefined => {
+                // FIX-26-02-01: OpenRouter quotes pricing as USD PER TOKEN
+                // (strings like "0.00001"). Our fields, the tier classifier
+                // thresholds, and the DiscoveredModel docs all speak USD per
+                // 1M tokens -- convert here, at the single wire boundary.
+                const toUsdPerMillion = (v: string | number | undefined): number | undefined => {
                     if (v === undefined) return undefined;
                     const n = typeof v === 'string' ? parseFloat(v) : v;
-                    return Number.isFinite(n) ? n : undefined;
+                    return Number.isFinite(n) ? n * 1_000_000 : undefined;
                 };
                 const ctx = m.top_provider?.context_length ?? m.context_length;
                 const maxOut = m.top_provider?.max_completion_tokens;
@@ -554,8 +558,8 @@ async function fetchProviderModels(
                     label: (m.name ?? m.id) as string,
                     contextWindow: ctx,
                     maxOutputTokens: maxOut,
-                    pricingPromptUsd: toNum(ppPrompt),
-                    pricingCompletionUsd: toNum(ppCompletion),
+                    pricingPromptUsd: toUsdPerMillion(ppPrompt),
+                    pricingCompletionUsd: toUsdPerMillion(ppCompletion),
                 };
             })
             .sort((a, b) => a.id.localeCompare(b.id));

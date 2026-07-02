@@ -361,7 +361,12 @@ export class OpenAiProvider implements ApiHandler {
                 ? effectiveMaxTokens
                 : undefined,
             stream: true,
-            stream_options: (this.config.type === 'openai' || this.config.type === 'openrouter')
+            // FIX-04-03-11: Azure supports include_usage on the pinned
+            // api-version (2024-10-21); without the flag Azure streams carry
+            // no usage chunk and the cost footer stays empty. Local backends
+            // (custom/ollama/lmstudio) stay excluded -- strict OpenAI-compat
+            // servers may reject unknown stream_options fields.
+            stream_options: (this.config.type === 'openai' || this.config.type === 'openrouter' || this.config.type === 'azure')
                 ? { include_usage: true }
                 : undefined,
             // OpenRouter reasoning object: extended-thinking max_tokens passthrough
