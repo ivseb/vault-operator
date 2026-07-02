@@ -11,6 +11,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
     normalizeCatalogKey,
     parseOpenRouterCatalog,
+    sanitizeCatalog,
     PriceCatalogService,
     PRICE_CATALOG_FILE,
 } from '../PriceCatalogService';
@@ -125,6 +126,69 @@ describe('getModelPrice with live catalog (IMP-24-05-02)', () => {
 // ---------------------------------------------------------------------------
 // Service: persistence + 24h TTL, non-blocking usage pattern.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// AUDIT-2026-07-02 L-1 / I-1 / I-2: trust-boundary hardening of the parser.
+// ---------------------------------------------------------------------------
+describe('parseOpenRouterCatalog hardening (AUDIT L-1/I-1/I-2)', () => {
+    it('rejects non-positive prices (negative or zero input/output)', () => {
+        const cat = parseOpenRouterCatalog({ data: [
+            { id: 'evil/negative', pricing: { prompt: '-0.0001', completion: '0.00001' } },
+            { id: 'evil/zero-out', pricing: { prompt: '0.00001', completion: '0' } },
+            { id: 'anthropic/claude-opus-4.8', pricing: { prompt: '0.000005', completion: '0.000025' } },
+        ] });
+        expect(Object.keys(cat)).toEqual(['claude-opus-4-8']);
+    });
+
+    it('drops implausibly large per-token prices (> $10k / 1M)', () => {
+        const cat = parseOpenRouterCatalog({ data: [
+            { id: 'evil/absurd', pricing: { prompt: '1', completion: '1' } }, // 1e6 per 1M
+            { id: 'anthropic/claude-opus-4.8', pricing: { prompt: '0.000005', completion: '0.000025' } },
+        ] });
+        expect(cat['evil/absurd']).toBeUndefined();
+        expect(cat['claude-opus-4-8']).toBeDefined();
+    });
+
+    it('ignores negative cache rates instead of storing them', () => {
+        const cat = parseOpenRouterCatalog({ data: [
+            { id: 'x/y', pricing: { prompt: '0.000005', completion: '0.000025', input_cache_read: '-0.0000005' } },
+        ] });
+        expect(cat['y'].cacheReadPerMillionUsd).toBeUndefined();
+    });
+
+    it('skips __proto__/constructor/prototype model ids (defense in depth)', () => {
+        const before = Object.keys(Object.prototype).length;
+        const cat = parseOpenRouterCatalog({ data: [
+            { id: '__proto__', pricing: { prompt: '0.000005', completion: '0.000025' } },
+            { id: 'a/constructor', pricing: { prompt: '0.000005', completion: '0.000025' } },
+            { id: 'a/prototype', pricing: { prompt: '0.000005', completion: '0.000025' } },
+            { id: 'anthropic/claude-opus-4.8', pricing: { prompt: '0.000005', completion: '0.000025' } },
+        ] });
+        expect(Object.keys(cat)).toEqual(['claude-opus-4-8']);
+        // global prototype untouched, and catalog has no inherited price leak
+        expect(Object.keys(Object.prototype).length).toBe(before);
+        expect(Object.getPrototypeOf(cat)).toBe(Object.prototype);
+    });
+
+    it('sanitizeCatalog drops non-positive/absurd entries and unsafe keys', () => {
+        const clean = sanitizeCatalog({
+            '__proto__': { inputPerMillionUsd: 5, outputPerMillionUsd: 25 },
+            'neg': { inputPerMillionUsd: -1, outputPerMillionUsd: 5 },
+            'absurd': { inputPerMillionUsd: 99999, outputPerMillionUsd: 5 },
+            'ok': { inputPerMillionUsd: 5, outputPerMillionUsd: 25, cacheReadPerMillionUsd: -1 },
+        });
+        expect(Object.keys(clean)).toEqual(['ok']);
+        expect(clean['ok'].cacheReadPerMillionUsd).toBeUndefined();
+    });
+
+    it('caps the number of parsed entries', () => {
+        const data = Array.from({ length: 50_000 }, (_, i) => ({
+            id: `v/m-${i}`, pricing: { prompt: '0.000001', completion: '0.000001' },
+        }));
+        const cat = parseOpenRouterCatalog({ data });
+        expect(Object.keys(cat).length).toBeLessThanOrEqual(10_000);
+    });
+});
+
 describe('PriceCatalogService (IMP-24-05-02)', () => {
     function makeFakeFs(): { fs: FileAdapter; files: Map<string, string> } {
         const files = new Map<string, string>();
@@ -189,6 +253,22 @@ describe('PriceCatalogService (IMP-24-05-02)', () => {
         const service = new PriceCatalogService(fs, fetchJson);
         await service.load();
         expect(fetchJson).not.toHaveBeenCalled();
+        expect(getModelPrice('claude-opus-4-8').outputPerMillionUsd).toBe(25);
+    });
+
+    it('re-validates a tampered persisted catalog on load (AUDIT L-1)', async () => {
+        const { fs, files } = makeFakeFs();
+        files.set(PRICE_CATALOG_FILE, JSON.stringify({
+            fetchedAt: Date.now(),
+            catalog: {
+                'evil-model': { inputPerMillionUsd: -5, outputPerMillionUsd: 25 },
+                'claude-opus-4-8': { inputPerMillionUsd: 5, outputPerMillionUsd: 25 },
+            },
+        }));
+        const service = new PriceCatalogService(fs, vi.fn(async () => ({ data: [] })));
+        await service.load();
+        // Negative-priced entry dropped, valid one applied.
+        expect(getModelPrice('evil-model').inputPerMillionUsd).not.toBe(-5);
         expect(getModelPrice('claude-opus-4-8').outputPerMillionUsd).toBe(25);
     });
 

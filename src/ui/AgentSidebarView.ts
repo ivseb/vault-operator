@@ -3140,9 +3140,15 @@ export class AgentSidebarView extends ItemView {
         // was how a completed chat could vanish from history entirely).
         const ensured = this.ensureConversationId();
         if (!ensured) return;
+        // AUDIT-2026-07-02 L-2: snapshot BOTH arrays at call time. The id may
+        // resolve after the user switched conversations (boot-race + load);
+        // saving live this.* would then persist the newly loaded
+        // conversation's content under this save's id. Snapshots bind the
+        // payload to the conversation that was active when the save fired.
         const messagesSnapshot = [...this.uiMessages];
+        const historySnapshot = [...this.conversationHistory];
         ensured.then(async (convId) => {
-            await store.save(convId, this.conversationHistory, this.uiMessages);
+            await store.save(convId, historySnapshot, messagesSnapshot);
             // FEATURE-0320 Phase 6: re-index history_chunks after every save.
             void this.plugin.historyIndexer?.onConversationSaved(convId, messagesSnapshot);
         }).catch((e) => console.warn('[History] Save failed:', e));
