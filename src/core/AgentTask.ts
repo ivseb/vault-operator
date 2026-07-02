@@ -36,6 +36,8 @@ import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { splitToolBatch } from './agent/splitToolBatch';
 import { createInitialLoopState } from './agent/LoopState';
 import { AgentLoopEngine } from './agent/AgentLoopEngine';
+import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
+import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { abortableDelay } from '../api/retry';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -1334,20 +1336,15 @@ export class AgentTask {
         // ADR-061: Todo list as recency anchor (Manus Context Engineering).
         // Track current todo items so we can inject them at the end of context
         // before each LLM call, keeping task focus via recency bias.
-        let currentTodoText = '';
-        const originalTodoCallback = this.taskCallbacks.onTodoUpdate;
-        this.taskCallbacks.onTodoUpdate = (items) => {
-            originalTodoCallback?.(items);
-            // Format todo list for injection
-            if (items.length > 0) {
-                currentTodoText = '[Current Task Plan]\n' + items.map((i) => {
-                    const marker = i.status === 'done' ? 'x' : i.status === 'in_progress' ? '~' : ' ';
-                    return `- [${marker}] ${i.text}`;
-                }).join('\n');
-            } else {
-                currentTodoText = '';
-            }
+        // IMP-41-02-01c: the todo anchor is an interceptor now. The caller's
+        // callback object is never mutated; tools feed updates through
+        // todoUpdateForTools below (wired into the runTool extensions).
+        const todoAnchor = new TodoAnchorInterceptor();
+        const todoUpdateForTools: AgentTaskCallbacks['onTodoUpdate'] = (items) => {
+            this.taskCallbacks.onTodoUpdate?.(items);
+            todoAnchor.noteTodoUpdate(items);
         };
+        const powerSteering = new PowerSteeringInterceptor(this.powerSteeringFrequency);
 
 
         // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
@@ -1442,32 +1439,11 @@ export class AgentTask {
                     );
                 }
 
-                // Power Steering: inject a mode-role reminder on every Nth iteration
-                if (
-                    this.powerSteeringFrequency > 0
-                    && iteration > 0
-                    && iteration % this.powerSteeringFrequency === 0
-                ) {
-                    // FEAT-24-09: with the per-message skill classifier gone the
-                    // task no longer ships a list of pre-active skill names. The
-                    // skill the model loaded itself via read_skill is in the
-                    // message stream (until microcompaction prunes it); the model
-                    // can re-call read_skill if it lost the steps.
-                    // FIX-PERF-24: dedupe. If the previous history entry is
-                    // already a Power-Steering Reminder (frequency==1 edge
-                    // case, or after a no-op iteration that produced no
-                    // assistant message), do not stack a second identical
-                    // reminder back-to-back. Two identical user messages in a
-                    // row both burn cache and confuse the model.
-                    const reminder = `[Power Steering Reminder]\n\nYou are operating in **${activeMode.name}** mode.\n\n${activeMode.roleDefinition}\n\nContinue the task.`;
-                    const last = history[history.length - 1];
-                    const lastIsSameReminder = last?.role === 'user'
-                        && typeof last.content === 'string'
-                        && last.content === reminder;
-                    if (!lastIsSameReminder) {
-                        history.push({ role: 'user', content: reminder });
-                    }
-                }
+                // Power Steering (IMP-41-02-01c): interceptor injects the
+                // mode-role reminder every Nth iteration, FIX-PERF-24 dedupe
+                // included. FEAT-24-09 context: the model re-loads skills via
+                // read_skill itself when microcompaction pruned them.
+                powerSteering.onIterationStart({ state: loopState, history, activeMode });
 
                 // Soft limit: nudge the agent to wrap up at 60% of max iterations
                 if (iteration === SOFT_LIMIT) {
@@ -1529,16 +1505,9 @@ export class AgentTask {
                 // message of the sanitized history only. The live history
                 // stays unmutated, so a mid-stream throw no longer leaves
                 // the todo glued onto the persisted transcript.
-                if (currentTodoText && iteration > 0) {
-                    for (let h = safeHistory.length - 1; h >= 0; h--) {
-                        const m = safeHistory[h];
-                        if (m.role === 'user' && typeof m.content === 'string') {
-                            safeHistory = safeHistory.slice();
-                            safeHistory[h] = { ...m, content: `${m.content}\n\n${currentTodoText}` };
-                            break;
-                        }
-                    }
-                }
+                safeHistory = todoAnchor.transformRequestHistory(safeHistory, {
+                    state: loopState, history, activeMode,
+                });
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
                 // IMP-41-01-04 / ADR-148: char volume of THIS request, so the
                 // usage chunk below can calibrate the chars-per-token factor
@@ -1789,7 +1758,7 @@ export class AgentTask {
                         compositionStack: this.compositionStack,
                         consumeAdvisorSlot,
                         onApprovalRequired: this.taskCallbacks.onApprovalRequired,
-                        updateTodos: this.taskCallbacks.onTodoUpdate,
+                        updateTodos: todoUpdateForTools,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
                         invalidateToolCache,
                         activateDeferredTool,
