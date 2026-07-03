@@ -39,6 +39,7 @@ import { initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine, type CondensePorts } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { RouterEscalationInterceptor } from './agent/interceptors/RouterEscalationInterceptor';
+import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay } from '../api/retry';
@@ -774,9 +775,8 @@ export class AgentTask {
         // to append guidance.text only once the FastPath outcome is known.
         // guidance.path stays in scope for Pre-Activation (kept below); only
         // the textual hint is gated against Recipe + FastPath success.
-        let precedenceFastPathFired = false;
-        let precedenceRecipeWinner: string | null = null;
-        let precedenceFastPathHistoryEntries: import('../api/types').MessageParam[] = [];
+        // (Contract v2: the FastPath outcome lives in the interceptor's
+        // accessors -- fired(), getRecipeWinnerId(), getHistoryEntries().)
         const stigmergyGuidanceText = guidance.text;
         // FEAT-32-02 PR 2.2: hoisted detector so FastPath can feed it via
         // `recordForEpisodeOnly` BEFORE the main loop opens. Originally
@@ -830,117 +830,74 @@ export class AgentTask {
             abortSignal,
         });
 
-        // ADR-061: Fast Path — if a recipe matches with high confidence,
-        // execute tool steps as a batch before entering the normal loop.
-        // The loop then handles presentation/completion in 1-2 iterations.
-        if (recipesSection && this.depth === 0) {
-            try {
+        // ADR-061: Fast Path, since contract v2 as an interceptor — if a
+        // recipe matches with high confidence, execute tool steps as a
+        // batch before entering the normal loop. The loop then handles
+        // presentation/completion in 1-2 iterations. The interceptor owns
+        // gates + entry collection; planner prompt, tool definitions,
+        // executor construction and episodic recording stay in the ports.
+        const fastPathInterceptor = new FastPathInterceptor({
+            enabled: () => Boolean(recipesSection) && this.depth === 0,
+            getUserText: () => (typeof userMessage === 'string' ? userMessage : ''),
+            getRecipeMatches: () => config.recipeMatches
+                ?? this.toolRegistry.plugin.recipeMatchingService?.match(
+                    typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
+                ),
+            executeRecipe: async (match, msgText, signal) => {
                 const { FastPathExecutor } = await import('./FastPathExecutor');
-                // FEAT-32-01 PR 1.3: prefer pre-computed matches from the
-                // Sidebar (same source as `recipesSection`); fall back to
-                // inline match for subagent paths that do not pre-compute.
-                const recipeMatch = config.recipeMatches
-                    ?? this.toolRegistry.plugin.recipeMatchingService?.match(
-                        typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
-                    );
-                const bestMatch = recipeMatch?.[0];
+                // Build system prompt for planner (same params as normal loop)
+                const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
+                const fpPrompt = buildSystemPromptForMode({
+                    mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
+                    skillDirectorySection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
+                    isSubtask: false, webEnabled: fpWebEnabled, recipesSection,
+                    configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
+                });
+                const fpTools = this.modeService
+                    ? this.modeService.getToolDefinitions(activeMode)
+                    : this.toolRegistry.getToolDefinitions();
 
-                // FEATURE-0320 follow-up: when the user explicitly references
-                // chats/conversations as the search source, the vault-centric
-                // "Knowledge Search & Synthesis" recipe is the wrong answer --
-                // it scans Notes and never calls search_history. Skip FastPath
-                // so the agent picks search_history itself.
-                const fpUserText = typeof userMessage === 'string' ? userMessage : '';
-                const chatSourceRegex = /\b(chat|chats|gespr(ä|ae)ch|gespr(ä|ae)che|konversation|konversationen|unterhaltung|unterhaltungen|dialog|dialoge|history)\b/i;
-                const targetsChatHistory = chatSourceRegex.test(fpUserText);
+                // FIX-24-05-04: collect planner-call usage so it lands
+                // in the task totals (footer + telemetry).
+                const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc, servingModelId) => {
+                    this.auxUsage.input += i;
+                    this.auxUsage.output += o;
+                    this.auxUsage.cacheRead += cr ?? 0;
+                    this.auxUsage.cacheCreation += cc ?? 0;
+                    // FIX-24-05-05: the planner may run on the helper model.
+                    addUsage(this.usageByModel, servingModelId ?? this.api.getModel().id,
+                        i, o, cr ?? 0, cc ?? 0);
+                });
+                const fpCallbacks = {
+                    pushToolResult: () => {},
+                    pushProgress: () => {},
+                    handleError: (tool: string, error: unknown) => {
+                        console.warn(`[FastPath] Tool error in ${tool}:`, error);
+                    },
+                    log: (msg: string) => console.debug(`[FastPath] ${msg}`),
+                };
 
-                if (bestMatch && targetsChatHistory) {
-                    console.debug(`[FastPath] Skipped (chat-source query): "${fpUserText.slice(0, 80)}"`);
-                }
-
-                // FIX-F (ADR-090 follow-up, 2026-04-29): Recipe-Threshold von 0.3 auf 0.5 angehoben.
-                // Bei score=0.33 matched "Metadata Tags Generation" auf eine reine Synthese-Aufgabe
-                // und triggerte FastPath in den falschen Workflow. Niedriger Score = unsicheres Match
-                // = lieber normalen Loop laufen lassen, der die Aufgabe sauber zerlegt.
-                if (bestMatch && !targetsChatHistory && bestMatch.score >= 0.5 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
-                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
-
-                    // Build system prompt for planner (same params as normal loop)
-                    const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
-                    const fpPrompt = buildSystemPromptForMode({
-                        mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
-                        skillDirectorySection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
-                        isSubtask: false, webEnabled: fpWebEnabled, recipesSection,
-                        configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
-                    });
-                    const fpTools = this.modeService
-                        ? this.modeService.getToolDefinitions(activeMode)
-                        : this.toolRegistry.getToolDefinitions();
-
-                    // FIX-24-05-04: collect planner-call usage so it lands
-                    // in the task totals (footer + telemetry).
-                    const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc, servingModelId) => {
-                        this.auxUsage.input += i;
-                        this.auxUsage.output += o;
-                        this.auxUsage.cacheRead += cr ?? 0;
-                        this.auxUsage.cacheCreation += cc ?? 0;
-                        // FIX-24-05-05: the planner may run on the helper model.
-                        addUsage(this.usageByModel, servingModelId ?? this.api.getModel().id,
-                            i, o, cr ?? 0, cc ?? 0);
-                    });
-                    const fpCallbacks = {
-                        pushToolResult: () => {},
-                        pushProgress: () => {},
-                        handleError: (tool: string, error: unknown) => {
-                            console.warn(`[FastPath] Tool error in ${tool}:`, error);
-                        },
-                        log: (msg: string) => console.debug(`[FastPath] ${msg}`),
-                    };
-
-                    const msgText = typeof userMessage === 'string' ? userMessage : '';
-                    const result = await fastPath.execute(
-                        bestMatch.recipe,
-                        msgText,
-                        fpPrompt,
-                        fpCallbacks,
-                        abortSignal,
-                        fpTools,
-                        readFiles,
-                        // FEAT-32-02 PR 2.2 / ADR-133: feed FastPath dispatches
-                        // into the episodic detector so the toolSequence is
-                        // complete. Iteration 0 marks pre-loop dispatches.
-                        (tool, input, summary) =>
-                            repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
-                    );
-
-                    if (result.success && result.toolCallsExecuted > 0) {
-                        console.debug(`[FastPath] Success: ${result.toolCallsExecuted} tools executed, collecting ${result.historyEntries.length} history entries for post-precedence push`);
-                        // FEAT-32-01 PR 1.3 / ADR-131: do NOT push history yet.
-                        // Collect FastPath entries so the precedence resolver
-                        // below can push them AFTER the user message (which
-                        // gets its guidance.text suppressed when FastPath
-                        // fired). guidance.path Pre-Activation is unaffected.
-                        precedenceFastPathHistoryEntries = [
-                            ...result.historyEntries,
-                            {
-                                role: 'user',
-                                content: `[Fast Path completed] The recipe "${bestMatch.recipe.name}" has been executed. `
-                                    + `${result.toolCallsExecuted} tool calls completed successfully. `
-                                    + `The search and read results are above. `
-                                    + `Now: analyze the results and complete the task (write summary, present findings). `
-                                    + `Do NOT re-search or re-read the same content -- use the results already in context.`,
-                            },
-                        ];
-                        precedenceFastPathFired = true;
-                        precedenceRecipeWinner = bestMatch.recipe.id;
-                    } else {
-                        console.debug('[FastPath] No success, continuing with normal loop');
-                    }
-                }
-            } catch (e) {
-                console.warn('[FastPath] Pre-loop check failed (non-fatal), continuing with normal loop:', e);
-            }
-        }
+                return fastPath.execute(
+                    match.recipe,
+                    msgText,
+                    fpPrompt,
+                    fpCallbacks,
+                    signal,
+                    fpTools,
+                    readFiles,
+                    // FEAT-32-02 PR 2.2 / ADR-133: feed FastPath dispatches
+                    // into the episodic detector so the toolSequence is
+                    // complete. Iteration 0 marks pre-loop dispatches.
+                    (tool, input, summary) =>
+                        repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
+                );
+            },
+        });
+        await fastPathInterceptor.onRunStart({
+            history,
+            userMessageText: typeof userMessage === 'string' ? userMessage : '',
+            abortSignal,
+        });
 
         // FEAT-32-01 PR 1.3 / ADR-131: precedence resolver. Decide guidance.text
         // suppression now that the FastPath outcome is known, then push:
@@ -952,15 +909,15 @@ export class AgentTask {
         const { resolveStigmergyPrecedence, appendGuidanceText, buildStigmergyDecisionSnapshot } =
             await import('./stigmergy/precedenceResolver');
         const precedence = resolveStigmergyPrecedence({
-            fastPathFired: precedenceFastPathFired,
-            bestMatchRecipeId: precedenceRecipeWinner,
+            fastPathFired: fastPathInterceptor.fired(),
+            bestMatchRecipeId: fastPathInterceptor.getRecipeWinnerId(),
             guidanceText: stigmergyGuidanceText,
         });
         const userMessageWithGuidance: typeof userMessage = precedence.suppressGuidanceText
             ? userMessage
             : (appendGuidanceText(userMessage, stigmergyGuidanceText) as typeof userMessage);
         history.push({ role: 'user', content: userMessageWithGuidance });
-        for (const entry of precedenceFastPathHistoryEntries) {
+        for (const entry of fastPathInterceptor.getHistoryEntries()) {
             history.push(entry);
         }
         // Snapshot for ADR-132 / ADR-133 (consumed by FEAT-32-02 in finally).
@@ -986,7 +943,7 @@ export class AgentTask {
         // All closure-local (not `this.*`) so a subagent re-entry of run()
         // does NOT inherit the parent's snapshot. Consumed in the finally
         // block at the end of run().
-        loopState.fastPathFired = loopState.fastPathFired || precedenceFastPathFired;
+        loopState.fastPathFired = loopState.fastPathFired || fastPathInterceptor.fired();
 
         const MAX_ITERATIONS = this.maxIterations;
 
