@@ -115,3 +115,86 @@ describe('AgentLoopEngine.consumeStream', () => {
         expect(state.hasStreamedText).toBe(true); // partial text was seen
     });
 });
+
+describe('AgentLoopEngine.runIterationPreamble (stage 2)', () => {
+    function preamblePorts(overrides: Partial<{ aborted: boolean; steering: string[] }> = {}) {
+        return {
+            isAborted: () => overrides.aborted ?? false,
+            maxIterations: 10,
+            consumeSteeringMessages: overrides.steering !== undefined
+                ? vi.fn(() => overrides.steering as string[])
+                : undefined,
+        };
+    }
+    const MODE = { name: 'Agent', slug: 'agent', roleDefinition: 'role' };
+
+    it('returns abort when the signal already fired', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        const outcome = engine.runIterationPreamble(state, [], MODE, preamblePorts({ aborted: true }), []);
+        expect(outcome).toBe('abort');
+    });
+
+    it('counts telemetry iterations and proceeds', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        const outcome = engine.runIterationPreamble(state, [], MODE, preamblePorts(), []);
+        expect(outcome).toBe('proceed');
+        expect(state.telemetryIterations).toBe(1);
+    });
+
+    it('injects the soft-limit nudge at 60 percent of max iterations', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        state.iteration = 6; // floor(10 * 0.6)
+        const history: import('../../../api/types').MessageParam[] = [];
+        engine.runIterationPreamble(state, history, MODE, preamblePorts(), []);
+        expect(history).toHaveLength(1);
+        expect(String(history[0].content)).toContain('Wrap up now');
+        // Not on other iterations
+        const h2: import('../../../api/types').MessageParam[] = [];
+        state.iteration = 5;
+        engine.runIterationPreamble(state, h2, MODE, preamblePorts(), []);
+        expect(h2).toHaveLength(0);
+    });
+
+    it('drains steering messages into history and invalidates the cache', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        const history: import('../../../api/types').MessageParam[] = [];
+        engine.runIterationPreamble(state, history, MODE, preamblePorts({ steering: ['fix the title', 'use OKF'] }), []);
+        expect(history.map((m) => m.content)).toEqual(['fix the title', 'use OKF']);
+        expect(state.cacheInvalidated).toBe(true);
+    });
+
+    it('fires interceptors in registration order after the abort check', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        const order: string[] = [];
+        const a = { name: 'a', onIterationStart: () => order.push('a') };
+        const b = { name: 'b', onIterationStart: () => order.push('b') };
+        engine.runIterationPreamble(state, [], MODE, preamblePorts(), [a, b]);
+        expect(order).toEqual(['a', 'b']);
+        // aborted -> interceptors never fire
+        order.length = 0;
+        engine.runIterationPreamble(state, [], MODE, preamblePorts({ aborted: true }), [a, b]);
+        expect(order).toEqual([]);
+    });
+
+    it('applies transformRequestHistory interceptors in order', () => {
+        const engine = new AgentLoopEngine();
+        const state = createInitialLoopState();
+        const t1 = {
+            name: 't1',
+            transformRequestHistory: (h: import('../../../api/types').MessageParam[]) =>
+                [...h, { role: 'user' as const, content: 'one' }],
+        };
+        const t2 = {
+            name: 't2',
+            transformRequestHistory: (h: import('../../../api/types').MessageParam[]) =>
+                [...h, { role: 'user' as const, content: 'two' }],
+        };
+        const out = engine.transformRequestHistory([{ role: 'user', content: 'base' }], { state, history: [], activeMode: MODE }, [t1, t2]);
+        expect(out.map((m) => m.content)).toEqual(['base', 'one', 'two']);
+    });
+});

@@ -40,6 +40,7 @@ import { createInitialLoopState, initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
+import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay } from '../api/retry';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -982,7 +983,6 @@ export class AgentTask {
         loopState.fastPathFired = loopState.fastPathFired || precedenceFastPathFired;
 
         const MAX_ITERATIONS = this.maxIterations;
-        const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
 
         // Tools that are safe to execute in parallel (pure reads, no side-effects).
         // Write tools and control-flow tools always run sequentially.
@@ -1374,6 +1374,8 @@ export class AgentTask {
             todoAnchor.noteTodoUpdate(items);
         };
         const powerSteering = new PowerSteeringInterceptor(this.powerSteeringFrequency);
+        // IMP-41-02-01c: iteration-start interceptors in execution order.
+        const preambleInterceptors = [powerSteering, new AdvisorReminderInterceptor()];
 
 
         // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
@@ -1382,7 +1384,7 @@ export class AgentTask {
         // costs. Counter resets per task (each spawn of AgentTask runs its
         // own loop).
         const ADVISOR_LIMIT = 3;
-        let lastReminderState = false;
+
 
         // EPIC-26 / FEAT-26-06: plugin-skill usage tracking. Starts false,
         // flips true on first invocation of a skill-group tool or when the
@@ -1424,6 +1426,8 @@ export class AgentTask {
                 pipeline.getExternalizer()?.nextIteration();
 
                 // Early exit if task was cancelled between iterations
+                // (checked BEFORE the mode switch so a stopped task never
+                // switches modes; the engine preamble re-checks defensively).
                 if (abortSignal?.aborted) {
                     console.debug('[AgentTask] Abort signal detected at iteration start');
                     break;
@@ -1451,15 +1455,11 @@ export class AgentTask {
                     loopState.consecutiveMistakes = 0;
                 }
 
-                loopState.telemetryIterations++;
                 this.taskCallbacks.onIterationStart?.(iteration);
 
-                // Phase B: rate limiting (IMP-41-02-03). The legacy fixed
-                // sleep is mapped onto the shared token bucket, which lives
-                // in the ApiHandler wrapper — so helper calls, subtasks and
-                // FastPath planners are throttled too, not just this loop.
-                // Configured per iteration because TaskRouter escalation can
-                // swap this.api (and thus the bucket key) mid-task.
+                // Phase B: rate limiting (IMP-41-02-03). Configured per
+                // iteration because TaskRouter escalation can swap this.api
+                // (and thus the bucket key) mid-task.
                 if (this.rateLimitMs > 0) {
                     requestRateLimiter.configure(
                         this.api.providerType ?? 'unknown',
@@ -1468,46 +1468,20 @@ export class AgentTask {
                     );
                 }
 
-                // Power Steering (IMP-41-02-01c): interceptor injects the
-                // mode-role reminder every Nth iteration, FIX-PERF-24 dedupe
-                // included. FEAT-24-09 context: the model re-loads skills via
-                // read_skill itself when microcompaction pruned them.
-                powerSteering.onIterationStart({ state: loopState, history, activeMode });
-
-                // Soft limit: nudge the agent to wrap up at 60% of max iterations
-                if (iteration === SOFT_LIMIT) {
-                    history.push({
-                        role: 'user',
-                        content: '[System] You have used ' + iteration + ' of ' + MAX_ITERATIONS +
-                            ' iterations. Wrap up now: deliver your final answer or call attempt_completion.',
-                    });
-                }
-
-                // FEAT-24-08 / ADR-114 Steering-Hook: drain any user-typed
-                // mid-run messages and prepend them to the next assistant
-                // turn. Order is preserved (one history entry per queued
-                // message). Cache is invalidated because the volatile tail
-                // changed (stable prefix is unaffected per ADR-62). The
-                // iteration index is passed to the callback so the UI can
-                // flip the steering bubble from "queued" to "delivered at
-                // iteration N".
-                const steering = this.taskCallbacks.consumeSteeringMessages?.(iteration) ?? [];
-                if (steering.length > 0) {
-                    for (const msg of steering) {
-                        history.push({ role: 'user', content: msg });
-                    }
-                    loopState.cacheInvalidated = true;
-                }
-
-                // EPIC-26 / FEAT-26-01 / ADR-120: re-render when the
-                // mistakes counter crosses the reminder threshold. The
-                // section lives below the cache marker so the stable
-                // prefix stays cached even on transitions.
-                const reminderShouldBeActive = loopState.consecutiveMistakes >= 2;
-                if (reminderShouldBeActive !== lastReminderState) {
-                    loopState.cacheInvalidated = true;
-                    lastReminderState = reminderShouldBeActive;
-                }
+                // IMP-41-02-01 stage 2: generic preamble lives in the engine —
+                // interceptor dispatch (power steering FIX-PERF-24, advisor
+                // reminder ADR-120 cache trigger), soft-limit nudge, ADR-114
+                // steering drain.
+                const preambleOutcome = this.loopEngine.runIterationPreamble(
+                    loopState, history, activeMode,
+                    {
+                        isAborted: () => abortSignal?.aborted === true,
+                        maxIterations: MAX_ITERATIONS,
+                        consumeSteeringMessages: this.taskCallbacks.consumeSteeringMessages,
+                    },
+                    preambleInterceptors,
+                );
+                if (preambleOutcome === 'abort') break;
 
                 // Rebuild system prompt + tool list when mode or tool availability changed
                 if (activeMode.slug !== cachedPromptMode || loopState.cacheInvalidated) {
@@ -1534,9 +1508,11 @@ export class AgentTask {
                 // message of the sanitized history only. The live history
                 // stays unmutated, so a mid-stream throw no longer leaves
                 // the todo glued onto the persisted transcript.
-                safeHistory = todoAnchor.transformRequestHistory(safeHistory, {
-                    state: loopState, history, activeMode,
-                });
+                safeHistory = this.loopEngine.transformRequestHistory(
+                    safeHistory,
+                    { state: loopState, history, activeMode },
+                    [todoAnchor],
+                );
                 logInputBreakdown('main-loop', systemPrompt, safeHistory, tools);
                 // IMP-41-01-04 / ADR-148: char volume of THIS request, so the
                 // usage chunk below can calibrate the chars-per-token factor

@@ -8,15 +8,16 @@
  * the serializable AgentLoopState.
  *
  * Extraction roadmap (ADR-145 "migration in steps, each step green"):
- *   stage 1 (this): stream consume            <- AgentTask delegates here
- *   stage 2: iteration preamble + exit checks  (with interceptor hooks)
- *   stage 3: tool batch execution + condense trigger
+ *   stage 1: stream consume                                    (done)
+ *   stage 2: iteration preamble with interceptor dispatch      (done)
+ *   stage 3: tool batch execution + condense trigger           (open)
  * Each stage moves ownership without behaviour change; the full test suite
  * is the parity gate per stage.
  */
 
-import type { ApiStreamChunk, ContentBlock } from '../../api/types';
+import type { ApiStreamChunk, ContentBlock, MessageParam } from '../../api/types';
 import type { AgentLoopState } from './LoopState';
+import type { LoopInterceptor, LoopInterceptorContext } from './interceptors/types';
 import { ThinkingSegmentCollector } from './thinkingSegments';
 
 /** UI/host feedback ports for one streamed turn. */
@@ -39,7 +40,88 @@ export interface StreamTurnResult {
     toolErrors: Map<string, string>;
 }
 
+/** Host ports for the iteration preamble (stage 2). */
+export interface PreamblePorts {
+    isAborted(): boolean;
+    maxIterations: number;
+    /** ADR-114 steering hook: mid-run user messages for this iteration. */
+    consumeSteeringMessages?: (iteration: number) => string[];
+}
+
+export type PreambleOutcome = 'proceed' | 'abort';
+
 export class AgentLoopEngine {
+    /**
+     * Stage 2: generic top-of-iteration work. Abort check first (nothing
+     * fires on a stopped task), then interceptors in registration order,
+     * then the soft-limit nudge (60 percent of max iterations) and the
+     * ADR-114 steering drain. Mode-switch handling and rate-limiter
+     * configuration stay in the facade — they are wired to host services,
+     * not loop state.
+     */
+    runIterationPreamble(
+        state: AgentLoopState,
+        history: MessageParam[],
+        activeMode: LoopInterceptorContext['activeMode'],
+        ports: PreamblePorts,
+        interceptors: LoopInterceptor[],
+    ): PreambleOutcome {
+        state.phase = 'preamble';
+        if (ports.isAborted()) {
+            console.debug('[AgentLoopEngine] Abort signal detected at iteration start');
+            return 'abort';
+        }
+        state.telemetryIterations++;
+
+        const ctx: LoopInterceptorContext = { state, history, activeMode };
+        for (const interceptor of interceptors) {
+            interceptor.onIterationStart?.(ctx);
+        }
+
+        // Soft limit: nudge the agent to wrap up at 60% of max iterations
+        const softLimit = Math.floor(ports.maxIterations * 0.6);
+        if (state.iteration === softLimit) {
+            history.push({
+                role: 'user',
+                content: '[System] You have used ' + state.iteration + ' of ' + ports.maxIterations +
+                    ' iterations. Wrap up now: deliver your final answer or call attempt_completion.',
+            });
+        }
+
+        // FEAT-24-08 / ADR-114 Steering-Hook: drain any user-typed mid-run
+        // messages and prepend them to the next assistant turn. Order is
+        // preserved (one history entry per queued message). Cache is
+        // invalidated because the volatile tail changed (stable prefix is
+        // unaffected per ADR-62).
+        const steering = ports.consumeSteeringMessages?.(state.iteration) ?? [];
+        if (steering.length > 0) {
+            for (const msg of steering) {
+                history.push({ role: 'user', content: msg });
+            }
+            state.cacheInvalidated = true;
+        }
+
+        return 'proceed';
+    }
+
+    /**
+     * Apply every interceptor's request-history transform in registration
+     * order (recency anchors etc.). Inputs are never mutated.
+     */
+    transformRequestHistory(
+        safeHistory: MessageParam[],
+        ctx: LoopInterceptorContext,
+        interceptors: LoopInterceptor[],
+    ): MessageParam[] {
+        let out = safeHistory;
+        for (const interceptor of interceptors) {
+            if (interceptor.transformRequestHistory) {
+                out = interceptor.transformRequestHistory(out, ctx);
+            }
+        }
+        return out;
+    }
+
     /**
      * Consume one provider stream. Mutates `state` exactly like the inline
      * loop did: hasStreamedText on first text, mistake counters on
