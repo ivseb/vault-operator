@@ -32,6 +32,7 @@
 
 import type { ModeConfig } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
+import { capSection, TAIL_SECTION_CAPS } from './prompts/sections/sectionCaps';
 import {
     getDateTimeSection,
     getVaultContextSection,
@@ -292,25 +293,30 @@ export function buildSystemPromptForMode(
         // EPIC-26 / FEAT-26-06: lean ~30-token replacement when no plugin
         // skill has been invoked in this task; flips to full once usage
         // is observed (AgentTask `recentPluginSkillUsage` + @-mention).
+        // IMP-41-01-03: tail sections are capped at assembly time so a
+        // bloated section cannot dominate the uncached per-turn cost.
         pluginSkillsLean
             ? getPluginSkillsSectionLean()
-            : getPluginSkillsSection(pluginSkillsSection),
+            : capSection(getPluginSkillsSection(pluginSkillsSection), TAIL_SECTION_CAPS.pluginSkills),
 
         // 10. User memory (changes across sessions)
-        isSubtask ? '' : getMemorySection(memoryContext),
+        isSubtask ? '' : capSection(getMemorySection(memoryContext), TAIL_SECTION_CAPS.memory),
 
         // 11. Procedural Recipes (ADR-017, matched per message)
-        (isSubtask || !recipesSection) ? '' : recipesSection,
+        (isSubtask || !recipesSection) ? '' : capSection(recipesSection, TAIL_SECTION_CAPS.recipes),
 
         // 12. Custom instructions + Rules (user-defined, can change)
-        isSubtask ? '' : getCustomInstructionsSection(globalCustomInstructions, mode.customInstructions),
-        getRulesSection(rulesContent),
+        isSubtask ? '' : capSection(
+            getCustomInstructionsSection(globalCustomInstructions, mode.customInstructions),
+            TAIL_SECTION_CAPS.customInstructions,
+        ),
+        capSection(getRulesSection(rulesContent), TAIL_SECTION_CAPS.rules),
 
         // 13. Explicit instructions
         getExplicitInstructionsSection(),
 
         // 14. Vault context (file structure can change between tasks)
-        getVaultContextSection(),
+        capSection(getVaultContextSection(), TAIL_SECTION_CAPS.vaultContext),
 
         // 15. DateTime — MUST be last (timestamp invalidates KV-cache!)
         getDateTimeSection(includeTime),

@@ -398,3 +398,91 @@ describe('AUDIT-034 M-9: mode-gate enforced at execution layer', () => {
         expect(writeTool.execute).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('IMP-41-02-05 / ADR-151: fastpath trust levels', () => {
+    it('enforces the mode-gate for LEARNED recipe dispatches', async () => {
+        const writeTool = makeTool('write_file', true);
+        const { pipeline } = await buildPipeline({ tools: [writeTool] }, 'read-only-agent');
+        (pipeline as unknown as { setModeService: (m: unknown) => void }).setModeService(
+            makeModeService('read-only-agent', ['read_file']),
+        );
+        const { callbacks } = makeCallbacks();
+        const call: ToolUse = {
+            type: 'tool_use',
+            id: 'tr-1',
+            name: 'write_file',
+            input: { path: 'a.md', content: 'x' },
+        };
+        const result = await pipeline.executeTool(
+            call, callbacks, undefined,
+            { source: 'fastpath', trust: 'learned' },
+        );
+        expect(result.is_error).toBe(true);
+        expect(String(result.content)).toContain('not available in mode');
+        expect(writeTool.execute).not.toHaveBeenCalled();
+    });
+
+    it('enforces the subagent allowlist for LEARNED recipe dispatches', async () => {
+        const writeTool = makeTool('write_file', true);
+        const { pipeline } = await buildPipeline({ tools: [writeTool] }, 'agent');
+        (pipeline as unknown as { setSubagentAllowedTools: (t: string[]) => void })
+            .setSubagentAllowedTools(['read_file']);
+        const { callbacks } = makeCallbacks();
+        const call: ToolUse = {
+            type: 'tool_use',
+            id: 'tr-2',
+            name: 'write_file',
+            input: { path: 'a.md', content: 'x' },
+        };
+        const result = await pipeline.executeTool(
+            call, callbacks, undefined,
+            { source: 'fastpath', trust: 'learned' },
+        );
+        expect(result.is_error).toBe(true);
+        expect(writeTool.execute).not.toHaveBeenCalled();
+    });
+
+    it('keeps the bypass for USER-trusted fastpath dispatches', async () => {
+        const writeTool = makeTool('write_file', true);
+        const { pipeline } = await buildPipeline({ tools: [writeTool] }, 'read-only-agent');
+        (pipeline as unknown as { setModeService: (m: unknown) => void }).setModeService(
+            makeModeService('read-only-agent', ['read_file']),
+        );
+        const onApprovalRequired = vi.fn(async () => ({ decision: 'approved' as const }));
+        const { callbacks } = makeCallbacks();
+        const call: ToolUse = {
+            type: 'tool_use',
+            id: 'tr-3',
+            name: 'write_file',
+            input: { path: 'a.md', content: 'x' },
+        };
+        const result = await pipeline.executeTool(
+            call, callbacks,
+            { onApprovalRequired },
+            { source: 'fastpath', trust: 'user' },
+        );
+        expect(result.is_error).toBe(false);
+        expect(writeTool.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('read tools from learned recipes pass every mode gate (regression: today all fastpath recipes are learned)', async () => {
+        const readTool = makeTool('read_file', false);
+        const { pipeline } = await buildPipeline({ tools: [readTool] }, 'read-only-agent');
+        (pipeline as unknown as { setModeService: (m: unknown) => void }).setModeService(
+            makeModeService('read-only-agent', ['read_file']),
+        );
+        const { callbacks } = makeCallbacks();
+        const call: ToolUse = {
+            type: 'tool_use',
+            id: 'tr-4',
+            name: 'read_file',
+            input: { path: 'a.md' },
+        };
+        const result = await pipeline.executeTool(
+            call, callbacks, undefined,
+            { source: 'fastpath', trust: 'learned' },
+        );
+        expect(result.is_error).toBe(false);
+        expect(readTool.execute).toHaveBeenCalledTimes(1);
+    });
+});

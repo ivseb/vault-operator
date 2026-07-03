@@ -514,6 +514,11 @@ export interface AdvancedApiSettings {
     consecutiveMistakeLimit: number;
     /** Minimum milliseconds between API requests (0 = no limit) */
     rateLimitMs: number;
+    /**
+     * IMP-41-01-02: minutes before an unanswered approval card auto-denies
+     * so the loop cannot hang forever on a walked-away user (0 = never).
+     */
+    approvalTimeoutMinutes: number;
     /** Automatically summarize conversation when estimated tokens exceed threshold */
     condensingEnabled: boolean;
     /** Percentage of model context window at which to trigger condensing (50-95) */
@@ -1794,6 +1799,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     advancedApi: {
         consecutiveMistakeLimit: 3,
         rateLimitMs: 0,
+        approvalTimeoutMinutes: 10,         // IMP-41-01-02
         // FIX-COMPACT-03: route DEFAULT_SETTINGS through the shared
         // condensing-defaults module (Runner + Sidebar use the same).
         condensingEnabled: DEFAULT_CONDENSING_ENABLED,

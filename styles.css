@@ -3422,6 +3422,14 @@
     margin-top: 2px;
 }
 
+/* IMP-41-01-02: countdown shown during the final 60s before auto-deny */
+.tool-approval-countdown {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: auto;
+    align-self: center;
+}
+
 .tool-approval-details-toggle:hover {
     color: var(--interactive-accent);
     text-decoration: underline;

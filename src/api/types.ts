@@ -19,6 +19,10 @@ export type ApiStreamChunk =
     // accumulates these into a ThinkingBlock on the assistant message; others
     // are display-only.
     | { type: 'thinking'; text: string; requiresPassback?: boolean }
+    // IMP-41-01-05: emitted once per Anthropic thinking block at its
+    // content_block_stop, sealing the preceding thinking deltas with the
+    // signature required for multi-turn passback.
+    | { type: 'thinking_signature'; signature: string }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_error'; id: string; name: string; error: string }
     | { type: 'usage'; inputTokens: number; outputTokens: number;
@@ -69,7 +73,13 @@ export type ContentBlock =
     // OpenAI-compatible provider for the last assistant message with tool_use,
     // and only for config.type ∈ {custom, ollama, lmstudio}. All other
     // providers strip thinking blocks via stripThinkingBlocks().
-    | { type: 'thinking'; text: string }
+    // IMP-41-01-05: signature present = Anthropic signed extended thinking;
+    // sent back verbatim on the last assistant turn (prepareThinkingForPassback).
+    // Absent = display/reasoner text, stripped before Anthropic/Bedrock sends.
+    | { type: 'thinking'; text: string; signature?: string }
+    // IMP-41-01-05: opaque encrypted reasoning Anthropic occasionally returns;
+    // must round-trip unmodified on the last assistant turn.
+    | { type: 'redacted_thinking'; data: string }
     | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
     | { type: 'tool_result'; tool_use_id: string; content: string | ToolResultContentBlock[]; is_error?: boolean };
 
@@ -81,6 +91,13 @@ export type MessageParam = {
 // --- ApiHandler Interface (adapted from Kilo Code's ApiHandler) ---
 
 export interface ApiHandler {
+    /**
+     * IMP-41-02-03: provider type this handler serves, stamped by
+     * buildApiHandler. Consumed by the rate limiter and (W3) the circuit
+     * breaker for per-provider keying. Optional for hand-built test handlers.
+     */
+    providerType?: string;
+
     /**
      * Send a message to the LLM and stream the response.
      * Tools are provided so the LLM can call them.
@@ -104,4 +121,17 @@ export interface ApiHandler {
      * Returns the raw text response trimmed of whitespace.
      */
     classifyText?(prompt: string, abortSignal?: AbortSignal): Promise<string>;
+
+    /**
+     * IMP-41-01-04 / ADR-148: exact prompt token count for the given request
+     * shape, when the provider offers a counting endpoint (Anthropic
+     * count_tokens). Returns undefined on any failure — callers treat this
+     * as an optional calibration seed, never a blocker.
+     */
+    countTokens?(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+    ): Promise<number | undefined>;
 }

@@ -694,9 +694,11 @@ export class BedrockProvider implements ApiHandler {
             };
         }
 
-        if (block.type === 'thinking') {
-            // FIX-04-03-07: should never reach here -- stripThinkingBlocks
-            // runs in createMessage. Fail loud if someone bypasses it.
+        if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+            // FIX-04-03-07 / IMP-41-01-05: should never reach here --
+            // stripThinkingBlocks runs in createMessage and drops both
+            // variants. Fail loud if someone bypasses it. Converse-API
+            // signature passback stays unsupported by design (see spec).
             throw new Error('[Bedrock] thinking blocks must be stripped before convertBlock');
         }
 

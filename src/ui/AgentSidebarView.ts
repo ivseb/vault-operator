@@ -33,6 +33,7 @@ import { getModelEffortLevels, type EffortLevel } from '../types/model-registry'
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
+import { wireApprovalTimeout } from './sidebar/approvalTimeout';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
@@ -4885,7 +4886,33 @@ export class AgentSidebarView extends ItemView {
                 });
             }
 
-            const cleanup = () => row.remove();
+            // IMP-41-01-02: wall-clock timeout + abort coupling. Without this
+            // the loop parks forever on a walked-away user, and Stop during an
+            // open card still required a second click on the card itself.
+            const timeoutMinutes = this.plugin.settings.advancedApi?.approvalTimeoutMinutes ?? 10;
+            const countdownEl = timeoutMinutes > 0 ? actions.createSpan('tool-approval-countdown') : null;
+            // Declared before wireApprovalTimeout: an ALREADY-aborted signal
+            // fires onAbort synchronously inside the call.
+            let timeoutHandle: import('./sidebar/approvalTimeout').ApprovalTimeoutHandle | null = null;
+            const cleanup = () => { timeoutHandle?.dispose(); row.remove(); };
+            timeoutHandle = wireApprovalTimeout({
+                timeoutMs: timeoutMinutes * 60_000,
+                abortSignal: this.currentAbortController?.signal,
+                onExpire: () => {
+                    cleanup();
+                    resolve({
+                        decision: 'rejected',
+                        reason: `Approval timed out after ${timeoutMinutes} minute(s); operation denied.`,
+                    });
+                },
+                onAbort: () => {
+                    cleanup();
+                    resolve({ decision: 'rejected', reason: 'Task was stopped while approval was pending.' });
+                },
+                onCountdownTick: (remainingSec) => {
+                    countdownEl?.setText(t('ui.approval.expiresIn', { seconds: String(remainingSec) }));
+                },
+            });
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });

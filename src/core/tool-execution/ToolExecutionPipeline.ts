@@ -226,6 +226,12 @@ export interface ApprovalResult {
     decision: 'auto' | 'approved' | 'rejected';
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
+    /**
+     * IMP-41-01-02: optional rejection context surfaced to the model (e.g.
+     * "Approval timed out after 10 minutes"). Without it the tool_result
+     * carries the generic "denied by user" line.
+     */
+    reason?: string;
 }
 
 /** Extra context injected by AgentTask for agent-control tools */
@@ -441,7 +447,18 @@ export class ToolExecutionPipeline {
         toolCall: ToolUse,
         callbacks: ToolCallbacks,
         extensions?: ContextExtensions,
-        opts?: { source?: DispatchSource },
+        opts?: {
+            source?: DispatchSource;
+            /**
+             * IMP-41-02-05 / ADR-151: dispatch trust level. 'user' keeps the
+             * historical gate bypass for user-authored recipes and internal
+             * planners; 'learned' (machine-promoted recipes, ADR-058 Gate 3)
+             * runs the full mode gate + subagent allowlist like model picks.
+             * Absent trust on a fastpath/planner source defaults to 'user'
+             * for legacy callers.
+             */
+            trust?: 'user' | 'learned';
+        },
     ): Promise<ToolResult> {
         const startTime = Date.now();
 
@@ -460,7 +477,11 @@ export class ToolExecutionPipeline {
             // active mode normally allows it. Same dispatch-source bypass
             // logic as the mode gate.
             const dispatchSourceForGate: DispatchSource = opts?.source ?? 'model';
-            const enforceModeGate = dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner';
+            // IMP-41-02-05: the bypass only ever applied because "recipes are
+            // user-authored" — machine-promoted (learned) recipes do not get
+            // that trust and run the full gates like model picks.
+            const enforceModeGate = (dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner')
+                || opts?.trust === 'learned';
             if (enforceModeGate && this.subagentAllowedTools !== undefined) {
                 if (this.subagentAllowedTools.has(toolCall.name) === false) {
                     const msg = `Tool "${toolCall.name}" is not in this subtask's allowlist.`;
@@ -523,7 +544,7 @@ export class ToolExecutionPipeline {
             if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'subtask' || toolGroup === 'sandbox') {
                 const approval = await this.checkApproval(toolCall, extensions);
                 if (approval.decision === 'rejected') {
-                    return this.errorResult(toolCall.id, 'Operation denied by user');
+                    return this.errorResult(toolCall.id, approval.reason ?? 'Operation denied by user');
                 }
                 // FEAT-29-07: when the user approves a dynamically-discovered
                 // plugin-API call, count the approval. Once the per-method
