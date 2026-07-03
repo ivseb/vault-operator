@@ -10,15 +10,16 @@
  * Extraction roadmap (ADR-145 "migration in steps, each step green"):
  *   stage 1: stream consume                                    (done)
  *   stage 2: iteration preamble with interceptor dispatch      (done)
- *   stage 3: tool batch execution + condense trigger           (open)
+ *   stage 3: tool batch execution + condense trigger           (done)
  * Each stage moves ownership without behaviour change; the full test suite
  * is the parity gate per stage.
  */
 
-import type { ApiStreamChunk, ContentBlock, MessageParam } from '../../api/types';
+import type { ApiStreamChunk, ContentBlock, MessageParam, ToolResultContentBlock } from '../../api/types';
 import type { AgentLoopState } from './LoopState';
 import type { LoopInterceptor, LoopInterceptorContext } from './interceptors/types';
 import { ThinkingSegmentCollector } from './thinkingSegments';
+import { splitToolBatch } from './splitToolBatch';
 
 /** UI/host feedback ports for one streamed turn. */
 export interface StreamPorts {
@@ -49,6 +50,61 @@ export interface PreamblePorts {
 }
 
 export type PreambleOutcome = 'proceed' | 'abort';
+
+export type ToolUseBlock = Extract<ContentBlock, { type: 'tool_use' }>;
+
+/** Result shape of one executed tool (the facade's runTool closure). */
+export interface ToolExecResult {
+    content: string | ToolResultContentBlock[];
+    is_error?: boolean;
+}
+
+/** Host ports for the tool-batch phase (stage 3a). */
+export interface ToolBatchPorts {
+    isAborted(): boolean;
+    /**
+     * The facade's runTool closure: pipeline dispatch plus host guards
+     * (repetition detector, deferred-tool gate, ledger recording).
+     */
+    executeTool(toolUse: ToolUseBlock): Promise<ToolExecResult>;
+    /** UI callback per finished tool (FIFO order contract with the sidebar). */
+    onToolResult(name: string, content: string, isError: boolean): void;
+    /**
+     * TaskRouter escalation trigger, fired at >= 2 consecutive mistakes.
+     * Moves into a RouterEscalationInterceptor with contract v2.
+     */
+    escalateToMain(): void;
+    /** TOOL_METADATA quality-gate lookup (host-side table). */
+    qualityGateFor(toolName: string): string | undefined;
+    consecutiveMistakeLimit: number;
+    parallelSafe: ReadonlySet<string>;
+    /**
+     * Present only when an InflightStore is wired. The engine sets
+     * state.phase = 'executing-tools' before calling it (IMP-41-03-01
+     * quirk: the phase is only stamped when a store exists).
+     */
+    saveInflightSnapshot?: () => void;
+}
+
+/** Extract display text from a tool result (string or multimodal array). */
+function extractTextContent(content: string | ToolResultContentBlock[]): string {
+    if (typeof content === 'string') return content;
+    return content
+        .filter((b): b is ToolResultContentBlock & { type: 'text' } => b.type === 'text')
+        .map((b) => b.text)
+        .join('\n');
+}
+
+/** Append a quality-gate string to tool result content (LLM history only). */
+function appendQualityGate(
+    content: string | ToolResultContentBlock[],
+    gate: string | undefined,
+): string | ToolResultContentBlock[] {
+    if (!gate) return content;
+    if (typeof content === 'string') return content + '\n\n' + gate;
+    // For multimodal content, append gate as an additional text block
+    return [...content, { type: 'text' as const, text: '\n\n' + gate }];
+}
 
 export class AgentLoopEngine {
     /**
@@ -184,5 +240,120 @@ export class AgentLoopEngine {
             }
         }
         return result;
+    }
+
+    /**
+     * Stage 3a: execute one turn's tool batch and push the combined
+     * tool_result user message. Semantics are byte-identical to the inline
+     * loop it replaces:
+     *  - stream-side tool_error blocks first (provider message verbatim),
+     *  - maximal parallel-safe prefix via Promise.all, results processed in
+     *    MODEL order (FIFO contract with the sidebar UI queue),
+     *  - sequential rest with an abort check between tools and a break
+     *    after the tool that set completionResult,
+     *  - per-tool mistake accounting with the >= 2 escalation trigger and
+     *    the consecutiveMistakeLimit breaker (throws BEFORE the push),
+     *  - malformed-tool-call breaker for error-only turns (throws AFTER
+     *    the push -- the paired error results must reach the history),
+     *  - optional inflight snapshot after the push (phase quirk, see port).
+     */
+    async executeToolBatch(
+        validToolUses: ToolUseBlock[],
+        toolErrors: Map<string, string>,
+        state: AgentLoopState,
+        history: MessageParam[],
+        ports: ToolBatchPorts,
+    ): Promise<void> {
+        const toolResultBlocks: ContentBlock[] = [];
+
+        // BUG-3 / BUG-032: error results for tools with unparseable/truncated
+        // JSON input — forward the provider's actionable message verbatim so
+        // the model knows to split the write instead of retrying it.
+        for (const [errId, errMsg] of toolErrors) {
+            toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: errId,
+                content: errMsg,
+                is_error: true,
+            });
+        }
+
+        // Shared per-result bookkeeping: UI callback, mistake counter,
+        // router escalation, circuit breaker, quality-gate append.
+        // Identical for parallel and sequential paths.
+        const processToolResult = (toolUse: ToolUseBlock, result: ToolExecResult): void => {
+            ports.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
+
+            if (result.is_error) { state.consecutiveMistakes++; state.totalToolErrors++; } else { state.consecutiveMistakes = 0; }
+            // v2.10.0 TaskRouter: escalate to main model after 2 errors
+            if (state.consecutiveMistakes >= 2) ports.escalateToMain();
+            if (ports.consecutiveMistakeLimit > 0 && state.consecutiveMistakes >= ports.consecutiveMistakeLimit) {
+                throw new Error(
+                    `Agent stopped after ${state.consecutiveMistakes} consecutive errors. ` +
+                    `Check the tool results above or raise the limit in Settings → Advanced.`,
+                );
+            }
+
+            // Append quality gate checklist to LLM history (not UI)
+            const gate = !result.is_error ? ports.qualityGateFor(toolUse.name) : undefined;
+            toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: appendQualityGate(result.content, gate),
+                is_error: result.is_error,
+            });
+        };
+
+        // IMP-41-02-02: maximal parallel-safe PREFIX runs concurrently,
+        // the rest sequentially in model order (a read AFTER a write may
+        // depend on that write — only the prefix is split).
+        const { parallelPrefix, sequentialRest } = splitToolBatch(validToolUses, ports.parallelSafe);
+
+        if (parallelPrefix.length > 0) {
+            // Results are processed in original order after all finish so
+            // the FIFO queue in AgentSidebarView assigns results to the
+            // correct UI elements.
+            const results = await Promise.all(parallelPrefix.map((t) => ports.executeTool(t)));
+            for (let i = 0; i < parallelPrefix.length; i++) {
+                processToolResult(parallelPrefix[i], results[i]);
+            }
+        }
+
+        for (const toolUse of sequentialRest) {
+            // Abort between sequential tools: a long write chain should
+            // stop at the next boundary, not run to batch end.
+            if (ports.isAborted()) break;
+            const result = await ports.executeTool(toolUse);
+            processToolResult(toolUse, result);
+            if (state.completionResult !== null) break;
+        }
+
+        // Add tool results as the next user message.
+        // IMPORTANT: condensing runs AFTER this push so history is always consistent
+        // (every assistant tool_call has a matching tool_result before condensing)
+        history.push({ role: 'user', content: toolResultBlocks });
+        // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
+        // Fire-and-forget on the host side -- persistence must never stall the loop.
+        if (ports.saveInflightSnapshot) {
+            state.phase = 'executing-tools';
+            ports.saveInflightSnapshot();
+        }
+
+        // Circuit breaker for malformed/truncated tool calls. The result
+        // loops above only check the limit for tools that actually ran; a
+        // turn whose only output was a broken tool call (the classic
+        // "write_file cut off mid-JSON" loop) never reaches that check, so
+        // do it here. state.consecutiveMistakes was already bumped per
+        // tool_error in the streaming loop; it is reset by the first
+        // successful tool.
+        if (toolErrors.size > 0 && ports.consecutiveMistakeLimit > 0
+            && state.consecutiveMistakes >= ports.consecutiveMistakeLimit) {
+            throw new Error(
+                `Agent stopped after ${state.consecutiveMistakes} consecutive errors -- the last was a malformed or truncated tool call. `
+                + `The model's tool call kept getting cut off before it finished. `
+                + `Fix: have the model split a large write into write_file (header + first section) then append_to_file for the rest, `
+                + `reduce the attached input, or raise Max output tokens in Settings -> Models.`,
+            );
+        }
     }
 }

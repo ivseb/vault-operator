@@ -11,7 +11,7 @@
  * 5. Loop until no more tool calls (end_turn)
  */
 
-import type { ApiHandler, MessageParam, ContentBlock, ToolResultContentBlock } from '../api/types';
+import type { ApiHandler, MessageParam, ContentBlock } from '../api/types';
 import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
@@ -35,9 +35,7 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
-import { ThinkingSegmentCollector } from './agent/thinkingSegments';
-import { splitToolBatch } from './agent/splitToolBatch';
-import { createInitialLoopState, initLoopStateForRun } from './agent/LoopState';
+import { initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
@@ -1713,27 +1711,6 @@ export class AgentTask {
                         t.type === 'tool_use' && !toolErrors.has(t.id)
                 );
 
-                // Helper: extract display text from a tool result (string or multimodal array).
-                // Used for UI callbacks that only accept strings.
-                const extractTextContent = (content: string | ToolResultContentBlock[]): string => {
-                    if (typeof content === 'string') return content;
-                    return content
-                        .filter((b): b is ToolResultContentBlock & { type: 'text' } => b.type === 'text')
-                        .map((b) => b.text)
-                        .join('\n');
-                };
-
-                // Helper: append a quality gate string to tool result content.
-                const appendQualityGate = (
-                    content: string | ToolResultContentBlock[],
-                    gate: string | undefined,
-                ): string | ToolResultContentBlock[] => {
-                    if (!gate) return content;
-                    if (typeof content === 'string') return content + '\n\n' + gate;
-                    // For multimodal content, append gate as an additional text block
-                    return [...content, { type: 'text' as const, text: '\n\n' + gate }];
-                };
-
                 // Helper: run a single tool through the pipeline and return its result.
                 // Does NOT call onToolResult — caller is responsible for ordering.
                 const runTool = async (toolUse: ContentBlock & { type: 'tool_use' }) => {
@@ -1818,105 +1795,32 @@ export class AgentTask {
                     return result;
                 };
 
-                const toolResultBlocks: ContentBlock[] = [];
-
-                // BUG-3 / BUG-032: error results for tools with unparseable/truncated
-                // JSON input — forward the provider's actionable message verbatim so
-                // the model knows to split the write instead of retrying it.
-                for (const [errId, errMsg] of toolErrors) {
-                    toolResultBlocks.push({
-                        type: 'tool_result',
-                        tool_use_id: errId,
-                        content: errMsg,
-                        is_error: true,
-                    });
-                }
-
-                // Shared per-result bookkeeping: UI callback, mistake counter,
-                // router escalation, circuit breaker, quality-gate append.
-                // Identical for parallel and sequential paths (was duplicated).
-                const processToolResult = (toolUse: (typeof validToolUses)[number], result: { content: string | ToolResultContentBlock[]; is_error?: boolean }): void => {
-                    this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
-
-                    if (result.is_error) { loopState.consecutiveMistakes++; loopState.totalToolErrors++; } else { loopState.consecutiveMistakes = 0; }
-                    // v2.10.0 TaskRouter: escalate to main model after 2 errors
-                    if (loopState.consecutiveMistakes >= 2) escalateToMain();
-                    if (this.consecutiveMistakeLimit > 0 && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                        throw new Error(
-                            `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors. ` +
-                            `Check the tool results above or raise the limit in Settings → Advanced.`,
-                        );
-                    }
-
-                    // Append quality gate checklist to LLM history (not UI)
-                    const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
-                    toolResultBlocks.push({
-                        type: 'tool_result',
-                        tool_use_id: toolUse.id,
-                        content: appendQualityGate(result.content, gate),
-                        is_error: result.is_error,
-                    });
-                };
-
-                // IMP-41-02-02: maximal parallel-safe PREFIX runs concurrently,
-                // the rest sequentially in model order (a read AFTER a write may
-                // depend on that write — only the prefix is split). Replaces the
-                // all-or-nothing rule where one trailing write serialized every
-                // read before it.
-                const { parallelPrefix, sequentialRest } = splitToolBatch(validToolUses, PARALLEL_SAFE);
-
-                if (parallelPrefix.length > 0) {
-                    // Results are processed in original order after all finish so
-                    // the FIFO queue in AgentSidebarView assigns results to the
-                    // correct UI elements.
-                    const results = await Promise.all(parallelPrefix.map(runTool));
-                    for (let i = 0; i < parallelPrefix.length; i++) {
-                        processToolResult(parallelPrefix[i], results[i]);
-                    }
-                }
-
-                for (const toolUse of sequentialRest) {
-                    // Abort between sequential tools: a long write chain should
-                    // stop at the next boundary, not run to batch end.
-                    if (abortSignal?.aborted) break;
-                    const result = await runTool(toolUse);
-                    processToolResult(toolUse, result);
-                    if (loopState.completionResult !== null) break;
-                }
-
-                // Add tool results as the next user message
-                // IMPORTANT: condensing runs AFTER this push so history is always consistent
-                // (every assistant tool_call has a matching tool_result before condensing)
-                history.push({ role: 'user', content: toolResultBlocks });
-                // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
-                // Fire-and-forget -- persistence must never stall the loop.
-                if (this.inflightStore) {
-                    loopState.phase = 'executing-tools';
-                    void this.inflightStore.saveSnapshot({
-                        taskId,
-                        conversationId: conversationId ?? '',
-                        mode: activeMode.slug,
-                        savedAt: Date.now(),
-                        state: { ...loopState },
-                        history: JSON.parse(JSON.stringify(history)) as typeof history,
-                    });
-                }
-
-                // Circuit breaker for malformed/truncated tool calls. The result
-                // loops above only check the limit for tools that actually ran; a
-                // turn whose only output was a broken tool call (the classic
-                // "write_file cut off mid-JSON" loop) never reaches that check, so
-                // do it here. loopState.consecutiveMistakes was already bumped per tool_error
-                // in the streaming loop; it is reset by the first successful tool.
-                if (toolErrors.size > 0 && this.consecutiveMistakeLimit > 0
-                    && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                    throw new Error(
-                        `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors -- the last was a malformed or truncated tool call. `
-                        + `The model's tool call kept getting cut off before it finished. `
-                        + `Fix: have the model split a large write into write_file (header + first section) then append_to_file for the rest, `
-                        + `reduce the attached input, or raise Max output tokens in Settings -> Models.`,
-                    );
-                }
+                // IMP-41-02-01 stage 3a: batch execution (tool_error blocks,
+                // parallel-prefix dispatch, mistake breakers, result push,
+                // inflight snapshot) lives in the engine. The facade provides
+                // host services via ports; runTool keeps the pipeline wiring.
+                await this.loopEngine.executeToolBatch(validToolUses, toolErrors, loopState, history, {
+                    isAborted: () => abortSignal?.aborted ?? false,
+                    executeTool: runTool,
+                    onToolResult: (name, content, isError) =>
+                        this.taskCallbacks.onToolResult(name, content, isError),
+                    escalateToMain,
+                    qualityGateFor: (toolName) => TOOL_METADATA[toolName]?.qualityGateChecklist,
+                    consecutiveMistakeLimit: this.consecutiveMistakeLimit,
+                    parallelSafe: PARALLEL_SAFE,
+                    saveInflightSnapshot: this.inflightStore
+                        ? () => {
+                            void this.inflightStore?.saveSnapshot({
+                                taskId,
+                                conversationId: conversationId ?? '',
+                                mode: activeMode.slug,
+                                savedAt: Date.now(),
+                                state: { ...loopState },
+                                history: JSON.parse(JSON.stringify(history)) as typeof history,
+                            });
+                        }
+                        : undefined,
+                });
 
                 // FEAT-24-02 (ADR-12 amendment): prune old tool_result contents to
                 // skeletons now that the turn is closed and the history is consistent.
