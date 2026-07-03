@@ -51,6 +51,37 @@ it('ships a pack file for every non-English supported locale', () => {
     }
 });
 
+describe('en.ts style guard (bundled fallback table)', () => {
+    // en is the universal fallback shown for any untranslated key in every
+    // locale, so the style rules that localeParity enforces on packs must
+    // hold on en itself. localeParity's per-pack block filters en out.
+    const entries = Object.entries(en);
+
+    it('has no em/en-dashes', () => {
+        const bad = entries.filter(([, v]) => FORBIDDEN_DASH_RE.test(v)).map(([k]) => k);
+        expect(bad).toEqual([]);
+    });
+
+    it('has no emoji or variation selectors', () => {
+        const bad = entries.filter(([, v]) => EMOJI_RES.some((re) => re.test(v))).map(([k]) => k);
+        expect(bad).toEqual([]);
+    });
+
+    it('has no empty or whitespace-only values', () => {
+        // t() uses ?? so an empty en value is "present" and never falls back
+        // to the key: a blank string would ship a silently empty label.
+        const bad = entries.filter(([, v]) => v.trim() === '').map(([k]) => k);
+        expect(bad).toEqual([]);
+    });
+
+    it('has no whole-value double-quote wrapping (string-sweep artifact)', () => {
+        // A sweep extraction that kept its surrounding quotes renders literal
+        // quotes in the UI. Values that quote a placeholder inside are fine.
+        const bad = entries.filter(([, v]) => /^\s*"[^"]*"\s*$/.test(v)).map(([k]) => k);
+        expect(bad).toEqual([]);
+    });
+});
+
 describe.each(nonEnglishLocales)('language pack %s', (locale) => {
     const table = loadPack(locale);
 

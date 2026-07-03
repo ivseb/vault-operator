@@ -173,4 +173,81 @@ Vault Operator
             expect(result).not.toContain('Domain Knowledge');
         });
     });
+
+    // FIX-42-01-02 (issue #48): a fresh install must materialize the neutral
+    // English soul and inject nothing; a legacy German install must keep its
+    // file untouched yet stay out of the system prompt.
+    describe('initialize -> loadMemoryFiles -> buildMemoryContext (end to end)', () => {
+        function makeFs(seed: Record<string, string> = {}) {
+            const store = new Map<string, string>(Object.entries(seed));
+            const dirs = new Set<string>();
+            return {
+                exists: (p: string) => Promise.resolve(store.has(p) || dirs.has(p)),
+                read: (p: string) => store.has(p) ? Promise.resolve(store.get(p)!) : Promise.reject(new Error('ENOENT')),
+                write: (p: string, d: string) => { store.set(p, d); return Promise.resolve(); },
+                mkdir: (p: string) => { dirs.add(p); return Promise.resolve(); },
+                list: () => Promise.resolve({ files: [], folders: [] }),
+                remove: (p: string) => { store.delete(p); return Promise.resolve(); },
+                append: (p: string, d: string) => { store.set(p, (store.get(p) ?? '') + d); return Promise.resolve(); },
+                stat: () => Promise.resolve(null),
+                _store: store,
+            };
+        }
+
+        const LEGACY_GERMAN_SOUL = `# Agent Identity
+
+## Name
+Vault Operator
+
+## Communication
+- Language: Deutsch
+- Style: Warm, nahbar, auf Augenhoehe
+
+## Values
+- Nuetzlichkeit vor Hoeflichkeit
+- Ehrlichkeit — sage wenn ich etwas nicht weiss
+- Respektiere die Arbeit des Nutzers
+- Lerne aus Fehlern
+
+## Anti-Patterns
+- Keine leeren Floskeln
+- Keine unnoetigen Entschuldigungen
+- Keine Emojis
+`;
+
+        it('materializes the neutral soul on a fresh install and injects nothing', async () => {
+            const { MemoryService, DEFAULT_SOUL_TEMPLATE } = await getModule();
+            const fs = makeFs();
+            const service = new MemoryService(fs);
+            await service.initialize();
+
+            expect(fs._store.get('memory/soul.md')).toBe(DEFAULT_SOUL_TEMPLATE);
+            const files = await service.loadMemoryFiles();
+            expect(service.buildMemoryContext(files)).toBe('');
+        });
+
+        it('keeps a legacy German soul.md untouched and out of the prompt', async () => {
+            const { MemoryService } = await getModule();
+            const fs = makeFs({ 'memory/soul.md': LEGACY_GERMAN_SOUL });
+            const service = new MemoryService(fs);
+            await service.initialize();
+
+            // initialize() writes templates only when the file is absent.
+            expect(fs._store.get('memory/soul.md')).toBe(LEGACY_GERMAN_SOUL);
+            const files = await service.loadMemoryFiles();
+            expect(service.buildMemoryContext(files)).toBe('');
+        });
+
+        it('injects a legacy soul the user actually customized', async () => {
+            const { MemoryService } = await getModule();
+            const customized = LEGACY_GERMAN_SOUL.replace('Vault Operator', 'Jarvis');
+            const fs = makeFs({ 'memory/soul.md': customized });
+            const service = new MemoryService(fs);
+            await service.initialize();
+
+            const result = service.buildMemoryContext(await service.loadMemoryFiles());
+            expect(result).toContain('<agent_identity>');
+            expect(result).toContain('Jarvis');
+        });
+    });
 });

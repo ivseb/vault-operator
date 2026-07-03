@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { App } from 'obsidian';
+import { TFile } from 'obsidian';
 import { TaskNoteCreator } from '../TaskNoteCreator';
 import type { TaskItem, TaskExtractionSettings } from '../types';
 
@@ -84,5 +85,71 @@ describe('TaskNoteCreator frontmatter vocabulary (FIX-42-01-01)', () => {
         expect(content).toContain('## Description');
         expect(content).toContain('## Notes');
         expect(content).toContain('Extracted from agent conversation');
+    });
+});
+
+describe('TaskNoteCreator frontmatter edge cases', () => {
+    it('emits an empty resource and omits the source callout when sourceNote is blank', async () => {
+        const { app, files } = makeApp();
+        const created = await new TaskNoteCreator(app).createNotes([ITEM], SETTINGS, '');
+        const content = files.get(created[0]) ?? '';
+        expect(content).toContain('resource: ""');
+        // The "> Source: [[...]]" body callout is skipped for a blank source.
+        expect(content).not.toContain('[[]]');
+        expect(content).not.toMatch(/Source:\s*\[\[/);
+    });
+
+    it('YAML-escapes values with embedded quotes and whitespace', async () => {
+        const { app, files } = makeApp();
+        const item: TaskItem = { ...ITEM, assignee: 'Jon "JJ" Doe' };
+        const created = await new TaskNoteCreator(app).createNotes([item], SETTINGS, 'Meeting');
+        const content = files.get(created[0]) ?? '';
+        expect(content).toContain('assignee: "Jon \\"JJ\\" Doe"');
+    });
+
+    it('quotes an empty assignee as ""', async () => {
+        const { app, files } = makeApp();
+        const item: TaskItem = { ...ITEM, assignee: '' };
+        const created = await new TaskNoteCreator(app).createNotes([item], SETTINGS, 'Meeting');
+        const content = files.get(created[0]) ?? '';
+        expect(content).toContain('assignee: ""');
+    });
+
+    it('suffixes the path when the slug already exists (collision)', async () => {
+        const files = new Map<string, string>();
+        const vault = {
+            // Report existing paths as real TFiles so uniquePath's instanceof
+            // check triggers the -2 suffix for the second note.
+            getAbstractFileByPath: (p: string) => files.has(p) ? new TFile() : null,
+            createFolder: async () => undefined,
+            create: async (path: string, content: string) => { files.set(path, content); return {}; },
+        };
+        const app = { vault } as unknown as App;
+        const item: TaskItem = { ...ITEM, cleanText: 'Same title' };
+        const created = await new TaskNoteCreator(app).createNotes([item, item], SETTINGS, 'Meeting');
+        expect(created).toHaveLength(2);
+        expect(created[1]).toMatch(/Same-title-2\.md$/);
+    });
+
+    it('keeps partial success when vault.create throws for one item', async () => {
+        const files = new Map<string, string>();
+        let calls = 0;
+        const vault = {
+            getAbstractFileByPath: () => null,
+            createFolder: async () => undefined,
+            create: async (path: string, content: string) => {
+                calls++;
+                if (calls === 1) throw new Error('disk full');
+                files.set(path, content);
+                return {};
+            },
+        };
+        const app = { vault } as unknown as App;
+        const a: TaskItem = { ...ITEM, cleanText: 'First task' };
+        const b: TaskItem = { ...ITEM, cleanText: 'Second task' };
+        const created = await new TaskNoteCreator(app).createNotes([a, b], SETTINGS, 'Meeting');
+        // The failing item is skipped; the surviving one is still created.
+        expect(created).toHaveLength(1);
+        expect(created[0]).toMatch(/Second-task\.md$/);
     });
 });
