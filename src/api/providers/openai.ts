@@ -24,35 +24,11 @@ import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/too
 // FIX-04-03-09: content may be a content-part array on user messages to
 // carry multimodal input ({type:'image_url'|'text'}).
 import { appendOpenAiChatUserMessage, type OpenAiChatMessage } from '../openaiShapeUserBlocks';
+import { convertToOpenAiChatMessages, convertToOpenAiChatTools, type OpenAIMessage, type OpenAITool } from '../adapters/openaiChat';
 
-type OpenAIContentPart =
-    | { type: 'text'; text: string }
-    | { type: 'image_url'; image_url: { url: string } };
-
-interface OpenAIMessage {
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    content: string | null | OpenAIContentPart[];
-    tool_calls?: OpenAIToolCall[];
-    tool_call_id?: string;
-    name?: string;
-    // FIX-04-03-07: DeepSeek deepseek-reasoner requires the original
-    // reasoning_content to be echoed back on assistant messages that contain
-    // tool_calls, otherwise a follow-up request returns 400.
-    reasoning_content?: string;
-}
-
-// FIX-04-03-07: only OpenAI-compatible backends that *can* consume a passed-back
-// reasoning_content field get one on the wire. Excluded:
-//   - openai/azure: official OpenAI does not expect the field; future strict
-//     validation could 400.
-//   - openrouter: has its own server-side reasoning passthrough via the
-//     top-level `reasoning: {...}` request param (Claude extended thinking).
-//     Echoing reasoning_content too could interfere.
-//   - gemini: uses different reasoning conventions.
-// If users with OpenRouter -> DeepSeek-reasoner report the same 400 we can
-// extend this after a regression test against OpenRouter + Claude ET.
-const REASONING_PASSBACK_PROVIDER_TYPES = new Set<string>(['custom', 'ollama', 'lmstudio']);
-const MAX_REASONING_CONTENT_CHARS = 50_000;
+// IMP-41-03-03 / ADR-150: message/tool types and the conversion itself live
+// in the shared openai-chat wire adapter (../adapters/openaiChat) — one
+// implementation for all OpenAI-shape providers instead of three copies.
 
 // FIX-04-03-10: per-conversation Thinking toggle for OpenAI-compatible local
 // backends. The OpenRouter path has its own `reasoning` wrapper, OpenAI/Azure
@@ -66,24 +42,6 @@ const MAX_REASONING_CONTENT_CHARS = 50_000;
 //      honour the inline token, which is Qwen's official documented mechanism.
 const THINKING_TOGGLE_PROVIDER_TYPES = new Set<string>(['custom', 'ollama', 'lmstudio']);
 const QWEN_THINKING_MODEL_REGEX = /qwen3?/i;
-
-interface OpenAIToolCall {
-    id: string;
-    type: 'function';
-    function: {
-        name: string;
-        arguments: string;
-    };
-}
-
-interface OpenAITool {
-    type: 'function';
-    function: {
-        name: string;
-        description: string;
-        parameters: Record<string, unknown>;
-    };
-}
 
 // ToolCallAccumulator moved to utils/toolCallFlush.ts (FIX-13-02-01); see import above.
 
@@ -271,8 +229,8 @@ export class OpenAiProvider implements ApiHandler {
         // set AND the backend is in the local-cluster gate AND the model is a
         // Qwen-family. Undefined stays byte-identical to today.
         const effectiveSystemPrompt = this.maybePrefixQwenThinkingToken(systemPrompt);
-        const openAiMessages = this.convertMessages(effectiveSystemPrompt, messages);
-        const openAiTools = tools.length > 0 ? this.convertTools(tools) : undefined;
+        const openAiMessages = convertToOpenAiChatMessages(effectiveSystemPrompt, messages, this.config.type);
+        const openAiTools = tools.length > 0 ? convertToOpenAiChatTools(tools) : undefined;
 
         // Temperature handling — four cases:
         // 1. o-series (o1, o3, o4-mini, etc.) enforce temperature=1 API-side -> omit entirely
@@ -534,115 +492,6 @@ export class OpenAiProvider implements ApiHandler {
     // ---------------------------------------------------------------------------
     // Format conversion: Anthropic → OpenAI
     // ---------------------------------------------------------------------------
-
-    private convertMessages(systemPrompt: string, messages: MessageParam[]): OpenAIMessage[] {
-        const result: OpenAIMessage[] = [
-            { role: 'system', content: systemPrompt },
-        ];
-
-        // FIX-04-03-07: DeepSeek deepseek-reasoner requires reasoning_content on
-        // the assistant message whose tool_calls are being resolved. Multi-round
-        // convention says strip reasoning from older rounds. So: find the LAST
-        // assistant message that has a tool_use; only THAT one gets the echo.
-        // Older assistant ThinkingBlocks (and ThinkingBlocks on any message
-        // without tool_use) are silently dropped from the wire — caps the
-        // per-request overhead at one turn of reasoning regardless of session
-        // length, preventing token-cost explosion.
-        const emitReasoningPassback = REASONING_PASSBACK_PROVIDER_TYPES.has(this.config.type);
-        let lastAssistantWithToolUseIdx = -1;
-        if (emitReasoningPassback) {
-            for (let i = messages.length - 1; i >= 0; i--) {
-                const m = messages[i];
-                if (m.role !== 'assistant' || typeof m.content === 'string') continue;
-                if (m.content.some((b) => b.type === 'tool_use')) {
-                    lastAssistantWithToolUseIdx = i;
-                    break;
-                }
-            }
-        }
-
-        for (let i = 0; i < messages.length; i++) {
-            const msg = messages[i];
-            if (typeof msg.content === 'string') {
-                result.push({ role: msg.role, content: msg.content });
-                continue;
-            }
-
-            // Array of ContentBlock
-            const blocks = msg.content;
-
-            if (msg.role === 'assistant') {
-                // Assistant messages may contain text + tool_use blocks.
-                // Thinking blocks are filtered out of textParts here (they never
-                // belong in visible content) and live in reasoning_content
-                // instead, gated on the allow-list + last-assistant rule above.
-                const textParts = blocks
-                    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                    .map((b) => b.text)
-                    .join('');
-
-                const toolUseParts = blocks.filter(
-                    (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
-                        b.type === 'tool_use',
-                );
-
-                let reasoningContent: string | undefined;
-                if (emitReasoningPassback && i === lastAssistantWithToolUseIdx) {
-                    const joined = blocks
-                        .filter((b): b is { type: 'thinking'; text: string } => b.type === 'thinking')
-                        .map((b) => b.text)
-                        .join('');
-                    if (joined.length > 0) {
-                        reasoningContent = joined.length > MAX_REASONING_CONTENT_CHARS
-                            ? `${joined.slice(0, MAX_REASONING_CONTENT_CHARS)}\n[reasoning truncated]`
-                            : joined;
-                    }
-                }
-
-                if (toolUseParts.length > 0) {
-                    // Message with tool calls
-                    const assistantMsg: OpenAIMessage = {
-                        role: 'assistant',
-                        content: textParts || null,
-                        tool_calls: toolUseParts.map((b) => ({
-                            id: b.id,
-                            type: 'function',
-                            function: {
-                                name: b.name,
-                                arguments: JSON.stringify(b.input),
-                            },
-                        })),
-                    };
-                    if (reasoningContent !== undefined) {
-                        assistantMsg.reasoning_content = reasoningContent;
-                    }
-                    result.push(assistantMsg);
-                } else {
-                    result.push({ role: 'assistant', content: textParts });
-                }
-            } else {
-                // REF-06: user-message conversion (text + image + tool_result)
-                // now lives in the shared appendOpenAiChatUserMessage helper.
-                // Three near-identical copies of this branch used to live in
-                // openai/copilot/kilo; FIX-04-03-09 had to update all three
-                // and we want to avoid the same future-bug pattern.
-                appendOpenAiChatUserMessage(result as OpenAiChatMessage[], msg);
-            }
-        }
-
-        return result;
-    }
-
-    private convertTools(tools: ToolDefinition[]): OpenAITool[] {
-        return tools.map((tool) => ({
-            type: 'function',
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.input_schema,
-            },
-        }));
-    }
 
     /**
      * Quick non-streaming classification call (~100 input, ~10 output tokens).
