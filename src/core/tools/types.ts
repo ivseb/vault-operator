@@ -71,6 +71,7 @@ export type ToolName =
     | 'attempt_completion'
     | 'switch_agent'
     | 'new_task'
+    | 'run_in_background'
     // EPIC-26 / FEAT-26-01 / ADR-120: on-demand flagship escalation.
     | 'consult_flagship'
     | 'find_tool'

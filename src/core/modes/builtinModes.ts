@@ -70,7 +70,7 @@ export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = 
     // always-available) added 2026-06-21 -- both meta-tools were sitting in
     // INTENTIONALLY_NOT_REACHABLE but the audit demonstrated they only worked
     // by hallucination instead of real schema visibility.
-    agent: ['ask_followup_question', 'attempt_completion', 'update_todo_list', 'new_task', 'consult_flagship', 'switch_agent', 'update_settings', 'configure_model', 'read_agent_logs', 'manage_mcp_server', 'evaluate_expression', 'manage_source', 'inspect_self', 'invoke_skill', 'invoke_mcp_server', 'find_tool', 'read_skill'],
+    agent: ['ask_followup_question', 'attempt_completion', 'update_todo_list', 'new_task', 'run_in_background', 'consult_flagship', 'switch_agent', 'update_settings', 'configure_model', 'read_agent_logs', 'manage_mcp_server', 'evaluate_expression', 'manage_source', 'inspect_self', 'invoke_skill', 'invoke_mcp_server', 'find_tool', 'read_skill'],
     mcp:   ['use_mcp_tool', 'read_mcp_tool'],
     // FEAT-29-03 probe_plugin, FEAT-29-06 run_skill_script added 2026-06-21.
     skill: ['execute_command', 'execute_recipe', 'call_plugin_api', 'resolve_capability_gap', 'enable_plugin', 'probe_plugin', 'run_skill_script'],

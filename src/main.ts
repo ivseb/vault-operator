@@ -14,6 +14,8 @@ import {
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { PriceCatalogService } from './core/pricing/PriceCatalogService';
 import { InflightStore } from './core/agent/InflightStore';
+import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
+import { createBackgroundTaskExecutor } from './core/background/backgroundTaskExecutor';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
@@ -256,6 +258,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalFs: GlobalFileService;
     /** IMP-41-03-01: inflight snapshot store for crash recovery. */
     inflightStore: InflightStore | null = null;
+    /** IMP-41-03-05: single-slot background research task runner. */
+    backgroundTaskRunner: BackgroundTaskRunner | null = null;
     globalSettingsService: GlobalSettingsService | null = null;
     // syncBridge removed (FEATURE-1508)
     ringBuffer: ConsoleRingBuffer;
@@ -2176,6 +2180,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                     recoverable.map((r) => `${r.taskId} @ iteration ${r.state.iteration}`).join(', '));
             })
             .catch((e) => console.warn('[InflightStore] boot scan failed (non-fatal):', e));
+
+        // IMP-41-03-05: background research tasks (single slot, read-only
+        // research profile, helper model when configured).
+        this.backgroundTaskRunner = new BackgroundTaskRunner(createBackgroundTaskExecutor(this));
 
         // History indexer (FEATURE-0320 Phase 6): backfill on first run,
         // incrementally re-index after every conversation save. Indexer

@@ -198,6 +198,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     switch_agent: 'agent',
     // Subtask spawning (respects autoApproval.subtasks)
     new_task: 'subtask',
+    run_in_background: 'subtask',
     // MCP
     use_mcp_tool: 'mcp',
     // Plugin Skills (PAS-1)

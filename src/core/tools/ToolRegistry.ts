@@ -77,6 +77,7 @@ import { AttemptCompletionTool } from './agent/AttemptCompletionTool';
 import { UpdateTodoListTool } from './agent/UpdateTodoListTool';
 import { SwitchModeTool } from './agent/SwitchModeTool';
 import { NewTaskTool } from './agent/NewTaskTool';
+import { RunInBackgroundTool } from './agent/RunInBackgroundTool';
 import { ConsultFlagshipTool } from './agent/ConsultFlagshipTool';
 import { FindToolTool } from './agent/FindToolTool';
 import { ReadSkillTool } from './agent/ReadSkillTool';
@@ -234,6 +235,7 @@ export class ToolRegistry {
         this.register(new UpdateTodoListTool(this.plugin));
         this.register(new SwitchModeTool(this.plugin));
         this.register(new NewTaskTool(this.plugin));
+        this.register(new RunInBackgroundTool(this.plugin));
         // EPIC-26 / FEAT-26-01 / ADR-120: advisor-pattern escalation tool.
         // Filtered out of the prompt schema by AgentTask when no flagship
         // slot is configured on the active provider.

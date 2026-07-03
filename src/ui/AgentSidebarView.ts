@@ -552,6 +552,37 @@ export class AgentSidebarView extends ItemView {
         this.suggestionBanner.mount(container, (fn) => this.register(fn));
     }
 
+    /**
+     * IMP-41-03-05: compact status tile for the single background research
+     * task. Subscribes to the runner and unsubscribes on view unload.
+     */
+    private buildBackgroundTaskTile(container: HTMLElement): void {
+        const runner = this.plugin.backgroundTaskRunner;
+        if (!runner) return;
+        const tile = container.createDiv('background-task-tile');
+        tile.hide();
+        const icon = tile.createSpan('background-task-tile-icon');
+        setIcon(icon, 'satellite');
+        const label = tile.createSpan('background-task-tile-label');
+        const stopBtn = tile.createEl('button', {
+            cls: 'background-task-tile-stop',
+            text: t('ui.backgroundTask.stop'),
+        });
+        stopBtn.addEventListener('click', () => runner.stop());
+
+        const render = (): void => {
+            const status = runner.getStatus();
+            if (status) {
+                label.setText(t('ui.backgroundTask.running', { title: status.title }));
+                tile.show();
+            } else {
+                tile.hide();
+            }
+        };
+        render();
+        this.register(runner.onChange(() => render()));
+    }
+
     private buildAiDisclaimer(container: HTMLElement): void {
         const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
         disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
@@ -559,6 +590,9 @@ export class AgentSidebarView extends ItemView {
 
     private buildChatInput(container: HTMLElement): void {
         this.inputArea = container.createDiv('chat-input-container');
+        // IMP-41-03-05: background-task status tile above the input. Hidden
+        // by default; the runner's onChange subscription toggles it.
+        this.buildBackgroundTaskTile(this.inputArea);
         const inputWrapper = this.inputArea.createDiv('chat-input-wrapper');
 
         // Context chips at the top of the input wrapper (like Kilo Code)

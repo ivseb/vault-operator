@@ -1036,6 +1036,8 @@ export const en: Translations = {
     'ui.resume.interrupted': 'An agent task was interrupted at {{time}} ({{messages}} messages preserved).',
     'ui.resume.resume': 'Resume task',
     'ui.resume.discard': 'Discard',
+    'ui.backgroundTask.running': 'Background research: {{title}}',
+    'ui.backgroundTask.stop': 'Stop',
     'ui.approval.configDirWarning': 'Write access to protected directory: {{path}}. Files in this directory control plugins, themes, and Obsidian settings. Unintended changes can alter Obsidian behavior or install malicious code as a plugin.',
     'ui.approval.explain.writeFile': 'The agent wants to create a new file:',
     'ui.approval.explain.editFile': 'The agent wants to edit an existing file:',
