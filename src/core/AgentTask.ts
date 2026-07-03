@@ -384,14 +384,27 @@ export class AgentTask {
     private fileDossier = new FileDossier();
 
     /**
-     * IMP-41-03-04 (shadow mode): pre-condense history snapshots, bounded to
-     * 3 generations. Makes a mis-condensed session reconstructable — the
-     * previously impossible diagnosis case. Full log ownership of the live
-     * history follows engine stage 3.
+     * IMP-41-03-04 (shadow mode): pre/post-condense history snapshots,
+     * bounded to 3 generations. Makes a mis-condensed session
+     * reconstructable — the previously impossible diagnosis case.
+     *
+     * FULL log ownership of the live history is DEFERRED (decision
+     * 2026-07-04, safe subset shipped instead). Preconditions before the
+     * switchover can happen:
+     *  1. the sidebar gets a single read/write boundary (PLAN-42 PR-1.2
+     *     SidebarMessageRenderer) — today it aliases config.history and
+     *     persists it by reference, including mid-run via onClose(),
+     *  2. run() gets a final-history channel (return value or an
+     *     onHistoryRewritten callback) — the aliased array is currently
+     *     the ONLY way the final transcript reaches persistence,
+     *  3. MicroCompactor reroutes through a log API instead of mutating
+     *     tool_result contents in place.
+     * Then: an attached-live mode (MessageLog.attach(live)) as bridge
+     * generation before full copy-isolation.
      */
     private condenseForensics = new MessageLog();
 
-    /** Diagnostic surface (read_agent_logs): the retained pre-condense generations. */
+    /** Diagnostic surface (read_agent_logs): the retained pre/post-condense generations. */
     getCondenseTimeline(): ReturnType<MessageLog['dumpTimeline']> {
         return this.condenseForensics.dumpTimeline();
     }
@@ -2358,6 +2371,13 @@ export class AgentTask {
         // Post-condensing logging
         const postMessageCount = history.length;
         const postTokens = this.estimateTokens(history);
+        // IMP-41-03-04 safe subset: pair the pre-condense snapshot with the
+        // post-splice state so getCondenseTimeline() shows before/after
+        // pairs (the "what did condensing eat?" diagnosis ADR-149 targets).
+        this.condenseForensics.recordGeneration(
+            `post-condense ${new Date().toISOString()} (${postMessageCount} msgs, ~${postTokens}t)`,
+            history,
+        );
         const contextWindow = this.getModelContextWindow();
         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
         const percentUsed = contextWindow > 0 ? Math.round((postTokens / contextWindow) * 100) : 0;
