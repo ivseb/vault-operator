@@ -192,3 +192,25 @@ describe('getCacheCapability', () => {
         });
     });
 });
+
+describe('FIX-18-01-01: Bedrock global cross-region profile caching', () => {
+    // Live incident 2026-07-03: global.anthropic.claude-sonnet-5 ran with
+    // hitRate=0% on every call (one short chain cost $0.62 / 298k uncached
+    // input tokens) because the table only knew eu./us./bare anthropic.
+    // prefixes -- the new `global.` profile fell through to cacheStyle none.
+    it('enables cachePoint for global. cross-region Claude profiles', () => {
+        const cap = getCacheCapability('bedrock', 'global.anthropic.claude-sonnet-5');
+        expect(cap.supportsPromptCache).toBe(true);
+        expect(cap.cacheStyle).toBe('bedrock-cachepoint');
+    });
+
+    it('covers future region prefixes via the segment-wise pattern', () => {
+        expect(getCacheCapability('bedrock', 'apac.anthropic.claude-sonnet-5').cacheStyle).toBe('bedrock-cachepoint');
+        expect(getCacheCapability('bedrock', 'us-gov.anthropic.claude-opus-4-6-v1').cacheStyle).toBe('bedrock-cachepoint');
+    });
+
+    it('keeps Nova and other non-Claude Bedrock models cache-off', () => {
+        expect(getCacheCapability('bedrock', 'amazon.nova-pro-v1').cacheStyle).toBe('none');
+        expect(getCacheCapability('bedrock', 'global.amazon.nova-pro-v1').cacheStyle).toBe('none');
+    });
+});

@@ -54,9 +54,12 @@ export const CACHE_CAPABILITY_TABLE: ReadonlyArray<CacheCapabilityEntry> = [
     { providerType: 'github-copilot', modelPattern: '*', supportsPromptCache: false, cacheStyle: 'none', notes: 'No documented caching for non-Claude Copilot models' },
 
     // --- Bedrock (Phase 2: explicit cachePoint markers) ---
-    { providerType: 'bedrock', modelPattern: 'eu.anthropic.claude-*', supportsPromptCache: true, cacheStyle: 'bedrock-cachepoint', notes: 'Cross-region inference EU + Anthropic Claude' },
-    { providerType: 'bedrock', modelPattern: 'us.anthropic.claude-*', supportsPromptCache: true, cacheStyle: 'bedrock-cachepoint', notes: 'Cross-region inference US + Anthropic Claude' },
-    { providerType: 'bedrock', modelPattern: 'anthropic.claude-*', supportsPromptCache: true, cacheStyle: 'bedrock-cachepoint', notes: 'Direct region Anthropic Claude (rare)' },
+    // FIX-18-01-01: segment-wise prefix pattern instead of an enumerated
+    // eu./us. list. The `global.` cross-region profile fell through to the
+    // cache-off fallback (live incident 2026-07-03: hitRate=0% on every
+    // Sonnet-5 call, $0.62 for one short chain); any future region prefix
+    // (apac., us-gov.) would have driftet the same way.
+    { providerType: 'bedrock', modelPattern: '*anthropic.claude-*', supportsPromptCache: true, cacheStyle: 'bedrock-cachepoint', notes: 'Anthropic Claude in every region flavour: bare, eu., us., global., apac., ARNs' },
     { providerType: 'bedrock', modelPattern: '*', supportsPromptCache: false, cacheStyle: 'none', notes: 'Amazon Nova and other Bedrock models: no cachePoint support yet' },
 
     // --- OpenAI (implicit cache for >1024 tokens, cached_tokens tracking in Phase 2) ---
