@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { microcompactToolResults, PRUNED_MARKER } from '../MicroCompactor';
+import { FileDossier } from '../FileDossier';
 import type { MessageParam } from '../../../api/types';
 
 /** Build a turn: assistant(tool_use) + user(tool_result with `len` chars of body). */
@@ -109,5 +110,46 @@ describe('microcompactToolResults', () => {
         expect(res.prunedBlocks).toBe(1);
         expect((history[2].content as Array<{ content: string }>)[0].content).toBe('short output');
         expect((history[4].content as Array<{ content: string }>)[0].content).toBe('y'.repeat(50_000));
+    });
+});
+
+describe('IMP-41-03-06: dossier feed at prune time', () => {
+    it('records pruned path-bearing results into the dossier', () => {
+        const dossier = new FileDossier();
+        const big = 'important finding about kant '.repeat(100);
+        const history: import('../../../api/types').MessageParam[] = [
+            { role: 'user', content: 'task' },
+            {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 't1', name: 'read_file', input: { path: 'Notes/Kant.md' } }],
+            },
+            { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: big }] },
+            // protected tail padding
+            { role: 'assistant', content: 'a' }, { role: 'user', content: 'b' },
+            { role: 'assistant', content: 'c' }, { role: 'user', content: 'd' },
+            { role: 'assistant', content: 'e' }, { role: 'user', content: 'f' },
+        ];
+        const result = microcompactToolResults(history, { dossier, keepRecentMessages: 2 });
+        expect(result.prunedBlocks).toBe(1);
+        const rendered = dossier.render();
+        expect(rendered).toContain('Notes/Kant.md');
+        expect(rendered).toContain('important finding about kant');
+    });
+
+    it('marks write-tool results as written', () => {
+        const dossier = new FileDossier();
+        const big = 'wrote a large section '.repeat(120);
+        const history: import('../../../api/types').MessageParam[] = [
+            { role: 'user', content: 'task' },
+            {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'w1', name: 'write_file', input: { path: 'Out/Report.md' } }],
+            },
+            { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'w1', content: big }] },
+            { role: 'assistant', content: 'a' }, { role: 'user', content: 'b' },
+            { role: 'assistant', content: 'c' }, { role: 'user', content: 'd' },
+        ];
+        microcompactToolResults(history, { dossier, keepRecentMessages: 2 });
+        expect(dossier.render()).toContain('Out/Report.md (written)');
     });
 });

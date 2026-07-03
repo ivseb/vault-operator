@@ -26,6 +26,7 @@ import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
+import { FileDossier } from './context/FileDossier';
 import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
@@ -360,6 +361,12 @@ export class AgentTask {
     private loopEngine = new AgentLoopEngine();
 
     /**
+     * IMP-41-03-06: per-file dossier surviving condense cycles. Fed by the
+     * MicroCompactor at prune time, rendered into every condense summary.
+     */
+    private fileDossier = new FileDossier();
+
+    /**
      * FIX-24-05-05: usage attributed to the model that actually served each
      * call (main loop at chunk time, condensing/FastPath on the helper,
      * subtasks merged from their own breakdowns). Reported alongside the
@@ -444,7 +451,9 @@ export class AgentTask {
      */
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
-        const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history);
+        // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
+        // memory the flat condense summary lacks.
+        const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history, { dossier: this.fileDossier });
         if (prunedBlocks > 0) {
             console.debug(
                 `[Microcompact] pruned ${prunedBlocks} tool_result block(s), ` +
@@ -2500,7 +2509,12 @@ export class AgentTask {
             'Summarize this conversation compactly. Preserve:\n' +
             '- The original task and goal\n' +
             '- Key decisions made\n' +
-            '- Files read, created, or modified (include exact paths)\n' +
+            // IMP-41-03-06: per-file detail lives in the deterministic FILE
+            // DOSSIER appended after the summary -- the narrative should focus
+            // on decisions and open steps instead of re-listing file contents.
+            (this.fileDossier.render()
+                ? '- Files: a deterministic FILE DOSSIER is appended separately; do NOT re-list per-file contents, focus on decisions and next steps\n'
+                : '- Files read, created, or modified (include exact paths)\n') +
             '- Important findings, code snippets, or facts discovered\n' +
             '- ALL tool calls that were executed and their outcomes\n' +
             '- Search queries performed and their result summaries\n' +
@@ -2614,7 +2628,14 @@ export class AgentTask {
             firstMsg,
             {
                 role: 'assistant',
-                content: [{ type: 'text', text: `[Conversation Summary]\n\n${summary.trim()}` }],
+                // IMP-41-03-06: two-level summary -- the LLM narrative plus the
+                // DETERMINISTIC per-file dossier (no hallucination risk), so the
+                // model stops re-reading files the flat summary paraphrased away.
+                content: [{
+                    type: 'text',
+                    text: `[Conversation Summary]\n\n${summary.trim()}`
+                        + (this.fileDossier.render() ? `\n\n${this.fileDossier.render()}` : ''),
+                }],
             },
             {
                 role: 'user',
