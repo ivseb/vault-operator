@@ -27,6 +27,7 @@ import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
 import { FileDossier } from './context/FileDossier';
+import { InflightStore } from './agent/InflightStore';
 import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
@@ -365,6 +366,17 @@ export class AgentTask {
      * MicroCompactor at prune time, rendered into every condense summary.
      */
     private fileDossier = new FileDossier();
+
+    /**
+     * IMP-41-03-01: optional inflight snapshot store. When set (foreground
+     * tasks via the Runner), every turn boundary persists { state, history }
+     * so a crash mid-run leaves recoverable data instead of losing the turn.
+     */
+    private inflightStore: InflightStore | null = null;
+
+    setInflightStore(store: InflightStore | null): void {
+        this.inflightStore = store;
+    }
 
     /**
      * FIX-24-05-05: usage attributed to the model that actually served each
@@ -1867,6 +1879,19 @@ export class AgentTask {
                 // IMPORTANT: condensing runs AFTER this push so history is always consistent
                 // (every assistant tool_call has a matching tool_result before condensing)
                 history.push({ role: 'user', content: toolResultBlocks });
+                // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
+                // Fire-and-forget -- persistence must never stall the loop.
+                if (this.inflightStore) {
+                    loopState.phase = 'executing-tools';
+                    void this.inflightStore.saveSnapshot({
+                        taskId,
+                        conversationId: conversationId ?? '',
+                        mode: activeMode.slug,
+                        savedAt: Date.now(),
+                        state: { ...loopState },
+                        history: JSON.parse(JSON.stringify(history)) as typeof history,
+                    });
+                }
 
                 // Circuit breaker for malformed/truncated tool calls. The result
                 // loops above only check the limit for tools that actually ran; a
@@ -2213,7 +2238,8 @@ export class AgentTask {
                 ));
             } else {
                 console.error('[AgentTask] Task failed:', err);
-                this.taskCallbacks.onError(err);
+                loopState.phase = 'failed';
+            this.taskCallbacks.onError(err);
             }
             // VO/Stigmergy: thrown error (parse failure, circuit-breaker
             // trip from consecutive tool errors, API/network failure after
@@ -2223,6 +2249,13 @@ export class AgentTask {
         }
         } // while (true) — emergency condensing retry loop
         } finally {
+            // IMP-41-03-01: clean exits clear the inflight snapshot. On a
+            // FAILED run (phase set below via the catch path) the snapshot
+            // stays as recovery/forensic data until the 24h sweep; on a hard
+            // crash this finally never runs and the snapshot survives too.
+            if (this.inflightStore && loopState.phase !== 'failed') {
+                void this.inflightStore.clear(taskId);
+            }
             // VO/Stigmergy: outcome-graded resolution. Binary: accept or
             // abandon. The default is 'abandon' so any unexpected exit
             // path (e.g. a future return someone forgets to grade) lands

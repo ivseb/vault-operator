@@ -2114,6 +2114,9 @@ export class AgentSidebarView extends ItemView {
         const task = new AgentTaskRunner({
             api: resolvedApiHandler,
             toolRegistry: this.plugin.toolRegistry,
+            // IMP-41-03-01: foreground tasks snapshot their state per turn
+            // so a crash mid-run leaves recoverable data.
+            inflightStore: this.plugin.inflightStore ?? undefined,
             callbacks: {
                 onIterationStart: (iteration) => {
                     // Show the steps block immediately so the user can expand it from the start.

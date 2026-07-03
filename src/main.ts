@@ -13,6 +13,7 @@ import {
 } from './core/security/providerCredentialCrypto';
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { PriceCatalogService } from './core/pricing/PriceCatalogService';
+import { InflightStore } from './core/agent/InflightStore';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
 import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView';
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
@@ -253,6 +254,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     recipePromotionService: RecipePromotionService | null = null;
     safeStorage: SafeStorageService;
     globalFs: GlobalFileService;
+    /** IMP-41-03-01: inflight snapshot store for crash recovery. */
+    inflightStore: InflightStore | null = null;
     globalSettingsService: GlobalSettingsService | null = null;
     // syncBridge removed (FEATURE-1508)
     ringBuffer: ConsoleRingBuffer;
@@ -2154,6 +2157,25 @@ export default class ObsidianAgentPlugin extends Plugin {
         void priceCatalog.load()
             .then(() => priceCatalog.refreshIfStale())
             .catch((e) => console.warn('[PriceCatalog] init failed (non-fatal):', e));
+
+        // IMP-41-03-01: inflight snapshot store for crash recovery. The boot
+        // sweep drops stale entries (>24h) and surfaces fresh ones so an
+        // interrupted task is visible instead of silently lost.
+        this.inflightStore = new InflightStore(this.globalFs);
+        void this.inflightStore.listRecoverable()
+            .then((recoverable) => {
+                if (recoverable.length === 0) return;
+                const newest = recoverable[0];
+                const when = new Date(newest.savedAt).toLocaleTimeString();
+                new Notice(
+                    `Vault Operator: an interrupted agent task from ${when} was found `
+                    + `(${newest.history.length} messages preserved). Its state is kept for 24h.`,
+                    10_000,
+                );
+                console.debug('[InflightStore] recoverable task(s) found:',
+                    recoverable.map((r) => `${r.taskId} @ iteration ${r.state.iteration}`).join(', '));
+            })
+            .catch((e) => console.warn('[InflightStore] boot scan failed (non-fatal):', e));
 
         // History indexer (FEATURE-0320 Phase 6): backfill on first run,
         // incrementally re-index after every conversation save. Indexer
