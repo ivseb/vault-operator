@@ -36,7 +36,7 @@ import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-p
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { splitToolBatch } from './agent/splitToolBatch';
-import { createInitialLoopState } from './agent/LoopState';
+import { createInitialLoopState, initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
@@ -255,6 +255,14 @@ export interface AgentTaskRunConfig {
     configDir?: string;
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
+    /**
+     * IMP-41-03-01: resume a task from an inflight snapshot. The loop
+     * continues with the NEXT iteration after the snapshot (budgets,
+     * mistake counters and usage totals carry over). The caller passes the
+     * snapshot's history as `history` and a short resume note as
+     * `userMessage`.
+     */
+    resumeState?: import('./agent/LoopState').AgentLoopState;
     /**
      * FEAT-24-04 / ADR-113: when set, this subagent runs with a profile
      * roleDefinition that REPLACES `mode.roleDefinition` in the system
@@ -686,7 +694,7 @@ export class AgentTask {
         // Set at the three return sites in run(); the finally reads it.
         // IMP-41-02-01a / ADR-145: explicit serializable loop state replaces
         // the ~20 closure variables this function previously accumulated.
-        const loopState = createInitialLoopState();
+        const loopState = initLoopStateForRun(config.resumeState);
         // FIX 2026-06-09 (Stigmergy substrate starvation RCA): a turn
         // graded 'iterate' previously called stigmergyTurn.iterate(),
         // which the upstream loop SDK uses to CANCEL the daemon's auto-
@@ -971,7 +979,7 @@ export class AgentTask {
         // All closure-local (not `this.*`) so a subagent re-entry of run()
         // does NOT inherit the parent's snapshot. Consumed in the finally
         // block at the end of run().
-        loopState.fastPathFired = precedenceFastPathFired;
+        loopState.fastPathFired = loopState.fastPathFired || precedenceFastPathFired;
 
         const MAX_ITERATIONS = this.maxIterations;
         const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
@@ -1407,7 +1415,7 @@ export class AgentTask {
         try {
         while (true) {
         try {
-            for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+            for (let iteration = loopState.iteration; iteration < MAX_ITERATIONS; iteration++) {
                 // Mirror the loop counter into the serializable state so a
                 // (W3) resume snapshot knows where the task stood.
                 loopState.iteration = iteration;

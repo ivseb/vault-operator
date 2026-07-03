@@ -135,6 +135,13 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 1: Persistent conversation history (survives across messages)
     private conversationHistory: MessageParam[] = [];
+    /**
+     * IMP-41-03-01: inflight snapshot armed for the next send. Set by the
+     * boot recovery banner's Resume button; consumed (and cleared) at the
+     * execute() call so the loop continues with the snapshot's state and
+     * full history instead of starting fresh.
+     */
+    private pendingResume: import('../core/agent/InflightStore').InflightSnapshot | null = null;
     // Chat History: active conversation tracking + UI messages for persistence
     private activeConversationId: string | null = null;
     /** FIX-03-20-01: race-free lazy id creation when the store initializes late. */
@@ -329,7 +336,68 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        // IMP-41-03-01: offer recovery for tasks interrupted by a crash or
+        // reload. Non-blocking; skips silently when the store is not ready.
+        void this.maybeOfferInflightResume();
         perfMarks.end('sidebar.onOpen', { log: true });
+    }
+
+    /**
+     * IMP-41-03-01: boot recovery banner. When a fresh inflight snapshot
+     * exists, render a card offering Resume (arms pendingResume, loads the
+     * conversation, sends a resume note through the normal send path) or
+     * Discard (clears the snapshot). Fail-closed: any error only logs.
+     */
+    private async maybeOfferInflightResume(): Promise<void> {
+        try {
+            const store = this.plugin.inflightStore;
+            if (!store || !this.chatContainer) return;
+            const recoverable = await store.listRecoverable();
+            if (recoverable.length === 0) return;
+            const snapshot = recoverable[0];
+
+            const row = this.chatContainer.createDiv('tool-approval-row');
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'history');
+            row.createSpan('tool-approval-text').setText(
+                t('ui.resume.interrupted', {
+                    time: new Date(snapshot.savedAt).toLocaleTimeString(),
+                    messages: String(snapshot.history.length),
+                }),
+            );
+            const actions = row.createDiv('tool-approval-actions');
+            const resumeBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.resume.resume'),
+            });
+            const discardBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: t('ui.resume.discard'),
+            });
+
+            resumeBtn.addEventListener('click', () => {
+                void (async () => {
+                    row.remove();
+                    if (snapshot.conversationId) {
+                        await this.loadConversation(snapshot.conversationId, { skipNavPush: true })
+                            .catch(() => { /* stale id: resume still works from the snapshot history */ });
+                    }
+                    this.pendingResume = snapshot;
+                    await store.clear(snapshot.taskId);
+                    if (this.textarea) {
+                        this.textarea.value = '[System] The previous task was interrupted by a reload. '
+                            + 'Resume from where you left off and finish it.';
+                        await this.handleSendMessage();
+                    }
+                })();
+            });
+            discardBtn.addEventListener('click', () => {
+                row.remove();
+                void store.clear(snapshot.taskId);
+            });
+        } catch (e) {
+            console.warn('[InflightResume] banner failed (non-fatal):', e instanceof Error ? e.message : e);
+        }
     }
 
     onClose(): Promise<void> {
@@ -2968,11 +3036,21 @@ export class AgentSidebarView extends ItemView {
             console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
         }
 
+        // IMP-41-03-01: an armed resume snapshot replaces the working history
+        // with the (more complete) inflight copy and hands the loop its
+        // persisted state. One-shot: consumed here, cleared immediately.
+        const resumeSnapshot = this.pendingResume;
+        this.pendingResume = null;
+        if (resumeSnapshot) {
+            this.conversationHistory = [...resumeSnapshot.history];
+        }
+
         await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,
             history: this.conversationHistory,
+            resumeState: resumeSnapshot?.state,
             abortSignal: this.currentAbortController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
             includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
