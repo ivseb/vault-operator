@@ -164,3 +164,94 @@ describe('wire format golden: openai-shape', () => {
         expect(requests[0]).toMatchSnapshot();
     });
 });
+
+describe('wire format golden: bedrock-converse', () => {
+    async function capture(config: Partial<LLMProvider>): Promise<{ drain: (h: MessageParam[], t: ToolDefinition[]) => Promise<void>; requests: unknown[] }> {
+        const { BedrockProvider } = await import('../providers/bedrock');
+        const provider = new BedrockProvider({
+            id: 'g', name: 'G', type: 'bedrock',
+            model: 'eu.anthropic.claude-sonnet-4-5-v1:0',
+            awsRegion: 'eu-central-1', awsAuthMode: 'api-key', awsApiKey: 'test-key',
+            maxTokens: 4096, temperature: 0.2,
+            ...config,
+        } as LLMProvider);
+        const requests: unknown[] = [];
+        // FIX-40-02-01 lesson: mock the resolved clientPromise (the dispatch
+        // point), never construction internals.
+        (provider as unknown as { clientPromise: Promise<{ send: unknown }> }).clientPromise = Promise.resolve({
+            send: (command: { input: unknown }) => {
+                requests.push(command.input);
+                return Promise.resolve({ stream: (async function* () { /* empty */ })() });
+            },
+        });
+        return {
+            requests,
+            drain: async (h, t) => {
+                for await (const _ of provider.createMessage('SYSTEM PROMPT', h, t)) { /* drain */ }
+            },
+        };
+    }
+
+    it('text-only request', async () => {
+        const { drain, requests } = await capture({});
+        await drain(TEXT_HISTORY, []);
+        expect(requests[0]).toMatchSnapshot();
+    });
+
+    it('tools with cachePoint markers', async () => {
+        const { drain, requests } = await capture({ promptCachingEnabled: true });
+        await drain(TOOL_HISTORY, FIXTURE_TOOLS);
+        expect(requests[0]).toMatchSnapshot();
+    });
+
+    it('vision blocks as converse image bytes', async () => {
+        const { drain, requests } = await capture({});
+        await drain(VISION_HISTORY, []);
+        expect(requests[0]).toMatchSnapshot();
+    });
+
+    it('claude 5 drops temperature (FIX-04-03-12 regression pin)', async () => {
+        const { drain, requests } = await capture({ model: 'global.anthropic.claude-sonnet-5' });
+        await drain(TEXT_HISTORY, []);
+        expect(requests[0]).toMatchSnapshot();
+    });
+});
+
+describe('wire format golden: openai-responses (chatgpt-oauth)', () => {
+    async function capture(config: Partial<LLMProvider>): Promise<{ drain: (h: MessageParam[], t: ToolDefinition[]) => Promise<void>; requests: unknown[] }> {
+        const { ChatGptOAuthProvider } = await import('../providers/chatgpt-oauth');
+        const provider = new ChatGptOAuthProvider({
+            id: 'g', name: 'G', type: 'chatgpt-oauth',
+            model: 'gpt-5', maxTokens: 4096,
+            ...config,
+        } as LLMProvider);
+        const requests: unknown[] = [];
+        (provider as unknown as { streamRequest: unknown }).streamRequest =
+            (body: unknown) => {
+                requests.push(body);
+                return Promise.resolve({
+                    status: 200,
+                    headers: {},
+                    stream: (async function* () { /* empty */ })(),
+                });
+            };
+        return {
+            requests,
+            drain: async (h, t) => {
+                for await (const _ of provider.createMessage('SYSTEM PROMPT', h, t)) { /* drain */ }
+            },
+        };
+    }
+
+    it('text-only request', async () => {
+        const { drain, requests } = await capture({});
+        await drain(TEXT_HISTORY, []);
+        expect(requests[0]).toMatchSnapshot();
+    });
+
+    it('tool history round trip', async () => {
+        const { drain, requests } = await capture({});
+        await drain(TOOL_HISTORY, FIXTURE_TOOLS);
+        expect(requests[0]).toMatchSnapshot();
+    });
+});
