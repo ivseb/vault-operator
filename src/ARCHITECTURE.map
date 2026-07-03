@@ -80,7 +80,7 @@ safe-storage              | src/core/security/SafeStorageService.ts             
 # UI
 sidebar                   | src/ui/AgentSidebarView.ts                            | -                | new sidebar action: extend command map and renderer
 modals                    | src/ui/modals/                                        | -                | new modal: extend modal registry; FirstRunWizard, MemoryV2Upgrade, MemoryViewer, PluginPatch, Prompt, SoakReport, VaultHealthRepair
-diff-review               | src/ui/DiffReviewModal.ts                             | -                | new diff layout: extend renderer plus toolbar
+diff-review               | src/ui/edit-review/EditReviewPanel.ts                             | -                | new diff layout: extend renderer plus toolbar
 model-config              | src/ui/settings/ModelConfigModal.ts                   | -                | new model preset: extend MODEL_REGISTRY plus defaults
 mcp-tab                   | src/ui/settings/McpTab.ts                             | ADR-05          | new MCP entry: extend tab renderer
 memory-tab                | src/ui/settings/MemoryTab.ts                          | ADR-77          | new memory control: extend renderer plus settings.ts

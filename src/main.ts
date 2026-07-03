@@ -96,7 +96,7 @@ import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
-import { t } from './i18n';
+import { initI18n, t } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { ChatGptOAuthService } from './core/auth/ChatGptOAuthService';
@@ -391,6 +391,11 @@ export default class ObsidianAgentPlugin extends Plugin {
     private markMcpReady!: () => void;
 
     onload(): void {
+        // EPIC-42: resolve the UI locale from the Obsidian app language before
+        // anything renders. No plugin-side language setting; a language change
+        // reloads the app, so once per load is enough.
+        initI18n();
+
         // FEAT-29-11 follow-up: register the Lucide "toolbox" SVG under the
         // same icon id so setIcon('toolbox', ...) renders on Obsidian builds
         // whose bundled Lucide does not yet ship it (added upstream in

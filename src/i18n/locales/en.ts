@@ -1,8 +1,8 @@
 import type { Translations } from '../types';
 
-export const en: Translations = {
+export const en = {
     // =========================================================================
-    // Settings — Tab Groups
+    // Settings -- Tab Groups
     // =========================================================================
     'settings.group.providers': 'Providers',
     'settings.group.agentBehaviour': 'Agents',
@@ -12,7 +12,7 @@ export const en: Translations = {
     'settings.group.help': 'Help',
 
     // =========================================================================
-    // Settings — Sub-Tab Labels
+    // Settings -- Sub-Tab Labels
     // =========================================================================
     'settings.tab.providers': 'Providers',
     'settings.tab.models': 'Models (legacy)',
@@ -34,10 +34,9 @@ export const en: Translations = {
     'settings.tab.log': 'Log',
     'settings.tab.debug': 'Debug',
     'settings.tab.backup': 'Backup',
-    'settings.tab.language': 'Language',
 
     // =========================================================================
-    // Settings — Models Tab
+    // Settings -- Models Tab
     // =========================================================================
     'settings.models.introTitle': 'AI models',
     'settings.models.introDesc': 'Configure the AI models the agent uses. You can add multiple models and switch between them.',
@@ -58,7 +57,7 @@ export const en: Translations = {
     'settings.models.remove': 'Remove model',
 
     // =========================================================================
-    // Settings — Embeddings Tab
+    // Settings -- Embeddings Tab
     // =========================================================================
     'settings.embeddings.introTitle': 'Search by meaning',
     'settings.embeddings.introDesc': 'Lets the agent find notes by meaning, not just exact words. Needed if you want it to surface relevant notes from your vault by topic.',
@@ -206,7 +205,7 @@ export const en: Translations = {
     'settings.embeddings.rerankCandidatesDesc': 'How many candidates to rerank (more = better quality but slower).',
 
     // =========================================================================
-    // Settings — Web Search Tab
+    // Settings -- Web Search Tab
     // =========================================================================
     'settings.webSearch.introTitle': 'Web access',
     'settings.webSearch.introDesc': 'When the agent needs information that is not in your vault. Add a search provider (Tavily, Brave) for keyword searches, web fetch works without.',
@@ -230,7 +229,7 @@ export const en: Translations = {
     'settings.webSearch.tavilyPlaceholder': 'Tvly-...',
 
     // =========================================================================
-    // Settings — MCP Tab
+    // Settings -- MCP Tab
     // =========================================================================
     'settings.mcp.introTitle': 'External tools',
     'settings.mcp.introDesc': 'Connect tools and data sources outside Obsidian (calendar, Slack, GitHub, your own scripts). Each server adds new tools the agent can call. Uses the MCP standard.',
@@ -260,7 +259,7 @@ export const en: Translations = {
     'settings.mcp.builtInDisabledHint': 'Requires an API key. Click edit to configure, then connect.',
 
     // =========================================================================
-    // Settings — Modes Tab
+    // Settings -- Modes Tab
     // =========================================================================
     'settings.modes.introTitle': 'What is an agent?',
     'settings.modes.introDesc': 'An agent is the personality your assistant adopts: its system prompt (rules of the game), the set of tools it may use, and any extra instructions you give it. Picking another agent here changes how the assistant thinks and what it can do, immediately. The Default agent is read/write, full toolset. Make your own to specialise (e.g. read-only research, focused writing, code review).',
@@ -302,7 +301,7 @@ export const en: Translations = {
     'settings.modes.restored': '{{name}} restored to defaults',
 
     // =========================================================================
-    // Settings — Permissions Tab
+    // Settings -- Permissions Tab
     // =========================================================================
     'settings.permissions.introTitle': 'Approve actions (review carefully)',
     'settings.permissions.introDesc': 'Every category you auto-approve below lets the agent act on your vault, your data, or the outside world without asking again. Set each toggle deliberately and review them whenever you change models, install a new MCP server, or grant the agent broader skills. The highest-risk combinations are web access plus write access (the agent can fetch and act on anything from the internet) and sandbox code execution (the LLM authors code that runs in your browser). Auto-approve those only if you trust your active model and your prompts.',
@@ -370,7 +369,7 @@ export const en: Translations = {
     'settings.permissions.permissiveWarning': 'Permissive mode: web access and write operations are both auto-approved. Content from untrusted web pages or vault notes could trick the agent into modifying your vault without review. This is the highest-risk configuration. Consider disabling auto-approval for either web access or write operations.',
 
     // =========================================================================
-    // Settings — Loop Tab
+    // Settings -- Loop Tab
     // =========================================================================
     'settings.loop.introTitle': 'Run behaviour',
     'settings.loop.introDesc': 'How long the agent keeps working, how many errors it tolerates, when it summarises the conversation to stay focused. Defaults are sane; edit only if you have a specific reason.',
@@ -414,7 +413,7 @@ export const en: Translations = {
     'settings.loop.leanSystemPromptDesc': 'Always use the compact prompt variants to save tokens. May slightly reduce plugin-skill awareness until a skill is mentioned. Default: off.',
 
     // =========================================================================
-    // Settings — Memory Tab
+    // Settings -- Memory Tab
     // =========================================================================
     'settings.memory.introTitle': 'Long-term memory',
     'settings.memory.introDesc': 'The agent remembers facts about you and your projects across sessions. Edit what it has stored or turn extraction off.',
@@ -479,7 +478,7 @@ export const en: Translations = {
     'settings.memory.statsLastUpdated': 'last updated {{date}}',
 
     // =========================================================================
-    // Settings — Rules Tab
+    // Settings -- Rules Tab
     // =========================================================================
     'settings.rules.heading': 'Rules',
     'settings.rules.desc': 'Rules are injected into the system prompt of every agent session. Store rule files as .md or .txt in your vault at .obsidian-agent/rules/.',
@@ -498,7 +497,7 @@ export const en: Translations = {
     'settings.rules.importFailed': 'Could not import rule',
 
     // =========================================================================
-    // Settings — Workflows Tab
+    // Settings -- Workflows Tab
     // =========================================================================
     'settings.workflows.heading': 'Workflows',
     'settings.workflows.desc': 'Workflows are triggered by typing /workflow-name in the chat. Store workflow files as .md or .txt in your vault at .obsidian-agent/workflows/.',
@@ -517,7 +516,7 @@ export const en: Translations = {
     'settings.workflows.importFailed': 'Could not import workflow',
 
     // =========================================================================
-    // Settings — Skills Tab
+    // Settings -- Skills Tab
     // =========================================================================
     'settings.skills.introTitle': 'Skills',
     'settings.skills.introDesc': 'Step-by-step guides the agent loads on demand for specific task types (e.g. "ingest a PDF", "draft a meeting summary"). The agent picks them based on what you ask.',
@@ -560,7 +559,7 @@ export const en: Translations = {
     'settings.skills.communityPlugins': 'Community plugin skills ({{count}})',
 
     // =========================================================================
-    // Settings — Prompts Tab
+    // Settings -- Prompts Tab
     // =========================================================================
     'settings.prompts.heading': 'Prompts',
     'settings.prompts.desc': 'Create your own prompt templates. Type / in the chat to trigger them. Use {{userInput}} to insert your current message text, and {{activeFile}} to insert the name of the active note.',
@@ -589,7 +588,7 @@ export const en: Translations = {
     'settings.prompts.importFailed': 'Could not import prompt',
 
     // =========================================================================
-    // Settings — Interface Tab
+    // Settings -- Interface Tab
     // =========================================================================
     'settings.interface.introTitle': 'Interface',
     'settings.interface.introDesc': 'Chat behaviour you see every day: keyboard shortcuts, auto-attaching the open note, where chat history is saved.',
@@ -629,7 +628,7 @@ export const en: Translations = {
     'settings.interface.chatLinkingSelectModel': 'No semantic titling',
 
     // =========================================================================
-    // Settings — Shell Tab
+    // Settings -- Shell Tab
     // =========================================================================
     'settings.shell.introTitle': 'External commands',
     'settings.shell.introDesc': 'Lets the agent run other plugins (Dataview, Templater, Pandoc) and a few sandboxed system commands. Off by default.',
@@ -652,7 +651,7 @@ export const en: Translations = {
     'settings.shell.remove': 'Remove',
 
     // =========================================================================
-    // Settings — Log Tab
+    // Settings -- Log Tab
     // =========================================================================
     'settings.log.introTitle': 'Activity log',
     'settings.log.introDesc': 'What the agent did and when. Kept for 30 days, useful to retrace a task or report a bug.',
@@ -679,7 +678,7 @@ export const en: Translations = {
     'settings.log.durationMs': '{{ms}} ms',
 
     // =========================================================================
-    // Settings — Debug Tab
+    // Settings -- Debug Tab
     // =========================================================================
     'settings.debug.introTitle': 'Debug mode',
     'settings.debug.introDesc': 'Verbose logs in the browser console (Ctrl+Shift+I). Turn on when something misbehaves, off otherwise.',
@@ -703,7 +702,7 @@ export const en: Translations = {
     'settings.tab.optionalAssets': 'Optional assets',
 
     // =========================================================================
-    // Settings — Backup Tab
+    // Settings -- Backup Tab
     // =========================================================================
     'settings.backup.introTitle': 'Backup',
     'settings.backup.introDesc': 'Export everything (settings, memory, history, skills, workflows) to one file. Import to restore or to move to a new device.',
@@ -745,7 +744,7 @@ export const en: Translations = {
     'settings.backup.importFailed': 'Import failed: {{error}}',
 
     // =========================================================================
-    // Settings — Vault Tab
+    // Settings -- Vault Tab
     // =========================================================================
     'settings.vault.desc': 'Checkpoints snapshot each file before the agent first modifies it. After a task you can undo all changes with one click.',
     'settings.vault.headingCheckpoints': 'Checkpoints',
@@ -758,7 +757,7 @@ export const en: Translations = {
     'settings.vault.autoCleanupDesc': 'Delete the backup copies once a task finishes. Saves disk space. Disable if you want to review the backups manually after a task.',
 
     // =========================================================================
-    // Settings — Vault Tab: Task Extraction
+    // Settings -- Vault Tab: Task Extraction
     // =========================================================================
     'settings.vault.taskExtraction': 'Task extraction',
     'settings.vault.sectionTaskExtractionInfo': 'When the agent writes a response that contains task checkboxes (`- [ ] do something`), Vault Operator can pull those tasks out and create individual task notes with frontmatter (status, source chat, due date if mentioned). Useful for "extract todos from this meeting transcript" workflows.',
@@ -773,7 +772,7 @@ export const en: Translations = {
     'settings.vault.sectionAgentFolderInfo': 'Where Vault Operator keeps its own data inside the vault: plugin skills, the vault-DNA snapshot, externalised tmp results, the knowledge and memory databases. Change this if you want the plugin\'s files in a specific location (for example excluded from Obsidian Sync). Existing files are not auto-migrated when you change the path; use the "Migrate data" button below.',
     'settings.vault.agentFolderDesc': 'Vault-relative folder where the plugin keeps its own files: plugin skills, the vault-DNA snapshot, externalised tmp results, and the local knowledge database. Existing files are not auto-migrated when you change this path.',
     'settings.vault.agentFolder': 'Folder',
-    'settings.vault.agentFolderFieldDesc': 'Default is a hidden folder inside your vault. Use the picker to open your native folder dialog, or type a path. Folders outside the vault are partially supported in this release — plugin skills, tmp results, and the local knowledge database continue to live inside the vault.',
+    'settings.vault.agentFolderFieldDesc': 'Default is a hidden folder inside your vault. Use the picker to open your native folder dialog, or type a path. Folders outside the vault are partially supported in this release. Plugin skills, tmp results, and the local knowledge database continue to live inside the vault.',
     'settings.vault.agentFolderPick': 'Pick folder…',
     'settings.vault.agentFolderMigrate': 'Migrate data',
     'settings.vault.agentFolderMigrateDesc': 'Copy plugin skills, vault-DNA snapshot, and the knowledge / memory databases from an older agent folder into the current one. Originals stay in place. Delete them manually after you confirmed the new location works. Reload Obsidian after migration so the databases open at the new path.',
@@ -782,7 +781,7 @@ export const en: Translations = {
     'settings.vault.sectionIngestInfo': 'Builds a wiki-like layer on top of the vault: per-note summaries, optional frontmatter mirroring, and automatic triage of inbox notes based on a frontmatter property. Everything is off by default. Auto-trigger changes require a plugin reload to take effect.',
 
     // =========================================================================
-    // Settings — Visual Intelligence Tab
+    // Settings -- Visual Intelligence Tab
     // =========================================================================
     'settings.visual.libreOffice': '`LibreOffice`',
     'settings.visual.libreOfficeNotFound': '`LibreOffice` not found',
@@ -791,7 +790,7 @@ export const en: Translations = {
     'settings.visual.customLibreOfficePath': 'Custom `LibreOffice` path',
 
     // =========================================================================
-    // UI — Task Selection Modal
+    // UI -- Task Selection Modal
     // =========================================================================
     'ui.taskSelection.title': '{{count}} task(s) detected',
     'ui.taskSelection.subtitle': 'Which tasks should be created as task notes?',
@@ -804,7 +803,7 @@ export const en: Translations = {
     'ui.taskSelection.due': 'Due: {{date}}',
 
     // =========================================================================
-    // Notices — Task Extraction
+    // Notices -- Task Extraction
     // =========================================================================
     'notice.taskNotesCreated': '{{count}} task note(s) created{{format}}',
     'notice.taskNotesCreatedFormatSuffix': ' (`TaskNotes` format)',
@@ -812,23 +811,14 @@ export const en: Translations = {
     'notice.taskExtractionError': 'Task extraction error: {{error}}',
 
     // =========================================================================
-    // Settings — Language Tab
-    // =========================================================================
-    'settings.language.introTitle': 'Display language',
-    'settings.language.introDesc': 'Choose the language for the plugin interface. Communication with the agent can happen in any language, regardless of this setting.',
-    'settings.language.language': 'Language',
-    'settings.language.languageDesc': 'Select the display language for the plugin interface. English is the fallback for untranslated strings.',
-    'settings.language.restartHint': 'Restart Obsidian for all changes to take effect.',
-
-    // =========================================================================
-    // Constants — Provider Labels
+    // Constants -- Provider Labels
     // Brand names moved to src/ui/settings/constants.ts (not locale-dependent).
     // Only translatable labels remain here.
     // =========================================================================
     'provider.custom': 'Custom',
 
     // =========================================================================
-    // Constants — Tool Labels
+    // Constants -- Tool Labels
     // =========================================================================
     'tool.read_file': 'Read file',
     'tool.read_file.desc': 'Read the contents of a vault file',
@@ -896,7 +886,7 @@ export const en: Translations = {
     'tool.use_mcp_tool.desc': 'Call an external tool via a protocol server',
 
     // =========================================================================
-    // Constants — Tool Group Labels
+    // Constants -- Tool Group Labels
     // =========================================================================
     'toolGroup.read': 'Read files',
     'toolGroup.read.desc': 'Read and search vault files',
@@ -912,7 +902,7 @@ export const en: Translations = {
     'toolGroup.mcp.desc': 'Call external tools via configured protocol servers',
 
     // =========================================================================
-    // Chat UI — Sidebar
+    // Chat UI -- Sidebar
     // =========================================================================
     'ui.sidebar.title': 'Vault Operator',
     'ui.sidebar.settings': 'Settings',
@@ -981,7 +971,7 @@ export const en: Translations = {
     'ui.sidebar.activityCount': '{{count}} action(s)',
 
     // =========================================================================
-    // Chat UI — Options Menu
+    // Chat UI -- Options Menu
     // =========================================================================
     'ui.menu.refreshIndex': 'Refresh index (current file)',
     'ui.menu.forceReindex': 'Force reindex vault',
@@ -990,7 +980,7 @@ export const en: Translations = {
     'ui.menu.autoAcceptEdits': 'Auto-accept edits',
 
     // =========================================================================
-    // Chat UI — Tool Activity Labels
+    // Chat UI -- Tool Activity Labels
     // =========================================================================
     'ui.toolActivity.readFile': 'Reading file',
     'ui.toolActivity.readFiles': 'Reading files',
@@ -1009,14 +999,14 @@ export const en: Translations = {
     'ui.toolActivity.semanticSearches': 'Semantic searches',
 
     // =========================================================================
-    // Chat UI — Question Card
+    // Chat UI -- Question Card
     // =========================================================================
     'ui.question.confirm': 'Confirm selection',
     'ui.question.placeholder': 'Type your answer...',
     'ui.question.answer': 'Answer',
 
     // =========================================================================
-    // Chat UI — Approval Card
+    // Chat UI -- Approval Card
     // =========================================================================
     'ui.approval.noteEdits': 'Note edits',
     'ui.approval.vaultChanges': 'Vault changes',
@@ -1064,7 +1054,7 @@ export const en: Translations = {
     'ui.approval.explain.hideDetails': 'Hide details',
 
     // =========================================================================
-    // Chat UI — Checkpoint
+    // Chat UI -- Checkpoint
     // =========================================================================
     'ui.checkpoint.label': 'Checkpoint \u00B7 {{files}} \u00B7 {{time}}',
     'ui.checkpoint.restore': 'Restore checkpoint',
@@ -1082,7 +1072,7 @@ export const en: Translations = {
     'ui.checkpoint.failed': 'Failed',
 
     // =========================================================================
-    // Chat UI — Undo Bar
+    // Chat UI -- Undo Bar
     // =========================================================================
     'ui.undo.modified': 'Agent modified {{count}} file(s).',
     'ui.undo.undoAll': 'Undo all changes',
@@ -1092,7 +1082,7 @@ export const en: Translations = {
     'ui.undo.restoreFailed': 'Restore failed. See console.',
 
     // =========================================================================
-    // Chat UI — Error Messages
+    // Chat UI -- Error Messages
     // =========================================================================
     'ui.error.invalidKey': 'Invalid API key. Check the agent settings.',
     'ui.error.modelNotFound': 'Model not found. Verify the model ID in the agent settings.',
@@ -1187,7 +1177,7 @@ export const en: Translations = {
     'ui.attachment.largeDocument': '"{{name}}" is very large. Content may be condensed during the conversation.',
 
     // =========================================================================
-    // Modal — New Mode
+    // Modal -- New Mode
     // =========================================================================
     'modal.newMode.title': 'New agent',
     'modal.newMode.name': 'Name',
@@ -1213,7 +1203,7 @@ export const en: Translations = {
     'modal.newMode.roleRequired': 'Role definition is required',
 
     // =========================================================================
-    // Modal — Model Config
+    // Modal -- Model Config
     // =========================================================================
     'modal.modelConfig.addModel': 'Add model',
     'modal.modelConfig.addEmbedding': 'Add embedding model',
@@ -1239,8 +1229,8 @@ export const en: Translations = {
     'modal.modelConfig.apiVersionPlaceholder': '2024-10-21',
     'modal.modelConfig.maxTokens': 'Max output tokens',
     'modal.modelConfig.maxTokensDesc': 'Cap on tokens generated per response (answer plus tool calls; with extended thinking the reasoning budget is added on top)',
-    'modal.modelConfig.maxTokensAuto': 'Automatic (recommended) — sized per model, automatically reduced when the prompt is large',
-    'modal.modelConfig.maxTokensNote': 'Manual override. This is an upper bound, not a cost lever — you are billed for the tokens actually generated, not for the limit. Set it low only to bound latency; too low truncates long answers and tool calls and triggers retry loops. The slider is capped at the model\'s real output ceiling.',
+    'modal.modelConfig.maxTokensAuto': 'Automatic (recommended): sized per model, automatically reduced when the prompt is large',
+    'modal.modelConfig.maxTokensNote': 'Manual override. This is an upper bound, not a cost lever: you are billed for the tokens actually generated, not for the limit. Set it low only to bound latency; too low truncates long answers and tool calls and triggers retry loops. The slider is capped at the model\'s real output ceiling.',
     'modal.modelConfig.maxTokensUseRecommended': 'Use recommended ({{value}})',
     'modal.modelConfig.maxTokensUseRecommendedTitle': 'Use the recommended max output tokens for this model',
     'modal.modelConfig.maxTokensPlaceholder': '32000',
@@ -1285,7 +1275,7 @@ export const en: Translations = {
     'modal.modelConfig.urlHint.custom': 'Include /v1 suffix, e.g. http://localhost:1234/v1',
 
     // =========================================================================
-    // Modal — Code Import
+    // Modal -- Code Import
     // =========================================================================
     'modal.codeImport.title': 'Import models from code',
     'modal.codeImport.tag': 'Experimental',
@@ -1315,14 +1305,14 @@ export const en: Translations = {
     'modal.codeImport.noModelsNotice': 'No models found.',
 
     // =========================================================================
-    // Modal — System Prompt Preview
+    // Modal -- System Prompt Preview
     // =========================================================================
     'modal.promptPreview.title': 'System prompt: {{mode}}',
     'modal.promptPreview.copy': 'Copy to clipboard',
     'modal.promptPreview.copied': 'Copied!',
 
     // =========================================================================
-    // Modal — Chat History
+    // Modal -- Chat History
     // =========================================================================
     'modal.chatHistory.title': 'Chat history',
     'modal.chatHistory.empty': 'No saved conversations yet. Conversations are saved automatically after each task.',
@@ -1332,29 +1322,7 @@ export const en: Translations = {
     'modal.chatHistory.emptyAfterDelete': 'No saved conversations yet.',
 
     // =========================================================================
-    // Modal — Diff Review
-    // =========================================================================
-    'modal.diffReview.titleCheckpoint': 'Checkpoint diff',
-    'modal.diffReview.titleReview': 'Review changes ({{count}} file(s))',
-    'modal.diffReview.noChanges': 'No changes',
-    'modal.diffReview.unchangedLines': '... {{count}} unchanged lines',
-    'modal.diffReview.keep': 'Keep',
-    'modal.diffReview.undo': 'Undo',
-    'modal.diffReview.edit': 'Edit',
-    'modal.diffReview.editLabel': 'Edit section content:',
-    'modal.diffReview.cancelEdit': 'Cancel',
-    'modal.diffReview.applyEdit': 'Apply edit',
-    'modal.diffReview.undoAll': 'Undo all',
-    'modal.diffReview.applySelected': 'Apply selected',
-    'modal.diffReview.keepAll': 'Keep all',
-    'modal.diffReview.close': 'Close',
-    'modal.diffReview.restoreCheckpoint': 'Restore to this checkpoint',
-    'modal.diffReview.restoring': 'Restoring...',
-    'modal.diffReview.restored': 'Restored',
-    'modal.diffReview.failed': 'Failed',
-
-    // =========================================================================
-    // Modal — Vault Health Repair
+    // Modal -- Vault Health Repair
     // =========================================================================
     'modal.vaultHealth.title': 'Vault health check',
     'modal.vaultHealth.checkOrphans': 'Orphaned notes (no incoming links)',
@@ -1397,11 +1365,11 @@ export const en: Translations = {
     'plugin.commandOpen': 'Open agent sidebar',
 
     // =========================================================================
-    // Onboarding (German UI — localized per language)
+    // Onboarding (German UI -- localized per language)
     // =========================================================================
     'onboarding.welcome.heading': 'Welcome to the agent',
     'onboarding.welcome.modelNeeded': 'Before we start, the agent needs access to a language model.',
-    'onboarding.welcome.quickFree': 'Pick a provider, paste an API key, test the connection — done in under a minute.',
+    'onboarding.welcome.quickFree': 'Pick a provider, paste an API key, test the connection. Done in under a minute.',
     'onboarding.welcome.setupButton': 'Set up a model',
     'onboarding.welcome.freeButton': 'Try for free',
     'onboarding.welcome.apiKeyButton': 'I have an API key',
@@ -1534,7 +1502,7 @@ export const en: Translations = {
     'settings.providers.empty': 'No providers configured yet. Add one below.',
     'settings.providers.activeLabel': 'Active provider',
     'settings.providers.activeDesc': 'This provider drives the chat; switch per situation, for example privacy-sensitive notes on a local model.',
-    'settings.providers.activeNone': '— none —',
+    'settings.providers.activeNone': '(none)',
     'settings.providers.activeBadge': 'Active',
     'settings.providers.notConfigured': 'Not configured',
     'settings.providers.rowSummary': '{{count}} models · {{flagship}} / {{mid}} / {{fast}}',
@@ -1589,14 +1557,14 @@ export const en: Translations = {
     'settings.providers.refreshDone': 'Models refreshed.',
     'settings.providers.refreshFailed': 'Refresh failed: {{msg}}',
     'settings.providers.refreshUnavailable': 'Discovery service is not ready yet. Try again in a moment.',
-    'settings.providers.advisorDisabled': 'Advisor pattern disabled for this provider — no flagship-tier model.',
+    'settings.providers.advisorDisabled': 'Advisor pattern disabled for this provider: no flagship-tier model.',
     'settings.providers.removeProvider': 'Remove provider',
     'settings.providers.removeDesc': 'Deletes credentials and tier mapping for this provider. Original models stay in legacy_active_models_backup.',
     'settings.providers.removeConfirm': 'Remove provider "{{name}}"? This deletes its credentials and tier mapping.',
     'settings.providers.addProviderLabel': 'Add provider',
     'settings.providers.addProviderDesc': 'Pick the provider type to add; multiple instances of the same type are allowed (for example two accounts of the same provider).',
     'settings.providers.addProvider': 'Add provider',
-    'settings.providers.choosePicker': '— choose a provider type —',
+    'settings.providers.choosePicker': '(choose a provider type)',
     'settings.providers.duplicateSuffix': 'Second instance',
     'settings.providers.tier.fast': 'Budget tier',
     'settings.providers.tier.mid': 'Main tier',
@@ -1605,7 +1573,7 @@ export const en: Translations = {
     'settings.providers.tier.midDesc': 'Default main-loop model in auto mode; balanced for cost and capability.',
     'settings.providers.tier.flagshipDesc': 'Most capable model; used by the consult-flagship escalation for one-shot synthesis steps. Empty disables the advisor pattern.',
     'settings.providers.tier.autoLabel': 'Auto → {{name}}',
-    'settings.providers.tier.autoEmpty': '— no auto match —',
+    'settings.providers.tier.autoEmpty': '(no auto match)',
     'settings.providers.tier.autoDetected': 'Auto-detected',
     'settings.providers.tier.manuallySet': 'Manually set',
     'settings.providers.tier.empty': 'Not assigned',
@@ -1673,4 +1641,4 @@ export const en: Translations = {
     'ui.sidebar.effortXhigh': 'Xhigh',
     'ui.sidebar.effortMax': 'Max',
     'ui.sidebar.effortAutoHint': 'Effort is set automatically while routing is on. Pin a model to control it.',
-};
+} satisfies Translations;
