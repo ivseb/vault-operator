@@ -15,6 +15,7 @@
 
 import { Notice, normalizePath } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { t } from '../../i18n';
 import {
     DEFAULT_AGENT_FOLDER,
     getAgentFolderPath,
@@ -52,8 +53,7 @@ export class AgentFolderService {
         if (prev === next) return;
 
         new Notice(
-            `Agent folder set to "${newPath}". Existing files at "${previousPath}" are NOT moved automatically — use "Migrate data" below to carry them over. `
-                + `Reload Obsidian once migration is done so the knowledge and memory databases open at the new location.`,
+            t('notice.agentFolder.changed', { newPath, previousPath }),
             12_000,
         );
     }

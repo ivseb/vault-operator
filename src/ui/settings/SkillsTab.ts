@@ -127,17 +127,17 @@ export class SkillsTab {
         // Obsidian (iCloud sync lag, external editor) so the file-watcher
         // didn't pick up the change.
         const reloadSkillsBtn = createRow.createEl('button', {
-            text: 'Reload skills',
+            text: t('settings.skills.reload'),
             cls: 'agent-rules-import-btn',
-            attr: { 'aria-label': 'Rescan skill folders on disk' },
+            attr: { 'aria-label': t('settings.skills.reloadAriaLabel') },
         });
         reloadSkillsBtn.addEventListener('click', () => { void (async () => {
             const loader = this.plugin.selfAuthoredSkillLoader;
-            if (!loader) { new Notice('Skill loader not ready.'); return; }
+            if (!loader) { new Notice(t('settings.skills.loaderNotReady')); return; }
             await loader.refresh();
             await refreshList();
             const count = loader.getAllSkills().length;
-            new Notice(`Rescanned skills (${count} active).`);
+            new Notice(t('settings.skills.rescanned', { count }));
         })(); });
 
         // -- Skill list --
@@ -159,7 +159,7 @@ export class SkillsTab {
             const hr = thead.createEl('tr');
             hr.createEl('th', { text: '', cls: 'agent-skill-th-status' });
             hr.createEl('th', { text: t('settings.skills.headerSkill') });
-            const sourceTh = hr.createEl('th', { text: 'Source', cls: 'agent-skill-th-cmds' });
+            const sourceTh = hr.createEl('th', { text: t('settings.skills.headerSource'), cls: 'agent-skill-th-cmds' });
             setTooltip(sourceTh, SOURCE_TOOLTIP);
             hr.createEl('th', { text: '', cls: 'agent-skill-th-actions' });
             hr.createEl('th', { text: t('settings.skills.headerAgent'), cls: 'agent-skill-th-toggle' });
@@ -200,7 +200,7 @@ export class SkillsTab {
                 const actionsTd = tr.createEl('td', { cls: 'agent-skill-actions-cell' });
                 const menuBtn = actionsTd.createEl('button', {
                     cls: 'agent-skill-action-btn agent-skill-action-menu',
-                    attr: { 'aria-label': 'Skill actions' },
+                    attr: { 'aria-label': t('settings.skills.actionsAriaLabel') },
                 });
                 setIcon(menuBtn, 'more-horizontal');
                 menuBtn.addEventListener('click', (evt) => {
@@ -211,7 +211,7 @@ export class SkillsTab {
                             .onClick(() => { void this.openSkillFolder(skill); }),
                     );
                     menu.addItem((item) =>
-                        item.setTitle('Show versions')
+                        item.setTitle(t('settings.skills.showVersions'))
                             .setIcon('history')
                             .onClick(() => { this.openSkillVersionsModal(skill); }),
                     );
@@ -384,7 +384,7 @@ export class SkillsTab {
             }
 
             if (!folderRelative) {
-                new Notice('Cannot resolve folder for this skill');
+                new Notice(t('settings.skills.cannotResolveFolder'));
                 return;
             }
 
@@ -397,7 +397,7 @@ export class SkillsTab {
                 ? adapter.getFullPath(folderRelative)
                 : (adapter.getBasePath ? `${adapter.getBasePath()}/${folderRelative}` : null);
             if (!absPath) {
-                new Notice('Cannot resolve absolute path');
+                new Notice(t('settings.skills.cannotResolvePath'));
                 return;
             }
 
@@ -407,10 +407,10 @@ export class SkillsTab {
                 ? await electron.shell.openPath(absPath)
                 : 'electron.shell.openPath unavailable';
             if (result) {
-                new Notice(`Open folder failed: ${result}`);
+                new Notice(t('settings.skills.openFolderFailed', { reason: result }));
             }
         } catch (e) {
-            new Notice('Failed to open skill folder');
+            new Notice(t('settings.skills.openSkillFolderFailed'));
             console.error('[SkillsTab] openSkillFolder failed:', e);
         }
     }
@@ -424,7 +424,7 @@ export class SkillsTab {
         try {
             const folder = getPluginSkillFolderPath(this.plugin, skill.id);
             if (!folder) {
-                new Notice('Plugin-skill folder not available pre-migration');
+                new Notice(t('settings.skills.pluginFolderUnavailable'));
                 return;
             }
             const adapter = this.plugin.app.vault.adapter as unknown as {
@@ -435,7 +435,7 @@ export class SkillsTab {
                 ? adapter.getFullPath(folder)
                 : (adapter.getBasePath ? `${adapter.getBasePath()}/${folder}` : null);
             if (!absPath) {
-                new Notice('Cannot resolve absolute path');
+                new Notice(t('settings.skills.cannotResolvePath'));
                 return;
             }
             // eslint-disable-next-line @typescript-eslint/no-require-imports -- electron is the standard Obsidian-desktop dep, no runtime install needed
@@ -444,10 +444,10 @@ export class SkillsTab {
                 ? await electron.shell.openPath(absPath)
                 : 'electron.shell.openPath unavailable';
             if (result) {
-                new Notice(`Open folder failed: ${result}`);
+                new Notice(t('settings.skills.openFolderFailed', { reason: result }));
             }
         } catch (e) {
-            new Notice('Failed to open plugin-skill folder');
+            new Notice(t('settings.skills.openPluginFolderFailed'));
             console.error('[SkillsTab] openPluginSkillFolder failed:', e);
         }
     }
@@ -459,7 +459,7 @@ export class SkillsTab {
     private openSkillVersionsModal(skill: UnifiedSkill): void {
         const service = this.plugin.skillSnapshotService;
         if (!service) {
-            new Notice('Skill versioning service not available.');
+            new Notice(t('settings.skills.versioningUnavailable'));
             return;
         }
         new SkillVersionsModal(this.app, skill.name, service).open();
@@ -492,7 +492,7 @@ export class SkillsTab {
             }
 
             if (!skillDir || !(await adapter.exists(skillDir))) {
-                new Notice('Skill folder not found');
+                new Notice(t('settings.skills.folderNotFound'));
                 return;
             }
 
@@ -501,7 +501,7 @@ export class SkillsTab {
             const blob = await zip.generateAsync({ type: 'blob' });
             this.triggerDownload(blob, `${skill.name}.zip`);
         } catch (e) {
-            new Notice('Failed to export skill');
+            new Notice(t('settings.skills.exportFailed'));
             console.error('[SkillsTab] Export failed:', e);
         }
     }
@@ -639,7 +639,7 @@ export class SkillsTab {
             // Reload if loader available
             if (loader) await loader.loadAll();
 
-            new Notice(`Skill "${skill.name}" deleted`);
+            new Notice(t('settings.skills.deleted', { name: skill.name }));
         } catch (e) {
             new Notice(t('settings.skills.deleteFailed'));
             console.error('[SkillsTab] Delete failed:', e);
@@ -859,11 +859,11 @@ export class SkillsTab {
         refreshList: () => Promise<void>,
     ): Promise<void> {
         const pick = await dialog.showOpenDialog({
-            title: 'Import skill',
+            title: t('settings.skills.importDialogTitle'),
             properties: ['openFile', 'openDirectory'],
             filters: [
-                { name: 'Skill files', extensions: ['md', 'zip', 'skill'] },
-                { name: 'All files', extensions: ['*'] },
+                { name: t('settings.skills.importFilterSkillFiles'), extensions: ['md', 'zip', 'skill'] },
+                { name: t('settings.skills.importFilterAllFiles'), extensions: ['*'] },
             ],
         });
         if (pick.canceled || pick.filePaths.length === 0) return;
@@ -875,26 +875,24 @@ export class SkillsTab {
         } catch (e) {
             if (this.isDuplicate(e)) {
                 const replace = await confirmModal(this.app, {
-                    title: 'Skill already exists',
-                    message:
-                        `A skill with the same slug is already installed.\n\n`
-                        + `Replace it with the new version? This overwrites all files in that skill folder.`,
-                    confirmLabel: 'Replace',
+                    title: t('settings.skills.duplicateTitle'),
+                    message: t('settings.skills.duplicateMessage'),
+                    confirmLabel: t('settings.skills.replaceButton'),
                     destructive: true,
                 });
                 if (!replace) {
-                    new Notice('Skill import cancelled.');
+                    new Notice(t('settings.skills.importCancelled'));
                     return;
                 }
                 try {
                     const result = await this.runImportForPath(chosen, targetSkillsDir, adapter, true);
                     await this.finishImport(result, refreshList);
                 } catch (inner) {
-                    new Notice(`Skill import failed: ${this.errorMessage(inner)}`, 8000);
+                    new Notice(t('settings.skills.importFailedReason', { reason: this.errorMessage(inner) }), 8000);
                 }
                 return;
             }
-            new Notice(`Skill import failed: ${this.errorMessage(e)}`, 8000);
+            new Notice(t('settings.skills.importFailedReason', { reason: this.errorMessage(e) }), 8000);
         }
     }
 
@@ -960,21 +958,21 @@ export class SkillsTab {
             } catch (e) {
                 if (this.isDuplicate(e)) {
                     const replace = await confirmModal(this.app, {
-                        title: 'Skill already exists',
-                        message: 'A skill with the same slug is already installed. Replace it with the new version?',
-                        confirmLabel: 'Replace',
+                        title: t('settings.skills.duplicateTitle'),
+                        message: t('settings.skills.duplicateMessageShort'),
+                        confirmLabel: t('settings.skills.replaceButton'),
                         destructive: true,
                     });
-                    if (!replace) { new Notice('Skill import cancelled.'); return; }
+                    if (!replace) { new Notice(t('settings.skills.importCancelled')); return; }
                     try {
                         const result = await doImport(true);
                         await this.finishImport(result, refreshList);
                     } catch (inner) {
-                        new Notice(`Skill import failed: ${this.errorMessage(inner)}`, 8000);
+                        new Notice(t('settings.skills.importFailedReason', { reason: this.errorMessage(inner) }), 8000);
                     }
                     return;
                 }
-                new Notice(`Skill import failed: ${this.errorMessage(e)}`, 8000);
+                new Notice(t('settings.skills.importFailedReason', { reason: this.errorMessage(e) }), 8000);
             }
         })(); });
         fileInput.click();
@@ -989,18 +987,18 @@ export class SkillsTab {
         await refreshList();
         const written = result.writtenFiles.length;
         const kindLabel = result.kind === 'zip'
-            ? 'skill package'
+            ? t('settings.skills.importKindZip')
             : result.kind === 'folder'
-                ? 'skill folder'
-                : 'single-file skill';
-        new Notice(`Imported ${kindLabel} "${result.slug}" (${written} file${written === 1 ? '' : 's'}).`);
+                ? t('settings.skills.importKindFolder')
+                : t('settings.skills.importKindSingleFile');
+        new Notice(t('settings.skills.imported', { kind: kindLabel, slug: result.slug, count: written }));
     }
 
     private errorMessage(e: unknown): string {
         const raw = (e as { message?: unknown })?.message;
         if (typeof raw === 'string') return raw;
         if (typeof e === 'string') return e;
-        return 'unknown error';
+        return t('settings.skills.unknownError');
     }
 }
 

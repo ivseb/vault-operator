@@ -118,8 +118,8 @@ export class InterfaceTab {
             );
 
         new Setting(containerEl)
-            .setName('Open sidebar chat on start')
-            .setDesc('When on, the sidebar chat opens automatically when Obsidian starts or the plugin reloads. Turn off if you mostly use the inline chat. The sidebar still opens on demand via the ribbon, the command palette, or the inline chat send-to-sidebar button.')
+            .setName(t('settings.interface.autoOpenSidebar'))
+            .setDesc(t('settings.interface.autoOpenSidebarDesc'))
             .addToggle((toggle) =>
                 toggle
                     .setValue(this.plugin.settings.autoOpenSidebarOnStart ?? true)

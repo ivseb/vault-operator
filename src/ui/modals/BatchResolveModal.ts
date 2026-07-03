@@ -11,6 +11,7 @@
  */
 
 import { Modal, Notice, TFile } from 'obsidian';
+import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import type {
     ReviewRow,
@@ -47,8 +48,8 @@ export class BatchResolveModal extends Modal {
         contentEl.empty();
         contentEl.addClass('batch-resolve-modal');
 
-        contentEl.createEl('h3', { text: 'Batch resolve knowledge' });
-        contentEl.createEl('p', { text: `${this.rows.length} rows in the current view.` });
+        contentEl.createEl('h3', { text: t('modal.batchResolve.title') });
+        contentEl.createEl('p', { text: t('modal.batchResolve.rowsInView', { count: this.rows.length }) });
 
         this.renderFilters(contentEl);
         const previewEl = contentEl.createDiv('batch-resolve-preview');
@@ -57,7 +58,7 @@ export class BatchResolveModal extends Modal {
         const update = () => {
             const matched = this.filteredRows();
             previewEl.empty();
-            previewEl.createEl('strong', { text: `Will affect ${matched.length} rows.` });
+            previewEl.createEl('strong', { text: t('modal.batchResolve.willAffect', { count: matched.length }) });
             counterEl.empty();
         };
 
@@ -71,8 +72,8 @@ export class BatchResolveModal extends Modal {
         update();
 
         const buttonRow = contentEl.createDiv('batch-resolve-actions');
-        const runBtn = buttonRow.createEl('button', { text: 'Run' });
-        const abortBtn = buttonRow.createEl('button', { text: 'Abort', cls: 'mod-warning' });
+        const runBtn = buttonRow.createEl('button', { text: t('modal.batchResolve.runBtn') });
+        const abortBtn = buttonRow.createEl('button', { text: t('modal.batchResolve.abortBtn'), cls: 'mod-warning' });
         abortBtn.disabled = true;
 
         runBtn.addEventListener('click', () => {
@@ -82,8 +83,8 @@ export class BatchResolveModal extends Modal {
                 // destructive action. Mark-verified stays one-click.
                 if (this.action === 'delete') {
                     const ok = await this.confirmDestructive(
-                        'Delete batch',
-                        `Move ${targets.length} notes to the system trash?`,
+                        t('modal.batchResolve.deleteConfirmTitle'),
+                        t('modal.batchResolve.deleteConfirmMessage', { count: targets.length }),
                     );
                     if (!ok) return;
                 }
@@ -108,7 +109,7 @@ export class BatchResolveModal extends Modal {
 
     private renderFilters(parent: HTMLElement): void {
         const sevRow = parent.createDiv('batch-resolve-filter-row');
-        sevRow.createEl('strong', { text: 'Severities' });
+        sevRow.createEl('strong', { text: t('modal.batchResolve.severities') });
         for (const sev of ALL_SEVERITIES) {
             const label = sevRow.createEl('label', { cls: 'batch-resolve-filter-label' });
             const input = label.createEl('input', { type: 'checkbox' });
@@ -121,7 +122,7 @@ export class BatchResolveModal extends Modal {
         }
 
         const confRow = parent.createDiv('batch-resolve-filter-row');
-        confRow.createEl('strong', { text: 'Min confidence' });
+        confRow.createEl('strong', { text: t('modal.batchResolve.minConfidence') });
         const confInput = confRow.createEl('input', { type: 'number' });
         confInput.value = '0';
         confInput.min = '0';
@@ -133,11 +134,11 @@ export class BatchResolveModal extends Modal {
         });
 
         const actionRow = parent.createDiv('batch-resolve-filter-row');
-        actionRow.createEl('strong', { text: 'Action' });
+        actionRow.createEl('strong', { text: t('modal.batchResolve.action') });
         const select = actionRow.createEl('select');
-        const optVerified = select.createEl('option', { text: 'Mark verified', value: 'mark-verified' });
+        const optVerified = select.createEl('option', { text: t('modal.resolveConflict.markVerified'), value: 'mark-verified' });
         optVerified.selected = true;
-        select.createEl('option', { text: 'Delete', value: 'delete' });
+        select.createEl('option', { text: t('modal.chatHistory.delete'), value: 'delete' });
         select.addEventListener('change', () => {
             this.action = select.value as BatchAction;
         });
@@ -169,9 +170,11 @@ export class BatchResolveModal extends Modal {
                 failed++;
             }
             counterEl.empty();
-            counterEl.appendText(`Processed ${done}/${rows.length} (${failed} failed)`);
+            counterEl.appendText(t('modal.batchResolve.progress', { done, total: rows.length, failed }));
         }
-        new Notice(`Batch complete: ${done} done, ${failed} failed${this.aborted ? ', aborted' : ''}`);
+        new Notice(this.aborted
+            ? t('notice.knowledgeReview.batchCompleteAborted', { done, failed })
+            : t('notice.knowledgeReview.batchComplete', { done, failed }));
         this.opts.onChange();
     }
 
@@ -200,8 +203,8 @@ export class BatchResolveModal extends Modal {
                     contentEl.createEl('h3', { text: title });
                     contentEl.createEl('p', { text: message });
                     const row = contentEl.createDiv('batch-resolve-confirm');
-                    const cancel = row.createEl('button', { text: 'Cancel' });
-                    const ok = row.createEl('button', { text: 'Delete', cls: 'mod-warning' });
+                    const cancel = row.createEl('button', { text: t('modal.newMode.cancel') });
+                    const ok = row.createEl('button', { text: t('modal.chatHistory.delete'), cls: 'mod-warning' });
                     cancel.addEventListener('click', () => { this.close(); resolve(false); });
                     ok.addEventListener('click', () => { this.close(); resolve(true); });
                 }

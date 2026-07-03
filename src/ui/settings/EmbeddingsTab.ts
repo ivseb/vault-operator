@@ -160,34 +160,30 @@ export class EmbeddingsTab {
         // this CTA replaces them with the freshly-parsed text.
         if (this.plugin.settings.semanticIndexPdfs && !this.plugin.settings._pdfReindexCompleted) {
             const reindexSetting = new Setting(containerEl)
-                .setName('Reindex PDFs only')
-                .setDesc(
-                    'One-time cleanup after the v2.14.10 PDF parsing fix. ' +
-                    'Drops every PDF vector and re-embeds against the freshly-parsed text. ' +
-                    'Other file types stay untouched.',
-                );
+                .setName(t('settings.embeddings.pdfReindexName'))
+                .setDesc(t('settings.embeddings.pdfReindexDesc'));
             const progressEl = reindexSetting.descEl.createDiv('agent-pdf-reindex-progress');
             reindexSetting.addButton((btn) => {
-                btn.setButtonText('Reindex now').setCta();
+                btn.setButtonText(t('settings.embeddings.pdfReindexButton')).setCta();
                 btn.onClick(async () => {
                     const idx = getIdx();
                     if (!idx) return;
                     btn.setDisabled(true);
-                    progressEl.setText('Starting...');
+                    progressEl.setText(t('settings.embeddings.pdfReindexStarting'));
                     try {
                         const result = await idx.reindexPdfsOnly((indexed, total, current) => {
                             const label = current ? current.split('/').pop() : '';
-                            progressEl.setText(`${indexed} of ${total} -- ${label}`);
+                            progressEl.setText(t('settings.embeddings.pdfReindexProgress', { indexed, total, label: label ?? '' }));
                         });
                         this.plugin.settings._pdfReindexCompleted = true;
                         await this.plugin.saveSettings();
                         progressEl.setText(
-                            `Done: ${result.indexed} of ${result.total} reindexed` +
-                            (result.skipped > 0 ? `, ${result.skipped} skipped` : '') +
-                            '. The setting is now hidden.',
+                            result.skipped > 0
+                                ? t('settings.embeddings.pdfReindexDoneSkipped', { indexed: result.indexed, total: result.total, skipped: result.skipped })
+                                : t('settings.embeddings.pdfReindexDone', { indexed: result.indexed, total: result.total }),
                         );
                     } catch (e) {
-                        progressEl.setText(`Reindex failed: ${e instanceof Error ? e.message : String(e)}`);
+                        progressEl.setText(t('notice.reindexFailed', { error: e instanceof Error ? e.message : String(e) }));
                         btn.setDisabled(false);
                     }
                 });
@@ -239,7 +235,7 @@ export class EmbeddingsTab {
             if (idx.building) {
                 const p = idx.progressIndexed ?? idx.docCount;
                 const total = idx.progressTotal ?? '?';
-                statusEl.setText(t('settings.embeddings.statusBuilding') + ` (${p} / ${total} files)`);
+                statusEl.setText(t('settings.embeddings.statusBuildingProgress', { indexed: p, total }));
                 // Keep cancel button enabled while building (covers auto-index on startup)
                 cancelBtn?.setDisabled(false);
                 return;
@@ -735,11 +731,8 @@ export class EmbeddingsTab {
         const spec = buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256);
 
         const setting = new Setting(containerEl)
-            .setName(`Reranker model (${spec.sizeMb} MB)`)
-            .setDesc(
-                spec.description +
-                ' Stored in <vault>/.vault-operator/assets/. Downloaded once from this plugin\'s GitHub release, verified by SHA256.',
-            );
+            .setName(t('settings.embeddings.rerankerAssetName', { sizeMb: spec.sizeMb }))
+            .setDesc(`${spec.description} ${t('settings.embeddings.rerankerAssetStorageNote')}`);
 
         const statusEl = setting.descEl.createDiv({ cls: 'reranker-asset-status' });
         statusEl.setCssStyles({ marginTop: '6px' });
@@ -752,38 +745,38 @@ export class EmbeddingsTab {
             const snap = await manager.snapshot(spec);
             statusEl.empty();
             if (snap.status === 'installed') {
-                statusEl.setText('Status: installed');
+                statusEl.setText(t('settings.embeddings.rerankerStatusInstalled'));
                 statusEl.setCssStyles({ color: 'var(--text-success)' });
                 if (installBtn) installBtn.setCssStyles({ display: 'none' });
                 if (removeBtn) removeBtn.setCssStyles({ display: '' });
             } else if (snap.status === 'outdated') {
-                statusEl.setText('Status: installed but hash differs, re-install to update');
+                statusEl.setText(t('settings.embeddings.rerankerStatusOutdated'));
                 statusEl.setCssStyles({ color: 'var(--text-warning)' });
-                if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText('Re-install'); }
+                if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.embeddings.reinstall')); }
                 if (removeBtn) removeBtn.setCssStyles({ display: '' });
             } else if (snap.status === 'error') {
-                statusEl.setText(`Status: Error - ${snap.errorMessage ?? 'unknown'}`);
+                statusEl.setText(t('settings.embeddings.rerankerStatusError', { error: snap.errorMessage ?? t('settings.embeddings.rerankerErrorUnknown') }));
                 statusEl.setCssStyles({ color: 'var(--text-error)' });
                 if (installBtn) installBtn.setCssStyles({ display: '' });
                 if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
             } else {
-                statusEl.setText('Status: not installed - reranker stays disabled');
+                statusEl.setText(t('settings.embeddings.rerankerStatusNotInstalled'));
                 statusEl.setCssStyles({ color: 'var(--text-muted)' });
-                if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText('Install'); }
+                if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.embeddings.install')); }
                 if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
             }
         };
 
         setting.addButton((btn) => {
             installBtn = btn.buttonEl;
-            btn.setButtonText('Install')
-                
+            btn.setButtonText(t('settings.embeddings.install'))
+
                 .onClick(async () => {
                     btn.setDisabled(true);
-                    btn.setButtonText('Downloading...');
+                    btn.setButtonText(t('settings.embeddings.downloading'));
                     try {
                         await manager.install(spec);
-                        new Notice(`${spec.label} installed.`);
+                        new Notice(t('notice.assets.installed', { label: spec.label }));
                         if (this.plugin.rerankerService) {
                             const { RerankerService } = await import('../../core/knowledge/RerankerService');
                             this.plugin.rerankerService = new RerankerService(this.plugin);
@@ -791,7 +784,7 @@ export class EmbeddingsTab {
                         }
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
-                        new Notice(`Install failed: ${msg}`, 10_000);
+                        new Notice(t('notice.assets.installFailed', { error: msg }), 10_000);
                     } finally {
                         btn.setDisabled(false);
                         await renderStatus();
@@ -801,21 +794,21 @@ export class EmbeddingsTab {
 
         setting.addButton((btn) => {
             removeBtn = btn.buttonEl;
-            btn.setButtonText('Remove')
-                
+            btn.setButtonText(t('settings.embeddings.removeModel'))
+
                 .onClick(async () => {
                     const ok = await this.confirmDestructive(
-                        'Remove reranker model?',
-                        `Deletes <vault>/.vault-operator/assets/${spec.filename}. You can re-install later. Reranker will stop until then.`,
+                        t('settings.embeddings.rerankerRemoveConfirmTitle'),
+                        t('settings.embeddings.rerankerRemoveConfirmMessage', { filename: spec.filename }),
                     );
                     if (!ok) return;
                     try {
                         await manager.remove(spec);
-                        new Notice('Reranker model removed.');
+                        new Notice(t('notice.assets.rerankerRemoved'));
                         this.plugin.rerankerService = null;
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
-                        new Notice(`Remove failed: ${msg}`);
+                        new Notice(t('notice.assets.removeFailed', { error: msg }));
                     } finally {
                         await renderStatus();
                     }
@@ -826,7 +819,7 @@ export class EmbeddingsTab {
         // ship the asset yet (e.g. local plugin-dev workflow).
         setting.addExtraButton((btn) => {
             btn.setIcon('upload')
-                .setTooltip('Install from local file (fallback if download fails)')
+                .setTooltip(t('settings.embeddings.installFromFileTooltip'))
                 .onClick(async () => {
                     const { pickAndInstallAsset } = await import('./installFromFile');
                     pickAndInstallAsset(manager, spec, async () => {

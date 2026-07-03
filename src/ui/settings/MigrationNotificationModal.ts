@@ -6,6 +6,7 @@
 
 import { App, Modal, setIcon } from 'obsidian';
 import type { MigrationSummary } from '../../core/settings/migrations/activeModelsToProviders';
+import { t } from '../../i18n';
 
 export interface MigrationModalCallbacks {
     onOpenSettings: () => void;
@@ -29,25 +30,26 @@ export class MigrationNotificationModal extends Modal {
         const header = contentEl.createDiv({ cls: 'mig-modal-header' });
         const icon = header.createSpan({ cls: 'mig-modal-icon' });
         setIcon(icon, 'sparkles');
-        header.createEl('h2', { text: 'Setup migrated to the new provider format' });
+        header.createEl('h2', { text: t('modal.migrationNotification.title') });
 
         // Body summary
         const body = contentEl.createDiv({ cls: 'mig-modal-body' });
         body.createEl('p', {
-            text: `We migrated your setup to the new provider-only format. `
-                + `${summary.providersCreated} provider${summary.providersCreated === 1 ? '' : 's'}, `
-                + `${summary.modelsClassified} model${summary.modelsClassified === 1 ? '' : 's'} classified.`,
+            text: t('modal.migrationNotification.summary', {
+                providers: summary.providersCreated,
+                models: summary.modelsClassified,
+            }),
         });
 
         if (!summary.activeProviderResolved) {
             const warning = body.createDiv({ cls: 'vault-op-box vault-op-box--warning' });
             const wText = warning.createDiv({ cls: 'vault-op-box__text' });
-            wText.createEl('strong', { text: 'No active provider was resolved. ' });
-            wText.appendText('Pick one in Settings -> Providers before sending a message.');
+            wText.createEl('strong', { text: `${t('modal.migrationNotification.noProviderResolved')} ` });
+            wText.appendText(t('modal.migrationNotification.pickProvider'));
         }
 
         if (summary.anomalies.length > 0) {
-            body.createEl('h3', { text: 'Things to review' });
+            body.createEl('h3', { text: t('modal.migrationNotification.reviewHeading') });
             const list = body.createEl('ul', { cls: 'mig-modal-anomalies' });
             for (const anomaly of summary.anomalies) {
                 const item = list.createEl('li');
@@ -58,28 +60,27 @@ export class MigrationNotificationModal extends Modal {
         } else {
             body.createEl('p', {
                 cls: 'mig-modal-allgood',
-                text: 'No anomalies detected. Your setup is ready.',
+                text: t('modal.migrationNotification.noAnomalies'),
             });
         }
 
         body.createEl('p', {
             cls: 'mig-modal-backup-note',
-            text: 'Your original setup is preserved in data.json under '
-                + 'legacy_active_models_backup for at least 30 days.',
+            text: t('modal.migrationNotification.backupNote'),
         });
 
         // Buttons
         const buttons = contentEl.createDiv({ cls: 'mig-modal-buttons' });
         const openBtn = buttons.createEl('button', {
             cls: 'mod-cta',
-            text: 'Open settings',
+            text: t('onboarding.noModel.settingsButton'),
         });
         openBtn.addEventListener('click', () => {
             this.callbacks.onOpenSettings();
             this.close();
         });
 
-        const okBtn = buttons.createEl('button', { text: 'OK' });
+        const okBtn = buttons.createEl('button', { text: t('settings.log.statusOk') });
         okBtn.addEventListener('click', () => {
             this.close();
         });
@@ -94,13 +95,13 @@ export class MigrationNotificationModal extends Modal {
 function anomalyLabel(kind: string): string {
     switch (kind) {
         case 'multi-auth':
-            return 'Multiple auth configurations';
+            return t('modal.migrationNotification.anomalyMultiAuth');
         case 'missing-flagship':
-            return 'No flagship-tier model';
+            return t('modal.migrationNotification.anomalyMissingFlagship');
         case 'manual-tier-required':
-            return 'Manual tier assignment needed';
+            return t('modal.migrationNotification.anomalyManualTier');
         case 'no-active-model':
-            return 'No active provider';
+            return t('modal.migrationNotification.anomalyNoActiveProvider');
         default:
             return kind;
     }

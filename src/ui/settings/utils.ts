@@ -1,4 +1,5 @@
 import { Setting, setIcon } from 'obsidian';
+import { t } from '../../i18n';
 
 /**
  * Open a small centered info-popover. Used by the settings info-icon
@@ -15,7 +16,7 @@ export function openInfoPopover(title: string, body: string): void {
     head.createSpan({ cls: 'agent-info-title', text: title });
     const closeBtn = head.createEl('button', {
         cls: 'agent-info-close',
-        attr: { type: 'button', 'aria-label': 'Close' },
+        attr: { type: 'button', 'aria-label': t('ui.infoPopover.close') },
     });
     setIcon(closeBtn, 'x');
     popover.createDiv({ cls: 'agent-info-body', text: body });
@@ -73,7 +74,7 @@ export function wireMcmDescTooltips(root: HTMLElement): void {
             if (labelEl.querySelector(':scope > .agent-info-btn')) return;
             const btn = labelEl.createEl('button', {
                 cls: 'agent-info-btn',
-                attr: { type: 'button', 'aria-label': `${labelText}: info` },
+                attr: { type: 'button', 'aria-label': t('ui.infoButton.ariaLabel', { title: labelText }) },
             });
             setIcon(btn, 'info');
             btn.addEventListener('click', (e) => {
@@ -115,7 +116,7 @@ export function wireMcmDescTooltips(root: HTMLElement): void {
 export function addInfoButton(setting: Setting, title: string, body: string): void {
     setting.nameEl.createEl('button', {
         cls: 'agent-info-btn',
-        attr: { type: 'button', 'aria-label': `${title}: info`, title },
+        attr: { type: 'button', 'aria-label': t('ui.infoButton.ariaLabel', { title }), title },
     }, (btn) => {
         setIcon(btn, 'info');
         btn.addEventListener('click', (e) => {
@@ -145,7 +146,7 @@ export function addSectionHeading(
     if (info?.body) {
         const btn = heading.createEl('button', {
             cls: 'agent-info-btn',
-            attr: { type: 'button', 'aria-label': `${title}: info`, title },
+            attr: { type: 'button', 'aria-label': t('ui.infoButton.ariaLabel', { title }), title },
         });
         setIcon(btn, 'info');
         btn.addEventListener('click', (e) => {
@@ -207,7 +208,7 @@ export function addSliderInput(
     const valueEl = wrap.createSpan({
         cls: 'agent-slider-value',
         text: String(opts.value),
-        attr: { 'aria-label': 'Click to edit', role: 'button', tabindex: '0' },
+        attr: { 'aria-label': t('ui.slider.clickToEdit'), role: 'button', tabindex: '0' },
     });
 
     const commit = (n: number): void => {

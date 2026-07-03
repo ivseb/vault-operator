@@ -50,14 +50,14 @@ function formatDate(isoDate: string): string {
 // ---------------------------------------------------------------------------
 
 type SourceTab = 'all' | 'obsilo' | 'claude-ai' | 'claude-code' | 'chatgpt' | 'perplexity' | 'unknown';
-const SOURCE_TAB_LABELS: Record<SourceTab, string> = {
-    'all': 'All',
-    'obsilo': 'Vault Operator',
-    'claude-ai': 'Claude.ai',
-    'claude-code': 'Claude Code',
-    'chatgpt': 'ChatGPT',
-    'perplexity': 'Perplexity',
-    'unknown': 'Unknown',
+const SOURCE_TAB_KEYS: Record<SourceTab, string> = {
+    'all': 'ui.history.sourceAll',
+    'obsilo': 'ui.history.sourceObsilo',
+    'claude-ai': 'ui.history.sourceClaudeAi',
+    'claude-code': 'ui.history.sourceClaudeCode',
+    'chatgpt': 'ui.history.sourceChatgpt',
+    'perplexity': 'ui.history.sourcePerplexity',
+    'unknown': 'ui.history.sourceUnknown',
 };
 
 export class HistoryPanel {
@@ -149,10 +149,10 @@ export class HistoryPanel {
         if (this.threadFilter) {
             const chipRow = this.panelEl.createDiv({ cls: 'history-panel-thread-chip-row' });
             const chip = chipRow.createDiv({ cls: 'history-panel-thread-chip' });
-            chip.createSpan({ text: `Thread ${this.threadFilter.replace('thread-', '')}` });
+            chip.createSpan({ text: t('ui.history.threadChip', { id: this.threadFilter.replace('thread-', '') }) });
             const closeBtn = chip.createEl('button', {
                 cls: 'history-panel-thread-chip-close clickable-icon',
-                attr: { 'aria-label': 'Clear thread filter' },
+                attr: { 'aria-label': t('ui.history.clearThreadFilter') },
             });
             setIcon(closeBtn, 'x');
             closeBtn.addEventListener('click', () => {
@@ -179,7 +179,7 @@ export class HistoryPanel {
             for (const tab of visibleTabs) {
                 const count = tab === 'all' ? allConvs.length : (sourceCounts.get(tab) ?? 0);
                 const btn = tabRow.createEl('button', {
-                    text: `${SOURCE_TAB_LABELS[tab]} (${count})`,
+                    text: `${t(SOURCE_TAB_KEYS[tab])} (${count})`,
                     cls: `history-panel-tab${this.sourceTab === tab ? ' history-panel-tab-active' : ''}`,
                 });
                 btn.addEventListener('click', () => {
@@ -292,16 +292,17 @@ export class HistoryPanel {
                 // BA-26 / FEAT-23-03: Source-Pill (nur fuer non-obsilo + non-default).
                 const source = conv.sourceInterface ?? 'obsilo';
                 if (source !== 'obsilo') {
+                    const sourceKey = SOURCE_TAB_KEYS[source as SourceTab] as string | undefined;
                     titleRow.createSpan({
                         cls: `history-row-source-pill history-row-source-pill-${source}`,
-                        text: SOURCE_TAB_LABELS[source as SourceTab] ?? source,
+                        text: sourceKey ? t(sourceKey) : source,
                     });
                 }
                 // BA-26 / FEAT-23-04: Pending-Marker fuer Manual-Sync Conversations.
                 if (conv.syncState === 'pending') {
                     titleRow.createSpan({
                         cls: 'history-row-pending-marker',
-                        text: 'pending',
+                        text: t('ui.history.pendingMarker'),
                     });
                 }
                 // FIX-23-01-01: Thread-Pill fuer Conversations mit
@@ -311,8 +312,8 @@ export class HistoryPanel {
                 if (conv.crossInterfaceThreadId && this.threadFilter !== conv.crossInterfaceThreadId) {
                     const threadPill = titleRow.createEl('button', {
                         cls: 'history-row-thread-pill',
-                        text: 'Thread',
-                        attr: { 'aria-label': `Filter by thread ${conv.crossInterfaceThreadId}` },
+                        text: t('ui.history.threadPill'),
+                        attr: { 'aria-label': t('ui.history.filterByThread', { threadId: conv.crossInterfaceThreadId }) },
                     });
                     threadPill.addEventListener('click', (e) => {
                         e.stopPropagation();
@@ -334,7 +335,7 @@ export class HistoryPanel {
                 if (conv.syncState === 'pending' && this.onConfirmPending) {
                     const confirmBtn = actions.createEl('button', { cls: 'history-row-action clickable-icon' });
                     setIcon(confirmBtn, 'check');
-                    confirmBtn.setAttribute('aria-label', 'Confirm and add to memory');
+                    confirmBtn.setAttribute('aria-label', t('ui.history.confirmPending'));
                     confirmBtn.addEventListener('click', (e) => {
                         e.stopPropagation();
                         const action = this.onConfirmPending!(conv.id, conv.title);
@@ -418,7 +419,7 @@ export class HistoryPanel {
                 const remaining = items.length - visible;
                 const more = container.createDiv({
                     cls: 'history-row history-row-show-more',
-                    text: `Show ${Math.min(PAGE_SIZE, remaining)} more (${remaining} hidden)`,
+                    text: t('ui.history.showMore', { count: Math.min(PAGE_SIZE, remaining), hidden: remaining }),
                 });
                 more.addEventListener('click', () => {
                     this.groupPageSize.set(groupName, visible + PAGE_SIZE);

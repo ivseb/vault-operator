@@ -18,6 +18,7 @@
  */
 
 import { Component, MarkdownRenderer, MarkdownView, Menu, TFile, setIcon, type App, type WorkspaceLeaf } from 'obsidian';
+import { t } from '../../i18n';
 import { refreshOpenMarkdownViewsFor } from '../utils/refreshMarkdownView';
 import { getModelKey } from '../../types/settings';
 import { resolveActiveProvider } from '../routing/tierResolution';
@@ -404,7 +405,7 @@ async function buildCommandItems(
             return {
                 label: skill.name,
                 sub: `/${slug}`,
-                tag: 'Skill',
+                tag: t('ui.inline.tagSkill'),
                 icon: 'sparkles',
                 searchable: skill.description,
                 onSelect: () => handle.insertIntoComposer(`/${slug}`, 'prepend'),
@@ -419,7 +420,7 @@ async function buildCommandItems(
         return prompts.map((prompt) => ({
             label: prompt.name,
             sub: `#${prompt.slug}`,
-            tag: 'Prompt',
+            tag: t('ui.inline.tagPrompt'),
             icon: 'message-square-quote',
             searchable: prompt.content,
             onSelect: () => handle.insertIntoComposer(`#${prompt.slug}`, 'prepend'),
@@ -435,7 +436,7 @@ async function buildCommandItems(
         .map((wf) => ({
             label: wf.displayName,
             sub: `§${wf.slug}`,
-            tag: 'Workflow',
+            tag: t('ui.inline.tagWorkflow'),
             icon: 'workflow',
             onSelect: () => handle.insertIntoComposer(`§${wf.slug}`, 'prepend'),
         }));
@@ -449,12 +450,12 @@ async function openCommandPicker(
     handle: import('./chat/InlineChatPanel').InlinePanelHandle,
 ): Promise<void> {
     const items = await buildCommandItems(plugin, category, handle);
-    const title = category === 'skills' ? 'Search skills...'
-        : category === 'prompts' ? 'Search prompts...'
-        : 'Search workflows...';
-    const empty = category === 'skills' ? 'No skills installed.'
-        : category === 'prompts' ? 'No custom prompts configured.'
-        : 'No workflows available.';
+    const title = category === 'skills' ? t('ui.inline.searchSkills')
+        : category === 'prompts' ? t('ui.inline.searchPrompts')
+        : t('ui.inline.searchWorkflows');
+    const empty = category === 'skills' ? t('ui.inline.noSkillsInstalled')
+        : category === 'prompts' ? t('ui.inline.noCustomPrompts')
+        : t('ui.inline.noWorkflowsAvailable');
     const picker = new CommandPicker(items, title, empty);
     picker.show(anchor, panelRoot);
 }
@@ -691,7 +692,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
         // deferred: the Skill-Engine needs a typed entry-point that
         // does not exist yet on the loader. For now, emit a stub
         // notice so the user sees the skill was triggered.
-        cbs.onText(`[skill: ${skill.label}] invocation deferred -- wire SkillEngine.runSkill() to enable.`);
+        cbs.onText(t('ui.inline.skillInvocationDeferred', { skill: skill.label }));
         cbs.onComplete();
     };
     // Register each currently-eligible skill at wire time. The list is
@@ -840,19 +841,19 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             // the toolbar (magnifier) so it does NOT appear here again.
             const menu = new Menu();
             menu.addItem(item => item
-                .setTitle('Rewrite')
+                .setTitle(t('ui.inline.menuRewrite'))
                 .setIcon('pencil')
                 .onClick(() => dispatch('rewrite')));
             menu.addItem(item => item
-                .setTitle('Translate selection')
+                .setTitle(t('ui.inline.menuTranslateSelection'))
                 .setIcon('languages')
                 .onClick(() => dispatch('translate')));
             menu.addItem(item => item
-                .setTitle('Summarize (medium)')
+                .setTitle(t('ui.inline.menuSummarizeMedium'))
                 .setIcon('file-text')
                 .onClick(() => dispatch('summarize')));
             menu.addItem(item => item
-                .setTitle('Find action items')
+                .setTitle(t('ui.inline.menuFindActionItems'))
                 .setIcon('check-square')
                 .onClick(() => dispatch('find-action-items')));
             // 'Send selection to main chat' retired 2026-06-22 per user
@@ -874,29 +875,29 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             if (surface === null) return;
             const menu = new Menu();
             menu.addItem(item => item
-                .setTitle('Attach file')
+                .setTitle(t('ui.sidebar.attachFile'))
                 .setIcon('paperclip')
                 .onClick(() => surface.attachments.openFilePicker()));
             menu.addItem(item => item
-                .setTitle('Add vault file')
+                .setTitle(t('ui.sidebar.addVaultFile'))
                 .setIcon('at-sign')
                 .onClick(() => surface.vaultFilePicker.show(anchor, surface.panelRoot)));
             menu.addSeparator();
             menu.addItem(item => item
-                .setTitle('Insert skill...')
+                .setTitle(t('ui.inline.insertSkill'))
                 .setIcon('sparkles')
                 .onClick(() => void openCommandPicker(plugin, 'skills', anchor, surface.panelRoot, handle)));
             menu.addItem(item => item
-                .setTitle('Insert prompt...')
+                .setTitle(t('ui.inline.insertPrompt'))
                 .setIcon('message-square-quote')
                 .onClick(() => void openCommandPicker(plugin, 'prompts', anchor, surface.panelRoot, handle)));
             menu.addItem(item => item
-                .setTitle('Insert workflow...')
+                .setTitle(t('ui.inline.insertWorkflow'))
                 .setIcon('workflow')
                 .onClick(() => void openCommandPicker(plugin, 'workflows', anchor, surface.panelRoot, handle)));
             menu.addSeparator();
             menu.addItem(item => item
-                .setTitle('Select MCP servers')
+                .setTitle(t('ui.sidebar.selectMcpServers'))
                 .setIcon('plug-2')
                 .onClick((evt) => surface.mcpPicker.show(evt as unknown as MouseEvent, anchor, surface.panelRoot)));
             menu.showAtMouseEvent({
@@ -924,8 +925,8 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                         getCurrent: () => surface.chatModelOverride,
                         onSelect: (overrideId: string | null) => {
                             surface.chatModelOverride = overrideId;
-                            const label = overrideId === null ? 'Auto' : shortenModelId(overrideId);
-                            handle.setModelLabel(label, overrideId ?? 'Auto (provider tier router)');
+                            const label = overrideId === null ? t('ui.sidebar.modelAuto') : shortenModelId(overrideId);
+                            handle.setModelLabel(label, overrideId ?? t('ui.inline.modelAutoTooltip'));
                         },
                         getThinking: () => surface.chatThinkingOverride,
                         onThinkingChange: (override) => {
@@ -945,7 +946,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             const menu = new Menu();
             if (enabled.length === 0) {
                 menu.addItem(item => item
-                    .setTitle('No models enabled -- open Settings')
+                    .setTitle(t('ui.sidebar.noModelsEnabled'))
                     .setIcon('settings')
                     .onClick(() => {
                         plugin.app.setting?.open();
@@ -976,7 +977,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
             // override id.
             const activeProvider = resolveActiveProvider(plugin.settings);
             if (activeProvider !== null) {
-                return { label: 'Auto', tooltip: 'Auto (provider tier router). Click to pick a specific model.' };
+                return { label: t('ui.sidebar.modelAuto'), tooltip: t('ui.inline.modelAutoPickTooltip') };
             }
             const key = plugin.settings.activeModelKey;
             const model = plugin.settings.activeModels.find(m => getModelKey(m) === key);
@@ -984,7 +985,7 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                 const label = model.displayName ?? model.name;
                 return { label, tooltip: label };
             }
-            return { label: 'Auto', tooltip: 'No model selected -- click to pick' };
+            return { label: t('ui.sidebar.modelAuto'), tooltip: t('ui.inline.noModelSelectedTooltip') };
         },
         // EPIC-33: per-panel AutocompleteHandler. addVaultFile resolves
         // the active panel surface so '@'-mention picks land in the

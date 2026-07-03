@@ -19,7 +19,7 @@
 
 import { App, Modal, Notice, Setting, setIcon, getLanguage } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
-import { resolveLocale, type SupportedLocale } from '../../i18n';
+import { resolveLocale, t, type SupportedLocale } from '../../i18n';
 import { ModelConfigModal } from '../settings/ModelConfigModal';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey } from '../../types/settings';
@@ -42,14 +42,14 @@ type StepId =
     | 'optional-downloads'
     | 'done';
 
-const STEPS: { id: StepId; title: string; canSkip: boolean }[] = [
-    { id: 'welcome',            title: 'Welcome',             canSkip: false },
-    { id: 'llm-model',          title: 'LLM model',           canSkip: true  },
-    { id: 'embedding-model',    title: 'Embedding model',     canSkip: true  },
-    { id: 'search-provider',    title: 'Search provider',     canSkip: true  },
-    { id: 'templates',          title: 'Templates',           canSkip: true  },
-    { id: 'optional-downloads', title: 'Optional downloads',  canSkip: true  },
-    { id: 'done',               title: 'Done',                canSkip: false },
+const STEPS: { id: StepId; titleKey: string; canSkip: boolean }[] = [
+    { id: 'welcome',            titleKey: 'modal.firstRunWizard.stepWelcome',           canSkip: false },
+    { id: 'llm-model',          titleKey: 'modal.firstRunWizard.stepLlmModel',          canSkip: true  },
+    { id: 'embedding-model',    titleKey: 'modal.firstRunWizard.stepEmbeddingModel',    canSkip: true  },
+    { id: 'search-provider',    titleKey: 'settings.webSearch.headingProvider',         canSkip: true  },
+    { id: 'templates',          titleKey: 'modal.firstRunWizard.stepTemplates',         canSkip: true  },
+    { id: 'optional-downloads', titleKey: 'modal.firstRunWizard.stepOptionalDownloads', canSkip: true  },
+    { id: 'done',               titleKey: 'modal.vaultHealth.doneBtn',                  canSkip: false },
 ];
 
 export class FirstRunWizardModal extends Modal {
@@ -116,10 +116,10 @@ export class FirstRunWizardModal extends Modal {
         const step = STEPS[this.stepIndex];
 
         this.headerEl.empty();
-        this.headerEl.createEl('h2', { text: step.title });
+        this.headerEl.createEl('h2', { text: t(step.titleKey) });
         this.headerEl.createDiv({
             cls: 'wizard-step-counter',
-            text: `Step ${this.stepIndex + 1} of ${STEPS.length}`,
+            text: t('modal.firstRunWizard.stepCounter', { current: this.stepIndex + 1, total: STEPS.length }),
         });
 
         this.renderProgress();
@@ -144,7 +144,7 @@ export class FirstRunWizardModal extends Modal {
         const right = this.footerEl.createDiv({ cls: 'wizard-footer-right' });
 
         if (this.stepIndex > 0 && step.id !== 'done') {
-            const backBtn = left.createEl('button', { text: 'Back' });
+            const backBtn = left.createEl('button', { text: t('modal.firstRunWizard.backBtn') });
             backBtn.addEventListener('click', () => {
                 this.stepIndex = Math.max(0, this.stepIndex - 1);
                 void this.renderStep();
@@ -152,7 +152,7 @@ export class FirstRunWizardModal extends Modal {
         }
 
         if (step.id === 'welcome') {
-            const dismissBtn = left.createEl('button', { text: "Don't show again" });
+            const dismissBtn = left.createEl('button', { text: t('modal.firstRunWizard.dontShowAgainBtn') });
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
             dismissBtn.addEventListener('click', async () => {
                 this.plugin.settings.onboarding.dontShowFirstRunAgain = true;
@@ -162,19 +162,19 @@ export class FirstRunWizardModal extends Modal {
         }
 
         if (step.canSkip) {
-            const skipBtn = right.createEl('button', { text: 'Skip this step' });
+            const skipBtn = right.createEl('button', { text: t('modal.firstRunWizard.skipStepBtn') });
             skipBtn.addEventListener('click', () => { void this.skipStep(); });
         }
 
         if (step.id === 'done') {
-            const finishBtn = right.createEl('button', { cls: 'mod-cta', text: 'Start chat to set up memory' });
+            const finishBtn = right.createEl('button', { cls: 'mod-cta', text: t('modal.firstRunWizard.startChatBtn') });
             finishBtn.addEventListener('click', () => { void this.finishAndStartChat(); });
-            const closeBtn = right.createEl('button', { text: 'Close' });
+            const closeBtn = right.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
             closeBtn.addEventListener('click', () => { void this.finishWithoutChat(); });
         } else {
             const nextBtn = right.createEl('button', {
                 cls: 'mod-cta',
-                text: this.stepIndex === 0 ? 'Get started' : 'Next',
+                text: this.stepIndex === 0 ? t('modal.firstRunWizard.getStartedBtn') : t('modal.firstRunWizard.nextBtn'),
             });
             nextBtn.addEventListener('click', () => { void this.advance(); });
         }
@@ -222,20 +222,20 @@ export class FirstRunWizardModal extends Modal {
             return `${p.type} / ${name}`;
         }
         const active = this.plugin.settings.activeModels.find((m) => m.enabled !== false);
-        if (!active) return 'your active LLM provider (none configured yet)';
+        if (!active) return t('modal.firstRunWizard.noProviderConfigured');
         const provider = (active as { provider?: string; type?: string }).provider
             ?? (active as { provider?: string; type?: string }).type
-            ?? 'unknown';
+            ?? t('modal.firstRunWizard.unknownProvider');
         const name = (active as { displayName?: string; modelName?: string }).displayName
             ?? (active as { displayName?: string; modelName?: string }).modelName
-            ?? 'unknown model';
+            ?? t('modal.firstRunWizard.unknownModel');
         return `${provider} / ${name}`;
     }
 
     private async runTemplatesMaterialization(): Promise<void> {
         const folder = this.templatesFolder.trim();
         if (!folder) {
-            new Notice('Templates: no folder set, skipping materialization.');
+            new Notice(t('notice.templates.noFolder'));
             return;
         }
         const lang = this.templatesLang === 'other'
@@ -253,14 +253,16 @@ export class FirstRunWizardModal extends Modal {
             const wn = result.written.length;
             const sk = result.skipped.length;
             const fl = result.failed.length;
-            const summary = `Templates: ${wn} written, ${sk} skipped${fl ? `, ${fl} failed` : ''}.`;
+            const summary = fl > 0
+                ? t('notice.templates.materializeSummaryWithFailures', { written: wn, skipped: sk, failed: fl })
+                : t('notice.templates.materializeSummary', { written: wn, skipped: sk });
             new Notice(summary);
             if (fl > 0) {
                 console.warn('[templates] materialization failures:', result.failed);
             }
         } catch (e) {
             console.error('[templates] materialization failed:', e);
-            new Notice(`Templates: materialization failed -- ${(e as Error).message ?? String(e)}`);
+            new Notice(t('notice.templates.materializeFailed', { error: (e as Error).message ?? String(e) }));
         }
     }
 
@@ -317,18 +319,20 @@ export class FirstRunWizardModal extends Modal {
         parent.createEl('h3', { cls: 'wizard-section', text: title });
     }
 
-    private addStatusLine(parent: HTMLElement, count: number, label: string): HTMLElement {
+    private addStatusLine(parent: HTMLElement, count: number, singularLabel: string, pluralLabel: string): HTMLElement {
         const cls = count > 0 ? 'wizard-status is-ok' : 'wizard-status is-empty';
         const status = parent.createDiv({ cls });
         const iconWrap = status.createDiv({ cls: 'wizard-status-icon' });
         setIcon(iconWrap, count > 0 ? 'check-circle-2' : 'circle');
         const text = status.createDiv();
         if (count > 0) {
-            text.createEl('strong', { text: `${count} ${label}${count === 1 ? '' : 's'} configured.` });
-            text.createSpan({ text: ' You can skip this step.' });
+            text.createEl('strong', {
+                text: t('modal.firstRunWizard.statusConfigured', { count, label: count === 1 ? singularLabel : pluralLabel }),
+            });
+            text.createSpan({ text: ' ' + t('modal.firstRunWizard.statusCanSkip') });
         } else {
-            text.createEl('strong', { text: `No ${label} configured yet.` });
-            text.createSpan({ text: ' Pick an option below.' });
+            text.createEl('strong', { text: t('modal.firstRunWizard.statusNoneConfigured', { label: singularLabel }) });
+            text.createSpan({ text: ' ' + t('modal.firstRunWizard.statusPickOption') });
         }
         return status;
     }
@@ -344,7 +348,7 @@ export class FirstRunWizardModal extends Modal {
         badge.setAttr('title', opts.tierLabel);
         card.createDiv({ cls: 'wizard-provider-note', text: opts.note });
         if (opts.url) {
-            const link = card.createEl('a', { cls: 'wizard-provider-link', text: 'Get an API key', href: opts.url });
+            const link = card.createEl('a', { cls: 'wizard-provider-link', text: t('modal.firstRunWizard.getApiKeyLink'), href: opts.url });
             link.setAttr('target', '_blank');
             link.setAttr('rel', 'noopener noreferrer');
         }
@@ -370,22 +374,22 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'sparkles',
-            'Welcome to Vault Operator',
-            'A handful of choices set the plugin up for you. Each step takes a few seconds. You can skip anything and come back to it later in Settings.',
+            t('modal.firstRunWizard.welcomeTitle'),
+            t('modal.firstRunWizard.welcomeBody'),
         );
 
-        this.addSection(this.bodyEl, 'What this wizard does');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.welcomeWhatItDoes'));
 
         const list = this.bodyEl.createEl('ul');
         list.setCssStyles({ paddingLeft: '20px' });
         list.setCssStyles({ margin: '4px 0 8px 0' });
         list.setCssStyles({ lineHeight: '1.7' });
         const items = [
-            'Connects an LLM provider so the agent can answer messages.',
-            'Picks an embedding model for semantic search and memory.',
-            'Splits cheap background tasks from your main model.',
-            'Sets up a search provider for web research.',
-            'Offers two optional downloads that improve quality.',
+            t('modal.firstRunWizard.welcomeItemLlm'),
+            t('modal.firstRunWizard.welcomeItemEmbedding'),
+            t('modal.firstRunWizard.welcomeItemSplit'),
+            t('modal.firstRunWizard.welcomeItemSearch'),
+            t('modal.firstRunWizard.welcomeItemDownloads'),
         ];
         for (const item of items) {
             list.createEl('li', { text: item });
@@ -395,7 +399,7 @@ export class FirstRunWizardModal extends Modal {
         note.setCssStyles({ fontSize: '12px' });
         note.setCssStyles({ color: 'var(--text-muted)' });
         note.setCssStyles({ marginTop: '16px' });
-        note.setText('Privacy: nothing leaves your machine until you configure a provider. Then only the messages you send to that provider are transmitted.');
+        note.setText(t('modal.firstRunWizard.welcomePrivacyNote'));
     }
 
     // eslint-disable-next-line @typescript-eslint/require-await -- kept async for caller type consistency
@@ -403,11 +407,11 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'brain',
-            'Why an LLM is required',
-            'The agent uses a large language model for every reply. Pick a provider, grab a free or paid API key, paste it once.',
+            t('modal.firstRunWizard.llmWhyTitle'),
+            t('modal.firstRunWizard.llmWhyBody'),
         );
 
-        this.addSection(this.bodyEl, 'Current status');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.currentStatus'));
         const renderStatus = (parent: HTMLElement): HTMLElement => {
             // REF-08: count enabled provider models from providerConfigs[]
             // (post-EPIC-26 canonical store); fall back to activeModels[]
@@ -417,7 +421,7 @@ export class FirstRunWizardModal extends Modal {
                 .reduce((sum, p) => sum + (p.discoveredModels?.length ?? 0), 0);
             const legacyCount = this.plugin.settings.activeModels.filter(m => m.enabled).length;
             const count = providerCount > 0 ? providerCount : legacyCount;
-            return this.addStatusLine(parent, count, 'LLM model');
+            return this.addStatusLine(parent, count, t('modal.firstRunWizard.stepLlmModel'), t('modal.firstRunWizard.llmModelsPlural'));
         };
         const statusWrap = this.bodyEl.createDiv();
         let statusEl = renderStatus(statusWrap);
@@ -426,39 +430,39 @@ export class FirstRunWizardModal extends Modal {
             statusEl = renderStatus(statusWrap);
         };
 
-        this.addSection(this.bodyEl, 'Where to get an API key');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.llmWhereToGetKey'));
 
         this.addProviderCard(this.bodyEl, {
-            name: 'Google Gemini',
+            name: t('modal.firstRunWizard.providerGeminiName'),
             tier: 'free',
-            tierLabel: 'Free tier',
+            tierLabel: t('modal.firstRunWizard.tierFree'),
             url: 'https://aistudio.google.com/app/apikey',
-            note: 'Easiest start. Sign in with Google, create an API key, no credit card needed. Good general-purpose quality.',
+            note: t('modal.firstRunWizard.providerGeminiNote'),
         });
         this.addProviderCard(this.bodyEl, {
-            name: 'Anthropic Claude',
+            name: t('modal.firstRunWizard.providerClaudeName'),
             tier: 'paid',
-            tierLabel: 'Paid',
+            tierLabel: t('modal.firstRunWizard.tierPaid'),
             url: 'https://console.anthropic.com/settings/keys',
-            note: 'Best quality for agentic tool use. New accounts get $5 starting credit.',
+            note: t('modal.firstRunWizard.providerClaudeNote'),
         });
         this.addProviderCard(this.bodyEl, {
-            name: 'OpenAI',
+            name: t('modal.firstRunWizard.providerOpenaiName'),
             tier: 'paid',
-            tierLabel: 'Paid',
+            tierLabel: t('modal.firstRunWizard.tierPaid'),
             url: 'https://platform.openai.com/api-keys',
-            note: 'Solid all-rounder. GPT-5, GPT-4o and o-series models.',
+            note: t('modal.firstRunWizard.providerOpenaiNote'),
         });
         this.addProviderCard(this.bodyEl, {
-            name: 'Ollama (local)',
+            name: t('modal.firstRunWizard.providerOllamaName'),
             tier: 'free',
-            tierLabel: 'Free / local',
+            tierLabel: t('modal.firstRunWizard.tierFreeLocal'),
             url: 'https://ollama.com',
-            note: 'Runs models on your own machine. No data ever leaves your computer. Install Ollama, pull a model like llama3.2 or qwen2.5.',
+            note: t('modal.firstRunWizard.providerOllamaNote'),
         });
 
         const actionRow = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
-        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: 'Add model' });
+        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: t('modal.modelConfig.addModel') });
         addBtn.addEventListener('click', () => {
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
             new ModelConfigModal(this.app, null, async (newModel: CustomModel) => {
@@ -477,14 +481,14 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'search',
-            'Why embeddings help',
-            'Embeddings turn your notes into numbers so the agent can find them by meaning, not just exact words. Needed for semantic search and memory retrieval. You can skip this step. The agent still works without it, just with less powerful search.',
+            t('modal.firstRunWizard.embeddingWhyTitle'),
+            t('modal.firstRunWizard.embeddingWhyBody'),
         );
 
-        this.addSection(this.bodyEl, 'Current status');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.currentStatus'));
         const renderStatus = (parent: HTMLElement): HTMLElement => {
             const count = (this.plugin.settings.embeddingModels ?? []).filter(m => m.enabled).length;
-            return this.addStatusLine(parent, count, 'embedding model');
+            return this.addStatusLine(parent, count, t('modal.firstRunWizard.embeddingModelSingular'), t('modal.firstRunWizard.embeddingModelsPlural'));
         };
         const statusWrap = this.bodyEl.createDiv();
         let statusEl = renderStatus(statusWrap);
@@ -493,32 +497,32 @@ export class FirstRunWizardModal extends Modal {
             statusEl = renderStatus(statusWrap);
         };
 
-        this.addSection(this.bodyEl, 'Recommended providers');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.embeddingRecommendedProviders'));
 
         this.addProviderCard(this.bodyEl, {
-            name: 'OpenAI text-embedding-3-small',
+            name: t('modal.firstRunWizard.embeddingOpenaiName'),
             tier: 'paid',
-            tierLabel: 'Cheap',
+            tierLabel: t('modal.firstRunWizard.tierCheap'),
             url: 'https://platform.openai.com/api-keys',
-            note: 'About $0.02 per million tokens. Reliable, runs on OpenAI servers.',
+            note: t('modal.firstRunWizard.embeddingOpenaiNote'),
         });
         this.addProviderCard(this.bodyEl, {
-            name: 'Google text-embedding-004',
+            name: t('modal.firstRunWizard.embeddingGoogleName'),
             tier: 'free',
-            tierLabel: 'Free tier',
+            tierLabel: t('modal.firstRunWizard.tierFree'),
             url: 'https://aistudio.google.com/app/apikey',
-            note: 'Free for moderate usage. Same Google key works for both this and Google Gemini.',
+            note: t('modal.firstRunWizard.embeddingGoogleNote'),
         });
         this.addProviderCard(this.bodyEl, {
-            name: 'Ollama (local)',
+            name: t('modal.firstRunWizard.providerOllamaName'),
             tier: 'free',
-            tierLabel: 'Free / local',
+            tierLabel: t('modal.firstRunWizard.tierFreeLocal'),
             url: 'https://ollama.com',
-            note: 'No API key. Install Ollama, pull nomic-embed-text or similar. Privacy by default.',
+            note: t('modal.firstRunWizard.embeddingOllamaNote'),
         });
 
         const actionRow = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
-        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: 'Add embedding model' });
+        const addBtn = actionRow.createEl('button', { cls: 'mod-cta', text: t('modal.modelConfig.addEmbedding') });
         addBtn.addEventListener('click', () => {
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
             new ModelConfigModal(this.app, null, async (newModel: CustomModel) => {
@@ -537,36 +541,36 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'globe',
-            'Why web search is useful',
-            'A search provider lets the agent fetch and read web pages. Without it, the agent can only work with what is in your vault. Both providers below have generous free tiers.',
+            t('modal.firstRunWizard.searchWhyTitle'),
+            t('modal.firstRunWizard.searchWhyBody'),
         );
 
-        this.addSection(this.bodyEl, 'Pick a provider');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.searchPickProvider'));
 
         const providers: { id: 'tavily' | 'brave' | 'none'; label: string; tier: 'free' | 'paid' | 'recommended'; tierLabel: string; url: string; note: string }[] = [
             {
                 id: 'tavily',
-                label: 'Tavily',
+                label: t('modal.firstRunWizard.searchTavilyName'),
                 tier: 'free',
-                tierLabel: '1000 free / month',
+                tierLabel: t('modal.firstRunWizard.searchTavilyTier'),
                 url: 'https://app.tavily.com',
-                note: 'Built for AI agents. Clean summarised results. Easiest to start with.',
+                note: t('modal.firstRunWizard.searchTavilyNote'),
             },
             {
                 id: 'brave',
-                label: 'Brave',
+                label: t('modal.firstRunWizard.searchBraveName'),
                 tier: 'free',
-                tierLabel: '2000 free / month',
+                tierLabel: t('modal.firstRunWizard.searchBraveTier'),
                 url: 'https://api.search.brave.com/app/keys',
-                note: 'Higher free tier, broader index. Results are a bit noisier.',
+                note: t('modal.firstRunWizard.searchBraveNote'),
             },
             {
                 id: 'none',
-                label: 'None',
+                label: t('modal.firstRunWizard.searchNoneName'),
                 tier: 'paid',
-                tierLabel: 'Disabled',
+                tierLabel: t('modal.firstRunWizard.searchNoneTier'),
                 url: '',
-                note: 'Agent works only with vault content. Pick if you do not want any web access.',
+                note: t('modal.firstRunWizard.searchNoneNote'),
             },
         ];
 
@@ -592,12 +596,12 @@ export class FirstRunWizardModal extends Modal {
             label.addEventListener('click', () => { radio.checked = true; radio.dispatchEvent(new Event('change')); });
 
             if (p.id !== 'none') {
-                const link = card.createEl('a', { cls: 'wizard-provider-link', text: `Get a ${p.label} API key`, href: p.url });
+                const link = card.createEl('a', { cls: 'wizard-provider-link', text: t('modal.firstRunWizard.getProviderApiKeyLink', { provider: p.label }), href: p.url });
                 link.setAttr('target', '_blank');
                 link.setAttr('rel', 'noopener noreferrer');
 
                 const keyRow = card.createDiv({ cls: 'wizard-keyrow' });
-                const input = keyRow.createEl('input', { type: 'password', placeholder: `${p.label} API key` });
+                const input = keyRow.createEl('input', { type: 'password', placeholder: t('modal.firstRunWizard.providerApiKeyPlaceholder', { provider: p.label }) });
                 input.value = p.id === 'tavily' ? (wt.tavilyApiKey ?? '') : (wt.braveApiKey ?? '');
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
                 input.addEventListener('input', async () => {
@@ -627,8 +631,8 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'file-text',
-            'Why templates matter',
-            'The /ingest and /ingest-deep skills use these templates to create source notes and sense-making notes that match your vault conventions. Pick the language you write notes in; the plugin writes the default set into the Obsidian Templates folder for you. Existing files are never overwritten.',
+            t('modal.firstRunWizard.templatesWhyTitle'),
+            t('modal.firstRunWizard.templatesWhyBody'),
         );
 
         // ---- Auto-detect target folder ----
@@ -637,12 +641,12 @@ export class FirstRunWizardModal extends Modal {
             this.templatesFolder = detected ?? '';
         }
 
-        this.addSection(this.bodyEl, 'Templates folder');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.templatesFolderSection'));
         const folderRow = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
         const folderInput = folderRow.createEl('input', {
             type: 'text',
             value: this.templatesFolder,
-            placeholder: 'e.g. Tools & Settings/Templates',
+            placeholder: t('modal.firstRunWizard.templatesFolderPlaceholder'),
         });
         folderInput.setCssStyles({ flex: '1 1 auto' });
         folderInput.addEventListener('change', () => {
@@ -655,18 +659,18 @@ export class FirstRunWizardModal extends Modal {
         folderHint.setCssStyles({ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' });
         folderHint.setText(
             this.templatesFolder
-                ? 'Detected from Obsidian Templates plugin. Override if needed.'
-                : 'No folder configured. Enable the Obsidian core Templates plugin and pick a folder, or type a path here.',
+                ? t('modal.firstRunWizard.templatesFolderDetectedHint')
+                : t('modal.firstRunWizard.templatesFolderMissingHint'),
         );
 
         // ---- Language picker ----
-        this.addSection(this.bodyEl, 'Vault language');
+        this.addSection(this.bodyEl, t('modal.firstRunWizard.templatesLanguageSection'));
         const langWrap = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
         const langSelect = langWrap.createEl('select');
         const options: Array<{ value: string; label: string }> = [
-            { value: 'en', label: 'English' },
-            { value: 'de', label: 'Deutsch' },
-            { value: 'other', label: 'Other (translate via active LLM)' },
+            { value: 'en', label: t('modal.firstRunWizard.templatesLangEnglish') },
+            { value: 'de', label: t('modal.firstRunWizard.templatesLangGerman') },
+            { value: 'other', label: t('modal.firstRunWizard.templatesLangOther') },
         ];
         for (const opt of options) {
             const o = langSelect.createEl('option', { value: opt.value, text: opt.label });
@@ -678,7 +682,7 @@ export class FirstRunWizardModal extends Modal {
         const customInput = customWrap.createEl('input', {
             type: 'text',
             value: this.templatesCustomLang,
-            placeholder: 'e.g. French, Spanish, Japanese',
+            placeholder: t('modal.firstRunWizard.templatesCustomLangPlaceholder'),
         });
         customInput.setCssStyles({ width: '100%' });
         customInput.addEventListener('input', () => {
@@ -686,7 +690,7 @@ export class FirstRunWizardModal extends Modal {
         });
         const customHint = customWrap.createDiv();
         customHint.setCssStyles({ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' });
-        customHint.setText('Frontmatter keys and category values get translated by the active LLM. Structure stays identical.');
+        customHint.setText(t('modal.firstRunWizard.templatesCustomLangHint'));
 
         // AUDIT-024 M-1: explicit consent banner whenever the language
         // is "Other" because that triggers an LLM round-trip with the
@@ -697,12 +701,10 @@ export class FirstRunWizardModal extends Modal {
         const privacyIcon = privacyBanner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(privacyIcon, 'shield');
         const privacyText = privacyBanner.createDiv({ cls: 'vault-op-box__text' });
-        privacyText.createEl('strong', { text: 'Privacy notice' });
+        privacyText.createEl('strong', { text: t('modal.firstRunWizard.templatesPrivacyTitle') });
         const activeProviderName = this.resolveActiveProviderName();
         privacyText.createDiv({
-            text:
-                `Translation sends each bundled template (about 200 bytes of YAML frontmatter, no vault content) to your active provider (${activeProviderName}). ` +
-                'No user notes are transmitted. You can switch back to Deutsch or English to skip the network round-trip.',
+            text: t('modal.firstRunWizard.templatesPrivacyBody', { provider: activeProviderName }),
         });
 
         const setCustomVisibility = () => {
@@ -716,9 +718,9 @@ export class FirstRunWizardModal extends Modal {
 
         // ---- Materialize-now toggle ----
         new Setting(this.bodyEl)
-            .setName('Materialize default templates now')
-            .setDesc('Writes the source, note and meeting-note templates into the folder above. Existing files are skipped.')
-            .addToggle((t) => t
+            .setName(t('modal.firstRunWizard.templatesMaterializeNow'))
+            .setDesc(t('modal.firstRunWizard.templatesMaterializeNowDesc'))
+            .addToggle((toggle) => toggle
                 .setValue(this.templatesShouldMaterialize)
                 .onChange((v) => { this.templatesShouldMaterialize = v; }),
             );
@@ -728,8 +730,8 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'download',
-            'Optional one-time downloads',
-            'Files land in your vault under .vault-operator/assets/ and are SHA256-verified before they are used. Skip what you do not need now and install later from Settings > Optional Assets.',
+            t('modal.firstRunWizard.downloadsTitle'),
+            t('modal.firstRunWizard.downloadsBody'),
         );
 
         const { OptionalAssetManager, buildRerankerSpec, buildSelfDevSourceSpec, buildOfficeBundleSpec, buildPdfjsBundleSpec } = await import('../../core/assets/OptionalAssetManager');
@@ -746,33 +748,33 @@ export class FirstRunWizardModal extends Modal {
             spec: ReturnType<typeof buildRerankerSpec>;
         }[] = [
             {
-                label: 'Office Document Support',
+                label: t('modal.firstRunWizard.assetOfficeName'),
                 recommended: true,
-                what: 'Lets the agent create DOCX, XLSX, and PPTX files. Without it the create_docx / create_xlsx / create_pptx tools report "not installed"; everything else works.',
+                what: t('modal.firstRunWizard.assetOfficeDesc'),
                 size: '1.7 MB',
                 sha: OFFICE_BUNDLE_SHA256,
                 spec: buildOfficeBundleSpec(this.plugin.manifest.version, OFFICE_BUNDLE_SHA256),
             },
             {
-                label: 'PDF Parser',
+                label: t('settings.optionalAssets.headingPdf'),
                 recommended: true,
-                what: 'Lets the agent read PDF files (attached PDFs in chat, PDFs in your vault). Without it PDFs are skipped during ingestion with a clear notice; other document formats still work.',
+                what: t('modal.firstRunWizard.assetPdfDesc'),
                 size: '1.6 MB',
                 sha: PDFJS_BUNDLE_SHA256,
                 spec: buildPdfjsBundleSpec(this.plugin.manifest.version, PDFJS_BUNDLE_SHA256),
             },
             {
-                label: 'Semantic Reranker',
+                label: t('modal.firstRunWizard.assetRerankerName'),
                 recommended: true,
-                what: 'Reorders semantic-search results by how relevant they actually are. The agent finds your notes much more accurately, especially for long or vague queries. Without it semantic search still works but matches are noisier.',
+                what: t('modal.firstRunWizard.assetRerankerDesc'),
                 size: '12 MB',
                 sha: RERANKER_WASM_SHA256,
                 spec: buildRerankerSpec(this.plugin.manifest.version, RERANKER_WASM_SHA256),
             },
             {
-                label: 'Self-Development Source',
+                label: t('settings.optionalAssets.headingSelfDev'),
                 recommended: false,
-                what: 'Lets the agent read its own source code. Useful if you want the agent to help with extending the plugin itself. Most users do not need this.',
+                what: t('modal.firstRunWizard.assetSelfDevDesc'),
                 size: '5 MB',
                 sha: SELF_DEV_SOURCE_SHA256,
                 spec: buildSelfDevSourceSpec(this.plugin.manifest.version, SELF_DEV_SOURCE_SHA256),
@@ -787,17 +789,17 @@ export class FirstRunWizardModal extends Modal {
             const header = card.createDiv({ cls: 'wizard-provider-header' });
             header.createDiv({ cls: 'wizard-provider-name', text: `${item.label} (${item.size})` });
             if (item.recommended) {
-                header.createEl('span', { cls: 'wizard-provider-badge is-recommended', text: 'Recommended' });
+                header.createEl('span', { cls: 'wizard-provider-badge is-recommended', text: t('modal.firstRunWizard.badgeRecommended') });
             }
 
             card.createDiv({ cls: 'wizard-provider-note', text: item.what });
 
             const statusEl = card.createDiv({ cls: 'wizard-asset-status' });
             const actions = card.createDiv({ cls: 'wizard-asset-actions' });
-            const installBtn = actions.createEl('button', { cls: 'mod-cta', text: 'Install' });
-            const fileBtn = actions.createEl('button', { text: 'Install from file' });
-            fileBtn.setAttr('title', 'Pick a local copy if the GitHub release does not ship this asset yet');
-            const removeBtn = actions.createEl('button', { text: 'Remove' });
+            const installBtn = actions.createEl('button', { cls: 'mod-cta', text: t('modal.firstRunWizard.installBtn') });
+            const fileBtn = actions.createEl('button', { text: t('modal.firstRunWizard.installFromFileBtn') });
+            fileBtn.setAttr('title', t('modal.firstRunWizard.installFromFileTooltip'));
+            const removeBtn = actions.createEl('button', { text: t('settings.providers.remove') });
 
             const refreshStatus = async () => {
                 statusEl.empty();
@@ -805,7 +807,7 @@ export class FirstRunWizardModal extends Modal {
                 if (!item.sha) {
                     statusEl.classList.add('is-missing');
                     setIcon(statusEl.createDiv(), 'circle');
-                    statusEl.createSpan({ text: 'Not available in this development build' });
+                    statusEl.createSpan({ text: t('modal.firstRunWizard.assetNotAvailableDev') });
                     installBtn.disabled = true;
                     installBtn.setCssStyles({ display: '' });
                     removeBtn.setCssStyles({ display: 'none' });
@@ -815,7 +817,7 @@ export class FirstRunWizardModal extends Modal {
                 if (snap.status === 'installed') {
                     statusEl.classList.add('is-installed');
                     setIcon(statusEl.createDiv(), 'check-circle-2');
-                    statusEl.createSpan({ text: 'Installed' });
+                    statusEl.createSpan({ text: t('modal.firstRunWizard.assetInstalled') });
                     // Hide the Install button when the asset is healthy --
                     // clicking it would attempt a fresh download that just
                     // burns bandwidth or hits 404 on releases that do not
@@ -825,15 +827,15 @@ export class FirstRunWizardModal extends Modal {
                 } else if (snap.status === 'outdated') {
                     statusEl.classList.add('is-outdated');
                     setIcon(statusEl.createDiv(), 'circle-alert');
-                    statusEl.createSpan({ text: 'Installed but hash differs, re-install to update' });
-                    installBtn.setText('Re-install');
+                    statusEl.createSpan({ text: t('modal.firstRunWizard.assetOutdated') });
+                    installBtn.setText(t('modal.firstRunWizard.reinstallBtn'));
                     installBtn.setCssStyles({ display: '' });
                     removeBtn.setCssStyles({ display: '' });
                 } else {
                     statusEl.classList.add('is-missing');
                     setIcon(statusEl.createDiv(), 'circle');
-                    statusEl.createSpan({ text: 'Not installed' });
-                    installBtn.setText('Install');
+                    statusEl.createSpan({ text: t('modal.firstRunWizard.assetNotInstalled') });
+                    installBtn.setText(t('modal.firstRunWizard.installBtn'));
                     installBtn.setCssStyles({ display: '' });
                     removeBtn.setCssStyles({ display: 'none' });
                 }
@@ -843,13 +845,13 @@ export class FirstRunWizardModal extends Modal {
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
             installBtn.addEventListener('click', async () => {
                 installBtn.disabled = true;
-                installBtn.setText('Downloading...');
+                installBtn.setText(t('modal.firstRunWizard.downloadingBtn'));
                 try {
                     await manager.install(item.spec);
-                    new Notice(`${item.label} installed.`);
+                    new Notice(t('notice.assets.installed', { label: item.label }));
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    new Notice(`Install failed: ${msg}`, 10_000);
+                    new Notice(t('notice.assets.installFailed', { error: msg }), 10_000);
                 } finally {
                     installBtn.disabled = false;
                     await refreshStatus();
@@ -860,10 +862,10 @@ export class FirstRunWizardModal extends Modal {
             removeBtn.addEventListener('click', async () => {
                 try {
                     await manager.remove(item.spec);
-                    new Notice(`${item.label} removed.`);
+                    new Notice(t('notice.assets.removed', { name: item.label }));
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    new Notice(`Remove failed: ${msg}`);
+                    new Notice(t('notice.assets.removeFailed', { error: msg }));
                 } finally {
                     await refreshStatus();
                 }
@@ -881,8 +883,8 @@ export class FirstRunWizardModal extends Modal {
         this.addInfoBanner(
             this.bodyEl,
             'check-circle-2',
-            'Setup complete',
-            'Next the agent opens a chat in the sidebar and asks a few questions to fill your personal memory and identity profile. Everything you tell it stays inside this vault.',
+            t('modal.firstRunWizard.doneTitle'),
+            t('modal.firstRunWizard.doneBody'),
         );
 
         const p = (text: string): HTMLElement => {
@@ -890,17 +892,17 @@ export class FirstRunWizardModal extends Modal {
             el.setText(text);
             return el;
         };
-        p('You can skip this chat too. Just press "Close" and start chatting whenever you like.');
+        p(t('modal.firstRunWizard.doneSkipChatNote'));
 
         const skipped = this.plugin.settings.onboarding.skippedSteps;
         if (skipped && skipped.length > 0) {
             const note = this.bodyEl.createDiv({ cls: 'wizard-skip-list' });
             const label = skipped.map(id => {
                 const step = STEPS.find(s => s.id === id);
-                return step?.title ?? id;
+                return step ? t(step.titleKey) : id;
             }).join(', ');
-            note.createEl('strong', { text: 'You skipped: ' });
-            note.createSpan({ text: label + '. The matching settings tabs show an inline hint so you can revisit them later.' });
+            note.createEl('strong', { text: t('modal.firstRunWizard.doneYouSkipped') + ' ' });
+            note.createSpan({ text: label + '. ' + t('modal.firstRunWizard.doneRevisitHint') });
         }
     }
 }

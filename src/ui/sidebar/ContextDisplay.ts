@@ -5,6 +5,7 @@
 
 import { setIcon } from 'obsidian';
 import type { ContextUsage } from '../../core/context/ContextTracker';
+import { t } from '../../i18n';
 
 export class ContextDisplay {
     private container: HTMLElement | null = null;
@@ -38,7 +39,7 @@ export class ContextDisplay {
         // Condense button (always visible, but can be disabled)
         if (this.onCondenseClick) {
             this.condenseButton = barWrapper.createDiv('context-condense-button');
-            this.condenseButton.title = 'Condense context';
+            this.condenseButton.title = t('ui.context.condense');
             setIcon(this.condenseButton, 'fold-vertical');
             this.condenseButton.addEventListener('click', () => {
                 if (this.onCondenseClick && !this.buttonsDisabled) {
@@ -103,11 +104,11 @@ export class ContextDisplay {
             if (shouldDisable) {
                 this.condenseButton.classList.add('context-condense-button-disabled');
                 this.condenseButton.title = buttonsDisabled
-                    ? 'Context condensing unavailable during task execution'
-                    : 'Context condensing available when usage exceeds 60%';
+                    ? t('ui.context.condenseUnavailable')
+                    : t('ui.context.condenseThreshold');
             } else {
                 this.condenseButton.classList.remove('context-condense-button-disabled');
-                this.condenseButton.title = 'Condense context';
+                this.condenseButton.title = t('ui.context.condense');
             }
         }
 
@@ -115,16 +116,16 @@ export class ContextDisplay {
         if (this.tooltipContent) {
             this.tooltipContent.empty();
             this.tooltipContent.createDiv().setText(
-                `Tokens used: ${this.formatNumber(tokensUsed)} / ${this.formatNumber(maxTokens)}`
+                t('ui.context.tokensUsed', { used: this.formatNumber(tokensUsed), max: this.formatNumber(maxTokens) })
             );
             if (reservedForOutput > 0) {
                 this.tooltipContent.createDiv().setText(
-                    `Reserved for response: ${this.formatNumber(reservedForOutput)}`
+                    t('ui.context.reservedForResponse', { count: this.formatNumber(reservedForOutput) })
                 );
             }
             if (availableSize > 0) {
                 this.tooltipContent.createDiv().setText(
-                    `Available space: ${this.formatNumber(availableSize)}`
+                    t('ui.context.availableSpace', { count: this.formatNumber(availableSize) })
                 );
             }
         }

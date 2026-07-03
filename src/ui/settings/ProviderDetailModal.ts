@@ -180,7 +180,7 @@ export class ProviderDetailModal extends Modal {
                 cls: 'agent-info-btn',
                 attr: {
                     type: 'button',
-                    'aria-label': opts.label + ': info',
+                    'aria-label': t('settings.providers.modal.infoAria', { label: opts.label }),
                 },
             });
             setIcon(infoBtn, 'info');
@@ -364,10 +364,10 @@ export class ProviderDetailModal extends Modal {
             // a labelled sub-section. Frontier escalation for the
             // freshness verifier needs at least one provider with this
             // flag on.
-            this.mkSection(form, 'Privacy');
+            this.mkSection(form, t('settings.providers.modal.section.privacy'));
             this.compactRow(form, {
-                label: 'Zero-Data-Retention (ZDR) confirmed',
-                desc: 'I have confirmed with this provider that prompts and completions are not retained or used for training. Required before the freshness verifier may escalate to the flagship tier on this provider.',
+                label: t('settings.providers.zdrConfirmed'),
+                desc: t('settings.providers.zdrConfirmedDesc'),
                 build: (ctrl) => {
                     const label = ctrl.createEl('label', { cls: 'mc-toggle' });
                     const input = label.createEl('input', { attr: { type: 'checkbox' } });
@@ -707,7 +707,7 @@ export class ProviderDetailModal extends Modal {
                 desc: t('settings.providers.apiVersionDesc'),
                 build: (ctrl) => this.compactInput(ctrl, {
                     value: this.formApiVersion,
-                    placeholder: '2024-10-21',
+                    placeholder: t('modal.modelConfig.apiVersionPlaceholder'),
                     onInput: (v) => { this.formApiVersion = v; },
                 }),
             });
@@ -717,8 +717,8 @@ export class ProviderDetailModal extends Modal {
         // Azure APIM. Toggle + two header fields (mirrors ModelConfigModal).
         if (this.formType === 'anthropic') {
             this.compactRow(parent, {
-                label: 'Enterprise gateway',
-                desc: 'Enable when your base URL points to a corporate APIM (e.g. apimgmt-*.azure-api.net) instead of api.anthropic.com. Bypasses CORS and sends the subscription key as a custom header.',
+                label: t('settings.providers.gateway.title'),
+                desc: t('settings.providers.gateway.anthropicDescLong'),
                 build: (ctrl) => this.compactToggle(ctrl, {
                     value: this.formUseGateway,
                     onChange: (v) => { this.formUseGateway = v; this.render(); },
@@ -726,8 +726,8 @@ export class ProviderDetailModal extends Modal {
             });
             if (this.formUseGateway) {
                 this.compactRow(parent, {
-                    label: 'Gateway header name',
-                    desc: 'Header carrying the subscription key. Most Azure APIM gateways use Ocp-Apim-Subscription-Key.',
+                    label: t('settings.providers.gateway.headerName'),
+                    desc: t('settings.providers.gateway.headerNameDesc'),
                     build: (ctrl) => this.compactInput(ctrl, {
                         value: this.formGatewayHeaderName,
                         placeholder: 'Ocp-Apim-Subscription-Key',
@@ -735,8 +735,8 @@ export class ProviderDetailModal extends Modal {
                     }),
                 });
                 this.compactRow(parent, {
-                    label: 'Subscription key',
-                    desc: 'Pasted into the gateway header above. Saved encrypted at rest.',
+                    label: t('settings.providers.gateway.subscriptionKey'),
+                    desc: t('settings.providers.gateway.subscriptionKeyDesc'),
                     build: (ctrl) => this.compactInput(ctrl, {
                         type: 'password',
                         value: this.formGatewayHeaderValue,
@@ -882,7 +882,7 @@ export class ProviderDetailModal extends Modal {
             desc: t('settings.providers.bedrockRegionDesc'),
             build: (ctrl) => this.compactInput(ctrl, {
                 value: this.formAwsRegion,
-                placeholder: 'AWS region (eu-central-1)',
+                placeholder: t('settings.providers.bedrockRegionPlaceholder'),
                 onInput: (v) => { this.formAwsRegion = v; },
             }),
         });
@@ -893,9 +893,9 @@ export class ProviderDetailModal extends Modal {
             build: (ctrl) => this.compactSelect(ctrl, {
                 value: this.formAwsAuthMode,
                 options: [
-                    { value: 'api-key', label: 'API key (bearer)' },
-                    { value: 'access-key', label: 'Access key + secret' },
-                    { value: 'gateway', label: 'API gateway (Bedrock-compatible)' },
+                    { value: 'api-key', label: t('settings.providers.bedrockAuthApiKey') },
+                    { value: 'access-key', label: t('settings.providers.bedrockAuthAccessKey') },
+                    { value: 'gateway', label: t('settings.providers.bedrockAuthGateway') },
                 ],
                 onChange: (v) => {
                     this.formAwsAuthMode = v as 'api-key' | 'access-key' | 'gateway';
@@ -933,8 +933,8 @@ export class ProviderDetailModal extends Modal {
         } else {
             // FEAT-26-07 gateway mode: header-based subscription key.
             this.compactRow(parent, {
-                label: 'Gateway base URL',
-                desc: 'e.g. https://gateway.example.com/bedrock. The SDK appends /model/{id}/converse-stream.',
+                label: t('settings.providers.gateway.baseUrl'),
+                desc: t('settings.providers.gateway.baseUrlDesc'),
                 build: (ctrl) => this.compactInput(ctrl, {
                     type: 'text',
                     value: this.formBaseUrl,
@@ -942,8 +942,8 @@ export class ProviderDetailModal extends Modal {
                 }),
             });
             this.compactRow(parent, {
-                label: 'Gateway header name',
-                desc: 'Most Azure APIM gateways use Ocp-Apim-Subscription-Key.',
+                label: t('settings.providers.gateway.headerName'),
+                desc: t('settings.providers.gateway.headerNameDescShort'),
                 build: (ctrl) => this.compactInput(ctrl, {
                     type: 'text',
                     value: this.formGatewayHeaderName,
@@ -951,7 +951,7 @@ export class ProviderDetailModal extends Modal {
                 }),
             });
             this.compactRow(parent, {
-                label: 'Subscription key',
+                label: t('settings.providers.gateway.subscriptionKey'),
                 build: (ctrl) => this.compactInput(ctrl, {
                     type: 'password',
                     value: this.formGatewayHeaderValue,
@@ -967,7 +967,7 @@ export class ProviderDetailModal extends Modal {
         const count = this.discoveredModels.length;
         const stamp = this.lastRefreshAt
             ? new Date(this.lastRefreshAt).toLocaleString()
-            : 'never';
+            : t('settings.providers.discoveryNever');
         // Providers without a model-listing endpoint (ChatGPT OAuth / Codex)
         // get wording that does not imply the static list is exhaustive and
         // points at the manual-entry option in the tier slots.
@@ -1080,7 +1080,7 @@ export class ProviderDetailModal extends Modal {
             cls: `chat-model-picker-tier chat-model-picker-tier-${tier} mcm-tier-badge-top`,
             text: getTierBadgeLabel(tier),
         });
-        badge.setAttr('aria-label', `tier: ${getTierBadgeLabel(tier)}`);
+        badge.setAttr('aria-label', t('settings.providers.tier.badgeAria', { label: getTierBadgeLabel(tier) }));
 
         const manualAllowed = providerSupportsManualModelId(this.formType);
         const view = resolveTierSlotView({

@@ -43,6 +43,8 @@ const VAULT_OPERATOR_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS'
     'KB', 'MB', 'GB', 'TB', 'DNA',
     // Office file format acronyms that appear in capability descriptions.
     'DOCX', 'XLSX', 'PPTX',
+    // EPIC-42: OKF frontmatter standard referenced in graph-expansion copy.
+    'OKF',
 ];
 // Proper nouns that should keep their casing in Bedrock-related UI copy but
 // don't belong in the general brand list (they are not branded products).
@@ -77,6 +79,20 @@ const VAULT_OPERATOR_IGNORE_REGEX = [
     // The rule treats "+ " as leading content and lowercases the next token,
     // turning "+ New" into "+ new". The label form is intentional.
     '^\\+\\s+\\w',
+    // EPIC-42: literal frontmatter property names and value examples. The
+    // OKF vocabulary is lowercase by definition ('moc'), and the naming
+    // convention 'Author-Year_Title' is a literal default value, not prose.
+    '^moc$',
+    '\\bOKF (default|vocabulary)\\b',
+    '\\bAuthor-Year_Title\\b',
+    // Tool identifiers referenced in UI copy (snake_case, must stay as-is;
+    // the acronyms pass would otherwise fold docx -> DOCX inside them).
+    'create_(docx|xlsx|pptx)',
+    // Sentence fragments interpolated mid-sentence via {{var}}; they must
+    // keep lowercase ("last check: never", "1 embedding model").
+    '^never$',
+    '^embedding models?$',
+    '^your active LLM provider',
 ];
 
 export default tseslint.config(
@@ -172,6 +188,27 @@ export default tseslint.config(
                 {
                     selector: "TemplateElement[value.raw=/\\b(FROM|INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+vectors\\b/i]",
                     message: "Direct access to the `vectors` table is forbidden outside src/core/knowledge/VectorStore.ts. See ADR-137.",
+                },
+            ],
+        },
+    },
+    {
+        // EPIC-42 / FEAT-42-04: i18n-Guard. In den gesweepten UI-Bereichen
+        // muessen user-sichtbare Texte durch t() laufen. Hardcodierte
+        // String-Literale in Notice/setName/setDesc/... sind Regressionen.
+        // Legitime Ausnahmen (reine Symbole, Werte) mit
+        // '// eslint-disable-next-line no-restricted-syntax -- reason: <why>'.
+        files: ['src/ui/**/*.ts', 'src/main.ts', 'src/core/inline/**/*.ts'],
+        ignores: ['src/**/__tests__/**/*.ts'],
+        rules: {
+            'no-restricted-syntax': ['error',
+                {
+                    selector: "NewExpression[callee.name='Notice'] > Literal[value=/[A-Za-z]{3}/]:first-child",
+                    message: 'User-visible Notice text must go through t() (src/i18n). Add a key to en.ts instead of a hardcoded string. See FEAT-42-04.',
+                },
+                {
+                    selector: "CallExpression[callee.property.name=/^(setName|setDesc|setButtonText|setTooltip|setTitle)$/] > Literal[value=/[A-Za-z]{3}/]:first-child",
+                    message: 'User-visible UI text must go through t() (src/i18n). Add a key to en.ts instead of a hardcoded string. See FEAT-42-04.',
                 },
             ],
         },

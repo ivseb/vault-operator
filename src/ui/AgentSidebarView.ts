@@ -415,7 +415,7 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan({
             cls: 'agent-title-wordmark',
-            text: '/ Vault Operator',
+            text: '/ Vault Operator', // i18n-ignore: brand wordmark
         });
 
         const headerRight = header.createDiv('agent-header-right');
@@ -480,14 +480,14 @@ export class AgentSidebarView extends ItemView {
         // better than full arrows in the narrow sidebar.
         this.navBackBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Previous chat' },
+            attr: { 'aria-label': t('ui.sidebar.previousChat') },
         });
         setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'chevron-left');
         this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
 
         this.navForwardBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Next chat' },
+            attr: { 'aria-label': t('ui.sidebar.nextChat') },
         });
         setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'chevron-right');
         this.navForwardBtn.addEventListener('click', () => { void this.navForward(); });
@@ -585,7 +585,7 @@ export class AgentSidebarView extends ItemView {
 
     private buildAiDisclaimer(container: HTMLElement): void {
         const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
-        disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
+        disclaimer.setText(t('ui.sidebar.aiDisclaimer'));
     }
 
     private buildChatInput(container: HTMLElement): void {
@@ -787,7 +787,7 @@ export class AgentSidebarView extends ItemView {
             const sendEl = this.sendButton as HTMLButtonElement;
             sendEl.disabled = true;
             sendEl.classList.add('send-button-preparing');
-            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            sendEl.setAttribute('title', t('ui.sidebar.preparingServices'));
             services.then(() => {
                 sendEl.disabled = false;
                 sendEl.classList.remove('send-button-preparing');
@@ -817,15 +817,15 @@ export class AgentSidebarView extends ItemView {
             .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
         menu.addSeparator();
         menu.addItem(item => item
-            .setTitle('Insert skill...')
+            .setTitle(t('ui.sidebar.insertSkill'))
             .setIcon('sparkles')
             .onClick(() => this.openCommandPicker('skills', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert prompt...')
+            .setTitle(t('ui.sidebar.insertPrompt'))
             .setIcon('message-square-quote')
             .onClick(() => this.openCommandPicker('prompts', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert workflow...')
+            .setTitle(t('ui.sidebar.insertWorkflow'))
             .setIcon('workflow')
             .onClick(() => this.openCommandPicker('workflows', anchor)));
         menu.addSeparator();
@@ -842,15 +842,15 @@ export class AgentSidebarView extends ItemView {
     ): Promise<void> {
         const items = await this.collectCommandItems(category);
         const title = category === 'skills'
-            ? 'Search skills...'
+            ? t('ui.commandPicker.searchSkills')
             : category === 'prompts'
-                ? 'Search prompts...'
-                : 'Search workflows...';
+                ? t('ui.commandPicker.searchPrompts')
+                : t('ui.commandPicker.searchWorkflows');
         const empty = category === 'skills'
-            ? 'No skills installed. Import one via Settings -> Skills.'
+            ? t('ui.commandPicker.emptySkills')
             : category === 'prompts'
-                ? 'No custom prompts configured yet.'
-                : 'No workflows available in this vault.';
+                ? t('ui.commandPicker.emptyPrompts')
+                : t('ui.commandPicker.emptyWorkflows');
         const picker = new CommandPicker(items, title, empty);
         picker.show(anchor, this.containerEl);
     }
@@ -1316,7 +1316,7 @@ export class AgentSidebarView extends ItemView {
         try {
             const flipped = await store.confirm(id);
             if (!flipped) {
-                new Notice('Conversation already confirmed.');
+                new Notice(t('notice.memory.alreadyConfirmed'));
                 return;
             }
             // Trigger memory extraction (auto-sync would have done this on save).
@@ -1332,7 +1332,7 @@ export class AgentSidebarView extends ItemView {
                     });
                 }
             }
-            new Notice(`Confirmed: ${title}`);
+            new Notice(t('notice.memory.confirmed', { title }));
         } catch (e) {
             console.warn('[Memory] Confirm pending failed:', e);
             new Notice(t('notice.memorySaveFailed'));
@@ -2555,7 +2555,7 @@ export class AgentSidebarView extends ItemView {
                     // threshold state. Renders as a badge in the same footer.
                     if (footerEl) {
                         const badge = footerEl.createSpan('context-condense-failed-badge');
-                        badge.setText('Context condense failed: ' + error.message);
+                        badge.setText(t('ui.sidebar.condenseFailed', { error: error.message }));
                         footerEl.classList.remove('agent-u-hidden');
                     }
                     console.warn('[Sidebar] Context condense failed:', error.message);
@@ -2783,7 +2783,7 @@ export class AgentSidebarView extends ItemView {
                             });
                             // "+" button: append text to textarea without sending (inside item, right-aligned, hover-only)
                             const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
-                            appendBtn.setAttribute('aria-label', 'Add to input');
+                            appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
                             appendBtn.addEventListener('click', (ev) => {
                                 ev.stopPropagation();
                                 ev.preventDefault();
@@ -3109,7 +3109,7 @@ export class AgentSidebarView extends ItemView {
      */
     private triggerManualCondensing(): void {
         if (!this.contextTracker) {
-            new Notice('Context tracker not initialized');
+            new Notice(t('notice.context.trackerNotInitialized'));
             return;
         }
 
@@ -3117,11 +3117,11 @@ export class AgentSidebarView extends ItemView {
         const percentage = usage.maxTokens > 0 ? (usage.tokensUsed / usage.maxTokens) * 100 : 0;
 
         if (percentage < 60) {
-            new Notice('Context usage is below 60%. Condensing not needed yet.');
+            new Notice(t('notice.context.condenseBelowThreshold'));
             return;
         }
 
-        new Notice('Manual context condensing is not yet fully implemented. Please use automatic condensing.');
+        new Notice(t('notice.context.manualCondenseNotImplemented'));
         // TODO: Implement manual condensing trigger
         // This requires either:
         // 1. Storing reference to current AgentTask
@@ -3332,13 +3332,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['tasknotes'];
 
         const message = isInstalled
-            ? 'Das Community Plugin "TaskNotes" ist installiert aber nicht aktiv. Aktiviere es fuer erweiterte Task-Verwaltung (Kanban, Kalender, Recurring Tasks).'
-            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung mit Kanban, Kalender und Recurring Tasks. Installierbar ueber Einstellungen > Community Plugins.';
+            ? t('notice.taskNotes.hintDisabled')
+            : t('notice.taskNotes.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message });
             const dismissLink = frag.createEl('a', {
-                text: 'Nicht mehr anzeigen',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -3378,13 +3378,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['frontmatter-operator'];
 
         const message = isInstalled
-            ? 'Frontmatter Operator is installed but disabled. Enable it in Community Plugins for bulk frontmatter operations and undoable snapshots.'
-            : 'Tip: Frontmatter Operator adds bulk operations, structural rename/delete, and undoable snapshots for YAML frontmatter. Install it from Community Plugins for advanced workflows.';
+            ? t('notice.frontmatterOperator.hintDisabled')
+            : t('notice.frontmatterOperator.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message + ' ' });
             const dismissLink = frag.createEl('a', {
-                text: 'Do not show again',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -4095,14 +4095,14 @@ export class AgentSidebarView extends ItemView {
 
         // Vault Health Check
         menu.addItem((item) => {
-            item.setTitle('Vault health check');
+            item.setTitle(t('modal.vaultHealth.title'));
             item.setIcon('stethoscope');
             item.onClick(async () => {
                 if (!this.plugin.vaultHealthService) {
-                    new Notice('Vault health service not available. Enable semantic index first.');
+                    new Notice(t('notice.vaultHealth.serviceUnavailable'));
                     return;
                 }
-                new Notice('Running vault health check...');
+                new Notice(t('notice.vaultHealth.checkRunning'));
                 await this.plugin.vaultHealthService.runChecks(undefined, {
                     backlinksProperty: this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
@@ -4111,7 +4111,7 @@ export class AgentSidebarView extends ItemView {
                 });
                 const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {
-                    new Notice('No issues found. Vault is healthy.');
+                    new Notice(t('notice.vaultHealth.noIssues'));
                     return;
                 }
                 this.openHealthModal();
@@ -4847,7 +4847,7 @@ export class AgentSidebarView extends ItemView {
 
         // Insert placeholder immediately so it appears above the details toggle.
         const previewEl = row.createDiv('tool-approval-fo-preview');
-        previewEl.setText('Resolving affected notes...');
+        previewEl.setText(t('ui.sidebar.resolvingAffectedNotes'));
 
         // Async resolution. Failures silently remove the placeholder.
         // AUDIT-FEAT-14-07 L-2: guard every DOM mutation with an isConnected

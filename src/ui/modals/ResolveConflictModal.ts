@@ -19,17 +19,18 @@
  */
 
 import { Modal, Notice, TFile } from 'obsidian';
+import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import type { ReviewRow } from '../../core/health/KnowledgeReviewReader';
 import type { VerdictLiteral } from '../../core/health/types';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
 
 const VERDICT_LABELS: Record<VerdictLiteral, string> = {
-    matches: 'Matches sources',
-    extends: 'Could extend',
-    contradicts: 'Contradicted by sources',
-    outdated: 'Outdated',
-    no_external_source: 'No external evidence yet',
+    matches: t('modal.resolveConflict.verdictMatches'),
+    extends: t('modal.resolveConflict.verdictExtends'),
+    contradicts: t('modal.resolveConflict.verdictContradicts'),
+    outdated: t('modal.resolveConflict.verdictOutdated'),
+    no_external_source: t('modal.resolveConflict.verdictNoExternalSource'),
 };
 
 export interface ResolveConflictModalOptions {
@@ -53,13 +54,13 @@ export class ResolveConflictModal extends Modal {
         contentEl.empty();
         contentEl.addClass('resolve-conflict-modal');
 
-        contentEl.createEl('h3', { text: 'Resolve knowledge issue' });
+        contentEl.createEl('h3', { text: t('modal.resolveConflict.title') });
         contentEl.createEl('p', { text: this.row.path });
 
         const verdictLine = contentEl.createDiv('resolve-conflict-verdict');
         const label = VERDICT_LABELS[this.row.verdict] ?? this.row.verdict;
         verdictLine.createEl('strong', { text: label });
-        verdictLine.appendText(` (confidence ${this.row.confidence.toFixed(2)}, ${this.row.verifierTier} tier)`);
+        verdictLine.appendText(' ' + t('modal.resolveConflict.meta', { confidence: this.row.confidence.toFixed(2), tier: this.row.verifierTier }));
 
         if (this.row.summary) {
             contentEl.createEl('p', { text: this.row.summary });
@@ -75,16 +76,16 @@ export class ResolveConflictModal extends Modal {
 
         const buttonRow = contentEl.createDiv('resolve-conflict-actions');
 
-        const markBtn = buttonRow.createEl('button', { text: 'Mark verified' });
+        const markBtn = buttonRow.createEl('button', { text: t('modal.resolveConflict.markVerified') });
         markBtn.addEventListener('click', () => { this.markVerified(); });
 
-        const chatBtn = buttonRow.createEl('button', { text: 'Open in chat' });
+        const chatBtn = buttonRow.createEl('button', { text: t('modal.resolveConflict.openInChat') });
         chatBtn.addEventListener('click', () => { void this.openInChat(); });
 
-        const editBtn = buttonRow.createEl('button', { text: 'Edit note' });
+        const editBtn = buttonRow.createEl('button', { text: t('modal.resolveConflict.editNote') });
         editBtn.addEventListener('click', () => { void this.editNote(); });
 
-        const deleteBtn = buttonRow.createEl('button', { text: 'Delete note', cls: 'mod-warning' });
+        const deleteBtn = buttonRow.createEl('button', { text: t('modal.resolveConflict.deleteNote'), cls: 'mod-warning' });
         deleteBtn.addEventListener('click', () => { void this.deleteNote(); });
     }
 
@@ -101,7 +102,7 @@ export class ResolveConflictModal extends Modal {
             [this.row.path, new Date().toISOString()],
         );
         this.plugin.knowledgeDB?.markDirty();
-        new Notice(`Marked ${this.row.path} as verified`);
+        new Notice(t('notice.knowledgeReview.markedVerified', { path: this.row.path }));
         this.opts.onChange();
         this.close();
     }
@@ -119,7 +120,7 @@ export class ResolveConflictModal extends Modal {
             if (leaf) await leaf.setViewState({ type: VIEW_TYPE_AGENT_SIDEBAR, active: true });
         }
 
-        new Notice('Review prompt prepared; opening chat');
+        new Notice(t('notice.knowledgeReview.promptPrepared'));
         this.opts.onChange();
         this.close();
         // AUDIT-034 H-6: do NOT log the full prompt. It contains the
@@ -134,7 +135,7 @@ export class ResolveConflictModal extends Modal {
     private async editNote(): Promise<void> {
         const file = this.plugin.app.vault.getAbstractFileByPath(this.row.path);
         if (!(file instanceof TFile)) {
-            new Notice(`File not found: ${this.row.path}`);
+            new Notice(t('notice.knowledgeReview.fileNotFound', { path: this.row.path }));
             return;
         }
         const leaf = this.plugin.app.workspace.getLeaf(false);
@@ -145,16 +146,16 @@ export class ResolveConflictModal extends Modal {
     private async deleteNote(): Promise<void> {
         const file = this.plugin.app.vault.getAbstractFileByPath(this.row.path);
         if (!(file instanceof TFile)) {
-            new Notice(`File not found: ${this.row.path}`);
+            new Notice(t('notice.knowledgeReview.fileNotFound', { path: this.row.path }));
             return;
         }
         const confirmed = await this.confirmDestructive(
-            'Delete note',
-            `Move ${this.row.path} to the system trash?`,
+            t('modal.resolveConflict.deleteNote'),
+            t('modal.resolveConflict.deleteConfirmMessage', { path: this.row.path }),
         );
         if (!confirmed) return;
         await this.plugin.app.fileManager.trashFile(file);
-        new Notice(`Moved ${this.row.path} to trash`);
+        new Notice(t('notice.knowledgeReview.movedToTrash', { path: this.row.path }));
         this.opts.onChange();
         this.close();
     }
@@ -167,8 +168,8 @@ export class ResolveConflictModal extends Modal {
                     contentEl.createEl('h3', { text: title });
                     contentEl.createEl('p', { text: message });
                     const row = contentEl.createDiv('resolve-conflict-confirm');
-                    const cancel = row.createEl('button', { text: 'Cancel' });
-                    const ok = row.createEl('button', { text: 'Delete', cls: 'mod-warning' });
+                    const cancel = row.createEl('button', { text: t('modal.newMode.cancel') });
+                    const ok = row.createEl('button', { text: t('modal.chatHistory.delete'), cls: 'mod-warning' });
                     cancel.addEventListener('click', () => { this.close(); resolve(false); });
                     ok.addEventListener('click', () => { this.close(); resolve(true); });
                 }

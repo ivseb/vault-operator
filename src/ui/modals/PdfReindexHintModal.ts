@@ -18,6 +18,7 @@
 
 import { App, Modal, Setting } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { t } from '../../i18n';
 
 export class PdfReindexHintModal extends Modal {
     constructor(app: App, private plugin: ObsidianAgentPlugin) {
@@ -27,27 +28,20 @@ export class PdfReindexHintModal extends Modal {
     onOpen(): void {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl('h3', { text: 'Reindex your PDFs' });
+        contentEl.createEl('h3', { text: t('modal.pdfReindexHint.title') });
 
         const body = contentEl.createEl('p');
-        body.appendText(
-            'PDFs you indexed before v2.14.10 carry a "PDF Parser is not installed" placeholder '
-            + 'in their embeddings, because of a bug fixed in that release. Semantic search results '
-            + 'on those PDFs are noisy until the index is rebuilt.',
-        );
+        body.appendText(t('modal.pdfReindexHint.body'));
 
         const body2 = contentEl.createEl('p');
-        body2.appendText(
-            'Open the Embeddings tab to run a one-shot "Reindex PDFs only" pass. Other file types '
-            + 'are untouched. You can also dismiss this hint -- it will not be shown again.',
-        );
+        body2.appendText(t('modal.pdfReindexHint.body2'));
 
         new Setting(contentEl)
             .addButton((btn) => btn
-                .setButtonText('Dismiss')
+                .setButtonText(t('modal.pdfReindexHint.dismissButton'))
                 .onClick(() => { void this.dismiss(); }))
             .addButton((btn) => btn
-                .setButtonText('Open embeddings tab')
+                .setButtonText(t('modal.pdfReindexHint.openEmbeddingsButton'))
                 .setCta()
                 .onClick(() => { void this.openEmbeddings(); }));
     }

@@ -102,23 +102,15 @@ export class ProvidersTab {
         const safe = this.plugin.safeStorage;
         if (!safe || safe.isAvailable()) return;
 
-        // Strings are inlined intentionally. AUDIT-034 scope keeps edits to
-        // SafeStorageService.ts and ProvidersTab.ts; the i18n locale file is
-        // out of scope, so the banner copy lives here until a follow-up
-        // commit lifts it into src/i18n/locales/en.ts.
         const banner = containerEl.createDiv('vault-op-box vault-op-box--warning');
         const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(icon, 'shield-alert');
         const text = banner.createDiv({ cls: 'vault-op-box__text' });
         text.createEl('strong', {
-            text: 'API keys stored as plaintext',
+            text: t('settings.providers.plaintextTitle'),
         });
         text.createDiv({
-            text:
-                'The OS keychain is unavailable on this device, so Vault Operator cannot encrypt API keys, '
-                + 'OAuth tokens, or MCP secrets. These values are written as plain strings to data.json and are '
-                + 'visible to any process that can read the vault. Common cause: Linux installs without libsecret. '
-                + 'Install libsecret-1-0 and restart Obsidian to enable encryption.',
+            text: t('settings.providers.plaintextBody'),
         });
 
         const acknowledged = readAck(this.plugin.settings);
@@ -127,7 +119,7 @@ export class ProvidersTab {
         if (!acknowledged) {
             const dismissBtn = actionsRow.createEl('button', {
                 cls: 'mod-warning',
-                text: 'I understand, dismiss this warning',
+                text: t('settings.providers.plaintextDismiss'),
             });
             dismissBtn.addEventListener('click', () => { void (async () => {
                 writeAck(this.plugin.settings, true);
@@ -140,7 +132,7 @@ export class ProvidersTab {
         } else {
             actionsRow.createSpan({
                 cls: 'vault-op-box__hint',
-                text: 'Warning acknowledged. The banner stays visible so the state remains clear.',
+                text: t('settings.providers.plaintextAcknowledged'),
             });
         }
     }

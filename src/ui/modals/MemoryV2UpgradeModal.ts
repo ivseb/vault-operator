@@ -21,6 +21,7 @@
  */
 
 import { App, Modal, Setting } from 'obsidian';
+import { t } from '../../i18n';
 
 export type MemoryV2UpgradeChoice = 'migrate' | 'later';
 
@@ -45,20 +46,16 @@ class MemoryV2UpgradeModalImpl extends Modal {
         contentEl.empty();
         contentEl.addClass('agent-memory-v2-upgrade-modal');
 
-        contentEl.createEl('h2', { text: 'Vault Operator upgrade' });
+        contentEl.createEl('h2', { text: t('modal.memoryV2Upgrade.title') });
 
         const intro = contentEl.createEl('p');
-        intro.appendText(
-            'This release replaces the original memory subsystem with a faster, ' +
-            'more capable engine. We need to upgrade your existing memory in one ' +
-            'short cascade. Steps run automatically:',
-        );
+        intro.appendText(t('modal.memoryV2Upgrade.intro'));
 
         const benefits = contentEl.createEl('ul');
         const items: Array<[string, string]> = [
-            ['Atomise legacy memory', 'user-profile, projects, patterns, errors, custom-tools become self-contained facts with topics, importance, and provenance. soul.md becomes your communication style.'],
-            ['Seed topic centroids', 'The engine pre-computes per-topic embeddings so context locks instantly without an LLM call.'],
-            ['Refresh defaults', 'Future releases plug release-specific upgrade steps in here.'],
+            [t('modal.memoryV2Upgrade.step1Title'), t('modal.memoryV2Upgrade.step1Body')],
+            [t('modal.memoryV2Upgrade.step2Title'), t('modal.memoryV2Upgrade.step2Body')],
+            [t('modal.memoryV2Upgrade.step3Title'), t('modal.memoryV2Upgrade.step3Body')],
         ];
         for (const [title, body] of items) {
             const li = benefits.createEl('li');
@@ -67,25 +64,20 @@ class MemoryV2UpgradeModalImpl extends Modal {
         }
 
         const safety = contentEl.createEl('p', { cls: 'agent-memory-v2-upgrade-safety' });
-        safety.createEl('strong', { text: 'Safe upgrade: ' });
-        safety.appendText(
-            'Originals are copied into memory-v1-backup/{timestamp}/ before any ' +
-            'change. Backups stay accessible under Settings → Advanced → Backups. ' +
-            'New installs never see this dialog; they ship on the new engine ' +
-            'from minute one.',
-        );
+        safety.createEl('strong', { text: t('modal.memoryV2Upgrade.safetyTitle') + ': ' });
+        safety.appendText(t('modal.memoryV2Upgrade.safetyBody'));
 
         const later = contentEl.createEl('p');
-        later.appendText('You can run this upgrade later from ');
-        later.createEl('em', { text: 'Settings → memory → run upgrade' });
-        later.appendText('. The dialog only appears once per release.');
+        later.appendText(t('modal.memoryV2Upgrade.laterPrefix') + ' ');
+        later.createEl('em', { text: t('modal.memoryV2Upgrade.laterPath') });
+        later.appendText(t('modal.memoryV2Upgrade.laterSuffix'));
 
         new Setting(contentEl)
             .addButton(btn => btn
-                .setButtonText('Later')
+                .setButtonText(t('modal.memoryV2Upgrade.later'))
                 .onClick(() => this.decide('later')))
             .addButton(btn => btn
-                .setButtonText('Upgrade now')
+                .setButtonText(t('modal.memoryV2Upgrade.upgradeNow'))
                 .setCta()
                 .onClick(() => this.decide('migrate')));
     }

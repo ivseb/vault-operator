@@ -251,7 +251,7 @@ export class InlineChatOrchestrator {
             mountHandle = adapter.mount(view);
         } catch (e) {
             console.warn('[InlineChatOrchestrator] mount() failed:', e);
-            new Notice('Inline chat could not open. See console for details.');
+            new Notice(t('notice.inlineChat.openFailed'));
             return;
         }
         this.activeMountHandle = mountHandle;
@@ -381,14 +381,14 @@ export class InlineChatOrchestrator {
         adapterId: 'cm-block-widget' | 'popover-overlay',
     ): void {
         if (reason === 'reading-view' && adapterId === 'cm-block-widget') {
-            new Notice('Switch to editor view, or change inline chat display to popover in settings.');
+            new Notice(t('notice.inlineChat.readingViewHint'));
             return;
         }
         if (reason === 'no-view') {
-            new Notice('Open a note to use the inline chat.');
+            new Notice(t('notice.inlineChat.openNoteFirst'));
             return;
         }
-        new Notice('Inline chat is unavailable in this view.');
+        new Notice(t('notice.inlineChat.unavailableInView'));
     }
 
     private async handleDispatch(args: InlinePanelDispatchArgs, handle: InlinePanelHandle): Promise<void> {

@@ -15,13 +15,14 @@ import { getSubagentProfile } from '../agent/subagent-profiles';
 import { getHelperApi } from '../helper-api';
 import type { MessageParam } from '../../api/types';
 import type { BackgroundTaskExecutor } from './BackgroundTaskRunner';
+import { t } from '../../i18n';
 
 const BACKGROUND_MAX_ITERATIONS = 15;
 
 export function createBackgroundTaskExecutor(plugin: ObsidianAgentPlugin): BackgroundTaskExecutor {
     return async ({ taskId, message, abortSignal }) => {
         if (!plugin.apiHandler) {
-            new Notice('Background task failed: no model configured.');
+            new Notice(t('notice.backgroundTask.noModel'));
             return '';
         }
         const profile = getSubagentProfile('research');
@@ -70,7 +71,7 @@ export function createBackgroundTaskExecutor(plugin: ObsidianAgentPlugin): Backg
             try {
                 const id = await plugin.conversationStore.create('agent', api.getModel().id);
                 await plugin.conversationStore.save(id, history, [
-                    { role: 'user', text: `[Background research] ${message}`, ts: new Date().toISOString() },
+                    { role: 'user', text: t('ui.backgroundTask.historyUserMessage', { message }), ts: new Date().toISOString() },
                     { role: 'assistant', text: report, ts: new Date().toISOString() },
                 ]);
                 plugin.app.workspace.containerEl.dispatchEvent(
@@ -82,10 +83,10 @@ export function createBackgroundTaskExecutor(plugin: ObsidianAgentPlugin): Backg
         }
 
         new Notice(aborted
-            ? 'Background research task stopped.'
+            ? t('notice.backgroundTask.stopped')
             : report
-                ? 'Background research task finished — the report is in your chat history.'
-                : 'Background research task finished without a report.');
+                ? t('notice.backgroundTask.finished')
+                : t('notice.backgroundTask.noReport'));
         return report;
     };
 }

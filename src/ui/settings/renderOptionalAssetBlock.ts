@@ -15,6 +15,7 @@ import { Notice, Setting } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import type { AssetSpec } from '../../core/assets/OptionalAssetManager';
 import { OptionalAssetManager } from '../../core/assets/OptionalAssetManager';
+import { t } from '../../i18n';
 
 export interface OptionalAssetBlockOptions {
     /** Plugin instance for OptionalAssetManager. */
@@ -41,21 +42,18 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
     const { plugin, containerEl, spec, onPostInstall } = opts;
     const manager = new OptionalAssetManager(plugin);
     const description = opts.description ?? spec.description;
-    const notInstalledStatus = opts.notInstalledStatus ?? 'Status: not installed';
+    const notInstalledStatus = opts.notInstalledStatus ?? t('settings.optionalAssets.statusNotInstalled');
 
     if (!spec.expectedSha256) {
         new Setting(containerEl)
-            .setName(`${spec.label} (~${spec.sizeMb} MB)`)
-            .setDesc(`${description} (Not available in this development build, will ship in the next release.)`);
+            .setName(t('settings.optionalAssets.nameWithSize', { label: spec.label, sizeMb: spec.sizeMb }))
+            .setDesc(t('settings.optionalAssets.devBuildUnavailable', { description }));
         return;
     }
 
     const setting = new Setting(containerEl)
-        .setName(`${spec.label} (~${spec.sizeMb} MB)`)
-        .setDesc(
-            `${description} Stored in <vault>/.vault-operator/assets/. ` +
-            'Downloaded from this plugin\'s GitHub release, verified by SHA256.',
-        );
+        .setName(t('settings.optionalAssets.nameWithSize', { label: spec.label, sizeMb: spec.sizeMb }))
+        .setDesc(t('settings.optionalAssets.storageDesc', { description }));
 
     const statusEl = setting.descEl.createDiv({ cls: 'optional-asset-status' });
     let installBtn: HTMLButtonElement | null = null;
@@ -65,24 +63,24 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
         const snap = await manager.snapshot(spec);
         statusEl.empty();
         if (snap.status === 'installed') {
-            statusEl.setText('Status: installed');
+            statusEl.setText(t('settings.optionalAssets.statusInstalled'));
             statusEl.setAttr('data-status', 'installed');
             if (installBtn) installBtn.setCssStyles({ display: 'none' });
             if (removeBtn) removeBtn.setCssStyles({ display: '' });
         } else if (snap.status === 'outdated') {
-            statusEl.setText('Status: installed but hash differs, re-install to update');
+            statusEl.setText(t('settings.optionalAssets.statusOutdated'));
             statusEl.setAttr('data-status', 'outdated');
-            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText('Re-install'); }
+            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.optionalAssets.reinstall')); }
             if (removeBtn) removeBtn.setCssStyles({ display: '' });
         } else if (snap.status === 'error') {
-            statusEl.setText(`Status: error - ${snap.errorMessage ?? 'unknown'}`);
+            statusEl.setText(t('settings.optionalAssets.statusError', { message: snap.errorMessage ?? t('settings.optionalAssets.errorUnknown') }));
             statusEl.setAttr('data-status', 'error');
             if (installBtn) installBtn.setCssStyles({ display: '' });
             if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
         } else {
             statusEl.setText(notInstalledStatus);
             statusEl.setAttr('data-status', 'not-installed');
-            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText('Install'); }
+            if (installBtn) { installBtn.setCssStyles({ display: '' }); installBtn.setText(t('settings.optionalAssets.install')); }
             if (removeBtn) removeBtn.setCssStyles({ display: 'none' });
         }
     };
@@ -94,7 +92,7 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
     // (office-bundle, pdfjs-bundle) keep Install (online) as primary.
     if (opts.allowInstallFromFile) {
         setting.addButton((btn) => {
-            btn.setButtonText('Install from file')
+            btn.setButtonText(t('settings.optionalAssets.installFromFile'))
                 
                 .onClick(async () => {
                     const { pickAndInstallAsset } = await import('./installFromFile');
@@ -110,20 +108,20 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
 
     setting.addButton((btn) => {
         installBtn = btn.buttonEl;
-        btn.setButtonText('Install')
-            
+        btn.setButtonText(t('settings.optionalAssets.install'))
+
             .onClick(async () => {
                 btn.setDisabled(true);
-                btn.setButtonText('Downloading...');
+                btn.setButtonText(t('settings.optionalAssets.downloading'));
                 try {
                     await manager.install(spec);
-                    new Notice(`${spec.label} installed.`);
+                    new Notice(t('notice.optionalAssets.installed', { label: spec.label }));
                     if (onPostInstall) {
                         await onPostInstall();
                     }
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    new Notice(`Install failed: ${msg}`, 10_000);
+                    new Notice(t('notice.optionalAssets.installFailed', { error: msg }), 10_000);
                 } finally {
                     btn.setDisabled(false);
                     await renderStatus();
@@ -138,16 +136,16 @@ export function renderOptionalAssetBlock(opts: OptionalAssetBlockOptions): void 
 
     setting.addButton((btn) => {
         removeBtn = btn.buttonEl;
-        btn.setButtonText('Remove')
-            
+        btn.setButtonText(t('settings.shell.remove'))
+
             .onClick(async () => {
                 btn.setDisabled(true);
                 try {
                     await manager.remove(spec);
-                    new Notice(`${spec.label} removed.`);
+                    new Notice(t('notice.optionalAssets.removed', { label: spec.label }));
                 } catch (e) {
                     const msg = e instanceof Error ? e.message : String(e);
-                    new Notice(`Remove failed: ${msg}`, 10_000);
+                    new Notice(t('notice.optionalAssets.removeFailed', { error: msg }), 10_000);
                 } finally {
                     btn.setDisabled(false);
                     await renderStatus();

@@ -891,7 +891,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 if (report.migrated > 0) {
                     console.debug('[Plugin] Moved plugin data dirs out of vault:', report);
                     new Notice(
-                        `Vault Operator: ${report.migrated} internal cache(s) moved out of vault sync.`,
+                        t('notice.migration.cachesMoved', { count: report.migrated }),
                         6000,
                     );
                 }
@@ -1002,7 +1002,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 vaultParent,
                 safeBackupDir,
             });
-            new Notice('Storage layout migration starting. This may take 30-60 seconds for a large knowledge index.', 6000);
+            new Notice(t('notice.migration.layoutStarting'), 6000);
             try {
                 const { migrateAgentLayout } = await import('./core/utils/migrateAgentLayout');
                 const knownLegacyDefaults = ['.obsidian-agent', '.obsilo-vault', 'obsilo-vault', '.vault-operator'];
@@ -1049,16 +1049,16 @@ export default class ObsidianAgentPlugin extends Plugin {
                 console.debug('[VaultOperator] migrateAgentLayout returned', report);
                 if (report.phases.length > 0) {
                     new Notice(
-                        `Storage consolidated into .vault-operator/. Backup: ${report.backupPath ?? '(none)'}`,
+                        t('notice.migration.layoutDone', { backupPath: report.backupPath ?? t('notice.migration.backupNone') }),
                         8000,
                     );
                 } else {
-                    new Notice('Storage layout migration completed (no work to do).', 5000);
+                    new Notice(t('notice.migration.layoutNoWork'), 5000);
                 }
             } catch (e) {
                 console.error('[VaultOperator] storage layout migration failed:', e);
                 new Notice(
-                    `Storage layout migration failed: ${e instanceof Error ? e.message : String(e)}. Check developer console for details.`,
+                    t('notice.migration.layoutFailed', { error: e instanceof Error ? e.message : String(e) }),
                     15000,
                 );
             }
@@ -1652,7 +1652,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                             }
                         }
                         if (autoTriggerCfg.notification) {
-                            new Notice(`Auto-Triage candidate: ${file.path}`, 4000);
+                            new Notice(t('notice.ingest.autoTriageCandidate', { path: file.path }), 4000);
                         }
                         console.debug(`[BA-25] auto-trigger fired for ${file.path}`);
                     },
@@ -1834,11 +1834,10 @@ export default class ObsidianAgentPlugin extends Plugin {
                     this.clusterMetadataStore,
                     (info) => {
                         const days = info.daysSinceLastCheck === null
-                            ? 'nie'
+                            ? t('notice.stufe2.neverChecked')
                             : `${Math.round(info.daysSinceLastCheck)}d`;
                         const notice = new Notice(
-                            `Cluster "${info.cluster}" wirkt veraltet (Score ${info.score}, letzter Check: ${days}). `
-                                + `Klick fuer Anti-Echo-Suche.`,
+                            t('notice.stufe2.clusterStale', { cluster: info.cluster, score: info.score, days }),
                             10_000,
                         );
                         // IMP-19-19-01: pre-fix the click only opened a
@@ -2177,8 +2176,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const newest = recoverable[0];
                 const when = new Date(newest.savedAt).toLocaleTimeString();
                 new Notice(
-                    `Vault Operator: an interrupted agent task from ${when} was found `
-                    + `(${newest.history.length} messages preserved). Its state is kept for 24h.`,
+                    t('notice.inflight.recoverableFound', { time: when, count: newest.history.length }),
                     10_000,
                 );
                 console.debug('[InflightStore] recoverable task(s) found:',
@@ -2325,7 +2323,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 3. Register UI views (registerView moved to synchronous onload())
 
         // Ribbon icon in left activity bar (using built-in lucide icon)
-        this.addRibbonIcon('square-slash', 'Vault Operator', () => {
+        this.addRibbonIcon('square-slash', t('plugin.ribbonTooltip'), () => {
             void this.activateView();
         });
 
@@ -2389,7 +2387,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // 4. Register commands
         this.addCommand({
             id: 'open-agent-sidebar',
-            name: 'Open agent sidebar',
+            name: t('plugin.commandOpen'),
             callback: () => this.activateView()
         });
 
@@ -2406,7 +2404,7 @@ export default class ObsidianAgentPlugin extends Plugin {
 
         this.addCommand({
             id: 'open-inline-ai-menu',
-            name: 'Open inline AI chat',
+            name: t('plugin.commandOpenInlineChat'),
             callback: () => {
                 this.inlineActions?.orchestrator.triggerPanel();
             },
@@ -2483,13 +2481,13 @@ export default class ObsidianAgentPlugin extends Plugin {
                 const inlineHint = formatHotkeyHint(Platform);
                 const sidebarHint = formatSendSelectionToSidebarHotkeyHint(Platform);
                 menu.addItem(item => item
-                    .setTitle(`Inline AI chat  (${inlineHint})`)
+                    .setTitle(t('ui.editorMenu.inlineChat', { hotkey: inlineHint }))
                     .setIcon('square-slash')
                     .onClick(() => {
                         this.inlineActions?.orchestrator.triggerPanel();
                     }));
                 menu.addItem(item => item
-                    .setTitle(`Send selection to sidebar chat  (${sidebarHint})`)
+                    .setTitle(t('ui.editorMenu.sendSelectionToSidebar', { hotkey: sidebarHint }))
                     .setIcon('panel-right')
                     .onClick(() => {
                         this.sendCurrentEditorSelectionToSidebar();
@@ -2501,7 +2499,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // No default hotkey -- user assigns via Settings -> Hotkeys.
         this.addCommand({
             id: 'save-conversation-to-memory',
-            name: 'Save conversation to memory',
+            name: t('ui.sidebar.saveToMemory'),
             callback: () => { void this.saveActiveConversationToMemory(); },
         });
 
@@ -2510,55 +2508,55 @@ export default class ObsidianAgentPlugin extends Plugin {
         // -- Notice fallback if the API is unavailable (rare in Electron).
         this.addCommand({
             id: 'generate-memory-soak-report',
-            name: 'Generate memory soak report',
+            name: t('plugin.commandGenerateSoakReport'),
             callback: () => { void this.generateAndCopySoakReport(); },
         });
 
         // Development: Test tool execution
         this.addCommand({
             id: 'test-tool-execution',
-            name: 'Test tool execution',
+            name: t('plugin.commandTestToolExecution'),
             callback: () => this.testToolExecution()
         });
 
         // BA-25 FEAT-19-10: Frontmatter-Backfill-Job Command
         this.addCommand({
             id: 'ba25-run-frontmatter-backfill',
-            name: 'Run frontmatter backfill job',
+            name: t('plugin.commandRunFrontmatterBackfill'),
             callback: () => { void this.runFrontmatterBackfill(); },
         });
 
         // BA-25 FEAT-19-15: Inbox-Workflow Triage-Pass
         this.addCommand({
             id: 'ba25-run-inbox-triage',
-            name: 'Run inbox triage on the configured auto-trigger property',
+            name: t('plugin.commandRunInboxTriage'),
             callback: () => { void this.runInboxTriage(); },
         });
 
         // BA-25 FEAT-19-11: MOC-Auto-Pflege manuell triggern
         this.addCommand({
             id: 'ba25-refresh-moc-pages',
-            name: 'Refresh map-of-content pages now (marker block)',
+            name: t('plugin.commandRefreshMocPages'),
             callback: () => { void this.refreshAllMOCs(); },
         });
 
         // BA-25 FEAT-19-11: Initial-Marker-Injection in MOC-Kandidaten.
         this.addCommand({
             id: 'ba25-inject-moc-markers',
-            name: 'Inject initial map-of-content markers into cluster candidates',
+            name: t('plugin.commandInjectMocMarkers'),
             callback: () => { void this.injectInitialMOCMarkers(); },
         });
 
         // BA-25 FEAT-03-26: Top-Hub-Block manueller Refresh
         this.addCommand({
             id: 'ba25-refresh-top-hub-block',
-            name: 'Regenerate top-hub block now',
+            name: t('plugin.commandRegenerateTopHubBlock'),
             callback: () => {
-                if (!this.topHubBlockGenerator) { new Notice('Top-hub generator not available.'); return; }
+                if (!this.topHubBlockGenerator) { new Notice(t('notice.topHub.notAvailable')); return; }
                 const r = this.topHubBlockGenerator.generate();
                 this.topHubBlockState = r.state;
                 this.topHubBlockMarkdown = r.block;
-                new Notice(`Top-Hub-Block regeneriert: ${r.hubs.length} Hubs.`);
+                new Notice(t('notice.topHub.regenerated', { count: r.hubs.length }));
             },
         });
 
@@ -2573,8 +2571,8 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.settings.enableSuggestionBanner = !this.settings.enableSuggestionBanner;
                 void this.saveSettings();
                 new Notice(this.settings.enableSuggestionBanner
-                    ? 'Suggestion banner enabled.'
-                    : 'Suggestion banner disabled.');
+                    ? t('notice.suggestionBanner.enabled')
+                    : t('notice.suggestionBanner.disabled'));
             },
         });
 
@@ -2607,7 +2605,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Phase 2.3: command to open the setup wizard manually
         this.addCommand({
             id: 'open-setup-wizard',
-            name: 'Open setup wizard',
+            name: t('plugin.commandOpenSetupWizard'),
             callback: async () => {
                 const { FirstRunWizardModal } = await import('./ui/modals/FirstRunWizardModal');
                 new FirstRunWizardModal(this.app, this).open();
@@ -3551,12 +3549,12 @@ export default class ObsidianAgentPlugin extends Plugin {
     sendCurrentEditorSelectionToSidebar(): void {
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (view === null || view === undefined) {
-            new Notice('No active note.');
+            new Notice(t('notice.sidebar.noActiveNote'));
             return;
         }
         const text = view.editor.getSelection();
         if (text.trim().length === 0) {
-            new Notice('Select text first.');
+            new Notice(t('notice.sidebar.selectTextFirst'));
             return;
         }
         const notePath = view.file?.path ?? '(untitled)';
@@ -3595,21 +3593,21 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     async saveActiveConversationToMemory(): Promise<void> {
         if (!this.settings.memory.enabled) {
-            new Notice('Memory is disabled. Enable it in settings.');
+            new Notice(t('notice.memoryDisabled'));
             return;
         }
         const queue = this.extractionQueue;
         const snapshot = this.snapshotActiveConversationForMemory();
         if (!queue || !snapshot) {
-            new Notice('No active conversation to save.');
+            new Notice(t('notice.memoryNoActiveConversation'));
             return;
         }
         try {
             await queue.enqueueImmediate(snapshot);
-            new Notice('Conversation queued for memory extraction.');
+            new Notice(t('notice.memorySaveQueued'));
         } catch (e) {
             console.warn('[Memory] Hotkey save failed:', e);
-            new Notice('Saving the conversation failed. See console for details.');
+            new Notice(t('notice.memorySaveFailed'));
         }
     }
 
@@ -3702,7 +3700,7 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     async runFrontmatterBackfill(): Promise<void> {
         if (!this.noteSummaryStore || !this.frontmatterPropertyStore) {
-            new Notice('Stores not initialized. Reload the plugin?');
+            new Notice(t('notice.backfill.storesNotReady'));
             return;
         }
         const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
@@ -3743,7 +3741,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     async runInboxTriage(): Promise<void> {
         const cfg = this.settings.vaultIngest ?? DEFAULT_VAULT_INGEST_SETTINGS;
         if (!cfg.autoTrigger.propertyName) {
-            new Notice('Inbox triage: configure an auto-trigger property in settings first.');
+            new Notice(t('notice.triage.configureFirst'));
             return;
         }
         const expectedValues = Array.isArray(cfg.autoTrigger.propertyValue)
@@ -3762,10 +3760,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
         if (candidates.length === 0) {
             const valueStr = Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(',') : cfg.autoTrigger.propertyValue;
-            new Notice(`Inbox-Triage: keine Notes mit ${cfg.autoTrigger.propertyName}=${valueStr} gefunden.`);
+            new Notice(t('notice.triage.noMatches', { property: cfg.autoTrigger.propertyName, value: valueStr }));
             return;
         }
-        new Notice(`Inbox-Triage: ${candidates.length} Kandidaten, log via Konsole.`, 6000);
+        new Notice(t('notice.triage.candidatesFound', { count: candidates.length }), 6000);
         let triaged = 0;
         for (const file of candidates) {
             const sourceUri = `vault://${file.path}`;
@@ -3774,7 +3772,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             triaged++;
             console.debug(`[BA-25 Inbox-Triage] queued ${file.path}`);
         }
-        new Notice(`Inbox-Triage: ${triaged} neue Pending-Eintraege erfasst.`);
+        new Notice(t('notice.triage.pendingRecorded', { count: triaged }));
     }
 
     /**
@@ -3800,7 +3798,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 touched++;
             }
         }
-        new Notice(`MOC-Pflege: ${touched} aktualisiert, ${skippedUserModified} wegen User-Edit uebersprungen.`);
+        new Notice(t('notice.moc.refreshDone', { updated: touched, skipped: skippedUserModified }));
     }
 
     /**
@@ -3835,7 +3833,7 @@ export default class ObsidianAgentPlugin extends Plugin {
     async injectInitialMOCMarkers(): Promise<void> {
         const { findAutoBlock, replaceOrInsertAutoBlock } = await import('./core/ingest/MOCMaintainer');
         if (!this.knowledgeDB?.isOpen()) {
-            new Notice('Knowledge database not available.');
+            new Notice(t('notice.moc.knowledgeDbUnavailable'));
             return;
         }
         const knownClusters = new Set<string>();
@@ -3855,7 +3853,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             console.debug('[BA-25] ontology cluster lookup failed:', e);
         }
         if (knownClusters.size === 0) {
-            new Notice('No clusters known. Build the ontology first.');
+            new Notice(t('notice.moc.noClusters'));
             return;
         }
 
@@ -3877,7 +3875,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 injected++;
             }
         }
-        new Notice(`MOC-Marker-Injection: ${injected} eingefuegt, ${skipped} bereits markiert.`);
+        new Notice(t('notice.moc.markersInjected', { injected, skipped }));
     }
 
     /** Hilfs-Renderer fuer MOC-Auto-Body (Hub-Status + Cluster-Statistik). */
@@ -3922,7 +3920,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             modal.open();
         } catch (e) {
             console.warn('[Plugin] Soak report generation failed:', e);
-            new Notice('Soak report failed -- check console for details.');
+            new Notice(t('notice.memory.soakGenerateFailed'));
         }
     }
 
@@ -4398,11 +4396,11 @@ export default class ObsidianAgentPlugin extends Plugin {
     async testToolExecution() {
         if (!this.settings.debugMode) {
             console.warn('[testToolExecution] Blocked — enable debugMode in settings first.');
-            new Notice('Test execution blocked. Enable debug mode in settings first.');
+            new Notice(t('notice.debug.testBlocked'));
             return;
         }
         console.debug('=== Testing Tool Execution ===');
-        new Notice('Testing tool execution...');
+        new Notice(t('notice.debug.testStarted'));
 
         // Create a pipeline instance for testing
         const pipeline = new ToolExecutionPipeline(
@@ -4460,10 +4458,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             console.debug('\n=== Tool Execution Test Complete ===');
             console.debug('Results collected:', results.length);
 
-            new Notice('Tool execution test complete! Check console and vault.');
+            new Notice(t('notice.debug.testComplete'));
         } catch (error) {
             console.error('Tool execution test failed:', error);
-            new Notice('Tool execution test failed! Check console.');
+            new Notice(t('notice.debug.testFailed'));
         }
     }
 }

@@ -118,27 +118,27 @@ function getCategories(plugin: ObsidianAgentPlugin): BackupCategory[] {
         },
         {
             id: 'recipes',
-            label: t('settings.backup.catRecipes') ?? 'Recipes',
+            label: t('settings.backup.catRecipes'),
             root: 'global',
             dir: 'recipes',
             recursive: false,
-            description: t('settings.backup.catRecipesDesc') ?? 'Learned procedural recipes',
+            description: t('settings.backup.catRecipesDesc'),
         },
         {
             id: 'episodes',
-            label: t('settings.backup.catEpisodes') ?? 'Episodes',
+            label: t('settings.backup.catEpisodes'),
             root: 'global',
             dir: 'episodes',
             recursive: false,
-            description: t('settings.backup.catEpisodesDesc') ?? 'Task episode records',
+            description: t('settings.backup.catEpisodesDesc'),
         },
         {
             id: 'patterns',
-            label: t('settings.backup.catPatterns') ?? 'Patterns',
+            label: t('settings.backup.catPatterns'),
             root: 'global',
             dir: 'patterns',
             recursive: false,
-            description: t('settings.backup.catPatternsDesc') ?? 'Recipe promotion patterns',
+            description: t('settings.backup.catPatternsDesc'),
         },
         {
             id: 'logs',
@@ -257,12 +257,10 @@ export class BackupTab {
      */
     private buildAutoBackupSection(container: HTMLElement): void {
         const section = container.createDiv('agent-backup-section');
-        section.createEl('h4', { text: 'Auto-daily backup' });
+        section.createEl('h4', { text: t('settings.backup.autoHeading') });
         section.createEl('p', {
             cls: 'agent-settings-desc',
-            text: 'When enabled, the plugin writes one selective backup ZIP every 24 hours into '
-                + '.vault-operator/cache/backups/. Secrets are always stripped from these files. '
-                + 'Older backups beyond the retention count are pruned automatically.',
+            text: t('settings.backup.autoDesc'),
         });
 
         const backupSettings = this.plugin.settings.backup ?? DEFAULT_SETTINGS.backup!;
@@ -271,8 +269,8 @@ export class BackupTab {
         }
 
         new Setting(section)
-            .setName('Enable daily auto-backup')
-            .setDesc('Default off. Backups run 60 seconds after plugin boot, then once per 24h.')
+            .setName(t('settings.backup.autoEnable'))
+            .setDesc(t('settings.backup.autoEnableDesc'))
             .addToggle((t) => t
                 .setValue(this.plugin.settings.backup!.autoDailyEnabled)
                 .onChange(async (v) => {
@@ -281,8 +279,8 @@ export class BackupTab {
                 }));
 
         new Setting(section)
-            .setName('Retention count')
-            .setDesc('Number of auto-backups to keep. Older ones are pruned on the next run.')
+            .setName(t('settings.backup.autoRetention'))
+            .setDesc(t('settings.backup.autoRetentionDesc'))
             .addText((t) => t
                 .setValue(String(this.plugin.settings.backup!.retentionCount))
                 .onChange(async (v) => {
@@ -297,7 +295,7 @@ export class BackupTab {
             const when = new Date(last).toLocaleString();
             section.createEl('p', {
                 cls: 'agent-settings-desc',
-                text: `Last auto-backup: ${when}`,
+                text: t('settings.backup.autoLastRun', { when }),
             });
         }
     }
@@ -308,17 +306,17 @@ export class BackupTab {
      */
     private buildLegacyMigrationsSection(container: HTMLElement): void {
         const section = container.createDiv('agent-backup-section');
-        section.createEl('h4', { text: 'Legacy migrations' });
+        section.createEl('h4', { text: t('settings.backup.legacyHeading') });
         section.createEl('p', {
             cls: 'agent-settings-desc',
-            text: 'One-time pulls from older data formats. Safe to run repeatedly, no duplicates are created.',
+            text: t('settings.backup.legacyDesc'),
         });
 
         new Setting(section)
-            .setName('Import legacy soul.md')
-            .setDesc('Reads memory/soul.md and adds each bullet under Identity / Values / Anti-Patterns / Communication into Vault Operator’s soul. Idempotent.')
+            .setName(t('settings.backup.legacySoulImport'))
+            .setDesc(t('settings.backup.legacySoulImportDesc'))
             .addButton((b: ButtonComponent) => b
-                .setButtonText('Import')
+                .setButtonText(t('settings.backup.headingImport'))
                 .onClick(() => { void this.importLegacySoulMd(); }));
     }
 
@@ -326,12 +324,12 @@ export class BackupTab {
         const memSvc = this.plugin.memoryService;
         const memDB = this.plugin.memoryDB;
         if (!memSvc || !memDB?.isOpen()) {
-            new Notice('Memory not initialised.');
+            new Notice(t('notice.backup.memoryNotInitialized'));
             return;
         }
         const content = await memSvc.readFile('soul.md').catch(() => '');
         if (!content || content.trim().length === 0) {
-            new Notice('No soul.md found.');
+            new Notice(t('notice.backup.noSoulMd'));
             return;
         }
         const { parseSoulSections } = await import('../../core/memory/soulMdParser');
@@ -369,7 +367,7 @@ export class BackupTab {
         insertCategory('communication', sections.communication);
 
         await memDB.save().catch(() => undefined);
-        new Notice(`Imported ${inserted} soul entries from soul.md`);
+        new Notice(t('notice.backup.soulImported', { count: inserted }));
     }
 
     // ── Export ────────────────────────────────────────────────────────────────
@@ -415,9 +413,9 @@ export class BackupTab {
             if (cat.id === 'vault-dna') {
                 const path = getVaultDnaPath(this.plugin);
                 const exists = await this.app.vault.adapter.exists(path);
-                if (!exists) return '0 files';
+                if (!exists) return t('settings.backup.statsNoFiles');
                 const stat = await this.app.vault.adapter.stat(path);
-                return `1 file, ${this.formatSize(stat?.size ?? 0)}`;
+                return t('settings.backup.statsOneFile', { size: this.formatSize(stat?.size ?? 0) });
             }
 
             let count = 0;
@@ -445,9 +443,11 @@ export class BackupTab {
                 }
             }
 
-            return `${count} file${count !== 1 ? 's' : ''}, ${this.formatSize(size)}`;
+            return count === 1
+                ? t('settings.backup.statsOneFile', { size: this.formatSize(size) })
+                : t('settings.backup.statsFiles', { count, size: this.formatSize(size) });
         } catch {
-            return '0 files';
+            return t('settings.backup.statsNoFiles');
         }
     }
 
@@ -649,7 +649,7 @@ export class BackupTab {
                 year: 'numeric', month: 'short', day: 'numeric',
                 hour: '2-digit', minute: '2-digit',
             })
-            : 'Unknown date';
+            : t('settings.backup.unknownDate');
 
         container.createEl('p', {
             cls: 'agent-backup-import-info',
@@ -677,8 +677,11 @@ export class BackupTab {
                 text: catDef?.label ?? catId,
                 cls: 'agent-backup-label-name',
             });
+            const statsText = fileCount === 1
+                ? t('settings.backup.statsOneFile', { size: this.formatSize(totalSize) })
+                : t('settings.backup.statsFiles', { count: fileCount, size: this.formatSize(totalSize) });
             textWrap.createSpan({
-                text: ` (${fileCount} file${fileCount !== 1 ? 's' : ''}, ${this.formatSize(totalSize)})`,
+                text: ` (${statsText})`,
                 cls: 'agent-backup-label-stats',
             });
         }
