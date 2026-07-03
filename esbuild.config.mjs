@@ -373,6 +373,12 @@ async function generateOfficeBundles() {
             outfile: "pdfjs-bundle.js",
             constName: "PDFJS_BUNDLE_SHA256",
         },
+        {
+            id: "reranker",
+            entry: "src/core/assets/bundle-entries/reranker-entry.ts",
+            outfile: "reranker-bundle.js",
+            constName: "RERANKER_JS_BUNDLE_SHA256",
+        },
     ];
 
     const hashes = {};
@@ -500,6 +506,14 @@ const mainBuildOptions = {
         "pptxgenjs",
         "pdfjs-dist",
         "pdfjs-dist/build/pdf.worker.mjs",
+        // Reranker libraries — bundled separately as reranker-bundle.js
+        // (see generateOfficeBundles targets). RerankerService loads them
+        // through BundleLoader.loadRerankerBundleWithPrompt(); when the
+        // asset is not installed the reranker stays disabled and semantic
+        // search continues without the rerank step.
+        "@huggingface/transformers",
+        "onnxruntime-web",
+        "onnxruntime-web/wasm",
         ...builtins,
     ],
     // Re-point jszip at its source entry because its `browser` field would
@@ -637,26 +651,26 @@ const mainBuildOptions = {
                             const useCacheLayout = existsSync(join(vaultRoot, ".vault-operator", "cache"));
                             const assetDir = useCacheLayout ? cacheAssetDir : legacyAssetDir;
                             if (!existsSync(assetDir)) mkdirSync(assetDir, { recursive: true });
-                            // Optional bundles plus the language packs
-                            // (locale-*.json) emitted by generateLocaleHashes().
-                            const localePacks = existsSync("src/i18n/locales/packs")
-                                ? readdirSync("src/i18n/locales/packs")
-                                    .filter((f) => f.endsWith(".json"))
-                                    .map((f) => `locale-${f}`)
-                                : [];
                             // Write to both the cache-layout dir and the
                             // legacy dir. OptionalAssetManager reads the legacy
                             // .vault-operator/assets/ path at runtime, so the
-                            // language packs (and bundles) must land there for
-                            // the running plugin to pick them up without the
-                            // download flow. The cache/assets copy stays for
-                            // post-migration tooling that expects it.
+                            // bundles must land there for the running plugin to
+                            // pick them up without the download flow. The
+                            // cache/assets copy stays for post-migration tooling.
+                            //
+                            // FEAT-42-05: language packs (locale-*.json) are
+                            // DELIBERATELY NOT deployed here. They are on-demand
+                            // assets; auto-copying them into the vault would make
+                            // the plugin apply the translation silently and skip
+                            // the install prompt. In dev, install a pack via
+                            // Settings > Optional assets > Language pack >
+                            // "Install from file" (pick the built locale-<code>.json).
                             const targetDirs = useCacheLayout && cacheAssetDir !== legacyAssetDir
                                 ? [assetDir, legacyAssetDir]
                                 : [assetDir];
                             for (const dir of targetDirs) {
                                 if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-                                for (const name of ["office-bundle.js", "pdfjs-bundle.js", ...localePacks]) {
+                                for (const name of ["office-bundle.js", "pdfjs-bundle.js", "reranker-bundle.js"]) {
                                     if (!existsSync(name)) continue;
                                     copyFileSync(name, join(dir, name));
                                     const sha = createHash("sha256")
