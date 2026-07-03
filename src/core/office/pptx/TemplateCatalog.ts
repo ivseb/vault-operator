@@ -261,12 +261,12 @@ export class TemplateCatalogLoader {
                 : '';
             lines.push(`### ${st.id} (Slide ${st.representative_slide}${alts})`);
             lines.push(`**${st.description}**`);
-            if (st.semantic_family) lines.push(`Familie: ${st.semantic_family}`);
+            if (st.semantic_family) lines.push(`Family: ${st.semantic_family}`);
             if (st.warning_flags?.length) {
-                lines.push(`Achtung: ${st.warning_flags.map(flag => this.formatWarningFlag(flag)).join('; ')}`);
+                lines.push(`Warning: ${st.warning_flags.map(flag => this.formatWarningFlag(flag)).join('; ')}`);
             }
             if (st.visual_description) lines.push(`Visual: ${st.visual_description}`);
-            if (st.use_when) lines.push(`Verwenden für: ${st.use_when}`);
+            if (st.use_when) lines.push(`Use for: ${st.use_when}`);
             lines.push('Shapes:');
 
             let lastGroupHint = '';
@@ -302,10 +302,10 @@ export class TemplateCatalogLoader {
         }
 
         lines.push('---');
-        lines.push('**Verwendung:** Kopiere das JSON-Beispiel pro Slide-Typ und ersetze die Platzhalter mit echtem Content.');
-        lines.push('REQUIRED-Shapes MUESSEN immer befuellt werden -- das Tool validiert dies vor der Generierung.');
-        lines.push('Optionale Shapes verschwinden automatisch wenn leer (Auto-Remove).');
-        lines.push('Zuerst `Familie` + `Verwenden fuer` pruefen, dann den konkreten Slide-Typ auswaehlen.');
+        lines.push('**Usage:** Copy the JSON example per slide type and replace the placeholders with real content.');
+        lines.push('REQUIRED shapes MUST always be filled -- the tool validates this before generation.');
+        lines.push('Optional shapes disappear automatically when empty (auto-remove).');
+        lines.push('Check `Family` + `Use for` first, then pick the concrete slide type.');
 
         return lines.join('\n');
     }
@@ -354,11 +354,11 @@ export class TemplateCatalogLoader {
     private static formatWarningFlag(flag: string): string {
         switch (flag) {
             case 'possible-style-guide':
-                return 'wahrscheinlich Styleguide-/Regelfolie';
+                return 'probably a style-guide/rules slide';
             case 'possible-component-library':
-                return 'wahrscheinlich Komponenten-/Icon-Bibliothek';
+                return 'probably a component/icon library';
             case 'image-dependent':
-                return 'benötigt echtes Bildmaterial';
+                return 'requires real image material';
             default:
                 return flag;
         }

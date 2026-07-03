@@ -12,6 +12,7 @@
 
 import { Notice } from 'obsidian';
 import type { OptionalAssetManager, AssetSpec } from '../../core/assets/OptionalAssetManager';
+import { t } from '../../i18n';
 
 export function pickAndInstallAsset(
     manager: OptionalAssetManager,
@@ -34,10 +35,10 @@ export function pickAndInstallAsset(
         try {
             const buffer = await file.arrayBuffer();
             await manager.installFromBuffer(spec, buffer);
-            new Notice(`${spec.label} installed from local file.`);
+            new Notice(t('notice.assets.installedFromFile', { label: spec.label }));
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            new Notice(`Install from file failed: ${msg}`, 10_000);
+            new Notice(t('notice.assets.installFromFileFailed', { error: msg }), 10_000);
         } finally {
             await onDone();
         }

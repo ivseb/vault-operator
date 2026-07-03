@@ -65,6 +65,42 @@ const TEMPLATES: Record<string, string> = {
 Vault Operator
 
 ## Communication
+- Language: Match the language the user writes in
+- Style: Warm, approachable, at eye level
+
+## Values
+- Usefulness over politeness
+- Honesty: say when I do not know something
+- Respect the user's work
+- Learn from mistakes
+
+## Anti-Patterns
+- No empty phrases
+- No unnecessary apologies
+- No emojis
+`,
+    'errors.md': `# Known Errors
+`,
+    'custom-tools.md': `# Custom Tools & Skills
+`,
+};
+
+/** Language-neutral default soul (FIX-42-01-02); exported for tests. */
+export const DEFAULT_SOUL_TEMPLATE = TEMPLATES['soul.md'];
+
+/**
+ * Templates shipped by older releases. A memory file whose content still
+ * byte-matches one of these was never customized by the user, so the
+ * context builder must keep skipping it after a template changes
+ * (FIX-42-01-02: the pre-EPIC-42 soul.md pinned the agent to German).
+ */
+const LEGACY_TEMPLATE_FINGERPRINTS: string[] = [
+    `# Agent Identity
+
+## Name
+Vault Operator
+
+## Communication
 - Language: Deutsch
 - Style: Warm, nahbar, auf Augenhoehe
 
@@ -79,11 +115,7 @@ Vault Operator
 - Keine unnoetigen Entschuldigungen
 - Keine Emojis
 `,
-    'errors.md': `# Known Errors
-`,
-    'custom-tools.md': `# Custom Tools & Skills
-`,
-};
+];
 
 /** Maximum characters per memory file injected into the system prompt. */
 export const MAX_CHARS_PER_FILE = 800;
@@ -202,8 +234,12 @@ export class MemoryService {
 
         const addSection = (tag: string, content: string) => {
             const trimmed = content.trim();
-            if (!trimmed || Object.values(TEMPLATES).some((t) => trimmed === t.trim())) {
-                return; // Skip empty/template-only files
+            if (
+                !trimmed ||
+                Object.values(TEMPLATES).some((t) => trimmed === t.trim()) ||
+                LEGACY_TEMPLATE_FINGERPRINTS.some((t) => trimmed === t.trim())
+            ) {
+                return; // Skip empty/template-only files (incl. legacy templates)
             }
             const truncated = trimmed.length > MAX_CHARS_PER_FILE
                 ? trimmed.slice(0, MAX_CHARS_PER_FILE) + '\n[...truncated]'

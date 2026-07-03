@@ -71,6 +71,7 @@ export type ToolName =
     | 'attempt_completion'
     | 'switch_agent'
     | 'new_task'
+    | 'run_in_background'
     // EPIC-26 / FEAT-26-01 / ADR-120: on-demand flagship escalation.
     | 'consult_flagship'
     | 'find_tool'
@@ -235,6 +236,23 @@ export interface ToolExecutionContext {
      * Used by ask_followup_question tool.
      */
     askQuestion?: (question: string, options?: string[], allowMultiple?: boolean) => Promise<string>;
+
+    /**
+     * Ask the user (in-chat card) to install a missing optional asset
+     * before the tool can proceed. Tools that require an optional bundle
+     * (office, pdfjs, reranker, ...) call this INSTEAD of pushing a
+     * "not installed, please open Settings" error -- the card is shown
+     * inline in the chat, and if the user confirms, the download runs
+     * behind their click (Obsidian policy compliant).
+     *
+     * Resolves to:
+     * - `installed`: asset is now on disk. Tool should retry loading it.
+     * - `skipped` / `failed`: tool should surface the normal error path.
+     */
+    onOptionalAssetRequired?: (
+        spec: import('../assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ) => Promise<import('../tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult>;
 
     /**
      * Signal that the task is complete with a result summary.

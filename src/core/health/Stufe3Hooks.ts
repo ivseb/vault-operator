@@ -14,6 +14,7 @@
  */
 
 import { Notice } from 'obsidian';
+import { t } from '../../i18n';
 import type { ApiHandler } from '../../api/types';
 import type { ClusterMetadataRecord } from '../knowledge/ClusterMetadataStore';
 import type { FreshnessOrchestrator } from './FreshnessOrchestrator';
@@ -135,12 +136,12 @@ export function buildStufe3Hooks(
 
     const notificationSink = (findings: UpdateFinding[]) => {
         if (!findings.length) return;
-        new Notice(`Stufe-3: ${findings.length} Update-Hinweise gefunden (siehe Console).`, 6_000);
+        new Notice(t('notice.stufe3.updates', { count: findings.length }), 6_000);
         for (const f of findings) console.debug(`[Stufe3] ${f.cluster}: ${f.title}`);
     };
 
     const budgetExceededSink = (info: { spentUsd: number; budgetUsd: number }) => {
-        new Notice(`Stufe-3 Budget bei ${(info.spentUsd / info.budgetUsd * 100).toFixed(0)}%.`, 5_000);
+        new Notice(t('notice.stufe3.budget', { percent: (info.spentUsd / info.budgetUsd * 100).toFixed(0) }), 5_000);
     };
 
     return { preFilter, webUpdatePass, notificationSink, budgetExceededSink };

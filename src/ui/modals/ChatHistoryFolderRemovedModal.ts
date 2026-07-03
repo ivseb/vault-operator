@@ -9,6 +9,7 @@
  */
 
 import { App, Modal, Setting } from 'obsidian';
+import { t } from '../../i18n';
 
 export interface ChatHistoryFolderRemovedModalOptions {
     /** The previous chatHistoryFolder value the user had configured. */
@@ -28,29 +29,22 @@ class ChatHistoryFolderRemovedModalImpl extends Modal {
         const { contentEl } = this;
         contentEl.empty();
 
-        contentEl.createEl('h2', { text: 'Chat history folder setting removed' });
+        contentEl.createEl('h2', { text: t('modal.chatHistoryRemoved.title') });
 
         const intro = contentEl.createEl('p');
-        intro.appendText(
-            'The chat history folder setting has been retired. Conversations are now '
-            + 'stored in the plugin sidebar history panel only. You no longer need a '
-            + 'separate JSON-export folder inside the vault.',
-        );
+        intro.appendText(t('modal.chatHistoryRemoved.intro'));
 
         const previous = contentEl.createEl('p');
-        previous.createEl('strong', { text: 'Previous path: ' });
+        previous.createEl('strong', { text: t('modal.chatHistoryRemoved.previousPathLabel') + ' ' });
         previous.createEl('code', { text: this.opts.legacyPath });
 
         const cleanup = contentEl.createEl('p');
-        cleanup.appendText(
-            'The old folder is left in place. Delete it manually inside your vault if '
-            + 'you no longer need the JSON conversation exports.',
-        );
+        cleanup.appendText(t('modal.chatHistoryRemoved.cleanup'));
 
         new Setting(contentEl)
             .addButton((btn) =>
                 btn
-                    .setButtonText('Got it')
+                    .setButtonText(t('modal.chatHistoryRemoved.gotIt'))
                     .onClick(() => {
                         this.resolve();
                         this.close();

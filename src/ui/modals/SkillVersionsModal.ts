@@ -10,6 +10,7 @@
 import { App, Modal, Notice, setIcon } from 'obsidian';
 import type { SkillSnapshotService, SnapshotMetadata } from '../../core/skills/SkillSnapshotService';
 import { confirmModal, promptModal } from './PromptModal';
+import { t } from '../../i18n';
 
 export class SkillVersionsModal extends Modal {
     constructor(
@@ -22,7 +23,7 @@ export class SkillVersionsModal extends Modal {
     }
 
     async onOpen(): Promise<void> {
-        this.titleEl.setText(`Skill versions: ${this.skillName}`);
+        this.titleEl.setText(t('modal.skillVersions.title', { skill: this.skillName }));
         await this.render();
     }
 
@@ -32,12 +33,12 @@ export class SkillVersionsModal extends Modal {
 
         if (snapshots.length === 0) {
             const empty = this.contentEl.createDiv({ cls: 'mod-muted' });
-            empty.setText('No snapshots yet. Snapshots are taken automatically on every change to the skill folder.');
+            empty.setText(t('modal.skillVersions.empty'));
             return;
         }
 
         const intro = this.contentEl.createEl('p', { cls: 'mod-muted' });
-        intro.setText(`${snapshots.length} snapshot(s), newest first. Restore reverts the skill to the chosen version (a pre-restore snapshot is taken first).`);
+        intro.setText(t('modal.skillVersions.intro', { count: snapshots.length }));
 
         const list = this.contentEl.createDiv({ cls: 'skill-versions-list' });
         for (const snap of snapshots) {
@@ -50,54 +51,57 @@ export class SkillVersionsModal extends Modal {
 
         const info = row.createDiv({ cls: 'skill-version-info' });
         const when = new Date(snap.createdAt).toLocaleString();
-        const fileText = snap.fileCount === 1 ? '1 file' : `${snap.fileCount} files`;
+        const fileText = snap.fileCount === 1
+            ? t('modal.skillVersions.fileCountOne')
+            : t('modal.skillVersions.fileCountMany', { count: snap.fileCount });
         info.createEl('div', { text: when });
         const meta = info.createEl('div', { cls: 'mod-muted skill-version-meta' });
-        const labelBadge = snap.label === 'pre-restore' ? '[pre-restore] ' : '';
-        const tagText = snap.tags.length > 0 ? ` · tags: ${snap.tags.join(', ')}` : '';
+        const labelBadge = snap.label === 'pre-restore' ? t('modal.skillVersions.preRestoreBadge') + ' ' : '';
+        const tagText = snap.tags.length > 0 ? ` · ${t('modal.skillVersions.tagsLabel', { tags: snap.tags.join(', ') })}` : '';
         meta.setText(`${labelBadge}${fileText}, ${this.formatBytes(snap.totalBytes)}${tagText}`);
 
         const actions = row.createDiv({ cls: 'skill-version-actions' });
 
         const restoreBtn = actions.createEl('button', { cls: 'mod-cta' });
         setIcon(restoreBtn, 'rotate-ccw');
-        restoreBtn.setAttribute('aria-label', 'Restore this version');
+        restoreBtn.setAttribute('aria-label', t('modal.skillVersions.restoreAriaLabel'));
         restoreBtn.addEventListener('click', () => { void this.handleRestore(snap); });
 
         const tagBtn = actions.createEl('button');
         setIcon(tagBtn, 'tag');
-        tagBtn.setAttribute('aria-label', 'Add or remove tag');
+        tagBtn.setAttribute('aria-label', t('modal.skillVersions.tagAriaLabel'));
         tagBtn.addEventListener('click', () => { void this.handleTag(snap); });
     }
 
     private async handleRestore(snap: SnapshotMetadata): Promise<void> {
         const ok = await confirmModal(this.app, {
-            title: 'Restore skill version',
-            message:
-                `Restore ${this.skillName} to the version from ${new Date(snap.createdAt).toLocaleString()}? ` +
-                `A pre-restore snapshot of the current state is taken first.`,
-            confirmLabel: 'Restore',
+            title: t('modal.skillVersions.restoreConfirmTitle'),
+            message: t('modal.skillVersions.restoreConfirmMessage', {
+                skill: this.skillName,
+                date: new Date(snap.createdAt).toLocaleString(),
+            }),
+            confirmLabel: t('ui.editReview.restore'),
         });
         if (!ok) return;
 
         try {
             await this.snapshotService.restore(this.skillName, snap.id);
-            new Notice(`Restored ${this.skillName} to ${snap.id}`);
+            new Notice(t('modal.skillVersions.restoredNotice', { skill: this.skillName, snapshotId: snap.id }));
             this.onAfterChange?.();
             await this.render();
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            new Notice(`Restore failed: ${msg}`, 10_000);
+            new Notice(t('modal.skillVersions.restoreFailed', { error: msg }), 10_000);
         }
     }
 
     private async handleTag(snap: SnapshotMetadata): Promise<void> {
         const existing = snap.tags.join(', ');
         const input = await promptModal(this.app, {
-            title: 'Edit snapshot tags',
-            message: 'Tags for this snapshot (comma-separated). Tagged snapshots survive prune.',
+            title: t('modal.skillVersions.editTagsTitle'),
+            message: t('modal.skillVersions.editTagsMessage'),
             defaultValue: existing,
-            submitLabel: 'Save tags',
+            submitLabel: t('modal.skillVersions.saveTagsButton'),
         });
         if (input === null) return;
 
@@ -119,11 +123,11 @@ export class SkillVersionsModal extends Modal {
                     await this.snapshotService.tag(this.skillName, snap.id, newTag);
                 }
             }
-            new Notice('Tags updated.');
+            new Notice(t('modal.skillVersions.tagsUpdated'));
             await this.render();
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            new Notice(`Tag update failed: ${msg}`, 10_000);
+            new Notice(t('modal.skillVersions.tagUpdateFailed', { error: msg }), 10_000);
         }
     }
 

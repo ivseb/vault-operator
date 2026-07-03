@@ -4,6 +4,7 @@
  */
 
 import { setIcon } from 'obsidian';
+import { t } from '../../i18n';
 
 export interface CondensationResult {
     prevTokens: number;
@@ -18,11 +19,11 @@ export class CondensationFeedback {
 
         const header = row.createDiv('condensation-feedback-header');
         setIcon(header.createSpan('condensation-icon'), 'fold-vertical');
-        header.createSpan('condensation-title').setText('Context condensed');
+        header.createSpan('condensation-title').setText(t('ui.sidebar.contextCondensed'));
 
         const tokens = header.createSpan('condensation-tokens');
         tokens.setText(
-            `${this.formatNumber(result.prevTokens)} → ${this.formatNumber(result.newTokens)} tokens`
+            t('ui.condensation.tokenChange', { prev: this.formatNumber(result.prevTokens), next: this.formatNumber(result.newTokens) })
         );
 
         if (result.cost && result.cost > 0) {

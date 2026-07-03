@@ -198,6 +198,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     switch_agent: 'agent',
     // Subtask spawning (respects autoApproval.subtasks)
     new_task: 'subtask',
+    run_in_background: 'subtask',
     // MCP
     use_mcp_tool: 'mcp',
     // Plugin Skills (PAS-1)
@@ -234,6 +235,25 @@ export interface ApprovalResult {
     reason?: string;
 }
 
+/**
+ * Result of an in-chat asset-install prompt (Obsidian policy compliance:
+ * network fetches must be triggered by an explicit user click, so tools
+ * that need an optional asset call `onOptionalAssetRequired` which
+ * renders an inline install-card and awaits the user's decision).
+ */
+export interface OptionalAssetInstallResult {
+    /**
+     * - `installed`: user clicked Install, download+SHA-check succeeded, the
+     *   asset is now on disk. The calling tool should retry its asset load.
+     * - `skipped`: user closed / declined the card. The calling tool should
+     *   surface the normal "not installed" error to the model.
+     * - `failed`: user clicked Install but the download or SHA-check failed.
+     *   The error message is in `error`. Tool should surface it to the model.
+     */
+    decision: 'installed' | 'skipped' | 'failed';
+    error?: string;
+}
+
 /** Extra context injected by AgentTask for agent-control tools */
 export interface ContextExtensions {
     /** Abort signal for the currently running task */
@@ -245,6 +265,18 @@ export interface ContextExtensions {
      * Returns an ApprovalResult with decision and optional edited content.
      */
     onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<ApprovalResult>;
+    /**
+     * Ask the user to install a missing optional asset (office bundle,
+     * pdfjs bundle, reranker WASM, ...). Renders an in-chat install card
+     * with description, size, SHA info and an Install button. The Promise
+     * resolves once the user decides (installed, skipped, or failed).
+     * Obsidian community policy: network fetches must be behind an
+     * explicit user click; the card is that click.
+     */
+    onOptionalAssetRequired?: (
+        spec: import('../assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ) => Promise<OptionalAssetInstallResult>;
     /** Publish the current todo list to the UI */
     updateTodos?: (items: import('../tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Switch the active mode (called by switch_mode tool) */
@@ -632,6 +664,7 @@ export class ToolExecutionPipeline {
                 abortSignal: extensions?.abortSignal,
                 callbacks: wrappedCallbacks,
                 askQuestion: extensions?.askQuestion,
+                onOptionalAssetRequired: extensions?.onOptionalAssetRequired,
                 signalCompletion: extensions?.signalCompletion,
                 updateTodos: extensions?.updateTodos,
                 switchMode: extensions?.switchMode,

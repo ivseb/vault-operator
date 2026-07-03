@@ -7,6 +7,7 @@
 
 import type { ParseResult } from './types';
 import type ObsidianAgentPlugin from '../../main';
+import type { ToolExecutionContext } from '../tools/types';
 import { parsePptx } from './parsers/PptxParser';
 import { parseXlsx } from './parsers/XlsxParser';
 import { parseDocx } from './parsers/DocxParser';
@@ -28,13 +29,18 @@ import { parseCsv } from './parsers/CsvParser';
  *                    parameter required, not optional, to prevent the
  *                    drift from coming back.
  */
-export async function parseDocument(data: ArrayBuffer, extension: string, plugin: ObsidianAgentPlugin): Promise<ParseResult> {
+export async function parseDocument(
+    data: ArrayBuffer,
+    extension: string,
+    plugin: ObsidianAgentPlugin,
+    ctx?: ToolExecutionContext,
+): Promise<ParseResult> {
     switch (extension.toLowerCase()) {
         case 'pptx':
         case 'potx': return parsePptx(data);
         case 'xlsx': return parseXlsx(data);
         case 'docx': return parseDocx(data);
-        case 'pdf':  return parsePdf(data, plugin);
+        case 'pdf':  return parsePdf(data, plugin, ctx);
         case 'csv':  return parseCsv(data);
         case 'json': return parseJson(data);
         case 'xml':  return parseXml(data);

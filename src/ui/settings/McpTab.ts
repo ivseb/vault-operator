@@ -22,9 +22,9 @@ export class McpTab {
         const introIcon = intro.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(introIcon, 'link');
         const introText = intro.createDiv({ cls: 'vault-op-box__text' });
-        introText.createEl('strong', { text: 'Connections' });
+        introText.createEl('strong', { text: t('settings.mcp.connectionsIntroTitle') });
 
-        introText.createDiv({ text: 'Connect Vault Operator to AI assistants like Claude, or extend Vault Operator with external tool servers. All connections use the open MCP standard.' });
+        introText.createDiv({ text: t('settings.mcp.connectionsIntroDesc') });
 
         this.buildConnectorSection(containerEl);
         this.buildExternalServersSection(containerEl);
@@ -37,19 +37,19 @@ export class McpTab {
     private buildConnectorSection(containerEl: HTMLElement): void {
         addSectionHeading(
             containerEl,
-            'Connectors',
-            { body: 'Let external AI assistants (Claude Desktop, Claude Code, ChatGPT Desktop) read and write your vault through Vault Operator. Enable a connector here, then point the assistant at it using the configuration block this tab prints.' },
+            t('settings.mcp.headingConnectors'),
+            { body: t('settings.mcp.sectionConnectorsInfo') },
         );
 
         // ── Claude Desktop / Claude Code ──────────────────────────────────
-        containerEl.createEl('h4', { text: 'Local connector' });
+        containerEl.createEl('h4', { text: t('settings.mcp.headingLocalConnector') });
 
         const mcpBridge = this.plugin.mcpBridge;
         const isEnabled = this.plugin.settings.enableMcpServer ?? false;
 
         new Setting(containerEl)
-            .setName('Enable local connector')
-            .setDesc('Obsidian must be running for the connection to work.')
+            .setName(t('settings.mcp.enableLocalConnector'))
+            .setDesc(t('settings.mcp.enableLocalConnectorDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(isEnabled).onChange(async (v) => {
                     this.plugin.settings.enableMcpServer = v;
@@ -70,24 +70,24 @@ export class McpTab {
 
         if (isEnabled) {
             new Setting(containerEl)
-                .setName('Configure desktop client')
-                .setDesc('Writes the connection config for your desktop client. Restart the client after.')
+                .setName(t('settings.mcp.configureDesktopClient'))
+                .setDesc(t('settings.mcp.configureDesktopClientDesc'))
                 .addButton((btn) => {
-                    btn.setButtonText('Configure').onClick(() => {
+                    btn.setButtonText(t('settings.mcp.configureButton')).onClick(() => {
                         void this.writeClaudeDesktopConfig();
                     });
                 });
         }
 
         // ── Remote access ─────────────────────────────────────────────────
-        containerEl.createEl('h4', { text: 'Remote access' });
+        containerEl.createEl('h4', { text: t('settings.mcp.headingRemoteAccess') });
 
         const remoteEnabled = this.plugin.settings.enableRemoteRelay ?? false;
         const remoteConnected = (mcpBridge as { remoteConnected?: boolean })?.remoteConnected ?? false;
 
         new Setting(containerEl)
-            .setName('Enable remote access')
-            .setDesc('Connect to a relay server so AI assistants on any device can reach your vault.')
+            .setName(t('settings.mcp.enableRemoteAccess'))
+            .setDesc(t('settings.mcp.enableRemoteAccessDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(remoteEnabled).onChange(async (v) => {
                     this.plugin.settings.enableRemoteRelay = v;
@@ -110,34 +110,34 @@ export class McpTab {
                 const remoteInfoIcon = remoteInfo.createSpan({ cls: 'vault-op-box__icon' });
                 setIcon(remoteInfoIcon, 'globe');
                 const remoteInfoText = remoteInfo.createDiv({ cls: 'vault-op-box__text' });
-                remoteInfoText.createDiv({ text: 'A relay server on your own Cloudflare account connects your vault to AI assistants from any device. Your data stays on your infrastructure.' });
+                remoteInfoText.createDiv({ text: t('settings.mcp.relayIntro') });
                 const steps = remoteInfoText.createEl('ol');
 
                 steps.createEl('li').createEl('a', {
-                    text: 'Create a free account at cloudflare.com',
+                    text: t('settings.mcp.relayStep1'),
                     href: 'https://dash.cloudflare.com/sign-up',
                 });
                 const step2 = steps.createEl('li');
-                step2.appendText('Go to ');
+                step2.appendText(t('settings.mcp.relayStep2Prefix'));
 
                 step2.createEl('a', {
-                    text: 'API tokens',
+                    text: t('settings.mcp.relayStep2Link'),
                     href: 'https://dash.cloudflare.com/profile/api-tokens',
                 });
-                step2.appendText(' and click "Create Token".');
+                step2.appendText(t('settings.mcp.relayStep2Suffix'));
                 const step3 = steps.createEl('li');
 
-                step3.appendText('Scroll to the bottom and click "Create Custom Token". Add two permissions: Account / Workers Scripts / Edit and Account / Account Settings / Read. Under "Account Resources", select "All accounts". Remove "Zone Resources".');
-                steps.createEl('li', { text: 'Click "continue to summary", then "create token". Copy the token and paste it below.' });
+                step3.appendText(t('settings.mcp.relayStep3'));
+                steps.createEl('li', { text: t('settings.mcp.relayStep4') });
 
                 // ── API Token + Deploy ────────────────────────────────────
                 new Setting(containerEl)
 
-                    .setName('Cloudflare API token')
-                    .setDesc('Paste the token you created in step 2 above.')
+                    .setName(t('settings.mcp.cloudflareApiToken'))
+                    .setDesc(t('settings.mcp.cloudflareApiTokenDesc'))
                     .addText((text) => {
                         text.setValue(this.plugin.settings.cloudflareApiToken ?? '');
-                        text.setPlaceholder('Paste your API token');
+                        text.setPlaceholder(t('settings.mcp.cloudflareApiTokenPlaceholder'));
                         text.inputEl.type = 'password';
                         text.onChange(async (v) => {
                             this.plugin.settings.cloudflareApiToken = v.trim();
@@ -147,21 +147,21 @@ export class McpTab {
 
                 // Deploy button
                 const deploySetting = new Setting(containerEl)
-                    .setName('Deploy relay server')
-                    .setDesc('Deploys the relay to your account. Takes about 10 seconds.');
+                    .setName(t('settings.mcp.deployRelay'))
+                    .setDesc(t('settings.mcp.deployRelayDesc'));
 
                 const deployStatusEl = containerEl.createDiv('setting-item-description');
 
                 deploySetting.addButton((btn) => {
-                    btn.setButtonText('Deploy').onClick(async () => {
+                    btn.setButtonText(t('settings.mcp.deployButton')).onClick(async () => {
                         const apiToken = this.plugin.settings.cloudflareApiToken;
                         if (!apiToken) {
-                            new Notice('Please enter your API token first.');
+                            new Notice(t('notice.mcp.apiTokenMissing'));
                             return;
                         }
 
                         btn.setDisabled(true);
-                        btn.setButtonText('Deploying...');
+                        btn.setButtonText(t('settings.mcp.deployingButton'));
 
                         try {
                             const { CloudflareDeployer } = await import('../../mcp/CloudflareDeployer');
@@ -188,14 +188,14 @@ export class McpTab {
                                 void this.plugin.mcpBridge.connectRelay();
                             }
 
-                            new Notice('Relay deployed! Add the URL as a connector in your AI assistant.');
+                            new Notice(t('notice.mcp.relayDeployed'));
                             this.rerender();
                         } catch (e) {
                             const msg = e instanceof Error ? e.message : String(e);
-                            deployStatusEl.setText(`Deploy failed: ${msg}`);
-                            new Notice(`Deploy failed: ${msg}`);
+                            deployStatusEl.setText(t('notice.mcp.deployFailed', { message: msg }));
+                            new Notice(t('notice.mcp.deployFailed', { message: msg }));
                             btn.setDisabled(false);
-                            btn.setButtonText('Deploy');
+                            btn.setButtonText(t('settings.mcp.deployButton'));
                         }
                     });
                 });
@@ -206,22 +206,22 @@ export class McpTab {
                 const mcpUrl = `${baseUrl}/${token}/mcp`;
 
                 new Setting(containerEl)
-                    .setName('Connector URL')
-                    .setDesc('Use this URL in your AI assistant. It includes the auth token. Do not share it.')
+                    .setName(t('settings.mcp.connectorUrl'))
+                    .setDesc(t('settings.mcp.connectorUrlDesc'))
                     .addButton((btn) => {
-                        btn.setButtonText('Copy URL').onClick(() => {
+                        btn.setButtonText(t('settings.mcp.copyUrlButton')).onClick(() => {
                             void navigator.clipboard.writeText(mcpUrl);
-                            new Notice('URL copied');
+                            new Notice(t('notice.mcp.urlCopied'));
                         });
                     });
 
                 new Setting(containerEl)
-                    .setName(remoteConnected ? 'Connected' : 'Connection')
+                    .setName(remoteConnected ? t('settings.mcp.statusConnected') : t('settings.mcp.statusConnection'))
                     .setDesc(remoteConnected
-                        ? 'Relay connected. Your vault is accessible remotely.'
-                        : 'Click to connect to your relay.')
+                        ? t('settings.mcp.statusConnectedDesc')
+                        : t('settings.mcp.statusConnectionDesc'))
                     .addButton((btn) => {
-                        btn.setButtonText(remoteConnected ? 'Disconnect' : 'Connect').onClick(() => {
+                        btn.setButtonText(remoteConnected ? t('settings.mcp.disconnect') : t('settings.mcp.connect')).onClick(() => {
                             if (remoteConnected) {
                                 this.plugin.mcpBridge?.disconnectRelay();
                             } else if (this.plugin.mcpBridge) {
@@ -233,16 +233,16 @@ export class McpTab {
 
                 // Usage instructions
                 const usage = containerEl.createDiv('agent-settings-desc');
-                usage.createEl('strong', { text: 'Add the URL above as connector in your AI assistant:' });
+                usage.createEl('strong', { text: t('settings.mcp.usageTitle') });
                 const usageList = usage.createEl('ul');
-                usageList.createEl('li', { text: 'Web clients: add a custom connector in the settings' });
-                usageList.createEl('li', { text: 'In desktop clients, add a remote server in settings' });
+                usageList.createEl('li', { text: t('settings.mcp.usageWebClients') });
+                usageList.createEl('li', { text: t('settings.mcp.usageDesktopClients') });
 
                 // Troubleshooting hint
                 const troubleshoot = containerEl.createDiv('setting-item-description');
-                troubleshoot.appendText('Not working? Make sure Obsidian is running and the toggle above is enabled. The connector URL does not change between restarts. ');
+                troubleshoot.appendText(t('settings.mcp.troubleshootHint'));
                 troubleshoot.createEl('a', {
-                    text: 'Troubleshooting guide',
+                    text: t('settings.mcp.troubleshootLink'),
                     href: 'https://pssah4.github.io/vault-operator/guides/connectors',
                 });
 
@@ -250,43 +250,43 @@ export class McpTab {
                 const redeployStatusEl = containerEl.createDiv('setting-item-description');
 
                 new Setting(containerEl)
-                    .setName('Update relay server')
-                    .setDesc('Push the latest relay code to your account. The connector URL stays the same.')
+                    .setName(t('settings.mcp.updateRelay'))
+                    .setDesc(t('settings.mcp.updateRelayDesc'))
                     .addButton((btn) => {
-                        btn.setButtonText('Redeploy').onClick(async () => {
+                        btn.setButtonText(t('settings.mcp.redeployButton')).onClick(async () => {
                             const apiToken = this.plugin.settings.cloudflareApiToken;
                             const accountId = this.plugin.settings.cloudflareAccountId;
                             const relayToken = this.plugin.settings.relayToken;
                             if (!apiToken || !accountId) {
-                                new Notice('Missing API token or account ID. Try reset and redeploy.');
+                                new Notice(t('notice.mcp.redeployMissingConfig'));
                                 return;
                             }
                             btn.setDisabled(true);
-                            btn.setButtonText('Updating...');
+                            btn.setButtonText(t('settings.mcp.updatingButton'));
                             try {
                                 const { CloudflareDeployer } = await import('../../mcp/CloudflareDeployer');
                                 const deployer = new CloudflareDeployer(apiToken);
                                 await deployer.redeploy(accountId, relayToken, (step) => {
                                     redeployStatusEl.setText(step);
                                 });
-                                new Notice('Relay updated.');
+                                new Notice(t('notice.mcp.relayUpdated'));
                                 btn.setDisabled(false);
-                                btn.setButtonText('Redeploy');
+                                btn.setButtonText(t('settings.mcp.redeployButton'));
                             } catch (e) {
                                 const msg = e instanceof Error ? e.message : String(e);
-                                redeployStatusEl.setText(`Update failed: ${msg}`);
-                                new Notice(`Update failed: ${msg}`);
+                                redeployStatusEl.setText(t('notice.mcp.updateFailed', { message: msg }));
+                                new Notice(t('notice.mcp.updateFailed', { message: msg }));
                                 btn.setDisabled(false);
-                                btn.setButtonText('Redeploy');
+                                btn.setButtonText(t('settings.mcp.redeployButton'));
                             }
                         });
                     });
 
                 new Setting(containerEl)
-                    .setName('Reset relay')
-                    .setDesc('Remove the relay configuration. You will need to update the connector URL in your AI assistant after redeploying.')
+                    .setName(t('settings.mcp.resetRelay'))
+                    .setDesc(t('settings.mcp.resetRelayDesc'))
                     .addButton((btn) => {
-                        btn.setButtonText('Reset').onClick(async () => {
+                        btn.setButtonText(t('settings.mcp.resetButton')).onClick(async () => {
                             this.plugin.mcpBridge?.disconnectRelay();
                             this.plugin.settings.relayUrl = '';
                             this.plugin.settings.relayToken = '';
@@ -306,8 +306,8 @@ export class McpTab {
     private buildExternalServersSection(containerEl: HTMLElement): void {
         addSectionHeading(
             containerEl,
-            'External tool servers',
-            { body: 'Add MCP servers maintained by others (web search, calendar, GitHub, your own scripts) so the agent can call them as tools. Each server runs as its own process, isolated from Obsidian.' },
+            t('settings.mcp.headingExternalServers'),
+            { body: t('settings.mcp.sectionExternalServersInfo') },
         );
 
         const mcpClient = this.plugin.mcpClient;
@@ -334,7 +334,7 @@ export class McpTab {
                 const info = row.createDiv({ cls: 'agent-mcp-server-info' });
                 info.createSpan({ cls: 'agent-mcp-server-name', text: name });
                 info.createSpan({ cls: 'agent-mcp-server-type', text: config.type });
-                if (config.isBuiltIn) info.createSpan({ cls: 'agent-mcp-server-badge', text: 'built-in' });
+                if (config.isBuiltIn) info.createSpan({ cls: 'agent-mcp-server-badge', text: t('settings.mcp.builtInBadge') });
                 if (config.isBuiltIn && config.disabled && status !== 'connected') {
                     info.createSpan({ cls: 'agent-mcp-server-hint', text: t('settings.mcp.builtInDisabledHint') });
                 } else if (status === 'error' && conn?.error) {
@@ -387,8 +387,8 @@ export class McpTab {
             // (default), saveBtn rejects loopback / RFC 1918 URLs with a Notice.
             let allowLocalUrls = editConfig?.allowLocalUrls === true;
             new Setting(contentEl)
-                .setName('Allow local network addresses')
-                .setDesc('Permit this server to connect to localhost or private network addresses. Leave off for cloud-hosted MCP servers.')
+                .setName(t('settings.mcp.allowLocalUrls'))
+                .setDesc(t('settings.mcp.allowLocalUrlsDesc'))
                 .addToggle((toggle) =>
                     toggle.setValue(allowLocalUrls).onChange((v) => {
                         allowLocalUrls = v;
@@ -423,16 +423,13 @@ export class McpTab {
                         if (parsed && !allowLocalUrls) {
                             const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
                             if (isLocalHostname(host) || isPrivateIpHostname(host)) {
-                                new Notice(
-                                    `URL "${parsed.host}" targets a local or private network. `
-                                    + 'Enable "Allow local URLs" to permit loopback or RFC 1918 hosts.',
-                                );
+                                new Notice(t('notice.mcp.localUrlBlocked', { host: parsed.host }));
                                 return;
                             }
                         }
                     } catch (e) {
                         const msg = e instanceof Error ? e.message : String(e);
-                        new Notice(`Invalid MCP URL: ${msg}`);
+                        new Notice(t('notice.mcp.invalidUrl', { message: msg }));
                         return;
                     }
                 }
@@ -488,9 +485,9 @@ export class McpTab {
 
             safeFs.mkdirSync(configDir, { recursive: true });
             safeFs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-            new Notice('Configuration saved. Restart your desktop client to connect.');
+            new Notice(t('notice.mcp.desktopConfigSaved'));
         } catch (e) {
-            new Notice(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+            new Notice(t('notice.mcp.desktopConfigFailed', { message: e instanceof Error ? e.message : String(e) }));
         }
     }
 

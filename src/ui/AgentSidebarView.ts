@@ -10,7 +10,7 @@ import {
 } from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
@@ -55,7 +55,7 @@ import { scan as scanTasks } from '../core/tasks/TaskExtractor';
 import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
-import { t } from '../i18n';
+import { t, getActiveLocale } from '../i18n';
 import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
@@ -135,6 +135,13 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 1: Persistent conversation history (survives across messages)
     private conversationHistory: MessageParam[] = [];
+    /**
+     * IMP-41-03-01: inflight snapshot armed for the next send. Set by the
+     * boot recovery banner's Resume button; consumed (and cleared) at the
+     * execute() call so the loop continues with the snapshot's state and
+     * full history instead of starting fresh.
+     */
+    private pendingResume: import('../core/agent/InflightStore').InflightSnapshot | null = null;
     // Chat History: active conversation tracking + UI messages for persistence
     private activeConversationId: string | null = null;
     /** FIX-03-20-01: race-free lazy id creation when the store initializes late. */
@@ -329,7 +336,74 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        // IMP-41-03-01: offer recovery for tasks interrupted by a crash or
+        // reload. Non-blocking; skips silently when the store is not ready.
+        void this.maybeOfferInflightResume();
+        // Language-pack install-prompt: renders the same consent card as
+        // tool-triggered asset installs, so a non-English user gets a
+        // visible chat card instead of a small notice that is easy to
+        // miss. Non-blocking; skips silently when English or already
+        // installed. Obsidian policy: download only on explicit click.
+        void this.maybeOfferLocalePackCard();
         perfMarks.end('sidebar.onOpen', { log: true });
+    }
+
+    /**
+     * IMP-41-03-01: boot recovery banner. When a fresh inflight snapshot
+     * exists, render a card offering Resume (arms pendingResume, loads the
+     * conversation, sends a resume note through the normal send path) or
+     * Discard (clears the snapshot). Fail-closed: any error only logs.
+     */
+    private async maybeOfferInflightResume(): Promise<void> {
+        try {
+            const store = this.plugin.inflightStore;
+            if (!store || !this.chatContainer) return;
+            const recoverable = await store.listRecoverable();
+            if (recoverable.length === 0) return;
+            const snapshot = recoverable[0];
+
+            const row = this.chatContainer.createDiv('tool-approval-row');
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'history');
+            row.createSpan('tool-approval-text').setText(
+                t('ui.resume.interrupted', {
+                    time: new Date(snapshot.savedAt).toLocaleTimeString(),
+                    messages: String(snapshot.history.length),
+                }),
+            );
+            const actions = row.createDiv('tool-approval-actions');
+            const resumeBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.resume.resume'),
+            });
+            const discardBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: t('ui.resume.discard'),
+            });
+
+            resumeBtn.addEventListener('click', () => {
+                void (async () => {
+                    row.remove();
+                    if (snapshot.conversationId) {
+                        await this.loadConversation(snapshot.conversationId, { skipNavPush: true })
+                            .catch(() => { /* stale id: resume still works from the snapshot history */ });
+                    }
+                    this.pendingResume = snapshot;
+                    await store.clear(snapshot.taskId);
+                    if (this.textarea) {
+                        this.textarea.value = '[System] The previous task was interrupted by a reload. '
+                            + 'Resume from where you left off and finish it.';
+                        await this.handleSendMessage();
+                    }
+                })();
+            });
+            discardBtn.addEventListener('click', () => {
+                row.remove();
+                void store.clear(snapshot.taskId);
+            });
+        } catch (e) {
+            console.warn('[InflightResume] banner failed (non-fatal):', e instanceof Error ? e.message : e);
+        }
     }
 
     onClose(): Promise<void> {
@@ -347,7 +421,7 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan({
             cls: 'agent-title-wordmark',
-            text: '/ Vault Operator',
+            text: '/ Vault Operator', // i18n-ignore: brand wordmark
         });
 
         const headerRight = header.createDiv('agent-header-right');
@@ -412,14 +486,14 @@ export class AgentSidebarView extends ItemView {
         // better than full arrows in the narrow sidebar.
         this.navBackBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Previous chat' },
+            attr: { 'aria-label': t('ui.sidebar.previousChat') },
         });
         setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'chevron-left');
         this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
 
         this.navForwardBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Next chat' },
+            attr: { 'aria-label': t('ui.sidebar.nextChat') },
         });
         setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'chevron-right');
         this.navForwardBtn.addEventListener('click', () => { void this.navForward(); });
@@ -484,13 +558,47 @@ export class AgentSidebarView extends ItemView {
         this.suggestionBanner.mount(container, (fn) => this.register(fn));
     }
 
+    /**
+     * IMP-41-03-05: compact status tile for the single background research
+     * task. Subscribes to the runner and unsubscribes on view unload.
+     */
+    private buildBackgroundTaskTile(container: HTMLElement): void {
+        const runner = this.plugin.backgroundTaskRunner;
+        if (!runner) return;
+        const tile = container.createDiv('background-task-tile');
+        tile.hide();
+        const icon = tile.createSpan('background-task-tile-icon');
+        setIcon(icon, 'satellite');
+        const label = tile.createSpan('background-task-tile-label');
+        const stopBtn = tile.createEl('button', {
+            cls: 'background-task-tile-stop',
+            text: t('ui.backgroundTask.stop'),
+        });
+        stopBtn.addEventListener('click', () => runner.stop());
+
+        const render = (): void => {
+            const status = runner.getStatus();
+            if (status) {
+                label.setText(t('ui.backgroundTask.running', { title: status.title }));
+                tile.show();
+            } else {
+                tile.hide();
+            }
+        };
+        render();
+        this.register(runner.onChange(() => render()));
+    }
+
     private buildAiDisclaimer(container: HTMLElement): void {
         const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
-        disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
+        disclaimer.setText(t('ui.sidebar.aiDisclaimer'));
     }
 
     private buildChatInput(container: HTMLElement): void {
         this.inputArea = container.createDiv('chat-input-container');
+        // IMP-41-03-05: background-task status tile above the input. Hidden
+        // by default; the runner's onChange subscription toggles it.
+        this.buildBackgroundTaskTile(this.inputArea);
         const inputWrapper = this.inputArea.createDiv('chat-input-wrapper');
 
         // Context chips at the top of the input wrapper (like Kilo Code)
@@ -685,7 +793,7 @@ export class AgentSidebarView extends ItemView {
             const sendEl = this.sendButton as HTMLButtonElement;
             sendEl.disabled = true;
             sendEl.classList.add('send-button-preparing');
-            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            sendEl.setAttribute('title', t('ui.sidebar.preparingServices'));
             services.then(() => {
                 sendEl.disabled = false;
                 sendEl.classList.remove('send-button-preparing');
@@ -715,15 +823,15 @@ export class AgentSidebarView extends ItemView {
             .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
         menu.addSeparator();
         menu.addItem(item => item
-            .setTitle('Insert skill...')
+            .setTitle(t('ui.sidebar.insertSkill'))
             .setIcon('sparkles')
             .onClick(() => this.openCommandPicker('skills', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert prompt...')
+            .setTitle(t('ui.sidebar.insertPrompt'))
             .setIcon('message-square-quote')
             .onClick(() => this.openCommandPicker('prompts', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert workflow...')
+            .setTitle(t('ui.sidebar.insertWorkflow'))
             .setIcon('workflow')
             .onClick(() => this.openCommandPicker('workflows', anchor)));
         menu.addSeparator();
@@ -740,15 +848,15 @@ export class AgentSidebarView extends ItemView {
     ): Promise<void> {
         const items = await this.collectCommandItems(category);
         const title = category === 'skills'
-            ? 'Search skills...'
+            ? t('ui.commandPicker.searchSkills')
             : category === 'prompts'
-                ? 'Search prompts...'
-                : 'Search workflows...';
+                ? t('ui.commandPicker.searchPrompts')
+                : t('ui.commandPicker.searchWorkflows');
         const empty = category === 'skills'
-            ? 'No skills installed. Import one via Settings -> Skills.'
+            ? t('ui.commandPicker.emptySkills')
             : category === 'prompts'
-                ? 'No custom prompts configured yet.'
-                : 'No workflows available in this vault.';
+                ? t('ui.commandPicker.emptyPrompts')
+                : t('ui.commandPicker.emptyWorkflows');
         const picker = new CommandPicker(items, title, empty);
         picker.show(anchor, this.containerEl);
     }
@@ -1214,7 +1322,7 @@ export class AgentSidebarView extends ItemView {
         try {
             const flipped = await store.confirm(id);
             if (!flipped) {
-                new Notice('Conversation already confirmed.');
+                new Notice(t('notice.memory.alreadyConfirmed'));
                 return;
             }
             // Trigger memory extraction (auto-sync would have done this on save).
@@ -1230,7 +1338,7 @@ export class AgentSidebarView extends ItemView {
                     });
                 }
             }
-            new Notice(`Confirmed: ${title}`);
+            new Notice(t('notice.memory.confirmed', { title }));
         } catch (e) {
             console.warn('[Memory] Confirm pending failed:', e);
             new Notice(t('notice.memorySaveFailed'));
@@ -2114,6 +2222,9 @@ export class AgentSidebarView extends ItemView {
         const task = new AgentTaskRunner({
             api: resolvedApiHandler,
             toolRegistry: this.plugin.toolRegistry,
+            // IMP-41-03-01: foreground tasks snapshot their state per turn
+            // so a crash mid-run leaves recoverable data.
+            inflightStore: this.plugin.inflightStore ?? undefined,
             callbacks: {
                 onIterationStart: (iteration) => {
                     // Show the steps block immediately so the user can expand it from the start.
@@ -2450,7 +2561,7 @@ export class AgentSidebarView extends ItemView {
                     // threshold state. Renders as a badge in the same footer.
                     if (footerEl) {
                         const badge = footerEl.createSpan('context-condense-failed-badge');
-                        badge.setText('Context condense failed: ' + error.message);
+                        badge.setText(t('ui.sidebar.condenseFailed', { error: error.message }));
                         footerEl.classList.remove('agent-u-hidden');
                     }
                     console.warn('[Sidebar] Context condense failed:', error.message);
@@ -2547,6 +2658,9 @@ export class AgentSidebarView extends ItemView {
                 },
                 onApprovalRequired: async (toolName, input) => {
                     return this.showApprovalCard(toolName, input);
+                },
+                onOptionalAssetRequired: async (spec, toolName) => {
+                    return this.showInstallPromptCard(spec, toolName);
                 },
                 onAttemptCompletion: () => {
                     // Auto-complete any unfinished todo items — agent often skips
@@ -2678,7 +2792,7 @@ export class AgentSidebarView extends ItemView {
                             });
                             // "+" button: append text to textarea without sending (inside item, right-aligned, hover-only)
                             const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
-                            appendBtn.setAttribute('aria-label', 'Add to input');
+                            appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
                             appendBtn.addEventListener('click', (ev) => {
                                 ev.stopPropagation();
                                 ev.preventDefault();
@@ -2916,7 +3030,7 @@ export class AgentSidebarView extends ItemView {
 
                 // Onboarding: inject step-specific setup instructions when setup is incomplete
                 const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
-                const onboardingPrompt = onboarding.getOnboardingPrompt();
+                const onboardingPrompt = onboarding.getOnboardingPrompt(getActiveLocale());
                 if (onboardingPrompt) parts.unshift(onboardingPrompt);
 
                 // Session retrieval — only on first message, using raw user text
@@ -2965,11 +3079,21 @@ export class AgentSidebarView extends ItemView {
             console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
         }
 
+        // IMP-41-03-01: an armed resume snapshot replaces the working history
+        // with the (more complete) inflight copy and hands the loop its
+        // persisted state. One-shot: consumed here, cleared immediately.
+        const resumeSnapshot = this.pendingResume;
+        this.pendingResume = null;
+        if (resumeSnapshot) {
+            this.conversationHistory = [...resumeSnapshot.history];
+        }
+
         await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,
             history: this.conversationHistory,
+            resumeState: resumeSnapshot?.state,
             abortSignal: this.currentAbortController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
             includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
@@ -2994,7 +3118,7 @@ export class AgentSidebarView extends ItemView {
      */
     private triggerManualCondensing(): void {
         if (!this.contextTracker) {
-            new Notice('Context tracker not initialized');
+            new Notice(t('notice.context.trackerNotInitialized'));
             return;
         }
 
@@ -3002,11 +3126,11 @@ export class AgentSidebarView extends ItemView {
         const percentage = usage.maxTokens > 0 ? (usage.tokensUsed / usage.maxTokens) * 100 : 0;
 
         if (percentage < 60) {
-            new Notice('Context usage is below 60%. Condensing not needed yet.');
+            new Notice(t('notice.context.condenseBelowThreshold'));
             return;
         }
 
-        new Notice('Manual context condensing is not yet fully implemented. Please use automatic condensing.');
+        new Notice(t('notice.context.manualCondenseNotImplemented'));
         // TODO: Implement manual condensing trigger
         // This requires either:
         // 1. Storing reference to current AgentTask
@@ -3183,7 +3307,11 @@ export class AgentSidebarView extends ItemView {
                     try {
                         const creator = useTaskNotes
                             ? new TaskNotesAdapter(this.app)
-                            : new TaskNoteCreator(this.app);
+                            : new TaskNoteCreator(this.app, {
+                                categoryProperty: this.plugin.settings.categoryProperty,
+                                summaryProperty: this.plugin.settings.summaryProperty,
+                                backlinksProperty: this.plugin.settings.backlinksProperty,
+                            });
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
                             const format = useTaskNotes ? t('notice.taskNotesCreatedFormatSuffix') : '';
@@ -3213,13 +3341,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['tasknotes'];
 
         const message = isInstalled
-            ? 'Das Community Plugin "TaskNotes" ist installiert aber nicht aktiv. Aktiviere es fuer erweiterte Task-Verwaltung (Kanban, Kalender, Recurring Tasks).'
-            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung mit Kanban, Kalender und Recurring Tasks. Installierbar ueber Einstellungen > Community Plugins.';
+            ? t('notice.taskNotes.hintDisabled')
+            : t('notice.taskNotes.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message });
             const dismissLink = frag.createEl('a', {
-                text: 'Nicht mehr anzeigen',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -3259,13 +3387,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['frontmatter-operator'];
 
         const message = isInstalled
-            ? 'Frontmatter Operator is installed but disabled. Enable it in Community Plugins for bulk frontmatter operations and undoable snapshots.'
-            : 'Tip: Frontmatter Operator adds bulk operations, structural rename/delete, and undoable snapshots for YAML frontmatter. Install it from Community Plugins for advanced workflows.';
+            ? t('notice.frontmatterOperator.hintDisabled')
+            : t('notice.frontmatterOperator.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message + ' ' });
             const dismissLink = frag.createEl('a', {
-                text: 'Do not show again',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -3976,23 +4104,23 @@ export class AgentSidebarView extends ItemView {
 
         // Vault Health Check
         menu.addItem((item) => {
-            item.setTitle('Vault health check');
+            item.setTitle(t('modal.vaultHealth.title'));
             item.setIcon('stethoscope');
             item.onClick(async () => {
                 if (!this.plugin.vaultHealthService) {
-                    new Notice('Vault health service not available. Enable semantic index first.');
+                    new Notice(t('notice.vaultHealth.serviceUnavailable'));
                     return;
                 }
-                new Notice('Running vault health check...');
+                new Notice(t('notice.vaultHealth.checkRunning'));
                 await this.plugin.vaultHealthService.runChecks(undefined, {
-                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
+                    backlinksProperty: this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                     orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
                     reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
                 });
                 const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {
-                    new Notice('No issues found. Vault is healthy.');
+                    new Notice(t('notice.vaultHealth.noIssues'));
                     return;
                 }
                 this.openHealthModal();
@@ -4728,7 +4856,7 @@ export class AgentSidebarView extends ItemView {
 
         // Insert placeholder immediately so it appears above the details toggle.
         const previewEl = row.createDiv('tool-approval-fo-preview');
-        previewEl.setText('Resolving affected notes...');
+        previewEl.setText(t('ui.sidebar.resolvingAffectedNotes'));
 
         // Async resolution. Failures silently remove the placeholder.
         // AUDIT-FEAT-14-07 L-2: guard every DOM mutation with an isConnected
@@ -4925,6 +5053,151 @@ export class AgentSidebarView extends ItemView {
                     cleanup();
                     resolve({ decision: 'approved' });
                 })();
+            });
+
+            this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+        });
+    }
+
+    /**
+     * Offer the missing language pack as a visible in-chat card at
+     * sidebar open. Reuses `showInstallPromptCard` so the visual is
+     * identical to tool-triggered asset installs. Skips silently on
+     * English, when the pack is already installed, or when the pack
+     * offer for this locale was previously handled (persisted via
+     * settings.localePackPromptedFor). Fire-and-forget.
+     */
+    private async maybeOfferLocalePackCard(): Promise<void> {
+        try {
+            const { activeLocaleSpec, LOCALE_LABELS } = await import('../i18n/localePacks');
+            const { needsLocalePack, getActiveLocale } = await import('../i18n');
+            if (!needsLocalePack()) return;
+            const spec = activeLocaleSpec(this.plugin);
+            if (!spec) return;
+            const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+            const manager = new OptionalAssetManager(this.plugin);
+            const snap = await manager.snapshot(spec);
+            if (snap.status === 'installed') return;
+            const outcome = await this.showInstallPromptCard(spec, 'language-pack');
+            if (outcome.decision === 'installed') {
+                const locale = getActiveLocale();
+                const label = (LOCALE_LABELS as Record<string, string>)[locale] ?? locale;
+                new Notice(t('notice.localePack.installedReload', { language: label }), 10_000);
+            }
+        } catch (e) {
+            console.debug('[i18n] locale pack card skipped:', e);
+        }
+    }
+
+    /**
+     * Inline install-prompt card. Rendered when a tool needs an optional
+     * asset (office bundle, pdfjs bundle, reranker WASM, ...) that is not
+     * yet installed. Obsidian community policy requires network fetches
+     * to be triggered by an explicit user click -- this card IS that
+     * click. Resolves to `installed` once download+SHA verification
+     * succeeded (tool retries its asset load), `skipped` if the user
+     * dismisses, `failed` on download/verification error.
+     */
+    private async showInstallPromptCard(
+        spec: import('../core/assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult> {
+        return new Promise((resolve) => {
+            if (!this.chatContainer) { resolve({ decision: 'skipped' }); return; }
+
+            const row = this.chatContainer.createDiv('tool-approval-row install-prompt-row');
+
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'download-cloud');
+
+            const toolLabel = toolName === 'language-pack'
+                ? t('ui.installPrompt.languagePackToolLabel')
+                : this.formatToolLabel(toolName);
+            const title = t('ui.installPrompt.title', {
+                tool: toolLabel,
+                asset: spec.label,
+            });
+            row.createSpan('tool-approval-text').setText(title);
+
+            const explanation = row.createDiv('tool-approval-explanation');
+            explanation.createSpan().setText(t('ui.installPrompt.body', {
+                asset: spec.label,
+                sizeMb: String(spec.sizeMb),
+            }));
+
+            const detailsToggle = row.createEl('span', {
+                cls: 'tool-approval-details-toggle',
+                text: t('ui.installPrompt.whatHappens'),
+            });
+            const detailsContainer = row.createDiv('tool-approval-details');
+            const details = detailsContainer.createEl('pre', { cls: 'tool-approval-details-content' });
+            details.setText(t('ui.installPrompt.details', {
+                filename: spec.filename,
+                sizeMb: String(spec.sizeMb),
+                sha: spec.expectedSha256.slice(0, 16) + '...',
+                url: spec.downloadUrl,
+            }));
+            detailsToggle.addEventListener('click', () => {
+                const visible = detailsContainer.hasClass('is-visible');
+                if (visible) {
+                    detailsContainer.removeClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.whatHappens'));
+                } else {
+                    detailsContainer.addClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.hideDetails'));
+                }
+            });
+
+            const statusEl = row.createDiv('tool-approval-explanation is-hidden');
+            const actions = row.createDiv('tool-approval-actions');
+            const installBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.installPrompt.installNow', { sizeMb: String(spec.sizeMb) }),
+            });
+            const skipBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: '✕',
+            });
+            skipBtn.setAttr('title', t('ui.installPrompt.skipTooltip'));
+
+            let done = false;
+            const cleanup = () => { done = true; row.remove(); };
+
+            installBtn.addEventListener('click', () => {
+                void (async () => {
+                    if (done) return;
+                    installBtn.disabled = true;
+                    skipBtn.disabled = true;
+                    installBtn.setText(t('ui.installPrompt.downloading', { asset: spec.label }));
+                    statusEl.removeClass('is-hidden');
+                    statusEl.setText(t('ui.installPrompt.downloadingStatus'));
+                    try {
+                        const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+                        const manager = new OptionalAssetManager(this.plugin);
+                        await manager.install(spec);
+                        new Notice(t('notice.assets.installed', { label: spec.label }));
+                        cleanup();
+                        resolve({ decision: 'installed' });
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        installBtn.disabled = false;
+                        skipBtn.disabled = false;
+                        installBtn.setText(t('ui.installPrompt.retry'));
+                        statusEl.setText(t('ui.installPrompt.failed', { error: msg }));
+                        // Do not cleanup -- user can retry or skip.
+                        // We only resolve on skip after a failed try so the
+                        // model sees the error message via the tool's fallback.
+                        skipBtn.onclick = () => {
+                            cleanup();
+                            resolve({ decision: 'failed', error: msg });
+                        };
+                    }
+                })();
+            });
+
+            skipBtn.addEventListener('click', () => {
+                cleanup();
+                resolve({ decision: 'skipped' });
             });
 
             this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
@@ -5383,8 +5656,8 @@ export class AgentSidebarView extends ItemView {
         const result = await showEditReviewModal({
             app: this.app,
             entries,
-            title: 'Änderungen prüfen',
-            source: `Aufgabe ${taskId}`,
+            title: t('ui.editReview.titleReview'),
+            source: t('ui.editReview.sourceTask', { taskId }),
         });
         if (result.decisions === null) return;
 

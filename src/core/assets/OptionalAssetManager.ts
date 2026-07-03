@@ -42,6 +42,14 @@ const MAX_ASSET_BYTES = 50 * 1024 * 1024;
  * Defense-in-depth on top of the hardcoded buildRerankerSpec /
  * buildSelfDevSourceSpec callers. AUDIT-024 L-2.
  */
+/** Lowercase hex SHA-256 of a byte buffer. */
+async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
 function assertSafeFilename(filename: string): void {
     if (
         filename.length === 0 ||
@@ -57,7 +65,7 @@ function assertSafeFilename(filename: string): void {
 /** Manifest of every optional asset the plugin knows about. */
 export interface AssetSpec {
     /** Unique id, also used as filename in the assets folder. */
-    id: 'reranker-onnx' | 'self-development-source' | 'office-bundle' | 'pdfjs-bundle';
+    id: 'reranker-onnx' | 'reranker-bundle' | 'self-development-source' | 'office-bundle' | 'pdfjs-bundle' | 'language-pack';
     /** Filename written to disk. */
     filename: string;
     /** Human-readable label for the Settings UI. */
@@ -118,15 +126,46 @@ export class OptionalAssetManager {
             const sidecarSha = (await adapter.read(shaPath).catch(() => '')).trim();
             if (sidecarSha !== spec.expectedSha256) return null;
             const buffer = await adapter.readBinary(path);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-            const contentSha = Array.from(new Uint8Array(hashBuffer))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
+            const contentSha = await sha256Hex(buffer);
             if (contentSha !== spec.expectedSha256) {
                 console.warn(`[OptionalAssetManager] Content hash mismatch for ${spec.filename}; refusing to load.`);
                 return null;
             }
             return buffer;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Read an installed text asset (e.g. a language-pack JSON) and parse it.
+     * Same double hash check as load(). Returns null when missing, hash
+     * mismatch, or unparseable. FEAT-42-05.
+     */
+    async loadJson<T = unknown>(spec: AssetSpec): Promise<T | null> {
+        const adapter = this.plugin.app.vault.adapter;
+        const path = this.filePath(spec);
+        const shaPath = this.shaSidecarPath(spec);
+        try {
+            if (!await adapter.exists(path)) return null;
+            const sidecarSha = (await adapter.read(shaPath).catch(() => '')).trim();
+            if (sidecarSha !== spec.expectedSha256) return null;
+            // Size guard (audit I-1, defense in depth): reject an oversized
+            // file before reading it into a string, mirroring install()'s
+            // MAX_ASSET_BYTES cap. The sidecar hash is public, so a matching
+            // sidecar alone does not bound the content size.
+            const stat = await adapter.stat(path).catch(() => null);
+            if (stat && stat.size > MAX_ASSET_BYTES) {
+                console.warn(`[OptionalAssetManager] ${spec.filename} exceeds the size cap; refusing to load.`);
+                return null;
+            }
+            const text = await adapter.read(path);
+            const contentSha = await sha256Hex(new TextEncoder().encode(text));
+            if (contentSha !== spec.expectedSha256) {
+                console.warn(`[OptionalAssetManager] Content hash mismatch for ${spec.filename}; refusing to load.`);
+                return null;
+            }
+            return JSON.parse(text) as T;
         } catch {
             return null;
         }
@@ -227,10 +266,7 @@ export class OptionalAssetManager {
 
         // SHA256 verification before persisting -- a forged or partial
         // download must never become "installed".
-        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-        const sha = Array.from(new Uint8Array(hashBuffer))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
+        const sha = await sha256Hex(buffer);
         if (sha !== spec.expectedSha256) {
             throw new Error(
                 `Hash mismatch for ${spec.id}: expected ${spec.expectedSha256.slice(0, 16)}..., ` +
@@ -267,10 +303,7 @@ export class OptionalAssetManager {
             await adapter.mkdir(ASSET_DIR);
         }
 
-        const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-        const sha = Array.from(new Uint8Array(hashBuffer))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
+        const sha = await sha256Hex(buffer);
         if (sha !== spec.expectedSha256) {
             throw new Error(
                 `Hash mismatch for ${spec.id}: expected ${spec.expectedSha256.slice(0, 16)}..., ` +
@@ -344,5 +377,48 @@ export function buildPdfjsBundleSpec(pluginVersion: string, expectedSha256: stri
         sizeMb: 2,
         expectedSha256,
         downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/pdfjs-bundle.js`,
+    };
+}
+
+/**
+ * JavaScript half of the local semantic reranker: `@huggingface/transformers`
+ * + `onnxruntime-web/wasm` bundled and tree-shaken. The WASM half
+ * (`ort-wasm-simd-threaded.wasm`, 12 MB) is a separate spec built by
+ * `buildRerankerSpec` and shipped as `reranker-onnx`; the reranker only
+ * activates when BOTH assets are installed.
+ */
+export function buildRerankerJsBundleSpec(pluginVersion: string, expectedSha256: string): AssetSpec {
+    return {
+        id: 'reranker-bundle',
+        filename: 'reranker-bundle.js',
+        label: 'Reranker (library)',
+        description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the WASM binary asset ("Reranker (WASM)") which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
+        sizeMb: 0.6,
+        expectedSha256,
+        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/reranker-bundle.js`,
+    };
+}
+
+/**
+ * FEAT-42-05: build the spec for a downloadable language pack. `locale` is
+ * the pack code as used in the asset filename (lowercase, e.g. 'de',
+ * 'zh-tw'); `languageLabel` is the human name for the Settings UI. English
+ * has no pack (it is bundled), so callers never build a spec for it.
+ */
+export function buildLocaleSpec(
+    pluginVersion: string,
+    locale: string,
+    languageLabel: string,
+    expectedSha256: string,
+): AssetSpec {
+    const filename = `locale-${locale}.json`;
+    return {
+        id: 'language-pack',
+        filename,
+        label: `Language pack: ${languageLabel}`,
+        description: `Translated user-interface strings for ${languageLabel}. English is built in; this pack is only needed when Obsidian runs in ${languageLabel}. Loaded locally, no API calls.`,
+        sizeMb: 1,
+        expectedSha256,
+        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/${filename}`,
     };
 }

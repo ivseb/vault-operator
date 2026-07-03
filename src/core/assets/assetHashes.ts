@@ -26,7 +26,9 @@ export const RERANKER_WASM_SHA256 = 'f4f290847a4df02d0b93cdbf39b4b0e71acefbe8057
 import {
     OFFICE_BUNDLE_SHA256 as _OFFICE_BUNDLE_SHA256,
     PDFJS_BUNDLE_SHA256 as _PDFJS_BUNDLE_SHA256,
+    RERANKER_JS_BUNDLE_SHA256 as _RERANKER_JS_BUNDLE_SHA256,
 } from '../../_generated/asset-bundle-hashes';
 import { castGenerated } from '../utils/runtime';
 export const OFFICE_BUNDLE_SHA256 = castGenerated<string>(_OFFICE_BUNDLE_SHA256);
 export const PDFJS_BUNDLE_SHA256 = castGenerated<string>(_PDFJS_BUNDLE_SHA256);
+export const RERANKER_JS_BUNDLE_SHA256 = castGenerated<string>(_RERANKER_JS_BUNDLE_SHA256);

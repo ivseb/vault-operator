@@ -23,6 +23,14 @@ export interface FileAdapter {
     mkdir(path: string): Promise<void>;
 
     /**
+     * FIX-24-03-04: remove a DIRECTORY. Obsidian's DataAdapter.remove()
+     * maps to node unlink and rejects directories with EPERM; directory
+     * cleanup must go through rmdir. Optional so narrow adapters
+     * (read-only fixtures) stay valid.
+     */
+    rmdir?(path: string, recursive?: boolean): Promise<void>;
+
+    /**
      * List immediate children of a directory.
      * Returns paths relative to the adapter root (matching Obsidian convention).
      */

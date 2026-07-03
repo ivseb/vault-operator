@@ -20,6 +20,7 @@
 
 import { App, Notice, normalizePath } from 'obsidian';
 import * as path from 'path';
+import { t } from '../../i18n';
 
 export type PickResult =
     | { kind: 'vault-relative'; path: string }
@@ -60,14 +61,14 @@ function getVaultBasePath(app: App): string | null {
 export async function pickAgentFolder(app: App): Promise<PickResult> {
     const dialog = resolveElectronDialog();
     if (!dialog) {
-        new Notice('Native folder picker unavailable in this Obsidian build. Type the path manually.');
+        new Notice(t('notice.agentFolder.pickerUnavailable'));
         return null;
     }
 
     const vaultBase = getVaultBasePath(app);
 
     const result = await dialog.showOpenDialog({
-        title: 'Choose agent folder',
+        title: t('modal.agentFolderPicker.title'),
         defaultPath: vaultBase ?? undefined,
         properties: ['openDirectory', 'createDirectory'],
     });
@@ -85,17 +86,14 @@ export async function pickAgentFolder(app: App): Promise<PickResult> {
             // that would make the agent folder equal the vault root, which is
             // almost certainly not what they want.
             if (rel.length === 0) {
-                new Notice('Picking the vault root is not allowed. Choose or create a subfolder.');
+                new Notice(t('notice.agentFolder.vaultRootNotAllowed'));
                 return null;
             }
             return { kind: 'vault-relative', path: normalizePath(rel.replace(/\\/g, '/')) };
         }
     }
 
-    new Notice(
-        'Folders outside the vault are partially supported in v2.5.1: the path will be saved, but plugin skills, tmp results, and the local knowledge database continue to live in the default `.obsidian-agent` folder inside your vault. Full cross-vault support is planned.',
-        12_000,
-    );
+    new Notice(t('notice.agentFolder.outsideVault'), 12_000);
     return { kind: 'absolute', path: chosen };
 }
 

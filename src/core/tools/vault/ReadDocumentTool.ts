@@ -95,7 +95,7 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
 
             if (path) {
                 // Parse from vault file
-                const result = await this.parseFromVault(path);
+                const result = await this.parseFromVault(path, context);
                 fullText = result.text;
                 sourceName = path;
                 format = result.format;
@@ -162,7 +162,7 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
         }
     }
 
-    private async parseFromVault(path: string): Promise<{ text: string; format: string; pageCount?: number }> {
+    private async parseFromVault(path: string, ctx?: ToolExecutionContext): Promise<{ text: string; format: string; pageCount?: number }> {
         const ext = path.split('.').pop()?.toLowerCase() ?? '';
         if (!SUPPORTED_DOCUMENT_EXTENSIONS.has(ext)) {
             throw new Error(
@@ -191,7 +191,7 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
             data = new TextEncoder().encode(text).buffer;
         }
 
-        const result = await parseDocument(data, ext, this.plugin);
+        const result = await parseDocument(data, ext, this.plugin, ctx);
         return { text: result.text, format: ext, pageCount: result.metadata.pageCount };
     }
 

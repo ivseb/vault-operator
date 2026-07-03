@@ -111,7 +111,7 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
             if (source_path) {
                 try {
                     // Parse from vault file
-                    documentText = await this.parseVaultDocument(source_path);
+                    documentText = await this.parseVaultDocument(source_path, context);
                 } catch (parseErr) {
                     // Fallback: if vault parsing fails but a specific attachment_index was provided, use that
                     if (attachment_index !== undefined && attachment_index >= 0 && attachment_index < this.attachmentTexts.length) {
@@ -224,7 +224,7 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
         }
     }
 
-    private async parseVaultDocument(sourcePath: string): Promise<string> {
+    private async parseVaultDocument(sourcePath: string, ctx?: ToolExecutionContext): Promise<string> {
         const file = this.app.vault.getAbstractFileByPath(sourcePath);
         if (!file || !(file instanceof TFile)) {
             throw new Error(`Source document not found: ${sourcePath}`);
@@ -246,7 +246,7 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
             data = new TextEncoder().encode(text).buffer;
         }
 
-        const result = await parseDocument(data, ext, this.plugin);
+        const result = await parseDocument(data, ext, this.plugin, ctx);
         return result.text;
     }
 

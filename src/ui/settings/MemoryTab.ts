@@ -273,11 +273,11 @@ export class MemoryTab {
         if (!cs.defaultSyncMode) cs.defaultSyncMode = 'auto';
 
         new Setting(containerEl)
-            .setName('Default handling for incoming conversations')
-            .setDesc('Applied to providers whose per-source override below is set to use the default.')
+            .setName(t('settings.memory.defaultSyncMode'))
+            .setDesc(t('settings.memory.defaultSyncModeDesc'))
             .addDropdown((d) => {
-                d.addOption('auto', 'Extract immediately');
-                d.addOption('manual', 'Park as pending');
+                d.addOption('auto', t('settings.memory.syncModeAuto'));
+                d.addOption('manual', t('settings.memory.syncModeManual'));
                 d.setValue(cs.defaultSyncMode);
                 d.onChange(async (v) => {
                     cs.defaultSyncMode = v as SyncMode;
@@ -286,12 +286,8 @@ export class MemoryTab {
             });
 
         new Setting(containerEl)
-            .setName('Living document by default')
-            .setDesc(
-                'When on (default), save_conversation calls from the same source within 30 minutes append to the existing conversation '
-                + 'instead of starting a new one. Memory extraction then runs incrementally on the new turns. Turn off if you want '
-                + 'every save_conversation call to create a fresh conversation.',
-            )
+            .setName(t('settings.memory.livingDocument'))
+            .setDesc(t('settings.memory.livingDocumentDesc'))
             .addToggle((t) => {
                 t.setValue(cs.livingDocumentByDefault ?? true);
                 t.onChange(async (v) => {
@@ -301,12 +297,8 @@ export class MemoryTab {
             });
 
         new Setting(containerEl)
-            .setName('Strict source isolation for recall')
-            .setDesc(
-                'When on, every recall_memory and search_history MCP call must pass an explicit source_interface argument and reads '
-                + 'are scoped to that source only. Use this to prevent the ChatGPT or Perplexity connectors from reading conversations '
-                + 'or facts that came from Claude. Default off for backward compatibility.',
-            )
+            .setName(t('settings.memory.strictIsolation'))
+            .setDesc(t('settings.memory.strictIsolationDesc'))
             .addToggle((t) => {
                 t.setValue(cs.strictSourceIsolation ?? false);
                 t.onChange(async (v) => {
@@ -317,20 +309,20 @@ export class MemoryTab {
 
         // Per-source overrides
         const PROVIDER_LABELS: Record<SourceInterface, string> = {
-            'obsilo': 'Vault Operator (internal)',
-            'claude-ai': 'Claude.ai',
-            'claude-code': 'Claude Code',
-            'chatgpt': 'ChatGPT',
-            'perplexity': 'Perplexity',
-            'unknown': 'Unknown source',
+            'obsilo': t('settings.memory.sourceObsilo'),
+            'claude-ai': t('settings.memory.sourceClaudeAi'),
+            'claude-code': t('settings.memory.sourceClaudeCode'),
+            'chatgpt': t('settings.memory.sourceChatgpt'),
+            'perplexity': t('settings.memory.sourcePerplexity'),
+            'unknown': t('settings.memory.sourceUnknown'),
         };
         for (const provider of SOURCE_INTERFACES) {
             new Setting(containerEl)
                 .setName(PROVIDER_LABELS[provider])
                 .addDropdown((d) => {
-                    d.addOption('global', 'Use default');
-                    d.addOption('auto', 'Extract immediately');
-                    d.addOption('manual', 'Park as pending');
+                    d.addOption('global', t('settings.memory.syncModeGlobal'));
+                    d.addOption('auto', t('settings.memory.syncModeAuto'));
+                    d.addOption('manual', t('settings.memory.syncModeManual'));
                     const current = cs.perProvider[provider] ?? 'global';
                     d.setValue(current);
                     d.onChange(async (v) => {
@@ -375,24 +367,17 @@ export class MemoryTab {
     private buildMemoryV2MigrationSection(containerEl: HTMLElement): void {
         const status = this.plugin.settings.memory.v2MigrationStatus;
 
-        containerEl.createEl('h3', { cls: 'agent-settings-section', text: 'Vault Operator upgrade' });
+        containerEl.createEl('h3', { cls: 'agent-settings-section', text: t('settings.memory.headingUpgrade') });
 
         // Status banner -- different copy per pre-upgrade state.
         const banner = containerEl.createDiv('vault-op-box vault-op-box--intro');
         const bannerText = banner.createDiv({ cls: 'vault-op-box__text' });
         if (status === 'pending') {
-            bannerText.createEl('strong', { text: 'Upgrade pending. ' });
-            bannerText.appendText(
-                'A short cascade brings your existing Vault Operator memory onto the new engine: ' +
-                'atomise legacy memory files, seed topic centroids, refresh defaults. ' +
-                'Originals are copied to memory-v1-backup/{timestamp}/ before any change.',
-            );
+            bannerText.createEl('strong', { text: t('settings.memory.upgradePendingTitle') + ' ' });
+            bannerText.appendText(t('settings.memory.upgradePendingBody'));
         } else if (status === 'skipped') {
-            bannerText.createEl('strong', { text: 'Upgrade skipped. ' });
-            bannerText.appendText(
-                'You chose "Later" in the announcement. The upgrade is a one-time event; ' +
-                'once it runs, this section disappears.',
-            );
+            bannerText.createEl('strong', { text: t('settings.memory.upgradeSkippedTitle') + ' ' });
+            bannerText.appendText(t('settings.memory.upgradeSkippedBody'));
         }
 
         // Model dropdown (BUG-031): the global chat provider can be on a
@@ -406,14 +391,10 @@ export class MemoryTab {
         const legacy = this.plugin.settings.activeModels.filter(m => m.enabled);
         const activeModels: CustomModel[] = fromProviders.length > 0 ? fromProviders : legacy;
         new Setting(containerEl)
-            .setName('Atomiser model')
-            .setDesc(
-                'Used for the atomise-legacy-memory step. Haiku 4.5 is sufficient for ' +
-                'typical memory MDs; Sonnet 4.6 if the source has dense compound prose. ' +
-                'Defaults to your Memory Model.',
-            )
+            .setName(t('settings.memory.atomiserModel'))
+            .setDesc(t('settings.memory.atomiserModelDesc'))
             .addDropdown(d => {
-                d.addOption('', 'Use the configured memory model');
+                d.addOption('', t('settings.memory.atomiserModelDefaultOption'));
                 for (const m of activeModels) {
                     d.addOption(getModelKey(m), `${m.displayName ?? m.name} (${m.provider})`);
                 }
@@ -422,14 +403,10 @@ export class MemoryTab {
             });
 
         const upgradeSetting = new Setting(containerEl)
-            .setName('Run upgrade')
-            .setDesc(
-                'Runs the full upgrade cascade in one go. Backups are written before any ' +
-                'change. This section disappears after a successful run; backups stay ' +
-                'accessible under Settings → Advanced → Backups.',
-            );
+            .setName(t('settings.memory.runUpgrade'))
+            .setDesc(t('settings.memory.runUpgradeDesc'));
         upgradeSetting.addButton((b) =>
-            b.setButtonText('Upgrade now')
+            b.setButtonText(t('settings.memory.upgradeNowButton'))
                 .onClick(() => void this.runMemoryV2Migration(b.buttonEl)),
         );
     }
@@ -439,7 +416,7 @@ export class MemoryTab {
         const fs = this.plugin.globalFs;
         const embeddingService = this.plugin.embeddingService;
         if (!memDB?.isOpen() || !fs || !embeddingService) {
-            new Notice('Memory upgrade: memory database, file adapter, or embedding service not ready');
+            new Notice(t('settings.memory.upgradeNotReady'));
             return;
         }
 
@@ -453,54 +430,44 @@ export class MemoryTab {
         const chosen = candidate ?? fallback;
 
         let atomizerApi = this.plugin.apiHandler;
-        let providerLabel = 'global chat provider';
+        let providerLabel = t('settings.memory.globalChatProvider');
         if (chosen) {
             const { buildApiHandlerForModel } = await import('../../api/index');
             atomizerApi = buildApiHandlerForModel(chosen);
             providerLabel = `${chosen.displayName ?? chosen.name} (${chosen.provider})`;
         }
         if (!atomizerApi) {
-            new Notice(
-                'Vault Operator upgrade: no API handler available for the atomiser step. ' +
-                'Pick a model in the dropdown above or under Settings → Memory → Memory Model.',
-                10000,
-            );
+            new Notice(t('settings.memory.upgradeNoApiHandler'), 10000);
             return;
         }
 
         const ok = await confirmModal(this.app, {
-            title: 'Run Vault Operator upgrade?',
-            message:
-                `Atomiser provider: ${providerLabel}\n\n` +
-                'Cascade steps:\n' +
-                '  1. Atomise legacy memory files into the new fact schema\n' +
-                '  2. Seed topic centroids so context locks instantly\n' +
-                '  3. Refresh release-specific settings defaults\n\n' +
-                'Originals are copied to memory-v1-backup/{timestamp}/. They are NOT deleted.',
-            confirmLabel: 'Upgrade',
-            cancelLabel: 'Cancel',
+            title: t('settings.memory.upgradeConfirmTitle'),
+            message: t('settings.memory.upgradeConfirmMessage', { provider: providerLabel }),
+            confirmLabel: t('settings.memory.upgradeConfirmButton'),
+            cancelLabel: t('settings.memory.upgradeCancelButton'),
         });
         if (!ok) return;
 
-        btn.setText('Upgrading...');
+        btn.setText(t('settings.memory.upgrading'));
         btn.disabled = true;
         const factStore = new FactStore(memDB);
         const styleStore = new CommunicationStyleStore(memDB);
         const atomizer = new MemoryAtomizer(atomizerApi);
         const orchestrator = new MemoryV2UpgradeOrchestrator();
 
-        const progressNotice = new Notice('Vault Operator upgrade running...', 0);
+        const progressNotice = new Notice(t('settings.memory.upgradeRunning'), 0);
         try {
             const report = await orchestrator.run({
                 fs, factStore, styleStore, atomizer, embeddingService,
                 memoryDB: memDB,
-                onProgress: (msg) => progressNotice.setMessage(`Vault Operator upgrade: ${msg}`),
+                onProgress: (msg) => progressNotice.setMessage(t('settings.memory.upgradeProgress', { msg })),
             });
             progressNotice.hide();
 
             if (report.aborted) {
                 const failed = report.steps.find(s => !s.ok);
-                new Notice(`Vault Operator upgrade aborted: ${failed?.error ?? 'unknown error'}`, 12000);
+                new Notice(t('settings.memory.upgradeAborted', { reason: failed?.error ?? t('settings.memory.unknownError') }), 12000);
                 console.error('[VaultOperatorUpgrade] Aborted:', report);
                 return;
             }
@@ -524,9 +491,9 @@ export class MemoryTab {
         } catch (e) {
             progressNotice.hide();
             console.error('[VaultOperatorUpgrade] Failed:', e);
-            new Notice(`Vault Operator upgrade failed: ${(e as Error).message}`, 10000);
+            new Notice(t('settings.memory.upgradeFailed', { message: (e as Error).message }), 10000);
         } finally {
-            btn.setText('Upgrade now');
+            btn.setText(t('settings.memory.upgradeNowButton'));
             btn.disabled = false;
             this.rerender();
         }
@@ -534,9 +501,11 @@ export class MemoryTab {
 }
 
 function formatReport(report: UpgradeReport): string {
-    const lines = ['Vault Operator upgrade done.'];
+    const lines = [t('settings.memory.upgradeDone')];
     for (const step of report.steps) {
-        const tag = step.skipped ? 'skipped' : step.ok ? 'ok' : 'failed';
+        const tag = step.skipped
+            ? t('settings.memory.upgradeStepSkipped')
+            : step.ok ? t('settings.memory.upgradeStepOk') : t('settings.memory.upgradeStepFailed');
         lines.push(`  ${step.label}: ${tag}${step.detail ? ` -- ${step.detail}` : ''}`);
     }
     return lines.join('\n');

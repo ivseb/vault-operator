@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 import { requestUrl } from 'obsidian';
 import type { CustomModel, ProviderType } from '../../types/settings';
 import { buildApiHandler } from '../../api/index';
@@ -7,6 +7,7 @@ import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthS
 import { KiloAuthService } from '../../core/security/KiloAuthService';
 import { KiloMetadataService } from '../../core/providers/KiloMetadataService';
 import { extractRegionFromBedrockUrl } from '../../api/providers/bedrock';
+import { t } from '../../i18n';
 
 /**
  * Bedrock-specific credentials for the Fetch Models button. Mirrors the form
@@ -144,8 +145,8 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
         if (!model.awsRegion && !regionFromUrl) {
             return {
                 ok: false,
-                message: 'AWS region required',
-                detail: 'Pick a region in the dropdown, or enter an endpoint URL containing a region (e.g. bedrock-runtime.eu-central-1.amazonaws.com).',
+                message: t('notice.testConnection.awsRegionRequired'),
+                detail: t('notice.testConnection.awsRegionRequiredDetail'),
             };
         }
         const authMode = model.awsAuthMode ?? 'api-key';
@@ -153,16 +154,16 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
             if (!model.awsApiKey) {
                 return {
                     ok: false,
-                    message: 'Bedrock API key required',
-                    detail: 'Paste the bearer token from the Bedrock console or from the AWS_BEARER_TOKEN_BEDROCK environment variable.',
+                    message: t('notice.testConnection.bedrockKeyRequired'),
+                    detail: t('settings.providers.bedrockApiKeyDesc'),
                 };
             }
         } else if (authMode === 'access-key') {
             if (!model.awsAccessKey || !model.awsSecretKey) {
                 return {
                     ok: false,
-                    message: 'AWS credentials required',
-                    detail: 'Fill both access key ID and secret access key, or switch to the Bedrock API key mode.',
+                    message: t('notice.testConnection.awsCredsRequired'),
+                    detail: t('notice.testConnection.awsCredsRequiredDetail'),
                 };
             }
         } else {
@@ -170,15 +171,15 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
             if (!model.baseUrl) {
                 return {
                     ok: false,
-                    message: 'Gateway endpoint required',
-                    detail: 'Enter the full gateway base URL (e.g. https://gateway.example.com/bedrock).',
+                    message: t('notice.testConnection.gatewayEndpointRequired'),
+                    detail: t('notice.testConnection.gatewayEndpointRequiredDetail'),
                 };
             }
             if (!model.gatewayHeaderValue) {
                 return {
                     ok: false,
-                    message: 'Gateway subscription key required',
-                    detail: 'Paste the subscription key for the enterprise Bedrock gateway.',
+                    message: t('notice.testConnection.gatewayKeyRequired'),
+                    detail: t('notice.testConnection.gatewayKeyRequiredDetail'),
                 };
             }
         }
@@ -202,7 +203,7 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
             for await (const chunk of stream) {
                 if (chunk.type === 'text' || chunk.type === 'usage') break;
             }
-            return { ok: true, message: 'Connection successful ✓' };
+            return { ok: true, message: t('notice.testConnection.success') };
         } finally {
             window.clearTimeout(timer);
         }
@@ -216,32 +217,32 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
         if (errObj?.name === 'AbortError') {
             return {
                 ok: false,
-                message: isOllama ? 'Connection timed out (30 s)' : 'Connection timed out (8 s)',
+                message: t('notice.testConnection.timedOut', { seconds: isOllama ? 30 : 8 }),
                 detail: isOllama
-                    ? 'Ollama did not respond in time. Two possible causes:\n\n1. Ollama is not running → start it: ollama serve\n2. The model is large and still loading into memory → wait a moment and try again.'
-                    : 'The server did not respond in time. Check your Base URL.',
+                    ? t('notice.testConnection.timedOutOllamaDetail')
+                    : t('notice.testConnection.timedOutDetail'),
             };
         }
 
         if (isNetworkError) {
             return {
                 ok: false,
-                message: 'Cannot connect to server',
+                message: t('notice.testConnection.cannotConnect'),
                 detail: isOllama
-                    ? 'Ollama is not reachable at the Base URL. Make sure Ollama is running. It should start automatically after installation. You can also start it manually: ollama serve'
-                    : 'Check that the Base URL is correct and the server is running.',
+                    ? t('notice.testConnection.cannotConnectOllamaDetail')
+                    : t('notice.testConnection.cannotConnectDetail'),
             };
         }
 
         if (s === 401) {
             return {
                 ok: false,
-                message: 'Invalid API key (401)',
+                message: t('notice.testConnection.invalidKey', { status: 401 }),
                 detail: model.provider === 'anthropic'
-                    ? 'The key should start with sk-ant-... Get it from console.anthropic.com → API Keys.'
+                    ? t('notice.testConnection.invalidKeyAnthropicDetail')
                     : model.provider === 'openai'
-                    ? 'The key should start with sk-... Get it from platform.openai.com → API Keys.'
-                    : 'Check that you copied the full API key from your provider dashboard.',
+                    ? t('notice.testConnection.invalidKeyOpenaiDetail')
+                    : t('notice.testConnection.invalidKeyGenericDetail'),
             };
         }
 
@@ -249,23 +250,23 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
             if (isOllama) {
                 return {
                     ok: false,
-                    message: `Model "${model.name}" not found in Ollama`,
-                    detail: `The model name must match exactly what Ollama has installed.\n\n1. Open a Terminal and run: ollama list\n2. Copy the exact name shown (e.g. llama3.2:latest)\n3. Paste it into the Model ID field above.\n\nIf the model is not installed yet: ollama pull ${model.name}`,
+                    message: t('notice.testConnection.modelNotFoundOllama', { name: model.name }),
+                    detail: t('notice.testConnection.modelNotFoundOllamaDetail', { name: model.name }),
                 };
             }
             return {
                 ok: false,
-                message: 'Model not found (404)',
-                detail: 'The Model ID does not exist for this provider. Check the exact model name in your provider\'s documentation.',
+                message: t('notice.testConnection.modelNotFound'),
+                detail: t('notice.testConnection.modelNotFoundDetail'),
             };
         }
 
         if (s === 429) {
-            return { ok: false, message: 'Rate limit reached (429)', detail: 'You\'ve sent too many requests. Wait a moment and try again.' };
+            return { ok: false, message: t('notice.testConnection.rateLimited'), detail: t('notice.testConnection.rateLimitedDetail') };
         }
 
         if (s === 403) {
-            return { ok: false, message: 'Access denied (403)', detail: 'Your API key may not have permission to use this model, or billing is required.' };
+            return { ok: false, message: t('notice.testConnection.accessDenied'), detail: t('notice.testConnection.accessDeniedDetail') };
         }
 
         // Bedrock error name mapping. AWS SDK raises typed errors with a `name` field
@@ -276,37 +277,39 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
             if (name === 'UnrecognizedClientException' || name === 'InvalidSignatureException') {
                 return {
                     ok: false,
-                    message: 'Invalid AWS credentials',
-                    detail: 'Check that the Access key ID and Secret access key are correct and still active in IAM.',
+                    message: t('notice.testConnection.bedrockInvalidCreds'),
+                    detail: t('notice.testConnection.bedrockInvalidCredsDetail'),
                 };
             }
             if (name === 'AccessDeniedException') {
                 return {
                     ok: false,
-                    message: 'Bedrock access denied',
-                    detail: 'The IAM user lacks bedrock:InvokeModel / bedrock:InvokeModelWithResponseStream on this model, or the model is not enabled in Model Access for this region.',
+                    message: t('notice.testConnection.bedrockAccessDenied'),
+                    detail: t('notice.testConnection.bedrockAccessDeniedDetail'),
                 };
             }
             if (name === 'ValidationException') {
                 return {
                     ok: false,
-                    message: 'Invalid model or region',
-                    detail: `The model ID is not valid in ${model.awsRegion ?? 'this region'}. For EU regions, try a cross-region inference profile ID like eu.anthropic.claude-sonnet-4-5-20250929-v1:0.`,
+                    message: t('notice.testConnection.bedrockValidation'),
+                    detail: t('notice.testConnection.bedrockValidationDetail', {
+                        region: model.awsRegion ?? t('notice.testConnection.bedrockRegionFallback'),
+                    }),
                 };
             }
             if (name === 'ResourceNotFoundException') {
                 return {
                     ok: false,
-                    message: 'Model not found',
-                    detail: 'The model ID does not exist in this region or is not enabled under Model access in the Bedrock console.',
+                    message: t('notice.testConnection.bedrockModelNotFound'),
+                    detail: t('notice.testConnection.bedrockModelNotFoundDetail'),
                 };
             }
             if (name === 'ThrottlingException') {
-                return { ok: false, message: 'Throttled by Bedrock', detail: 'Too many requests. Retry in a moment.' };
+                return { ok: false, message: t('notice.testConnection.bedrockThrottled'), detail: t('notice.testConnection.bedrockThrottledDetail') };
             }
         }
 
-        return { ok: false, message: 'Connection failed', detail: msg || 'Unknown error' };
+        return { ok: false, message: t('notice.testConnection.failed'), detail: msg || t('notice.testConnection.unknownError') };
     }
 }
 
@@ -315,8 +318,8 @@ async function testModelConnection(model: CustomModel): Promise<TestResult> {
  * Uses a non-streaming POST to the OpenAI-compatible chat/completions endpoint.
  */
 async function testGeminiConnection(model: CustomModel): Promise<TestResult> {
-    if (!model.apiKey) return { ok: false, message: 'API key required', detail: 'Get your API key from aistudio.google.com → API Keys.' };
-    if (!model.name) return { ok: false, message: 'Model ID required' };
+    if (!model.apiKey) return { ok: false, message: t('notice.testConnection.keyRequired'), detail: t('notice.testConnection.geminiKeyDetail') };
+    if (!model.name) return { ok: false, message: t('notice.testConnection.modelIdRequired') };
 
     const url = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
     const timeout = new Promise<never>((_, reject) =>
@@ -340,22 +343,22 @@ async function testGeminiConnection(model: CustomModel): Promise<TestResult> {
             }),
             timeout,
         ]);
-        if (res.status === 200) return { ok: true, message: 'Connection successful' };
+        if (res.status === 200) return { ok: true, message: t('notice.testConnection.success') };
         if (res.status === 401 || res.status === 403) {
-            return { ok: false, message: `Invalid API key (${res.status})`, detail: 'Get your API key from aistudio.google.com → API Keys.' };
+            return { ok: false, message: t('notice.testConnection.invalidKey', { status: res.status }), detail: t('notice.testConnection.geminiKeyDetail') };
         }
         if (res.status === 404) {
-            return { ok: false, message: `Model "${model.name}" not found (404)`, detail: 'Check the exact model name. Use the "Fetch Models" button to see available models.' };
+            return { ok: false, message: t('notice.testConnection.geminiModelNotFound', { name: model.name }), detail: t('notice.testConnection.geminiModelNotFoundDetail') };
         }
         if (res.status === 429) {
-            return { ok: false, message: 'Rate limit reached (429)', detail: 'You\'ve sent too many requests. Wait a moment and try again.' };
+            return { ok: false, message: t('notice.testConnection.rateLimited'), detail: t('notice.testConnection.rateLimitedDetail') };
         }
         const errText = (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })();
-        return { ok: false, message: `HTTP ${res.status}`, detail: errText };
+        return { ok: false, message: t('notice.testConnection.httpStatus', { status: res.status }), detail: errText };
     } catch (err: unknown) {
-        const msg = (err as { message?: string })?.message ?? 'Unknown error';
-        if (msg.includes('timed out')) return { ok: false, message: 'Connection timed out (10 s)' };
-        return { ok: false, message: 'Connection failed', detail: msg };
+        const msg = (err as { message?: string })?.message ?? t('notice.testConnection.unknownError');
+        if (msg.includes('timed out')) return { ok: false, message: t('notice.testConnection.timedOut', { seconds: 10 }) };
+        return { ok: false, message: t('notice.testConnection.failed'), detail: msg };
     }
 }
 
@@ -373,7 +376,7 @@ async function testEmbeddingConnection(model: CustomModel): Promise<TestResult> 
         return testEmbeddingViaSdk(model);
     } catch (err: unknown) {
         const msg: string = (err as { message?: string })?.message ?? String(err);
-        return { ok: false, message: 'Connection failed', detail: msg };
+        return { ok: false, message: t('notice.testConnection.failed'), detail: msg };
     }
 }
 
@@ -407,7 +410,7 @@ async function testEmbeddingViaSdk(model: CustomModel): Promise<TestResult> {
     });
 
     const dims = response.data?.[0]?.embedding?.length;
-    return { ok: true, message: 'Embedding successful' + (dims ? ` (${dims} dimensions)` : '') };
+    return { ok: true, message: dims ? t('notice.testConnection.embeddingOkDims', { dims }) : t('notice.testConnection.embeddingOk') };
 }
 
 async function testEmbeddingViaRequestUrl(model: CustomModel): Promise<TestResult> {
@@ -419,7 +422,7 @@ async function testEmbeddingViaRequestUrl(model: CustomModel): Promise<TestResul
 
     const TIMEOUT_MS = 15_000;
     const timeout = new Promise<never>((_, reject) =>
-        window.setTimeout(() => reject(new Error(`Embedding test timed out after ${TIMEOUT_MS / 1000}s`)), TIMEOUT_MS),
+        window.setTimeout(() => reject(new Error(t('notice.testConnection.embeddingTimedOut', { seconds: TIMEOUT_MS / 1000 }))), TIMEOUT_MS),
     );
     const res = await Promise.race([
         requestUrl({ url, method: 'POST', headers, body: JSON.stringify({ input: 'test' }), throw: false }),
@@ -428,12 +431,12 @@ async function testEmbeddingViaRequestUrl(model: CustomModel): Promise<TestResul
 
     if (res.status === 200) {
         const dims = res.json?.data?.[0]?.embedding?.length;
-        return { ok: true, message: 'Embedding successful' + (dims ? ` (${dims} dimensions)` : '') };
+        return { ok: true, message: dims ? t('notice.testConnection.embeddingOkDims', { dims }) : t('notice.testConnection.embeddingOk') };
     }
-    if (res.status === 401) return { ok: false, message: 'Invalid API key (401)' };
-    if (res.status === 404) return { ok: false, message: 'Deployment / model not found (404)', detail: 'Check that the Model ID matches the exact deployment name.' };
+    if (res.status === 401) return { ok: false, message: t('notice.testConnection.invalidKey', { status: 401 }) };
+    if (res.status === 404) return { ok: false, message: t('notice.testConnection.deploymentNotFound'), detail: t('notice.testConnection.deploymentNotFoundDetail') };
     const errText = (() => { try { return JSON.stringify(res.json); } catch { return res.text; } })();
-    return { ok: false, message: `HTTP ${res.status}`, detail: errText };
+    return { ok: false, message: t('notice.testConnection.httpStatus', { status: res.status }), detail: errText };
 }
 
 /**

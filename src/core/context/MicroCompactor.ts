@@ -27,9 +27,13 @@
  */
 
 import type { ContentBlock, MessageParam, ToolResultContentBlock } from '../../api/types';
+import type { FileDossier } from './FileDossier';
 
 /** Marker that identifies an already-pruned `tool_result` content string. */
 export const PRUNED_MARKER = '[context-pruned]';
+
+/** Tools whose pruned results represent a WRITE to the path (dossier marker). */
+const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'append_to_file', 'create_base', 'update_base']);
 
 export interface MicrocompactOptions {
     /**
@@ -47,6 +51,13 @@ export interface MicrocompactOptions {
      * skeleton so the agent still has a hint of what was there. Default 240.
      */
     teaserChars?: number;
+    /**
+     * IMP-41-03-06: when set, every pruned path-bearing tool_result feeds a
+     * dossier entry (path + teaser + read/write kind). Pruning is exactly
+     * the moment verbatim content leaves the context, so the dossier is the
+     * durable per-file memory the flat condense summary lacks.
+     */
+    dossier?: FileDossier;
 }
 
 export interface MicrocompactResult {
@@ -144,6 +155,14 @@ export function microcompactToolResults(history: MessageParam[], opts: Microcomp
             const hint = pathHint(meta?.input);
             const inputStr = shortInput(meta?.input);
             const head = teaserChars > 0 ? ` Starts: "${teaser(block.content, teaserChars)}"` : '';
+
+            // IMP-41-03-06: dossier entry BEFORE the verbatim content is gone.
+            if (opts.dossier && hint) {
+                opts.dossier.record(hint, {
+                    detail: teaser(block.content, 180),
+                    kind: WRITE_TOOLS.has(toolName) ? 'write' : 'read',
+                });
+            }
             const pointer = hint
                 ? ` Re-read with read_file path=${hint} (or re-run ${toolName}) if you need it again.`
                 : ` Re-run ${toolName}${inputStr ? ` with input ${inputStr}` : ''} if you need it again.`;

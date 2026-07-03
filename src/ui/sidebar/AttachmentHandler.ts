@@ -178,7 +178,7 @@ export class AttachmentHandler {
                 this.pending.push(item);
             } catch (e: unknown) {
                 const msg = e instanceof Error ? e.message : String(e);
-                new Notice(`Failed to parse ${file.name}: ${msg}`);
+                new Notice(t('ui.attachment.parseFailed', { name: file.name, error: msg }));
                 return;
             }
         } else if (TEXT_EXTENSIONS.some(te => file.name.toLowerCase().endsWith(te)) || file.type.startsWith('text/')) {
@@ -437,7 +437,7 @@ export class AttachmentHandler {
                 await this.vault.createBinary(targetPath, data);
             }
 
-            new Notice(`Template saved to vault: ${targetPath}`);
+            new Notice(t('ui.attachment.templateSaved', { path: targetPath }));
             return targetPath;
         } catch (err) {
             console.warn('[AttachmentHandler] Failed to save external template to vault:', err);
@@ -465,7 +465,7 @@ export class AttachmentHandler {
             // path separator, parent reference, or NUL char.
             const safeName = sanitiseAttachmentFileName(fileName);
             if (!safeName) {
-                new Notice(`Refusing attachment with unsafe name: ${fileName}`, 8000);
+                new Notice(t('ui.attachment.unsafeName', { name: fileName }), 8000);
                 return undefined;
             }
             const folder = (await this.readAttachmentFolderPath()).replace(/\/+$/, '') || 'Attachements';
@@ -484,12 +484,12 @@ export class AttachmentHandler {
                 return `${folder}/${safeName}`;
             }
             await this.vault.createBinary(targetPath, data);
-            new Notice(`Attachment saved to vault: ${targetPath}`);
+            new Notice(t('ui.attachment.savedToVault', { path: targetPath }));
             return targetPath;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             console.warn('[AttachmentHandler] Failed to save external binary to vault:', err);
-            new Notice(`Attachment auto-save FAILED: ${msg}`, 8000);
+            new Notice(t('ui.attachment.autoSaveFailed', { error: msg }), 8000);
             return undefined;
         }
     }
@@ -519,7 +519,7 @@ export class AttachmentHandler {
         try {
             const existingBytes = await this.vault.adapter.readBinary(primary);
             if (this.bytesEqual(existingBytes, data)) {
-                new Notice(`Attachment already in vault (identical bytes): ${primary}`);
+                new Notice(t('ui.attachment.alreadyInVault', { path: primary }));
                 return null;
             }
         } catch {
@@ -536,7 +536,7 @@ export class AttachmentHandler {
                 try {
                     const otherBytes = await this.vault.adapter.readBinary(candidate);
                     if (this.bytesEqual(otherBytes, data)) {
-                        new Notice(`Attachment already in vault (identical bytes): ${candidate}`);
+                        new Notice(t('ui.attachment.alreadyInVault', { path: candidate }));
                         return null;
                     }
                 } catch { /* fall through to next slot */ }

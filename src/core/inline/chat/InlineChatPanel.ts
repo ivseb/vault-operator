@@ -25,6 +25,7 @@
  * mutation beyond position/size, all event listeners detached in close().
  */
 
+import { t } from '../../../i18n';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 
 export type InlinePanelActionId =
@@ -264,7 +265,7 @@ export class InlineChatPanel {
         const root = doc.createElement('div');
         root.classList.add('agent-inline-panel');
         root.setAttribute('role', 'dialog');
-        root.setAttribute('aria-label', 'Inline AI chat');
+        root.setAttribute('aria-label', t('ui.inline.panelAriaLabel'));
         // FEAT-33-12: inline-block mounts as part of the CM6 layout, so
         // skip the absolute size + drag handle. The CSS modifier
         // `.agent-inline-panel--inline-block` resets position/width and
@@ -588,8 +589,8 @@ export class InlineChatPanel {
             const toggle = doc.createElement('button');
             toggle.classList.add('agent-inline-panel__anchor-toggle');
             toggle.setAttribute('type', 'button');
-            toggle.setAttribute('aria-label', 'Expand selection preview');
-            toggle.setAttribute('title', 'Expand');
+            toggle.setAttribute('aria-label', t('ui.inline.expandSelectionPreview'));
+            toggle.setAttribute('title', t('ui.inline.expandTooltip'));
             const iconSpan = doc.createElement('span');
             iconSpan.classList.add('agent-inline-panel__anchor-toggle-icon');
             this.setIcon(iconSpan, 'chevron-down');
@@ -619,14 +620,14 @@ export class InlineChatPanel {
             this.previewEl.textContent = this.ctx.selectionText;
             this.previewEl.classList.add('agent-inline-panel__anchor-text--expanded');
             this.setIcon(iconSpan, 'chevron-up');
-            this.previewToggleEl.setAttribute('title', 'Collapse');
-            this.previewToggleEl.setAttribute('aria-label', 'Collapse selection preview');
+            this.previewToggleEl.setAttribute('title', t('ui.inline.collapseTooltip'));
+            this.previewToggleEl.setAttribute('aria-label', t('ui.inline.collapseSelectionPreview'));
         } else {
             this.previewEl.textContent = this.truncateToLines(this.ctx.selectionText, PREVIEW_VISIBLE_LINES);
             this.previewEl.classList.remove('agent-inline-panel__anchor-text--expanded');
             this.setIcon(iconSpan, 'chevron-down');
-            this.previewToggleEl.setAttribute('title', 'Expand');
-            this.previewToggleEl.setAttribute('aria-label', 'Expand selection preview');
+            this.previewToggleEl.setAttribute('title', t('ui.inline.expandTooltip'));
+            this.previewToggleEl.setAttribute('aria-label', t('ui.inline.expandSelectionPreview'));
         }
         this.previewToggleEl.appendChild(iconSpan);
     }
@@ -772,16 +773,16 @@ export class InlineChatPanel {
         };
 
         if (marker.onShowDiff !== undefined) {
-            actions.appendChild(makeBtn('file-diff', 'Diff anzeigen', () => marker.onShowDiff?.()));
+            actions.appendChild(makeBtn('file-diff', t('ui.inline.showDiff'), () => marker.onShowDiff?.()));
         }
         if (marker.onRestore !== undefined) {
-            actions.appendChild(makeBtn('undo-2', 'Diese Änderung zurücknehmen', () => marker.onRestore?.()));
+            actions.appendChild(makeBtn('undo-2', t('ui.inline.undoThis'), () => marker.onRestore?.()));
         }
         if (marker.onRestoreFromHere !== undefined) {
-            actions.appendChild(makeBtn('rotate-ccw', 'Ab hier zurücknehmen', () => marker.onRestoreFromHere?.()));
+            actions.appendChild(makeBtn('rotate-ccw', t('ui.inline.undoFromHere'), () => marker.onRestoreFromHere?.()));
         }
         if (marker.onMoreMenu !== undefined) {
-            const moreBtn = makeBtn('more-vertical', 'Weitere Optionen', () => {
+            const moreBtn = makeBtn('more-vertical', t('ui.inline.moreOptions'), () => {
                 marker.onMoreMenu?.(moreBtn);
             });
             actions.appendChild(moreBtn);

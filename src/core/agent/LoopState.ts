@@ -64,6 +64,24 @@ export interface AgentLoopState {
     totalCacheCreationTokens: number;
 }
 
+/**
+ * IMP-41-03-01: loop-state initialization for fresh AND resumed runs.
+ * Snapshots are taken AFTER the tool-results push (the iteration
+ * completed), so a resume continues with the NEXT iteration. Budgets,
+ * mistake counters and usage totals carry over — no double billing, no
+ * budget reset; per-turn stream flags reset because the resumed run
+ * streams its own turns.
+ */
+export function initLoopStateForRun(resumeFrom?: AgentLoopState): AgentLoopState {
+    if (!resumeFrom) return createInitialLoopState();
+    const state: AgentLoopState = JSON.parse(JSON.stringify(resumeFrom)) as AgentLoopState;
+    state.iteration = resumeFrom.iteration + 1;
+    state.phase = 'preamble';
+    state.hasStreamedText = false;
+    state.hasRetriedEmpty = false;
+    return state;
+}
+
 export function createInitialLoopState(opts: { fastPathFired?: boolean } = {}): AgentLoopState {
     return {
         phase: 'preamble',

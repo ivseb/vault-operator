@@ -19,6 +19,7 @@
 
 import type { InlineAction, InlineActionRegistry } from './InlineActionRegistry';
 import type { InlineTriggerContext } from './InlineTriggerContext';
+import { t } from '../../i18n';
 
 export interface MenuPosition {
     /** Page-x in CSS pixels. Will be clamped to viewport. */
@@ -93,7 +94,7 @@ export class InlineFloatingMenu {
         const root = this.containerEl.ownerDocument.createElement('div');
         root.classList.add('agent-inline-menu');
         root.setAttribute('role', 'menu');
-        root.setAttribute('aria-label', 'Inline AI menu');
+        root.setAttribute('aria-label', t('ui.inline.menuAriaLabel'));
         // Bot-compliance: use setCssProps for dynamic values that cannot live
         // in styles.css (per-instance minWidth). Static rules (position/z-index)
         // live in styles.css under `.agent-inline-menu`.

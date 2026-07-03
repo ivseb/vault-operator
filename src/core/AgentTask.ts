@@ -26,6 +26,8 @@ import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
+import { FileDossier } from './context/FileDossier';
+import { InflightStore } from './agent/InflightStore';
 import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
@@ -34,7 +36,7 @@ import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-p
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { ThinkingSegmentCollector } from './agent/thinkingSegments';
 import { splitToolBatch } from './agent/splitToolBatch';
-import { createInitialLoopState } from './agent/LoopState';
+import { createInitialLoopState, initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
@@ -143,6 +145,16 @@ export interface AgentTaskCallbacks {
     onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void, allowMultiple?: boolean) => void;
     /** Called when a write tool needs user approval — pauses loop until user decides */
     onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
+    /**
+     * Called when a tool needs an optional asset (office bundle, pdfjs
+     * bundle, reranker WASM, ...) that is not installed. Renders an
+     * in-chat install card and resolves once the user decides.
+     * Obsidian policy: downloads only run behind an explicit user click.
+     */
+    onOptionalAssetRequired?: (
+        spec: import('./assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ) => Promise<import('./tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult>;
     /** Called when update_todo_list publishes a new todo plan */
     onTodoUpdate?: (items: import('./tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Called when switch_mode changes the active mode */
@@ -254,6 +266,14 @@ export interface AgentTaskRunConfig {
     /** Active conversation ID for chat-linking frontmatter stamping (ADR-022) */
     conversationId?: string;
     /**
+     * IMP-41-03-01: resume a task from an inflight snapshot. The loop
+     * continues with the NEXT iteration after the snapshot (budgets,
+     * mistake counters and usage totals carry over). The caller passes the
+     * snapshot's history as `history` and a short resume note as
+     * `userMessage`.
+     */
+    resumeState?: import('./agent/LoopState').AgentLoopState;
+    /**
      * FEAT-24-04 / ADR-113: when set, this subagent runs with a profile
      * roleDefinition that REPLACES `mode.roleDefinition` in the system
      * prompt. Used only by spawnSubtask when `new_task` was called with
@@ -360,6 +380,23 @@ export class AgentTask {
     private loopEngine = new AgentLoopEngine();
 
     /**
+     * IMP-41-03-06: per-file dossier surviving condense cycles. Fed by the
+     * MicroCompactor at prune time, rendered into every condense summary.
+     */
+    private fileDossier = new FileDossier();
+
+    /**
+     * IMP-41-03-01: optional inflight snapshot store. When set (foreground
+     * tasks via the Runner), every turn boundary persists { state, history }
+     * so a crash mid-run leaves recoverable data instead of losing the turn.
+     */
+    private inflightStore: InflightStore | null = null;
+
+    setInflightStore(store: InflightStore | null): void {
+        this.inflightStore = store;
+    }
+
+    /**
      * FIX-24-05-05: usage attributed to the model that actually served each
      * call (main loop at chunk time, condensing/FastPath on the helper,
      * subtasks merged from their own breakdowns). Reported alongside the
@@ -444,7 +481,9 @@ export class AgentTask {
      */
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
-        const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history);
+        // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
+        // memory the flat condense summary lacks.
+        const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history, { dossier: this.fileDossier });
         if (prunedBlocks > 0) {
             console.debug(
                 `[Microcompact] pruned ${prunedBlocks} tool_result block(s), ` +
@@ -665,7 +704,7 @@ export class AgentTask {
         // Set at the three return sites in run(); the finally reads it.
         // IMP-41-02-01a / ADR-145: explicit serializable loop state replaces
         // the ~20 closure variables this function previously accumulated.
-        const loopState = createInitialLoopState();
+        const loopState = initLoopStateForRun(config.resumeState);
         // FIX 2026-06-09 (Stigmergy substrate starvation RCA): a turn
         // graded 'iterate' previously called stigmergyTurn.iterate(),
         // which the upstream loop SDK uses to CANCEL the daemon's auto-
@@ -950,7 +989,7 @@ export class AgentTask {
         // All closure-local (not `this.*`) so a subagent re-entry of run()
         // does NOT inherit the parent's snapshot. Consumed in the finally
         // block at the end of run().
-        loopState.fastPathFired = precedenceFastPathFired;
+        loopState.fastPathFired = loopState.fastPathFired || precedenceFastPathFired;
 
         const MAX_ITERATIONS = this.maxIterations;
         const SOFT_LIMIT = Math.floor(MAX_ITERATIONS * 0.6);
@@ -1386,7 +1425,7 @@ export class AgentTask {
         try {
         while (true) {
         try {
-            for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+            for (let iteration = loopState.iteration; iteration < MAX_ITERATIONS; iteration++) {
                 // Mirror the loop counter into the serializable state so a
                 // (W3) resume snapshot knows where the task stood.
                 loopState.iteration = iteration;
@@ -1758,6 +1797,7 @@ export class AgentTask {
                         compositionStack: this.compositionStack,
                         consumeAdvisorSlot,
                         onApprovalRequired: this.taskCallbacks.onApprovalRequired,
+                        onOptionalAssetRequired: this.taskCallbacks.onOptionalAssetRequired,
                         updateTodos: todoUpdateForTools,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
                         invalidateToolCache,
@@ -1858,6 +1898,19 @@ export class AgentTask {
                 // IMPORTANT: condensing runs AFTER this push so history is always consistent
                 // (every assistant tool_call has a matching tool_result before condensing)
                 history.push({ role: 'user', content: toolResultBlocks });
+                // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
+                // Fire-and-forget -- persistence must never stall the loop.
+                if (this.inflightStore) {
+                    loopState.phase = 'executing-tools';
+                    void this.inflightStore.saveSnapshot({
+                        taskId,
+                        conversationId: conversationId ?? '',
+                        mode: activeMode.slug,
+                        savedAt: Date.now(),
+                        state: { ...loopState },
+                        history: JSON.parse(JSON.stringify(history)) as typeof history,
+                    });
+                }
 
                 // Circuit breaker for malformed/truncated tool calls. The result
                 // loops above only check the limit for tools that actually ran; a
@@ -2204,7 +2257,8 @@ export class AgentTask {
                 ));
             } else {
                 console.error('[AgentTask] Task failed:', err);
-                this.taskCallbacks.onError(err);
+                loopState.phase = 'failed';
+            this.taskCallbacks.onError(err);
             }
             // VO/Stigmergy: thrown error (parse failure, circuit-breaker
             // trip from consecutive tool errors, API/network failure after
@@ -2214,6 +2268,13 @@ export class AgentTask {
         }
         } // while (true) — emergency condensing retry loop
         } finally {
+            // IMP-41-03-01: clean exits clear the inflight snapshot. On a
+            // FAILED run (phase set below via the catch path) the snapshot
+            // stays as recovery/forensic data until the 24h sweep; on a hard
+            // crash this finally never runs and the snapshot survives too.
+            if (this.inflightStore && loopState.phase !== 'failed') {
+                void this.inflightStore.clear(taskId);
+            }
             // VO/Stigmergy: outcome-graded resolution. Binary: accept or
             // abandon. The default is 'abandon' so any unexpected exit
             // path (e.g. a future return someone forgets to grade) lands
@@ -2500,7 +2561,12 @@ export class AgentTask {
             'Summarize this conversation compactly. Preserve:\n' +
             '- The original task and goal\n' +
             '- Key decisions made\n' +
-            '- Files read, created, or modified (include exact paths)\n' +
+            // IMP-41-03-06: per-file detail lives in the deterministic FILE
+            // DOSSIER appended after the summary -- the narrative should focus
+            // on decisions and open steps instead of re-listing file contents.
+            (this.fileDossier.render()
+                ? '- Files: a deterministic FILE DOSSIER is appended separately; do NOT re-list per-file contents, focus on decisions and next steps\n'
+                : '- Files read, created, or modified (include exact paths)\n') +
             '- Important findings, code snippets, or facts discovered\n' +
             '- ALL tool calls that were executed and their outcomes\n' +
             '- Search queries performed and their result summaries\n' +
@@ -2614,7 +2680,14 @@ export class AgentTask {
             firstMsg,
             {
                 role: 'assistant',
-                content: [{ type: 'text', text: `[Conversation Summary]\n\n${summary.trim()}` }],
+                // IMP-41-03-06: two-level summary -- the LLM narrative plus the
+                // DETERMINISTIC per-file dossier (no hallucination risk), so the
+                // model stops re-reading files the flat summary paraphrased away.
+                content: [{
+                    type: 'text',
+                    text: `[Conversation Summary]\n\n${summary.trim()}`
+                        + (this.fileDossier.render() ? `\n\n${this.fileDossier.render()}` : ''),
+                }],
             },
             {
                 role: 'user',

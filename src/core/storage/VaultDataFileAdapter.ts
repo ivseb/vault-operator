@@ -71,6 +71,10 @@ export class VaultDataFileAdapter implements FileAdapter {
         await this.adapter.remove(this.np(p));
     }
 
+    async rmdir(p: string, recursive = false): Promise<void> {
+        await this.adapter.rmdir(this.np(p), recursive);
+    }
+
     async list(p: string): Promise<{ files: string[]; folders: string[] }> {
         const listed = await this.adapter.list(this.np(p));
         return { files: listed.files, folders: listed.folders };

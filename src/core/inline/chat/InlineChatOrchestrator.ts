@@ -18,6 +18,7 @@
  * Related: PanelChatController, InlineChatPanel, EPIC-33 audit wd39z8ehx.
  */
 
+import { t } from '../../../i18n';
 import type { AgentTaskCallbacks } from '../../AgentTask';
 import type { InlineActionRegistry } from '../InlineActionRegistry';
 import type { InlineTriggerResolver, SelectionTriggerInput } from '../InlineTriggerResolver';
@@ -250,7 +251,7 @@ export class InlineChatOrchestrator {
             mountHandle = adapter.mount(view);
         } catch (e) {
             console.warn('[InlineChatOrchestrator] mount() failed:', e);
-            new Notice('Inline chat could not open. See console for details.');
+            new Notice(t('notice.inlineChat.openFailed'));
             return;
         }
         this.activeMountHandle = mountHandle;
@@ -380,14 +381,14 @@ export class InlineChatOrchestrator {
         adapterId: 'cm-block-widget' | 'popover-overlay',
     ): void {
         if (reason === 'reading-view' && adapterId === 'cm-block-widget') {
-            new Notice('Switch to editor view, or change inline chat display to popover in settings.');
+            new Notice(t('notice.inlineChat.readingViewHint'));
             return;
         }
         if (reason === 'no-view') {
-            new Notice('Open a note to use the inline chat.');
+            new Notice(t('notice.inlineChat.openNoteFirst'));
             return;
         }
-        new Notice('Inline chat is unavailable in this view.');
+        new Notice(t('notice.inlineChat.unavailableInView'));
     }
 
     private async handleDispatch(args: InlinePanelDispatchArgs, handle: InlinePanelHandle): Promise<void> {
@@ -515,10 +516,10 @@ export class InlineChatOrchestrator {
     ): Promise<void> {
         const probe = this.editorProbe;
         if (probe.writeBackToSelection === undefined) {
-            handle.setStatus('Editor-Anbindung fehlt — Änderung nicht anwendbar.', 'error');
+            handle.setStatus(t('ui.inline.editorMissing'), 'error');
             return;
         }
-        handle.setStatus('Bereit zum Anwenden — bestätige im Diff-Dialog.');
+        handle.setStatus(t('ui.inline.readyToApply'));
 
         // FIX-33-DV-01 (2026-06-22): use the explicit selectionFrom/To
         // captured at trigger time. ctx.cursorPos is the caret head and
@@ -551,7 +552,7 @@ export class InlineChatOrchestrator {
                     app: this.plugin.app,
                     entries: [entry],
                     source: `Inline-AI: ${actionLabel}`,
-                    title: 'Änderung prüfen',
+                    title: t('ui.inline.reviewChange'),
                 });
                 if (r.decisions === null) return null;
                 return r.decisions[0] ?? null;
@@ -568,12 +569,12 @@ export class InlineChatOrchestrator {
         });
 
         if (result.status === 'applied') {
-            handle.setStatus('Übernommen.');
+            handle.setStatus(t('ui.inline.applied'));
             const ts = result.checkpoint?.timestamp ?? '';
             const time = ts.length > 0 ? new Date(ts).toLocaleTimeString() : '';
             const detail = `${ctx.notePath}${time.length > 0 ? ' • ' + time : ''}`;
             handle.appendCheckpointMarker({
-                label: `${actionLabel} angewendet`,
+                label: t('ui.inline.actionApplied', { action: actionLabel }),
                 detail,
                 onShowDiff: () => {
                     if (result.checkpoint === undefined) return;
@@ -590,7 +591,7 @@ export class InlineChatOrchestrator {
                 onMoreMenu: (anchor) => {
                     const menu = new Menu();
                     menu.addItem((item) => {
-                        item.setTitle('Chat ab hier löschen');
+                        item.setTitle(t('ui.inline.clearChatFromHere'));
                         item.setIcon('trash-2');
                         item.onClick(() => {
                             if (result.checkpoint === undefined) return;
@@ -607,9 +608,9 @@ export class InlineChatOrchestrator {
                 },
             });
         } else if (result.status === 'discarded') {
-            handle.setStatus(result.error ?? 'Verworfen.');
+            handle.setStatus(result.error ?? t('ui.inline.discarded'));
         } else if (result.status === 'skipped') {
-            handle.setStatus(result.error ?? 'Übersprungen.');
+            handle.setStatus(result.error ?? t('ui.inline.skipped'));
         }
     }
 
@@ -623,7 +624,7 @@ export class InlineChatOrchestrator {
             app: this.plugin.app,
             entries: [{ path: notePath, before: oldContent, after: newContent }],
             source: `Checkpoint ${new Date(checkpoint.timestamp).toLocaleString()}`,
-            title: 'Checkpoint anzeigen',
+            title: t('ui.editReview.titleCheckpoint'),
             onRestore: async () => { await this.restoreCheckpoint(checkpoint); },
         });
     }
@@ -640,7 +641,7 @@ export class InlineChatOrchestrator {
         handle: InlinePanelHandle,
     ): void {
         const files = cp.filesChanged.map((f) => f.split('/').pop()).filter(Boolean).join(', ');
-        const time = new Date(cp.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+        const time = new Date(cp.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
         handle.appendCheckpointMarker({
             label: `Checkpoint ${time}`,
             detail: files.length > 0 ? files : (cp.toolName ?? ''),
@@ -650,7 +651,7 @@ export class InlineChatOrchestrator {
             onMoreMenu: (anchor) => {
                 const menu = new Menu();
                 menu.addItem((item) => {
-                    item.setTitle('Chat ab hier löschen');
+                    item.setTitle(t('ui.inline.clearChatFromHere'));
                     item.setIcon('trash-2');
                     item.onClick(() => {
                         void this.restoreCheckpoint(cp);

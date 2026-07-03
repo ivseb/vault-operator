@@ -1,12 +1,23 @@
 /**
- * TaskNoteCreator — Creates task notes with structured frontmatter.
+ * TaskNoteCreator -- Creates task notes with structured frontmatter.
  *
  * ADR-027: Task-Note Frontmatter Schema.
- * Kategorie: [Task] wird gesetzt — darüber werden Icons und Base-Integration gesteuert.
+ * FIX-42-01-01: property names follow the user's graph-expansion settings
+ * (OKF vocabulary by default); icons and base integration key off the
+ * category property carrying the "task" type.
  */
 
 import { App, TFile } from 'obsidian';
+import { t } from '../../i18n';
+import { OKF_DEFAULTS } from '../../types/settings';
 import type { TaskItem, TaskExtractionSettings } from './types';
+
+/** Frontmatter property names the task note writes; defaults to OKF. */
+export interface TaskNoteVocabulary {
+    categoryProperty: string;
+    summaryProperty: string;
+    backlinksProperty: string;
+}
 
 /** Characters not allowed in file names */
 const INVALID_FILENAME_CHARS = /[/\\:*?"<>|#^[\]]/g;
@@ -82,7 +93,11 @@ function todayISO(): string {
 }
 
 export class TaskNoteCreator {
-    constructor(private app: App) {}
+    private readonly vocab: TaskNoteVocabulary;
+
+    constructor(private app: App, vocab?: TaskNoteVocabulary) {
+        this.vocab = vocab ?? { ...OKF_DEFAULTS };
+    }
 
     /**
      * Creates task notes for selected items.
@@ -128,32 +143,32 @@ export class TaskNoteCreator {
     ): string {
         const lines: string[] = ['---'];
 
-        lines.push('Kategorie:');
-        lines.push('  - Task');
-        lines.push(`Zusammenfassung: ${yamlEscape(title)}`);
-        lines.push('Status: Todo');
-        lines.push('Dringend: false');
-        lines.push('Wichtig: false');
-        lines.push(`Fälligkeit: ${item.dueDate || ''}`);
-        lines.push(`Assignee: ${yamlEscape(item.assignee)}`);
-        lines.push(`Quelle: ${yamlEscape(sourceNote ? `[[${sourceNote}]]` : '')}`);
+        lines.push(`${this.vocab.categoryProperty}:`);
+        lines.push('  - task');
+        lines.push(`${this.vocab.summaryProperty}: ${yamlEscape(title)}`);
+        lines.push('status: todo');
+        lines.push('urgent: false');
+        lines.push('important: false');
+        lines.push(`due: ${item.dueDate || ''}`);
+        lines.push(`assignee: ${yamlEscape(item.assignee)}`);
+        lines.push(`resource: ${yamlEscape(sourceNote ? `[[${sourceNote}]]` : '')}`);
         lines.push(`created: ${today}`);
-        lines.push('Notizen: []');
+        lines.push(`${this.vocab.backlinksProperty}: []`);
 
         lines.push('---');
         lines.push('');
         lines.push(`# ${title}`);
         lines.push('');
-        lines.push(`> Extrahiert aus Agent-Konversation am ${today}`);
+        lines.push(`> ${t('tool.taskNote.extracted', { date: today })}`);
         if (sourceNote) {
-            lines.push(`> Quelle: [[${sourceNote}]]`);
+            lines.push(`> ${t('tool.taskNote.source', { link: `[[${sourceNote}]]` })}`);
         }
         lines.push('');
-        lines.push('## Beschreibung');
+        lines.push(`## ${t('tool.taskNote.descriptionHeading')}`);
         lines.push('');
         lines.push(stripMarkdown(item.text));
         lines.push('');
-        lines.push('## Notizen');
+        lines.push(`## ${t('tool.taskNote.notesHeading')}`);
         lines.push('');
 
         return lines.join('\n');
