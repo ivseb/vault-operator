@@ -3,7 +3,7 @@ import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, Markd
 import { formatHotkeyHint, formatSendSelectionToSidebarHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
-import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider } from './types/settings';
+import { ObsidianAgentSettings, DEFAULT_SETTINGS, BUILTIN_MCP_SERVERS, getModelKey, modelToLLMProvider, OKF_DEFAULTS } from './types/settings';
 import type { CustomModel, ModelTier, ProviderConfig } from './types/settings';
 import { resolveActiveProvider, resolveAdvisorModel, resolveTierModel } from './core/routing/tierResolution';
 import { migrateActiveModelsToProviders, type MigrationSummary } from './core/settings/migrations/activeModelsToProviders';
@@ -1589,7 +1589,7 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (this.ontologyStore && this.graphStore) {
                 this.app.workspace.onLayoutReady(() => {
                     // Build category map from metadataCache (Kategorie is a string, not a Wikilink)
-                    const catProp = this.settings.categoryProperty ?? 'Kategorie';
+                    const catProp = this.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
                     const categoryMap = new Map<string, string>();
                     for (const file of this.app.vault.getMarkdownFiles()) {
                         const cache = this.app.metadataCache.getFileCache(file);
@@ -1877,7 +1877,7 @@ export default class ObsidianAgentPlugin extends Plugin {
                 this.vaultHealthService = new VaultHealthService(this.app, this.knowledgeDB);
                 this.app.workspace.onLayoutReady(() => {
                     void this.vaultHealthService?.runChecks(undefined, {
-                        backlinksProperty: this.settings.backlinksProperty ?? 'Notizen',
+                        backlinksProperty: this.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
                         silenceWithContextOrphans: this.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                         orphanExcludePathPrefixes: this.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
                         reciprocalProperties: this.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],

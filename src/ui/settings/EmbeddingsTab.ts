@@ -4,7 +4,7 @@ import { ModelConfigModal } from './ModelConfigModal';
 import { addInfoButton, addSectionHeading } from './utils';
 import { PROVIDER_LABELS, PROVIDER_COLORS } from './constants';
 import type { CustomModel } from '../../types/settings';
-import { getModelKey } from '../../types/settings';
+import { getModelKey, OKF_DEFAULTS } from '../../types/settings';
 import type { SemanticIndexService } from '../../core/semantic/SemanticIndexService';
 import { scheduleRecurring } from '../../util/scheduleRecurring';
 import { renderSkipHintIfSkipped } from './skipHints';
@@ -557,30 +557,31 @@ export class EmbeddingsTab {
                 })(); });
             });
 
-        // Knowledge Properties (FEATURE-1903)
+        // Knowledge Properties (FEATURE-1903). Property names are vault
+        // schema following OKF (FIX-42-01-01), not UI language.
         new Setting(containerEl)
             .setName(t('settings.embeddings.categoryProperty'))
             .setDesc(t('settings.embeddings.categoryPropertyDesc'))
             .addText((text) => {
-                text.setValue(this.plugin.settings.categoryProperty ?? 'Kategorie');
-                text.setPlaceholder('Kategorie');
+                text.setValue(this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty);
+                text.setPlaceholder(OKF_DEFAULTS.categoryProperty);
                 text.inputEl.addEventListener('blur', () => { void (async () => {
-                    this.plugin.settings.categoryProperty = text.getValue().trim() || 'Kategorie';
+                    this.plugin.settings.categoryProperty = text.getValue().trim() || OKF_DEFAULTS.categoryProperty;
                     await this.plugin.saveSettings();
                 })(); });
             });
 
         // FIX-19-01-01: backlinks property the Vault Health repair
         // writes the reverse-edge wikilinks into. Must match the
-        // property name already used in user notes; default 'Notizen'.
+        // property name already used in user notes.
         new Setting(containerEl)
-            .setName('Backlinks property')
-            .setDesc('Frontmatter property name that holds reciprocal backlink wikilinks; vault health repairs write the reverse edge into this key. Match the property name your existing notes already use.')
+            .setName(t('settings.embeddings.backlinksProperty'))
+            .setDesc(t('settings.embeddings.backlinksPropertyDesc'))
             .addText((text) => {
-                text.setValue(this.plugin.settings.backlinksProperty ?? 'Notizen');
-                text.setPlaceholder('Notizen');
+                text.setValue(this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty);
+                text.setPlaceholder(OKF_DEFAULTS.backlinksProperty);
                 text.inputEl.addEventListener('blur', () => { void (async () => {
-                    this.plugin.settings.backlinksProperty = text.getValue().trim() || 'Notizen';
+                    this.plugin.settings.backlinksProperty = text.getValue().trim() || OKF_DEFAULTS.backlinksProperty;
                     await this.plugin.saveSettings();
                 })(); });
             });
@@ -589,10 +590,10 @@ export class EmbeddingsTab {
             .setName(t('settings.embeddings.summaryProperty'))
             .setDesc(t('settings.embeddings.summaryPropertyDesc'))
             .addText((text) => {
-                text.setValue(this.plugin.settings.summaryProperty ?? 'Zusammenfassung');
-                text.setPlaceholder('Zusammenfassung');
+                text.setValue(this.plugin.settings.summaryProperty ?? OKF_DEFAULTS.summaryProperty);
+                text.setPlaceholder(OKF_DEFAULTS.summaryProperty);
                 text.inputEl.addEventListener('blur', () => { void (async () => {
-                    this.plugin.settings.summaryProperty = text.getValue().trim() || 'Zusammenfassung';
+                    this.plugin.settings.summaryProperty = text.getValue().trim() || OKF_DEFAULTS.summaryProperty;
                     await this.plugin.saveSettings();
                 })(); });
             });
@@ -601,13 +602,33 @@ export class EmbeddingsTab {
             .setName(t('settings.embeddings.sourceNaming'))
             .setDesc(t('settings.embeddings.sourceNamingDesc'))
             .addText((text) => {
-                text.setValue(this.plugin.settings.sourceNamingConvention ?? 'Autor-Jahr_Titel');
-                text.setPlaceholder('Autor-jahr_titel');
+                text.setValue(this.plugin.settings.sourceNamingConvention ?? OKF_DEFAULTS.sourceNamingConvention);
+                text.setPlaceholder(OKF_DEFAULTS.sourceNamingConvention);
                 text.inputEl.addEventListener('blur', () => { void (async () => {
-                    this.plugin.settings.sourceNamingConvention = text.getValue().trim() || 'Autor-Jahr_Titel';
+                    this.plugin.settings.sourceNamingConvention = text.getValue().trim() || OKF_DEFAULTS.sourceNamingConvention;
                     await this.plugin.saveSettings();
                 })(); });
             });
+
+        // FIX-42-01-01: one-click reset for vaults migrated to the OKF
+        // vocabulary. Persisted values are never auto-migrated because
+        // existing notes match whatever names the user configured.
+        new Setting(containerEl)
+            .setName(t('settings.embeddings.okfReset'))
+            .setDesc(t('settings.embeddings.okfResetDesc'))
+            .addButton((btn) =>
+                btn.setButtonText(t('settings.embeddings.okfResetButton')).onClick(() => { void (async () => {
+                    this.plugin.settings.mocPropertyNames = [...OKF_DEFAULTS.mocPropertyNames];
+                    this.plugin.settings.categoryProperty = OKF_DEFAULTS.categoryProperty;
+                    this.plugin.settings.backlinksProperty = OKF_DEFAULTS.backlinksProperty;
+                    this.plugin.settings.summaryProperty = OKF_DEFAULTS.summaryProperty;
+                    this.plugin.settings.sourceNamingConvention = OKF_DEFAULTS.sourceNamingConvention;
+                    this.plugin.graphExtractor?.setMocProperties(this.plugin.settings.mocPropertyNames);
+                    await this.plugin.saveSettings();
+                    new Notice(t('settings.embeddings.okfResetDone'));
+                    this.rerender();
+                })(); }),
+            );
 
         // Graph statistics
         const graphStats = containerEl.createDiv('agent-settings-desc');

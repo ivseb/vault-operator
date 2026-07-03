@@ -17,6 +17,7 @@ import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService
 import { KnowledgeReviewReader, type ReviewRow } from '../../core/health/KnowledgeReviewReader';
 import type { VerdictLiteral } from '../../core/health/types';
 import { ResolveConflictModal } from './ResolveConflictModal';
+import { OKF_DEFAULTS } from '../../types/settings';
 import { BatchResolveModal } from './BatchResolveModal';
 
 /**
@@ -1136,8 +1137,8 @@ export class VaultHealthRepairModal extends Modal {
         // hardcoded 'Notizen'. The original hardcoded value caused
         // repairs to land on a different property than the user's
         // existing edges, so the reverse-edge predicate kept firing.
-        const backlinksProperty = this.plugin.settings.backlinksProperty ?? 'Notizen';
-        const categoryProperty = this.plugin.settings.categoryProperty ?? 'Kategorie';
+        const backlinksProperty = this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty;
+        const categoryProperty = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
 
         if (selectedTypes.has('missing_backlinks')) {
             progress.setText('Inserting missing backlinks...');
@@ -1484,7 +1485,7 @@ export class VaultHealthRepairModal extends Modal {
                 this.plugin.graphExtractor.extractAll(this.app.vault);
             }
             if (this.plugin.ontologyStore) {
-                const catProp = this.plugin.settings.categoryProperty ?? 'Kategorie';
+                const catProp = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
                     const cache = this.app.metadataCache.getFileCache(file);

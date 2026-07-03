@@ -874,7 +874,7 @@ export interface ObsidianAgentSettings {
     enableGraphExpansion: boolean;
     /** Number of hops to follow in the graph (1-3). Higher = more context but slower. */
     graphExpansionHops: number;
-    /** Frontmatter property names to extract as MOC edges (e.g. Themen, Konzepte). */
+    /** Frontmatter property names to extract as MOC edges (OKF default: moc). */
     mocPropertyNames: string[];
 
     // Implicit Connections (FEATURE-1503)
@@ -886,20 +886,20 @@ export interface ObsidianAgentSettings {
     enableSuggestionBanner: boolean;
 
     // Knowledge Maintenance (FEATURE-1903)
-    /** Frontmatter property name that defines the note category (e.g. "Kategorie"). */
+    /** Frontmatter property name that defines the note category (OKF default: "type"). */
     categoryProperty: string;
     /**
      * Frontmatter property name that holds the reciprocal backlink
-     * wikilinks (e.g. "Notizen" or "Notes"). Used by the Vault Health
+     * wikilinks (OKF default: "related"). Used by the Vault Health
      * repair pass to write the reverse edge into the right key.
      * FIX-19-01-01: was hardcoded to 'Notizen' inside the repair path,
      * causing repairs to land on a different property than the
      * original edge and re-detection on the next health check.
      */
     backlinksProperty: string;
-    /** Frontmatter property name for the short summary (e.g. "Zusammenfassung"). */
+    /** Frontmatter property name for the short summary (OKF default: "description"). */
     summaryProperty: string;
-    /** Naming convention for source files (e.g. "Autor-Jahr_Titel"). */
+    /** Naming convention for source files (default: "Author-Year_Title"). */
     sourceNamingConvention: string;
 
     // Synthese → Zettel (FEATURE-1904)
@@ -1751,6 +1751,22 @@ export interface VaultDNASettings {
     lastScanAt: string;
 }
 
+/**
+ * OKF frontmatter vocabulary (FIX-42-01-01). These property names are vault
+ * schema, not UI language: they follow the OKF standard the vault templates
+ * use (title, description, resource, tags, type, moc, related, timestamp,
+ * uid; see the PdfMarkdownMirror skeleton). Single source of truth for every
+ * graph-expansion fallback; persisted user settings always win.
+ * sourceNamingConvention is not OKF-defined, it is just the English default.
+ */
+export const OKF_DEFAULTS = {
+    mocPropertyNames: ['moc'],
+    categoryProperty: 'type',
+    backlinksProperty: 'related',
+    summaryProperty: 'description',
+    sourceNamingConvention: 'Author-Year_Title',
+} as const;
+
 export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     activeModels: [],
     activeModelKey: '',
@@ -1832,14 +1848,14 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     semanticAutoIndexOnChange: false,
     enableGraphExpansion: true,
     graphExpansionHops: 1,
-    mocPropertyNames: ['Themen', 'Konzepte', 'Personen', 'Notizen', 'Meeting-Notes', 'Quellen'],
+    mocPropertyNames: [...OKF_DEFAULTS.mocPropertyNames],
     enableImplicitConnections: true,
     implicitThreshold: 0.7,
     enableSuggestionBanner: true,
-    categoryProperty: 'Kategorie',
-    backlinksProperty: 'Notizen',
-    summaryProperty: 'Zusammenfassung',
-    sourceNamingConvention: 'Autor-Jahr_Titel',
+    categoryProperty: OKF_DEFAULTS.categoryProperty,
+    backlinksProperty: OKF_DEFAULTS.backlinksProperty,
+    summaryProperty: OKF_DEFAULTS.summaryProperty,
+    sourceNamingConvention: OKF_DEFAULTS.sourceNamingConvention,
     enableSynthesisButton: true,
     enableVaultHealthCheck: true,
     enableReranking: true,

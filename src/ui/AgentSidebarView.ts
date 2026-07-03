@@ -10,7 +10,7 @@ import {
 } from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
@@ -3298,7 +3298,11 @@ export class AgentSidebarView extends ItemView {
                     try {
                         const creator = useTaskNotes
                             ? new TaskNotesAdapter(this.app)
-                            : new TaskNoteCreator(this.app);
+                            : new TaskNoteCreator(this.app, {
+                                categoryProperty: this.plugin.settings.categoryProperty,
+                                summaryProperty: this.plugin.settings.summaryProperty,
+                                backlinksProperty: this.plugin.settings.backlinksProperty,
+                            });
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
                             const format = useTaskNotes ? t('notice.taskNotesCreatedFormatSuffix') : '';
@@ -4100,7 +4104,7 @@ export class AgentSidebarView extends ItemView {
                 }
                 new Notice('Running vault health check...');
                 await this.plugin.vaultHealthService.runChecks(undefined, {
-                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
+                    backlinksProperty: this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                     orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
                     reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
