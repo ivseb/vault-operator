@@ -27,6 +27,7 @@ import type { ModeConfig } from '../../types/settings';
 import { MemoryRetriever } from '../memory/MemoryRetriever';
 import { OnboardingService } from '../memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../onboarding-status';
+import { getActiveLocale } from '../../i18n';
 
 export interface RuntimeContextArgs {
     /** Raw user text (pre-expansion) used for embedding + recipe match. */
@@ -200,7 +201,7 @@ async function buildMemoryContext(
         try {
             const parts: string[] = memoryContext !== undefined ? [memoryContext] : [];
             const onboarding = new OnboardingService(memoryService as never, plugin);
-            const onboardingPrompt = onboarding.getOnboardingPrompt();
+            const onboardingPrompt = onboarding.getOnboardingPrompt(getActiveLocale());
             if (typeof onboardingPrompt === 'string' && onboardingPrompt.length > 0) parts.unshift(onboardingPrompt);
 
             if (args.isFirstMessage === true && args.userText.trim().length > 0) {

@@ -79,9 +79,10 @@ FLOW (follow exactly this order, one question per turn):
       options:
         - "English, keep it casual"
         - "English, prefer formal"
-        - "Lass uns Deutsch sprechen und Du sagen"
-        - "Ich bevorzuge Deutsch und Sie"
-        - "Reply to me in whatever language I write in"
+{{extraLanguageOptions}}        - "Reply to me in whatever language I write in"
+   If the chosen language distinguishes formal and informal address
+   (like German du/Sie or French tu/vous), ask which one the user
+   prefers before moving on.
 
 5. VAULT USE CASE
    Bridge to the vault topic. STOP, question ONLY in the tool!
@@ -281,8 +282,11 @@ export class OnboardingService {
     /**
      * Get the onboarding instructions to inject into the system prompt.
      * Returns the monolithic prompt when onboarding is incomplete, or empty string.
+     *
+     * @param uiLocale Resolved app locale (getActiveLocale() from the host
+     * layer); controls which native-language onboarding option is offered.
      */
-    getOnboardingPrompt(): string {
+    getOnboardingPrompt(uiLocale = 'en'): string {
         // FIX 2026-05-18: previously this only checked `onboarding.completed`.
         // Users who abandoned the wizard but have been using the plugin
         // productively (have providers configured) still got the setup
@@ -302,6 +306,31 @@ export class OnboardingService {
             void this.plugin.saveSettings();
         }
 
-        return ONBOARDING_PROMPT;
+        return ONBOARDING_PROMPT.replace(
+            '{{extraLanguageOptions}}',
+            OnboardingService.extraLanguageOptions(uiLocale),
+        );
+    }
+
+    /**
+     * FIX-42-01-02: offer the user's Obsidian app language as an onboarding
+     * option instead of hardcoding German. English-only when the app runs
+     * in English. The locale is injected by the host layer because this
+     * engine package must not import 'obsidian' (ADR-080).
+     */
+    private static extraLanguageOptions(uiLocale: string): string {
+        const names: Record<string, string> = {
+            de: 'Deutsch',
+            zh: '简体中文 (Simplified Chinese)',
+            'zh-TW': '繁體中文 (Traditional Chinese)',
+            ja: '日本語 (Japanese)',
+            ko: '한국어 (Korean)',
+            es: 'Español (Spanish)',
+            fr: 'Français (French)',
+            ru: 'Русский (Russian)',
+        };
+        const native = names[uiLocale];
+        if (!native) return '';
+        return `        - "${native} (my Obsidian language)"\n`;
     }
 }

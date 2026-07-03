@@ -17,8 +17,9 @@
  * starts in the sidebar to fill Memory + Soul via chat.
  */
 
-import { App, Modal, Notice, Setting, setIcon } from 'obsidian';
+import { App, Modal, Notice, Setting, setIcon, getLanguage } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { resolveLocale, type SupportedLocale } from '../../i18n';
 import { ModelConfigModal } from '../settings/ModelConfigModal';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey } from '../../types/settings';
@@ -61,13 +62,37 @@ export class FirstRunWizardModal extends Modal {
     // FEAT-29-14 templates-step state. Survives re-renders within the
     // wizard session but is not persisted -- the materialization itself
     // writes the chosen values into settings on advance.
-    private templatesLang = 'de';
-    private templatesCustomLang = '';
+    // FIX-42-01-02: the default follows the Obsidian app language instead
+    // of pinning German. Unsupported template languages route through the
+    // 'other' LLM-translation path with a prefilled language name.
+    private templatesLang = FirstRunWizardModal.defaultTemplatesLang();
+    private templatesCustomLang = FirstRunWizardModal.defaultTemplatesCustomLang();
     private templatesFolder = '';
     private templatesShouldMaterialize = true;
 
     constructor(app: App, private readonly plugin: ObsidianAgentPlugin) {
         super(app);
+    }
+
+    /** Template language preset from the Obsidian app language. */
+    private static defaultTemplatesLang(): string {
+        const locale = resolveLocale(getLanguage());
+        if (locale === 'de' || locale === 'en') return locale;
+        return 'other';
+    }
+
+    /** English language name prefilled for the 'other' translation route. */
+    private static defaultTemplatesCustomLang(): string {
+        const names: Partial<Record<SupportedLocale, string>> = {
+            zh: 'Simplified Chinese',
+            'zh-TW': 'Traditional Chinese',
+            ja: 'Japanese',
+            ko: 'Korean',
+            es: 'Spanish',
+            fr: 'French',
+            ru: 'Russian',
+        };
+        return names[resolveLocale(getLanguage())] ?? '';
     }
 
     onOpen(): void {
@@ -639,8 +664,8 @@ export class FirstRunWizardModal extends Modal {
         const langWrap = this.bodyEl.createDiv({ cls: 'wizard-action-row' });
         const langSelect = langWrap.createEl('select');
         const options: Array<{ value: string; label: string }> = [
-            { value: 'de', label: 'Deutsch' },
             { value: 'en', label: 'English' },
+            { value: 'de', label: 'Deutsch' },
             { value: 'other', label: 'Other (translate via active LLM)' },
         ];
         for (const opt of options) {

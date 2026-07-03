@@ -22,6 +22,7 @@ export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
 export const localeTables: Partial<Record<SupportedLocale, Translations>> = { en };
 
 let active: Translations | null = null;
+let activeLocale: SupportedLocale = 'en';
 
 /**
  * Map an Obsidian language code to a shipped locale: exact match first
@@ -50,7 +51,17 @@ export function initI18n(): void {
     } catch {
         // Test stubs or very early load paths without a full obsidian module.
     }
-    active = localeTables[resolveLocale(lang)] ?? en;
+    activeLocale = resolveLocale(lang);
+    active = localeTables[activeLocale] ?? en;
+}
+
+/**
+ * The resolved UI locale. Lets engine-layer modules (which must not import
+ * 'obsidian' directly, ADR-080) branch on the app language.
+ */
+export function getActiveLocale(): SupportedLocale {
+    if (active === null) initI18n();
+    return activeLocale;
 }
 
 /** Test hook: force a specific table (null resets to lazy re-init). */

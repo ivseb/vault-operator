@@ -39,7 +39,7 @@ export function buildSummaryGenerator(opts: BuildSummaryGeneratorOpts) {
             ? input.content.slice(0, MAX_INPUT_CHARS) + '\n\n[...truncated...]'
             : input.content;
 
-        const userMessage = `Note path: ${input.notePath}\n\nNote content:\n${truncated}\n\nGib NUR die Zusammenfassung als einen Satz (max 25 Woerter, deutsch) zurueck. Keine Erklaerungen, keine Vorrede, keine Anfuehrungszeichen.`;
+        const userMessage = `Note path: ${input.notePath}\n\nNote content:\n${truncated}\n\nReturn ONLY the summary as a single sentence (max 25 words) written in the same language as the note content. No explanations, no preamble, no quotes.`;
         const messages: MessageParam[] = [{ role: 'user', content: userMessage }];
 
         try {

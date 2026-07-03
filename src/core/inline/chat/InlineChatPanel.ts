@@ -25,6 +25,7 @@
  * mutation beyond position/size, all event listeners detached in close().
  */
 
+import { t } from '../../../i18n';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
 
 export type InlinePanelActionId =
@@ -772,16 +773,16 @@ export class InlineChatPanel {
         };
 
         if (marker.onShowDiff !== undefined) {
-            actions.appendChild(makeBtn('file-diff', 'Diff anzeigen', () => marker.onShowDiff?.()));
+            actions.appendChild(makeBtn('file-diff', t('ui.inline.showDiff'), () => marker.onShowDiff?.()));
         }
         if (marker.onRestore !== undefined) {
-            actions.appendChild(makeBtn('undo-2', 'Diese Änderung zurücknehmen', () => marker.onRestore?.()));
+            actions.appendChild(makeBtn('undo-2', t('ui.inline.undoThis'), () => marker.onRestore?.()));
         }
         if (marker.onRestoreFromHere !== undefined) {
-            actions.appendChild(makeBtn('rotate-ccw', 'Ab hier zurücknehmen', () => marker.onRestoreFromHere?.()));
+            actions.appendChild(makeBtn('rotate-ccw', t('ui.inline.undoFromHere'), () => marker.onRestoreFromHere?.()));
         }
         if (marker.onMoreMenu !== undefined) {
-            const moreBtn = makeBtn('more-vertical', 'Weitere Optionen', () => {
+            const moreBtn = makeBtn('more-vertical', t('ui.inline.moreOptions'), () => {
                 marker.onMoreMenu?.(moreBtn);
             });
             actions.appendChild(moreBtn);

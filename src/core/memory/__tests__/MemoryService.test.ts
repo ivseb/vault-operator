@@ -39,6 +39,57 @@ describe('MemoryService', () => {
             expect(result).toBe('');
         });
 
+        // FIX-42-01-02 (issue #48): the default soul must not pin the agent
+        // to German. The template is language-neutral English.
+        it('ships a language-neutral English soul template', async () => {
+            const { DEFAULT_SOUL_TEMPLATE } = await getModule();
+            expect(DEFAULT_SOUL_TEMPLATE).toContain('Match the language the user writes in');
+            expect(DEFAULT_SOUL_TEMPLATE).not.toContain('Deutsch');
+        });
+
+        it('skips the current English soul template as template-only', async () => {
+            const { DEFAULT_SOUL_TEMPLATE } = await getModule();
+            const result = await buildContext({ ...emptyFiles, soul: DEFAULT_SOUL_TEMPLATE });
+            expect(result).toBe('');
+        });
+
+        // Legacy installs materialized the old German soul.md. After the
+        // template switch it no longer matches TEMPLATES, but it must still
+        // count as "never customized" and stay out of the system prompt.
+        it('skips the legacy German soul template via fingerprint', async () => {
+            const legacyGermanSoul = `# Agent Identity
+
+## Name
+Vault Operator
+
+## Communication
+- Language: Deutsch
+- Style: Warm, nahbar, auf Augenhoehe
+
+## Values
+- Nuetzlichkeit vor Hoeflichkeit
+- Ehrlichkeit — sage wenn ich etwas nicht weiss
+- Respektiere die Arbeit des Nutzers
+- Lerne aus Fehlern
+
+## Anti-Patterns
+- Keine leeren Floskeln
+- Keine unnoetigen Entschuldigungen
+- Keine Emojis
+`;
+            const result = await buildContext({ ...emptyFiles, soul: legacyGermanSoul });
+            expect(result).toBe('');
+        });
+
+        it('still injects a customized soul', async () => {
+            const result = await buildContext({
+                ...emptyFiles,
+                soul: '# Agent Identity\n\n## Name\nJarvis\n\n## Communication\n- Language: French',
+            });
+            expect(result).toContain('<agent_identity>');
+            expect(result).toContain('Jarvis');
+        });
+
         it('should return empty string for template-only files', async () => {
             const result = await buildContext({
                 ...emptyFiles,

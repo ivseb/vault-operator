@@ -55,7 +55,7 @@ import { scan as scanTasks } from '../core/tasks/TaskExtractor';
 import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
-import { t } from '../i18n';
+import { t, getActiveLocale } from '../i18n';
 import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
@@ -3021,7 +3021,7 @@ export class AgentSidebarView extends ItemView {
 
                 // Onboarding: inject step-specific setup instructions when setup is incomplete
                 const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
-                const onboardingPrompt = onboarding.getOnboardingPrompt();
+                const onboardingPrompt = onboarding.getOnboardingPrompt(getActiveLocale());
                 if (onboardingPrompt) parts.unshift(onboardingPrompt);
 
                 // Session retrieval — only on first message, using raw user text
@@ -5502,8 +5502,8 @@ export class AgentSidebarView extends ItemView {
         const result = await showEditReviewModal({
             app: this.app,
             entries,
-            title: 'Änderungen prüfen',
-            source: `Aufgabe ${taskId}`,
+            title: t('ui.editReview.titleReview'),
+            source: t('ui.editReview.sourceTask', { taskId }),
         });
         if (result.decisions === null) return;
 

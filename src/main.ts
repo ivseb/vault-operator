@@ -3725,13 +3725,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             { storageMode },
             summaryGenerator,
         );
-        new Notice('Backfill started. See progress in the console.', 5000);
+        new Notice(t('notice.backfill.started'), 5000);
         const result = await job.run({}, (progress) => {
             if (progress.processed % 50 === 0 && progress.processed > 0) {
-                new Notice(`Backfill: ${progress.processed}/${progress.total} (${progress.summariesWritten} Summaries, ${progress.errors} Fehler)`, 4000);
+                new Notice(t('notice.backfill.progress', { processed: progress.processed, total: progress.total, summaries: progress.summariesWritten, errors: progress.errors }), 4000);
             }
         });
-        new Notice(`Backfill fertig: ${result.processed} Notes, ${result.summariesWritten} Summaries, ${result.propertiesWritten} Property-Mirrors, ${result.errors} Fehler.`, 10000);
+        new Notice(t('notice.backfill.done', { processed: result.processed, summaries: result.summariesWritten, mirrors: result.propertiesWritten, errors: result.errors }), 10000);
     }
 
     /**

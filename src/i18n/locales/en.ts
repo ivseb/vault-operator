@@ -796,6 +796,41 @@ export const en = {
     'settings.visual.customLibreOfficePath': 'Custom `LibreOffice` path',
 
     // =========================================================================
+    // UI -- Edit Review Panel (FIX-42-01-02)
+    // =========================================================================
+    'ui.editReview.titleReview': 'Review changes',
+    'ui.editReview.titleCheckpoint': 'View checkpoint',
+    'ui.editReview.noChanges': 'No changes.',
+    'ui.editReview.filesHeading': 'Files ({{count}})',
+    'ui.editReview.original': 'Original',
+    'ui.editReview.snapshot': 'Snapshot',
+    'ui.editReview.editableNew': 'New (click in and edit)',
+    'ui.editReview.discard': 'Discard',
+    'ui.editReview.restore': 'Restore',
+    'ui.editReview.apply': 'Apply',
+    'ui.editReview.skipFile': 'Skip this file',
+    'ui.editReview.unskipFile': 'Include this file again',
+    'ui.editReview.emptyFile': '(empty)',
+    'ui.editReview.unchanged': 'Unchanged',
+    'ui.editReview.sourceTask': 'Task {{taskId}}',
+
+    // =========================================================================
+    // UI -- Inline Chat (FIX-42-01-02)
+    // =========================================================================
+    'ui.inline.editorMissing': 'Editor connection missing. Change cannot be applied.',
+    'ui.inline.readyToApply': 'Ready to apply. Confirm in the diff dialog.',
+    'ui.inline.reviewChange': 'Review change',
+    'ui.inline.applied': 'Applied.',
+    'ui.inline.actionApplied': '{{action}} applied',
+    'ui.inline.discarded': 'Discarded.',
+    'ui.inline.skipped': 'Skipped.',
+    'ui.inline.clearChatFromHere': 'Clear chat from here',
+    'ui.inline.showDiff': 'Show diff',
+    'ui.inline.undoThis': 'Undo this change',
+    'ui.inline.undoFromHere': 'Undo from here',
+    'ui.inline.moreOptions': 'More options',
+
+    // =========================================================================
     // UI -- Task Selection Modal
     // =========================================================================
     'ui.taskSelection.title': '{{count}} task(s) detected',
@@ -1130,6 +1165,11 @@ export const en = {
     'notice.reindexFailed': 'Reindex failed: {{error}}',
     'notice.indexingCancelled': 'Indexing cancelled. Partial progress saved.',
     'notice.autoAcceptEdits': 'Auto-accept edits: {{value}}',
+    'notice.backfill.started': 'Backfill started. See progress in the console.',
+    'notice.backfill.progress': 'Backfill: {{processed}}/{{total}} ({{summaries}} summaries, {{errors}} errors)',
+    'notice.backfill.done': 'Backfill finished: {{processed}} notes, {{summaries}} summaries, {{mirrors}} property mirrors, {{errors}} errors.',
+    'notice.stufe3.updates': 'Freshness check: {{count}} update hints found (see console).',
+    'notice.stufe3.budget': 'Freshness check budget at {{percent}}%.',
 
     // =========================================================================
     // ToolPicker Popover
