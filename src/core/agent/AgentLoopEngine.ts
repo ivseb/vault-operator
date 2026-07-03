@@ -86,6 +86,38 @@ export interface ToolBatchPorts {
     saveInflightSnapshot?: () => void;
 }
 
+/** Host ports for the condense triggers (stage 3b). */
+export interface CondensePorts {
+    condensingEnabled: boolean;
+    /** condensingThreshold setting in percent of the context window. */
+    thresholdPercent: number;
+    estimateTokens(history: MessageParam[]): number;
+    /** Live lookup -- the model (and its window) can switch mid-loop. */
+    getContextWindow(): number;
+    /** FEAT-24-02 skeleton prune; cheap, idempotent, no LLM call. */
+    microcompact(history: MessageParam[]): void;
+    /**
+     * Pre-Compaction Memory Flush (Phase 5). Raw host callback; the engine
+     * treats rejections as non-fatal.
+     */
+    preCompactionFlush?: (history: MessageParam[]) => Promise<void>;
+    /**
+     * Bound condenseHistory: the facade closes over systemPrompt and
+     * abortSignal and MUST fetch the tool-call ledger lazily per call
+     * (FIX-COMPACT-01 -- retries see the current ledger, never a stale copy).
+     */
+    condense(history: MessageParam[], maxTailTokens?: number): Promise<boolean>;
+    /** FEAT-24-02 second stage: earlier, gentler rolling summary. */
+    rollingSummary(
+        history: MessageParam[],
+        estimatedTokens: number,
+        threshold: number,
+        contextWindow: number,
+    ): Promise<unknown>;
+    /** FIX-PERF-20 feature flag (advancedApi.cacheAwareCondensing). */
+    cacheAwareDeferEnabled(): boolean;
+}
+
 /** Extract display text from a tool result (string or multimodal array). */
 function extractTextContent(content: string | ToolResultContentBlock[]): string {
     if (typeof content === 'string') return content;
@@ -354,6 +386,121 @@ export class AgentLoopEngine {
                 + `Fix: have the model split a large write into write_file (header + first section) then append_to_file for the rest, `
                 + `reduce the attached input, or raise Max output tokens in Settings -> Models.`,
             );
+        }
+    }
+
+    /**
+     * Stage 3b, text-final trigger: microcompact always (the persisted
+     * conversation must not carry verbatim bulk), then -- behind the
+     * iteration>0 + condensingEnabled gate -- either the FIX-PERF-20
+     * cache-aware defer (condensing now would invalidate a prefix that
+     * mostly served from cache, for marginal gain) or the full condense
+     * pass with retries. Both callers break the loop afterwards; the
+     * method itself has no exit semantics.
+     */
+    async maybeCondenseAtTextFinal(
+        state: AgentLoopState,
+        history: MessageParam[],
+        ports: CondensePorts,
+    ): Promise<void> {
+        // FEAT-24-02: prune old tool_result contents before the task ends
+        // so the persisted conversation does not carry verbatim bulk.
+        ports.microcompact(history);
+        if (state.iteration > 0 && ports.condensingEnabled) {
+            const estimatedTokens = ports.estimateTokens(history);
+            const contextWindow = ports.getContextWindow();
+            const threshold = Math.floor(contextWindow * (ports.thresholdPercent / 100));
+            // FIX-PERF-20: cache-aware defer. When the previous turn served
+            // mostly from prefix cache (read > create), condensing now would
+            // invalidate the expensive prefix for marginal gain. Defer once,
+            // re-evaluate next turn. Feature-flag default off in 3.x.
+            const cacheAware = ports.cacheAwareDeferEnabled();
+            const cacheBeatsThisTurn = state.totalCacheReadTokens > state.totalCacheCreationTokens
+                && state.totalCacheReadTokens > 0;
+            if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
+                console.debug(
+                    `[AgentLoopEngine] Cache-aware condense defer at ~${estimatedTokens}t `
+                    + `(threshold ${threshold}t, cacheRead ${state.totalCacheReadTokens}t > `
+                    + `cacheCreate ${state.totalCacheCreationTokens}t)`,
+                );
+            } else if (estimatedTokens > threshold) {
+                await this.flushNonFatal(ports, history);
+                await this.condenseWithRetries(history, threshold, ports);
+            }
+        }
+    }
+
+    /**
+     * Stage 3b, post-tool-batch trigger: runs only on a fully consistent
+     * history (assistant tool_calls + tool_results both pushed). Over the
+     * threshold it condenses with retries; under it, the gentler rolling
+     * summary gets its chance. No cache-aware defer on this path.
+     */
+    async maybeCondenseAfterToolBatch(
+        state: AgentLoopState,
+        history: MessageParam[],
+        ports: CondensePorts,
+    ): Promise<void> {
+        // FEAT-24-02 (ADR-12 amendment): prune old tool_result contents to
+        // skeletons now that the turn is closed and the history is
+        // consistent -- the condensing checks then see the pruned estimate.
+        ports.microcompact(history);
+        if (state.iteration > 0 && ports.condensingEnabled && state.completionResult === null) {
+            const estimatedTokens = ports.estimateTokens(history);
+            const contextWindow = ports.getContextWindow();
+            const threshold = Math.floor(contextWindow * (ports.thresholdPercent / 100));
+            if (estimatedTokens > threshold) {
+                await this.flushNonFatal(ports, history);
+                await this.condenseWithRetries(history, threshold, ports);
+            } else {
+                await ports.rollingSummary(history, estimatedTokens, threshold, contextWindow);
+            }
+        }
+    }
+
+    /** Pre-Compaction Memory Flush -- rejections are non-fatal by contract. */
+    private async flushNonFatal(ports: CondensePorts, history: MessageParam[]): Promise<void> {
+        await ports.preCompactionFlush?.(history).catch((e) =>
+            console.warn('[AgentLoopEngine] Pre-compaction flush failed (non-fatal):', e),
+        );
+    }
+
+    /**
+     * Shared condense pass (deduplicates the verbatim-doubled inline block):
+     * one full pass, then -- only if it succeeded (FIX-COMPACT-02, a failed
+     * pass already fired the failure callback) -- up to two retries with a
+     * halved tail per FIX-COMPACT-06 (10k -> 5k -> 2.5k, floor 1k) while the
+     * estimate stays over the threshold.
+     */
+    private async condenseWithRetries(
+        history: MessageParam[],
+        threshold: number,
+        ports: CondensePorts,
+    ): Promise<void> {
+        const firstOk = await ports.condense(history);
+        if (!firstOk) return;
+
+        let condensingRetries = 0;
+        const MAX_CONDENSING_RETRIES = 2;
+        let nextTail = 10_000;
+
+        while (condensingRetries < MAX_CONDENSING_RETRIES) {
+            const postTokens = ports.estimateTokens(history);
+            if (postTokens <= threshold) break;
+
+            nextTail = Math.max(1_000, Math.floor(nextTail / 2));
+            console.warn(
+                `[AgentLoopEngine] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
+                `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
+            );
+
+            const retryOk = await ports.condense(history, nextTail);
+            if (!retryOk) break;
+            condensingRetries++;
+        }
+
+        if (condensingRetries > 0) {
+            console.debug(`[AgentLoopEngine] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
         }
     }
 }

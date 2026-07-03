@@ -36,7 +36,7 @@ import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { initLoopStateForRun } from './agent/LoopState';
-import { AgentLoopEngine } from './agent/AgentLoopEngine';
+import { AgentLoopEngine, type CondensePorts } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
@@ -1512,6 +1512,30 @@ export class AgentTask {
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
 
+                // IMP-41-02-01 stage 3b: host services for the engine's
+                // condense triggers. Recreated per iteration so the ports
+                // close over THIS iteration's system prompt; the tool-call
+                // ledger is fetched lazily per call (FIX-COMPACT-01 -- a
+                // retry must see the current ledger, never a stale copy).
+                const condensePorts: CondensePorts = {
+                    condensingEnabled: this.condensingEnabled,
+                    thresholdPercent: this.condensingThreshold,
+                    estimateTokens: (h) => this.estimateTokens(h),
+                    getContextWindow: () => this.getModelContextWindow(),
+                    microcompact: (h) => this.microcompact(h),
+                    preCompactionFlush: async (h) => { await this.taskCallbacks.onPreCompactionFlush?.(h); },
+                    condense: (h, maxTail) => this.condenseHistory(
+                        h, systemPrompt, abortSignal, repetitionDetector.getLedger(), maxTail,
+                    ),
+                    rollingSummary: (h, est, thr, win) => this.maybeRollingSummary(
+                        h, systemPrompt, est, thr, win, abortSignal, repetitionDetector.getLedger(),
+                    ),
+                    cacheAwareDeferEnabled: () => {
+                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
+                        return advancedApi?.cacheAwareCondensing === true;
+                    },
+                };
+
                 // ADR-061 / FIX-PERF-22: Todo list as recency anchor.
                 // Previously this mutated `history` in place and then
                 // restored it after the stream finished. The mutation
@@ -1634,76 +1658,13 @@ export class AgentTask {
                         });
                         continue;
                     }
-                    // FEAT-24-02: prune old tool_result contents before the task ends
-                    // so the persisted conversation does not carry verbatim bulk.
-                    this.microcompact(history);
-                    if (iteration > 0 && this.condensingEnabled) {
-                        const estimatedTokens = this.estimateTokens(history);
-                        const contextWindow = this.getModelContextWindow();
-                        const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                        // FIX-PERF-20: cache-aware defer. When the previous
-                        // turn served mostly from prefix cache (read >
-                        // create), condensing now would invalidate the
-                        // expensive prefix for marginal gain. Defer once,
-                        // re-evaluate next turn. Feature-flag default off
-                        // in 3.x per Decision 8.
-                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
-                        const cacheAware = advancedApi?.cacheAwareCondensing === true;
-                        const cacheBeatsThisTurn = loopState.totalCacheReadTokens > loopState.totalCacheCreationTokens
-                            && loopState.totalCacheReadTokens > 0;
-                        if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
-                            console.debug(
-                                `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
-                                + `(threshold ${threshold}t, cacheRead ${loopState.totalCacheReadTokens}t > `
-                                + `cacheCreate ${loopState.totalCacheCreationTokens}t)`,
-                            );
-                        } else if (estimatedTokens > threshold) {
-                            // Pre-Compaction Memory Flush (Phase 5): extract important
-                            // facts before they are compressed into a summary
-                            await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
-                                console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
-                            );
-                            const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // FIX-COMPACT-02: don't retry when the first pass already
-                            // failed -- the failure callback already fired, retrying
-                            // burns helper-api budget on the same broken call.
-                            if (firstOk) {
-                                let condensingRetries = 0;
-                                const MAX_CONDENSING_RETRIES = 2;
-                                // FIX-COMPACT-06: halve the tail each retry instead
-                                // of repeating the identical 10k-tail call. Pass 2
-                                // -> 5k, pass 3 -> 2.5k. Floor at 1k.
-                                let nextTail = 10_000;
-
-                                while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                    const postTokens = this.estimateTokens(history);
-                                    if (postTokens <= threshold) break;
-
-                                    nextTail = Math.max(1_000, Math.floor(nextTail / 2));
-                                    console.warn(
-                                        `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
-                                    );
-
-                                    const retryOk = await this.condenseHistory(
-                                        history, systemPrompt, abortSignal,
-                                        repetitionDetector.getLedger(), nextTail,
-                                    );
-                                    if (!retryOk) break;
-                                    condensingRetries++;
-                                }
-
-                                if (condensingRetries > 0) {
-                                    console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
-                                }
-                            }
-
-                            // Condensing is housekeeping for future messages — the model
-                            // already delivered its text answer, so we're done.
-                            break;
-                        }
-                    }
-                    break;  // Only break if NO condensing was needed
+                    // IMP-41-02-01 stage 3b: text-final condense trigger
+                    // (microcompact, FIX-PERF-20 cache-aware defer, condense
+                    // with retries) lives in the engine. Condensing is
+                    // housekeeping for future messages — the model already
+                    // delivered its text answer, so we're done either way.
+                    await this.loopEngine.maybeCondenseAtTextFinal(loopState, history, condensePorts);
+                    break;
                 }
 
                 const validToolUses = toolUses.filter(
@@ -1822,61 +1783,12 @@ export class AgentTask {
                         : undefined,
                 });
 
-                // FEAT-24-02 (ADR-12 amendment): prune old tool_result contents to
-                // skeletons now that the turn is closed and the history is consistent.
-                // Cheap, idempotent, no LLM call — runs before the condensing checks
-                // so their token estimate reflects the pruned state.
-                this.microcompact(history);
-
-                // Context Condensing: check only after history is fully consistent
-                // (assistant tool_calls + tool_results both present, no orphaned calls)
-                if (iteration > 0 && this.condensingEnabled && loopState.completionResult === null) {
-                    const estimatedTokens = this.estimateTokens(history);
-                    const contextWindow = this.getModelContextWindow();
-                    const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                    if (estimatedTokens > threshold) {
-                        // Pre-Compaction Memory Flush (Phase 5)
-                        await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
-                            console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
-                        );
-                        const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                        // FIX-COMPACT-02: do not retry when the first pass already failed.
-                        if (firstOk) {
-                            let condensingRetries = 0;
-                            const MAX_CONDENSING_RETRIES = 2;
-                            // FIX-COMPACT-06: adaptive tail (10k -> 5k -> 2.5k).
-                            let nextTail = 10_000;
-
-                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                const postTokens = this.estimateTokens(history);
-                                if (postTokens <= threshold) break;
-
-                                nextTail = Math.max(1_000, Math.floor(nextTail / 2));
-                                console.warn(
-                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
-                                );
-
-                                const retryOk = await this.condenseHistory(
-                                    history, systemPrompt, abortSignal,
-                                    repetitionDetector.getLedger(), nextTail,
-                                );
-                                if (!retryOk) break;
-                                condensingRetries++;
-                            }
-
-                            if (condensingRetries > 0) {
-                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
-                            }
-                        }
-                    } else {
-                        // FEAT-24-02 second stage: earlier, gentler rolling summary.
-                        await this.maybeRollingSummary(
-                            history, systemPrompt, estimatedTokens, threshold, contextWindow,
-                            abortSignal, repetitionDetector.getLedger(),
-                        );
-                    }
-                }
+                // IMP-41-02-01 stage 3b: post-batch condense trigger
+                // (microcompact, threshold condense with retries, else the
+                // gentler rolling summary) runs in the engine — only after
+                // history is fully consistent (assistant tool_calls +
+                // tool_results both present, no orphaned calls).
+                await this.loopEngine.maybeCondenseAfterToolBatch(loopState, history, condensePorts);
 
                 // Break loop if attempt_completion was signaled.
                 // The result field is an internal log entry — NEVER render it
