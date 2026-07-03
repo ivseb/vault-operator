@@ -53,15 +53,16 @@ function makeBedrock(config: Partial<LLMProvider>): BedrockHarness {
     const provider = new BedrockProvider(full);
 
     let captured: Captured | null = null;
-    // Replace the SDK client: capture the command input, return an empty stream
-    // so the createMessage loop drains cleanly. command.input mirrors the object
-    // passed to ConverseStreamCommand.
-    (provider as unknown as { client: { send: unknown } }).client = {
+    // FIX-40-02-01: since the FIX-PERF-13 lazy-SDK migration the provider
+    // resolves its client through the cached `clientPromise`; the old
+    // `client` field was never read, so this mock silently missed and the
+    // real dynamic import ran. Pre-resolve the promise with the capture stub.
+    (provider as unknown as { clientPromise: Promise<{ send: unknown }> }).clientPromise = Promise.resolve({
         send: (command: { input: Captured }) => {
             captured = command.input;
             return Promise.resolve({ stream: makeAsyncIterable([]) });
         },
-    };
+    });
 
     return { provider, lastInput: () => captured };
 }
