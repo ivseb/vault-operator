@@ -198,12 +198,12 @@ export class CreateDocxTool extends BaseTool<'create_docx'> {
         const primaryColor = resolveHexColor(theme.primary_color);
         const fontFamily = theme.font_family?.trim() || DEFAULT_FONT;
 
-        const office = await this.plugin.bundleLoader?.loadOfficeBundle();
+        const office = await this.plugin.bundleLoader?.loadOfficeBundleWithPrompt(context, 'create_docx');
         if (!office) {
             callbacks.pushToolResult(this.formatError(new Error(
                 'Office Document Support is not installed. ' +
-                'Open Settings > Vault Operator > Optional Assets to install (~1.5 MB), ' +
-                'then retry this tool. The plugin works without it but cannot create docx files.'
+                'The user was asked to install it and declined (or the download failed). ' +
+                'Try again later or ask the user to install "Office Document Support" from Settings > Vault Operator > Optional Assets.'
             )));
             return;
         }

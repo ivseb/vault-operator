@@ -734,8 +734,8 @@ export class FirstRunWizardModal extends Modal {
             t('modal.firstRunWizard.downloadsBody'),
         );
 
-        const { OptionalAssetManager, buildRerankerSpec, buildSelfDevSourceSpec, buildOfficeBundleSpec, buildPdfjsBundleSpec } = await import('../../core/assets/OptionalAssetManager');
-        const { RERANKER_WASM_SHA256, OFFICE_BUNDLE_SHA256, PDFJS_BUNDLE_SHA256 } = await import('../../core/assets/assetHashes');
+        const { OptionalAssetManager, buildRerankerSpec, buildRerankerJsBundleSpec, buildSelfDevSourceSpec, buildOfficeBundleSpec, buildPdfjsBundleSpec } = await import('../../core/assets/OptionalAssetManager');
+        const { RERANKER_WASM_SHA256, OFFICE_BUNDLE_SHA256, PDFJS_BUNDLE_SHA256, RERANKER_JS_BUNDLE_SHA256 } = await import('../../core/assets/assetHashes');
         const { SELF_DEV_SOURCE_SHA256 } = await import('../../_generated/source-hash');
 
         const manager = new OptionalAssetManager(this.plugin);
@@ -762,6 +762,14 @@ export class FirstRunWizardModal extends Modal {
                 size: '1.6 MB',
                 sha: PDFJS_BUNDLE_SHA256,
                 spec: buildPdfjsBundleSpec(this.plugin.manifest.version, PDFJS_BUNDLE_SHA256),
+            },
+            {
+                label: t('modal.firstRunWizard.assetRerankerLibName'),
+                recommended: true,
+                what: t('modal.firstRunWizard.assetRerankerLibDesc'),
+                size: '0.6 MB',
+                sha: RERANKER_JS_BUNDLE_SHA256,
+                spec: buildRerankerJsBundleSpec(this.plugin.manifest.version, RERANKER_JS_BUNDLE_SHA256),
             },
             {
                 label: t('modal.firstRunWizard.assetRerankerName'),

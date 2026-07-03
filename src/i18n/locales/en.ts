@@ -704,6 +704,9 @@ export const en = {
     'settings.optionalAssets.headingPdf': 'PDF parser',
     'settings.optionalAssets.sectionPdfInfo': 'The pdfjs-dist library bundles its own worker (~1.6 MB). Required to extract text from PDF attachments during ingest. Without it, PDFs are skipped.',
     'settings.optionalAssets.pdfNotInstalled': 'Status: not installed. PDF files are skipped during ingestion.',
+    'settings.optionalAssets.headingRerankerLib': 'Reranker library',
+    'settings.optionalAssets.sectionRerankerLibInfo': 'The transformers + onnxruntime-web bundle (~0.6 MB) that runs the local semantic reranker on top of the WASM binary. Paired with the "Semantic reranker (WASM)" asset in the Embeddings tab. Without it the reranker stays disabled and semantic search skips the local rerank step.',
+    'settings.optionalAssets.rerankerLibNotInstalled': 'Status: not installed. Semantic search continues without the local rerank step.',
     'settings.optionalAssets.headingSelfDev': 'Self-development source',
     'settings.optionalAssets.sectionSelfDevInfo': 'A snapshot of the plugin\'s own source code (~5 MB) that the self-modification tools (manage_source) can read and edit. Ships in a separate release tag because of size; local-file install is the recommended path.',
     'settings.optionalAssets.selfDevNotInstalled': 'Status: not installed. The manage_source tool stays disabled.',
@@ -1099,6 +1102,22 @@ export const en = {
     'ui.approval.explain.fallback': 'The agent wants to perform the following action:',
     'ui.approval.explain.showDetails': 'Show details',
     'ui.approval.explain.hideDetails': 'Hide details',
+
+    // =========================================================================
+    // Chat UI -- Install-Prompt Card (in-chat asset install)
+    // =========================================================================
+    'ui.installPrompt.title': '{{tool}} needs "{{asset}}"',
+    'ui.installPrompt.body': 'This is a one-time download of {{sizeMb}} MB from the plugin release page. After that, {{asset}} runs locally in your vault.',
+    'ui.installPrompt.whatHappens': 'What happens?',
+    'ui.installPrompt.hideDetails': 'Hide details',
+    'ui.installPrompt.details': 'File: {{filename}} ({{sizeMb}} MB)\nSHA256: {{sha}}\nSource: {{url}}\n\nThe download is verified against a build-time SHA256 checksum, then stored locally under .vault-operator/assets/. No further network access is needed after install.',
+    'ui.installPrompt.installNow': 'Install now ({{sizeMb}} MB)',
+    'ui.installPrompt.retry': 'Retry',
+    'ui.installPrompt.skipTooltip': 'Skip this time',
+    'ui.installPrompt.downloading': 'Downloading {{asset}}...',
+    'ui.installPrompt.downloadingStatus': 'Fetching from GitHub release, verifying SHA256...',
+    'ui.installPrompt.failed': 'Download failed: {{error}}',
+    'ui.installPrompt.languagePackToolLabel': 'Vault Operator',
 
     // =========================================================================
     // Chat UI -- Checkpoint
@@ -1731,8 +1750,10 @@ export const en = {
     'modal.firstRunWizard.assetOfficeName': 'Office document support',
     'modal.firstRunWizard.assetOutdated': 'Installed but hash differs, re-install to update',
     'modal.firstRunWizard.assetPdfDesc': 'Lets the agent read PDF files (attached PDFs in chat, PDFs in your vault). Without it PDFs are skipped during ingestion with a clear notice; other document formats still work.',
-    'modal.firstRunWizard.assetRerankerDesc': 'Reorders semantic-search results by how relevant they actually are. The agent finds your notes much more accurately, especially for long or vague queries. Without it semantic search still works but matches are noisier.',
-    'modal.firstRunWizard.assetRerankerName': 'Semantic reranker',
+    'modal.firstRunWizard.assetRerankerDesc': 'Reorders semantic-search results by how relevant they actually are. The agent finds your notes much more accurately, especially for long or vague queries. Without it semantic search still works but matches are noisier. Requires both the WASM asset and the JS library asset below.',
+    'modal.firstRunWizard.assetRerankerName': 'Semantic reranker (WASM)',
+    'modal.firstRunWizard.assetRerankerLibDesc': 'JavaScript half of the local semantic reranker (transformers + onnxruntime-web). Paired with the WASM asset above. Install both if you want smarter semantic search.',
+    'modal.firstRunWizard.assetRerankerLibName': 'Semantic reranker (library)',
     'modal.firstRunWizard.assetSelfDevDesc': 'Lets the agent read its own source code. Useful if you want the agent to help with extending the plugin itself. Most users do not need this.',
     'modal.firstRunWizard.backBtn': 'Back',
     'modal.firstRunWizard.badgeRecommended': 'Recommended',

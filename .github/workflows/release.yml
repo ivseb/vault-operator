@@ -61,6 +61,9 @@ jobs:
           if [ -f "pdfjs-bundle.js" ]; then
             cp pdfjs-bundle.js optional-assets/
           fi
+          if [ -f "reranker-bundle.js" ]; then
+            cp reranker-bundle.js optional-assets/
+          fi
           # FEAT-42-05: on-demand language packs (locale-<code>.json),
           # emitted by generateLocaleHashes() during the build.
           for f in locale-*.json; do
@@ -93,6 +96,7 @@ jobs:
             optional-assets/plugin-source.json
             optional-assets/office-bundle.js
             optional-assets/pdfjs-bundle.js
+            optional-assets/reranker-bundle.js
             optional-assets/locale-*.json
 
       # IMPORTANT: order matters. The Obsidian community plugin crawler
@@ -116,7 +120,8 @@ jobs:
             These files are downloaded on demand by the plugin only after
             an explicit user click in Settings:
 
-            - `ort-wasm-simd-threaded.wasm` -- semantic reranker (~12 MB)
+            - `ort-wasm-simd-threaded.wasm` -- semantic reranker WASM (~12 MB)
+            - `reranker-bundle.js` -- transformers + onnxruntime-web JS library (~0.6 MB)
             - `plugin-source.json` -- self-development source bundle (~5 MB)
             - `office-bundle.js` -- exceljs + docx + pptxgenjs (~1.7 MB)
             - `pdfjs-bundle.js` -- pdfjs-dist + worker (~1.6 MB)
@@ -131,6 +136,7 @@ jobs:
             optional-assets/plugin-source.json
             optional-assets/office-bundle.js
             optional-assets/pdfjs-bundle.js
+            optional-assets/reranker-bundle.js
             optional-assets/locale-*.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -83,9 +83,9 @@ export class RerankerService {
     private _failureCount = 0;
     private _lastFailureAt: number | null = null;
     private readonly now: () => number;
-    private readonly plugin: import('obsidian').Plugin;
+    private readonly plugin: import('../../main').default;
 
-    constructor(plugin: import('obsidian').Plugin, now: () => number = () => Date.now()) {
+    constructor(plugin: import('../../main').default, now: () => number = () => Date.now()) {
         this.plugin = plugin;
         this.now = now;
     }
@@ -152,36 +152,40 @@ export class RerankerService {
      * missing (warning already logged); throws on unexpected errors.
      */
     protected async initBackend(): Promise<{ tokenizer: TokenizerFn; model: ModelFn } | null> {
-        // Force transformers.js onto the web/onnxruntime-web branch.
-        // Electron exposes process.versions.node, so transformers'
-        // IS_NODE_ENV check is true and it would otherwise try to load
-        // the native onnxruntime-node binding (which fails in the
-        // Obsidian sandbox). Pre-populating the onnxruntime symbol on
-        // the global object tips the first branch of transformers'
-        // ONNX selection chain so the IS_NODE_ENV check is never
-        // reached. In Electron `window` IS the global object, so the
-        // symbol is visible via `globalThis[Symbol.for("onnxruntime")]`
-        // which is what transformers actually reads (review-bot Tier 3
-        // prefers `window` over the literal globalThis reference).
+        // Reranker JS library (transformers + onnxruntime-web) is an
+        // Optional Asset (reranker-bundle.js). Users install it via the
+        // FirstRunWizard or Settings > Knowledge > Reranker. Missing the
+        // bundle disables the reranker cleanly; semantic search stays
+        // available without the local rerank step.
+        if (!this.plugin.bundleLoader) {
+            console.warn('[Reranker] BundleLoader not available -- plugin still initializing?');
+            return null;
+        }
+        const bundle = await this.plugin.bundleLoader.loadRerankerBundle();
+        if (!bundle) {
+            console.warn('[Reranker] Reranker library not installed -- run Settings > Knowledge > Reranker > Install');
+            return null;
+        }
+
+        // The onnxruntime symbol is ALREADY set by the reranker bundle
+        // itself: bundle-entries/ort-register.ts assigns
+        // globalThis[Symbol.for('onnxruntime')] = onnxruntime-web/wasm as a
+        // module side effect that runs BEFORE @huggingface/transformers
+        // initializes (transformers picks its ONNX backend at module-init
+        // time; in Electron IS_NODE_ENV is true so without this it would
+        // fall back to the native onnxruntime-node binding, whose env has
+        // no `.wasm`, silently disabling the reranker). The guard below is
+        // therefore a defensive no-op in the normal path -- it only assigns
+        // if some other code path evaluated transformers without the
+        // bundle's registration. In Electron `window` IS globalThis, so the
+        // symbol the bundle set on globalThis is visible here too.
         const ortSymbol = Symbol.for('onnxruntime');
         const globalSlot = window as unknown as Record<symbol, unknown>;
         if (!(ortSymbol in globalSlot)) {
-            // onnxruntime-web is a transitive dep of @huggingface/transformers.
-            // Subpath `/wasm` resolves to dist/ort.wasm.bundle.min.mjs whose
-            // inlined emscripten glue pairs with the plain
-            // ort-wasm-simd-threaded.wasm we ship as the pinned vault asset
-            // (the /webgpu bundle pairs with the asyncify variant instead and
-            // would reject our binary). It also registers only the cpu/wasm
-            // backends, which is all the reranker needs. The subpath has no
-            // resolvable .d.ts under moduleResolution=node, so we silence the
-            // import-resolution error and rely on the runtime resolver.
-            // eslint-disable-next-line @typescript-eslint/ban-ts-comment -- runtime subpath, no type declarations resolvable for /wasm
-            // @ts-ignore -- runtime subpath, no type declarations
-            const ort = await import('onnxruntime-web/wasm');
-            globalSlot[ortSymbol] = ort;
+            globalSlot[ortSymbol] = bundle.ort;
         }
 
-        const { AutoModelForSequenceClassification, AutoTokenizer, env } = await import('@huggingface/transformers');
+        const { AutoModelForSequenceClassification, AutoTokenizer, env } = bundle.transformers;
 
         // Keep the vault-provided wasmBinary authoritative: with the default
         // useWasmCache=true, transformers' ensureWasmLoaded() would download

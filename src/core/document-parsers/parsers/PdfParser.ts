@@ -20,6 +20,7 @@
 
 import type { ParseResult } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
+import type { ToolExecutionContext } from '../../tools/types';
 
 const NOT_INSTALLED_PARSE_RESULT: ParseResult = {
     text: '(PDF Parser is not installed. Open Settings > Vault Operator > Optional Assets to install the PDF parser (~1.6 MB), then re-attach the file.)',
@@ -45,11 +46,20 @@ const MAX_TEXT_BYTES = 50 * 1024 * 1024; // 50 MB joined output budget
  * structured "not installed" ParseResult when the asset is missing -- callers
  * see a normal ParseResult, never a thrown error.
  */
-export async function parsePdf(data: ArrayBuffer, plugin: ObsidianAgentPlugin): Promise<ParseResult> {
+export async function parsePdf(
+    data: ArrayBuffer,
+    plugin: ObsidianAgentPlugin,
+    ctx?: ToolExecutionContext,
+): Promise<ParseResult> {
     if (!plugin.bundleLoader) {
         return NOT_INSTALLED_PARSE_RESULT;
     }
-    const bundle = await plugin.bundleLoader.loadPdfjsBundle();
+    // If we run inside a tool that can prompt the user, offer an in-chat
+    // install card first. Falls back to null (i.e. not-installed) if the
+    // user skips / declines / no context.
+    const bundle = ctx
+        ? await plugin.bundleLoader.loadPdfjsBundleWithPrompt(ctx, 'read_document')
+        : await plugin.bundleLoader.loadPdfjsBundle();
     if (!bundle) {
         return NOT_INSTALLED_PARSE_RESULT;
     }

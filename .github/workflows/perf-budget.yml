@@ -42,14 +42,18 @@ jobs:
           MAIN_KB=$((MAIN_BYTES / 1024))
           OFFICE_BYTES=0
           PDF_BYTES=0
+          RERANKER_BYTES=0
           if [ -f office-bundle.js ]; then OFFICE_BYTES=$(stat -c%s office-bundle.js); fi
           if [ -f pdfjs-bundle.js ]; then PDF_BYTES=$(stat -c%s pdfjs-bundle.js); fi
+          if [ -f reranker-bundle.js ]; then RERANKER_BYTES=$(stat -c%s reranker-bundle.js); fi
           OFFICE_KB=$((OFFICE_BYTES / 1024))
           PDF_KB=$((PDF_BYTES / 1024))
+          RERANKER_KB=$((RERANKER_BYTES / 1024))
           {
             echo "main_kb=$MAIN_KB"
             echo "office_kb=$OFFICE_KB"
             echo "pdf_kb=$PDF_KB"
+            echo "reranker_kb=$RERANKER_KB"
           } >> "$GITHUB_OUTPUT"
           {
             echo "## Bundle sizes"
@@ -59,24 +63,27 @@ jobs:
             echo "| main.js | $MAIN_KB KB |"
             echo "| office-bundle.js | $OFFICE_KB KB |"
             echo "| pdfjs-bundle.js | $PDF_KB KB |"
+            echo "| reranker-bundle.js | $RERANKER_KB KB |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Budget gate. Targets defined in
       # _devprocess/analysis/PERF-BASELINE-2026-06-30.md.
-      # main.js  : hard cap 5,250 KB (today ~5,100 KB, +3% buffer).
-      #            tightens to 4,200 KB after wave 2.
-      # office-bundle.js : hard cap 1,800 KB.
-      # pdfjs-bundle.js  : hard cap 1,800 KB.
+      # main.js           : hard cap 5,000 KB (Obsidian Sync Standard 5 MB ceiling).
+      # office-bundle.js  : hard cap 1,800 KB.
+      # pdfjs-bundle.js   : hard cap 1,800 KB.
+      # reranker-bundle.js: hard cap 800 KB (transformers + onnxruntime-web).
       - name: Enforce bundle budget
         env:
           MAIN_KB: ${{ steps.sizes.outputs.main_kb }}
           OFFICE_KB: ${{ steps.sizes.outputs.office_kb }}
           PDF_KB: ${{ steps.sizes.outputs.pdf_kb }}
+          RERANKER_KB: ${{ steps.sizes.outputs.reranker_kb }}
         run: |
           set -euo pipefail
-          MAIN_LIMIT=5250
+          MAIN_LIMIT=5000
           OFFICE_LIMIT=1800
           PDF_LIMIT=1800
+          RERANKER_LIMIT=800
           FAIL=0
           if [ "$MAIN_KB" -gt "$MAIN_LIMIT" ]; then
             echo "::error::main.js $MAIN_KB KB exceeds budget $MAIN_LIMIT KB"
@@ -90,8 +97,12 @@ jobs:
             echo "::error::pdfjs-bundle.js $PDF_KB KB exceeds budget $PDF_LIMIT KB"
             FAIL=1
           fi
+          if [ "$RERANKER_KB" -gt "$RERANKER_LIMIT" ]; then
+            echo "::error::reranker-bundle.js $RERANKER_KB KB exceeds budget $RERANKER_LIMIT KB"
+            FAIL=1
+          fi
           if [ "$FAIL" -eq 1 ]; then
             echo "::notice::Bundle budgets defined in _devprocess/analysis/PERF-BASELINE-2026-06-30.md"
             exit 1
           fi
-          echo "Bundles within budget. main=${MAIN_KB}KB office=${OFFICE_KB}KB pdf=${PDF_KB}KB"
+          echo "Bundles within budget. main=${MAIN_KB}KB office=${OFFICE_KB}KB pdf=${PDF_KB}KB reranker=${RERANKER_KB}KB"

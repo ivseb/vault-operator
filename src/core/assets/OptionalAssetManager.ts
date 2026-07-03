@@ -393,7 +393,7 @@ export function buildRerankerJsBundleSpec(pluginVersion: string, expectedSha256:
         filename: 'reranker-bundle.js',
         label: 'Reranker (library)',
         description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the WASM binary asset ("Reranker (WASM)") which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
-        sizeMb: 1,
+        sizeMb: 0.6,
         expectedSha256,
         downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/reranker-bundle.js`,
     };

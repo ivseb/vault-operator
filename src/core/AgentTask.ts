@@ -145,6 +145,16 @@ export interface AgentTaskCallbacks {
     onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void, allowMultiple?: boolean) => void;
     /** Called when a write tool needs user approval — pauses loop until user decides */
     onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
+    /**
+     * Called when a tool needs an optional asset (office bundle, pdfjs
+     * bundle, reranker WASM, ...) that is not installed. Renders an
+     * in-chat install card and resolves once the user decides.
+     * Obsidian policy: downloads only run behind an explicit user click.
+     */
+    onOptionalAssetRequired?: (
+        spec: import('./assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ) => Promise<import('./tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult>;
     /** Called when update_todo_list publishes a new todo plan */
     onTodoUpdate?: (items: import('./tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Called when switch_mode changes the active mode */
@@ -1787,6 +1797,7 @@ export class AgentTask {
                         compositionStack: this.compositionStack,
                         consumeAdvisorSlot,
                         onApprovalRequired: this.taskCallbacks.onApprovalRequired,
+                        onOptionalAssetRequired: this.taskCallbacks.onOptionalAssetRequired,
                         updateTodos: todoUpdateForTools,
                         onCheckpoint: this.taskCallbacks.onCheckpoint,
                         invalidateToolCache,

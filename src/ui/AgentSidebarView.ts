@@ -339,6 +339,12 @@ export class AgentSidebarView extends ItemView {
         // IMP-41-03-01: offer recovery for tasks interrupted by a crash or
         // reload. Non-blocking; skips silently when the store is not ready.
         void this.maybeOfferInflightResume();
+        // Language-pack install-prompt: renders the same consent card as
+        // tool-triggered asset installs, so a non-English user gets a
+        // visible chat card instead of a small notice that is easy to
+        // miss. Non-blocking; skips silently when English or already
+        // installed. Obsidian policy: download only on explicit click.
+        void this.maybeOfferLocalePackCard();
         perfMarks.end('sidebar.onOpen', { log: true });
     }
 
@@ -2652,6 +2658,9 @@ export class AgentSidebarView extends ItemView {
                 },
                 onApprovalRequired: async (toolName, input) => {
                     return this.showApprovalCard(toolName, input);
+                },
+                onOptionalAssetRequired: async (spec, toolName) => {
+                    return this.showInstallPromptCard(spec, toolName);
                 },
                 onAttemptCompletion: () => {
                     // Auto-complete any unfinished todo items — agent often skips
@@ -5044,6 +5053,151 @@ export class AgentSidebarView extends ItemView {
                     cleanup();
                     resolve({ decision: 'approved' });
                 })();
+            });
+
+            this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+        });
+    }
+
+    /**
+     * Offer the missing language pack as a visible in-chat card at
+     * sidebar open. Reuses `showInstallPromptCard` so the visual is
+     * identical to tool-triggered asset installs. Skips silently on
+     * English, when the pack is already installed, or when the pack
+     * offer for this locale was previously handled (persisted via
+     * settings.localePackPromptedFor). Fire-and-forget.
+     */
+    private async maybeOfferLocalePackCard(): Promise<void> {
+        try {
+            const { activeLocaleSpec, LOCALE_LABELS } = await import('../i18n/localePacks');
+            const { needsLocalePack, getActiveLocale } = await import('../i18n');
+            if (!needsLocalePack()) return;
+            const spec = activeLocaleSpec(this.plugin);
+            if (!spec) return;
+            const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+            const manager = new OptionalAssetManager(this.plugin);
+            const snap = await manager.snapshot(spec);
+            if (snap.status === 'installed') return;
+            const outcome = await this.showInstallPromptCard(spec, 'language-pack');
+            if (outcome.decision === 'installed') {
+                const locale = getActiveLocale();
+                const label = (LOCALE_LABELS as Record<string, string>)[locale] ?? locale;
+                new Notice(t('notice.localePack.installedReload', { language: label }), 10_000);
+            }
+        } catch (e) {
+            console.debug('[i18n] locale pack card skipped:', e);
+        }
+    }
+
+    /**
+     * Inline install-prompt card. Rendered when a tool needs an optional
+     * asset (office bundle, pdfjs bundle, reranker WASM, ...) that is not
+     * yet installed. Obsidian community policy requires network fetches
+     * to be triggered by an explicit user click -- this card IS that
+     * click. Resolves to `installed` once download+SHA verification
+     * succeeded (tool retries its asset load), `skipped` if the user
+     * dismisses, `failed` on download/verification error.
+     */
+    private async showInstallPromptCard(
+        spec: import('../core/assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult> {
+        return new Promise((resolve) => {
+            if (!this.chatContainer) { resolve({ decision: 'skipped' }); return; }
+
+            const row = this.chatContainer.createDiv('tool-approval-row install-prompt-row');
+
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'download-cloud');
+
+            const toolLabel = toolName === 'language-pack'
+                ? t('ui.installPrompt.languagePackToolLabel')
+                : this.formatToolLabel(toolName);
+            const title = t('ui.installPrompt.title', {
+                tool: toolLabel,
+                asset: spec.label,
+            });
+            row.createSpan('tool-approval-text').setText(title);
+
+            const explanation = row.createDiv('tool-approval-explanation');
+            explanation.createSpan().setText(t('ui.installPrompt.body', {
+                asset: spec.label,
+                sizeMb: String(spec.sizeMb),
+            }));
+
+            const detailsToggle = row.createEl('span', {
+                cls: 'tool-approval-details-toggle',
+                text: t('ui.installPrompt.whatHappens'),
+            });
+            const detailsContainer = row.createDiv('tool-approval-details');
+            const details = detailsContainer.createEl('pre', { cls: 'tool-approval-details-content' });
+            details.setText(t('ui.installPrompt.details', {
+                filename: spec.filename,
+                sizeMb: String(spec.sizeMb),
+                sha: spec.expectedSha256.slice(0, 16) + '...',
+                url: spec.downloadUrl,
+            }));
+            detailsToggle.addEventListener('click', () => {
+                const visible = detailsContainer.hasClass('is-visible');
+                if (visible) {
+                    detailsContainer.removeClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.whatHappens'));
+                } else {
+                    detailsContainer.addClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.hideDetails'));
+                }
+            });
+
+            const statusEl = row.createDiv('tool-approval-explanation is-hidden');
+            const actions = row.createDiv('tool-approval-actions');
+            const installBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.installPrompt.installNow', { sizeMb: String(spec.sizeMb) }),
+            });
+            const skipBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: '✕',
+            });
+            skipBtn.setAttr('title', t('ui.installPrompt.skipTooltip'));
+
+            let done = false;
+            const cleanup = () => { done = true; row.remove(); };
+
+            installBtn.addEventListener('click', () => {
+                void (async () => {
+                    if (done) return;
+                    installBtn.disabled = true;
+                    skipBtn.disabled = true;
+                    installBtn.setText(t('ui.installPrompt.downloading', { asset: spec.label }));
+                    statusEl.removeClass('is-hidden');
+                    statusEl.setText(t('ui.installPrompt.downloadingStatus'));
+                    try {
+                        const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+                        const manager = new OptionalAssetManager(this.plugin);
+                        await manager.install(spec);
+                        new Notice(t('notice.assets.installed', { label: spec.label }));
+                        cleanup();
+                        resolve({ decision: 'installed' });
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        installBtn.disabled = false;
+                        skipBtn.disabled = false;
+                        installBtn.setText(t('ui.installPrompt.retry'));
+                        statusEl.setText(t('ui.installPrompt.failed', { error: msg }));
+                        // Do not cleanup -- user can retry or skip.
+                        // We only resolve on skip after a failed try so the
+                        // model sees the error message via the tool's fallback.
+                        skipBtn.onclick = () => {
+                            cleanup();
+                            resolve({ decision: 'failed', error: msg });
+                        };
+                    }
+                })();
+            });
+
+            skipBtn.addEventListener('click', () => {
+                cleanup();
+                resolve({ decision: 'skipped' });
             });
 
             this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
