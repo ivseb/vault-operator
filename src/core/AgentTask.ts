@@ -11,7 +11,7 @@
  * 5. Loop until no more tool calls (end_turn)
  */
 
-import type { ApiHandler, MessageParam, ContentBlock, ToolResultContentBlock } from '../api/types';
+import type { ApiHandler, MessageParam, ContentBlock } from '../api/types';
 import type { ToolRegistry } from './tools/ToolRegistry';
 import type { ToolCallbacks, ToolName, ToolUse, ToolDefinition } from './tools/types';
 import { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
@@ -35,11 +35,12 @@ import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
 import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
-import { ThinkingSegmentCollector } from './agent/thinkingSegments';
-import { splitToolBatch } from './agent/splitToolBatch';
-import { createInitialLoopState, initLoopStateForRun } from './agent/LoopState';
-import { AgentLoopEngine } from './agent/AgentLoopEngine';
+import { initLoopStateForRun } from './agent/LoopState';
+import { AgentLoopEngine, type CondensePorts } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
+import { RouterEscalationInterceptor } from './agent/interceptors/RouterEscalationInterceptor';
+import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
+import { StigmergyInterceptor } from './agent/interceptors/StigmergyInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay } from '../api/retry';
@@ -51,17 +52,12 @@ import { resolveLeanFlags } from './prompts/leanFlags';
 import { buildApiHandlerForModel } from '../api';
 import { CompositionStackService } from './skills/CompositionStackService';
 import {
-    beginStigmergyTurn,
-    registerCapabilitiesIfChanged as registerStigmergyCapabilitiesIfChanged,
-    stigmergyMcpId,
     stigmergyPromptOf,
-    stigmergySkillId,
     stigmergySubagentId,
     type CapabilityDescriptor,
     type McpCapabilityDescriptor,
     type StigmergyTurn,
 } from './stigmergy/StigmergyAdapter';
-import { withTimeout } from './utils/withTimeout';
 import { getPerformanceMarks } from './observability/PerformanceMarks';
 import {
     DEFAULT_CONDENSING_ENABLED,
@@ -388,14 +384,27 @@ export class AgentTask {
     private fileDossier = new FileDossier();
 
     /**
-     * IMP-41-03-04 (shadow mode): pre-condense history snapshots, bounded to
-     * 3 generations. Makes a mis-condensed session reconstructable — the
-     * previously impossible diagnosis case. Full log ownership of the live
-     * history follows engine stage 3.
+     * IMP-41-03-04 (shadow mode): pre/post-condense history snapshots,
+     * bounded to 3 generations. Makes a mis-condensed session
+     * reconstructable — the previously impossible diagnosis case.
+     *
+     * FULL log ownership of the live history is DEFERRED (decision
+     * 2026-07-04, safe subset shipped instead). Preconditions before the
+     * switchover can happen:
+     *  1. the sidebar gets a single read/write boundary (PLAN-42 PR-1.2
+     *     SidebarMessageRenderer) — today it aliases config.history and
+     *     persists it by reference, including mid-run via onClose(),
+     *  2. run() gets a final-history channel (return value or an
+     *     onHistoryRewritten callback) — the aliased array is currently
+     *     the ONLY way the final transcript reaches persistence,
+     *  3. MicroCompactor reroutes through a log API instead of mutating
+     *     tool_result contents in place.
+     * Then: an attached-live mode (MessageLog.attach(live)) as bridge
+     * generation before full copy-isolation.
      */
     private condenseForensics = new MessageLog();
 
-    /** Diagnostic surface (read_agent_logs): the retained pre-condense generations. */
+    /** Diagnostic surface (read_agent_logs): the retained pre/post-condense generations. */
     getCondenseTimeline(): ReturnType<MessageLog['dumpTimeline']> {
         return this.condenseForensics.dumpTimeline();
     }
@@ -586,119 +595,54 @@ export class AgentTask {
         // contribute to it. Pipeline mutates on each successful read.
         const readFiles = new Set<string>();
 
-        // Stigmergy observability turn -- consult BEFORE the user message is
-        // pushed to history, so we can append pathGuidance to it cache-safely
-        // (the cached prefix is system + tools schema; the messages tail is
-        // not cached, so appending here does not invalidate the cache).
-        // Phase 1: the adapter NEVER hides a tool -- orderTools only reorders,
-        // pathGuidance only emits text in pinned/enforce modes. When the
-        // daemon is down or Stigmergy is toggled off, every call is a no-op
-        // and the loop runs exactly as before. Capability registration is
-        // hash-gated and re-runs only when the inventory actually changed.
-        //
-        // candidate_ids now span ALL FOUR explorable surfaces -- tools,
-        // skills, MCP tools, subagent profiles -- so consult can rank them
-        // jointly. Ids are namespaced (skill:*, mcp:server:*, subagent:*)
-        // exactly the way the inner-dispatch emits encode them; that
-        // alignment is what keeps the substrate from accumulating phantom
-        // capability nodes that never see edges.
-        //
-        // VO/Stigmergy contract: candidate_ids MUST equal the registered
-        // capability set (Cooperation Building Block 2). The mode-filtered
-        // tool list excludes deferred tools (FEATURE-1600 / find_tool /
-        // progressive disclosure), but those tools ARE registered with the
-        // daemon. If consult only saw the mode-filtered set, a learned path
-        // that runs through a deferred tool could never re-fire -- the
-        // consult would never know that tool was a candidate. Use the full
-        // registered tool set here so registration-superset == consult-set.
-        //
-        // The mode-filtered set still drives the prompt-cache `cachedTools`
-        // surface the model sees (orderTools is applied there); deferred
-        // tools stay deferred from the LLM until find_tool activates them.
-        // Stigmergy is RECALL, not a second tool selector -- VO's own
-        // progressive disclosure remains the precise default selector.
-        const fullRegisteredTools = this.toolRegistry.getToolDefinitions();
-        const stigmergyCandidates = fullRegisteredTools;
-
+        // Stigmergy observability turn, since contract v2 as an interceptor --
+        // consult BEFORE the user message is pushed to history, so
+        // pathGuidance can be appended cache-safely (the cached prefix is
+        // system + tools schema; the messages tail is not cached). The full
+        // Phase-1 and VO/Stigmergy contract docs (registration-superset ==
+        // consult-set, four namespaced surfaces, recall-not-selector) live
+        // in StigmergyInterceptor.ts; the ports below are thin host
+        // accessors and enumeration failures stay non-fatal inside the
+        // interceptor.
         const pluginForStigmergy = this.toolRegistry.plugin as unknown as {
             selfAuthoredSkillLoader?: { getAllSkills(): Array<{ name: string; description: string }> };
             skillsManager?: { discoverSkills(): Promise<Array<{ name: string; description: string }>> };
         };
-        const stigmergySkillsList: CapabilityDescriptor[] = [];
-        const seenSkillNames = new Set<string>();
-        const addSkill = (name: string, description: string): void => {
-            if (!name || seenSkillNames.has(name)) return;
-            seenSkillNames.add(name);
-            stigmergySkillsList.push({ name, description });
-        };
-        try {
-            for (const s of pluginForStigmergy.selfAuthoredSkillLoader?.getAllSkills() ?? []) {
-                addSkill(s.name, s.description);
-            }
-        } catch (e) {
-            console.debug('[Stigmergy] self-authored skill enumeration failed (non-fatal):',
-                e instanceof Error ? e.message : e);
-        }
-        try {
-            // FEAT-32-03 PR 3.1: hard 1500ms ceiling on discoverSkills so a
-            // haengende user-skill folder cannot block the Stigmergy turn
-            // (Audit Finding 26). TimeoutError is logged at debug, self-
-            // authored skills already loaded above stay registered.
-            const discoverPromise = pluginForStigmergy.skillsManager?.discoverSkills();
-            const userSkills = discoverPromise
-                ? (await withTimeout(discoverPromise, 1500, 'skillsManager.discoverSkills')) ?? []
-                : [];
-            for (const s of userSkills) addSkill(s.name, s.description);
-        } catch (e) {
-            console.debug('[Stigmergy] user skill enumeration failed (non-fatal):',
-                e instanceof Error ? e.message : e);
-        }
-
-        const stigmergyMcpList: McpCapabilityDescriptor[] = [];
-        if (mcpClient) {
-            try {
+        const stigmergyInterceptor = new StigmergyInterceptor({
+            taskId,
+            getTurnPrompt: () => stigmergyPromptOf(userMessage),
+            getRegisteredTools: () => this.toolRegistry.getToolDefinitions(),
+            getSelfAuthoredSkills: () => pluginForStigmergy.selfAuthoredSkillLoader?.getAllSkills() ?? [],
+            discoverUserSkills: () => pluginForStigmergy.skillsManager?.discoverSkills(),
+            getMcpTools: () => {
+                if (!mcpClient) return [];
                 const allowed = allowedMcpServers;
                 const serverAllowed = (name: string): boolean =>
                     !allowed || allowed.length === 0 || allowed.includes(name);
+                const list: McpCapabilityDescriptor[] = [];
                 for (const { serverName, tool } of mcpClient.getAllTools()) {
                     if (!serverAllowed(serverName)) continue;
-                    stigmergyMcpList.push({
+                    list.push({
                         server: serverName,
                         name: tool.name,
                         description: tool.description ?? '',
                     });
                 }
-            } catch (e) {
-                console.debug('[Stigmergy] mcp tool enumeration failed (non-fatal):',
-                    e instanceof Error ? e.message : e);
-            }
-        }
-
-        const stigmergySubagentList: CapabilityDescriptor[] = listSubagentProfileNames()
-            .map((name) => {
-                const p = getSubagentProfile(name);
-                return p ? { name: p.name, description: p.description } : null;
-            })
-            .filter((x): x is CapabilityDescriptor => x !== null);
-
-        await registerStigmergyCapabilitiesIfChanged({
-            tools: fullRegisteredTools,
-            skills: stigmergySkillsList,
-            mcp: stigmergyMcpList,
-            subagents: stigmergySubagentList,
+                return list;
+            },
+            getSubagentProfiles: () => listSubagentProfileNames()
+                .map((name) => {
+                    const p = getSubagentProfile(name);
+                    return p ? { name: p.name, description: p.description } : null;
+                })
+                .filter((x): x is CapabilityDescriptor => x !== null),
         });
-
-        const stigmergyCandidateIds: string[] = [
-            ...stigmergyCandidates.map((t) => t.name),
-            ...stigmergySkillsList.map((s) => stigmergySkillId(s.name)),
-            ...stigmergyMcpList.map((m) => stigmergyMcpId(m.server, m.name)),
-            ...stigmergySubagentList.map((a) => stigmergySubagentId(a.name)),
-        ];
-        const stigmergyTurn: StigmergyTurn = await beginStigmergyTurn({
-            taskId,
-            prompt: stigmergyPromptOf(userMessage),
-            candidateIds: stigmergyCandidateIds,
+        await stigmergyInterceptor.onRunStart({
+            history,
+            userMessageText: typeof userMessage === 'string' ? userMessage : '',
+            abortSignal,
         });
+        const stigmergyTurn: StigmergyTurn = stigmergyInterceptor.getTurn();
         // Bind the turn to the per-task pipeline so the single-tool dispatch
         // point can emit capability_invoked / capability_returned around
         // tool.execute(). Without this, the daemon only sees START->tool
@@ -740,24 +684,10 @@ export class AgentTask {
         // message. Two consecutive role:'user' messages would violate the
         // Anthropic alternation contract, so we merge into one. The text is
         // appended at the END of the content array, after the cached system +
-        // tools schema, so the prompt cache stays valid.
-        // The descOf map spans all four surfaces so a pinned `skill:*` /
-        // `mcp:*` / `subagent:*` id in the guidance text gets a readable
-        // description, not a bare id.
-        const stigmergyDescById = new Map<string, string>();
-        for (const t of stigmergyCandidates) {
-            stigmergyDescById.set(t.name, t.description ?? '');
-        }
-        for (const s of stigmergySkillsList) {
-            stigmergyDescById.set(stigmergySkillId(s.name), s.description);
-        }
-        for (const m of stigmergyMcpList) {
-            stigmergyDescById.set(stigmergyMcpId(m.server, m.name), m.description);
-        }
-        for (const a of stigmergySubagentList) {
-            stigmergyDescById.set(stigmergySubagentId(a.name), a.description);
-        }
-        const guidance = stigmergyTurn.pathGuidance((id) => stigmergyDescById.get(id));
+        // tools schema, so the prompt cache stays valid. The interceptor's
+        // four-surface descOf map resolves pinned `skill:*` / `mcp:*` /
+        // `subagent:*` ids to readable descriptions.
+        const guidance = stigmergyInterceptor.getGuidance();
         // STIGMERGY-PRECEDENCE-ANCHOR (FEAT-32-03 PR 3.3 / ADR-131 / ADR-062):
         // this region is where the precedence rule lives. Cross-references:
         //   - Doc: arc42 Sektion 8.16 (Stigmergy als externer Recall-Layer)
@@ -775,9 +705,8 @@ export class AgentTask {
         // to append guidance.text only once the FastPath outcome is known.
         // guidance.path stays in scope for Pre-Activation (kept below); only
         // the textual hint is gated against Recipe + FastPath success.
-        let precedenceFastPathFired = false;
-        let precedenceRecipeWinner: string | null = null;
-        let precedenceFastPathHistoryEntries: import('../api/types').MessageParam[] = [];
+        // (Contract v2: the FastPath outcome lives in the interceptor's
+        // accessors -- fired(), getRecipeWinnerId(), getHistoryEntries().)
         const stigmergyGuidanceText = guidance.text;
         // FEAT-32-02 PR 2.2: hoisted detector so FastPath can feed it via
         // `recordForEpisodeOnly` BEFORE the main loop opens. Originally
@@ -790,175 +719,115 @@ export class AgentTask {
         // const useSurfacedOnly = false;
         // if (useSurfacedOnly && stigmergyTurn.surfaced.length > 0) { ... }
 
-        // v2.10.0: TaskRouter. Classify the user prompt; route simple
-        // tool tasks onto the helper model so trivial xlsx / docx / file
-        // ops do not consume the main-model rate. Only runs for the
-        // top-level task (subtasks inherit the parent's api). Falls back
-        // to the main api when the router is disabled, no helper model
-        // is configured, or classification is not 'simple'.
-        //
-        // Logging is deliberately verbose: every code path that ends with
-        // "no routing" emits an explanatory line so users can tell from
-        // the console why routing did not happen (toggle off, no helper
-        // model, classified as complex, etc).
+        // v2.10.0: TaskRouter, since contract v2 as an interceptor. Only
+        // runs for the top-level task (subtasks inherit the parent's api);
+        // falls back to the main api when disabled, no helper model is
+        // configured, or classification is not 'simple'. The >= 2 error
+        // escalation fires via onToolResult inside the engine's batch
+        // dispatch. Dynamic TaskRouter / helper-api imports live in the
+        // ports so the interceptor stays dependency-light.
         const mainApi = this.api;
-        let routerDecision: 'simple' | 'complex' | 'unknown' | 'disabled' = 'disabled';
-        if (shouldRunTaskRouter(this.depth, this.modelOverrideActive)) {
-            try {
-                const plugin = this.toolRegistry.plugin;
-                const routerEnabled = plugin.settings.autoTaskRouter?.enabled ?? true;
-                const helperModel = plugin.getHelperModel();
-                if (!routerEnabled) {
-                    console.debug('[TaskRouter] disabled (Settings > Loop > Auto-route simple tasks is off). Staying on main model.');
-                } else if (!helperModel) {
-                    console.debug('[TaskRouter] no helper model configured (Settings > Loop > Helper Model). Staying on main model.');
-                } else {
-                    const { TaskRouter } = await import('./routing/TaskRouter');
-                    const router = new TaskRouter();
-                    const promptText = typeof userMessage === 'string'
-                        ? userMessage
-                        : userMessage
-                            .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                            .map(b => b.text)
-                            .join(' ');
-                    routerDecision = router.classifyByRegex(promptText);
-                    if (routerDecision === 'simple') {
-                        const { getHelperApi } = await import('./helper-api');
-                        this.api = getHelperApi(plugin, this.api);
-                        console.debug(
-                            `[TaskRouter] classification=simple model=helper(${helperModel.name}) ` +
-                            '-- routing this task to helper model. Escalates back to main on >= 2 errors.',
-                        );
-                    } else {
-                        console.debug(`[TaskRouter] classification=${routerDecision} model=main(${this.api.getModel().id}) -- staying on main model.`);
-                    }
-                }
-            } catch (e) {
-                console.warn('[TaskRouter] router failed, staying on main api:', e);
-            }
-        } else if (this.depth === 0 && this.modelOverrideActive) {
-            console.debug('[TaskRouter] skipped -- manual model override active. Staying on the picked model.');
-        }
-
-        // Escalation helper: switch back to main api after 2 consecutive errors.
         const escalateToMain = () => {
             if (this.api !== mainApi) {
                 console.debug('[TaskRouter] Escalating to main model after consecutive errors.');
                 this.api = mainApi;
             }
         };
+        const routerEscalation = new RouterEscalationInterceptor({
+            shouldRun: () => shouldRunTaskRouter(this.depth, this.modelOverrideActive),
+            manualOverrideActive: () => this.depth === 0 && this.modelOverrideActive,
+            isEnabled: () => this.toolRegistry.plugin.settings.autoTaskRouter?.enabled ?? true,
+            helperModelName: () => this.toolRegistry.plugin.getHelperModel()?.name ?? null,
+            classify: async (promptText) => {
+                const { TaskRouter } = await import('./routing/TaskRouter');
+                return new TaskRouter().classifyByRegex(promptText);
+            },
+            switchToHelper: async () => {
+                const { getHelperApi } = await import('./helper-api');
+                this.api = getHelperApi(this.toolRegistry.plugin, this.api);
+            },
+            mainModelId: () => this.api.getModel().id,
+            escalateToMain,
+        });
+        await routerEscalation.onRunStart({
+            history,
+            userMessageText: typeof userMessage === 'string'
+                ? userMessage
+                : userMessage
+                    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                    .map(b => b.text)
+                    .join(' '),
+            abortSignal,
+        });
 
-        // ADR-061: Fast Path — if a recipe matches with high confidence,
-        // execute tool steps as a batch before entering the normal loop.
-        // The loop then handles presentation/completion in 1-2 iterations.
-        if (recipesSection && this.depth === 0) {
-            try {
+        // ADR-061: Fast Path, since contract v2 as an interceptor — if a
+        // recipe matches with high confidence, execute tool steps as a
+        // batch before entering the normal loop. The loop then handles
+        // presentation/completion in 1-2 iterations. The interceptor owns
+        // gates + entry collection; planner prompt, tool definitions,
+        // executor construction and episodic recording stay in the ports.
+        const fastPathInterceptor = new FastPathInterceptor({
+            enabled: () => Boolean(recipesSection) && this.depth === 0,
+            getUserText: () => (typeof userMessage === 'string' ? userMessage : ''),
+            getRecipeMatches: () => config.recipeMatches
+                ?? this.toolRegistry.plugin.recipeMatchingService?.match(
+                    typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
+                ),
+            executeRecipe: async (match, msgText, signal) => {
                 const { FastPathExecutor } = await import('./FastPathExecutor');
-                // FEAT-32-01 PR 1.3: prefer pre-computed matches from the
-                // Sidebar (same source as `recipesSection`); fall back to
-                // inline match for subagent paths that do not pre-compute.
-                const recipeMatch = config.recipeMatches
-                    ?? this.toolRegistry.plugin.recipeMatchingService?.match(
-                        typeof userMessage === 'string' ? userMessage : '', activeMode.slug,
-                    );
-                const bestMatch = recipeMatch?.[0];
+                // Build system prompt for planner (same params as normal loop)
+                const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
+                const fpPrompt = buildSystemPromptForMode({
+                    mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
+                    skillDirectorySection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
+                    isSubtask: false, webEnabled: fpWebEnabled, recipesSection,
+                    configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
+                });
+                const fpTools = this.modeService
+                    ? this.modeService.getToolDefinitions(activeMode)
+                    : this.toolRegistry.getToolDefinitions();
 
-                // FEATURE-0320 follow-up: when the user explicitly references
-                // chats/conversations as the search source, the vault-centric
-                // "Knowledge Search & Synthesis" recipe is the wrong answer --
-                // it scans Notes and never calls search_history. Skip FastPath
-                // so the agent picks search_history itself.
-                const fpUserText = typeof userMessage === 'string' ? userMessage : '';
-                const chatSourceRegex = /\b(chat|chats|gespr(ä|ae)ch|gespr(ä|ae)che|konversation|konversationen|unterhaltung|unterhaltungen|dialog|dialoge|history)\b/i;
-                const targetsChatHistory = chatSourceRegex.test(fpUserText);
+                // FIX-24-05-04: collect planner-call usage so it lands
+                // in the task totals (footer + telemetry).
+                const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc, servingModelId) => {
+                    this.auxUsage.input += i;
+                    this.auxUsage.output += o;
+                    this.auxUsage.cacheRead += cr ?? 0;
+                    this.auxUsage.cacheCreation += cc ?? 0;
+                    // FIX-24-05-05: the planner may run on the helper model.
+                    addUsage(this.usageByModel, servingModelId ?? this.api.getModel().id,
+                        i, o, cr ?? 0, cc ?? 0);
+                });
+                const fpCallbacks = {
+                    pushToolResult: () => {},
+                    pushProgress: () => {},
+                    handleError: (tool: string, error: unknown) => {
+                        console.warn(`[FastPath] Tool error in ${tool}:`, error);
+                    },
+                    log: (msg: string) => console.debug(`[FastPath] ${msg}`),
+                };
 
-                if (bestMatch && targetsChatHistory) {
-                    console.debug(`[FastPath] Skipped (chat-source query): "${fpUserText.slice(0, 80)}"`);
-                }
-
-                // FIX-F (ADR-090 follow-up, 2026-04-29): Recipe-Threshold von 0.3 auf 0.5 angehoben.
-                // Bei score=0.33 matched "Metadata Tags Generation" auf eine reine Synthese-Aufgabe
-                // und triggerte FastPath in den falschen Workflow. Niedriger Score = unsicheres Match
-                // = lieber normalen Loop laufen lassen, der die Aufgabe sauber zerlegt.
-                if (bestMatch && !targetsChatHistory && bestMatch.score >= 0.5 && bestMatch.recipe.source === 'learned' && bestMatch.recipe.successCount >= 3) {
-                    console.debug(`[FastPath] Recipe match: ${bestMatch.recipe.name} (score=${bestMatch.score.toFixed(2)}, successes=${bestMatch.recipe.successCount})`);
-
-                    // Build system prompt for planner (same params as normal loop)
-                    const fpWebEnabled = this.modeService?.isWebEnabled() ?? false;
-                    const fpPrompt = buildSystemPromptForMode({
-                        mode: activeMode, globalCustomInstructions, includeTime, rulesContent,
-                        skillDirectorySection, mcpClient, allowedMcpServers, memoryContext, pluginSkillsSection,
-                        isSubtask: false, webEnabled: fpWebEnabled, recipesSection,
-                        configDir: configDir ?? this.toolRegistry.plugin.app.vault.configDir,
-                    });
-                    const fpTools = this.modeService
-                        ? this.modeService.getToolDefinitions(activeMode)
-                        : this.toolRegistry.getToolDefinitions();
-
-                    // FIX-24-05-04: collect planner-call usage so it lands
-                    // in the task totals (footer + telemetry).
-                    const fastPath = new FastPathExecutor(this.api, pipeline, (i, o, cr, cc, servingModelId) => {
-                        this.auxUsage.input += i;
-                        this.auxUsage.output += o;
-                        this.auxUsage.cacheRead += cr ?? 0;
-                        this.auxUsage.cacheCreation += cc ?? 0;
-                        // FIX-24-05-05: the planner may run on the helper model.
-                        addUsage(this.usageByModel, servingModelId ?? this.api.getModel().id,
-                            i, o, cr ?? 0, cc ?? 0);
-                    });
-                    const fpCallbacks = {
-                        pushToolResult: () => {},
-                        pushProgress: () => {},
-                        handleError: (tool: string, error: unknown) => {
-                            console.warn(`[FastPath] Tool error in ${tool}:`, error);
-                        },
-                        log: (msg: string) => console.debug(`[FastPath] ${msg}`),
-                    };
-
-                    const msgText = typeof userMessage === 'string' ? userMessage : '';
-                    const result = await fastPath.execute(
-                        bestMatch.recipe,
-                        msgText,
-                        fpPrompt,
-                        fpCallbacks,
-                        abortSignal,
-                        fpTools,
-                        readFiles,
-                        // FEAT-32-02 PR 2.2 / ADR-133: feed FastPath dispatches
-                        // into the episodic detector so the toolSequence is
-                        // complete. Iteration 0 marks pre-loop dispatches.
-                        (tool, input, summary) =>
-                            repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
-                    );
-
-                    if (result.success && result.toolCallsExecuted > 0) {
-                        console.debug(`[FastPath] Success: ${result.toolCallsExecuted} tools executed, collecting ${result.historyEntries.length} history entries for post-precedence push`);
-                        // FEAT-32-01 PR 1.3 / ADR-131: do NOT push history yet.
-                        // Collect FastPath entries so the precedence resolver
-                        // below can push them AFTER the user message (which
-                        // gets its guidance.text suppressed when FastPath
-                        // fired). guidance.path Pre-Activation is unaffected.
-                        precedenceFastPathHistoryEntries = [
-                            ...result.historyEntries,
-                            {
-                                role: 'user',
-                                content: `[Fast Path completed] The recipe "${bestMatch.recipe.name}" has been executed. `
-                                    + `${result.toolCallsExecuted} tool calls completed successfully. `
-                                    + `The search and read results are above. `
-                                    + `Now: analyze the results and complete the task (write summary, present findings). `
-                                    + `Do NOT re-search or re-read the same content -- use the results already in context.`,
-                            },
-                        ];
-                        precedenceFastPathFired = true;
-                        precedenceRecipeWinner = bestMatch.recipe.id;
-                    } else {
-                        console.debug('[FastPath] No success, continuing with normal loop');
-                    }
-                }
-            } catch (e) {
-                console.warn('[FastPath] Pre-loop check failed (non-fatal), continuing with normal loop:', e);
-            }
-        }
+                return fastPath.execute(
+                    match.recipe,
+                    msgText,
+                    fpPrompt,
+                    fpCallbacks,
+                    signal,
+                    fpTools,
+                    readFiles,
+                    // FEAT-32-02 PR 2.2 / ADR-133: feed FastPath dispatches
+                    // into the episodic detector so the toolSequence is
+                    // complete. Iteration 0 marks pre-loop dispatches.
+                    (tool, input, summary) =>
+                        repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
+                );
+            },
+        });
+        await fastPathInterceptor.onRunStart({
+            history,
+            userMessageText: typeof userMessage === 'string' ? userMessage : '',
+            abortSignal,
+        });
 
         // FEAT-32-01 PR 1.3 / ADR-131: precedence resolver. Decide guidance.text
         // suppression now that the FastPath outcome is known, then push:
@@ -970,15 +839,15 @@ export class AgentTask {
         const { resolveStigmergyPrecedence, appendGuidanceText, buildStigmergyDecisionSnapshot } =
             await import('./stigmergy/precedenceResolver');
         const precedence = resolveStigmergyPrecedence({
-            fastPathFired: precedenceFastPathFired,
-            bestMatchRecipeId: precedenceRecipeWinner,
+            fastPathFired: fastPathInterceptor.fired(),
+            bestMatchRecipeId: fastPathInterceptor.getRecipeWinnerId(),
             guidanceText: stigmergyGuidanceText,
         });
         const userMessageWithGuidance: typeof userMessage = precedence.suppressGuidanceText
             ? userMessage
             : (appendGuidanceText(userMessage, stigmergyGuidanceText) as typeof userMessage);
         history.push({ role: 'user', content: userMessageWithGuidance });
-        for (const entry of precedenceFastPathHistoryEntries) {
+        for (const entry of fastPathInterceptor.getHistoryEntries()) {
             history.push(entry);
         }
         // Snapshot for ADR-132 / ADR-133 (consumed by FEAT-32-02 in finally).
@@ -1004,7 +873,7 @@ export class AgentTask {
         // All closure-local (not `this.*`) so a subagent re-entry of run()
         // does NOT inherit the parent's snapshot. Consumed in the finally
         // block at the end of run().
-        loopState.fastPathFired = loopState.fastPathFired || precedenceFastPathFired;
+        loopState.fastPathFired = loopState.fastPathFired || fastPathInterceptor.fired();
 
         const MAX_ITERATIONS = this.maxIterations;
 
@@ -1398,8 +1267,10 @@ export class AgentTask {
             todoAnchor.noteTodoUpdate(items);
         };
         const powerSteering = new PowerSteeringInterceptor(this.powerSteeringFrequency);
-        // IMP-41-02-01c: iteration-start interceptors in execution order.
-        const preambleInterceptors = [powerSteering, new AdvisorReminderInterceptor()];
+        // IMP-41-02-01c: loop interceptors in execution order. The engine
+        // dispatches onIterationStart in the preamble and onToolResult in
+        // the batch phase (only RouterEscalation implements the latter).
+        const loopInterceptors = [powerSteering, new AdvisorReminderInterceptor(), routerEscalation];
 
 
         // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
@@ -1503,7 +1374,7 @@ export class AgentTask {
                         maxIterations: MAX_ITERATIONS,
                         consumeSteeringMessages: this.taskCallbacks.consumeSteeringMessages,
                     },
-                    preambleInterceptors,
+                    loopInterceptors,
                 );
                 if (preambleOutcome === 'abort') break;
 
@@ -1513,6 +1384,30 @@ export class AgentTask {
                 }
                 const systemPrompt = cachedSystemPrompt;
                 const tools = cachedTools;
+
+                // IMP-41-02-01 stage 3b: host services for the engine's
+                // condense triggers. Recreated per iteration so the ports
+                // close over THIS iteration's system prompt; the tool-call
+                // ledger is fetched lazily per call (FIX-COMPACT-01 -- a
+                // retry must see the current ledger, never a stale copy).
+                const condensePorts: CondensePorts = {
+                    condensingEnabled: this.condensingEnabled,
+                    thresholdPercent: this.condensingThreshold,
+                    estimateTokens: (h) => this.estimateTokens(h),
+                    getContextWindow: () => this.getModelContextWindow(),
+                    microcompact: (h) => this.microcompact(h),
+                    preCompactionFlush: async (h) => { await this.taskCallbacks.onPreCompactionFlush?.(h); },
+                    condense: (h, maxTail) => this.condenseHistory(
+                        h, systemPrompt, abortSignal, repetitionDetector.getLedger(), maxTail,
+                    ),
+                    rollingSummary: (h, est, thr, win) => this.maybeRollingSummary(
+                        h, systemPrompt, est, thr, win, abortSignal, repetitionDetector.getLedger(),
+                    ),
+                    cacheAwareDeferEnabled: () => {
+                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
+                        return advancedApi?.cacheAwareCondensing === true;
+                    },
+                };
 
                 // ADR-061 / FIX-PERF-22: Todo list as recency anchor.
                 // Previously this mutated `history` in place and then
@@ -1636,103 +1531,19 @@ export class AgentTask {
                         });
                         continue;
                     }
-                    // FEAT-24-02: prune old tool_result contents before the task ends
-                    // so the persisted conversation does not carry verbatim bulk.
-                    this.microcompact(history);
-                    if (iteration > 0 && this.condensingEnabled) {
-                        const estimatedTokens = this.estimateTokens(history);
-                        const contextWindow = this.getModelContextWindow();
-                        const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                        // FIX-PERF-20: cache-aware defer. When the previous
-                        // turn served mostly from prefix cache (read >
-                        // create), condensing now would invalidate the
-                        // expensive prefix for marginal gain. Defer once,
-                        // re-evaluate next turn. Feature-flag default off
-                        // in 3.x per Decision 8.
-                        const advancedApi = (this.toolRegistry.plugin.settings as unknown as { advancedApi?: { cacheAwareCondensing?: boolean } }).advancedApi;
-                        const cacheAware = advancedApi?.cacheAwareCondensing === true;
-                        const cacheBeatsThisTurn = loopState.totalCacheReadTokens > loopState.totalCacheCreationTokens
-                            && loopState.totalCacheReadTokens > 0;
-                        if (cacheAware && cacheBeatsThisTurn && estimatedTokens < threshold * 1.05) {
-                            console.debug(
-                                `[AgentTask] Cache-aware condense defer at ~${estimatedTokens}t `
-                                + `(threshold ${threshold}t, cacheRead ${loopState.totalCacheReadTokens}t > `
-                                + `cacheCreate ${loopState.totalCacheCreationTokens}t)`,
-                            );
-                        } else if (estimatedTokens > threshold) {
-                            // Pre-Compaction Memory Flush (Phase 5): extract important
-                            // facts before they are compressed into a summary
-                            await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
-                                console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
-                            );
-                            const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                            // FIX-COMPACT-02: don't retry when the first pass already
-                            // failed -- the failure callback already fired, retrying
-                            // burns helper-api budget on the same broken call.
-                            if (firstOk) {
-                                let condensingRetries = 0;
-                                const MAX_CONDENSING_RETRIES = 2;
-                                // FIX-COMPACT-06: halve the tail each retry instead
-                                // of repeating the identical 10k-tail call. Pass 2
-                                // -> 5k, pass 3 -> 2.5k. Floor at 1k.
-                                let nextTail = 10_000;
-
-                                while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                    const postTokens = this.estimateTokens(history);
-                                    if (postTokens <= threshold) break;
-
-                                    nextTail = Math.max(1_000, Math.floor(nextTail / 2));
-                                    console.warn(
-                                        `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                        `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
-                                    );
-
-                                    const retryOk = await this.condenseHistory(
-                                        history, systemPrompt, abortSignal,
-                                        repetitionDetector.getLedger(), nextTail,
-                                    );
-                                    if (!retryOk) break;
-                                    condensingRetries++;
-                                }
-
-                                if (condensingRetries > 0) {
-                                    console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
-                                }
-                            }
-
-                            // Condensing is housekeeping for future messages — the model
-                            // already delivered its text answer, so we're done.
-                            break;
-                        }
-                    }
-                    break;  // Only break if NO condensing was needed
+                    // IMP-41-02-01 stage 3b: text-final condense trigger
+                    // (microcompact, FIX-PERF-20 cache-aware defer, condense
+                    // with retries) lives in the engine. Condensing is
+                    // housekeeping for future messages — the model already
+                    // delivered its text answer, so we're done either way.
+                    await this.loopEngine.maybeCondenseAtTextFinal(loopState, history, condensePorts);
+                    break;
                 }
 
                 const validToolUses = toolUses.filter(
                     (t): t is ContentBlock & { type: 'tool_use' } =>
                         t.type === 'tool_use' && !toolErrors.has(t.id)
                 );
-
-                // Helper: extract display text from a tool result (string or multimodal array).
-                // Used for UI callbacks that only accept strings.
-                const extractTextContent = (content: string | ToolResultContentBlock[]): string => {
-                    if (typeof content === 'string') return content;
-                    return content
-                        .filter((b): b is ToolResultContentBlock & { type: 'text' } => b.type === 'text')
-                        .map((b) => b.text)
-                        .join('\n');
-                };
-
-                // Helper: append a quality gate string to tool result content.
-                const appendQualityGate = (
-                    content: string | ToolResultContentBlock[],
-                    gate: string | undefined,
-                ): string | ToolResultContentBlock[] => {
-                    if (!gate) return content;
-                    if (typeof content === 'string') return content + '\n\n' + gate;
-                    // For multimodal content, append gate as an additional text block
-                    return [...content, { type: 'text' as const, text: '\n\n' + gate }];
-                };
 
                 // Helper: run a single tool through the pipeline and return its result.
                 // Does NOT call onToolResult — caller is responsible for ordering.
@@ -1818,161 +1629,38 @@ export class AgentTask {
                     return result;
                 };
 
-                const toolResultBlocks: ContentBlock[] = [];
-
-                // BUG-3 / BUG-032: error results for tools with unparseable/truncated
-                // JSON input — forward the provider's actionable message verbatim so
-                // the model knows to split the write instead of retrying it.
-                for (const [errId, errMsg] of toolErrors) {
-                    toolResultBlocks.push({
-                        type: 'tool_result',
-                        tool_use_id: errId,
-                        content: errMsg,
-                        is_error: true,
-                    });
-                }
-
-                // Shared per-result bookkeeping: UI callback, mistake counter,
-                // router escalation, circuit breaker, quality-gate append.
-                // Identical for parallel and sequential paths (was duplicated).
-                const processToolResult = (toolUse: (typeof validToolUses)[number], result: { content: string | ToolResultContentBlock[]; is_error?: boolean }): void => {
-                    this.taskCallbacks.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
-
-                    if (result.is_error) { loopState.consecutiveMistakes++; loopState.totalToolErrors++; } else { loopState.consecutiveMistakes = 0; }
-                    // v2.10.0 TaskRouter: escalate to main model after 2 errors
-                    if (loopState.consecutiveMistakes >= 2) escalateToMain();
-                    if (this.consecutiveMistakeLimit > 0 && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                        throw new Error(
-                            `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors. ` +
-                            `Check the tool results above or raise the limit in Settings → Advanced.`,
-                        );
-                    }
-
-                    // Append quality gate checklist to LLM history (not UI)
-                    const gate = !result.is_error ? TOOL_METADATA[toolUse.name]?.qualityGateChecklist : undefined;
-                    toolResultBlocks.push({
-                        type: 'tool_result',
-                        tool_use_id: toolUse.id,
-                        content: appendQualityGate(result.content, gate),
-                        is_error: result.is_error,
-                    });
-                };
-
-                // IMP-41-02-02: maximal parallel-safe PREFIX runs concurrently,
-                // the rest sequentially in model order (a read AFTER a write may
-                // depend on that write — only the prefix is split). Replaces the
-                // all-or-nothing rule where one trailing write serialized every
-                // read before it.
-                const { parallelPrefix, sequentialRest } = splitToolBatch(validToolUses, PARALLEL_SAFE);
-
-                if (parallelPrefix.length > 0) {
-                    // Results are processed in original order after all finish so
-                    // the FIFO queue in AgentSidebarView assigns results to the
-                    // correct UI elements.
-                    const results = await Promise.all(parallelPrefix.map(runTool));
-                    for (let i = 0; i < parallelPrefix.length; i++) {
-                        processToolResult(parallelPrefix[i], results[i]);
-                    }
-                }
-
-                for (const toolUse of sequentialRest) {
-                    // Abort between sequential tools: a long write chain should
-                    // stop at the next boundary, not run to batch end.
-                    if (abortSignal?.aborted) break;
-                    const result = await runTool(toolUse);
-                    processToolResult(toolUse, result);
-                    if (loopState.completionResult !== null) break;
-                }
-
-                // Add tool results as the next user message
-                // IMPORTANT: condensing runs AFTER this push so history is always consistent
-                // (every assistant tool_call has a matching tool_result before condensing)
-                history.push({ role: 'user', content: toolResultBlocks });
-                // IMP-41-03-01: turn-boundary snapshot (debounced in the store).
-                // Fire-and-forget -- persistence must never stall the loop.
-                if (this.inflightStore) {
-                    loopState.phase = 'executing-tools';
-                    void this.inflightStore.saveSnapshot({
-                        taskId,
-                        conversationId: conversationId ?? '',
-                        mode: activeMode.slug,
-                        savedAt: Date.now(),
-                        state: { ...loopState },
-                        history: JSON.parse(JSON.stringify(history)) as typeof history,
-                    });
-                }
-
-                // Circuit breaker for malformed/truncated tool calls. The result
-                // loops above only check the limit for tools that actually ran; a
-                // turn whose only output was a broken tool call (the classic
-                // "write_file cut off mid-JSON" loop) never reaches that check, so
-                // do it here. loopState.consecutiveMistakes was already bumped per tool_error
-                // in the streaming loop; it is reset by the first successful tool.
-                if (toolErrors.size > 0 && this.consecutiveMistakeLimit > 0
-                    && loopState.consecutiveMistakes >= this.consecutiveMistakeLimit) {
-                    throw new Error(
-                        `Agent stopped after ${loopState.consecutiveMistakes} consecutive errors -- the last was a malformed or truncated tool call. `
-                        + `The model's tool call kept getting cut off before it finished. `
-                        + `Fix: have the model split a large write into write_file (header + first section) then append_to_file for the rest, `
-                        + `reduce the attached input, or raise Max output tokens in Settings -> Models.`,
-                    );
-                }
-
-                // FEAT-24-02 (ADR-12 amendment): prune old tool_result contents to
-                // skeletons now that the turn is closed and the history is consistent.
-                // Cheap, idempotent, no LLM call — runs before the condensing checks
-                // so their token estimate reflects the pruned state.
-                this.microcompact(history);
-
-                // Context Condensing: check only after history is fully consistent
-                // (assistant tool_calls + tool_results both present, no orphaned calls)
-                if (iteration > 0 && this.condensingEnabled && loopState.completionResult === null) {
-                    const estimatedTokens = this.estimateTokens(history);
-                    const contextWindow = this.getModelContextWindow();
-                    const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
-                    if (estimatedTokens > threshold) {
-                        // Pre-Compaction Memory Flush (Phase 5)
-                        await this.taskCallbacks.onPreCompactionFlush?.(history).catch((e) =>
-                            console.warn('[AgentTask] Pre-compaction flush failed (non-fatal):', e)
-                        );
-                        const firstOk = await this.condenseHistory(history, systemPrompt, abortSignal, repetitionDetector.getLedger());
-                        // FIX-COMPACT-02: do not retry when the first pass already failed.
-                        if (firstOk) {
-                            let condensingRetries = 0;
-                            const MAX_CONDENSING_RETRIES = 2;
-                            // FIX-COMPACT-06: adaptive tail (10k -> 5k -> 2.5k).
-                            let nextTail = 10_000;
-
-                            while (condensingRetries < MAX_CONDENSING_RETRIES) {
-                                const postTokens = this.estimateTokens(history);
-                                if (postTokens <= threshold) break;
-
-                                nextTail = Math.max(1_000, Math.floor(nextTail / 2));
-                                console.warn(
-                                    `[AgentTask] Still over threshold after condensing (${postTokens} > ${threshold}). ` +
-                                    `Retry ${condensingRetries + 1}/${MAX_CONDENSING_RETRIES} with tail=${nextTail} tokens`
-                                );
-
-                                const retryOk = await this.condenseHistory(
-                                    history, systemPrompt, abortSignal,
-                                    repetitionDetector.getLedger(), nextTail,
-                                );
-                                if (!retryOk) break;
-                                condensingRetries++;
-                            }
-
-                            if (condensingRetries > 0) {
-                                console.debug(`[AgentTask] Required ${condensingRetries + 1} condensing passes to stay under threshold`);
-                            }
+                // IMP-41-02-01 stage 3a: batch execution (tool_error blocks,
+                // parallel-prefix dispatch, mistake breakers, result push,
+                // inflight snapshot) lives in the engine. The facade provides
+                // host services via ports; runTool keeps the pipeline wiring.
+                await this.loopEngine.executeToolBatch(validToolUses, toolErrors, loopState, history, {
+                    isAborted: () => abortSignal?.aborted ?? false,
+                    executeTool: runTool,
+                    onToolResult: (name, content, isError) =>
+                        this.taskCallbacks.onToolResult(name, content, isError),
+                    qualityGateFor: (toolName) => TOOL_METADATA[toolName]?.qualityGateChecklist,
+                    consecutiveMistakeLimit: this.consecutiveMistakeLimit,
+                    parallelSafe: PARALLEL_SAFE,
+                    saveInflightSnapshot: this.inflightStore
+                        ? () => {
+                            void this.inflightStore?.saveSnapshot({
+                                taskId,
+                                conversationId: conversationId ?? '',
+                                mode: activeMode.slug,
+                                savedAt: Date.now(),
+                                state: { ...loopState },
+                                history: JSON.parse(JSON.stringify(history)) as typeof history,
+                            });
                         }
-                    } else {
-                        // FEAT-24-02 second stage: earlier, gentler rolling summary.
-                        await this.maybeRollingSummary(
-                            history, systemPrompt, estimatedTokens, threshold, contextWindow,
-                            abortSignal, repetitionDetector.getLedger(),
-                        );
-                    }
-                }
+                        : undefined,
+                }, { interceptors: loopInterceptors, activeMode });
+
+                // IMP-41-02-01 stage 3b: post-batch condense trigger
+                // (microcompact, threshold condense with retries, else the
+                // gentler rolling summary) runs in the engine — only after
+                // history is fully consistent (assistant tool_calls +
+                // tool_results both present, no orphaned calls).
+                await this.loopEngine.maybeCondenseAfterToolBatch(loopState, history, condensePorts);
 
                 // Break loop if attempt_completion was signaled.
                 // The result field is an internal log entry — NEVER render it
@@ -2265,27 +1953,14 @@ export class AgentTask {
             if (this.inflightStore && loopState.phase !== 'failed') {
                 void this.inflightStore.clear(taskId);
             }
-            // VO/Stigmergy: outcome-graded resolution. Binary: accept or
-            // abandon. The default is 'abandon' so any unexpected exit
-            // path (e.g. a future return someone forgets to grade) lands
-            // on the safe side: no reinforcement of an unverified path.
-            // accept and abandon are first-resolver-wins inside the
-            // adapter, so re-entry is safe. `end()` is always called --
-            // it just marks the turn as delivered; the resolution decides
-            // what actually happens to the substrate.
-            // FIX 2026-06-09: 'iterate' was previously a third option
-            // but the upstream loop SDK uses iterate() to CANCEL the
-            // auto-accept timer AND leak the response buffer with zero
-            // deposits. With the prompt forbidding attempt_completion
-            // for read-only tasks, every clean read-only turn ended on
-            // iterate -> substrate accumulated zero edges -> no pin
-            // could ever form. The grading is now binary.
-            await stigmergyTurn.end();
-            if (loopState.stigmergyOutcome === 'accept') {
-                await stigmergyTurn.accept(loopState.totalInputTokens + loopState.totalOutputTokens);
-            } else {
-                await stigmergyTurn.abandon();
-            }
+            // VO/Stigmergy: outcome-graded resolution, contract v2 onRunEnd.
+            // Binary: accept or abandon. The default is 'abandon' so any
+            // unexpected exit path (e.g. a future return someone forgets to
+            // grade) lands on the safe side: no reinforcement of an
+            // unverified path. Grading happens at the exit sites above
+            // (serializable state); the interceptor delivers end() +
+            // accept/abandon from that state.
+            await stigmergyInterceptor.onRunEnd({ state: loopState, history, activeMode });
 
             // FEAT-32-02 PR 2.2 / ADR-133: episode recording (single source
             // of truth for the episode payload). Fires for every exit path
@@ -2696,6 +2371,13 @@ export class AgentTask {
         // Post-condensing logging
         const postMessageCount = history.length;
         const postTokens = this.estimateTokens(history);
+        // IMP-41-03-04 safe subset: pair the pre-condense snapshot with the
+        // post-splice state so getCondenseTimeline() shows before/after
+        // pairs (the "what did condensing eat?" diagnosis ADR-149 targets).
+        this.condenseForensics.recordGeneration(
+            `post-condense ${new Date().toISOString()} (${postMessageCount} msgs, ~${postTokens}t)`,
+            history,
+        );
         const contextWindow = this.getModelContextWindow();
         const threshold = Math.floor(contextWindow * (this.condensingThreshold / 100));
         const percentUsed = contextWindow > 0 ? Math.round((postTokens / contextWindow) * 100) : 0;
