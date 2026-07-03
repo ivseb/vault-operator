@@ -31,7 +31,6 @@ function makePorts(overrides: Partial<ToolBatchPorts> = {}): ToolBatchPorts {
         isAborted: () => false,
         executeTool: vi.fn(async (): Promise<ToolExecResult> => ({ content: 'ok' })),
         onToolResult: vi.fn(),
-        escalateToMain: vi.fn(),
         qualityGateFor: () => undefined,
         consecutiveMistakeLimit: 3,
         parallelSafe: new Set(['read_file', 'search_files']),
@@ -126,7 +125,7 @@ describe('AgentLoopEngine.executeToolBatch', () => {
         expect(resultBlocks(history).map((b) => b.tool_use_id)).toEqual(['t1']);
     });
 
-    it('counts mistakes, resets on success, escalates at 2 and throws the exact breaker message at the limit', async () => {
+    it('counts mistakes, resets on success, dispatches post-update hooks and throws the exact breaker message at the limit', async () => {
         const engine = new AgentLoopEngine();
         const state = createInitialLoopState();
         const history: MessageParam[] = [];
@@ -138,19 +137,27 @@ describe('AgentLoopEngine.executeToolBatch', () => {
         };
         const executeTool = vi.fn(async (tu: ToolUseBlock) => outcomes[tu.id]);
         const ports = makePorts({ executeTool, parallelSafe: new Set<string>(), consecutiveMistakeLimit: 2 });
+        // Contract v2: the hook sees the POST-update counter (RouterEscalation
+        // reads it to decide the >= 2 escalation).
+        const seenCounts: number[] = [];
+        const spyInterceptor = {
+            name: 'spy',
+            onToolResult: vi.fn((_evt, ctx) => { seenCounts.push(ctx.state.consecutiveMistakes); }),
+        };
 
         await expect(engine.executeToolBatch(
             [toolUse('t1', 'a'), toolUse('t2', 'b'), toolUse('t3', 'c'), toolUse('t4', 'd')],
             new Map(), state, history, ports,
+            { interceptors: [spyInterceptor], activeMode: { name: 'Agent', slug: 'agent', roleDefinition: '' } },
         )).rejects.toThrow(
             'Agent stopped after 2 consecutive errors. '
             + 'Check the tool results above or raise the limit in Settings → Advanced.',
         );
 
-        // t1 error (1), t2 success (reset), t3 error (1), t4 error (2) -> escalate + throw.
+        // t1 error (1), t2 success (reset), t3 error (1), t4 error (2) -> throw.
         expect(state.consecutiveMistakes).toBe(2);
         expect(state.totalToolErrors).toBe(3);
-        expect(ports.escalateToMain).toHaveBeenCalledTimes(1);
+        expect(seenCounts).toEqual([1, 0, 1, 2]);
         // The throw happens before the history push -- run()'s error policy owns the turn.
         expect(history).toHaveLength(0);
     });
@@ -228,16 +235,26 @@ describe('AgentLoopEngine.executeToolBatch', () => {
         expect(state2.phase).toBe('streaming');
     });
 
-    it('does not escalate below two consecutive mistakes', async () => {
+    it('fires onToolResult hooks in registration order, only for executed tools', async () => {
         const engine = new AgentLoopEngine();
         const state = createInitialLoopState();
         const history: MessageParam[] = [];
-        const executeTool = vi.fn(async (): Promise<ToolExecResult> => ({ content: '<error>x</error>', is_error: true }));
-        const ports = makePorts({ executeTool, parallelSafe: new Set<string>() });
+        const order: string[] = [];
+        const first = { name: 'first', onToolResult: vi.fn(() => { order.push('first'); }) };
+        const second = { name: 'second', onToolResult: vi.fn(() => { order.push('second'); }) };
+        const ports = makePorts();
 
-        await engine.executeToolBatch([toolUse('t1', 'a')], new Map(), state, history, ports);
+        await engine.executeToolBatch(
+            [toolUse('t1', 'write_file')],
+            new Map([['e1', 'stream-side error']]),  // never reaches the hooks
+            state, history, ports,
+            { interceptors: [first, second], activeMode: { name: 'Agent', slug: 'agent', roleDefinition: '' } },
+        );
 
-        expect(state.consecutiveMistakes).toBe(1);
-        expect(ports.escalateToMain).not.toHaveBeenCalled();
+        expect(order).toEqual(['first', 'second']);
+        expect(first.onToolResult).toHaveBeenCalledTimes(1); // t1 only, not e1
+        expect(first.onToolResult).toHaveBeenCalledWith(
+            { toolName: 'write_file', isError: false }, expect.anything(),
+        );
     });
 });

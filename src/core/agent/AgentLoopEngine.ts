@@ -69,11 +69,6 @@ export interface ToolBatchPorts {
     executeTool(toolUse: ToolUseBlock): Promise<ToolExecResult>;
     /** UI callback per finished tool (FIFO order contract with the sidebar). */
     onToolResult(name: string, content: string, isError: boolean): void;
-    /**
-     * TaskRouter escalation trigger, fired at >= 2 consecutive mistakes.
-     * Moves into a RouterEscalationInterceptor with contract v2.
-     */
-    escalateToMain(): void;
     /** TOOL_METADATA quality-gate lookup (host-side table). */
     qualityGateFor(toolName: string): string | undefined;
     consecutiveMistakeLimit: number;
@@ -295,6 +290,10 @@ export class AgentLoopEngine {
         state: AgentLoopState,
         history: MessageParam[],
         ports: ToolBatchPorts,
+        interceptorDispatch?: {
+            interceptors: LoopInterceptor[];
+            activeMode: LoopInterceptorContext['activeMode'];
+        },
     ): Promise<void> {
         const toolResultBlocks: ContentBlock[] = [];
 
@@ -317,8 +316,18 @@ export class AgentLoopEngine {
             ports.onToolResult(toolUse.name, extractTextContent(result.content), result.is_error ?? false);
 
             if (result.is_error) { state.consecutiveMistakes++; state.totalToolErrors++; } else { state.consecutiveMistakes = 0; }
-            // v2.10.0 TaskRouter: escalate to main model after 2 errors
-            if (state.consecutiveMistakes >= 2) ports.escalateToMain();
+            // Contract v2: executed-tool hook fires after mistake accounting
+            // and before the breaker check (RouterEscalation lives here).
+            if (interceptorDispatch) {
+                const ctx: LoopInterceptorContext = {
+                    state, history, activeMode: interceptorDispatch.activeMode,
+                };
+                for (const interceptor of interceptorDispatch.interceptors) {
+                    interceptor.onToolResult?.(
+                        { toolName: toolUse.name, isError: result.is_error ?? false }, ctx,
+                    );
+                }
+            }
             if (ports.consecutiveMistakeLimit > 0 && state.consecutiveMistakes >= ports.consecutiveMistakeLimit) {
                 throw new Error(
                     `Agent stopped after ${state.consecutiveMistakes} consecutive errors. ` +

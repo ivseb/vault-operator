@@ -38,6 +38,7 @@ import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine, type CondensePorts } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
+import { RouterEscalationInterceptor } from './agent/interceptors/RouterEscalationInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay } from '../api/retry';
@@ -788,63 +789,46 @@ export class AgentTask {
         // const useSurfacedOnly = false;
         // if (useSurfacedOnly && stigmergyTurn.surfaced.length > 0) { ... }
 
-        // v2.10.0: TaskRouter. Classify the user prompt; route simple
-        // tool tasks onto the helper model so trivial xlsx / docx / file
-        // ops do not consume the main-model rate. Only runs for the
-        // top-level task (subtasks inherit the parent's api). Falls back
-        // to the main api when the router is disabled, no helper model
-        // is configured, or classification is not 'simple'.
-        //
-        // Logging is deliberately verbose: every code path that ends with
-        // "no routing" emits an explanatory line so users can tell from
-        // the console why routing did not happen (toggle off, no helper
-        // model, classified as complex, etc).
+        // v2.10.0: TaskRouter, since contract v2 as an interceptor. Only
+        // runs for the top-level task (subtasks inherit the parent's api);
+        // falls back to the main api when disabled, no helper model is
+        // configured, or classification is not 'simple'. The >= 2 error
+        // escalation fires via onToolResult inside the engine's batch
+        // dispatch. Dynamic TaskRouter / helper-api imports live in the
+        // ports so the interceptor stays dependency-light.
         const mainApi = this.api;
-        let routerDecision: 'simple' | 'complex' | 'unknown' | 'disabled' = 'disabled';
-        if (shouldRunTaskRouter(this.depth, this.modelOverrideActive)) {
-            try {
-                const plugin = this.toolRegistry.plugin;
-                const routerEnabled = plugin.settings.autoTaskRouter?.enabled ?? true;
-                const helperModel = plugin.getHelperModel();
-                if (!routerEnabled) {
-                    console.debug('[TaskRouter] disabled (Settings > Loop > Auto-route simple tasks is off). Staying on main model.');
-                } else if (!helperModel) {
-                    console.debug('[TaskRouter] no helper model configured (Settings > Loop > Helper Model). Staying on main model.');
-                } else {
-                    const { TaskRouter } = await import('./routing/TaskRouter');
-                    const router = new TaskRouter();
-                    const promptText = typeof userMessage === 'string'
-                        ? userMessage
-                        : userMessage
-                            .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                            .map(b => b.text)
-                            .join(' ');
-                    routerDecision = router.classifyByRegex(promptText);
-                    if (routerDecision === 'simple') {
-                        const { getHelperApi } = await import('./helper-api');
-                        this.api = getHelperApi(plugin, this.api);
-                        console.debug(
-                            `[TaskRouter] classification=simple model=helper(${helperModel.name}) ` +
-                            '-- routing this task to helper model. Escalates back to main on >= 2 errors.',
-                        );
-                    } else {
-                        console.debug(`[TaskRouter] classification=${routerDecision} model=main(${this.api.getModel().id}) -- staying on main model.`);
-                    }
-                }
-            } catch (e) {
-                console.warn('[TaskRouter] router failed, staying on main api:', e);
-            }
-        } else if (this.depth === 0 && this.modelOverrideActive) {
-            console.debug('[TaskRouter] skipped -- manual model override active. Staying on the picked model.');
-        }
-
-        // Escalation helper: switch back to main api after 2 consecutive errors.
         const escalateToMain = () => {
             if (this.api !== mainApi) {
                 console.debug('[TaskRouter] Escalating to main model after consecutive errors.');
                 this.api = mainApi;
             }
         };
+        const routerEscalation = new RouterEscalationInterceptor({
+            shouldRun: () => shouldRunTaskRouter(this.depth, this.modelOverrideActive),
+            manualOverrideActive: () => this.depth === 0 && this.modelOverrideActive,
+            isEnabled: () => this.toolRegistry.plugin.settings.autoTaskRouter?.enabled ?? true,
+            helperModelName: () => this.toolRegistry.plugin.getHelperModel()?.name ?? null,
+            classify: async (promptText) => {
+                const { TaskRouter } = await import('./routing/TaskRouter');
+                return new TaskRouter().classifyByRegex(promptText);
+            },
+            switchToHelper: async () => {
+                const { getHelperApi } = await import('./helper-api');
+                this.api = getHelperApi(this.toolRegistry.plugin, this.api);
+            },
+            mainModelId: () => this.api.getModel().id,
+            escalateToMain,
+        });
+        await routerEscalation.onRunStart({
+            history,
+            userMessageText: typeof userMessage === 'string'
+                ? userMessage
+                : userMessage
+                    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+                    .map(b => b.text)
+                    .join(' '),
+            abortSignal,
+        });
 
         // ADR-061: Fast Path — if a recipe matches with high confidence,
         // execute tool steps as a batch before entering the normal loop.
@@ -1396,8 +1380,10 @@ export class AgentTask {
             todoAnchor.noteTodoUpdate(items);
         };
         const powerSteering = new PowerSteeringInterceptor(this.powerSteeringFrequency);
-        // IMP-41-02-01c: iteration-start interceptors in execution order.
-        const preambleInterceptors = [powerSteering, new AdvisorReminderInterceptor()];
+        // IMP-41-02-01c: loop interceptors in execution order. The engine
+        // dispatches onIterationStart in the preamble and onToolResult in
+        // the batch phase (only RouterEscalation implements the latter).
+        const loopInterceptors = [powerSteering, new AdvisorReminderInterceptor(), routerEscalation];
 
 
         // EPIC-26 / FEAT-26-01 / ADR-120: per-task advisor budget. Hard cap
@@ -1501,7 +1487,7 @@ export class AgentTask {
                         maxIterations: MAX_ITERATIONS,
                         consumeSteeringMessages: this.taskCallbacks.consumeSteeringMessages,
                     },
-                    preambleInterceptors,
+                    loopInterceptors,
                 );
                 if (preambleOutcome === 'abort') break;
 
@@ -1765,7 +1751,6 @@ export class AgentTask {
                     executeTool: runTool,
                     onToolResult: (name, content, isError) =>
                         this.taskCallbacks.onToolResult(name, content, isError),
-                    escalateToMain,
                     qualityGateFor: (toolName) => TOOL_METADATA[toolName]?.qualityGateChecklist,
                     consecutiveMistakeLimit: this.consecutiveMistakeLimit,
                     parallelSafe: PARALLEL_SAFE,
@@ -1781,7 +1766,7 @@ export class AgentTask {
                             });
                         }
                         : undefined,
-                });
+                }, { interceptors: loopInterceptors, activeMode });
 
                 // IMP-41-02-01 stage 3b: post-batch condense trigger
                 // (microcompact, threshold condense with retries, else the
