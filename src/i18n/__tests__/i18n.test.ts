@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+    applyLocalePack,
+    getActiveLocale,
     initI18n,
+    localePackFilename,
+    needsLocalePack,
     resolveLocale,
     SUPPORTED_LOCALES,
     t,
@@ -53,8 +57,7 @@ describe('t lookup chain', () => {
         expect(t('does.not.exist')).toBe('does.not.exist');
     });
 
-    it('initializes lazily from the stubbed app language (en)', () => {
-        // No explicit init: first t() call must self-initialize without throwing.
+    it('resolves to en without an explicit init (default active table)', () => {
         expect(t('settings.group.providers')).toBe(en['settings.group.providers']);
     });
 
@@ -62,6 +65,28 @@ describe('t lookup chain', () => {
         initI18n();
         initI18n();
         expect(t('settings.group.providers')).toBe(en['settings.group.providers']);
+    });
+});
+
+describe('language pack loading', () => {
+    it('stub app language (en) needs no pack', () => {
+        initI18n();
+        expect(getActiveLocale()).toBe('en');
+        expect(needsLocalePack()).toBe(false);
+    });
+
+    it('applyLocalePack merges onto en so missing keys still resolve', () => {
+        applyLocalePack({ 'settings.group.providers': 'Anbieter' });
+        // Overridden key comes from the pack.
+        expect(t('settings.group.providers')).toBe('Anbieter');
+        // A key the pack omits still resolves via the en fallback.
+        const anyEnKey = Object.keys(en).find((k) => k !== 'settings.group.providers')!;
+        expect(t(anyEnKey)).toBe((en as Record<string, string>)[anyEnKey]);
+    });
+
+    it('derives the pack filename from the locale code (lowercased)', () => {
+        expect(localePackFilename('de')).toBe('locale-de.json');
+        expect(localePackFilename('zh-TW')).toBe('locale-zh-tw.json');
     });
 });
 

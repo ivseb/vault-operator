@@ -999,6 +999,13 @@ export interface ObsidianAgentSettings {
     onboarding: OnboardingSettings;
 
     /**
+     * FEAT-42-05: locale code the language-pack download was last offered
+     * for. Prevents re-prompting on every start when the user declined.
+     * Empty string means never prompted.
+     */
+    localePackPromptedFor?: string;
+
+    /**
      * FEAT-33-12 follow-up (2026-06-24): open the sidebar chat
      * automatically when the plugin loads / Obsidian starts. With the
      * inline chat the sidebar is no longer needed for every session,

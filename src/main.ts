@@ -96,7 +96,10 @@ import type { ApiHandler } from './api/types';
 import type { ToolUse, ToolCallbacks } from './core/tools/types';
 import { BUILT_IN_MODES } from './core/modes/builtinModes';
 import { mergeDefaultPrompts } from './core/prompts/defaultPrompts';
-import { initI18n, t } from './i18n';
+import { initI18n, t, getActiveLocale } from './i18n';
+import { loadInstalledLocalePack, activeLocaleSpec, LOCALE_LABELS } from './i18n/localePacks';
+import { OptionalAssetManager } from './core/assets/OptionalAssetManager';
+import type { SupportedLocale } from './i18n';
 import { SafeStorageService } from './core/security/SafeStorageService';
 import { GitHubCopilotAuthService } from './core/security/GitHubCopilotAuthService';
 import { ChatGptOAuthService } from './core/auth/ChatGptOAuthService';
@@ -792,6 +795,12 @@ export default class ObsidianAgentPlugin extends Plugin {
         // pluginDataDirsMigrated, layoutMigrationStatus) keep their own
         // direct saveSettings() and are unaffected by this batching.
         await this.flushSettings();
+
+        // FEAT-42-05: apply the installed language pack (if any) BEFORE the
+        // shell is marked ready, so the sidebar renders translated on first
+        // paint. English needs no pack. A missing/invalid pack for a non-en
+        // locale leaves English active and schedules a one-time offer below.
+        await this.applyLocalePackAtBoot();
 
         // FIX-PERF-28: shell is ready -- settings are loaded, migrations
         // have flushed, ModeService is constructible. The sidebar can
@@ -3698,6 +3707,49 @@ export default class ObsidianAgentPlugin extends Plugin {
      * = ganzer Vault, optional via Settings.vaultIngest.autoTrigger.propertyName
      * begrenzbar. Progress als Notice alle 50 Notes.
      */
+    /**
+     * FEAT-42-05: at boot, apply an installed language pack for the active
+     * Obsidian locale (English needs none). If the pack is missing for a
+     * non-English locale, offer a one-time clickable download notice; the
+     * offer repeats only when the locale changes. Never blocks boot on the
+     * network, and never downloads without the explicit click.
+     */
+    private async applyLocalePackAtBoot(): Promise<void> {
+        try {
+            const result = await loadInstalledLocalePack(this);
+            if (!result.needed || result.applied) return;
+
+            const locale = getActiveLocale();
+            if (this.settings.localePackPromptedFor === locale) return;
+            const spec = result.spec ?? activeLocaleSpec(this);
+            if (!spec) return;
+            const label = LOCALE_LABELS[locale as Exclude<SupportedLocale, 'en'>] ?? locale;
+
+            // Persist that we offered this locale so we do not nag every boot.
+            this.settings.localePackPromptedFor = locale;
+            void this.saveSettings();
+
+            const notice = new Notice(t('notice.localePack.offer', { language: label }), 0);
+            notice.noticeEl.addClass('agent-clickable-notice');
+            notice.noticeEl.addEventListener('click', () => {
+                notice.hide();
+                const downloading = new Notice(t('notice.localePack.downloading', { language: label }), 0);
+                void new OptionalAssetManager(this).install(spec)
+                    .then(() => {
+                        downloading.hide();
+                        new Notice(t('notice.localePack.installedReload', { language: label }), 10_000);
+                    })
+                    .catch((e: unknown) => {
+                        downloading.hide();
+                        const msg = e instanceof Error ? e.message : String(e);
+                        new Notice(t('notice.localePack.downloadFailed', { error: msg }), 10_000);
+                    });
+            });
+        } catch (e) {
+            console.warn('[i18n] locale pack boot load failed (non-fatal):', e);
+        }
+    }
+
     async runFrontmatterBackfill(): Promise<void> {
         if (!this.noteSummaryStore || !this.frontmatterPropertyStore) {
             new Notice(t('notice.backfill.storesNotReady'));

@@ -55,6 +55,8 @@ src/_generated/
 plugin-source.json
 office-bundle.js
 pdfjs-bundle.js
+# Language-pack release assets, generated from src/i18n/locales/packs/ (FEAT-42-05)
+locale-*.json
 
 # Environment variables
 .env

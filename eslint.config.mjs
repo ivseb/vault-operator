@@ -65,7 +65,7 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     'Note', 'Web', 'Vault', 'Read', 'Edits', 'Sub-agents',
     'External-commands', 'Remote',
     // Emphasis / language names that the rule otherwise normalises.
-    'FIRST', 'German', 'N', 'Show',
+    'FIRST', 'German', 'English', 'non-English', 'N', 'Show',
     // Plural acronym forms — we want "APIs" / "PDFs" preserved, not folded
     // to "APIS" / "PDFS" via the acronyms list or to "apis" / "pdfs" via
     // the lowercase pass.

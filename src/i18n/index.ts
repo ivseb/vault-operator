@@ -2,9 +2,13 @@
  * Lightweight string module for Obsidian Agent.
  *
  * The active locale follows the Obsidian app language (getLanguage) with no
- * plugin-side language setting. Lookup chain: active locale -> en -> raw key.
- * Obsidian reloads the app on language change, so resolving once per plugin
- * load is sufficient.
+ * plugin-side language setting. English is bundled into main.js and is the
+ * lookup fallback. The eight non-English locales ship as on-demand language
+ * packs (JSON assets, FEAT-42-05) so they never inflate main.js; they are
+ * fetched into the vault on first use, hash-verified, and applied at boot
+ * before the UI renders via applyLocalePack().
+ *
+ * Lookup chain: active locale table -> en -> raw key.
  */
 
 import { getLanguage } from 'obsidian';
@@ -13,16 +17,6 @@ import { en } from './locales/en';
 
 export const SUPPORTED_LOCALES = ['en', 'de', 'zh', 'zh-TW', 'ja', 'ko', 'es', 'fr', 'ru'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
-
-/**
- * All shipped locale tables. Locales land here as they are translated
- * (FEAT-42-05); until then the resolver falls back to en for them.
- * Exported for the parity test suite.
- */
-export const localeTables: Partial<Record<SupportedLocale, Translations>> = { en };
-
-let active: Translations | null = null;
-let activeLocale: SupportedLocale = 'en';
 
 /**
  * Map an Obsidian language code to a shipped locale: exact match first
@@ -39,10 +33,19 @@ export function resolveLocale(obsidianLang: string): SupportedLocale {
     return 'en';
 }
 
+/** Filename of the language pack asset for a non-English locale. */
+export function localePackFilename(locale: SupportedLocale): string {
+    return `locale-${locale.toLowerCase()}.json`;
+}
+
+let active: Translations = en;
+let activeLocale: SupportedLocale = 'en';
+
 /**
- * Resolve the active locale table from the Obsidian app language. Called
- * early in onload(); t() also self-initializes so module-level strings and
- * tests work before the plugin entry point runs.
+ * Resolve the active locale from the Obsidian app language. English resolves
+ * synchronously to the bundled table; a non-English locale keeps the English
+ * fallback active until applyLocalePack() installs the downloaded pack. Called
+ * early in onload(); t() also self-initializes for module-level strings/tests.
  */
 export function initI18n(): void {
     let lang = 'en';
@@ -52,7 +55,7 @@ export function initI18n(): void {
         // Test stubs or very early load paths without a full obsidian module.
     }
     activeLocale = resolveLocale(lang);
-    active = localeTables[activeLocale] ?? en;
+    active = en;
 }
 
 /**
@@ -60,13 +63,27 @@ export function initI18n(): void {
  * 'obsidian' directly, ADR-080) branch on the app language.
  */
 export function getActiveLocale(): SupportedLocale {
-    if (active === null) initI18n();
     return activeLocale;
 }
 
-/** Test hook: force a specific table (null resets to lazy re-init). */
+/** True when the app runs in a non-English locale that needs a language pack. */
+export function needsLocalePack(): boolean {
+    return activeLocale !== 'en';
+}
+
+/**
+ * Install a downloaded language pack as the active table. Merged onto en so
+ * any key the pack is missing still resolves (defense-in-depth on top of the
+ * build-time parity check). Called from the host layer after the pack is read
+ * from the vault and hash-verified.
+ */
+export function applyLocalePack(table: Translations): void {
+    active = { ...en, ...table };
+}
+
+/** Test hook: force a specific table (null resets to the en fallback). */
 export function __setActiveTranslationsForTest(table: Translations | null): void {
-    active = table;
+    active = table ?? en;
 }
 
 /**
@@ -76,8 +93,7 @@ export function __setActiveTranslationsForTest(table: Translations | null): void
  * Supports simple interpolation: `t('key', { count: 5 })` replaces `{{count}}`.
  */
 export function t(key: string, vars?: Record<string, string | number>): string {
-    if (active === null) initI18n();
-    let text = active?.[key] ?? (en as Translations)[key] ?? key;
+    let text = active[key] ?? (en as Translations)[key] ?? key;
     if (vars) {
         for (const [k, v] of Object.entries(vars)) {
             // Replacer function so '$&'-style patterns in values stay literal.

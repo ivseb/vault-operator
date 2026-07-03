@@ -414,6 +414,45 @@ async function generateOfficeBundles() {
     writeFileSync(join(outDir, "asset-bundle-hashes.ts"), lines.join("\n") + "\n");
 }
 
+/**
+ * FEAT-42-05: emit the on-demand language packs as release assets and pin
+ * their SHA256 into src/_generated/locale-hashes.ts, so main.js can verify a
+ * downloaded pack against the exact bytes this build produced.
+ *
+ * Source of truth is src/i18n/locales/packs/<code>.json (checked in, parity-
+ * tested). Each pack is copied to the repo root as locale-<code>.json (the
+ * release-asset filename) and hashed. English is bundled into main.js and has
+ * no pack. Runs before the main bundle so the hashes are compiled in.
+ */
+function generateLocaleHashes() {
+    const packDir = join(__dirname, "src/i18n/locales/packs");
+    if (!existsSync(packDir)) return;
+    const locales = readdirSync(packDir)
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => f.replace(/\.json$/, ""));
+
+    const lines = [
+        "// AUTO-GENERATED -- do not edit. Source: esbuild generateLocaleHashes().",
+        "/* eslint-disable -- generated build artifact */",
+        "",
+        "export const LOCALE_PACK_SHA256: Record<string, string> = {",
+    ];
+    for (const code of locales.sort()) {
+        const src = readFileSync(join(packDir, `${code}.json`));
+        const sha = createHash("sha256").update(src).digest("hex");
+        // Release-asset copy at repo root: locale-<code>.json.
+        writeFileSync(join(__dirname, `locale-${code}.json`), src);
+        lines.push(`    ${JSON.stringify(code)}: ${JSON.stringify(sha)},`);
+        const sizeKB = Math.round(src.length / 1024);
+        console.log(`[locale-packs] locale-${code}.json: ${sizeKB} KB, sha=${sha.slice(0, 16)}...`);
+    }
+    lines.push("};", "");
+
+    const outDir = join(__dirname, "src/_generated");
+    if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
+    writeFileSync(join(outDir, "locale-hashes.ts"), lines.join("\n") + "\n");
+}
+
 // Path to the Obsidian vault plugin folder (auto-deploy on build)
 // Set PLUGIN_DIR in your .env or shell environment
 // Load .env file if it exists (for PLUGIN_DIR with iCloud paths containing spaces)
@@ -598,15 +637,35 @@ const mainBuildOptions = {
                             const useCacheLayout = existsSync(join(vaultRoot, ".vault-operator", "cache"));
                             const assetDir = useCacheLayout ? cacheAssetDir : legacyAssetDir;
                             if (!existsSync(assetDir)) mkdirSync(assetDir, { recursive: true });
-                            for (const name of ["office-bundle.js", "pdfjs-bundle.js"]) {
-                                if (!existsSync(name)) continue;
-                                copyFileSync(name, join(assetDir, name));
-                                const sha = createHash("sha256")
-                                    .update(readFileSync(name))
-                                    .digest("hex");
-                                writeFileSync(join(assetDir, name + ".sha256"), sha);
+                            // Optional bundles plus the language packs
+                            // (locale-*.json) emitted by generateLocaleHashes().
+                            const localePacks = existsSync("src/i18n/locales/packs")
+                                ? readdirSync("src/i18n/locales/packs")
+                                    .filter((f) => f.endsWith(".json"))
+                                    .map((f) => `locale-${f}`)
+                                : [];
+                            // Write to both the cache-layout dir and the
+                            // legacy dir. OptionalAssetManager reads the legacy
+                            // .vault-operator/assets/ path at runtime, so the
+                            // language packs (and bundles) must land there for
+                            // the running plugin to pick them up without the
+                            // download flow. The cache/assets copy stays for
+                            // post-migration tooling that expects it.
+                            const targetDirs = useCacheLayout && cacheAssetDir !== legacyAssetDir
+                                ? [assetDir, legacyAssetDir]
+                                : [assetDir];
+                            for (const dir of targetDirs) {
+                                if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+                                for (const name of ["office-bundle.js", "pdfjs-bundle.js", ...localePacks]) {
+                                    if (!existsSync(name)) continue;
+                                    copyFileSync(name, join(dir, name));
+                                    const sha = createHash("sha256")
+                                        .update(readFileSync(name))
+                                        .digest("hex");
+                                    writeFileSync(join(dir, name + ".sha256"), sha);
+                                }
                             }
-                            console.log(`[vault-deploy] optional assets → ${assetDir}`);
+                            console.log(`[vault-deploy] optional assets → ${targetDirs.join(", ")}`);
                         } catch (e) {
                             console.warn("[vault-deploy] Copy failed:", e.message);
                         }
@@ -657,6 +716,9 @@ if (prod) {
     // Build office-bundle.js + pdfjs-bundle.js + asset-bundle-hashes.ts
     // BEFORE main bundle, so main.js sees the fresh SHAs.
     await generateOfficeBundles();
+    // Emit language-pack SHAs + release-asset copies BEFORE the main bundle
+    // so locale-hashes.ts is compiled in (FEAT-42-05).
+    generateLocaleHashes();
     // Single-shot build with up-to-date generated files
     await esbuild.build(mainBuildOptions);
     process.exit(0);
@@ -664,6 +726,7 @@ if (prod) {
     try { generateInlineAssets(); } catch { /* workers not yet built — will be generated on first rebuild */ }
     try { await generateSourceBundle(); } catch { /* non-fatal during watch */ }
     try { await generateOfficeBundles(); } catch (e) { console.warn("[office-bundles] dev build skipped:", e.message); }
+    try { generateLocaleHashes(); } catch (e) { console.warn("[locale-packs] dev build skipped:", e.message); }
     const context = await esbuild.context(mainBuildOptions);
     await context.watch();
     await workerContext.watch();

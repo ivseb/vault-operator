@@ -61,6 +61,11 @@ jobs:
           if [ -f "pdfjs-bundle.js" ]; then
             cp pdfjs-bundle.js optional-assets/
           fi
+          # FEAT-42-05: on-demand language packs (locale-<code>.json),
+          # emitted by generateLocaleHashes() during the build.
+          for f in locale-*.json; do
+            [ -f "$f" ] && cp "$f" optional-assets/
+          done
 
           echo "=== Plugin release assets ==="
           ls -lh release-assets/
@@ -72,9 +77,9 @@ jobs:
           ls -lh release-assets/main.js release-assets/manifest.json release-assets/styles.css
           echo "manifest version: $(jq -r .version release-assets/manifest.json)"
           echo "Optional assets:"
-          for f in ort-wasm-simd-threaded.wasm plugin-source.json office-bundle.js pdfjs-bundle.js; do
-            if [ -f "optional-assets/$f" ]; then
-              echo "  $f  $(ls -lh optional-assets/$f | awk '{print $5}')  sha256=$(shasum -a 256 optional-assets/$f | cut -d' ' -f1)"
+          for f in optional-assets/*; do
+            if [ -f "$f" ]; then
+              echo "  $(basename "$f")  $(ls -lh "$f" | awk '{print $5}')  sha256=$(shasum -a 256 "$f" | cut -d' ' -f1)"
             fi
           done
 
@@ -88,6 +93,7 @@ jobs:
             optional-assets/plugin-source.json
             optional-assets/office-bundle.js
             optional-assets/pdfjs-bundle.js
+            optional-assets/locale-*.json
 
       # IMPORTANT: order matters. The Obsidian community plugin crawler
        # walks the GitHub releases list and matches the manifest.json
@@ -114,16 +120,18 @@ jobs:
             - `plugin-source.json` -- self-development source bundle (~5 MB)
             - `office-bundle.js` -- exceljs + docx + pptxgenjs (~1.7 MB)
             - `pdfjs-bundle.js` -- pdfjs-dist + worker (~1.6 MB)
+            - `locale-<code>.json` -- UI language packs (de, zh, zh-tw, ja, ko, es, fr, ru; ~0.2 MB each)
 
             They are NOT part of the plugin's main release tag so the
             Obsidian plugin installer never sees them. SHA-256 hashes are
-            pinned in the plugin code (`assetHashes.ts`) and verified
-            before any file is persisted.
+            pinned in the plugin code (`assetHashes.ts`, `locale-hashes.ts`)
+            and verified before any file is persisted.
           files: |
             optional-assets/ort-wasm-simd-threaded.wasm
             optional-assets/plugin-source.json
             optional-assets/office-bundle.js
             optional-assets/pdfjs-bundle.js
+            optional-assets/locale-*.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -10,7 +10,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Plugin } from 'obsidian';
-import { OptionalAssetManager, buildSelfDevSourceSpec } from '../OptionalAssetManager';
+import { OptionalAssetManager, buildSelfDevSourceSpec, buildLocaleSpec } from '../OptionalAssetManager';
 
 const { requestUrlMock } = vi.hoisted(() => ({ requestUrlMock: vi.fn() }));
 
@@ -37,6 +37,7 @@ interface AdapterMock {
     mkdir: ReturnType<typeof vi.fn>;
     writeBinary: ReturnType<typeof vi.fn>;
     write: ReturnType<typeof vi.fn>;
+    read: ReturnType<typeof vi.fn>;
 }
 
 function makeAdapter(): AdapterMock {
@@ -45,6 +46,7 @@ function makeAdapter(): AdapterMock {
         mkdir: vi.fn().mockResolvedValue(undefined),
         writeBinary: vi.fn().mockResolvedValue(undefined),
         write: vi.fn().mockResolvedValue(undefined),
+        read: vi.fn().mockResolvedValue(''),
     };
 }
 
@@ -101,5 +103,59 @@ describe('OptionalAssetManager.install() hash verification', () => {
             '.vault-operator/assets/plugin-source.json.sha256',
             sha,
         );
+    });
+});
+
+describe('buildLocaleSpec (FEAT-42-05)', () => {
+    it('derives filename and URL from the locale code', () => {
+        const spec = buildLocaleSpec('2.15.0', 'zh-tw', 'Traditional Chinese', 'b'.repeat(64));
+        expect(spec.id).toBe('language-pack');
+        expect(spec.filename).toBe('locale-zh-tw.json');
+        expect(spec.downloadUrl).toBe(
+            'https://github.com/pssah4/vault-operator/releases/download/2.15.0-assets/locale-zh-tw.json',
+        );
+        expect(spec.label).toContain('Traditional Chinese');
+    });
+});
+
+describe('OptionalAssetManager.loadJson (FEAT-42-05)', () => {
+    it('parses an installed pack whose content hash matches', async () => {
+        const packObj = { 'settings.group.providers': 'Anbieter' };
+        const text = JSON.stringify(packObj);
+        const sha = await sha256Hex(toArrayBuffer(text));
+
+        const adapter = makeAdapter();
+        // sidecar read then content read
+        adapter.read = vi.fn()
+            .mockResolvedValueOnce(sha)   // sidecar .sha256
+            .mockResolvedValueOnce(text); // pack content
+        const manager = new OptionalAssetManager(makePlugin(adapter));
+        const spec = buildLocaleSpec('2.15.0', 'de', 'Deutsch', sha);
+
+        const loaded = await manager.loadJson<Record<string, string>>(spec);
+        expect(loaded).toEqual(packObj);
+    });
+
+    it('returns null when the content hash does not match the sidecar', async () => {
+        const text = JSON.stringify({ a: 'b' });
+        const wrongSha = 'c'.repeat(64);
+
+        const adapter = makeAdapter();
+        adapter.read = vi.fn()
+            .mockResolvedValueOnce(wrongSha) // sidecar matches spec...
+            .mockResolvedValueOnce(text);    // ...but content hashes to something else
+        const manager = new OptionalAssetManager(makePlugin(adapter));
+        const spec = buildLocaleSpec('2.15.0', 'de', 'Deutsch', wrongSha);
+
+        expect(await manager.loadJson(spec)).toBeNull();
+    });
+
+    it('returns null when the pack is not installed', async () => {
+        const adapter = makeAdapter();
+        adapter.exists = vi.fn().mockResolvedValue(false);
+        const manager = new OptionalAssetManager(makePlugin(adapter));
+        const spec = buildLocaleSpec('2.15.0', 'de', 'Deutsch', 'd'.repeat(64));
+
+        expect(await manager.loadJson(spec)).toBeNull();
     });
 });

@@ -1,4 +1,4 @@
-import { App, setIcon } from 'obsidian';
+import { App, Notice, setIcon } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { t } from '../../i18n';
 import { addSectionHeading } from './utils';
@@ -18,6 +18,9 @@ import {
     PDFJS_BUNDLE_SHA256,
 } from '../../core/assets/assetHashes';
 import { renderOptionalAssetBlock } from './renderOptionalAssetBlock';
+import { getActiveLocale, needsLocalePack } from '../../i18n';
+import { activeLocaleSpec, LOCALE_LABELS } from '../../i18n/localePacks';
+import type { SupportedLocale } from '../../i18n';
 
 
 export class OptionalAssetsTab {
@@ -34,6 +37,17 @@ export class OptionalAssetsTab {
 
     build(containerEl: HTMLElement): void {
         this.buildIntroSection(containerEl);
+
+        // FEAT-42-05: language pack for the active Obsidian locale. Only
+        // shown when the app runs in a non-English language.
+        if (needsLocalePack()) {
+            addSectionHeading(
+                containerEl,
+                t('settings.optionalAssets.headingLanguage'),
+                { body: t('settings.optionalAssets.sectionLanguageInfo') },
+            );
+            this.renderLanguagePack(containerEl);
+        }
 
         addSectionHeading(
             containerEl,
@@ -55,6 +69,23 @@ export class OptionalAssetsTab {
             { body: t('settings.optionalAssets.sectionSelfDevInfo') },
         );
         void this.renderSelfDevSource(containerEl);
+    }
+
+    private renderLanguagePack(containerEl: HTMLElement): void {
+        const spec = activeLocaleSpec(this.plugin);
+        if (!spec) return;
+        const locale = getActiveLocale();
+        const label = LOCALE_LABELS[locale as Exclude<SupportedLocale, 'en'>] ?? locale;
+        renderOptionalAssetBlock({
+            plugin: this.plugin,
+            containerEl,
+            spec,
+            notInstalledStatus: t('settings.optionalAssets.languageNotInstalled', { language: label }),
+            onPostInstall: async () => {
+                new Notice(t('notice.optionalAssets.languageInstalled', { language: label }), 8_000);
+                await Promise.resolve();
+            },
+        });
     }
 
     private renderOfficeBundle(containerEl: HTMLElement): void {

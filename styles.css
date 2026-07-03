@@ -8468,3 +8468,8 @@
 .agent-inline-panel__bubble--checkpoint .checkpoint-action-btn:hover {
     opacity: 1;
 }
+
+/* FEAT-42-05: clickable language-pack download notice */
+.agent-clickable-notice {
+    cursor: pointer;
+}
