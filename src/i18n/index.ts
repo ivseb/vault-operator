@@ -38,7 +38,15 @@ export function localePackFilename(locale: SupportedLocale): string {
     return `locale-${locale.toLowerCase()}.json`;
 }
 
-let active: Translations = en;
+/**
+ * Null-prototype snapshot of the bundled English table (audit I-2, defense in
+ * depth). Used as the default active table and as the lookup fallback so
+ * neither active[key] nor the fallback can ever return an inherited
+ * Object.prototype member (e.g. t('toString') resolves to the raw key).
+ */
+const EN_TABLE: Translations = Object.assign(Object.create(null) as Translations, en);
+
+let active: Translations = EN_TABLE;
 let activeLocale: SupportedLocale = 'en';
 
 /**
@@ -55,7 +63,7 @@ export function initI18n(): void {
         // Test stubs or very early load paths without a full obsidian module.
     }
     activeLocale = resolveLocale(lang);
-    active = en;
+    active = EN_TABLE;
 }
 
 /**
@@ -78,12 +86,15 @@ export function needsLocalePack(): boolean {
  * from the vault and hash-verified.
  */
 export function applyLocalePack(table: Translations): void {
-    active = { ...en, ...table };
+    // Null-prototype base (audit I-2, defense in depth): a downloaded pack
+    // cannot pollute Object.prototype and t('toString') / t('constructor')
+    // resolve to the raw key instead of an inherited function.
+    active = Object.assign(Object.create(null) as Translations, EN_TABLE, table);
 }
 
 /** Test hook: force a specific table (null resets to the en fallback). */
 export function __setActiveTranslationsForTest(table: Translations | null): void {
-    active = table ?? en;
+    active = table ?? EN_TABLE;
 }
 
 /**
@@ -93,7 +104,9 @@ export function __setActiveTranslationsForTest(table: Translations | null): void
  * Supports simple interpolation: `t('key', { count: 5 })` replaces `{{count}}`.
  */
 export function t(key: string, vars?: Record<string, string | number>): string {
-    let text = active[key] ?? (en as Translations)[key] ?? key;
+    // Both active and EN_TABLE are null-prototype, so neither lookup returns
+    // an inherited Object.prototype member; a missing key falls to the key.
+    let text = active[key] ?? EN_TABLE[key] ?? key;
     if (vars) {
         for (const [k, v] of Object.entries(vars)) {
             // Replacer function so '$&'-style patterns in values stay literal.

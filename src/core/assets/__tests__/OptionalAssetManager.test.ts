@@ -262,6 +262,20 @@ describe('OptionalAssetManager.install error handling', () => {
     });
 });
 
+describe('OptionalAssetManager.loadJson size guard (audit I-1)', () => {
+    it('returns null without reading when the file exceeds the size cap', async () => {
+        const adapter = makeAdapter();
+        adapter.read = vi.fn().mockResolvedValue('a'.repeat(64)); // sidecar only
+        adapter.stat = vi.fn().mockResolvedValue({ mtime: 0, size: 60 * 1024 * 1024 }); // 60 MB > 50 MB cap
+        const manager = new OptionalAssetManager(makePlugin(adapter));
+        const spec = buildLocaleSpec('2.15.0', 'de', 'Deutsch', 'a'.repeat(64));
+
+        expect(await manager.loadJson(spec)).toBeNull();
+        // The oversized file content is never read into a string.
+        expect(adapter.read).not.toHaveBeenCalledWith('.vault-operator/assets/locale-de.json');
+    });
+});
+
 describe('OptionalAssetManager.loadJson invalid JSON', () => {
     it('returns null when a hash-valid pack is not parseable JSON', async () => {
         const text = 'this is not json {';

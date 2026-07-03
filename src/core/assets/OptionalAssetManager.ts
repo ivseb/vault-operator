@@ -65,7 +65,7 @@ function assertSafeFilename(filename: string): void {
 /** Manifest of every optional asset the plugin knows about. */
 export interface AssetSpec {
     /** Unique id, also used as filename in the assets folder. */
-    id: 'reranker-onnx' | 'self-development-source' | 'office-bundle' | 'pdfjs-bundle' | 'language-pack';
+    id: 'reranker-onnx' | 'reranker-bundle' | 'self-development-source' | 'office-bundle' | 'pdfjs-bundle' | 'language-pack';
     /** Filename written to disk. */
     filename: string;
     /** Human-readable label for the Settings UI. */
@@ -150,6 +150,15 @@ export class OptionalAssetManager {
             if (!await adapter.exists(path)) return null;
             const sidecarSha = (await adapter.read(shaPath).catch(() => '')).trim();
             if (sidecarSha !== spec.expectedSha256) return null;
+            // Size guard (audit I-1, defense in depth): reject an oversized
+            // file before reading it into a string, mirroring install()'s
+            // MAX_ASSET_BYTES cap. The sidecar hash is public, so a matching
+            // sidecar alone does not bound the content size.
+            const stat = await adapter.stat(path).catch(() => null);
+            if (stat && stat.size > MAX_ASSET_BYTES) {
+                console.warn(`[OptionalAssetManager] ${spec.filename} exceeds the size cap; refusing to load.`);
+                return null;
+            }
             const text = await adapter.read(path);
             const contentSha = await sha256Hex(new TextEncoder().encode(text));
             if (contentSha !== spec.expectedSha256) {
@@ -368,6 +377,25 @@ export function buildPdfjsBundleSpec(pluginVersion: string, expectedSha256: stri
         sizeMb: 2,
         expectedSha256,
         downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/pdfjs-bundle.js`,
+    };
+}
+
+/**
+ * JavaScript half of the local semantic reranker: `@huggingface/transformers`
+ * + `onnxruntime-web/wasm` bundled and tree-shaken. The WASM half
+ * (`ort-wasm-simd-threaded.wasm`, 12 MB) is a separate spec built by
+ * `buildRerankerSpec` and shipped as `reranker-onnx`; the reranker only
+ * activates when BOTH assets are installed.
+ */
+export function buildRerankerJsBundleSpec(pluginVersion: string, expectedSha256: string): AssetSpec {
+    return {
+        id: 'reranker-bundle',
+        filename: 'reranker-bundle.js',
+        label: 'Reranker (library)',
+        description: 'JavaScript bundle of the transformers + onnxruntime-web libraries the semantic reranker needs. Paired with the WASM binary asset ("Reranker (WASM)") which is downloaded separately. Without both, semantic search still works but skips the local rerank step.',
+        sizeMb: 1,
+        expectedSha256,
+        downloadUrl: `https://github.com/pssah4/vault-operator/releases/download/${pluginVersion}-assets/reranker-bundle.js`,
     };
 }
 

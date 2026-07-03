@@ -88,6 +88,24 @@ describe('language pack loading', () => {
         expect(localePackFilename('de')).toBe('locale-de.json');
         expect(localePackFilename('zh-TW')).toBe('locale-zh-tw.json');
     });
+
+    // I-2 (audit hardening): a pack must never pollute Object.prototype and
+    // the active table must not inherit prototype members, so a hypothetical
+    // dynamic key like t('toString') can never resolve to an inherited value.
+    it('does not pollute Object.prototype from a malicious pack key', () => {
+        const malicious = JSON.parse('{"__proto__": {"polluted": "yes"}, "settings.group.providers": "X"}');
+        applyLocalePack(malicious);
+        expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+        expect(t('settings.group.providers')).toBe('X');
+    });
+
+    it('resolves inherited member names to the raw key, not a prototype function', () => {
+        applyLocalePack({ 'settings.group.providers': 'X' });
+        // 'toString'/'constructor' are Object.prototype members; without a
+        // null-prototype base they would resolve to inherited functions.
+        expect(t('toString')).toBe('toString');
+        expect(t('constructor')).toBe('constructor');
+    });
 });
 
 describe('t interpolation', () => {
