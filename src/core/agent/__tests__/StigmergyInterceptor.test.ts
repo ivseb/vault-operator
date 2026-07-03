@@ -91,15 +91,20 @@ describe('StigmergyInterceptor.onRunStart', () => {
 
         await interceptor.onRunStart(runCtx);
 
-        expect(registerMock).toHaveBeenCalledWith({
-            tools: expect.arrayContaining([expect.objectContaining({ name: 'read_file' })]),
-            skills: [
-                { name: 'weekly-report', description: 'weekly' },
-                { name: 'user-skill', description: 'user' },
-            ],
-            mcp: [{ server: 'gh', name: 'list_issues', description: 'issues' }],
-            subagents: [{ name: 'research', description: 'researcher' }],
-        });
+        expect(registerMock).toHaveBeenCalledTimes(1);
+        const regArgs = (registerMock.mock.calls[0] as unknown[])[0] as {
+            tools: Array<{ name: string }>;
+            skills: Array<{ name: string; description: string }>;
+            mcp: Array<{ server: string; name: string; description: string }>;
+            subagents: Array<{ name: string; description: string }>;
+        };
+        expect(regArgs.tools.map((t) => t.name)).toEqual(['read_file', 'write_file']);
+        expect(regArgs.skills).toEqual([
+            { name: 'weekly-report', description: 'weekly' },
+            { name: 'user-skill', description: 'user' },
+        ]);
+        expect(regArgs.mcp).toEqual([{ server: 'gh', name: 'list_issues', description: 'issues' }]);
+        expect(regArgs.subagents).toEqual([{ name: 'research', description: 'researcher' }]);
         const beginArgs = beginTurnMock.mock.calls[0][0] as { candidateIds: string[]; prompt: string; taskId: string };
         expect(beginArgs.taskId).toBe('t-1');
         expect(beginArgs.prompt).toBe('summarize notes');
