@@ -75,6 +75,20 @@ export class MessageLog {
         this.current = deepCopy(messages);
     }
 
+    /**
+     * Condense forensics (IMP-41-03-04 shadow mode): record a labelled
+     * snapshot of the history as it looked BEFORE a rewrite, without this
+     * log owning the live array. Bounded by MAX_RETAINED_GENERATIONS with
+     * oldest-first eviction; deep-copied at record time so later caller
+     * mutations cannot corrupt the timeline.
+     */
+    recordGeneration(label: string, messages: readonly MessageParam[]): void {
+        this.previous.push({ label, messages: deepCopy([...messages]) });
+        while (this.previous.length > MAX_RETAINED_GENERATIONS) {
+            this.previous.shift();
+        }
+    }
+
     /** Splice-equivalent for the orphan-tool_use cleanup in the error path. */
     removeTrailing(predicate: (m: MessageParam) => boolean): void {
         while (this.current.length > 0 && predicate(this.current[this.current.length - 1])) {

@@ -27,6 +27,7 @@ import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults } from './context/MicroCompactor';
 import { FileDossier } from './context/FileDossier';
+import { MessageLog } from './history/MessageLog';
 import { InflightStore } from './agent/InflightStore';
 import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
@@ -375,6 +376,19 @@ export class AgentTask {
      * MicroCompactor at prune time, rendered into every condense summary.
      */
     private fileDossier = new FileDossier();
+
+    /**
+     * IMP-41-03-04 (shadow mode): pre-condense history snapshots, bounded to
+     * 3 generations. Makes a mis-condensed session reconstructable — the
+     * previously impossible diagnosis case. Full log ownership of the live
+     * history follows engine stage 3.
+     */
+    private condenseForensics = new MessageLog();
+
+    /** Diagnostic surface (read_agent_logs): the retained pre-condense generations. */
+    getCondenseTimeline(): ReturnType<MessageLog['dumpTimeline']> {
+        return this.condenseForensics.dumpTimeline();
+    }
 
     /**
      * IMP-41-03-01: optional inflight snapshot store. When set (foreground
@@ -2637,6 +2651,13 @@ export class AgentTask {
             });
             return false;
         }
+
+        // IMP-41-03-04: forensic snapshot of the history as it looked BEFORE
+        // the rewrite (bounded 3 generations, deep-copied).
+        this.condenseForensics.recordGeneration(
+            `pre-condense ${new Date().toISOString()} (${preMessageCount} msgs, ~${preTokens}t)`,
+            history,
+        );
 
         // Splice history in-place
         history.splice(

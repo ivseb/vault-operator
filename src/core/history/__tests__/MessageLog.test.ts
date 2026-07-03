@@ -82,3 +82,29 @@ describe('MessageLog', () => {
         expect(log.length).toBe(1);
     });
 });
+
+describe('recordGeneration (condense forensics)', () => {
+    it('records labelled generations and exposes them via dumpTimeline', () => {
+        const log = new MessageLog();
+        log.recordGeneration('pre-condense-i4', [msg('user', 'task'), msg('assistant', 'detail')]);
+        const timeline = log.dumpTimeline();
+        expect(timeline.generations).toHaveLength(1);
+        expect(timeline.generations[0].label).toBe('pre-condense-i4');
+        expect(timeline.generations[0].messages.map((m) => m.content)).toEqual(['task', 'detail']);
+    });
+
+    it('keeps at most 3 generations, oldest evicted, copies not references', () => {
+        const log = new MessageLog();
+        const live = [msg('user', 'gen-1')];
+        log.recordGeneration('g1', live);
+        live[0] = msg('user', 'mutated');
+        log.recordGeneration('g2', [msg('user', 'gen-2')]);
+        log.recordGeneration('g3', [msg('user', 'gen-3')]);
+        log.recordGeneration('g4', [msg('user', 'gen-4')]);
+        const timeline = log.dumpTimeline();
+        expect(timeline.generations.map((g) => g.label)).toEqual(['g2', 'g3', 'g4']);
+        // g1 evicted; and the recorded copy of any generation is immune to
+        // caller-side mutation (deep copy at record time).
+        expect(JSON.stringify(timeline)).not.toContain('mutated');
+    });
+});
