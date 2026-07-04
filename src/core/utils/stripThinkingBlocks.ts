@@ -46,7 +46,7 @@ export function repairEmptyWireMessages(messages: readonly MessageParam[]): Mess
             ? msg.content.length === 0
             : msg.content.length === 0;
         if (!empty) return msg;
-        return { ...msg, content: [{ type: 'text', text: '[reasoning elided]' } as ContentBlock] };
+        return { ...msg, content: [{ type: 'text', text: '[reasoning elided]' }] };
     });
 }
 

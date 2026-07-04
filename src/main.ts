@@ -30,6 +30,8 @@ import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
 import { getPluginSkillsDir, getSelfAuthoredSkillsDir } from './core/utils/agentFolder';
+import { isSafePathSegment } from './core/utils/safePathName';
+import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService } from './core/storage/GlobalSettingsService';
 import { GlobalMigrationService } from './core/storage/GlobalMigrationService';
 // SyncBridge removed (FEATURE-1508: storage consolidated to vault-parent)
@@ -2611,6 +2613,15 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.registerObsidianProtocolHandler('vault-operator-settings', openSettingsFromParams);
         this.registerObsidianProtocolHandler('obsilo-settings', openSettingsFromParams);
 
+        // FEAT: browser-triggered skill runs (obsidian://vault-operator-run?skill=<slug>).
+        // obsidian:// URLs are openable by ANY web page, so this handler never
+        // accepts free prompt text — only a whitelisted skill slug — and always
+        // gates the run behind an in-app confirmation (cost/prompt-injection
+        // protection against foreign pages).
+        this.registerObsidianProtocolHandler('vault-operator-run', (params) => {
+            void this.runSkillFromParams(params);
+        });
+
         // Phase 2.3: command to open the setup wizard manually
         this.addCommand({
             id: 'open-setup-wizard',
@@ -4240,6 +4251,28 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }, 50);
         }
+    }
+
+    /**
+     * Browser-triggered skill run (obsidian://vault-operator-run?skill=<slug>).
+     * External input: the slug is validated against the safe-path whitelist
+     * and the run is always gated behind an in-app confirmation — any web
+     * page can fire this URL, so it must never start a run silently.
+     */
+    private async runSkillFromParams(params: Record<string, string>): Promise<void> {
+        const skill = typeof params.skill === 'string' ? params.skill : '';
+        if (!isSafePathSegment(skill)) {
+            console.warn('[deeplink] Rejected vault-operator-run with invalid skill slug');
+            return;
+        }
+        const ok = await confirmModal(this.app, {
+            title: t('protocol.runSkillConfirmTitle'),
+            message: t('protocol.runSkillConfirmMessage', { skill }),
+            confirmLabel: t('protocol.runSkillConfirmButton'),
+            cancelLabel: t('settings.vault.cancel'),
+        });
+        if (!ok) return;
+        await this.sendMessageToAgent(`/${skill}`);
     }
 
     /**
