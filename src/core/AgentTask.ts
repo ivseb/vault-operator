@@ -25,7 +25,7 @@ import { BUILT_IN_MODES } from './modes/builtinModes';
 import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
-import { microcompactToolResults } from './context/MicroCompactor';
+import { microcompactToolResults, shouldDeferMicrocompact } from './context/MicroCompactor';
 import { FileDossier } from './context/FileDossier';
 import { MessageLog } from './history/MessageLog';
 import { InflightStore } from './agent/InflightStore';
@@ -64,6 +64,8 @@ import {
     DEFAULT_CONDENSING_THRESHOLD,
     DEFAULT_MICROCOMPACTION_ENABLED,
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+    MICROCOMPACT_MIN_FREED_TOKENS,
+    MICROCOMPACT_PRESSURE_FLOOR,
 } from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
@@ -505,6 +507,28 @@ export class AgentTask {
      */
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
+        // FIX-COMPACT-09: a prune rewrites history before the stable cache
+        // breakpoint and invalidates the prompt-cache prefix. Probe first and
+        // defer while the free is too small to amortize that rebuild.
+        const pressure = this.estimateTokens(history) / this.getModelContextWindow();
+        if (pressure < MICROCOMPACT_PRESSURE_FLOOR) {
+            const probe = microcompactToolResults(history, { dryRun: true });
+            const wouldFree = this.tokenEstimator.tokensForChars(probe.freedCharsApprox);
+            if (shouldDeferMicrocompact({
+                pressure,
+                wouldFreeTokens: wouldFree,
+                pressureFloor: MICROCOMPACT_PRESSURE_FLOOR,
+                minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
+            })) {
+                if (probe.prunedBlocks > 0) {
+                    console.debug(
+                        `[Microcompact] deferred: would free only ~${wouldFree} tokens ` +
+                        `at ${(pressure * 100).toFixed(0)}% context (cache-prefix protection)`,
+                    );
+                }
+                return;
+            }
+        }
         // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
         // memory the flat condense summary lacks.
         const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history, { dossier: this.fileDossier });
@@ -1515,6 +1539,17 @@ export class AgentTask {
                     assistantContent.push({ type: 'text', text: textParts.join('') });
                 }
                 assistantContent.push(...toolUses);
+                // Loop-economy FIX C1: a max_tokens truncation mid-reasoning
+                // can leave neither text nor tool_use (Bedrock reasoning
+                // deltas are not collected for passback). An empty content
+                // array is a hard 400 on the next request; the empty-response
+                // nudge below needs an assistant turn between two user turns.
+                if (assistantContent.length === 0) {
+                    assistantContent.push({
+                        type: 'text',
+                        text: '[Response truncated: output-token limit reached during reasoning; no visible output was produced.]',
+                    });
+                }
                 history.push({ role: 'assistant', content: assistantContent });
 
                 // If no tool calls, the LLM is done — run condensing on text-only turns

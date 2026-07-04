@@ -100,3 +100,35 @@ describe('stripThinkingBlocks (FIX-04-03-07)', () => {
         expect((content as unknown[]).length).toBe(0);
     });
 });
+
+describe('repairEmptyWireMessages (loop-economy FIX C3)', () => {
+    it('replaces content that became empty after a thinking strip', async () => {
+        const { stripThinkingBlocks, repairEmptyWireMessages } = await import('../stripThinkingBlocks');
+        const messages = [
+            { role: 'user' as const, content: 'hi' },
+            {
+                role: 'assistant' as const,
+                content: [{ type: 'thinking' as const, thinking: 'internal reasoning', text: 'internal reasoning' }],
+            },
+            { role: 'user' as const, content: 'go on' },
+        ];
+        const stripped = stripThinkingBlocks(messages as never);
+        expect((stripped[1].content as unknown[]).length).toBe(0);
+
+        const repaired = repairEmptyWireMessages(stripped);
+        const content = repaired[1].content as Array<{ type: string; text: string }>;
+        expect(content.length).toBe(1);
+        expect(content[0].type).toBe('text');
+        expect(content[0].text).toContain('[reasoning elided]');
+    });
+
+    it('leaves non-empty messages untouched', async () => {
+        const { repairEmptyWireMessages } = await import('../stripThinkingBlocks');
+        const messages = [
+            { role: 'user' as const, content: 'hi' },
+            { role: 'assistant' as const, content: [{ type: 'text' as const, text: 'hello' }] },
+        ];
+        const repaired = repairEmptyWireMessages(messages as never);
+        expect(repaired).toEqual(messages);
+    });
+});

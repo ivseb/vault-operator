@@ -85,6 +85,32 @@ describe('ResultExternalizer', () => {
             expect(result).toBeNull();
         });
 
+        it('should keep web_fetch results up to 10k inline -- previews are lossy, re-reads cost double (FIX A)', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('web_fetch', { url: 'https://example.com' }, 'x'.repeat(9000), false);
+            expect(result).toBeNull();
+            expect(fs.files.size).toBe(0);
+        });
+
+        it('should still externalize web_fetch results above 10k (FIX A)', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('web_fetch', { url: 'https://example.com' }, 'x'.repeat(11000), false);
+            expect(result).not.toBeNull();
+            expect(fs.files.size).toBe(1);
+        });
+
+        it('should keep web_search results up to 10k inline (FIX A)', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('web_search', { query: 'test' }, 'x'.repeat(9000), false);
+            expect(result).toBeNull();
+        });
+
+        it('should keep the 2000-char default threshold for non-web tools (FIX A)', async () => {
+            const ext = await createExternalizer(fs);
+            const result = await ext.maybeExternalize('search_files', {}, 'x'.repeat(3000), false);
+            expect(result).not.toBeNull();
+        });
+
         it('should NOT externalize search_history -- output is curated, must reach agent verbatim', async () => {
             const ext = await createExternalizer(fs);
             const result = await ext.maybeExternalize('search_history', {}, 'x'.repeat(7000), false);
