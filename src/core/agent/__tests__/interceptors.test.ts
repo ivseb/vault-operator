@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { TodoAnchorInterceptor } from '../interceptors/TodoAnchorInterceptor';
 import { PowerSteeringInterceptor } from '../interceptors/PowerSteeringInterceptor';
+import { AdvisorReminderInterceptor } from '../interceptors/AdvisorReminderInterceptor';
 import { createInitialLoopState } from '../LoopState';
 import type { MessageParam } from '../../../api/types';
 import type { LoopInterceptorContext } from '../interceptors/types';
@@ -93,5 +94,52 @@ describe('PowerSteeringInterceptor', () => {
         steering.onIterationStart(ctx(3, history));
         steering.onIterationStart(ctx(3, history)); // same iteration replay
         expect(history).toHaveLength(1);
+    });
+});
+
+describe('AdvisorReminderInterceptor', () => {
+    /** ctx variant that carries an explicit mistake counter. */
+    function mistakeCtx(consecutiveMistakes: number): LoopInterceptorContext {
+        const state = createInitialLoopState();
+        state.consecutiveMistakes = consecutiveMistakes;
+        return { state, history: [], activeMode: MODE };
+    }
+
+    it('invalidates the cache on the off->on transition at the 2-mistake threshold', () => {
+        const advisor = new AdvisorReminderInterceptor();
+        const below = mistakeCtx(1);
+        advisor.onIterationStart(below);
+        expect(below.state.cacheInvalidated).toBe(false); // still off, no transition
+
+        const crossed = mistakeCtx(2);
+        advisor.onIterationStart(crossed);
+        expect(crossed.state.cacheInvalidated).toBe(true); // off->on fires once
+    });
+
+    it('does not re-invalidate while the reminder stays active (no per-iteration churn)', () => {
+        const advisor = new AdvisorReminderInterceptor();
+        advisor.onIterationStart(mistakeCtx(2)); // off->on
+
+        const stillActive = mistakeCtx(3);
+        advisor.onIterationStart(stillActive);
+        expect(stillActive.state.cacheInvalidated).toBe(false); // on->on, no re-render
+    });
+
+    it('invalidates again on the on->off transition when the mistake counter resets', () => {
+        const advisor = new AdvisorReminderInterceptor();
+        advisor.onIterationStart(mistakeCtx(2)); // off->on
+
+        const recovered = mistakeCtx(0);
+        advisor.onIterationStart(recovered);
+        expect(recovered.state.cacheInvalidated).toBe(true); // on->off drops the hint
+    });
+
+    it('stays inert while consistently below the threshold', () => {
+        const advisor = new AdvisorReminderInterceptor();
+        for (const m of [0, 1, 0, 1]) {
+            const c = mistakeCtx(m);
+            advisor.onIterationStart(c);
+            expect(c.state.cacheInvalidated).toBe(false);
+        }
     });
 });
