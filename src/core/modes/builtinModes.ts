@@ -25,16 +25,14 @@ import { TOOL_METADATA } from '../tools/toolMetadata';
 // ---------------------------------------------------------------------------
 
 /**
- * FIX-PERF-26 (Slice 1): derived TOOL_GROUP_MAP from TOOL_METADATA.
- * This is the inversion of the per-tool `group` field. The hardcoded
- * TOOL_GROUP_MAP below is preserved for the moment and a startup assert
- * compares both so drift between the two surfaces (the BUG-021 / FIX-19-28
- * cluster) is now detected at module-load time instead of via the
- * builtinModes.coverage.test.ts which only fires in test runs.
- *
- * Removal of the hardcoded TOOL_GROUP_MAP below happens in a follow-up
- * once the assert has been stable for one release. That removal is the
- * remainder of FIX-PERF-26.
+ * FIX-PERF-26 (completed 2026-07-05): TOOL_GROUP_MAP is derived from the single
+ * source of truth, the per-tool `group` field in TOOL_METADATA. The previously
+ * hardcoded map had drifted from the metadata across five groups (read, vault,
+ * edit, agent, skill), which for a restricted custom agent meant tools described
+ * in the system prompt but absent from the tool schema (or the inverse). Deriving
+ * removes the second surface entirely, so the two can no longer disagree.
+ * builtinModes.coverage.test.ts still guards that every user-facing ToolName
+ * carries a group.
  */
 function deriveToolGroupMapFromMetadata(): Record<ToolGroup, ToolName[]> {
     const out: Record<string, ToolName[]> = {
@@ -45,57 +43,14 @@ function deriveToolGroupMapFromMetadata(): Record<ToolGroup, ToolName[]> {
         if (!grp || !(grp in out)) continue;
         out[grp].push(name as ToolName);
     }
-    return out as Record<ToolGroup, ToolName[]>;
+    return out;
 }
 
-export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> = {
-    // IMP-01-07-01 checkpoint tools: registered since 2026-05-19 but missing
-    // here until ISSUE-G, which made them invisible to the model (BUG-021
-    // drift pattern -- ModeService filters the LLM schema through this map).
-    read:  ['read_file', 'read_document', 'list_files', 'search_files', 'list_checkpoints', 'read_checkpoint', 'diff_checkpoint'],
-    // BUG-021 / FIX-19-28: vault_health_check (FEATURE-1901), ingest_document
-    // (EPIC-019), ingest_deep + ingest_triage (FEAT-19-22 / FEAT-19-12)
-    // shipped but were never wired into the default tool groups. The
-    // coverage test (builtinModes.coverage.test.ts) guards against future
-    // drift -- new user-facing tools must be added there as well.
-    // FEAT-03-25 / ADR-109 memory-source tools (mark_note_as_memory_source,
-    // unmark_note_as_memory_source, list_memory_source_notes) added 2026-06-21
-    // after the v2.14.0 stability audit caught the same drift pattern.
-    vault: ['get_frontmatter', 'search_by_tag', 'get_vault_stats', 'get_linked_notes', 'get_daily_note', 'open_note', 'semantic_search', 'query_base', 'vault_health_check', 'recall_memory', 'mark_for_memory', 'update_soul', 'search_history', 'list_pinned_conversations', 'mark_note_as_memory_source', 'unmark_note_as_memory_source', 'list_memory_source_notes'],
-    edit:  ['write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file', 'move_file', 'extract_zip', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_base', 'update_base', 'create_pptx', 'create_docx', 'create_xlsx', 'plan_presentation', 'ingest_document', 'ingest_deep', 'ingest_triage', 'restore_checkpoint'],
-    // FEAT-19-14 anti_echo_search added 2026-06-21 after v2.14.0 audit found
-    // it registered but unreachable.
-    web:   ['web_fetch', 'web_search', 'anti_echo_search'],
-    // FEATURE-1600 find_tool (discovery), FEAT-24-09 read_skill (ADR-116
-    // always-available) added 2026-06-21 -- both meta-tools were sitting in
-    // INTENTIONALLY_NOT_REACHABLE but the audit demonstrated they only worked
-    // by hallucination instead of real schema visibility.
-    agent: ['ask_followup_question', 'attempt_completion', 'update_todo_list', 'new_task', 'run_in_background', 'consult_flagship', 'switch_agent', 'update_settings', 'configure_model', 'read_agent_logs', 'manage_mcp_server', 'evaluate_expression', 'manage_source', 'inspect_self', 'invoke_skill', 'invoke_mcp_server', 'find_tool', 'read_skill'],
-    mcp:   ['use_mcp_tool', 'read_mcp_tool'],
-    // FEAT-29-03 probe_plugin, FEAT-29-06 run_skill_script added 2026-06-21.
-    skill: ['execute_command', 'execute_recipe', 'call_plugin_api', 'resolve_capability_gap', 'enable_plugin', 'probe_plugin', 'run_skill_script'],
-};
-
-// FIX-PERF-26: load-time drift check between TOOL_METADATA.group and
-// TOOL_GROUP_MAP. Logs a warning instead of throwing so a misalignment
-// caught in production reports loudly without bricking the plugin.
-{
-    const derived = deriveToolGroupMapFromMetadata();
-    const groups: ToolGroup[] = ['read', 'vault', 'edit', 'web', 'agent', 'mcp', 'skill'];
-    for (const g of groups) {
-        const a = new Set(TOOL_GROUP_MAP[g]);
-        const b = new Set(derived[g]);
-        const missingFromMetadata = [...a].filter((t) => !b.has(t));
-        const extraInMetadata = [...b].filter((t) => !a.has(t));
-        if (missingFromMetadata.length > 0 || extraInMetadata.length > 0) {
-            console.warn(
-                `[TOOL_GROUP_MAP] drift in group '${g}': `
-                + `present in TOOL_GROUP_MAP but missing TOOL_METADATA.group=${g}: ${missingFromMetadata.join(', ') || '(none)'}; `
-                + `present in TOOL_METADATA.group=${g} but missing TOOL_GROUP_MAP: ${extraInMetadata.join(', ') || '(none)'}`,
-            );
-        }
-    }
-}
+// Single source of truth: the group assignment lives on each tool in
+// TOOL_METADATA. The former hardcoded literal was removed (FIX-PERF-26) after
+// it drifted from the metadata; see deriveToolGroupMapFromMetadata above.
+export const TOOL_GROUP_MAP: Readonly<Record<ToolGroup, readonly ToolName[]>> =
+    deriveToolGroupMapFromMetadata();
 
 // ---------------------------------------------------------------------------
 // Built-in mode definitions
