@@ -26,6 +26,7 @@ import type ObsidianAgentPlugin from '../../../main';
 import { getSelfAuthoredSkillsDir } from '../../utils/agentFolder';
 import { RunSkillScriptCache } from '../../sandbox/RunSkillScriptCache';
 import { isSafePathSegment } from '../../utils/safePathName';
+import { AstValidator } from '../../sandbox/AstValidator';
 
 export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
     readonly name = 'run_skill_script' as const;
@@ -118,6 +119,17 @@ export class RunSkillScriptTool extends BaseTool<'run_skill_script'> {
             source = await adapter.read(scriptPath);
         } catch (e) {
             callbacks.pushToolResult(this.formatError(e));
+            return;
+        }
+
+        // SBX-2 (defense-in-depth): reject obviously dangerous source patterns
+        // before compiling/executing. The Chromium iframe sandbox is the real
+        // boundary now; this is belt-and-suspenders and gives a clear error.
+        const astCheck = AstValidator.validate(source);
+        if (!astCheck.valid) {
+            callbacks.pushToolResult(
+                this.formatError(new Error(`Skill script rejected by validator: ${astCheck.errors.join('; ')}`)),
+            );
             return;
         }
 

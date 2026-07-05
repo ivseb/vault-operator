@@ -25,8 +25,13 @@ export function validateMcpVaultPath(
     path: string,
     isWrite: boolean,
 ): McpPathValidation {
-    // 1. Path traversal check (SandboxBridge pattern, lines 193-195)
-    if (path.includes('..') || path.startsWith('/') || path.startsWith('\\')) {
+    // 1. Path traversal check. MCP-5: normalize-then-verify by splitting on both
+    // separators and rejecting any `.`/`..` segment (plus absolute paths),
+    // instead of a `.includes('..')` substring denylist that also mis-rejects
+    // legitimate names like `foo..bar.md` and is brittle for non-normalized
+    // callers.
+    const segments = path.split(/[/\\]/);
+    if (path.startsWith('/') || path.startsWith('\\') || segments.some((s) => s === '.' || s === '..')) {
         return { allowed: false, reason: 'Invalid path: traversal or absolute path rejected' };
     }
 

@@ -20,6 +20,11 @@ export const LEARNED_CAPS_FILE = 'learned-model-caps.json';
 
 /** Never learn a cap below this — a smaller budget breaks tool-call turns. */
 const MIN_LEARNED_CAP = 4_096;
+/** INP-4: upper sanity bound — no real model output budget approaches this, so
+ *  a larger persisted value means the file was tampered with; reject it. */
+const MAX_LEARNED_CAP = 2_000_000;
+/** INP-4: cap how many entries a persisted caps file may inject. */
+const MAX_LEARNED_ENTRIES = 1_000;
 
 interface LearnedCapsFile {
     caps: Record<string, number>;
@@ -61,8 +66,16 @@ export class LearnedCapsStore {
             if (await this.fs.exists(LEARNED_CAPS_FILE)) {
                 const parsed = JSON.parse(await this.fs.read(LEARNED_CAPS_FILE)) as LearnedCapsFile;
                 if (typeof parsed?.caps === 'object' && parsed.caps !== null) {
+                    let count = 0;
                     for (const [id, cap] of Object.entries(parsed.caps)) {
-                        if (typeof cap === 'number' && Number.isFinite(cap) && cap >= MIN_LEARNED_CAP) {
+                        // INP-3: never let a JSON key reach the prototype chain.
+                        if (id === '__proto__' || id === 'constructor' || id === 'prototype') continue;
+                        // INP-4: bound the entry count against an unbounded map.
+                        if (++count > MAX_LEARNED_ENTRIES) break;
+                        // INP-4: bound the value so a tampered file cannot inject
+                        // an absurd cap (upper bound added to the existing lower).
+                        if (typeof cap === 'number' && Number.isFinite(cap)
+                            && cap >= MIN_LEARNED_CAP && cap <= MAX_LEARNED_CAP) {
                             this.caps[id] = Math.floor(cap);
                         }
                     }

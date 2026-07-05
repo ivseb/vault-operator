@@ -3337,6 +3337,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.chatgptOAuthIdToken) {
             settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken);
         }
+        // AUTH-2: mirror the encrypt pass. decrypt() passes through cleartext
+        // (pre-fix values), so existing installs migrate transparently.
+        if (settings.chatgptOAuthEmail) {
+            settings.chatgptOAuthEmail = this.safeStorage.decrypt(settings.chatgptOAuthEmail);
+        }
+        if (settings.chatgptOAuthAccountId) {
+            settings.chatgptOAuthAccountId = this.safeStorage.decrypt(settings.chatgptOAuthAccountId);
+        }
         // Remote relay tokens (AUDIT-005 M-2)
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
@@ -3406,6 +3414,15 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
         if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken)) {
             copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken);
+        }
+        // AUTH-2: the ChatGPT account id and email (PII) were persisted in
+        // cleartext even with the keychain available. Encrypt them like the
+        // tokens above (decrypt pass below mirrors this).
+        if (copy.chatgptOAuthEmail && !this.safeStorage.isEncrypted(copy.chatgptOAuthEmail)) {
+            copy.chatgptOAuthEmail = this.safeStorage.encrypt(copy.chatgptOAuthEmail);
+        }
+        if (copy.chatgptOAuthAccountId && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccountId)) {
+            copy.chatgptOAuthAccountId = this.safeStorage.encrypt(copy.chatgptOAuthAccountId);
         }
         // Remote relay tokens (AUDIT-005 M-2)
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {

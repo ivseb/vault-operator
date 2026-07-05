@@ -919,6 +919,10 @@ export interface ObsidianAgentSettings {
     // MCP Server (EPIC-014)
     /** Enable the MCP Server for Claude Desktop/Code integration. */
     enableMcpServer: boolean;
+    /** MCP-2: allow write tools (write_vault) over MCP. Default off -- external
+     *  MCP clients can read by default but must be explicitly permitted to
+     *  create/edit/delete vault files. */
+    mcpAllowWriteTools: boolean;
     /** Enable remote relay connection for claude.ai, ChatGPT, etc. */
     enableRemoteRelay: boolean;
     /** Cloudflare relay URL (e.g. https://obsilo-relay.xxx.workers.dev). */
@@ -1868,6 +1872,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     enableReranking: true,
     rerankCandidates: 20,
     enableMcpServer: false,
+    mcpAllowWriteTools: false,
     enableRemoteRelay: false,
     relayUrl: '',
     relayToken: '',

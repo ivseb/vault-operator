@@ -68,6 +68,17 @@ describe('validateProviderUrl', () => {
                     `provider type "${t}" must refuse AWS IMDS`).toThrow();
             }
         });
+        it('MCP-1: refuses alternate IP encodings of loopback / IMDS (decimal, hex, octal, mapped-v6)', () => {
+            expect(isPrivateIpHostname('2130706433')).toBe(true);        // decimal 127.0.0.1
+            expect(isPrivateIpHostname('0x7f000001')).toBe(true);        // hex 127.0.0.1
+            expect(isPrivateIpHostname('0177.0.0.1')).toBe(true);        // octal-leading 127.0.0.1
+            expect(isPrivateIpHostname('::ffff:7f00:1')).toBe(true);     // IPv4-mapped IPv6 (hex tail)
+            expect(isPrivateIpHostname('::ffff:127.0.0.1')).toBe(true);  // IPv4-mapped IPv6 (dotted tail)
+            expect(isPrivateIpHostname('2852039166')).toBe(true);        // decimal 169.254.169.254 (IMDS)
+            // real public hosts must NOT be misclassified as private
+            expect(isPrivateIpHostname('api.openai.com')).toBe(false);
+            expect(isPrivateIpHostname('8.8.8.8')).toBe(false);
+        });
         it('refuses metadata.google.internal everywhere', () => {
             expect(() => validateProviderUrl('custom', 'http://metadata.google.internal')).toThrow(/metadata/);
         });
