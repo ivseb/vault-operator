@@ -48,6 +48,13 @@ export const ANTHROPIC_MODELS: Record<string, ModelInfo> = {
         supportsStreaming: true,
         displayName: 'Claude Opus 4.6',
     },
+    'claude-sonnet-5': {
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        supportsTools: true,
+        supportsStreaming: true,
+        displayName: 'Claude Sonnet 5',
+    },
     'claude-sonnet-4-6': {
         contextWindow: 200_000,
         maxTokens: 64_000,

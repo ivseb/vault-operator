@@ -61,6 +61,20 @@ describe('getModelOutputCeiling / getModelMaxTokens', () => {
         expect(getModelOutputCeiling('anthropic/claude-fable-5')).toBe(128_000);
     });
 
+    // Sonnet 5 was missing from the registry (same failure mode as BUG-2):
+    // resolveOutputBudget fell back to the 8192 legacy default, and with
+    // adaptive thinking counted inside max_tokens the curation turn of the
+    // daily-briefing skill burned the whole budget on reasoning and never
+    // reached a tool call (two out=8192 truncations, then "no response").
+    it('resolves Claude Sonnet 5 including Bedrock-decorated IDs', () => {
+        expect(getModelOutputCeiling('claude-sonnet-5')).toBe(128_000);
+        expect(getModelOutputCeiling('global.anthropic.claude-sonnet-5')).toBe(128_000);
+        expect(resolveOutputBudget('global.anthropic.claude-sonnet-5', undefined)).toEqual({
+            maxTokens: 32_000,
+            thinkingBudgetTokens: 0,
+        });
+    });
+
     it('getModelMaxTokens falls back to 8192 for unknown models', () => {
         expect(getModelMaxTokens('llama3.2')).toBe(8_192);
         expect(getModelMaxTokens('eu.anthropic.claude-opus-4-6-v1')).toBe(128_000);
