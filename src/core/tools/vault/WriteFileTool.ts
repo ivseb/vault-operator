@@ -8,11 +8,11 @@
  */
 
 import { TFile, TFolder } from 'obsidian';
-import type { DataAdapter } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getAgentFolderPath } from '../../utils/agentFolder';
+import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { validateVaultRelativePath } from './pathValidation';
 
@@ -253,7 +253,7 @@ export class WriteFileTool extends BaseTool<'write_file'> {
         // bytes. This was the daily-briefing 0-byte incident. Stage to a temp
         // sibling and rename over the target so an interrupted write can never
         // destroy the previous good file.
-        await this.atomicAdapterWrite(adapter, safePath, content);
+        await atomicAdapterWrite(adapter, safePath, content);
 
         if (existed) {
             callbacks.pushToolResult(this.formatSuccess(`File updated: ${safePath} (${content.length} chars)`));
@@ -279,36 +279,6 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 + 'This guards against wiping a finished file when a tool argument was lost or truncated. '
                 + 'Re-send write_file with the full intended content.',
             );
-        }
-    }
-
-    /**
-     * P0 (2026-07-05 data-loss). Atomic write via a temp sibling + rename so an
-     * interrupted write never leaves the primary file at 0 bytes. Uses the
-     * Obsidian adapter (not raw fs) to stay mobile-compatible. On failure the
-     * temp file is cleaned up and the existing target is left untouched.
-     */
-    private async atomicAdapterWrite(adapter: DataAdapter, safePath: string, content: string): Promise<void> {
-        const tmpPath = `${safePath}.vo-tmp`;
-        try {
-            await adapter.write(tmpPath, content);
-        } catch (err) {
-            // Staged write failed before it touched the target: drop the temp
-            // file (best-effort) and surface the error; the target is intact.
-            try { await adapter.remove(tmpPath); } catch { /* temp may not exist */ }
-            throw err;
-        }
-        try {
-            await adapter.rename(tmpPath, safePath);
-        } catch {
-            // Some platforms refuse rename onto an existing target. The full
-            // content already lives in the temp file, so removing the stale
-            // target first is safe: a crash in this narrow window leaves the
-            // recoverable temp file, never a 0-byte primary.
-            if (await adapter.exists(safePath)) {
-                await adapter.remove(safePath);
-            }
-            await adapter.rename(tmpPath, safePath);
         }
     }
 

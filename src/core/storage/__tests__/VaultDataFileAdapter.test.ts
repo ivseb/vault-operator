@@ -22,6 +22,7 @@ interface MockDataAdapter {
     append: (p: string, data: string) => Promise<void>;
     mkdir: (p: string) => Promise<void>;
     remove: (p: string) => Promise<void>;
+    rename: (from: string, to: string) => Promise<void>;
     list: (p: string) => Promise<{ files: string[]; folders: string[] }>;
     stat: (p: string) => Promise<{ type: 'file' | 'folder'; ctime: number; mtime: number; size: number } | null>;
 }
@@ -52,6 +53,14 @@ function createMockDataAdapter(): MockDataAdapter {
             return Promise.resolve();
         },
         remove: (p: string) => { files.delete(p); dirs.delete(p); return Promise.resolve(); },
+        // FIX-01-07-04: write() staged via temp+rename, mirror the real adapter.
+        rename: (from: string, to: string) => {
+            const c = files.get(from);
+            if (c === undefined) return Promise.reject(new Error(`File not found: ${from}`));
+            files.set(to, c);
+            files.delete(from);
+            return Promise.resolve();
+        },
         list: (p: string) => Promise.resolve({
             files: [...files.keys()].filter((f) => f.startsWith(p + '/')),
             folders: [...dirs].filter((d) => d.startsWith(p + '/') && d !== p),

@@ -5616,20 +5616,20 @@ export class AgentSidebarView extends ItemView {
             }
         }
 
-        // Build entries: before = earliest checkpoint, after = current vault.
-        // EPIC-33 Diff-UX-refresh (2026-06-22) replaced the section-accordion
-        // DiffReviewModal with the unified EditReviewModal so inline + sidebar
-        // share a single review surface.
+        // Build entries: before = earliest checkpoint, after = current disk
+        // state. EPIC-33 Diff-UX-refresh (2026-06-22) replaced the
+        // section-accordion DiffReviewModal with the unified EditReviewModal
+        // so inline + sidebar share a single review surface.
+        // FIX-01-07-04: the after-state MUST come from an index-independent
+        // read. vault.getFileByPath returns null for dot-paths (.obsidian/,
+        // agent folder), which made the review show after='' and Apply then
+        // zeroed the file through a raw adapter.write.
+        const { readCurrentContent, applyReviewDecisions } = await import('./edit-review/postTaskReviewIO');
         const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
         const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
         for (const [filePath, before] of fileOldContent) {
-            let after = '';
-            try {
-                const file = this.app.vault.getFileByPath(filePath);
-                if (file) after = await this.app.vault.read(file);
-            } catch { /* file may have been deleted */ }
-
+            const after = (await readCurrentContent(this.app, filePath)) ?? '';
             if (before === after) continue;
             entries.push({ path: filePath, before, after });
         }
@@ -5641,11 +5641,7 @@ export class AgentSidebarView extends ItemView {
             }
         }
         for (const filePath of newFiles) {
-            let after = '';
-            try {
-                const file = this.app.vault.getFileByPath(filePath);
-                if (file) after = await this.app.vault.read(file);
-            } catch { continue; }
+            const after = await readCurrentContent(this.app, filePath);
             if (after) {
                 entries.push({ path: filePath, before: '', after, isNew: true });
             }
@@ -5661,29 +5657,15 @@ export class AgentSidebarView extends ItemView {
         });
         if (result.decisions === null) return;
 
-        for (const d of result.decisions) {
-            if (d.skipped === true) continue;
-            try {
-                const file = this.app.vault.getFileByPath(d.path);
-                if (file instanceof TFile) {
-                    await this.app.vault.modify(file, d.finalContent);
-                    // Beat the CodeMirror stale-buffer cache that overwrites
-                    // vault.modify after the modal closes (FIX-01-07-03).
-                    const { refreshOpenMarkdownViewsFor } = await import('../core/utils/refreshMarkdownView');
-                    await refreshOpenMarkdownViewsFor(this.app, file, d.finalContent);
-                } else {
-                    await this.app.vault.adapter.write(d.path, d.finalContent);
-                }
-            } catch (e) {
-                console.error(`[PostTaskReview] Failed to apply decision for ${d.path}:`, e);
-            }
-        }
-        const applied = result.decisions.filter(d => d.skipped !== true);
-        if (applied.length > 0) {
-            const files = applied.map(d => d.path).join(', ');
+        // FIX-01-07-04: only decisions the user actually changed are written,
+        // through the atomic + empty-guarded path. An unchanged Apply is a
+        // no-op instead of a rewrite of the displayed after-state.
+        const reviewedAfter = new Map(entries.map(e => [e.path, e.after]));
+        const outcome = await applyReviewDecisions(this.app, result.decisions, reviewedAfter);
+        if (outcome.written.length > 0) {
             this.conversationHistory.push({
                 role: 'user',
-                content: `[System] Post-task review: User edited ${applied.length} file(s): ${files}.`,
+                content: `[System] Post-task review: User edited ${outcome.written.length} file(s): ${outcome.written.join(', ')}.`,
             });
         }
     }
