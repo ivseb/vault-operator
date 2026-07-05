@@ -17,8 +17,9 @@ import { WriteFileTool } from '../WriteFileTool';
 import type { ToolExecutionContext } from '../../types';
 
 interface AdapterCall {
-    op: 'exists' | 'read' | 'write' | 'mkdir';
+    op: 'exists' | 'read' | 'write' | 'mkdir' | 'rename' | 'remove';
     path: string;
+    to?: string;
 }
 
 interface MockAdapter {
@@ -26,6 +27,8 @@ interface MockAdapter {
     read: (p: string) => Promise<string>;
     write: (p: string, content: string) => Promise<void>;
     mkdir: (p: string) => Promise<void>;
+    rename: (from: string, to: string) => Promise<void>;
+    remove: (p: string) => Promise<void>;
 }
 
 function makePlugin() {
@@ -49,6 +52,19 @@ function makePlugin() {
         },
         mkdir: async (p) => {
             calls.push({ op: 'mkdir', path: p });
+        },
+        // Atomic-write support (temp sibling + rename). Mirrors the real
+        // adapter closely enough to exercise WriteFileTool.atomicAdapterWrite.
+        rename: async (from, to) => {
+            calls.push({ op: 'rename', path: from, to });
+            const v = files.get(from);
+            if (v === undefined) throw new Error(`ENOENT rename src: ${from}`);
+            files.set(to, v);
+            files.delete(from);
+        },
+        remove: async (p) => {
+            calls.push({ op: 'remove', path: p });
+            files.delete(p);
         },
     };
 
@@ -161,8 +177,11 @@ describe('WriteFileTool path-traversal rejection (AUDIT-034 M-1)', () => {
 
         // Adapter sink received the normalized vault-relative path.
         expect(files.get('.obsidian/plugins/vault-operator/data.json')).toBe('{}');
-        // exists() was called for the file; write() ran on the safe path.
-        expect(calls.some((c) => c.op === 'write' && c.path === '.obsidian/plugins/vault-operator/data.json')).toBe(true);
+        // The content now reaches the target atomically (temp sibling + rename)
+        // instead of a direct truncating write, but every adapter path must
+        // still stay inside the config dir -- no traversal escape.
+        expect(calls.some((c) => c.op === 'rename' && c.to === '.obsidian/plugins/vault-operator/data.json')).toBe(true);
+        expect(calls.every((c) => c.path.startsWith('.obsidian/') && (!c.to || c.to.startsWith('.obsidian/')))).toBe(true);
         expect(pushed.join('\n')).toMatch(/File created|File updated/);
     });
 });

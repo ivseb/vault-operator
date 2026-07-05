@@ -158,12 +158,15 @@ export default tseslint.config(
     },
     {
         // Test files use async mock callbacks to match async interfaces; the
-        // body often returns a literal so there is nothing to await. The
-        // Review Bot does not flag this in test files in practice, but the
-        // local check would, so relax the rule for tests only.
+        // body often returns a literal so there is nothing to await. They also
+        // hand-mock Obsidian's configDir as the literal '.obsidian' and use
+        // '.obsidian/...' paths as path-traversal attack fixtures. The Review
+        // Bot does not scan test files, but the local check would flag both, so
+        // relax these rules for tests only.
         files: ['src/**/__tests__/**/*.ts', 'src/**/*.test.ts'],
         rules: {
             '@typescript-eslint/require-await': 'off',
+            'obsidianmd/hardcoded-config-path': 'off',
         },
     },
     {
