@@ -19,6 +19,7 @@ import {
 export type LoopErrorAction =
     | { action: 'retry'; waitMs: number; retryNumber: number; maxRetries: number; cls: ProviderErrorClass }
     | { action: 'emergency-condense'; cls: ProviderErrorClass }
+    | { action: 'corrective-retry'; cls: ProviderErrorClass }
     | { action: 'abort'; cls: ProviderErrorClass }
     | { action: 'fail'; cls: ProviderErrorClass };
 
@@ -26,6 +27,8 @@ export interface LoopErrorState {
     retriesUsed: number;
     maxRetries: number;
     emergencyRetried: boolean;
+    /** ADR-148: one output-cap corrective retry per task. */
+    outputCapRetried: boolean;
     historyLength: number;
     /**
      * Base backoff for rate-limit errors WITHOUT a Retry-After header. Kept at
@@ -43,6 +46,13 @@ export function decideLoopErrorAction(err: unknown, state: LoopErrorState): Loop
     const cls = classifyProviderError(err);
 
     if (cls === 'abort') return { action: 'abort', cls };
+
+    // ADR-148: the provider named a real output limit below our request.
+    // One corrective retry: the caller learns the cap (clamping all later
+    // requests) and re-enters the loop.
+    if (cls === 'output-cap' && !state.outputCapRetried) {
+        return { action: 'corrective-retry', cls };
+    }
 
     if (cls === 'context-overflow'
         && state.historyLength >= EMERGENCY_CONDENSE_MIN_HISTORY

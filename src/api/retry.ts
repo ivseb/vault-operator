@@ -14,6 +14,7 @@ export type ProviderErrorClass =
     | 'server'
     | 'network'
     | 'context-overflow'
+    | 'output-cap'
     | 'auth'
     | 'client'
     | 'abort'
@@ -33,6 +34,37 @@ const CONTEXT_OVERFLOW_RE =
 const RATE_LIMIT_RE = /rate.?limit|\b429\b/i;
 const NETWORK_RE = /fetch failed|network|socket hang up|connection (reset|refused|closed)/i;
 
+// ADR-148: the provider rejected our max_tokens as above the model's real
+// output limit. Anthropic wording: "max_tokens: 32000 > 8192, which is the
+// maximum ...". Bedrock ValidationException wording varies and does not
+// always carry the number.
+const OUTPUT_CAP_ANTHROPIC_RE = /max_tokens\D{0,3}(\d+)\s*>\s*(\d+)/i;
+const OUTPUT_CAP_HINT_RE = /max_?tokens|maximum tokens|output tokens/i;
+const OUTPUT_CAP_VERB_RE = /exceed|greater than|maximum|too (?:high|large)/i;
+const BUDGET_TOKENS_RE = /budget_tokens/i;
+
+function isOutputCapMessage(message: string): boolean {
+    if (BUDGET_TOKENS_RE.test(message)) return false;
+    if (/prompt is too long|input.{0,20}too long/i.test(message)) return false;
+    return OUTPUT_CAP_ANTHROPIC_RE.test(message)
+        || (OUTPUT_CAP_HINT_RE.test(message) && OUTPUT_CAP_VERB_RE.test(message));
+}
+
+/**
+ * The model's real output limit from an output-cap 400, when the provider
+ * names it (Anthropic does; Bedrock usually does not — callers fall back to
+ * halving their previous request).
+ */
+export function parseOutputCapLimit(err: unknown): number | null {
+    if (typeof err !== 'object' || err === null) return null;
+    const message = typeof (err as ErrorShape).message === 'string'
+        ? (err as ErrorShape).message as string : '';
+    const m = OUTPUT_CAP_ANTHROPIC_RE.exec(message);
+    if (!m) return null;
+    const limit = parseInt(m[2], 10);
+    return Number.isFinite(limit) && limit > 0 ? limit : null;
+}
+
 interface ErrorShape {
     message?: unknown;
     name?: unknown;
@@ -40,6 +72,8 @@ interface ErrorShape {
     code?: unknown;
     error?: { type?: unknown };
     headers?: unknown;
+    /** AWS Smithy errors carry the HTTP status here instead of `.status`. */
+    $metadata?: { httpStatusCode?: unknown };
 }
 
 /**
@@ -54,7 +88,13 @@ export function classifyProviderError(err: unknown): ProviderErrorClass {
 
     if (e.name === 'AbortError' || e.code === 'ABORT_ERR') return 'abort';
 
-    const status = typeof e.status === 'number' ? e.status : undefined;
+    // AWS Smithy errors (Bedrock) have no `.status`; they carry `name` plus
+    // `$metadata.httpStatusCode`. Without this they all classified as
+    // `unknown` and failed the task (ADR-148).
+    const smithyStatus = typeof e.$metadata?.httpStatusCode === 'number'
+        ? e.$metadata.httpStatusCode
+        : (e.name === 'ValidationException' ? 400 : undefined);
+    const status = typeof e.status === 'number' ? e.status : smithyStatus;
     const errorType = typeof e.error?.type === 'string' ? e.error.type : undefined;
 
     if (errorType === 'overloaded_error') return 'overloaded';
@@ -64,6 +104,7 @@ export function classifyProviderError(err: unknown): ProviderErrorClass {
         if (status === 401 || status === 403) return 'auth';
         if (status >= 500) return 'server';
         if (status >= 400) {
+            if (isOutputCapMessage(message)) return 'output-cap';
             return CONTEXT_OVERFLOW_RE.test(message) ? 'context-overflow' : 'client';
         }
     }

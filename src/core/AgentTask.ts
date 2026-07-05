@@ -43,7 +43,9 @@ import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
 import { StigmergyInterceptor } from './agent/interceptors/StigmergyInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
-import { abortableDelay } from '../api/retry';
+import { abortableDelay, parseOutputCapLimit } from '../api/retry';
+import { resolveOutputBudget } from '../types/model-registry';
+import { learnOutputCap } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
@@ -1884,9 +1886,28 @@ export class AgentTask {
                 retriesUsed: loopState.rateLimitRetries,
                 maxRetries: RATE_LIMIT_MAX_RETRIES,
                 emergencyRetried: loopState.emergencyRetried,
+                outputCapRetried: loopState.outputCapRetried,
                 historyLength: history.length,
                 rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
             });
+
+            // ADR-148: the provider rejected our max_tokens as above the
+            // model's real output limit (new/unregistered model running on
+            // the optimistic default). Learn the cap — persisted and injected
+            // into resolveOutputBudget, so every later request (this task and
+            // future ones) is clamped — then retry once.
+            if (errorAction.action === 'corrective-retry') {
+                loopState.outputCapRetried = true;
+                const capModelId = this.api.getModel().id;
+                const parsed = parseOutputCapLimit(error);
+                const fallback = Math.max(4_096, Math.floor(resolveOutputBudget(capModelId, undefined).maxTokens / 2));
+                const cap = await learnOutputCap(capModelId, parsed ?? fallback);
+                console.warn(
+                    `[OutputCap] ${capModelId}: provider rejected max_tokens; `
+                    + `learned cap ${cap} tokens (${parsed !== null ? 'parsed from error' : 'halved fallback'}) — retrying`,
+                );
+                continue;
+            }
 
             // Emergency condensing on context overflow (400 "prompt too long" etc.)
             // Instead of failing, condense the history and let the user retry.

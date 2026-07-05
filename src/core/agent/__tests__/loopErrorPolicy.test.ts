@@ -20,6 +20,7 @@ const BASE_STATE = {
     retriesUsed: 0,
     maxRetries: 3,
     emergencyRetried: false,
+    outputCapRetried: false,
     historyLength: 10,
     rateLimitBaseWaitMs: 30_000,
 };
@@ -102,5 +103,33 @@ describe('decideLoopErrorAction', () => {
     it('keeps legacy behaviour: bare rate-limit message text still retries', () => {
         const err = new Error('Rate limit exceeded, please slow down');
         expect(decideLoopErrorAction(err, BASE_STATE)).toMatchObject({ action: 'retry', cls: 'rate-limit' });
+    });
+});
+
+describe('output-cap corrective retry (ADR-148)', () => {
+    it('sends an output-cap 400 to corrective-retry once', () => {
+        const err = apiError({
+            status: 400,
+            message: 'max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens',
+        });
+        expect(decideLoopErrorAction(err, BASE_STATE)).toMatchObject({ action: 'corrective-retry', cls: 'output-cap' });
+    });
+
+    it('fails hard when the corrective retry was already used', () => {
+        const err = apiError({
+            status: 400,
+            message: 'max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens',
+        });
+        expect(decideLoopErrorAction(err, { ...BASE_STATE, outputCapRetried: true }))
+            .toMatchObject({ action: 'fail', cls: 'output-cap' });
+    });
+
+    it('handles Bedrock Smithy ValidationException shape', () => {
+        const err = apiError({
+            name: 'ValidationException',
+            $metadata: { httpStatusCode: 400 },
+            message: 'The maximum tokens you requested exceeds the model limit',
+        });
+        expect(decideLoopErrorAction(err, BASE_STATE)).toMatchObject({ action: 'corrective-retry' });
     });
 });

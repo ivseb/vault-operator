@@ -14,6 +14,7 @@ import {
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { PriceCatalogService } from './core/pricing/PriceCatalogService';
 import { InflightStore } from './core/agent/InflightStore';
+import { LearnedCapsStore, registerLearnedCapsStore } from './core/agent/LearnedCapsStore';
 import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
 import { createBackgroundTaskExecutor } from './core/background/backgroundTaskExecutor';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
@@ -263,6 +264,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalFs: GlobalFileService;
     /** IMP-41-03-01: inflight snapshot store for crash recovery. */
     inflightStore: InflightStore | null = null;
+    /** ADR-148: output caps learned from provider max_tokens rejections. */
+    learnedCapsStore: LearnedCapsStore | null = null;
     /** IMP-41-03-05: single-slot background research task runner. */
     backgroundTaskRunner: BackgroundTaskRunner | null = null;
     globalSettingsService: GlobalSettingsService | null = null;
@@ -2176,6 +2179,13 @@ export default class ObsidianAgentPlugin extends Plugin {
         void priceCatalog.load()
             .then(() => priceCatalog.refreshIfStale())
             .catch((e) => console.warn('[PriceCatalog] init failed (non-fatal):', e));
+
+        // ADR-148: learned output caps — load persisted caps and inject them
+        // into resolveOutputBudget before any task runs.
+        this.learnedCapsStore = new LearnedCapsStore(this.globalFs);
+        registerLearnedCapsStore(this.learnedCapsStore);
+        void this.learnedCapsStore.load()
+            .catch((e) => console.warn('[LearnedCaps] boot load failed (non-fatal):', e));
 
         // IMP-41-03-01: inflight snapshot store for crash recovery. The boot
         // sweep drops stale entries (>24h) and surfaces fresh ones so an

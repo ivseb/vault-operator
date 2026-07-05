@@ -9,6 +9,7 @@ import {
     getModelEffortSupport,
     getModelEffortLevels,
     modelUsesBudgetTokensThinking,
+    setLearnedOutputCaps,
 } from '../model-registry';
 
 describe('normalizeModelId', () => {
@@ -81,6 +82,75 @@ describe('getModelOutputCeiling / getModelMaxTokens', () => {
     });
 });
 
+// ADR-148 layer 1: generation-based size inference. New Claude releases must
+// get a sane output budget WITHOUT a code deploy. Patterns encode documented
+// family floors, never invented per-model numbers. Exact registry entries
+// always win; inference only fires on a registry miss.
+describe('inferModelInfo via getModelInfo (ADR-148)', () => {
+    it('infers future Claude 5+/next-gen ids at the 1M/128k family floor', () => {
+        expect(resolveOutputBudget('claude-sonnet-6', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+        expect(resolveOutputBudget('claude-opus-5', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+        expect(resolveOutputBudget('global.anthropic.claude-fable-6-v1:0', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('infers unknown Claude 4.x aliases at the 200k/64k family floor', () => {
+        // undated alias -- only the dated snapshot is registered exactly
+        expect(resolveOutputBudget('claude-sonnet-4-5', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('infers future Haiku generations at 200k/64k', () => {
+        expect(resolveOutputBudget('eu.anthropic.claude-haiku-5-v1:0', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('caps an over-eager configured value at the inferred family ceiling', () => {
+        expect(resolveOutputBudget('claude-haiku-5', 100_000)).toEqual({
+            maxTokens: 64_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('raises the unknown non-Claude default from 8192 to 16384 (self-healing net below)', () => {
+        expect(resolveOutputBudget('llama3.2', undefined)).toEqual({
+            maxTokens: 16_384, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('exact registry entries still win over inference', () => {
+        // haiku-4-5 dated snapshot is registered with an 8192 ceiling
+        expect(resolveOutputBudget('claude-haiku-4-5-20251001', 100_000)).toEqual({
+            maxTokens: 8_192, thinkingBudgetTokens: 0,
+        });
+    });
+});
+
+// ADR-148 layer 3: caps learned at runtime from provider 400s clamp the
+// budget on every later request (injected like the live price catalog).
+describe('learned output caps (ADR-148)', () => {
+    it('clamps resolveOutputBudget to an injected learned cap and can be cleared', () => {
+        setLearnedOutputCaps({ 'claude-sonnet-6': 12_000 });
+        try {
+            expect(resolveOutputBudget('claude-sonnet-6', undefined)).toEqual({
+                maxTokens: 12_000, thinkingBudgetTokens: 0,
+            });
+            expect(resolveOutputBudget('global.anthropic.claude-sonnet-6-v1:0', undefined)).toEqual({
+                maxTokens: 12_000, thinkingBudgetTokens: 0,
+            });
+        } finally {
+            setLearnedOutputCaps({});
+        }
+        expect(resolveOutputBudget('claude-sonnet-6', undefined).maxTokens).toBe(32_000);
+    });
+});
+
 describe('resolveOutputBudget', () => {
     it('clamps a configured value to the model output ceiling', () => {
         // Haiku tops out at 8192 - an over-eager Settings value must not reach the API.
@@ -106,9 +176,12 @@ describe('resolveOutputBudget', () => {
         });
     });
 
-    it('stays conservative (8192) for unknown models with no configured value', () => {
+    it('uses the raised unknown-model default (ADR-148: 16384, was 8192)', () => {
+        // Deliberate behavior change: a too-high guess now triggers the
+        // output-cap corrective retry which learns the real limit; a too-low
+        // value silently truncates long turns (the worse failure mode).
         expect(resolveOutputBudget('llama3.2', undefined)).toEqual({
-            maxTokens: 8_192,
+            maxTokens: 16_384,
             thinkingBudgetTokens: 0,
         });
     });

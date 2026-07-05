@@ -220,10 +220,66 @@ export const MODEL_REGISTRY: Record<string, ModelInfo> = {
 };
 
 /**
- * Get model info by model ID
+ * ADR-148 layer 3: output caps learned at runtime from provider 400s
+ * ("max_tokens: X > Y"). Injected by LearnedCapsStore on boot and after each
+ * learn event — same module-setter pattern as setLivePriceCatalog. Keys are
+ * normalized model ids. resolveOutputBudget treats a learned cap as an
+ * additional ceiling clamp; caps only ever lower the budget.
+ */
+let learnedOutputCaps: Record<string, number> = {};
+
+export function setLearnedOutputCaps(caps: Record<string, number>): void {
+    learnedOutputCaps = caps;
+}
+
+function getLearnedOutputCap(normalizedId: string): number | undefined {
+    return learnedOutputCaps[normalizedId];
+}
+
+/**
+ * ADR-148 layer 1: generation-based size inference for ids without an exact
+ * registry entry. FIX-04-03-12 made the capability layer pattern-based; the
+ * size layer kept exact keys, so every new model silently dropped onto the
+ * 8192 legacy budget (BUG-2: Opus 4.7/4.8/Fable; FIX-04-03-14: Sonnet 5).
+ * Patterns encode documented FAMILY FLOORS — a new generation has never
+ * shipped with less window/output than its family floor — never invented
+ * per-model numbers. Exact registry entries always win.
+ */
+function inferModelInfo(normalizedId: string): ModelInfo | undefined {
+    const id = normalizedId.toLowerCase();
+    if (!id.startsWith('claude-')) return undefined;
+    const floor = (contextWindow: number, maxTokens: number): ModelInfo => ({
+        contextWindow,
+        maxTokens,
+        supportsTools: true,
+        supportsStreaming: true,
+        displayName: normalizedId,
+    });
+    // Opus 4.7+, all 5+ generations of opus/sonnet, Fable/Mythos: 1M / 128k.
+    if (/^claude-opus-(?:4-(?:[7-9]|\d\d+)|[5-9]|\d\d+)\b/.test(id)
+        || /^claude-sonnet-(?:[5-9]|\d\d+)\b/.test(id)
+        || /^claude-(?:fable|mythos)-/.test(id)) {
+        return floor(1_000_000, 128_000);
+    }
+    // Haiku 5+ and any other unknown 4.x member (undated aliases, future
+    // snapshots): 200k window, 64k output.
+    if (/^claude-haiku-(?:[5-9]|\d\d+)\b/.test(id) || /^claude-[a-z]+-4\b/.test(id)) {
+        return floor(200_000, 64_000);
+    }
+    // Any other claude id (future families, 3.x variants): safe floor.
+    return floor(200_000, 32_000);
+}
+
+/**
+ * Get model info by model ID. Lookup chain (ADR-148):
+ *   1. exact key as given, 2. exact key after normalization,
+ *   3. generation-based inference (Claude family floors).
  */
 export function getModelInfo(modelId: string): ModelInfo | undefined {
-    return MODEL_REGISTRY[modelId];
+    const exact = MODEL_REGISTRY[modelId];
+    if (exact) return exact;
+    const normalized = normalizeModelId(modelId);
+    return MODEL_REGISTRY[normalized] ?? inferModelInfo(normalized);
 }
 
 /**
@@ -436,7 +492,14 @@ const UNKNOWN_MODEL_OUTPUT_CEILING = 64_000;
 /** Generous-but-bounded default visible-output budget for known cloud models. */
 const DEFAULT_VISIBLE_OUTPUT_BUDGET = 32_000;
 /** Conservative fallback when we don't know the model and the user set no value (local models). */
-const LEGACY_DEFAULT_OUTPUT_BUDGET = 8_192;
+/**
+ * ADR-148: auto budget for ids that neither the registry nor the generation
+ * inference recognizes (local/gateway/OpenAI-compatible models). Raised from
+ * the 8192 legacy value: a too-high guess now triggers the output-cap
+ * corrective retry (layer 3) which learns the real limit, whereas a too-low
+ * value silently truncates long turns — the more expensive failure mode.
+ */
+const UNKNOWN_DEFAULT_OUTPUT_BUDGET = 16_384;
 /** Tokens always kept available for the visible answer when extended thinking is on. */
 const MIN_VISIBLE_OUTPUT_BUDGET = 1_024;
 /** Tokens reserved between (estimated) input and the output budget — slack for the model to wrap up plus estimate error. */
@@ -472,8 +535,16 @@ export function resolveOutputBudget(
     configuredMaxTokens: number | undefined,
     opts?: { enabled?: boolean; budgetTokens?: number; estimatedInputTokens?: number },
 ): { maxTokens: number; thinkingBudgetTokens: number } {
-    const known = getModelInfo(normalizeModelId(modelId));
-    const modelCeiling = known?.maxTokens ?? UNKNOWN_MODEL_OUTPUT_CEILING;
+    const normalized = normalizeModelId(modelId);
+    const known = getModelInfo(normalized);
+    let modelCeiling = known?.maxTokens ?? UNKNOWN_MODEL_OUTPUT_CEILING;
+
+    // ADR-148 layer 3: a cap learned from a provider "max_tokens > limit" 400
+    // overrides everything above it — it reflects the provider's real limit.
+    const learnedCap = getLearnedOutputCap(normalized);
+    if (learnedCap && learnedCap > 0) {
+        modelCeiling = Math.min(modelCeiling, Math.max(MIN_VISIBLE_OUTPUT_BUDGET, learnedCap));
+    }
 
     // Dynamic ceiling: shrink to the room left after the input so we never send
     // input + max_tokens > context_window.
@@ -486,7 +557,7 @@ export function resolveOutputBudget(
 
     const defaultVisible = known
         ? Math.min(ceiling, DEFAULT_VISIBLE_OUTPUT_BUDGET)
-        : Math.min(ceiling, LEGACY_DEFAULT_OUTPUT_BUDGET);
+        : Math.min(ceiling, UNKNOWN_DEFAULT_OUTPUT_BUDGET);
     const requestedVisible = configuredMaxTokens && configuredMaxTokens > 0
         ? configuredMaxTokens
         : defaultVisible;

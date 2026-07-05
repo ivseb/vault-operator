@@ -17,7 +17,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
-import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking } from '../../types/model-registry';
+import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
@@ -130,10 +130,13 @@ export class GitHubCopilotProvider implements ApiHandler {
             },
         );
 
-        // Temperature: o-series omit, thinking forces 1, otherwise respect config or use 0.2 default
+        // Temperature: o-series omit, thinking forces 1, otherwise respect config or use 0.2 default.
+        // ADR-148 side fix: gate through modelSupportsTemperature — Copilot was
+        // the one provider without the FIX-04-03-12 gate, so Claude 5 / Opus
+        // 4.7+ routed via Copilot got temperature 0.2 and a 400.
         const isOSeries = /^o[1-9]/.test(this.config.model);
         let temperature: number | undefined;
-        if (isOSeries) {
+        if (isOSeries || !modelSupportsTemperature(this.config.model)) {
             temperature = undefined;
         } else if (thinkingEnabled) {
             temperature = 1;

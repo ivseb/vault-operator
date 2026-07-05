@@ -182,3 +182,44 @@ describe('executeWithRetry', () => {
         expect(fn).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('output-cap classification (ADR-148)', () => {
+    it('classifies an Anthropic max_tokens-over-limit 400 as output-cap and parses the limit', async () => {
+        const { classifyProviderError, parseOutputCapLimit } = await import('../retry');
+        const err = {
+            status: 400,
+            message: 'max_tokens: 32000 > 8192, which is the maximum allowed number of output tokens for this model',
+        };
+        expect(classifyProviderError(err)).toBe('output-cap');
+        expect(parseOutputCapLimit(err)).toBe(8192);
+    });
+
+    it('classifies a Bedrock Smithy ValidationException via name/$metadata (no .status field)', async () => {
+        const { classifyProviderError, parseOutputCapLimit } = await import('../retry');
+        const err = {
+            name: 'ValidationException',
+            $metadata: { httpStatusCode: 400 },
+            message: 'The maximum tokens you requested exceeds the model limit',
+        };
+        expect(classifyProviderError(err)).toBe('output-cap');
+        expect(parseOutputCapLimit(err)).toBeNull();
+    });
+
+    it('does NOT classify budget_tokens validation errors as output-cap', async () => {
+        const { classifyProviderError } = await import('../retry');
+        const err = { status: 400, message: 'thinking.enabled.budget_tokens: Field required' };
+        expect(classifyProviderError(err)).toBe('client');
+    });
+
+    it('keeps prompt-too-long as context-overflow, not output-cap', async () => {
+        const { classifyProviderError } = await import('../retry');
+        const err = { status: 400, message: 'prompt is too long: 214000 tokens > 200000 maximum' };
+        expect(classifyProviderError(err)).toBe('context-overflow');
+    });
+
+    it('a Smithy throttling exception maps to rate-limit via $metadata', async () => {
+        const { classifyProviderError } = await import('../retry');
+        const err = { name: 'ThrottlingException', $metadata: { httpStatusCode: 429 }, message: 'Too many requests' };
+        expect(classifyProviderError(err)).toBe('rate-limit');
+    });
+});
