@@ -2495,5 +2495,6 @@
   "settings.optionalAssets.rerankerLibNotInstalled": "Status: not installed. Semantic search continues without the local rerank step.",
   "protocol.runSkillConfirmTitle": "スキルを実行しますか?",
   "protocol.runSkillConfirmMessage": "外部リンクがこの保管庫でスキル /{{skill}} の実行を要求しています。エージェントの実行が開始され、APIコストが発生する可能性があります。",
-  "protocol.runSkillConfirmButton": "実行"
+  "protocol.runSkillConfirmButton": "実行",
+  "protocol.runSkillBusy": "すでに実行中です。/{{skill}} を再度開始する前に、完了までお待ちください。"
 }

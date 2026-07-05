@@ -2495,5 +2495,6 @@
   "settings.optionalAssets.rerankerLibNotInstalled": "Status: not installed. Semantic search continues without the local rerank step.",
   "protocol.runSkillConfirmTitle": "Запустить навык?",
   "protocol.runSkillConfirmMessage": "Внешняя ссылка запрашивает запуск навыка /{{skill}} в этом хранилище. Будет запущен агент, что может повлечь расходы на API.",
-  "protocol.runSkillConfirmButton": "Запустить"
+  "protocol.runSkillConfirmButton": "Запустить",
+  "protocol.runSkillBusy": "Запуск уже выполняется. Дождитесь его завершения, прежде чем снова запускать /{{skill}}."
 }

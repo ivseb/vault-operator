@@ -2657,6 +2657,7 @@ export const en = {
     'protocol.runSkillConfirmTitle': 'Start skill run?',
     'protocol.runSkillConfirmMessage': 'An external link wants to run the skill /{{skill}} in this vault. This starts an agent run and may incur API costs.',
     'protocol.runSkillConfirmButton': 'Start',
+    'protocol.runSkillBusy': 'A run is already active. Wait for it to finish before starting /{{skill}} again.',
     'plugin.commandInjectMocMarkers': 'Inject initial map-of-content markers into cluster candidates',
     'plugin.commandOpenInlineChat': 'Open inline AI chat',
     'plugin.commandOpenSetupWizard': 'Open setup wizard',

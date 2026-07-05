@@ -2495,5 +2495,6 @@
   "settings.optionalAssets.rerankerLibNotInstalled": "Status: not installed. Semantic search continues without the local rerank step.",
   "protocol.runSkillConfirmTitle": "스킬 실행을 시작할까요?",
   "protocol.runSkillConfirmMessage": "외부 링크가 이 보관소에서 스킬 /{{skill}} 실행을 요청했습니다. 에이전트 실행이 시작되며 API 비용이 발생할 수 있습니다.",
-  "protocol.runSkillConfirmButton": "시작"
+  "protocol.runSkillConfirmButton": "시작",
+  "protocol.runSkillBusy": "이미 실행이 진행 중입니다. /{{skill}}을(를) 다시 시작하기 전에 완료될 때까지 기다려 주세요."
 }

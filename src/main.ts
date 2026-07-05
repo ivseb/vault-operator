@@ -256,6 +256,11 @@ export default class ObsidianAgentPlugin extends Plugin {
     skillRegistry: SkillRegistry | null = null;
     capabilityGapResolver: CapabilityGapResolver | null = null;
     settingsTab: AgentSettingsTab | null = null;
+    /** Reentrancy guard for obsidian://vault-operator-run: set the moment a
+     *  deeplink run is accepted, held until the started run has flipped a
+     *  sidebar view to busy. Blocks a second (foreign) trigger from overlapping
+     *  a run or slipping in as a mid-run steering nudge (2026-07-05 follow-up). */
+    private skillRunPending = false;
     recipeStore: RecipeStore | null = null;
     recipeMatchingService: RecipeMatchingService | null = null;
     episodicExtractor: EpisodicExtractor | null = null;
@@ -4275,14 +4280,44 @@ export default class ObsidianAgentPlugin extends Plugin {
             console.warn('[deeplink] Rejected vault-operator-run with invalid skill slug');
             return;
         }
-        const ok = await confirmModal(this.app, {
-            title: t('protocol.runSkillConfirmTitle'),
-            message: t('protocol.runSkillConfirmMessage', { skill }),
-            confirmLabel: t('protocol.runSkillConfirmButton'),
-            cancelLabel: t('settings.vault.cancel'),
-        });
-        if (!ok) return;
-        await this.sendMessageToAgent(`/${skill}`);
+        // Reentrancy guard (P1, 2026-07-05 data-loss follow-up): obsidian:// URLs
+        // are firable by ANY web page, and the dashboard "Aktualisieren" button
+        // polls, so a second trigger can arrive while a run is active or being
+        // started. A second run would overlap writes to the same day-file, or --
+        // if a run is mid-flight -- be swallowed as a steering nudge
+        // (AgentSidebarView.handleSendMessage). Refuse both.
+        if (this.skillRunPending || this.isAgentRunBusy()) {
+            new Notice(t('protocol.runSkillBusy', { skill }));
+            return;
+        }
+        this.skillRunPending = true;
+        let started = false;
+        try {
+            const ok = await confirmModal(this.app, {
+                title: t('protocol.runSkillConfirmTitle'),
+                message: t('protocol.runSkillConfirmMessage', { skill }),
+                confirmLabel: t('protocol.runSkillConfirmButton'),
+                cancelLabel: t('settings.vault.cancel'),
+            });
+            if (!ok) return;
+            await this.sendMessageToAgent(`/${skill}`);
+            started = true;
+        } finally {
+            if (started) {
+                // Hold the flag briefly so the just-started run has time to flip
+                // a view to busy; isAgentRunBusy() covers it from then on.
+                window.setTimeout(() => { this.skillRunPending = false; }, 1500);
+            } else {
+                this.skillRunPending = false;
+            }
+        }
+    }
+
+    /** True while any agent sidebar view has a run in flight. Used by the
+     *  deeplink reentrancy guard so a browser trigger cannot overlap a run. */
+    private isAgentRunBusy(): boolean {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+        return leaves.some((leaf) => leaf.view instanceof AgentSidebarView && leaf.view.isBusy);
     }
 
     /**

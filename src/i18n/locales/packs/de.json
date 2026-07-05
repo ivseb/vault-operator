@@ -2495,5 +2495,6 @@
   "settings.optionalAssets.rerankerLibNotInstalled": "Status: nicht installiert. Die semantische Suche läuft ohne den lokalen Rerank-Schritt weiter.",
   "protocol.runSkillConfirmTitle": "Skill-Lauf starten?",
   "protocol.runSkillConfirmMessage": "Ein externer Link möchte den Skill /{{skill}} in diesem Vault ausführen. Das startet einen Agenten-Lauf und kann API-Kosten verursachen.",
-  "protocol.runSkillConfirmButton": "Starten"
+  "protocol.runSkillConfirmButton": "Starten",
+  "protocol.runSkillBusy": "Es läuft bereits ein Lauf. Warte, bis er fertig ist, bevor du /{{skill}} erneut startest."
 }
