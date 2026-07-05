@@ -83,14 +83,15 @@ export class ImplicitConnectionService {
             // 2. Build set of explicit edges for filtering
             const explicitEdges = this.buildExplicitEdgeSet(db);
 
-            // 3. Clear old implicit edges
-            db.run('DELETE FROM implicit_edges');
-
-            // 4. Pairwise comparison
+            // 3. Pairwise comparison into an in-memory staging buffer. P2
+            //    (2026-07-05): the primary table is NOT cleared up front anymore.
+            //    The old DELETE-then-repopulate left a truncated table when the
+            //    pass aborted (DB close / timeout), and a timeout abort with the
+            //    DB still open then saved that partial state. Collecting edges
+            //    first and swapping only after a complete pass keeps the previous
+            //    result on any abort.
             const now = new Date().toISOString();
-            const stmt = db.prepare(
-                'INSERT OR IGNORE INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
-            );
+            const newEdges: Array<[string, string, number, string]> = [];
 
             let computed = 0;
             let stored = 0;
@@ -111,7 +112,7 @@ export class ImplicitConnectionService {
                             ? `${paths[i]}|${paths[j]}`
                             : `${paths[j]}|${paths[i]}`;
                         if (!explicitEdges.has(key)) {
-                            stmt.run([paths[i], paths[j], sim, now]);
+                            newEdges.push([paths[i], paths[j], sim, now]);
                             stored++;
                         }
                     }
@@ -133,13 +134,22 @@ export class ImplicitConnectionService {
                 }
             }
 
-            try { stmt.free(); } catch { /* statement may already be freed if DB closed */ }
-            if (this.knowledgeDB.isOpen()) {
+            // 4. Atomic swap: only a complete pass replaces the primary table.
+            //    The DELETE + INSERT sequence runs without an await, so no
+            //    observer (or crash) can see a truncated table. An aborted pass
+            //    leaves the previous edges untouched and persists nothing.
+            if (!this.cancelled && this.knowledgeDB.isOpen()) {
+                const stmt = db.prepare(
+                    'INSERT OR IGNORE INTO implicit_edges (source_path, target_path, similarity, computed_at) VALUES (?, ?, ?, ?)',
+                );
+                try {
+                    db.run('DELETE FROM implicit_edges');
+                    for (const edge of newEdges) stmt.run(edge);
+                } finally {
+                    try { stmt.free(); } catch { /* statement may already be freed if DB closed */ }
+                }
                 this.knowledgeDB.markDirty();
                 await this.knowledgeDB.save();
-            }
-
-            if (!this.cancelled) {
                 console.debug(
                     `[ImplicitConnections] Computed ${computed} pairs, stored ${stored} above threshold ${threshold}`,
                 );
