@@ -184,12 +184,19 @@ describe('FIX-COMPACT-09: dry run + economy guard', () => {
         expect(dossier.render()).not.toContain('Notes/A.md');
     });
 
-    it('shouldDeferMicrocompact defers small frees at low pressure, prunes otherwise', () => {
+    it('shouldDeferMicrocompact applies the economy guard below the ceiling, prunes on real pressure', () => {
         // small free, low pressure -> defer (cache rebuild would cost more than the free)
-        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 500, pressureFloor: 0.6, minFreedTokens: 3000 })).toBe(true);
-        // large free amortizes the one-time cache rebuild -> prune
-        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 5000, pressureFloor: 0.6, minFreedTokens: 3000 })).toBe(false);
-        // high pressure -> always prune (safety net before full condense)
-        expect(shouldDeferMicrocompact({ pressure: 0.7, wouldFreeTokens: 500, pressureFloor: 0.6, minFreedTokens: 3000 })).toBe(false);
+        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
+        // large free amortizes the one-time cache rebuild -> prune even at low pressure
+        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 5000, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
+        // FIX-COMPACT-09 gap fix: mid pressure (>= old floor 0.6 but < ceiling) with a
+        // small free now DEFERS. Previously the guard was skipped in this band and
+        // pruned unconditionally, busting the prompt-cache prefix on every turn --
+        // exactly where the cache rebuild is most expensive (the 0.80 EUR driver).
+        expect(shouldDeferMicrocompact({ pressure: 0.7, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
+        // real pressure at/above the ceiling -> always prune to make room before full condense
+        expect(shouldDeferMicrocompact({ pressure: 0.78, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
+        // exactly at the ceiling counts as real pressure -> prune
+        expect(shouldDeferMicrocompact({ pressure: 0.75, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
     });
 });

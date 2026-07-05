@@ -67,7 +67,7 @@ import {
     DEFAULT_MICROCOMPACTION_ENABLED,
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
     MICROCOMPACT_MIN_FREED_TOKENS,
-    MICROCOMPACT_PRESSURE_FLOOR,
+    MICROCOMPACT_PRESSURE_CEILING,
 } from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
@@ -509,27 +509,28 @@ export class AgentTask {
      */
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
-        // FIX-COMPACT-09: a prune rewrites history before the stable cache
-        // breakpoint and invalidates the prompt-cache prefix. Probe first and
-        // defer while the free is too small to amortize that rebuild.
+        // FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before
+        // the stable cache breakpoint and invalidates the prompt-cache prefix.
+        // Probe first and run the economy guard at ALL sub-ceiling pressures --
+        // the old code only probed below a 0.60 floor and pruned unconditionally
+        // above it, busting the cache every turn exactly where the rebuild is
+        // most expensive (the 0.80 EUR daily-briefing driver).
         const pressure = this.estimateTokens(history) / this.getModelContextWindow();
-        if (pressure < MICROCOMPACT_PRESSURE_FLOOR) {
-            const probe = microcompactToolResults(history, { dryRun: true });
-            const wouldFree = this.tokenEstimator.tokensForChars(probe.freedCharsApprox);
-            if (shouldDeferMicrocompact({
-                pressure,
-                wouldFreeTokens: wouldFree,
-                pressureFloor: MICROCOMPACT_PRESSURE_FLOOR,
-                minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
-            })) {
-                if (probe.prunedBlocks > 0) {
-                    console.debug(
-                        `[Microcompact] deferred: would free only ~${wouldFree} tokens ` +
-                        `at ${(pressure * 100).toFixed(0)}% context (cache-prefix protection)`,
-                    );
-                }
-                return;
+        const probe = microcompactToolResults(history, { dryRun: true });
+        const wouldFree = this.tokenEstimator.tokensForChars(probe.freedCharsApprox);
+        if (shouldDeferMicrocompact({
+            pressure,
+            wouldFreeTokens: wouldFree,
+            pressureCeiling: MICROCOMPACT_PRESSURE_CEILING,
+            minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
+        })) {
+            if (probe.prunedBlocks > 0) {
+                console.debug(
+                    `[Microcompact] deferred: would free only ~${wouldFree} tokens ` +
+                    `at ${(pressure * 100).toFixed(0)}% context (cache-prefix protection)`,
+                );
             }
+            return;
         }
         // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
         // memory the flat condense summary lacks.

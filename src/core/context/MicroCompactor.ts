@@ -129,20 +129,31 @@ export interface MicrocompactGuardInput {
     pressure: number;
     /** Tokens a prune would free, measured via a `dryRun` probe. */
     wouldFreeTokens: number;
-    /** Below this pressure the guard may defer (fraction of the window). */
-    pressureFloor: number;
+    /**
+     * At/above this pressure the context is under real pressure and a prune runs
+     * regardless of cache cost (make room before full condensing). Below it, the
+     * economy guard applies at ANY pressure (fraction of the window).
+     */
+    pressureCeiling: number;
     /** Frees below this token count never justify a prompt-cache rebuild. */
     minFreedTokens: number;
 }
 
 /**
- * FIX-COMPACT-09: a prune rewrites history before the stable cache breakpoint,
- * so it costs one full prefix re-write. Defer while the context is far from
- * its window AND the free is too small to amortize that re-write. Deferred
- * candidates accumulate until one batch prune pays for itself.
+ * FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before the
+ * stable cache breakpoint, so it costs one full prompt-cache prefix re-write.
+ *
+ * - At/above `pressureCeiling`: never defer. The context is close to the full
+ *   condense threshold; pruning frees room and is worth the cache cost.
+ * - Below the ceiling (at ANY pressure): defer while the freed volume is too
+ *   small to amortize the cache rebuild. The original guard only evaluated this
+ *   below a 0.60 floor, so the 0.60..ceiling band pruned every turn and busted
+ *   the cache exactly where the rebuild is most expensive. Deferred candidates
+ *   accumulate until one batch prune clears the min-freed bar or pressure rises.
  */
 export function shouldDeferMicrocompact(g: MicrocompactGuardInput): boolean {
-    return g.pressure < g.pressureFloor && g.wouldFreeTokens < g.minFreedTokens;
+    if (g.pressure >= g.pressureCeiling) return false;
+    return g.wouldFreeTokens < g.minFreedTokens;
 }
 
 /**
