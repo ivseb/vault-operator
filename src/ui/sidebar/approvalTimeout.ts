@@ -22,15 +22,15 @@ export function wireApprovalTimeout(opts: {
     /** Called once per second while 60 or fewer seconds remain. */
     onCountdownTick?: (remainingSec: number) => void;
 }): ApprovalTimeoutHandle {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let intervalId: ReturnType<typeof setInterval> | undefined;
+    let timeoutId: number | undefined;
+    let intervalId: number | undefined;
     let disposed = false;
 
     const dispose = (): void => {
         if (disposed) return;
         disposed = true;
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-        if (intervalId !== undefined) clearInterval(intervalId);
+        if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+        if (intervalId !== undefined) window.clearInterval(intervalId);
         opts.abortSignal?.removeEventListener('abort', onAbortEvent);
     };
 
@@ -48,12 +48,12 @@ export function wireApprovalTimeout(opts: {
 
     if (opts.timeoutMs > 0) {
         const expiresAt = Date.now() + opts.timeoutMs;
-        timeoutId = setTimeout(() => {
+        timeoutId = window.setTimeout(() => {
             dispose();
             opts.onExpire();
         }, opts.timeoutMs);
         if (opts.onCountdownTick) {
-            intervalId = setInterval(() => {
+            intervalId = window.setInterval(() => {
                 const remainingSec = Math.max(0, Math.round((expiresAt - Date.now()) / 1000));
                 if (remainingSec <= 60) opts.onCountdownTick?.(remainingSec);
             }, 1000);

@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, MarkdownView } from 'obsidian';
 import { formatHotkeyHint, formatSendSelectionToSidebarHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
@@ -446,7 +446,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // Backstop: if a subsystem fails to construct, its promise must
         // still resolve so consumers do not hang. doLoad's finally
         // resolves any still-unresolved subsystem promise.
-        this.readyPromise.finally(() => {
+        void this.readyPromise.finally(() => {
             this.markKnowledgeReady();
             this.markSemanticReady();
             this.markMemoryReady();
@@ -3773,8 +3773,8 @@ export default class ObsidianAgentPlugin extends Plugin {
             void this.saveSettings();
 
             const notice = new Notice(t('notice.localePack.offer', { language: label }), 0);
-            notice.noticeEl.addClass('agent-clickable-notice');
-            notice.noticeEl.addEventListener('click', () => {
+            notice.messageEl.addClass('agent-clickable-notice');
+            notice.messageEl.addEventListener('click', () => {
                 notice.hide();
                 const downloading = new Notice(t('notice.localePack.downloading', { language: label }), 0);
                 void new OptionalAssetManager(this).install(spec)

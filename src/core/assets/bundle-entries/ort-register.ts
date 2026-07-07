@@ -28,8 +28,11 @@ import * as ortWasm from 'onnxruntime-web/wasm';
 
 // Cast to a typed symbol-index record instead of `any` so the bot's
 // forbidden no-explicit-any disable is not needed; assigning to an
-// `unknown` slot keeps the assignment type-safe.
-(globalThis as Record<symbol, unknown>)[Symbol.for('onnxruntime')] = ortWasm;
+// `unknown` slot keeps the assignment type-safe. This bundle is evaluated
+// via an indirect Function constructor in the main renderer realm, where
+// window and globalThis are the same object, so @huggingface/transformers
+// still finds the symbol on globalThis.
+(window as unknown as Record<symbol, unknown>)[Symbol.for('onnxruntime')] = ortWasm;
 /* eslint-enable @typescript-eslint/ban-ts-comment -- end of ORT-registration boundary disable (error-typed runtime import) */
 
 export { ortWasm };

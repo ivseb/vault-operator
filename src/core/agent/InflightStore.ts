@@ -138,7 +138,7 @@ export interface InflightFs {
 
 export class InflightStore {
     private pending = new Map<string, InflightSnapshot>();
-    private flushTimer: ReturnType<typeof setTimeout> | undefined;
+    private flushTimer: number | undefined;
 
     constructor(private fs: InflightFs) {}
 
@@ -147,7 +147,7 @@ export class InflightStore {
     async saveSnapshot(snapshot: InflightSnapshot): Promise<void> {
         this.pending.set(snapshot.taskId, snapshot);
         if (this.flushTimer !== undefined) return;
-        this.flushTimer = setTimeout(() => {
+        this.flushTimer = window.setTimeout(() => {
             this.flushTimer = undefined;
             void this.flush();
         }, DEBOUNCE_MS);

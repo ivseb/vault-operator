@@ -154,7 +154,7 @@ export class BackgroundJobCoordinator {
         // available (rare in Obsidian) fall through to immediate.
         if (record.opts.priority === 'low') {
             await new Promise<void>((resolve) => {
-                const idle = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback;
+                const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback;
                 if (typeof idle === 'function') {
                     idle(() => resolve(), { timeout: 30_000 });
                 } else {
@@ -174,7 +174,7 @@ export class BackgroundJobCoordinator {
             ? performance.now() : 0;
         try {
             const r = record.opts.run();
-            if (r && typeof (r as Promise<void>).then === 'function') {
+            if (r && typeof r.then === 'function') {
                 await r;
             }
             record.lastError = null;

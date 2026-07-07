@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
  * KiloGatewayProvider — LLM Provider für Kilo Gateway API
  *
@@ -20,18 +19,11 @@ import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } f
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
-import { appendOpenAiChatUserMessage, type OpenAiChatMessage } from '../openaiShapeUserBlocks';
-import { convertToOpenAiChatMessages, convertToOpenAiChatTools, type OpenAIMessage, type OpenAITool } from '../adapters/openaiChat';
+import { convertToOpenAiChatMessages, convertToOpenAiChatTools } from '../adapters/openaiChat';
 
 // ---------------------------------------------------------------------------
 // OpenAI REST API types (subset — mirrors github-copilot.ts)
 // ---------------------------------------------------------------------------
-
-// FIX-04-03-09: content may be a content-part array on user messages to
-// carry multimodal input ({type:'image_url'|'text'}).
-type OpenAIContentPart =
-    | { type: 'text'; text: string }
-    | { type: 'image_url'; image_url: { url: string } };
 
 // IMP-41-03-03 / ADR-150: message/tool types + conversion live in the
 // shared openai-chat wire adapter (one implementation, three consumers).
@@ -246,4 +238,3 @@ export class KiloGatewayProvider implements ApiHandler {
     }
 }
 
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */

@@ -28,12 +28,6 @@ import type {
     ConverseStreamCommand as ConverseStreamCommandType,
     ConverseCommand as ConverseCommandType,
     BedrockRuntimeClientConfig,
-    ContentBlock as BedrockContentBlock,
-    Message as BedrockMessage,
-    SystemContentBlock,
-    Tool as BedrockTool,
-    ToolResultContentBlock,
-    ConverseStreamCommandInput,
 } from '@aws-sdk/client-bedrock-runtime';
 interface BedrockSdk {
     BedrockRuntimeClient: new (cfg: BedrockRuntimeClientConfig) => BedrockRuntimeClient;
@@ -66,24 +60,16 @@ function getSmithySdk(): Promise<SmithySdk> {
 // FIX-PERF-13: NodeHttpHandler runtime use is gated behind getSmithySdk()
 // (see top of file). Type-only retained import would still pull the
 // module type definitions but no runtime; leave it out entirely.
-import type { DocumentType } from '@smithy/types';
 import type { LLMProvider } from '../../types/settings';
 import type {
     ApiHandler,
     ApiStream,
-    ApiStreamChunk,
-    ContentBlock,
     MessageParam,
     ModelInfo,
 } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
-import { truncatedToolInputError } from '../types';
 import { validateProviderUrl } from './providerUrlGuard';
-import { getCacheCapability } from '../capabilities';
 import { prepareBedrockConverseInput, parseBedrockConverseStream } from '../adapters/bedrockConverse';
-import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
-import { logCacheStat } from '../logCacheStat';
-import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 
 // Default context window for Claude models on Bedrock.
 // Can be refined per model in the model-registry later.

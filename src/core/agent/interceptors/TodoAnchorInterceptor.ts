@@ -13,7 +13,8 @@ import type { LoopInterceptor, LoopInterceptorContext } from './types';
 
 interface TodoItem {
     text: string;
-    status: 'open' | 'in_progress' | 'done' | string;
+    /** Known values: 'open', 'in_progress', 'done'; free-form strings pass through. */
+    status: string;
 }
 
 export class TodoAnchorInterceptor implements LoopInterceptor {
