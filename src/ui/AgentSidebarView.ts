@@ -2055,6 +2055,38 @@ export class AgentSidebarView extends ItemView {
             window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
         };
 
+        // Issue #48.3: incremental Q&A markdown render. Previously Q&A text was
+        // appended as RAW characters into a <p class="streaming-para"> sized at
+        // the editor font, then replaced by a single Markdown pass in onComplete
+        // — the user saw large raw markdown syntax that "lingered then
+        // reformatted". Now the accumulated text is rendered as Markdown at a
+        // throttled cadence (leading edge for instant first paint, then at most
+        // every QA_RENDER_INTERVAL_MS), so formatted text grows in place at the
+        // final bubble size with no raw->formatted swap. onComplete still does
+        // the authoritative pass (sources/followups parsing). Throttling keeps
+        // re-parses bounded, preserving the perf goal of the old raw-append path.
+        const QA_RENDER_INTERVAL_MS = 120;
+        let qaLastRenderAt = 0;
+        let qaTrailingTimer = 0;
+        const renderQaNow = (): void => {
+            if (hasTools) return; // switched to agentic mode; onComplete owns the render
+            qaLastRenderAt = Date.now();
+            contentEl.empty();
+            void this.renderMarkdownAndWire(accumulatedText, contentEl);
+            scheduleScroll();
+        };
+        const scheduleQaRender = (): void => {
+            const sinceLast = Date.now() - qaLastRenderAt;
+            if (sinceLast >= QA_RENDER_INTERVAL_MS) {
+                renderQaNow();
+            } else if (qaTrailingTimer === 0) {
+                qaTrailingTimer = window.setTimeout(() => { qaTrailingTimer = 0; renderQaNow(); }, QA_RENDER_INTERVAL_MS - sinceLast);
+            }
+        };
+        const cancelQaRender = (): void => {
+            if (qaTrailingTimer !== 0) { window.clearTimeout(qaTrailingTimer); qaTrailingTimer = 0; }
+        };
+
         // FIX-PERF-03: coalesce per-chunk tool-progress renders. Previously
         // onToolProgress called MarkdownRenderer.render() for every chunk
         // - on a 20-tool turn that meant 40+ synchronous parser passes per
@@ -2284,15 +2316,14 @@ export class AgentSidebarView extends ItemView {
                     }
                     accumulatedText += chunk;
                     if (!hasTools) {
-                        // Q&A streaming: append raw text directly — O(1), no re-parse.
-                        // On first chunk, clear the loading state and create the container.
-                        // On completion, the container is replaced by a full Markdown render.
+                        // Q&A streaming: render Markdown incrementally (throttled) so the
+                        // user sees formatted text grow at the final bubble size — no raw
+                        // markdown syntax, no raw->formatted swap at the end (issue #48.3).
                         if (!streamingPara) {
                             contentEl.empty();
-                            streamingPara = contentEl.createEl('p', { cls: 'streaming-para' });
+                            streamingPara = contentEl; // sentinel: Q&A stream is active
                         }
-                        streamingPara.insertAdjacentText('beforeend', chunk);
-                        scheduleScroll();
+                        scheduleQaRender();
                     }
                     // Agentic mode: text is buffered and rendered once in onComplete.
                 },
@@ -2304,6 +2335,7 @@ export class AgentSidebarView extends ItemView {
                             // Hide + clear the streaming UI — text will be re-rendered as
                             // Markdown in onQuestion/onComplete. Hide first to avoid the
                             // flash of raw streaming text disappearing.
+                            cancelQaRender();
                             contentEl.classList.add('agent-u-visibility-hidden');
                             contentEl.empty();
                             streamingPara = null;
@@ -2640,6 +2672,8 @@ export class AgentSidebarView extends ItemView {
                         accumulatedThinking = '';
                         accumulatedToolContent = '';
                         hasTools = false;
+                        cancelQaRender();
+                        qaLastRenderAt = 0;
                         streamingPara = null;
                         stepsBlockEl = null;
                         stepsBodyEl = null;
@@ -2731,8 +2765,10 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
 
-                    // Replace the raw streaming text with the properly formatted Markdown.
-                    // This fires exactly once — giving us instant streaming + clean final output.
+                    // Replace the streamed Markdown with the authoritative pass (sources /
+                    // followups parsed). Cancel any pending throttled Q&A render first so a
+                    // late trailing tick cannot re-render the unparsed text over this one.
+                    cancelQaRender();
                     streamingPara = null;
                     // Parse [sources] and [followups] blocks before rendering
                     let renderText = accumulatedText;
