@@ -90,6 +90,58 @@ function makePluginWithStubbedPdfjs(pdfStub: { getPage: ReturnType<typeof vi.fn>
     } as unknown as ObsidianAgentPlugin;
 }
 
+/**
+ * Regression-test for FIX-01-12-03 (detached ArrayBuffer on attachment auto-save).
+ *
+ * pdf.js takes ownership of the TypedArray passed to getDocument() and
+ * transfers it to its (fake-)worker via postMessage, detaching the underlying
+ * ArrayBuffer in the caller (LoopbackPort uses structuredClone with a transfer
+ * list, so this happens even without a real worker). AttachmentHandler
+ * .processFile() reuses that same buffer afterwards (vault.createBinary
+ * auto-save), which then threw "Cannot perform Construct on a detached
+ * ArrayBuffer". parsePdf must therefore hand pdfjs a copy, never the
+ * caller-owned buffer. The mock below reproduces the transfer with
+ * structuredClone(..., {transfer}) so this test fails whenever the copy
+ * is dropped (e.g. a refactor back to `new Uint8Array(data)` or a pdfjs
+ * upgrade changing ownership semantics would surface here).
+ */
+function makeDetachingPdfjs() {
+    return {
+        GlobalWorkerOptions: { workerSrc: 'obsidian-original-worker' },
+        getDocument(params: { data: Uint8Array }) {
+            // Simulate the pdf.js worker transfer: detach the buffer we received.
+            structuredClone(params.data.buffer, { transfer: [params.data.buffer as ArrayBuffer] });
+            return {
+                promise: Promise.resolve({
+                    numPages: 1,
+                    getPage: () => Promise.resolve({
+                        getTextContent: () => Promise.resolve({ items: [{ str: 'Hello PDF' }] }),
+                    }),
+                }),
+            };
+        },
+    };
+}
+
+describe('parsePdf (FIX-01-12-03 detached ArrayBuffer)', () => {
+    it('does not detach the caller-owned ArrayBuffer when pdfjs transfers its input', async () => {
+        const data = new TextEncoder().encode('%PDF-1.4 fake content').buffer as ArrayBuffer;
+        const originalLength = data.byteLength;
+
+        const plugin = {
+            bundleLoader: {
+                loadPdfjsBundle: vi.fn().mockResolvedValue({ pdfjs: makeDetachingPdfjs() }),
+            },
+        } as unknown as ObsidianAgentPlugin;
+        const result = await parsePdf(data, plugin);
+
+        expect(result.text).toContain('Hello PDF');
+        // A detached ArrayBuffer reports byteLength 0 and new Uint8Array() throws.
+        expect(data.byteLength).toBe(originalLength);
+        expect(() => new Uint8Array(data)).not.toThrow();
+    });
+});
+
 describe('parsePdf (AUDIT-034 L-3 caps)', () => {
     it('caps numPages at MAX_PAGES (2000) and appends a truncation sentinel', async () => {
         const pdfStub = makePdfStub(100_000, (page) => `page-${page}-body`);

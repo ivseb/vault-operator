@@ -89,8 +89,13 @@ export async function parsePdf(
     }
 
     try {
+        // FIX-01-12-03: pdf.js takes ownership of the passed TypedArray and
+        // transfers it to its (fake-)worker, detaching the underlying
+        // ArrayBuffer in the caller. Callers reuse the buffer afterwards
+        // (e.g. AttachmentHandler auto-saves it via vault.createBinary), so
+        // pdfjs gets a copy, never the caller-owned buffer.
         const loadingTask = pdfjsLib.getDocument({
-            data: new Uint8Array(data),
+            data: new Uint8Array(data.slice(0)),
             useWorkerFetch: false,
         });
         const pdf = await loadingTask.promise;

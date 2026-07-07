@@ -5451,17 +5451,6 @@
     font-family: var(--font-monospace);
 }
 
-/* ── Streaming text container ────────────────────────────────────── */
-/* Raw text appended per-chunk during streaming; replaced by Markdown on complete */
-.streaming-para {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: var(--font-text-size);
-    line-height: var(--line-height-normal);
-    color: var(--text-normal);
-}
-
 /* ── Per-model temperature controls (ModelConfigModal) ────────────── */
 
 .mcm-temperature-controls {
