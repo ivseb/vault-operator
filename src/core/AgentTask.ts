@@ -25,7 +25,7 @@ import { BUILT_IN_MODES } from './modes/builtinModes';
 import { TOOL_METADATA } from './tools/toolMetadata';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
-import { microcompactToolResults } from './context/MicroCompactor';
+import { microcompactToolResults, shouldDeferMicrocompact } from './context/MicroCompactor';
 import { FileDossier } from './context/FileDossier';
 import { MessageLog } from './history/MessageLog';
 import { InflightStore } from './agent/InflightStore';
@@ -43,7 +43,9 @@ import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
 import { StigmergyInterceptor } from './agent/interceptors/StigmergyInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
-import { abortableDelay } from '../api/retry';
+import { abortableDelay, parseOutputCapLimit } from '../api/retry';
+import { resolveOutputBudget } from '../types/model-registry';
+import { learnOutputCap } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
 import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelPricing';
@@ -64,6 +66,8 @@ import {
     DEFAULT_CONDENSING_THRESHOLD,
     DEFAULT_MICROCOMPACTION_ENABLED,
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
+    MICROCOMPACT_MIN_FREED_TOKENS,
+    MICROCOMPACT_PRESSURE_CEILING,
 } from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
@@ -505,6 +509,29 @@ export class AgentTask {
      */
     private microcompact(history: MessageParam[]): void {
         if (!this.microcompactionEnabled) return;
+        // FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before
+        // the stable cache breakpoint and invalidates the prompt-cache prefix.
+        // Probe first and run the economy guard at ALL sub-ceiling pressures --
+        // the old code only probed below a 0.60 floor and pruned unconditionally
+        // above it, busting the cache every turn exactly where the rebuild is
+        // most expensive (the 0.80 EUR daily-briefing driver).
+        const pressure = this.estimateTokens(history) / this.getModelContextWindow();
+        const probe = microcompactToolResults(history, { dryRun: true });
+        const wouldFree = this.tokenEstimator.tokensForChars(probe.freedCharsApprox);
+        if (shouldDeferMicrocompact({
+            pressure,
+            wouldFreeTokens: wouldFree,
+            pressureCeiling: MICROCOMPACT_PRESSURE_CEILING,
+            minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
+        })) {
+            if (probe.prunedBlocks > 0) {
+                console.debug(
+                    `[Microcompact] deferred: would free only ~${wouldFree} tokens ` +
+                    `at ${(pressure * 100).toFixed(0)}% context (cache-prefix protection)`,
+                );
+            }
+            return;
+        }
         // IMP-41-03-06: pruning feeds the per-file dossier -- the durable
         // memory the flat condense summary lacks.
         const { prunedBlocks, freedCharsApprox } = microcompactToolResults(history, { dossier: this.fileDossier });
@@ -1515,6 +1542,17 @@ export class AgentTask {
                     assistantContent.push({ type: 'text', text: textParts.join('') });
                 }
                 assistantContent.push(...toolUses);
+                // Loop-economy FIX C1: a max_tokens truncation mid-reasoning
+                // can leave neither text nor tool_use (Bedrock reasoning
+                // deltas are not collected for passback). An empty content
+                // array is a hard 400 on the next request; the empty-response
+                // nudge below needs an assistant turn between two user turns.
+                if (assistantContent.length === 0) {
+                    assistantContent.push({
+                        type: 'text',
+                        text: '[Response truncated: output-token limit reached during reasoning; no visible output was produced.]',
+                    });
+                }
                 history.push({ role: 'assistant', content: assistantContent });
 
                 // If no tool calls, the LLM is done — run condensing on text-only turns
@@ -1849,9 +1887,28 @@ export class AgentTask {
                 retriesUsed: loopState.rateLimitRetries,
                 maxRetries: RATE_LIMIT_MAX_RETRIES,
                 emergencyRetried: loopState.emergencyRetried,
+                outputCapRetried: loopState.outputCapRetried,
                 historyLength: history.length,
                 rateLimitBaseWaitMs: RATE_LIMIT_BASE_WAIT_MS,
             });
+
+            // ADR-148: the provider rejected our max_tokens as above the
+            // model's real output limit (new/unregistered model running on
+            // the optimistic default). Learn the cap — persisted and injected
+            // into resolveOutputBudget, so every later request (this task and
+            // future ones) is clamped — then retry once.
+            if (errorAction.action === 'corrective-retry') {
+                loopState.outputCapRetried = true;
+                const capModelId = this.api.getModel().id;
+                const parsed = parseOutputCapLimit(error);
+                const fallback = Math.max(4_096, Math.floor(resolveOutputBudget(capModelId, undefined).maxTokens / 2));
+                const cap = await learnOutputCap(capModelId, parsed ?? fallback);
+                console.warn(
+                    `[OutputCap] ${capModelId}: provider rejected max_tokens; `
+                    + `learned cap ${cap} tokens (${parsed !== null ? 'parsed from error' : 'halved fallback'}) — retrying`,
+                );
+                continue;
+            }
 
             // Emergency condensing on context overflow (400 "prompt too long" etc.)
             // Instead of failing, condense the history and let the user retry.

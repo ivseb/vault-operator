@@ -30,7 +30,7 @@ import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, ge
 import { getCacheCapability } from '../capabilities';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
-import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
+import { stripThinkingBlocks, repairEmptyWireMessages } from '../../core/utils/stripThinkingBlocks';
 
 /**
  * FIX-04-03-06: AWS Bedrock Converse rejects calls where the history
@@ -176,7 +176,9 @@ export function prepareBedrockConverseInput(
 ): ConverseStreamCommandInput {
     // FIX-04-03-07: defensive drop of thinking blocks before the strict
     // exhaustive switch in convertMessages — same reasoning as Anthropic.
-    const thinkingFreeMessages = stripThinkingBlocks(messages);
+    // Loop-economy FIX C3: repair messages the strip left empty (assistant
+    // turns that carried only reasoning) — Bedrock 400s on empty content.
+    const thinkingFreeMessages = repairEmptyWireMessages(stripThinkingBlocks(messages));
     // FIX-04-03-06: when the caller passes no tools but the history
     // still contains tool_use/tool_result blocks (typical for the
     // hard-limit-recovery path in AgentTask), strip those blocks

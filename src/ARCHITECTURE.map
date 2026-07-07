@@ -127,6 +127,7 @@ task-note-creator         | src/core/tasks/TaskNoteCreator.ts                   
 # UTILITIES (cross-cutting)
 agent-folder              | src/core/utils/agentFolderService.ts                  | ADR-72          | new agent-folder consumer: read via agentFolderService.getRoot()
 safe-regex                | src/core/utils/safeRegex.ts                           | -                | new regex with timeout: route through safeExec to avoid ReDoS
+atomic-adapter-write      | src/core/utils/atomicAdapterWrite.ts                  | -                | new non-indexed (dot-path) adapter write: route through atomicAdapterWrite(Binary), never raw adapter.write (FIX-01-07-04)
 
 # TYPES / GLOBAL DEFINITIONS (src/types/)
 settings                  | src/types/settings.ts                                 | ADR-115, ADR-120, ADR-122, ADR-123 | new settings key: extend Settings interface; respect providerConfigs[] tierMapping schema

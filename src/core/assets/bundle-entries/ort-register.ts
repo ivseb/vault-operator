@@ -22,11 +22,14 @@
  * had to move in with it.
  */
 
-/* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- runtime subpath has no type declarations (import is error-typed); global assignment is the documented ORT-selection hook */
+/* eslint-disable @typescript-eslint/ban-ts-comment -- runtime subpath has no type declarations, so the import needs @ts-ignore; this is the documented ORT-selection hook */
 // @ts-ignore -- runtime subpath, no type declarations resolvable for /wasm
 import * as ortWasm from 'onnxruntime-web/wasm';
 
-(globalThis as any)[Symbol.for('onnxruntime')] = ortWasm;
-/* eslint-enable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+// Cast to a typed symbol-index record instead of `any` so the bot's
+// forbidden no-explicit-any disable is not needed; assigning to an
+// `unknown` slot keeps the assignment type-safe.
+(globalThis as Record<symbol, unknown>)[Symbol.for('onnxruntime')] = ortWasm;
+/* eslint-enable @typescript-eslint/ban-ts-comment -- end of ORT-registration boundary disable (error-typed runtime import) */
 
 export { ortWasm };

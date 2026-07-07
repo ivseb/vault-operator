@@ -45,6 +45,8 @@ export interface AgentLoopState {
     /** Loop-level transient-error retries used (rate-limit/5xx/network). */
     rateLimitRetries: number;
     emergencyRetried: boolean;
+    /** ADR-148: one corrective retry per task after an output-cap 400. */
+    outputCapRetried: boolean;
     advisorCallsUsed: number;
 
     // --- stream / reply bookkeeping ---
@@ -95,6 +97,7 @@ export function createInitialLoopState(opts: { fastPathFired?: boolean } = {}): 
         totalToolErrors: 0,
         rateLimitRetries: 0,
         emergencyRetried: false,
+        outputCapRetried: false,
         advisorCallsUsed: 0,
         hasStreamedText: false,
         hasRetriedEmpty: false,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { microcompactToolResults, PRUNED_MARKER } from '../MicroCompactor';
+import { microcompactToolResults, shouldDeferMicrocompact, PRUNED_MARKER } from '../MicroCompactor';
 import { FileDossier } from '../FileDossier';
 import type { MessageParam } from '../../../api/types';
 
@@ -151,5 +151,52 @@ describe('IMP-41-03-06: dossier feed at prune time', () => {
         ];
         microcompactToolResults(history, { dossier, keepRecentMessages: 2 });
         expect(dossier.render()).toContain('Out/Report.md (written)');
+    });
+});
+
+describe('FIX-COMPACT-09: dry run + economy guard', () => {
+    function bigHistory(): MessageParam[] {
+        return [
+            { role: 'user', content: 'task' },
+            ...turn('t1', 'read_file', 50_000, { path: 'Notes/A.md' }),
+            ...turn('t2', 'read_file', 50_000, { path: 'Notes/B.md' }),
+            { role: 'assistant', content: 'a' }, { role: 'user', content: 'b' },
+            { role: 'assistant', content: 'c' }, { role: 'user', content: 'd' },
+        ];
+    }
+
+    it('dryRun counts what a real run would prune without mutating the history', () => {
+        const history = bigHistory();
+        const before = JSON.stringify(history);
+        const probe = microcompactToolResults(history, { keepRecentMessages: 4, dryRun: true });
+        expect(JSON.stringify(history)).toBe(before);
+        expect(probe.prunedBlocks).toBe(2);
+
+        const real = microcompactToolResults(history, { keepRecentMessages: 4 });
+        expect(real.prunedBlocks).toBe(probe.prunedBlocks);
+        expect(real.freedCharsApprox).toBe(probe.freedCharsApprox);
+    });
+
+    it('dryRun does not feed the dossier', () => {
+        const dossier = new FileDossier();
+        const history = bigHistory();
+        microcompactToolResults(history, { keepRecentMessages: 4, dossier, dryRun: true });
+        expect(dossier.render()).not.toContain('Notes/A.md');
+    });
+
+    it('shouldDeferMicrocompact applies the economy guard below the ceiling, prunes on real pressure', () => {
+        // small free, low pressure -> defer (cache rebuild would cost more than the free)
+        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
+        // large free amortizes the one-time cache rebuild -> prune even at low pressure
+        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 5000, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
+        // FIX-COMPACT-09 gap fix: mid pressure (>= old floor 0.6 but < ceiling) with a
+        // small free now DEFERS. Previously the guard was skipped in this band and
+        // pruned unconditionally, busting the prompt-cache prefix on every turn --
+        // exactly where the cache rebuild is most expensive (the 0.80 EUR driver).
+        expect(shouldDeferMicrocompact({ pressure: 0.7, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
+        // real pressure at/above the ceiling -> always prune to make room before full condense
+        expect(shouldDeferMicrocompact({ pressure: 0.78, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
+        // exactly at the ceiling counts as real pressure -> prune
+        expect(shouldDeferMicrocompact({ pressure: 0.75, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
     });
 });

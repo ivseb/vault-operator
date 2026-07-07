@@ -14,11 +14,21 @@
  */
 
 import type { MessageParam } from '../../api/types';
-import type { AgentLoopState } from './LoopState';
+import type { AgentLoopState, LoopPhase } from './LoopState';
+import { createInitialLoopState } from './LoopState';
 
 export const INFLIGHT_FILE = 'inflight-tasks.json';
 const DEBOUNCE_MS = 2000;
 export const INFLIGHT_MAX_AGE_MS = 24 * 3600 * 1000;
+
+// AUDIT-EPIC-41 M-2: the boot parse is synchronous on the renderer thread
+// and the file is cloud-syncable (FEATURE-1508), so an oversized (or
+// hostile) file must not stall onload. A single snapshot is one
+// conversation's history; the file holds at most one foreground task plus
+// short-lived background ones.
+export const MAX_SNAPSHOT_BYTES = 2_000_000;
+export const MAX_FILE_BYTES = 8_000_000;
+export const MAX_INFLIGHT_ENTRIES = 50;
 
 export interface InflightSnapshot {
     taskId: string;
@@ -31,6 +41,92 @@ export interface InflightSnapshot {
 
 interface InflightFile {
     tasks: Record<string, InflightSnapshot>;
+}
+
+const LOOP_PHASES = new Set<string>([
+    'preamble', 'streaming', 'executing-tools', 'condensing',
+    'completing', 'done', 'aborted', 'failed',
+]);
+/** Numeric budget/usage fields: finite and clamped to >= 0 on load. */
+const NUMERIC_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
+    'iteration', 'consecutiveMistakes', 'totalToolErrors', 'rateLimitRetries',
+    'advisorCallsUsed', 'telemetryIterations', 'totalInputTokens',
+    'totalOutputTokens', 'totalCacheReadTokens', 'totalCacheCreationTokens',
+];
+const BOOLEAN_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
+    'attemptCompletionFired', 'fastPathFired', 'cleanNaturalExit',
+    'emergencyRetried', 'outputCapRetried', 'hasStreamedText',
+    'hasRetriedEmpty', 'cacheInvalidated', 'recentPluginSkillUsage',
+];
+
+/**
+ * AUDIT-EPIC-41 M-1: rebuild AgentLoopState from a raw parsed value, copying
+ * ONLY known keys with a strict per-field type check. Missing fields fall
+ * back to the fresh default (forward-compat for old snapshots, ASR-41-05);
+ * a present field of the wrong type rejects the whole snapshot (tampering
+ * signal); numeric budgets are clamped to >= 0 so a tampered file cannot
+ * hand the loop negative guards. Unknown/injected keys (incl. __proto__) are
+ * never copied, so the rebuilt object carries no attacker-controlled data.
+ */
+function validateLoopState(raw: unknown): AgentLoopState | null {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const r = raw as Record<string, unknown>;
+    const out = createInitialLoopState();
+
+    for (const k of NUMERIC_STATE_KEYS) {
+        const v = r[k];
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'number' || !Number.isFinite(v)) return null;
+        out[k] = Math.max(0, v) as never;
+    }
+    for (const k of BOOLEAN_STATE_KEYS) {
+        const v = r[k];
+        if (v === undefined || v === null) continue;
+        if (typeof v !== 'boolean') return null;
+        out[k] = v as never;
+    }
+    if (r.phase !== undefined && r.phase !== null) {
+        if (typeof r.phase !== 'string' || !LOOP_PHASES.has(r.phase)) return null;
+        out.phase = r.phase as LoopPhase;
+    }
+    if (r.stigmergyOutcome !== undefined && r.stigmergyOutcome !== null) {
+        if (r.stigmergyOutcome !== 'accept' && r.stigmergyOutcome !== 'abandon') return null;
+        out.stigmergyOutcome = r.stigmergyOutcome;
+    }
+    for (const k of ['completionResult', 'pendingModeSwitch'] as const) {
+        const v = r[k];
+        if (v === undefined) continue;
+        if (v !== null && typeof v !== 'string') return null;
+        out[k] = v;
+    }
+    return out;
+}
+
+/** Reject a history that is not an array of {role: user|assistant, content: string|array}. */
+function validateHistory(raw: unknown): MessageParam[] | null {
+    if (!Array.isArray(raw)) return null;
+    for (const m of raw) {
+        if (typeof m !== 'object' || m === null || Array.isArray(m)) return null;
+        const msg = m as { role?: unknown; content?: unknown };
+        if (msg.role !== 'user' && msg.role !== 'assistant') return null;
+        if (typeof msg.content !== 'string' && !Array.isArray(msg.content)) return null;
+    }
+    return raw as MessageParam[];
+}
+
+/** Rebuild a snapshot from raw parsed data, or null if it fails validation. */
+function validateSnapshot(raw: unknown): InflightSnapshot | null {
+    if (typeof raw !== 'object' || raw === null) return null;
+    const r = raw as Record<string, unknown>;
+    if (typeof r.taskId !== 'string' || r.taskId.length === 0) return null;
+    if (typeof r.conversationId !== 'string') return null;
+    if (typeof r.mode !== 'string') return null;
+    if (typeof r.savedAt !== 'number' || !Number.isFinite(r.savedAt)) return null;
+    const state = validateLoopState(r.state);
+    if (!state) return null;
+    const history = validateHistory(r.history);
+    if (!history) return null;
+    return { taskId: r.taskId, conversationId: r.conversationId, mode: r.mode, savedAt: r.savedAt, state, history };
 }
 
 export interface InflightFs {
@@ -85,6 +181,13 @@ export class InflightStore {
         try {
             const file = await this.load();
             for (const [taskId, snap] of this.pending) {
+                // AUDIT-EPIC-41 M-2: never let an oversized snapshot reach
+                // disk (it would stall the next boot's synchronous parse).
+                // Dropping it only means that task cannot be resumed.
+                if (JSON.stringify(snap).length > MAX_SNAPSHOT_BYTES) {
+                    console.warn(`[InflightStore] snapshot for ${taskId} exceeds ${MAX_SNAPSHOT_BYTES} bytes; not persisting.`);
+                    continue;
+                }
                 file.tasks[taskId] = snap;
             }
             this.pending.clear();
@@ -97,9 +200,30 @@ export class InflightStore {
     private async load(): Promise<InflightFile> {
         try {
             if (!(await this.fs.exists(INFLIGHT_FILE))) return { tasks: {} };
-            const parsed = JSON.parse(await this.fs.read(INFLIGHT_FILE)) as InflightFile;
+            const rawText = await this.fs.read(INFLIGHT_FILE);
+            // AUDIT-EPIC-41 M-2: refuse an oversized file BEFORE JSON.parse so
+            // a huge (or hostile) synced file cannot stall the boot thread.
+            if (rawText.length > MAX_FILE_BYTES) {
+                console.warn(`[InflightStore] ${INFLIGHT_FILE} exceeds ${MAX_FILE_BYTES} bytes; ignoring.`);
+                return { tasks: {} };
+            }
+            const parsed = JSON.parse(rawText) as { tasks?: unknown };
             if (typeof parsed?.tasks !== 'object' || parsed.tasks === null) return { tasks: {} };
-            return { tasks: parsed.tasks };
+            // AUDIT-EPIC-41 M-1: validate every entry; drop tampered/broken
+            // ones. The cleaned set is what callers see and what flush() then
+            // re-persists (self-healing).
+            const cleaned: Array<[string, InflightSnapshot]> = [];
+            for (const [taskId, rawSnap] of Object.entries(parsed.tasks as Record<string, unknown>)) {
+                const snap = validateSnapshot(rawSnap);
+                if (snap && snap.taskId === taskId) cleaned.push([taskId, snap]);
+            }
+            // AUDIT-EPIC-41 M-2: bound the entry count, keeping the newest.
+            cleaned.sort((a, b) => b[1].savedAt - a[1].savedAt);
+            const tasks: Record<string, InflightSnapshot> = {};
+            for (const [taskId, snap] of cleaned.slice(0, MAX_INFLIGHT_ENTRIES)) {
+                tasks[taskId] = snap;
+            }
+            return { tasks };
         } catch {
             return { tasks: {} };
         }

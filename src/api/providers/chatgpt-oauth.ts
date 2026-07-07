@@ -19,7 +19,6 @@ import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } f
 import { truncatedToolInputError } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
-import { modelSupportsTemperature } from '../../types/model-registry';
 import { prepareResponsesRequest, resolveGptEffort, isGpt5Family, type ResponsesRequestBody } from '../adapters/openaiResponses';
 
 void OpenAI; // retained: Errors instance kept for compatibility but not actively used

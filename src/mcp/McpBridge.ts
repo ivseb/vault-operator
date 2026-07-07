@@ -535,7 +535,15 @@ export class McpBridge {
         // many requests. Token is high-entropy (UUID v4) so the practical
         // attack window is small, but the standard fix is one stdlib call.
         const expectedToken = this.plugin.settings.mcpServerToken;
-        if (expectedToken) {
+        // MCP-4: fail closed. If the token is somehow empty (corrupted data.json,
+        // downgrade/migration, manual edit) we must reject every request, not
+        // skip the check and accept everything on 127.0.0.1:27182.
+        if (!expectedToken) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Unauthorized: server token not configured' } }));
+            return;
+        }
+        {
             const authHeader = req.headers['authorization'] ?? '';
             const presentedRaw = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
             if (!timingSafeStringEqual(presentedRaw, expectedToken)) {
@@ -689,7 +697,11 @@ export class McpBridge {
             }
         } catch { /* non-fatal */ }
 
-        return TOOLS.map(t => {
+        // MCP-2: hide write_vault from the advertised tool list unless the user
+        // opted in. handleToolCall also fails it closed, so this is the visible
+        // half of the same default-off gate.
+        const allowWrite = this.plugin.settings.mcpAllowWriteTools;
+        return TOOLS.filter(t => allowWrite || t.name !== 'write_vault').map(t => {
             let description = t.description;
             if (t.name === 'write_vault') {
                 description += folderList + defaultFolder + rulesHint;

@@ -27,6 +27,22 @@ interface SanitizeStats {
     droppedOrphanToolUses: number;
     droppedOrphanToolResults: number;
     droppedEmptyMessages: number;
+    repairedEmptyMessages: number;
+}
+
+/**
+ * Loop-economy FIX C: a max_tokens truncation mid-reasoning can push an
+ * assistant message with empty content into the history (Bedrock rejects
+ * that with 400 "content field ... is empty"). Empty messages are REPAIRED
+ * with a placeholder text block, never dropped — dropping would break the
+ * strict role alternation Bedrock Converse requires.
+ */
+const EMPTY_REPAIR_TEXT =
+    '[Response truncated: output-token limit reached during reasoning; no visible output was produced.]';
+
+function isEmptyContent(content: MessageParam['content']): boolean {
+    if (typeof content === 'string') return content.length === 0;
+    return Array.isArray(content) && content.length === 0;
 }
 
 export function sanitizeHistoryForApi(
@@ -36,6 +52,7 @@ export function sanitizeHistoryForApi(
         droppedOrphanToolUses: 0,
         droppedOrphanToolResults: 0,
         droppedEmptyMessages: 0,
+        repairedEmptyMessages: 0,
     };
 
     // FIX-PERF-18: single forward pass collects both sides plus an
@@ -46,7 +63,9 @@ export function sanitizeHistoryForApi(
     const resolvedToolUseIds = new Set<string>();
     const emittedToolUseIds = new Set<string>();
     let anyToolUse = false;
+    let anyEmptyMessage = false;
     for (const msg of history) {
+        if (isEmptyContent(msg.content)) anyEmptyMessage = true;
         if (!Array.isArray(msg.content)) continue;
         for (const block of msg.content) {
             if (msg.role === 'user' && block.type === 'tool_result'
@@ -63,13 +82,16 @@ export function sanitizeHistoryForApi(
     // Fast path: if no tool_use AND no tool_result ever appeared,
     // the history is trivially clean and we skip the rebuild. If
     // either side appeared we must verify pairing before bailing.
-    if (!anyToolUse && resolvedToolUseIds.size === 0) {
+    // An empty message anywhere disables both bails — it must be
+    // repaired in the rebuild pass regardless of tool pairing.
+    if (!anyEmptyMessage && !anyToolUse && resolvedToolUseIds.size === 0) {
         return { history: history.slice(), stats };
     }
     // Both sides exist - check if every emitted tool_use has a result
     // and every tool_result has an emitted tool_use. If so, bail.
-    let isClean = true;
+    let isClean = !anyEmptyMessage;
     for (const id of emittedToolUseIds) {
+        if (!isClean) break;
         if (!resolvedToolUseIds.has(id)) { isClean = false; break; }
     }
     if (isClean) {
@@ -84,6 +106,13 @@ export function sanitizeHistoryForApi(
     // Pass 3: rebuild history, dropping orphan blocks.
     const out: MessageParam[] = [];
     for (const msg of history) {
+        // Messages that ARRIVED empty are repaired, not dropped (dropping
+        // would break Bedrock's strict role alternation).
+        if (isEmptyContent(msg.content)) {
+            stats.repairedEmptyMessages++;
+            out.push({ ...msg, content: [{ type: 'text', text: EMPTY_REPAIR_TEXT }] });
+            continue;
+        }
         if (!Array.isArray(msg.content)) {
             // Plain string content — nothing to sanitize, keep as is.
             out.push(msg);
@@ -128,12 +157,14 @@ export function sanitizeAndLog(
     callsite: string,
 ): MessageParam[] {
     const { history: cleaned, stats } = sanitizeHistoryForApi(history);
-    if (stats.droppedOrphanToolUses + stats.droppedOrphanToolResults + stats.droppedEmptyMessages > 0) {
+    if (stats.droppedOrphanToolUses + stats.droppedOrphanToolResults
+        + stats.droppedEmptyMessages + stats.repairedEmptyMessages > 0) {
         console.warn(
             `[AgentTask:${callsite}] Sanitized history: ` +
                 `${stats.droppedOrphanToolUses} orphan tool_use, ` +
                 `${stats.droppedOrphanToolResults} orphan tool_result, ` +
-                `${stats.droppedEmptyMessages} empty messages dropped`,
+                `${stats.droppedEmptyMessages} empty messages dropped, ` +
+                `${stats.repairedEmptyMessages} empty messages repaired`,
         );
     }
     return cleaned;

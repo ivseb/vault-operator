@@ -23,6 +23,17 @@ import { safeSetTimeout } from '../utils/runtime';
 const EXTERNALIZE_THRESHOLD = 2000;
 
 /**
+ * FIX A (loop economy, 2026-07-04): web results are preview-lossy — the
+ * 1200-char preview forces a follow-up read_file of the tmp file, so every
+ * source is paid for twice plus an extra turn. Keep them inline up to 10k;
+ * the 60k hard cap in ToolExecutionPipeline step 6c still applies.
+ */
+const PER_TOOL_THRESHOLDS: Record<string, number> = {
+    web_fetch: 10_000,
+    web_search: 10_000,
+};
+
+/**
  * FIX-24-03-01: when the agent re-reads a tmp file the externalizer itself
  * produced, keep at most this many characters of the head in the conversation.
  * The full text already lives in that file and was summarized when it was first
@@ -190,7 +201,8 @@ export class ResultExternalizer {
         // Never externalize errors, disabled state, or small results
         if (this._disabled) return null;
         if (isError) return null;
-        if (content.length <= EXTERNALIZE_THRESHOLD) return null;
+        const threshold = PER_TOOL_THRESHOLDS[toolName] ?? EXTERNALIZE_THRESHOLD;
+        if (content.length <= threshold) return null;
 
         // FIX-24-03-01: a re-read of a tmp file the externalizer itself produced
         // must not put the full text back into history — return a capped echo

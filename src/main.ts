@@ -14,6 +14,7 @@ import {
 import { ModelDiscoveryService, type RawDiscoveredModel } from './core/routing/ModelDiscoveryService';
 import { PriceCatalogService } from './core/pricing/PriceCatalogService';
 import { InflightStore } from './core/agent/InflightStore';
+import { LearnedCapsStore, registerLearnedCapsStore } from './core/agent/LearnedCapsStore';
 import { BackgroundTaskRunner } from './core/background/BackgroundTaskRunner';
 import { createBackgroundTaskExecutor } from './core/background/backgroundTaskExecutor';
 import { fetchProviderModels } from './ui/settings/testModelConnection';
@@ -30,6 +31,8 @@ import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
 import { getPluginSkillsDir, getSelfAuthoredSkillsDir } from './core/utils/agentFolder';
+import { isSafePathSegment } from './core/utils/safePathName';
+import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService } from './core/storage/GlobalSettingsService';
 import { GlobalMigrationService } from './core/storage/GlobalMigrationService';
 // SyncBridge removed (FEATURE-1508: storage consolidated to vault-parent)
@@ -253,6 +256,11 @@ export default class ObsidianAgentPlugin extends Plugin {
     skillRegistry: SkillRegistry | null = null;
     capabilityGapResolver: CapabilityGapResolver | null = null;
     settingsTab: AgentSettingsTab | null = null;
+    /** Reentrancy guard for obsidian://vault-operator-run: set the moment a
+     *  deeplink run is accepted, held until the started run has flipped a
+     *  sidebar view to busy. Blocks a second (foreign) trigger from overlapping
+     *  a run or slipping in as a mid-run steering nudge (2026-07-05 follow-up). */
+    private skillRunPending = false;
     recipeStore: RecipeStore | null = null;
     recipeMatchingService: RecipeMatchingService | null = null;
     episodicExtractor: EpisodicExtractor | null = null;
@@ -261,6 +269,8 @@ export default class ObsidianAgentPlugin extends Plugin {
     globalFs: GlobalFileService;
     /** IMP-41-03-01: inflight snapshot store for crash recovery. */
     inflightStore: InflightStore | null = null;
+    /** ADR-148: output caps learned from provider max_tokens rejections. */
+    learnedCapsStore: LearnedCapsStore | null = null;
     /** IMP-41-03-05: single-slot background research task runner. */
     backgroundTaskRunner: BackgroundTaskRunner | null = null;
     globalSettingsService: GlobalSettingsService | null = null;
@@ -2175,6 +2185,13 @@ export default class ObsidianAgentPlugin extends Plugin {
             .then(() => priceCatalog.refreshIfStale())
             .catch((e) => console.warn('[PriceCatalog] init failed (non-fatal):', e));
 
+        // ADR-148: learned output caps — load persisted caps and inject them
+        // into resolveOutputBudget before any task runs.
+        this.learnedCapsStore = new LearnedCapsStore(this.globalFs);
+        registerLearnedCapsStore(this.learnedCapsStore);
+        void this.learnedCapsStore.load()
+            .catch((e) => console.warn('[LearnedCaps] boot load failed (non-fatal):', e));
+
         // IMP-41-03-01: inflight snapshot store for crash recovery. The boot
         // sweep drops stale entries (>24h) and surfaces fresh ones so an
         // interrupted task is visible instead of silently lost.
@@ -2610,6 +2627,15 @@ export default class ObsidianAgentPlugin extends Plugin {
         };
         this.registerObsidianProtocolHandler('vault-operator-settings', openSettingsFromParams);
         this.registerObsidianProtocolHandler('obsilo-settings', openSettingsFromParams);
+
+        // FEAT: browser-triggered skill runs (obsidian://vault-operator-run?skill=<slug>).
+        // obsidian:// URLs are openable by ANY web page, so this handler never
+        // accepts free prompt text — only a whitelisted skill slug — and always
+        // gates the run behind an in-app confirmation (cost/prompt-injection
+        // protection against foreign pages).
+        this.registerObsidianProtocolHandler('vault-operator-run', (params) => {
+            void this.runSkillFromParams(params);
+        });
 
         // Phase 2.3: command to open the setup wizard manually
         this.addCommand({
@@ -3311,6 +3337,14 @@ export default class ObsidianAgentPlugin extends Plugin {
         if (settings.chatgptOAuthIdToken) {
             settings.chatgptOAuthIdToken = this.safeStorage.decrypt(settings.chatgptOAuthIdToken);
         }
+        // AUTH-2: mirror the encrypt pass. decrypt() passes through cleartext
+        // (pre-fix values), so existing installs migrate transparently.
+        if (settings.chatgptOAuthEmail) {
+            settings.chatgptOAuthEmail = this.safeStorage.decrypt(settings.chatgptOAuthEmail);
+        }
+        if (settings.chatgptOAuthAccountId) {
+            settings.chatgptOAuthAccountId = this.safeStorage.decrypt(settings.chatgptOAuthAccountId);
+        }
         // Remote relay tokens (AUDIT-005 M-2)
         if (settings.cloudflareApiToken) {
             settings.cloudflareApiToken = this.safeStorage.decrypt(settings.cloudflareApiToken);
@@ -3380,6 +3414,15 @@ export default class ObsidianAgentPlugin extends Plugin {
         }
         if (copy.chatgptOAuthIdToken && !this.safeStorage.isEncrypted(copy.chatgptOAuthIdToken)) {
             copy.chatgptOAuthIdToken = this.safeStorage.encrypt(copy.chatgptOAuthIdToken);
+        }
+        // AUTH-2: the ChatGPT account id and email (PII) were persisted in
+        // cleartext even with the keychain available. Encrypt them like the
+        // tokens above (decrypt pass below mirrors this).
+        if (copy.chatgptOAuthEmail && !this.safeStorage.isEncrypted(copy.chatgptOAuthEmail)) {
+            copy.chatgptOAuthEmail = this.safeStorage.encrypt(copy.chatgptOAuthEmail);
+        }
+        if (copy.chatgptOAuthAccountId && !this.safeStorage.isEncrypted(copy.chatgptOAuthAccountId)) {
+            copy.chatgptOAuthAccountId = this.safeStorage.encrypt(copy.chatgptOAuthAccountId);
         }
         // Remote relay tokens (AUDIT-005 M-2)
         if (copy.cloudflareApiToken && !this.safeStorage.isEncrypted(copy.cloudflareApiToken)) {
@@ -4240,6 +4283,58 @@ export default class ObsidianAgentPlugin extends Plugin {
                 }
             }, 50);
         }
+    }
+
+    /**
+     * Browser-triggered skill run (obsidian://vault-operator-run?skill=<slug>).
+     * External input: the slug is validated against the safe-path whitelist
+     * and the run is always gated behind an in-app confirmation — any web
+     * page can fire this URL, so it must never start a run silently.
+     */
+    private async runSkillFromParams(params: Record<string, string>): Promise<void> {
+        const skill = typeof params.skill === 'string' ? params.skill : '';
+        if (!isSafePathSegment(skill)) {
+            console.warn('[deeplink] Rejected vault-operator-run with invalid skill slug');
+            return;
+        }
+        // Reentrancy guard (P1, 2026-07-05 data-loss follow-up): obsidian:// URLs
+        // are firable by ANY web page, and the dashboard "Aktualisieren" button
+        // polls, so a second trigger can arrive while a run is active or being
+        // started. A second run would overlap writes to the same day-file, or --
+        // if a run is mid-flight -- be swallowed as a steering nudge
+        // (AgentSidebarView.handleSendMessage). Refuse both.
+        if (this.skillRunPending || this.isAgentRunBusy()) {
+            new Notice(t('protocol.runSkillBusy', { skill }));
+            return;
+        }
+        this.skillRunPending = true;
+        let started = false;
+        try {
+            const ok = await confirmModal(this.app, {
+                title: t('protocol.runSkillConfirmTitle'),
+                message: t('protocol.runSkillConfirmMessage', { skill }),
+                confirmLabel: t('protocol.runSkillConfirmButton'),
+                cancelLabel: t('settings.vault.cancel'),
+            });
+            if (!ok) return;
+            await this.sendMessageToAgent(`/${skill}`);
+            started = true;
+        } finally {
+            if (started) {
+                // Hold the flag briefly so the just-started run has time to flip
+                // a view to busy; isAgentRunBusy() covers it from then on.
+                window.setTimeout(() => { this.skillRunPending = false; }, 1500);
+            } else {
+                this.skillRunPending = false;
+            }
+        }
+    }
+
+    /** True while any agent sidebar view has a run in flight. Used by the
+     *  deeplink reentrancy guard so a browser trigger cannot overlap a run. */
+    private isAgentRunBusy(): boolean {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
+        return leaves.some((leaf) => leaf.view instanceof AgentSidebarView && leaf.view.isBusy);
     }
 
     /**

@@ -24,7 +24,7 @@ import type { ToolDefinition } from '../../core/tools/types';
 import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, modelUsesBudgetTokensThinking } from '../../types/model-registry';
 import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
 import { logCacheStat } from '../logCacheStat';
-import { stripThinkingBlocks, prepareThinkingForPassback } from '../../core/utils/stripThinkingBlocks';
+import { stripThinkingBlocks, prepareThinkingForPassback, repairEmptyWireMessages } from '../../core/utils/stripThinkingBlocks';
 
 /** The Claude-native reasoning-effort levels accepted by output_config.effort. */
 const CLAUDE_EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -162,9 +162,11 @@ export function prepareAnthropicRequest(
     // blocks on non-thinking requests). FIX-04-03-07 cross-provider
     // safety is preserved: foreign reasoner blocks are unsigned and
     // therefore never reach the wire.
-    const preparedMessages = (config.thinkingEnabled ?? false)
+    // Loop-economy FIX C3: repair messages the strip left empty (assistant
+    // turns that carried only reasoning) — the API rejects empty content.
+    const preparedMessages = repairEmptyWireMessages((config.thinkingEnabled ?? false)
         ? prepareThinkingForPassback(messages)
-        : stripThinkingBlocks(messages);
+        : stripThinkingBlocks(messages));
     const anthropicMessages = convertToAnthropicMessages(preparedMessages);
     const anthropicTools = convertToAnthropicTools(tools);
 

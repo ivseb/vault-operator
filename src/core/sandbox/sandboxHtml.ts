@@ -62,6 +62,10 @@ Object.freeze(requestUrl);
 
 // Message-Handler fuer Bridge-Responses und Execute-Befehle
 window.addEventListener('message', function(event) {
+    // SBX-5: only accept bridge responses and execute commands from the parent
+    // (the plugin). Without this, any context that obtains a reference to this
+    // frame's window could inject an execute command or spoof a bridge response.
+    if (event.source !== window.parent) return;
     var msg = event.data;
     if (!msg) return;
 

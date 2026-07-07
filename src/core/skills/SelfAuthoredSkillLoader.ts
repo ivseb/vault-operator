@@ -16,6 +16,7 @@
 import { TFile, TFolder } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
+import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
 import type ObsidianAgentPlugin from '../../main';
 import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
@@ -587,6 +588,22 @@ export class SelfAuthoredSkillLoader {
         for (const moduleInfo of skill.codeModuleInfos) {
             if (!moduleInfo.compiledJs) continue;
 
+            // SBX-3: a skill-authored code tool must not shadow an existing
+            // tool. `moduleInfo.name` comes from the skill's code-module block
+            // and is attacker-controlled; without this guard a vault-dropped
+            // skill named `read_file`/`write_file`/... would silently overwrite
+            // the trusted built-in, so the LLM's calls to a trusted-named tool
+            // would run sandboxed skill code. Reload unregisters skill tools
+            // first, so this only rejects a genuine collision with a built-in
+            // (or another skill's tool of the same name).
+            if (this.toolRegistry.hasTool(moduleInfo.name as ToolName)) {
+                console.warn(
+                    `[SelfAuthoredSkillLoader] Refusing code tool '${moduleInfo.name}': `
+                    + 'name collides with an existing tool. Skill code tools must not shadow built-ins.',
+                );
+                continue;
+            }
+
             const definition: DynamicToolDefinition = {
                 name: moduleInfo.name,
                 description: moduleInfo.description,
@@ -745,6 +762,20 @@ export class SelfAuthoredSkillLoader {
 
                 if (sourceFile instanceof TFile) {
                     const sourceCode = await this.plugin.app.vault.read(sourceFile);
+                    // SBX-4 (defense-in-depth): the compiled cache is loaded
+                    // straight from the vault without an integrity check. Validate
+                    // the source before trusting the module; the Chromium iframe
+                    // sandbox is the boundary that bounds any residual risk. A full
+                    // fix (recompile from source or hash-verify the cache) is
+                    // tracked as a follow-up.
+                    const astCheck = AstValidator.validate(sourceCode);
+                    if (!astCheck.valid) {
+                        console.warn(
+                            `[SelfAuthoredSkillLoader] Skipping code module ${moduleName}: `
+                            + `source rejected by validator (${astCheck.errors.join('; ')})`,
+                        );
+                        continue;
+                    }
                     moduleInfo = this.parseCodeModuleDefinition(sourceCode, moduleName);
                 } else {
                     // Fallback: minimal info from module name

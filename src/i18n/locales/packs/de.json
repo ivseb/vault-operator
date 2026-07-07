@@ -2492,5 +2492,9 @@
   "modal.firstRunWizard.assetRerankerLibName": "Semantischer Reranker (Bibliothek)",
   "settings.optionalAssets.headingRerankerLib": "Reranker-Bibliothek",
   "settings.optionalAssets.sectionRerankerLibInfo": "Das transformers + onnxruntime-web-Bundle (~0.6 MB), das den lokalen semantischen Reranker auf dem WASM-Binary ausführt. Zusammen mit dem Asset \"Semantischer Reranker (WASM)\" im Embeddings-Tab benötigt. Ohne die Bibliothek bleibt der Reranker deaktiviert und die semantische Suche überspringt den lokalen Rerank-Schritt.",
-  "settings.optionalAssets.rerankerLibNotInstalled": "Status: nicht installiert. Die semantische Suche läuft ohne den lokalen Rerank-Schritt weiter."
+  "settings.optionalAssets.rerankerLibNotInstalled": "Status: nicht installiert. Die semantische Suche läuft ohne den lokalen Rerank-Schritt weiter.",
+  "protocol.runSkillConfirmTitle": "Skill-Lauf starten?",
+  "protocol.runSkillConfirmMessage": "Ein externer Link möchte den Skill /{{skill}} in diesem Vault ausführen. Das startet einen Agenten-Lauf und kann API-Kosten verursachen.",
+  "protocol.runSkillConfirmButton": "Starten",
+  "protocol.runSkillBusy": "Es läuft bereits ein Lauf. Warte, bis er fertig ist, bevor du /{{skill}} erneut startest."
 }

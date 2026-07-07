@@ -14,7 +14,7 @@ import { TFile, TFolder } from 'obsidian';
 import { SandboxBridge } from '../SandboxBridge';
 
 interface AdapterCall {
-    op: 'exists' | 'read' | 'readBinary' | 'write' | 'writeBinary' | 'list' | 'mkdir';
+    op: 'exists' | 'read' | 'readBinary' | 'write' | 'writeBinary' | 'list' | 'mkdir' | 'rename' | 'remove';
     path: string;
 }
 
@@ -69,6 +69,24 @@ function makeBridge(opts: {
         async mkdir(p: string) {
             calls.push({ op: 'mkdir', path: p });
             folders.add(p);
+        },
+        // FIX-01-07-04: hidden-path writes stage via temp+rename now.
+        async rename(from: string, to: string) {
+            calls.push({ op: 'rename', path: from });
+            if (files.has(from)) {
+                files.set(to, files.get(from) as string);
+                files.delete(from);
+            } else if (binaries.has(from)) {
+                binaries.set(to, binaries.get(from) as ArrayBuffer);
+                binaries.delete(from);
+            } else {
+                throw new Error(`ENOENT rename src: ${from}`);
+            }
+        },
+        async remove(p: string) {
+            calls.push({ op: 'remove', path: p });
+            files.delete(p);
+            binaries.delete(p);
         },
     };
 

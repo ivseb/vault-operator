@@ -34,6 +34,23 @@ export function stripThinkingBlocks(messages: readonly MessageParam[]): MessageP
 }
 
 /**
+ * Loop-economy FIX C3: a message whose content became empty after a thinking
+ * strip (assistant turn that carried ONLY reasoning) would be rejected on the
+ * wire (Bedrock 400 "content field ... is empty"; Anthropic requires
+ * non-empty content too). Replace empty content with a minimal marker text
+ * block right before the strict provider conversion. Returns a NEW array.
+ */
+export function repairEmptyWireMessages(messages: readonly MessageParam[]): MessageParam[] {
+    return messages.map((msg) => {
+        const empty = typeof msg.content === 'string'
+            ? msg.content.length === 0
+            : msg.content.length === 0;
+        if (!empty) return msg;
+        return { ...msg, content: [{ type: 'text', text: '[reasoning elided]' }] };
+    });
+}
+
+/**
  * IMP-41-01-05: passback preparation for Anthropic signed extended thinking.
  *
  * The API contract for tool_use loops requires the signed thinking blocks of
