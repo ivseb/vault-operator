@@ -109,9 +109,28 @@ Example: [{"tool": "read_file", "input": {"path": "Notes/Kant Summary.md"}}]`;
 // ---------------------------------------------------------------------------
 
 export class FastPathExecutor {
+    /**
+     * IMP-41-02-05: trust level of the recipe currently executing, derived
+     * from recipe.source at the top of execute(). Threaded into every
+     * pipeline dispatch of this batch.
+     */
+    private currentTrust: 'user' | 'learned' = 'user';
+
     constructor(
         private api: ApiHandler,
         private pipeline: ToolExecutionPipeline,
+        /**
+         * FIX-24-05-04: reports planner-call token usage to the owning task
+         * so those tokens land in the task totals (footer + telemetry).
+         */
+        private onUsage?: (
+            inputTokens: number,
+            outputTokens: number,
+            cacheReadTokens?: number,
+            cacheCreationTokens?: number,
+            /** FIX-24-05-05: model that served the planner call (helper or main). */
+            modelId?: string,
+        ) => void,
     ) {}
 
     /**
@@ -148,8 +167,12 @@ export class FastPathExecutor {
     ): Promise<FastPathResult> {
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
 
+        // IMP-41-02-05 / ADR-151: machine-promoted recipes run the full
+        // pipeline gates; only genuinely user-authored ones keep the bypass.
+        this.currentTrust = recipe.source === 'learned' ? 'learned' : 'user';
+
         try {
-            console.debug(`[FastPath] Starting two-stage for recipe: ${recipe.name} (${recipe.steps.length} steps)`);
+            console.debug(`[FastPath] Starting two-stage for recipe: ${recipe.name} (${recipe.steps.length} steps, trust=${this.currentTrust})`);
 
             const externalizer = this.pipeline.getExternalizer();
             const allResults: Array<{ tool: string; input: Record<string, unknown>; content: string; isError: boolean }> = [];
@@ -321,6 +344,11 @@ export class FastPathExecutor {
                 abortSignal,
             )) {
                 if (chunk.type === 'text') responseText += chunk.text;
+                // FIX-24-05-04: planner tokens cost money too.
+                else if (chunk.type === 'usage') {
+                    this.onUsage?.(chunk.inputTokens, chunk.outputTokens, chunk.cacheReadTokens, chunk.cacheCreationTokens,
+                        internalApi.getModel().id);
+                }
             }
 
             // BUG-024: tolerant JSON extraction. Some LLMs (Copilot Sonnet
@@ -378,7 +406,7 @@ export class FastPathExecutor {
                         { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                         callbacks,
                         readFiles ? { readFiles } : undefined,
-                        { source: 'fastpath' },
+                        { source: 'fastpath', trust: this.currentTrust },
                     );
                     return {
                         tool: call.tool,
@@ -398,7 +426,7 @@ export class FastPathExecutor {
                 { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                 callbacks,
                 readFiles ? { readFiles } : undefined,
-                { source: 'fastpath' },
+                { source: 'fastpath', trust: this.currentTrust },
             );
             results.push({
                 tool: call.tool,

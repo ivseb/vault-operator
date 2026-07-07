@@ -43,6 +43,14 @@ const VAULT_OPERATOR_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS'
     'KB', 'MB', 'GB', 'TB', 'DNA',
     // Office file format acronyms that appear in capability descriptions.
     'DOCX', 'XLSX', 'PPTX',
+    // EPIC-42: OKF frontmatter standard referenced in graph-expansion copy.
+    'OKF',
+    // FIX-42-06-01: reranker asset UI copy names the WebAssembly backend.
+    // Only ever appears uppercase in locale strings, so no lowercase "wasm"
+    // token gets folded.
+    'WASM',
+    // FIX-42-06-01: integrity-check acronym in the asset-download status copy.
+    'SHA256',
 ];
 // Proper nouns that should keep their casing in Bedrock-related UI copy but
 // don't belong in the general brand list (they are not branded products).
@@ -59,11 +67,12 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     // would lowercase them mid-sentence ("see the History sidebar" ->
     // "see the history sidebar"); we want to preserve the on-screen label.
     'History', 'Permissions', 'Permissive', 'Providers', 'Connectors',
+    'Embeddings',
     'Customize', 'Migrate', 'Connect', 'Disconnect', 'Duplicate', 'New',
     'Note', 'Web', 'Vault', 'Read', 'Edits', 'Sub-agents',
     'External-commands', 'Remote',
     // Emphasis / language names that the rule otherwise normalises.
-    'FIRST', 'German', 'N', 'Show',
+    'FIRST', 'German', 'English', 'non-English', 'N', 'Show',
     // Plural acronym forms — we want "APIs" / "PDFs" preserved, not folded
     // to "APIS" / "PDFS" via the acronyms list or to "apis" / "pdfs" via
     // the lowercase pass.
@@ -77,6 +86,20 @@ const VAULT_OPERATOR_IGNORE_REGEX = [
     // The rule treats "+ " as leading content and lowercases the next token,
     // turning "+ New" into "+ new". The label form is intentional.
     '^\\+\\s+\\w',
+    // EPIC-42: literal frontmatter property names and value examples. The
+    // OKF vocabulary is lowercase by definition ('moc'), and the naming
+    // convention 'Author-Year_Title' is a literal default value, not prose.
+    '^moc$',
+    '\\bOKF (default|vocabulary)\\b',
+    '\\bAuthor-Year_Title\\b',
+    // Tool identifiers referenced in UI copy (snake_case, must stay as-is;
+    // the acronyms pass would otherwise fold docx -> DOCX inside them).
+    'create_(docx|xlsx|pptx)',
+    // Sentence fragments interpolated mid-sentence via {{var}}; they must
+    // keep lowercase ("last check: never", "1 embedding model").
+    '^never$',
+    '^embedding models?$',
+    '^your active LLM provider',
 ];
 
 export default tseslint.config(
@@ -142,12 +165,15 @@ export default tseslint.config(
     },
     {
         // Test files use async mock callbacks to match async interfaces; the
-        // body often returns a literal so there is nothing to await. The
-        // Review Bot does not flag this in test files in practice, but the
-        // local check would, so relax the rule for tests only.
+        // body often returns a literal so there is nothing to await. They also
+        // hand-mock Obsidian's configDir as the literal '.obsidian' and use
+        // '.obsidian/...' paths as path-traversal attack fixtures. The Review
+        // Bot does not scan test files, but the local check would flag both, so
+        // relax these rules for tests only.
         files: ['src/**/__tests__/**/*.ts', 'src/**/*.test.ts'],
         rules: {
             '@typescript-eslint/require-await': 'off',
+            'obsidianmd/hardcoded-config-path': 'off',
         },
     },
     {
@@ -172,6 +198,27 @@ export default tseslint.config(
                 {
                     selector: "TemplateElement[value.raw=/\\b(FROM|INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\s+vectors\\b/i]",
                     message: "Direct access to the `vectors` table is forbidden outside src/core/knowledge/VectorStore.ts. See ADR-137.",
+                },
+            ],
+        },
+    },
+    {
+        // EPIC-42 / FEAT-42-04: i18n-Guard. In den gesweepten UI-Bereichen
+        // muessen user-sichtbare Texte durch t() laufen. Hardcodierte
+        // String-Literale in Notice/setName/setDesc/... sind Regressionen.
+        // Legitime Ausnahmen (reine Symbole, Werte) mit
+        // '// eslint-disable-next-line no-restricted-syntax -- reason: <why>'.
+        files: ['src/ui/**/*.ts', 'src/main.ts', 'src/core/inline/**/*.ts'],
+        ignores: ['src/**/__tests__/**/*.ts'],
+        rules: {
+            'no-restricted-syntax': ['error',
+                {
+                    selector: "NewExpression[callee.name='Notice'] > Literal[value=/[A-Za-z]{3}/]:first-child",
+                    message: 'User-visible Notice text must go through t() (src/i18n). Add a key to en.ts instead of a hardcoded string. See FEAT-42-04.',
+                },
+                {
+                    selector: "CallExpression[callee.property.name=/^(setName|setDesc|setButtonText|setTooltip|setTitle)$/] > Literal[value=/[A-Za-z]{3}/]:first-child",
+                    message: 'User-visible UI text must go through t() (src/i18n). Add a key to en.ts instead of a hardcoded string. See FEAT-42-04.',
                 },
             ],
         },

@@ -330,7 +330,7 @@ export class ModelConfigModal extends Modal {
             } catch (e: unknown) {
                 // requestUrl can throw a Response-like object (no .message) — handle both
                 const errObj = e as { message?: string; status?: number };
-                const errMsg = errObj?.message ?? (errObj?.status ? `HTTP ${errObj.status}` : String(e));
+                const errMsg = errObj?.message ?? (errObj?.status ? t('notice.testConnection.httpStatus', { status: errObj.status }) : String(e));
                 new Notice(t('modal.modelConfig.fetchFailed', { error: errMsg }));
             } finally {
                 fetchBtn.disabled = false;
@@ -424,9 +424,9 @@ export class ModelConfigModal extends Modal {
         // Bedrock gateway path uses its own Auth-mode dropdown.
         this.anthropicGatewayRow = form.createDiv('mcm-row mcm-anthropic-gateway');
         const gwLabel = this.anthropicGatewayRow.createDiv('mcm-label');
-        gwLabel.createSpan({ text: 'Enterprise gateway' });
+        gwLabel.createSpan({ text: t('settings.providers.gateway.title') });
         gwLabel.createSpan({
-            text: 'Enable when your base URL points to a corporate APIM (e.g. apimgmt-*.azure-api.net) instead of api.anthropic.com.',
+            text: t('settings.providers.gateway.anthropicDesc'),
             cls: 'mcm-desc',
         });
         const gwToggleLabel = this.anthropicGatewayRow.createEl('label', { cls: 'mc-toggle' });
@@ -441,28 +441,28 @@ export class ModelConfigModal extends Modal {
         // Subscription-header rows for the gateway mode.
         this.anthropicGatewayHeaderNameRow = form.createDiv('mcm-row mcm-anthropic-gateway');
         const hnLabel = this.anthropicGatewayHeaderNameRow.createDiv('mcm-label');
-        hnLabel.createSpan({ text: 'Gateway header name' });
+        hnLabel.createSpan({ text: t('settings.providers.gateway.headerName') });
         hnLabel.createSpan({
-            text: 'Header carrying the subscription key. Most Azure APIM gateways use Ocp-Apim-Subscription-Key.',
+            text: t('settings.providers.gateway.headerNameDesc'),
             cls: 'mcm-desc',
         });
         const hnInput = this.anthropicGatewayHeaderNameRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'Header name' },
+            attr: { type: 'text', placeholder: t('settings.providers.gateway.headerNamePlaceholder') },
         });
         hnInput.value = this.formGatewayHeaderName;
         hnInput.addEventListener('input', () => (this.formGatewayHeaderName = hnInput.value.trim()));
 
         this.anthropicGatewayHeaderValueRow = form.createDiv('mcm-row mcm-anthropic-gateway');
         const hvLabel = this.anthropicGatewayHeaderValueRow.createDiv('mcm-label');
-        hvLabel.createSpan({ text: 'Subscription key' });
+        hvLabel.createSpan({ text: t('settings.providers.gateway.subscriptionKey') });
         hvLabel.createSpan({
-            text: 'Pasted into the gateway header above. Saved encrypted at rest.',
+            text: t('settings.providers.gateway.subscriptionKeyDesc'),
             cls: 'mcm-desc',
         });
         const hvInput = this.anthropicGatewayHeaderValueRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Paste your subscription key' },
+            attr: { type: 'password', placeholder: t('settings.providers.gateway.subscriptionKeyPlaceholder') },
         });
         hvInput.value = this.formGatewayHeaderValue;
         hvInput.addEventListener('input', () => (this.formGatewayHeaderValue = hvInput.value.trim()));
@@ -869,7 +869,7 @@ export class ModelConfigModal extends Modal {
             // Check if budget exceeds maxTokens and show appropriate message
             if (this.formThinkingBudgetTokens > this.formMaxTokens) {
                 this.thinkingNoteEl.setText(
-                    `${t('modal.modelConfig.thinkingNote')} ⚠️ Max Tokens was automatically increased to ${this.formMaxTokens.toLocaleString()}.`
+                    `${t('modal.modelConfig.thinkingNote')} ${t('modal.modelConfig.thinkingNoteMaxTokensIncreased', { value: this.formMaxTokens.toLocaleString() })}`
                 );
             } else {
                 this.thinkingNoteEl.setText(t('modal.modelConfig.thinkingNote'));
@@ -956,30 +956,25 @@ export class ModelConfigModal extends Modal {
             guide.createDiv({ cls: 'mcm-guide-tip', text: t('guide.copilot.disclaimer') });
 
         } else if (provider === 'bedrock') {
-            const bedrockHeading = guide.createEl('strong');
-            bedrockHeading.appendText('Amazon Bedrock setup');
+            guide.createEl('strong', { text: t('guide.bedrock.heading') });
             const steps = guide.createEl('ol', { cls: 'mcm-guide-steps' });
-            const bedrockStep1 = steps.createEl('li');
-            bedrockStep1.appendText('In the AWS console, open Bedrock in your preferred region and request access to the model families you need on the model access page. Approval is usually instant for the common foundation models.');
-            const bedrockStep2 = steps.createEl('li');
-            bedrockStep2.appendText('Pick an authentication method. The Bedrock API key is a single bearer token copied once from the Bedrock console. The IAM access key + secret is the classic flow if you already have one set up.');
-            const bedrockStep3 = steps.createEl('li');
-            bedrockStep3.appendText('Pick the region that hosts your access. For the EU, the Frankfurt region is the common choice.');
-            const bedrockStep4 = steps.createEl('li');
-            bedrockStep4.appendText('Pick a model from the quick pick dropdown. The EU cross-region inference profiles work from any EU region, and the US profiles cover US regions.');
+            steps.createEl('li', { text: t('guide.bedrock.step1') });
+            steps.createEl('li', { text: t('guide.bedrock.step2') });
+            steps.createEl('li', { text: t('guide.bedrock.step3') });
+            steps.createEl('li', { text: t('guide.bedrock.step4') });
             guide.createDiv({
                 cls: 'mcm-guide-tip',
-                text: 'Tip: Frankfurt combined with an EU inference profile gives the lowest latency from Europe while keeping data inside the EU.',
+                text: t('guide.bedrock.tip'),
             });
 
         } else if (provider === 'custom') {
             guide.createEl('strong', { text: t('guide.custom.heading') });
             const table = guide.createEl('table', { cls: 'mcm-guide-table' });
             const rows: [string, string, string][] = [
-                ['Mistral', 'Get key at console.mistral.ai \u2192 API Keys', 'https://api.mistral.ai/v1'],
-                ['Groq', 'Get key at console.groq.com \u2192 API Keys', 'https://api.groq.com/openai/v1'],
-                ['OpenRouter', 'Get key at openrouter.ai \u2192 Keys', 'https://openrouter.ai/api/v1'],
-                ['Cohere', 'Get key at dashboard.cohere.com \u2192 API Keys', 'https://api.cohere.ai/compatibility/v1'],
+                ['Mistral', t('guide.custom.hintMistral'), 'https://api.mistral.ai/v1'],
+                ['Groq', t('guide.custom.hintGroq'), 'https://api.groq.com/openai/v1'],
+                ['OpenRouter', t('guide.custom.hintOpenrouter'), 'https://openrouter.ai/api/v1'],
+                ['Cohere', t('guide.custom.hintCohere'), 'https://api.cohere.ai/compatibility/v1'],
             ];
             rows.forEach(([service, hint, url]) => {
                 const tr = table.createEl('tr');
@@ -1072,7 +1067,7 @@ export class ModelConfigModal extends Modal {
                 }
             } catch (e: unknown) {
                 listEl.classList.remove('agent-u-hidden');
-                const errMsg = (e as { message?: string })?.message ?? 'Unknown error';
+                const errMsg = (e as { message?: string })?.message ?? t('notice.testConnection.unknownError');
                 listEl.createDiv({
                     cls: 'mcm-model-empty',
                     text: t('modal.modelConfig.serverUnreachable', { error: errMsg }),
@@ -1494,13 +1489,13 @@ export class ModelConfigModal extends Modal {
 
         // ── Authentication method ────────────────────────────────────────
         const authRow = mkRow(
-            'Authentication',
-            'Bedrock API key is the new AWS bearer-token scheme and works with a single token. Access key + secret is the classic IAM flow.',
+            t('settings.providers.modal.section.auth'),
+            t('modal.modelConfig.bedrockAuthDesc'),
         );
         const authSel = authRow.createEl('select', { cls: 'mcm-select' });
-        authSel.createEl('option', { value: 'api-key',    text: 'Bedrock API key (bearer token, recommended)' });
-        authSel.createEl('option', { value: 'access-key', text: 'Access key + secret key' });
-        authSel.createEl('option', { value: 'gateway',    text: 'API gateway (Bedrock-compatible)' });
+        authSel.createEl('option', { value: 'api-key',    text: t('modal.modelConfig.bedrockAuthApiKey') });
+        authSel.createEl('option', { value: 'access-key', text: t('modal.modelConfig.bedrockAuthAccessKey') });
+        authSel.createEl('option', { value: 'gateway',    text: t('settings.providers.bedrockAuthGateway') });
         authSel.value = this.formAwsAuthMode;
         authSel.addEventListener('change', () => {
             this.formAwsAuthMode = authSel.value as 'api-key' | 'access-key' | 'gateway';
@@ -1509,8 +1504,8 @@ export class ModelConfigModal extends Modal {
 
         // ── Region ────────────────────────────────────────────────────────
         const regionRow = mkRow(
-            'Region',
-            'The AWS region hosting your Bedrock access. Cross-region inference profiles (eu., us.) route across regions in that geography.',
+            t('modal.modelConfig.bedrockRegion'),
+            t('modal.modelConfig.bedrockRegionDesc'),
         );
         const regionSel = regionRow.createEl('select', { cls: 'mcm-select' });
         BEDROCK_REGIONS.forEach(({ id, label }) => {
@@ -1523,8 +1518,8 @@ export class ModelConfigModal extends Modal {
 
         // ── Custom endpoint URL (optional) ───────────────────────────────
         const endpointRow = mkRow(
-            'Endpoint URL',
-            'Optional. Leave empty to use the default regional endpoint. Set explicitly for VPC endpoints or providers like https://bedrock-runtime.eu-central-1.amazonaws.com.',
+            t('modal.modelConfig.bedrockEndpoint'),
+            t('modal.modelConfig.bedrockEndpointDesc'),
         );
         const endpointInput = endpointRow.createEl('input', {
             cls: 'mcm-input',
@@ -1535,69 +1530,69 @@ export class ModelConfigModal extends Modal {
 
         // ── Bedrock API key (bearer token) ───────────────────────────────
         this.bedrockApiKeyRow = mkRow(
-            'Bedrock API key',
-            'Paste the bearer token from the Bedrock console or from the AWS_BEARER_TOKEN_BEDROCK environment variable.',
+            t('settings.providers.bedrockApiKey'),
+            t('settings.providers.bedrockApiKeyDesc'),
         );
         const apiKeyInput = this.bedrockApiKeyRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Paste your API key' },
+            attr: { type: 'password', placeholder: t('modal.modelConfig.bedrockApiKeyPlaceholder') },
         });
         apiKeyInput.value = this.formAwsApiKey;
         apiKeyInput.addEventListener('input', () => (this.formAwsApiKey = apiKeyInput.value.trim()));
 
         // ── Access key ID (classic mode) ─────────────────────────────────
         this.bedrockAccessKeyRow = mkRow(
-            'Access key ID',
-            'From IAM → users → security credentials. Requires the invoke model and invoke model with response stream actions.',
+            t('modal.modelConfig.bedrockAccessKey'),
+            t('modal.modelConfig.bedrockAccessKeyDesc'),
         );
         const akInput = this.bedrockAccessKeyRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'Paste your access key ID' },
+            attr: { type: 'text', placeholder: t('modal.modelConfig.bedrockAccessKeyPlaceholder') },
         });
         akInput.value = this.formAwsAccessKey;
         akInput.addEventListener('input', () => (this.formAwsAccessKey = akInput.value.trim()));
 
         // ── Secret access key (classic mode) ─────────────────────────────
-        this.bedrockSecretKeyRow = mkRow('Secret access key');
+        this.bedrockSecretKeyRow = mkRow(t('modal.modelConfig.bedrockSecretKey'));
         const skInput = this.bedrockSecretKeyRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Paste the secret access key' },
+            attr: { type: 'password', placeholder: t('modal.modelConfig.bedrockSecretKeyPlaceholder') },
         });
         skInput.value = this.formAwsSecretKey;
         skInput.addEventListener('input', () => (this.formAwsSecretKey = skInput.value.trim()));
 
         // ── Session token (classic mode, optional) ───────────────────────
         this.bedrockSessionTokenRow = mkRow(
-            'Session token',
-            'Optional. Only for temporary credentials from AWS SSO or STS.',
+            t('modal.modelConfig.bedrockSessionToken'),
+            t('modal.modelConfig.bedrockSessionTokenDesc'),
         );
         const stInput = this.bedrockSessionTokenRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Leave empty for long-lived credentials' },
+            attr: { type: 'password', placeholder: t('modal.modelConfig.bedrockSessionTokenPlaceholder') },
         });
         stInput.value = this.formAwsSessionToken;
         stInput.addEventListener('input', () => (this.formAwsSessionToken = stInput.value.trim()));
 
         // ── Gateway header name (gateway mode, FEAT-26-07) ───────────────
         this.bedrockGatewayHeaderNameRow = mkRow(
-            'Gateway header name',
-            'Header carrying the subscription key. Most Azure APIM gateways use Ocp-Apim-Subscription-Key.',
+            t('settings.providers.gateway.headerName'),
+            t('settings.providers.gateway.headerNameDesc'),
         );
         const hnInput = this.bedrockGatewayHeaderNameRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'text', placeholder: 'Header name' },
+            attr: { type: 'text', placeholder: t('settings.providers.gateway.headerNamePlaceholder') },
         });
         hnInput.value = this.formGatewayHeaderName;
         hnInput.addEventListener('input', () => (this.formGatewayHeaderName = hnInput.value.trim()));
 
         // ── Gateway header value (gateway mode, FEAT-26-07) ──────────────
         this.bedrockGatewayHeaderValueRow = mkRow(
-            'Subscription key',
-            'The subscription key for your enterprise Bedrock gateway. Sent as the value of the header above.',
+            t('settings.providers.gateway.subscriptionKey'),
+            t('settings.providers.gateway.subscriptionKeyBedrockDesc'),
         );
         const hvInput = this.bedrockGatewayHeaderValueRow.createEl('input', {
             cls: 'mcm-input',
-            attr: { type: 'password', placeholder: 'Paste your subscription key' },
+            attr: { type: 'password', placeholder: t('settings.providers.gateway.subscriptionKeyPlaceholder') },
         });
         hvInput.value = this.formGatewayHeaderValue;
         hvInput.addEventListener('input', () => (this.formGatewayHeaderValue = hvInput.value.trim()));

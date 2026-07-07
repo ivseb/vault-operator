@@ -9,7 +9,7 @@
  * Append-only. Truncates to last N entries on each plugin start.
  */
 
-import { computeCost, formatEur } from '../pricing/ModelPricing';
+import { computeCost, computeCostForBuckets, formatEur, type UsageByModel } from '../pricing/ModelPricing';
 import type { FileAdapter } from '../storage/types';
 
 const TELEMETRY_DIR = '.obsidian-agent/telemetry';
@@ -69,6 +69,11 @@ export interface TaskTelemetryEntry {
     outputTokens: number;
     cacheReadTokens: number;
     cacheCreationTokens: number;
+    /**
+     * FIX-24-05-05: per-model breakdown of the totals. Present when the
+     * task reported one; cost is then the sum of per-model costs.
+     */
+    usageByModel?: UsageByModel;
     /** Cost in USD and EUR */
     costUsd: number;
     costEur: number;
@@ -109,8 +114,13 @@ export class TaskTelemetry {
         cacheCreationTokens: number;
         outcome: 'completed' | 'aborted' | 'error';
         errorMessage?: string;
+        usageByModel?: UsageByModel;
     }): Promise<TaskTelemetryEntry> {
-        const cost = computeCost(args.modelId, args.inputTokens, args.outputTokens, args.cacheReadTokens, args.cacheCreationTokens);
+        // FIX-24-05-05: mixed-model tasks are priced as the sum of
+        // per-model costs; without a breakdown fall back to single-id.
+        const cost = (args.usageByModel && Object.keys(args.usageByModel).length > 0)
+            ? computeCostForBuckets(args.usageByModel)
+            : computeCost(args.modelId, args.inputTokens, args.outputTokens, args.cacheReadTokens, args.cacheCreationTokens);
         const entry: TaskTelemetryEntry = {
             startedAt: new Date(this.startedAt).toISOString(),
             durationMs: Date.now() - this.startedAt,
@@ -124,6 +134,7 @@ export class TaskTelemetry {
             outputTokens: args.outputTokens,
             cacheReadTokens: args.cacheReadTokens,
             cacheCreationTokens: args.cacheCreationTokens,
+            usageByModel: args.usageByModel,
             costUsd: cost.totalUsd,
             costEur: cost.totalEur,
             outcome: args.outcome,

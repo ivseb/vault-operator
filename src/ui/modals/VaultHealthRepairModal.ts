@@ -10,6 +10,7 @@
  */
 
 import { Modal, Notice, setIcon, Platform, TFile } from 'obsidian';
+import { t } from '../../i18n';
 import type ObsidianAgentPlugin from '../../main';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../AgentSidebarView';
 import type { HealthFinding, HealthCheckType } from '../../core/knowledge/VaultHealthService';
@@ -17,6 +18,7 @@ import type { CheckpointInfo } from '../../core/checkpoints/GitCheckpointService
 import { KnowledgeReviewReader, type ReviewRow } from '../../core/health/KnowledgeReviewReader';
 import type { VerdictLiteral } from '../../core/health/types';
 import { ResolveConflictModal } from './ResolveConflictModal';
+import { OKF_DEFAULTS } from '../../types/settings';
 import { BatchResolveModal } from './BatchResolveModal';
 
 /**
@@ -25,11 +27,11 @@ import { BatchResolveModal } from './BatchResolveModal';
  * this map is the user-facing surface only.
  */
 const VERDICT_LABELS: Record<VerdictLiteral, string> = {
-    matches: 'Matches sources',
-    extends: 'Could extend',
-    contradicts: 'Contradicted by sources',
-    outdated: 'Outdated',
-    no_external_source: 'No external evidence yet',
+    matches: t('modal.resolveConflict.verdictMatches'),
+    extends: t('modal.resolveConflict.verdictExtends'),
+    contradicts: t('modal.resolveConflict.verdictContradicts'),
+    outdated: t('modal.resolveConflict.verdictOutdated'),
+    no_external_source: t('modal.resolveConflict.verdictNoExternalSource'),
 };
 
 /**
@@ -95,15 +97,15 @@ function isRepairableFinding(f: HealthFinding): boolean {
 }
 
 const CHECK_LABELS: Record<string, string> = {
-    orphans: 'Orphaned notes',
-    missing_backlinks: 'Missing backlinks',
-    broken_links: 'Broken links',
-    weak_clusters: 'Semantically similar but unlinked',
-    inconsistent_tags: 'Inconsistent tags',
-    category_mismatch: 'Category mismatches',
-    god_nodes: 'Overloaded hub notes',
-    cluster_freshness: 'Cluster freshness (Karpathy-Lint)',
-    source_concentration: 'Source concentration (Bias)',
+    orphans: t('modal.vaultHealthRepair.checkOrphans'),
+    missing_backlinks: t('modal.vaultHealth.checkMissingBacklinks'),
+    broken_links: t('modal.vaultHealth.checkBrokenLinks'),
+    weak_clusters: t('modal.vaultHealthRepair.checkWeakClusters'),
+    inconsistent_tags: t('modal.vaultHealth.checkInconsistentTags'),
+    category_mismatch: t('modal.vaultHealthRepair.checkCategoryMismatch'),
+    god_nodes: t('modal.vaultHealth.checkGodNodes'),
+    cluster_freshness: t('modal.vaultHealthRepair.checkClusterFreshness'),
+    source_concentration: t('modal.vaultHealthRepair.checkSourceConcentration'),
 };
 
 type SeverityFilter = 'all' | 'high' | 'medium' | 'low';
@@ -155,11 +157,11 @@ export class VaultHealthRepairModal extends Modal {
     private renderTopTabs(parent: HTMLElement): void {
         const row = parent.createDiv('vault-health-top-tabs');
         const findingsBtn = row.createEl('button', {
-            text: 'Findings',
+            text: t('modal.vaultHealthRepair.tabFindings'),
             cls: 'vault-health-top-tab' + (this.topTab === 'findings' ? ' is-active' : ''),
         });
         const reviewBtn = row.createEl('button', {
-            text: 'Knowledge review',
+            text: t('modal.vaultHealthRepair.tabKnowledgeReview'),
             cls: 'vault-health-top-tab' + (this.topTab === 'review' ? ' is-active' : ''),
         });
         findingsBtn.addEventListener('click', () => {
@@ -180,9 +182,9 @@ export class VaultHealthRepairModal extends Modal {
 
         // IMP-20-06-01 W3-T4: mobile guard.
         if (Platform.isMobile) {
-            contentEl.createEl('h3', { text: 'Knowledge review' });
+            contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.tabKnowledgeReview') });
             contentEl.createEl('p', {
-                text: 'Knowledge review needs the desktop client. Open the same vault on desktop to resolve flagged notes.',
+                text: t('modal.vaultHealthRepair.knowledgeReviewMobileHint'),
             });
             return;
         }
@@ -224,14 +226,14 @@ export class VaultHealthRepairModal extends Modal {
                 noteRowsWithSev.filter((n) => n.severity === 'low').length,
         };
 
-        contentEl.createEl('h3', { text: `Knowledge review (${totalCount} items)` });
+        contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.knowledgeReviewTitle', { count: totalCount }) });
 
         const filterRow = contentEl.createDiv('vault-health-filter-row');
         const tabs: Array<{ key: SeverityFilter; label: string }> = [
-            { key: 'all', label: `All (${counts.all})` },
-            { key: 'high', label: `High (${counts.high})` },
-            { key: 'medium', label: `Medium (${counts.medium})` },
-            { key: 'low', label: `Low (${counts.low})` },
+            { key: 'all', label: t('modal.vaultHealthRepair.filterAll', { count: counts.all }) },
+            { key: 'high', label: t('modal.vaultHealthRepair.filterHigh', { count: counts.high }) },
+            { key: 'medium', label: t('modal.vaultHealthRepair.filterMedium', { count: counts.medium }) },
+            { key: 'low', label: t('modal.vaultHealthRepair.filterLow', { count: counts.low }) },
         ];
         for (const tab of tabs) {
             const btn = filterRow.createEl('button', {
@@ -246,7 +248,7 @@ export class VaultHealthRepairModal extends Modal {
 
         if (totalCount === 0) {
             contentEl.createEl('p', {
-                text: 'No knowledge-review items right now. Cluster-freshness flags and per-note verdicts appear here once the freshness verifier and the periodic lint produce them.',
+                text: t('modal.vaultHealthRepair.knowledgeReviewEmpty'),
             });
             return;
         }
@@ -254,7 +256,7 @@ export class VaultHealthRepairModal extends Modal {
         // Top toolbar: Batch resolve action over the per-note verdicts.
         if (noteRows.length) {
             const batchRow = contentEl.createDiv('vault-health-knowledge-review-toolbar');
-            const batchBtn = batchRow.createEl('button', { text: 'Batch resolve' });
+            const batchBtn = batchRow.createEl('button', { text: t('modal.vaultHealthRepair.batchResolveBtn') });
             batchBtn.addEventListener('click', () => {
                 new BatchResolveModal(this.plugin, noteRows, { onChange: () => this.render() }).open();
             });
@@ -313,21 +315,21 @@ export class VaultHealthRepairModal extends Modal {
         summary.createSpan({ cls: `vault-health-severity severity-${sectionSeverity}`, text: sectionSeverity });
         summary.createSpan({
             cls: 'vault-health-section-count',
-            text: ` Cluster freshness (${entries.length})`,
+            text: ' ' + t('modal.vaultHealthRepair.clusterFreshnessSection', { count: entries.length }),
         });
-        summary.createSpan({ cls: 'vault-health-tag-info', text: ' (review recommended)' });
+        summary.createSpan({ cls: 'vault-health-tag-info', text: ' ' + t('modal.vaultHealthRepair.reviewRecommendedTag') });
 
         const content = details.createDiv('vault-health-section-content');
         for (const { finding, severity } of entries) {
             const row = content.createDiv('vault-health-finding-row');
 
             const label = row.createSpan({ cls: 'vault-health-note-link' });
-            label.setText(finding.cluster ?? 'Cluster');
+            label.setText(finding.cluster ?? t('modal.vaultHealthRepair.clusterFallback'));
 
             const actions = row.createDiv('vault-health-finding-actions');
             const discussBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': 'Discuss freshness update for this cluster' },
+                attr: { 'aria-label': t('modal.vaultHealthRepair.discussFreshnessAria') },
             });
             setIcon(discussBtn, 'refresh-cw');
             discussBtn.addEventListener('click', (ev) => {
@@ -339,7 +341,7 @@ export class VaultHealthRepairModal extends Modal {
 
             const dismissBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': 'Dismiss this cluster freshness flag' },
+                attr: { 'aria-label': t('modal.vaultHealthRepair.dismissClusterAria') },
             });
             setIcon(dismissBtn, 'eye-off');
             dismissBtn.addEventListener('click', (ev) => {
@@ -354,7 +356,7 @@ export class VaultHealthRepairModal extends Modal {
             void severity;
 
             const preview = content.createDiv('vault-health-fix-preview');
-            preview.setText(finding.description ?? `Cluster "${finding.cluster ?? ''}"`);
+            preview.setText(finding.description ?? t('modal.vaultHealthRepair.clusterPreviewFallback', { cluster: finding.cluster ?? '' }));
         }
     }
 
@@ -378,7 +380,7 @@ export class VaultHealthRepairModal extends Modal {
         summary.createSpan({ cls: `vault-health-severity severity-${sectionSeverity}`, text: sectionSeverity });
         summary.createSpan({
             cls: 'vault-health-section-count',
-            text: ` ${label} (${entries.length})`,
+            text: ' ' + t('modal.vaultHealthRepair.sectionCount', { label, count: entries.length }),
         });
 
         const content = details.createDiv('vault-health-section-content');
@@ -393,13 +395,13 @@ export class VaultHealthRepairModal extends Modal {
             });
 
             const meta = noteRow.createSpan({ cls: 'vault-health-path-count' });
-            meta.setText(` confidence ${row.confidence.toFixed(2)} · ${row.verifierTier} tier`);
+            meta.setText(' ' + t('modal.vaultHealthRepair.verdictMeta', { confidence: row.confidence.toFixed(2), tier: row.verifierTier }));
 
             const actions = noteRow.createDiv('vault-health-finding-actions');
 
             const discussBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': 'Discuss with agent' },
+                attr: { 'aria-label': t('modal.vaultHealthRepair.discussAria') },
             });
             setIcon(discussBtn, 'message-square');
             discussBtn.addEventListener('click', (ev) => {
@@ -411,7 +413,7 @@ export class VaultHealthRepairModal extends Modal {
 
             const resolveBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': 'Open resolve dialog' },
+                attr: { 'aria-label': t('modal.vaultHealthRepair.resolveAria') },
             });
             setIcon(resolveBtn, 'check-circle');
             resolveBtn.addEventListener('click', (ev) => {
@@ -421,7 +423,7 @@ export class VaultHealthRepairModal extends Modal {
 
             const dismissBtn = actions.createEl('button', {
                 cls: 'vault-health-icon-btn',
-                attr: { 'aria-label': 'Dismiss this verdict' },
+                attr: { 'aria-label': t('modal.vaultHealthRepair.dismissVerdictAria') },
             });
             setIcon(dismissBtn, 'eye-off');
             dismissBtn.addEventListener('click', (ev) => {
@@ -431,7 +433,7 @@ export class VaultHealthRepairModal extends Modal {
             });
 
             const preview = content.createDiv('vault-health-fix-preview');
-            preview.setText(row.summary || '(no summary returned by the verifier)');
+            preview.setText(row.summary || t('modal.vaultHealthRepair.noSummaryFallback'));
         }
     }
 
@@ -457,7 +459,7 @@ export class VaultHealthRepairModal extends Modal {
             );
             this.plugin.knowledgeDB?.markDirty();
         }
-        new Notice(`Dismissed ${row.path}`);
+        new Notice(t('notice.vaultHealth.dismissedNote', { path: row.path }));
         rowEl.remove();
         // Strip the matching preview block that lives as the next sibling.
         const nextPreview = rowEl.nextElementSibling;
@@ -491,7 +493,7 @@ export class VaultHealthRepairModal extends Modal {
             );
             this.plugin.knowledgeDB?.markDirty();
         }
-        new Notice(`Dismissed cluster ${finding.cluster ?? ''}`);
+        new Notice(t('notice.vaultHealth.dismissedCluster', { cluster: finding.cluster ?? '' }));
         rowEl.remove();
         const nextPreview = rowEl.nextElementSibling;
         if (nextPreview?.classList.contains('vault-health-fix-preview')) {
@@ -529,7 +531,7 @@ export class VaultHealthRepairModal extends Modal {
         const repairableCount = findingsForView.filter(isRepairableFinding).length;
         const totalCount = findingsForView.length;
 
-        contentEl.createEl('h3', { text: `Vault health (${totalCount} findings)` });
+        contentEl.createEl('h3', { text: t('modal.vaultHealthRepair.findingsTitle', { count: totalCount }) });
 
         // IMP-19-01-01 AC-01..04: Auto-fix CTA banner for deterministic
         // rule findings. Renders only when at least one repairable
@@ -550,10 +552,10 @@ export class VaultHealthRepairModal extends Modal {
         };
         const filterRow = contentEl.createDiv('vault-health-filter-row');
         const tabs: Array<{ key: SeverityFilter; label: string }> = [
-            { key: 'all', label: `All (${totalCount})` },
-            { key: 'high', label: `High (${counts.high})` },
-            { key: 'medium', label: `Medium (${counts.medium})` },
-            { key: 'low', label: `Low (${counts.low})` },
+            { key: 'all', label: t('modal.vaultHealthRepair.filterAll', { count: totalCount }) },
+            { key: 'high', label: t('modal.vaultHealthRepair.filterHigh', { count: counts.high }) },
+            { key: 'medium', label: t('modal.vaultHealthRepair.filterMedium', { count: counts.medium }) },
+            { key: 'low', label: t('modal.vaultHealthRepair.filterLow', { count: counts.low }) },
         ];
         for (const tab of tabs) {
             const btn = filterRow.createEl('button', {
@@ -593,9 +595,9 @@ export class VaultHealthRepairModal extends Modal {
 
             const summary = details.createEl('summary', { cls: 'vault-health-section-header' });
             summary.createSpan({ cls: `vault-health-severity severity-${severity}`, text: severity });
-            summary.createSpan({ text: ` ${label} (${checkFindings.length})` });
+            summary.createSpan({ text: ' ' + t('modal.vaultHealthRepair.sectionCount', { label, count: checkFindings.length }) });
             if (!isRepairable) {
-                summary.createSpan({ cls: 'vault-health-tag-info', text: ' (review recommended)' });
+                summary.createSpan({ cls: 'vault-health-tag-info', text: ' ' + t('modal.vaultHealthRepair.reviewRecommendedTag') });
             }
 
             const content = details.createDiv('vault-health-section-content');
@@ -638,7 +640,7 @@ export class VaultHealthRepairModal extends Modal {
                 if (finding.paths.length > 1) {
                     row.createSpan({
                         cls: 'vault-health-path-count',
-                        text: ` + ${finding.paths.length - 1} related`,
+                        text: ' ' + t('modal.vaultHealthRepair.relatedCount', { count: finding.paths.length - 1 }),
                     });
                 }
 
@@ -648,7 +650,7 @@ export class VaultHealthRepairModal extends Modal {
                 // Discuss with agent (all finding types)
                 const discussBtn = actions.createEl('button', {
                     cls: 'vault-health-icon-btn',
-                    attr: { 'aria-label': 'Discuss with agent' },
+                    attr: { 'aria-label': t('modal.vaultHealthRepair.discussAria') },
                 });
                 setIcon(discussBtn, 'message-square');
                 discussBtn.addEventListener('click', (ev) => {
@@ -664,7 +666,7 @@ export class VaultHealthRepairModal extends Modal {
                 if (finding.check === 'source_concentration' && finding.cluster) {
                     const antiEchoBtn = actions.createEl('button', {
                         cls: 'vault-health-icon-btn',
-                        attr: { 'aria-label': 'Run anti-echo search' },
+                        attr: { 'aria-label': t('modal.vaultHealthRepair.antiEchoAria') },
                     });
                     setIcon(antiEchoBtn, 'search');
                     antiEchoBtn.addEventListener('click', (ev) => {
@@ -677,7 +679,7 @@ export class VaultHealthRepairModal extends Modal {
                 if (finding.check === 'cluster_freshness' && finding.cluster) {
                     const refreshBtn = actions.createEl('button', {
                         cls: 'vault-health-icon-btn',
-                        attr: { 'aria-label': 'Discuss freshness update for this cluster' },
+                        attr: { 'aria-label': t('modal.vaultHealthRepair.discussFreshnessAria') },
                     });
                     setIcon(refreshBtn, 'refresh-cw');
                     refreshBtn.addEventListener('click', (ev) => {
@@ -691,7 +693,7 @@ export class VaultHealthRepairModal extends Modal {
                 // Skip/dismiss (all finding types)
                 const skipBtn = actions.createEl('button', {
                     cls: 'vault-health-icon-btn',
-                    attr: { 'aria-label': 'Dismiss this finding' },
+                    attr: { 'aria-label': t('modal.vaultHealthRepair.dismissFindingAria') },
                 });
                 setIcon(skipBtn, 'eye-off');
                 skipBtn.addEventListener('click', (ev) => {
@@ -717,15 +719,15 @@ export class VaultHealthRepairModal extends Modal {
         if (repairableCount > 0) {
             const repairBtn = btnRow.createEl('button', {
                 cls: 'mod-cta vault-health-repair-btn',
-                text: `Repair selected (${this.selectedFindings.size})`,
+                text: t('modal.vaultHealthRepair.repairSelected', { count: this.selectedFindings.size }),
             });
             repairBtn.addEventListener('click', () => {
                 if (this.selectedFindings.size === 0) {
-                    new Notice('No findings selected for repair.');
+                    new Notice(t('notice.vaultHealth.noRepairSelection'));
                     return;
                 }
                 repairBtn.disabled = true;
-                repairBtn.setText('Repairing...');
+                repairBtn.setText(t('modal.vaultHealth.repairing'));
                 void this.runRepair();
             });
         }
@@ -734,7 +736,7 @@ export class VaultHealthRepairModal extends Modal {
         const dismissedCount = this.plugin.vaultHealthService?.getDismissedCount() ?? 0;
         if (dismissedCount > 0) {
             const dismissedBtn = btnRow.createEl('button', {
-                text: `${dismissedCount} dismissed`,
+                text: t('modal.vaultHealthRepair.dismissedCount', { count: dismissedCount }),
                 cls: 'vault-health-reset-btn',
             });
             dismissedBtn.addEventListener('click', () => {
@@ -742,19 +744,19 @@ export class VaultHealthRepairModal extends Modal {
             });
         }
 
-        const closeBtn = btnRow.createEl('button', { text: 'Close' });
+        const closeBtn = btnRow.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
         closeBtn.addEventListener('click', () => this.close());
     }
 
     private updateRepairButton(): void {
         const btn = this.contentEl.querySelector('.vault-health-repair-btn');
         if (btn instanceof HTMLButtonElement) {
-            btn.setText(`Repair selected (${this.selectedFindings.size})`);
+            btn.setText(t('modal.vaultHealthRepair.repairSelected', { count: this.selectedFindings.size }));
         }
         // IMP-19-01-02: sticky top button shares the same counter.
         const stickyBtn = this.contentEl.querySelector('.vault-health-apply-sticky-btn');
         if (stickyBtn instanceof HTMLButtonElement) {
-            stickyBtn.setText(`Apply selected fixes (${this.selectedFindings.size})`);
+            stickyBtn.setText(t('modal.vaultHealthRepair.applySelectedFixes', { count: this.selectedFindings.size }));
         }
     }
 
@@ -777,15 +779,15 @@ export class VaultHealthRepairModal extends Modal {
         const bar = parent.createDiv('vault-health-apply-sticky');
         const btn = bar.createEl('button', {
             cls: 'mod-cta vault-health-apply-sticky-btn',
-            text: `Apply selected fixes (${this.selectedFindings.size})`,
+            text: t('modal.vaultHealthRepair.applySelectedFixes', { count: this.selectedFindings.size }),
         });
         btn.addEventListener('click', () => {
             if (this.selectedFindings.size === 0) {
-                new Notice('No findings selected for repair.');
+                new Notice(t('notice.vaultHealth.noRepairSelection'));
                 return;
             }
             btn.disabled = true;
-            btn.setText('Repairing...');
+            btn.setText(t('modal.vaultHealth.repairing'));
             void this.runRepair();
         });
     }
@@ -793,10 +795,10 @@ export class VaultHealthRepairModal extends Modal {
     private renderAutoFixBanner(parent: HTMLElement, repairableCount: number): void {
         const banner = parent.createDiv('vault-health-autofix-banner');
         const desc = banner.createDiv('vault-health-autofix-desc');
-        desc.setText(`${repairableCount} trivial ${repairableCount === 1 ? 'issue' : 'issues'} can be auto-fixed (missing backlinks, category mismatches, inconsistent tags). Checkpoint runs first; undo stays on the next screen.`);
+        desc.setText(t('modal.vaultHealthRepair.autoFixDesc', { count: repairableCount }));
 
         const btn = banner.createEl('button', {
-            text: `Auto-fix ${repairableCount} ${repairableCount === 1 ? 'issue' : 'issues'}`,
+            text: t('modal.vaultHealthRepair.autoFixBtn', { count: repairableCount }),
             cls: 'mod-cta vault-health-autofix-btn',
         });
         btn.addEventListener('click', () => {
@@ -868,7 +870,7 @@ export class VaultHealthRepairModal extends Modal {
                 const label = CHECK_LABELS[check] ?? check;
                 const spans = headerText.querySelectorAll('span');
                 if (spans.length >= 2) {
-                    spans[1].setText(` ${label} (${remaining})`);
+                    spans[1].setText(' ' + t('modal.vaultHealthRepair.sectionCount', { label, count: remaining }));
                 }
             }
         }
@@ -896,12 +898,12 @@ export class VaultHealthRepairModal extends Modal {
 
     private showDismissedList(containerEl: HTMLElement): void {
         containerEl.empty();
-        containerEl.createEl('h3', { text: 'Dismissed findings' });
+        containerEl.createEl('h3', { text: t('modal.vaultHealthRepair.dismissedTitle') });
 
         const dismissed = this.plugin.vaultHealthService?.getDismissedFindings() ?? [];
         if (dismissed.length === 0) {
-            containerEl.createEl('p', { text: 'No dismissed findings.' });
-            const backBtn = containerEl.createEl('button', { text: 'Back', cls: 'mod-cta' });
+            containerEl.createEl('p', { text: t('modal.vaultHealthRepair.noDismissed') });
+            const backBtn = containerEl.createEl('button', { text: t('modal.vaultHealthRepair.backBtn'), cls: 'mod-cta' });
             backBtn.addEventListener('click', () => this.showFindings());
             return;
         }
@@ -910,7 +912,7 @@ export class VaultHealthRepairModal extends Modal {
         const searchRow = containerEl.createDiv('vault-health-search-row');
         const searchInput = searchRow.createEl('input', {
             type: 'text',
-            placeholder: 'Filter...',
+            placeholder: t('ui.history.filter'),
             cls: 'vault-health-search-input',
         });
 
@@ -932,7 +934,7 @@ export class VaultHealthRepairModal extends Modal {
 
                 const restoreBtn = row.createEl('button', {
                     cls: 'vault-health-icon-btn',
-                    attr: { 'aria-label': 'Restore this finding' },
+                    attr: { 'aria-label': t('modal.vaultHealthRepair.restoreAria') },
                 });
                 setIcon(restoreBtn, 'eye');
                 restoreBtn.addClass('vault-health-icon-btn-visible');
@@ -947,7 +949,7 @@ export class VaultHealthRepairModal extends Modal {
             }
 
             if (filtered.length === 0) {
-                listEl.createEl('p', { cls: 'vault-health-empty', text: 'No matches.' });
+                listEl.createEl('p', { cls: 'vault-health-empty', text: t('modal.vaultHealthRepair.noMatches') });
             }
         };
 
@@ -958,14 +960,14 @@ export class VaultHealthRepairModal extends Modal {
         const btnRow = containerEl.createDiv('vault-health-btn-row');
 
         const restoreAllBtn = btnRow.createEl('button', {
-            text: 'Restore all',
+            text: t('modal.vaultHealthRepair.restoreAllBtn'),
         });
         restoreAllBtn.addEventListener('click', () => {
             this.plugin.vaultHealthService?.restoreDismissed();
             void this.refreshAndShowFindings();
         });
 
-        const backBtn = btnRow.createEl('button', { text: 'Back', cls: 'mod-cta' });
+        const backBtn = btnRow.createEl('button', { text: t('modal.vaultHealthRepair.backBtn'), cls: 'mod-cta' });
         backBtn.addEventListener('click', () => {
             void this.refreshAndShowFindings();
         });
@@ -1015,26 +1017,28 @@ export class VaultHealthRepairModal extends Modal {
                 const target = finding.paths[0];
                 const sources = finding.paths.slice(1);
                 if (sources.length > 10) {
-                    return `Fix: Create backlinks base file for ${this.formatPath(target)} (${sources.length} notes)`;
+                    return t('modal.vaultHealthRepair.fixPreviewBacklinksBase', { target: this.formatPath(target), count: sources.length });
                 }
-                return `Fix: Add backlink properties to ${this.formatPath(target)} from ${sources.slice(0, 3).map(s => this.formatPath(s)).join(', ')}${sources.length > 3 ? ` +${sources.length - 3} more` : ''}`;
+                const sourceList = sources.slice(0, 3).map(s => this.formatPath(s)).join(', ');
+                const moreSuffix = sources.length > 3 ? ' ' + t('modal.vaultHealthRepair.fixPreviewMoreSuffix', { count: sources.length - 3 }) : '';
+                return t('modal.vaultHealthRepair.fixPreviewAddBacklinks', { target: this.formatPath(target), sources: sourceList }) + moreSuffix;
             }
             case 'category_mismatch':
-                return `Fix: Move ${this.formatPath(finding.paths[0])} to correct category property`;
+                return t('modal.vaultHealthRepair.fixPreviewCategory', { path: this.formatPath(finding.paths[0]) });
             case 'inconsistent_tags':
-                return `Fix: Unify tag spelling`;
+                return t('modal.vaultHealthRepair.fixPreviewTags');
             case 'orphans': {
                 if (finding.metadata?.orphanKind === 'isolated') {
                     const target = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
-                    return `Fix: Move ${finding.paths.length} truly orphan note(s) to ${target}/`;
+                    return t('modal.vaultHealthRepair.fixPreviewMoveOrphans', { count: finding.paths.length, folder: target });
                 }
-                return 'Manual review: add backlinks from the cluster hub (no auto-fix)';
+                return t('modal.vaultHealthRepair.fixPreviewOrphanManual');
             }
             case 'weak_clusters':
                 if (finding.paths.length >= 2) {
-                    return `Fix: Link ${this.formatPath(finding.paths[0])} <-> ${this.formatPath(finding.paths[1])} mutually`;
+                    return t('modal.vaultHealthRepair.fixPreviewLinkPair', { a: this.formatPath(finding.paths[0]), b: this.formatPath(finding.paths[1]) });
                 }
-                return 'Fix: Add mutual link';
+                return t('modal.vaultHealthRepair.fixPreviewLinkPairFallback');
             default:
                 return finding.description.slice(0, 120);
         }
@@ -1049,7 +1053,7 @@ export class VaultHealthRepairModal extends Modal {
             case 'god_nodes':
                 return finding.description;
             case 'broken_links':
-                return `${this.formatPath(finding.paths[0])} is referenced but does not exist`;
+                return t('modal.vaultHealthRepair.brokenLinkInfo', { path: this.formatPath(finding.paths[0]) });
             default:
                 return finding.description.slice(0, 150);
         }
@@ -1069,7 +1073,7 @@ export class VaultHealthRepairModal extends Modal {
         if (!healthService) return;
 
         contentEl.empty();
-        contentEl.createEl('h3', { text: 'Repair in progress...' });
+        contentEl.createEl('h3', { text: t('modal.vaultHealth.repairRunning') });
         const progress = contentEl.createEl('p', { cls: 'vault-health-progress' });
 
         // FIX-19-01-03: suspend the global vault.on('modify')
@@ -1098,7 +1102,7 @@ export class VaultHealthRepairModal extends Modal {
         healthService.cancelled = false;
 
         // Checkpoint
-        progress.setText('Creating checkpoint...');
+        progress.setText(t('modal.vaultHealth.creatingCheckpoint'));
         const taskId = `health-repair-${Date.now()}`;
         const affectedPaths = this.collectAffectedPaths();
 
@@ -1128,7 +1132,7 @@ export class VaultHealthRepairModal extends Modal {
         let weakLinkResult = { pairsLinked: 0, linksAdded: 0 };
 
         if (selectedTypes.has('missing_backlinks') || selectedTypes.has('category_mismatch')) {
-            progress.setText('Cleaning up orphaned edges...');
+            progress.setText(t('modal.vaultHealth.progressOrphanedEdges'));
             edgesResult = healthService.cleanupOrphanedEdges();
         }
 
@@ -1136,11 +1140,11 @@ export class VaultHealthRepairModal extends Modal {
         // hardcoded 'Notizen'. The original hardcoded value caused
         // repairs to land on a different property than the user's
         // existing edges, so the reverse-edge predicate kept firing.
-        const backlinksProperty = this.plugin.settings.backlinksProperty ?? 'Notizen';
-        const categoryProperty = this.plugin.settings.categoryProperty ?? 'Kategorie';
+        const backlinksProperty = this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty;
+        const categoryProperty = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
 
         if (selectedTypes.has('missing_backlinks')) {
-            progress.setText('Inserting missing backlinks...');
+            progress.setText(t('modal.vaultHealth.progressBacklinks'));
             backlinksResult = await healthService.fixMissingBacklinks(
                 backlinksProperty,
                 categoryProperty,
@@ -1148,12 +1152,12 @@ export class VaultHealthRepairModal extends Modal {
         }
 
         if (selectedTypes.has('category_mismatch')) {
-            progress.setText('Correcting category assignments...');
+            progress.setText(t('modal.vaultHealth.progressCategories'));
             categoriesResult = await healthService.fixCategoryMismatches();
         }
 
         if (selectedTypes.has('missing_backlinks')) {
-            progress.setText('Cleaning up invalid links...');
+            progress.setText(t('modal.vaultHealth.progressInvalidLinks'));
             cleanupResult = await healthService.cleanupInvalidBacklinks(
                 backlinksProperty,
                 categoryProperty,
@@ -1162,7 +1166,7 @@ export class VaultHealthRepairModal extends Modal {
 
         // IMP-19-01-02: orphans -> move to configured folder.
         if (selectedTypes.has('orphans')) {
-            progress.setText('Moving orphan notes to inbox folder...');
+            progress.setText(t('modal.vaultHealthRepair.progressMovingOrphans'));
             const targetFolder = this.plugin.settings.vaultHealth?.orphansTargetFolder ?? 'Inbox/Orphans';
             const orphanPaths: string[] = [];
             for (const idx of this.selectedFindings) {
@@ -1178,7 +1182,7 @@ export class VaultHealthRepairModal extends Modal {
 
         // IMP-19-01-02: weak_clusters -> mutual frontmatter link.
         if (selectedTypes.has('weak_clusters')) {
-            progress.setText('Linking semantically similar notes...');
+            progress.setText(t('modal.vaultHealthRepair.progressLinkingClusters'));
             const pairs: Array<{ a: string; b: string }> = [];
             for (const idx of this.selectedFindings) {
                 const f = this.findings[idx];
@@ -1196,11 +1200,11 @@ export class VaultHealthRepairModal extends Modal {
         // extractAll() right after would otherwise re-read the
         // STALE cache and write the OLD edge set back into the DB,
         // leaving the reverse-edge predicate firing again.
-        progress.setText('Waiting for vault index to settle...');
+        progress.setText(t('modal.vaultHealthRepair.progressWaitingIndex'));
         await this.waitForMetadataCacheSettle(affectedPaths);
 
         // Re-extract graph data before re-checking (FIX-13)
-        progress.setText('Verifying...');
+        progress.setText(t('modal.vaultHealthRepair.progressVerifying'));
         if (this.plugin.graphExtractor) {
             const extractor = this.plugin.graphExtractor;
             // FIX-19-01-03: per-file extraction was meant to be cheap
@@ -1360,16 +1364,16 @@ export class VaultHealthRepairModal extends Modal {
         const { contentEl } = this;
         contentEl.empty();
 
-        contentEl.createEl('h3', { text: 'Repair complete' });
+        contentEl.createEl('h3', { text: t('modal.vaultHealth.repairDone') });
 
         const results = contentEl.createEl('ul', { cls: 'vault-health-results' });
 
         if (edges.edgesRemoved > 0) {
-            results.createEl('li', { text: `${edges.edgesRemoved} orphaned edges removed` });
+            results.createEl('li', { text: t('modal.vaultHealth.resultEdges', { count: edges.edgesRemoved }) });
         }
         if (backlinks.linksAdded > 0 || backlinks.basesCreated > 0) {
             results.createEl('li', {
-                text: `${backlinks.entitiesFixed} entities: ${backlinks.linksAdded} backlinks, ${backlinks.basesCreated} bases created`,
+                text: t('modal.vaultHealth.resultBacklinks', { entities: backlinks.entitiesFixed, links: backlinks.linksAdded, bases: backlinks.basesCreated }),
             });
         }
         // FIX-19-01-06: explicit transparency. The "0 links added" case
@@ -1378,12 +1382,12 @@ export class VaultHealthRepairModal extends Modal {
         // WHY a finding does not disappear.
         if (backlinks.entitiesWithExistingBase > 0) {
             results.createEl('li', {
-                text: `${backlinks.entitiesWithExistingBase} entities already had a Base (no frontmatter change needed)`,
+                text: t('modal.vaultHealthRepair.resultExistingBase', { count: backlinks.entitiesWithExistingBase }),
             });
         }
         if (backlinks.yamlErrorPaths.length > 0) {
             const li = results.createEl('li');
-            li.appendText(`${backlinks.yamlErrorPaths.length} entities have broken YAML and were skipped (manual fix required):`);
+            li.appendText(t('modal.vaultHealthRepair.resultYamlErrors', { count: backlinks.yamlErrorPaths.length }));
             const sub = li.createEl('ul', { cls: 'vault-health-yaml-errors' });
             for (const p of backlinks.yamlErrorPaths.slice(0, 20)) {
                 const item = sub.createEl('li');
@@ -1394,36 +1398,36 @@ export class VaultHealthRepairModal extends Modal {
                 });
             }
             if (backlinks.yamlErrorPaths.length > 20) {
-                sub.createEl('li', { text: `+${backlinks.yamlErrorPaths.length - 20} more (see console)` });
+                sub.createEl('li', { text: t('modal.vaultHealthRepair.resultYamlMore', { count: backlinks.yamlErrorPaths.length - 20 }) });
             }
             li.createEl('p', {
-                text: 'These notes are auto-dismissed for missing_backlinks until you fix the YAML.',
+                text: t('modal.vaultHealthRepair.resultYamlNote'),
                 cls: 'vault-health-result-note',
             });
         }
         if (categories.notesFixed > 0) {
-            results.createEl('li', { text: `${categories.notesFixed} notes: category assignment corrected` });
+            results.createEl('li', { text: t('modal.vaultHealth.resultCategories', { count: categories.notesFixed }) });
         }
         if (cleanup.linksRemoved > 0) {
-            results.createEl('li', { text: `${cleanup.linksRemoved} invalid links removed` });
+            results.createEl('li', { text: t('modal.vaultHealth.resultInvalidLinks', { count: cleanup.linksRemoved }) });
         }
         if (orphans.notesMoved > 0) {
-            results.createEl('li', { text: `${orphans.notesMoved} orphan note(s) moved to inbox folder` });
+            results.createEl('li', { text: t('modal.vaultHealthRepair.resultOrphansMoved', { count: orphans.notesMoved }) });
         }
         if (orphans.notesSkippedWithContext > 0) {
             results.createEl('li', {
-                text: `${orphans.notesSkippedWithContext} orphan(s) kept in place: they have outgoing edges or cluster membership and need a manual backlink, not a move`,
+                text: t('modal.vaultHealthRepair.resultOrphansKept', { count: orphans.notesSkippedWithContext }),
             });
         }
         if (weakLinks.pairsLinked > 0) {
-            results.createEl('li', { text: `${weakLinks.pairsLinked} weak cluster pair(s) linked (${weakLinks.linksAdded} backlinks added)` });
+            results.createEl('li', { text: t('modal.vaultHealthRepair.resultWeakLinks', { pairs: weakLinks.pairsLinked, links: weakLinks.linksAdded }) });
         }
 
         const totalFixes = edges.edgesRemoved + backlinks.linksAdded + backlinks.basesCreated +
             categories.valuesMovied + cleanup.linksRemoved + orphans.notesMoved + weakLinks.linksAdded;
 
         if (totalFixes === 0) {
-            contentEl.createEl('p', { text: 'No repairs needed. All clean.' });
+            contentEl.createEl('p', { text: t('modal.vaultHealth.noRepairsNeeded') });
         }
 
         // Remaining findings
@@ -1431,7 +1435,7 @@ export class VaultHealthRepairModal extends Modal {
         const totalRemaining = newFindings.length;
         contentEl.createEl('p', {
             cls: 'vault-health-remaining',
-            text: `Remaining: ${totalRemaining} finding(s), ${remainingRepairable} repairable.`,
+            text: t('modal.vaultHealthRepair.remainingSummary', { total: totalRemaining, repairable: remainingRepairable }),
         });
 
         // Buttons
@@ -1439,7 +1443,7 @@ export class VaultHealthRepairModal extends Modal {
 
         if (checkpoint && totalFixes > 0) {
             const undoBtn = btnRow.createEl('button', {
-                text: 'Undo',
+                text: t('modal.vaultHealth.undoBtn'),
                 cls: 'mod-warning',
             });
             undoBtn.addEventListener('click', () => {
@@ -1447,7 +1451,7 @@ export class VaultHealthRepairModal extends Modal {
             });
         }
 
-        const doneBtn = btnRow.createEl('button', { text: 'Done', cls: 'mod-cta' });
+        const doneBtn = btnRow.createEl('button', { text: t('modal.vaultHealth.doneBtn'), cls: 'mod-cta' });
         doneBtn.addEventListener('click', () => {
             this.updateBadge(newFindings);
             this.close();
@@ -1461,21 +1465,21 @@ export class VaultHealthRepairModal extends Modal {
     private async runUndo(checkpoint: CheckpointInfo): Promise<void> {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl('h3', { text: 'Restoring checkpoint...' });
+        contentEl.createEl('h3', { text: t('modal.vaultHealth.restoring') });
 
         try {
             const result = await this.plugin.checkpointService.restore(checkpoint);
 
             contentEl.empty();
-            contentEl.createEl('h3', { text: 'Restored' });
+            contentEl.createEl('h3', { text: t('modal.vaultHealth.restored') });
             contentEl.createEl('p', {
-                text: `${result.restored.length} file(s) restored.`,
+                text: t('modal.vaultHealth.restoredCount', { count: result.restored.length }),
             });
 
             if (result.errors.length > 0) {
                 contentEl.createEl('p', {
                     cls: 'vault-health-error',
-                    text: `${result.errors.length} error(s): ${result.errors.join(', ')}`,
+                    text: t('modal.vaultHealth.errors', { count: result.errors.length, errors: result.errors.join(', ') }),
                 });
             }
 
@@ -1484,7 +1488,7 @@ export class VaultHealthRepairModal extends Modal {
                 this.plugin.graphExtractor.extractAll(this.app.vault);
             }
             if (this.plugin.ontologyStore) {
-                const catProp = this.plugin.settings.categoryProperty ?? 'Kategorie';
+                const catProp = this.plugin.settings.categoryProperty ?? OKF_DEFAULTS.categoryProperty;
                 const categoryMap = new Map<string, string>();
                 for (const file of this.app.vault.getMarkdownFiles()) {
                     const cache = this.app.metadataCache.getFileCache(file);
@@ -1505,16 +1509,16 @@ export class VaultHealthRepairModal extends Modal {
             const findings = await this.plugin.vaultHealthService?.runChecks() ?? [];
             this.updateBadge(findings);
 
-            const doneBtn = contentEl.createEl('button', { text: 'Done', cls: 'mod-cta' });
+            const doneBtn = contentEl.createEl('button', { text: t('modal.vaultHealth.doneBtn'), cls: 'mod-cta' });
             doneBtn.addEventListener('click', () => this.close());
         } catch (e) {
             contentEl.empty();
-            contentEl.createEl('h3', { text: 'Restore failed' });
+            contentEl.createEl('h3', { text: t('modal.vaultHealth.restoreFailed') });
             contentEl.createEl('p', {
                 cls: 'vault-health-error',
                 text: e instanceof Error ? e.message : String(e),
             });
-            const closeBtn = contentEl.createEl('button', { text: 'Close' });
+            const closeBtn = contentEl.createEl('button', { text: t('modal.vaultHealth.closeBtn') });
             closeBtn.addEventListener('click', () => this.close());
         }
     }

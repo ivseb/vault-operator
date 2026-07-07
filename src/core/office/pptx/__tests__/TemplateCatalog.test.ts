@@ -160,7 +160,7 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
                 slide_types: [makeSlideType({ use_when: 'Als Abschlussfolie' })],
             });
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
-            expect(result).toContain('Verwenden für: Als Abschlussfolie');
+            expect(result).toContain('Use for: Als Abschlussfolie');
         });
 
         it('renders semantic family when present', () => {
@@ -168,7 +168,7 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
                 slide_types: [makeSlideType({ semantic_family: 'process' })],
             });
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
-            expect(result).toContain('Familie: process');
+            expect(result).toContain('Family: process');
         });
 
         it('renders warning flags in human-readable form', () => {
@@ -176,7 +176,7 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
                 slide_types: [makeSlideType({ warning_flags: ['possible-style-guide', 'image-dependent'] })],
             });
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
-            expect(result).toContain('Achtung: wahrscheinlich Styleguide-/Regelfolie; benötigt echtes Bildmaterial');
+            expect(result).toContain('Warning: probably a style-guide/rules slide; requires real image material');
         });
     });
 
@@ -289,7 +289,7 @@ describe('TemplateCatalogLoader.formatSlideTypeGuide', () => {
             const result = TemplateCatalogLoader.formatSlideTypeGuide(catalog);
             expect(result).toContain('"source_slide"');
             expect(result).toContain('REQUIRED');
-            expect(result).toContain('Verwendung');
+            expect(result).toContain('Usage');
         });
     });
 

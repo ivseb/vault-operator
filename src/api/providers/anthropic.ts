@@ -1,67 +1,32 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- File-level disable: interacts with the external SDK where untyped values are unavoidable. */
 /**
  * AnthropicProvider - LLM provider for Anthropic Claude
  *
- * Adapted from Kilo Code's src/api/providers/anthropic.ts
- *
- * Key difference from Kilo Code: We accumulate tool_use input_json_delta chunks
- * internally and yield complete tool_use objects (not partial streaming).
- * This simplifies the conversation loop significantly.
+ * IMP-41-03-03 / ADR-150: this class owns ONLY auth, endpoint and dispatch.
+ * The complete wire format (message/tool conversion, cache layout,
+ * generation parameters, stream parsing) lives in the anthropic-blocks
+ * adapter (src/api/adapters/anthropicBlocks.ts) and is pinned by the
+ * wire-format golden suite.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import type { LLMProvider } from '../../types/settings';
-import type { ApiHandler, ApiStream, ApiStreamChunk, ContentBlock, MessageParam, ModelInfo } from '../types';
-import { truncatedToolInputError } from '../types';
+import type { ApiHandler, ApiStream, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
-import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, modelUsesBudgetTokensThinking } from '../../types/model-registry';
-import { splitSystemPromptAtCacheBreakpoint } from '../../core/systemPrompt';
-import { logCacheStat } from '../logCacheStat';
+import { getModelContextWindow } from '../../types/model-registry';
 import { stripThinkingBlocks } from '../../core/utils/stripThinkingBlocks';
 import { createNodeFetch } from './openai';
 import { validateProviderUrl } from './providerUrlGuard';
+import {
+    prepareAnthropicRequest,
+    parseAnthropicStream,
+    convertToAnthropicMessages,
+    convertToAnthropicTools,
+} from '../adapters/anthropicBlocks';
 
-/** The Claude-native reasoning-effort levels accepted by output_config.effort. */
-const CLAUDE_EFFORT_SET = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
-
-/** Put an ephemeral cache_control marker on the last content block of a message. */
-export function markLastBlock(msg: Anthropic.MessageParam): void {
-    if (typeof msg.content === 'string') {
-        msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }];
-        return;
-    }
-    if (Array.isArray(msg.content) && msg.content.length > 0) {
-        const blocks = msg.content;
-        const last = blocks[blocks.length - 1] as Anthropic.Messages.ContentBlockParam & { cache_control?: { type: 'ephemeral' } };
-        // text and tool_result blocks accept cache_control; for anything else, append a tiny text block.
-        if ('type' in last && (last.type === 'text' || last.type === 'tool_result')) {
-            last.cache_control = { type: 'ephemeral' };
-        } else {
-            blocks.push({ type: 'text', text: '​', cache_control: { type: 'ephemeral' } });
-        }
-    }
-}
-
-/**
- * FEAT-24-01: place two rolling cache breakpoints in the message history — one on
- * the last user message (advances each turn) and one a few turns earlier (stays a
- * stable cache prefix across turns). Keeps the conversation part of long sessions
- * mostly cache reads instead of full re-sends.
- */
-export function markRollingHistoryBreakpoints(messages: Anthropic.MessageParam[]): void {
-    let lastUser = -1;
-    for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role === 'user') { lastUser = i; break; }
-    }
-    if (lastUser < 0) return;
-    markLastBlock(messages[lastUser]);
-    // Second marker at least ~6 messages further back, so it stays a stable cache
-    // prefix across several turns instead of advancing with the conversation.
-    const STABLE_BACKOFF = 6;
-    for (let i = lastUser - STABLE_BACKOFF; i >= 0; i--) {
-        if (messages[i].role === 'user') { markLastBlock(messages[i]); break; }
-    }
-}
+// Backwards-compatible re-exports: these helpers moved into the adapter
+// (ADR-150) but are part of this module's historical public surface.
+export { markLastBlock, markRollingHistoryBreakpoints } from '../adapters/anthropicBlocks';
 
 export class AnthropicProvider implements ApiHandler {
     private client: Anthropic;
@@ -117,314 +82,51 @@ export class AnthropicProvider implements ApiHandler {
         };
     }
 
+    /**
+     * IMP-41-01-04 / ADR-148: exact prompt token count via the SDK's
+     * count_tokens endpoint. Used once per task as a calibration seed for
+     * large prompts. Silent undefined on any failure (older bundled SDK,
+     * network, 4xx) — the caller falls back to the char heuristic.
+     */
+    async countTokens(
+        systemPrompt: string,
+        messages: MessageParam[],
+        tools: ToolDefinition[],
+        abortSignal?: AbortSignal,
+    ): Promise<number | undefined> {
+        try {
+            const countFn = this.client.messages?.countTokens;
+            if (typeof countFn !== 'function') return undefined;
+            const result = await this.client.messages.countTokens({
+                model: this.config.model,
+                system: systemPrompt,
+                messages: convertToAnthropicMessages(stripThinkingBlocks(messages)),
+                tools: convertToAnthropicTools(tools),
+            }, { signal: abortSignal });
+            const count = (result as { input_tokens?: unknown })?.input_tokens;
+            return typeof count === 'number' && count > 0 ? count : undefined;
+        } catch (e) {
+            console.debug('[AnthropicProvider] countTokens failed (non-fatal):',
+                e instanceof Error ? e.message : e);
+            return undefined;
+        }
+    }
+
     async *createMessage(
         systemPrompt: string,
         messages: MessageParam[],
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
-        // FIX-04-03-07: defensive drop of any thinking blocks before the
-        // strict convertMessages map. Cross-provider switch (DeepSeek -> Anthropic)
-        // would otherwise hit "Unknown content block type". Anthropic's own
-        // signed extended-thinking round-trip needs a separate fix.
-        const anthropicMessages = this.convertMessages(stripThinkingBlocks(messages));
-
-        // Convert ToolDefinition[] to Anthropic's tool format
-        const anthropicTools: Anthropic.Tool[] = tools.map((tool) => ({
-            name: tool.name,
-            description: tool.description,
-            input_schema: tool.input_schema,
-        }));
-
-        // Prompt caching (ADR-62 amendment / FEAT-24-01):
-        //  1) split the system prompt at the cache breakpoint — only the stable
-        //     prefix gets cache_control, the volatile tail (date/memory/skills/
-        //     vault context) gets none, so the prefix stays a cache hit per turn;
-        //  2) one cache_control on the last tool entry (~30k tokens, stable);
-        //  3) two rolling markers in the message history — one on the last user
-        //     message (moves each turn), one a few turns back (stays warm). That
-        //     is 1 + 1 + 2 = 4 breakpoints, the Anthropic maximum.
-        if (this.config.promptCachingEnabled) {
-            markRollingHistoryBreakpoints(anthropicMessages);
-            if (anthropicTools.length > 0) {
-                // FIX-PERF-21: pin the cache marker on attempt_completion when
-                // available instead of the literal last tool. attempt_completion
-                // is one of the most stable tools across mode switches and
-                // dynamic tool registrations; pinning the breakpoint there
-                // means the cache prefix stays warm even when the tail of
-                // the tool list changes (e.g. find_tool surfaces a deferred
-                // tool, mode switch swaps the toolset). Fallback to last
-                // tool preserves behaviour for unusual configurations.
-                const attemptIdx = anthropicTools.findIndex((t) => t.name === 'attempt_completion');
-                const targetIdx = attemptIdx !== -1 ? attemptIdx : anthropicTools.length - 1;
-                const target = anthropicTools[targetIdx] as Anthropic.Tool & { cache_control?: { type: 'ephemeral' } };
-                target.cache_control = { type: 'ephemeral' };
-            }
-        }
-
-        let systemParam: string | Anthropic.Messages.TextBlockParam[];
-        if (this.config.promptCachingEnabled) {
-            const { stable, volatile } = splitSystemPromptAtCacheBreakpoint(systemPrompt);
-            systemParam = volatile.trim().length > 0
-                ? [
-                    { type: 'text' as const, text: stable, cache_control: { type: 'ephemeral' as const } },
-                    { type: 'text' as const, text: volatile },
-                  ]
-                : [{ type: 'text' as const, text: stable, cache_control: { type: 'ephemeral' as const } }];
-        } else {
-            systemParam = systemPrompt;
-        }
-
-        // Extended thinking: when enabled, temperature MUST be 1.
-        // resolveOutputBudget adds the thinking budget on top of the visible-output
-        // budget and clamps both to the model's real output ceiling — prevents a
-        // near-empty answer (truncated tool calls) and prevents 400s from an
-        // over-eager Settings value.
-        const thinkingEnabled = this.config.thinkingEnabled ?? false;
-        const { maxTokens: effectiveMaxTokens, thinkingBudgetTokens: budgetTokens } = resolveOutputBudget(
-            this.config.model,
-            this.config.maxTokens,
-            {
-                enabled: thinkingEnabled,
-                budgetTokens: this.config.thinkingBudgetTokens,
-                estimatedInputTokens: estimatePromptTokens(systemPrompt, messages, tools),
-            },
-        );
-        // FIX-04-03-02: Some recent models (Opus 4.7+) reject any temperature
-        // value with a 400. Detect via shared helper and omit the parameter.
-        const supportsTemperature = modelSupportsTemperature(this.config.model);
-        const effectiveTemperature = !supportsTemperature
-            ? undefined
-            : thinkingEnabled
-                ? 1
-                : Math.min(this.config.temperature ?? 0.2, 1.0);
-
-        // Extended thinking shape depends on the model family:
-        //  - Adaptive lineup (Opus 4.7/4.8, Fable, Mythos) removed budget_tokens
-        //    and 400s if it is sent -> { type: 'adaptive' }.
-        //  - Older Claude (Opus 4.6 and earlier, Sonnet 4.6, 3.x) still takes the
-        //    legacy { type: 'enabled', budget_tokens } shape.
-        // budgetTokens is computed regardless (resolveOutputBudget already added
-        // it on top of the visible budget) but only emitted for the older family.
-        const usesBudgetTokens = modelUsesBudgetTokensThinking(this.config.model);
-        let thinkingParam: Anthropic.Messages.ThinkingConfigParam | undefined;
-        if (thinkingEnabled) {
-            thinkingParam = usesBudgetTokens
-                ? { type: 'enabled' as const, budget_tokens: budgetTokens }
-                : { type: 'adaptive' as const };
-        }
-
-        // Per-conversation reasoning effort (GA, no beta header). Only sent when
-        // the user pinned an explicit level; 'auto'/undefined sends nothing, so
-        // the request stays byte-identical to today. The chat-header gate already
-        // restricts this to effort-capable (model, provider) pairs. Defensive:
-        // only a level in the Claude family set is forwarded, so a GPT-only
-        // 'minimal' accidentally set on a Claude model is dropped, not sent.
-        const reasoningEffort = this.config.reasoningEffort;
-        const claudeEffort = reasoningEffort && CLAUDE_EFFORT_SET.has(reasoningEffort)
-            ? reasoningEffort
-            : undefined;
-        // output_config.effort accepts low|medium|high|xhigh|max on the wire; the
-        // SDK type does not yet list 'xhigh', so the field is built as a loose
-        // record and merged below (the GA wire surface is the source of truth).
-        const outputConfig: Record<string, unknown> | undefined = claudeEffort
-            ? { effort: claudeEffort }
-            : undefined;
-
+        const request = prepareAnthropicRequest(this.config, systemPrompt, messages, tools);
         // Create streaming request (pass abort signal for cancellation support)
         const stream = this.client.messages.stream(
-            {
-                model: this.config.model,
-                max_tokens: effectiveMaxTokens,
-                ...(effectiveTemperature !== undefined ? { temperature: effectiveTemperature } : {}),
-                system: systemParam,
-                messages: anthropicMessages,
-                tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-                tool_choice: anthropicTools.length > 0 ? { type: 'auto' } : undefined,
-                ...(thinkingParam ? { thinking: thinkingParam } : {}),
-                ...(outputConfig ? { output_config: outputConfig } : {}),
-            },
+            request as unknown as Anthropic.Messages.MessageStreamParams,
             { signal: abortSignal },
         );
-
-        // Process stream - accumulate tool input JSON, yield complete tool_use
-        // Adapted from Kilo Code's approach in anthropic.ts
-        const toolAccumulator = new Map<
-            number,
-            { id: string; name: string; inputJson: string }
-        >();
-        // Track thinking blocks by index — yield streaming text then flush on stop
-        const thinkingAccumulator = new Map<number, { text: string }>();
-
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let cacheReadTokens = 0;
-        let cacheCreationTokens = 0;
-        // stop_reason arrives in message_delta, AFTER every content_block_stop, so
-        // parse failures are held and resolved once we know whether the response
-        // was cut off by max_tokens.
-        let stopReason: string | null = null;
-        const failedToolParses: Array<{ id: string; name: string; rawError: string }> = [];
-
-        for await (const event of stream) {
-            if (event.type === 'message_start') {
-                inputTokens = event.message.usage.input_tokens;
-                cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
-                cacheCreationTokens = event.message.usage.cache_creation_input_tokens ?? 0;
-            }
-
-            if (event.type === 'message_delta') {
-                outputTokens = event.usage.output_tokens;
-                if (event.delta.stop_reason) stopReason = event.delta.stop_reason;
-            }
-
-            if (event.type === 'content_block_start') {
-                if (event.content_block.type === 'tool_use') {
-                    toolAccumulator.set(event.index, {
-                        id: event.content_block.id,
-                        name: event.content_block.name,
-                        inputJson: '',
-                    });
-                } else if (event.content_block.type === 'thinking') {
-                    thinkingAccumulator.set(event.index, { text: '' });
-                }
-            }
-
-            if (event.type === 'content_block_delta') {
-                if (event.delta.type === 'text_delta') {
-                    yield { type: 'text', text: event.delta.text } satisfies ApiStreamChunk;
-                }
-
-                if (event.delta.type === 'input_json_delta') {
-                    const tool = toolAccumulator.get(event.index);
-                    if (tool) tool.inputJson += event.delta.partial_json;
-                }
-
-                // Anthropic extended thinking delta
-                if (event.delta.type === 'thinking_delta') {
-                    const thinking = thinkingAccumulator.get(event.index);
-                    if (thinking) {
-                        const chunk = event.delta.thinking;
-                        thinking.text += chunk;
-                        yield { type: 'thinking', text: chunk } satisfies ApiStreamChunk;
-                    }
-                }
-            }
-
-            if (event.type === 'content_block_stop') {
-                thinkingAccumulator.delete(event.index);
-
-                // If this was a tool_use block, yield the complete tool call
-                const tool = toolAccumulator.get(event.index);
-                if (tool) {
-                    let parsedInput: Record<string, unknown> | undefined;
-                    try {
-                        parsedInput = tool.inputJson ? JSON.parse(tool.inputJson) : {};
-                    } catch (e) {
-                        // Hold it — the actionable message depends on the stop_reason,
-                        // which only arrives in the upcoming message_delta event.
-                        failedToolParses.push({ id: tool.id, name: tool.name, rawError: (e as Error).message });
-                    }
-                    if (parsedInput !== undefined) {
-                        yield {
-                            type: 'tool_use',
-                            id: tool.id,
-                            name: tool.name,
-                            input: parsedInput,
-                        } satisfies ApiStreamChunk;
-                    }
-                    toolAccumulator.delete(event.index);
-                }
-            }
-        }
-
-        // A tool still in the accumulator means the stream ended without a
-        // content_block_stop for it (abrupt cutoff) — treat as a parse failure.
-        for (const tool of toolAccumulator.values()) {
-            failedToolParses.push({ id: tool.id, name: tool.name, rawError: 'the stream ended before the tool call completed' });
-        }
-        toolAccumulator.clear();
-
-        const wasMaxTokens = stopReason === 'max_tokens';
-        for (const ft of failedToolParses) {
-            yield {
-                type: 'tool_error',
-                id: ft.id,
-                name: ft.name,
-                error: truncatedToolInputError(ft.name, ft.rawError, wasMaxTokens),
-            } satisfies ApiStreamChunk;
-        }
-
-        // Yield token usage at the end
-        if (inputTokens > 0 || outputTokens > 0) {
-            logCacheStat({
-                provider: 'anthropic',
-                model: this.config.model,
-                caching: this.config.promptCachingEnabled ? 'on' : 'OFF',
-                nonCachedInputTokens: inputTokens, // message_start.usage.input_tokens excludes cached
-                cacheReadTokens,
-                cacheCreationTokens,
-                outputTokens,
-            });
-            yield {
-                type: 'usage',
-                inputTokens,
-                outputTokens,
-                cacheReadTokens: cacheReadTokens > 0 ? cacheReadTokens : undefined,
-                cacheCreationTokens: cacheCreationTokens > 0 ? cacheCreationTokens : undefined,
-            } satisfies ApiStreamChunk;
-        }
-    }
-
-    /**
-     * Convert our internal MessageParam[] to Anthropic's MessageParam[]
-     * Adapted from Kilo Code's message conversion logic
-     */
-    private convertMessages(messages: MessageParam[]): Anthropic.MessageParam[] {
-        return messages.map((msg) => {
-            if (typeof msg.content === 'string') {
-                return { role: msg.role, content: msg.content };
-            }
-
-            // Let TypeScript infer the correct union type from the SDK
-            const content = msg.content.map((block) => {
-                if (block.type === 'text') {
-                    return { type: 'text' as const, text: block.text };
-                }
-
-                if (block.type === 'tool_use') {
-                    return {
-                        type: 'tool_use' as const,
-                        id: block.id,
-                        name: block.name,
-                        input: block.input,
-                    };
-                }
-
-                if (block.type === 'image') {
-                    return {
-                        type: 'image' as const,
-                        source: {
-                            type: 'base64' as const,
-                            media_type: block.source.media_type,
-                            data: block.source.data,
-                        },
-                    };
-                }
-
-                if (block.type === 'tool_result') {
-                    return {
-                        type: 'tool_result' as const,
-                        tool_use_id: block.tool_use_id,
-                        content: block.content,
-                        is_error: block.is_error,
-                    };
-                }
-
-                throw new Error(`Unknown content block type: ${(block as ContentBlock).type}`);
-            });
-
-            return { role: msg.role, content };
+        yield* parseAnthropicStream(stream, {
+            model: this.config.model,
+            cachingEnabled: this.config.promptCachingEnabled === true,
         });
     }
 
@@ -449,4 +151,4 @@ export class AnthropicProvider implements ApiHandler {
     }
 }
 
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */
+/* eslint-enable -- end of file-level disable for boundary code (SDK internals) */

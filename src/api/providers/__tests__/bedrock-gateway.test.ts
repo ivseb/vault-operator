@@ -106,12 +106,14 @@ describe('BedrockProvider constructor in gateway mode (FEAT-26-07)', () => {
         ).toThrow();
     });
 
-    it('registers a finalizeRequest middleware so the SDK does not sign with AWS', () => {
+    it('registers a finalizeRequest middleware so the SDK does not sign with AWS', async () => {
+        // FIX-40-02-01: the client is built lazily since FIX-PERF-13; resolve
+        // it through getClient() instead of reading the removed `client` field.
         const provider = new BedrockProvider(makeGatewayConfig());
-        const stack = (provider as unknown as {
-            client: { middlewareStack: { identify: () => string[] } };
-        }).client.middlewareStack;
-        const identified = stack.identify();
+        const client = await (provider as unknown as {
+            getClient: () => Promise<{ middlewareStack: { identify: () => string[] } }>;
+        }).getClient();
+        const identified = client.middlewareStack.identify();
         // The middleware name we wire in -- locks the registration so a refactor
         // cannot silently drop the AWS-signing replacement.
         expect(identified.some((entry) => entry.includes('vault-operator-gateway-auth'))).toBe(true);

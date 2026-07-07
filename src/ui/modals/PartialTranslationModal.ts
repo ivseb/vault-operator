@@ -17,6 +17,7 @@
  */
 
 import { App, Modal } from 'obsidian';
+import { t } from '../../i18n';
 
 export type PartialTranslationDecision = 'accept' | 'cancel';
 
@@ -63,8 +64,8 @@ export class PartialTranslationModal extends Modal {
     onOpen(): void {
         this.titleEl.setText(
             this.report.status === 'unmappable'
-                ? `Translation has unmappable parts: ${this.skillName}`
-                : `Partial translation: ${this.skillName}`,
+                ? t('modal.partialTranslation.titleUnmappable', { skillName: this.skillName })
+                : t('modal.partialTranslation.titlePartial', { skillName: this.skillName }),
         );
 
         this.contentEl.empty();
@@ -82,29 +83,27 @@ export class PartialTranslationModal extends Modal {
     private renderIntro(): void {
         const p = this.contentEl.createEl('p', { cls: 'mod-muted' });
         const s = this.report.summary;
-        p.setText(
-            `${s.totalImports} imports analysed. `
-            + `${s.mappableCount} map cleanly, ${s.partialCount} map with limitations, `
-            + `${s.unmappableCount} cannot be translated.`,
-        );
+        p.setText(t('modal.partialTranslation.summaryLine', {
+            total: s.totalImports,
+            mappable: s.mappableCount,
+            partial: s.partialCount,
+            unmappable: s.unmappableCount,
+        }));
         const note = this.contentEl.createEl('p');
-        note.setText(
-            'You can accept the partial translation (limitations will be noted in TRANSLATION.json), '
-            + 'or cancel and use the skill-creator to build an equivalent skill from scratch.',
-        );
+        note.setText(t('modal.partialTranslation.introNote'));
     }
 
     private renderSummaryTable(): void {
         const tbl = this.contentEl.createEl('table', { cls: 'partial-translation-table' });
         const head = tbl.createEl('thead').createEl('tr');
-        ['Category', 'Count'].forEach((h) => {
+        [t('modal.partialTranslation.colCategory'), t('modal.partialTranslation.colCount')].forEach((h) => {
             head.createEl('th', { text: h });
         });
         const body = tbl.createEl('tbody');
         const rows: Array<[string, number]> = [
-            ['Mappable (clean)', this.report.summary.mappableCount],
-            ['Partial (with limitations)', this.report.summary.partialCount],
-            ['Unmappable', this.report.summary.unmappableCount],
+            [t('modal.partialTranslation.rowMappable'), this.report.summary.mappableCount],
+            [t('modal.partialTranslation.rowPartial'), this.report.summary.partialCount],
+            [t('modal.partialTranslation.rowUnmappable'), this.report.summary.unmappableCount],
         ];
         for (const [label, count] of rows) {
             const tr = body.createEl('tr');
@@ -114,7 +113,7 @@ export class PartialTranslationModal extends Modal {
     }
 
     private renderPartialSection(): void {
-        this.contentEl.createEl('h4', { text: 'Partial mappings (limitations)', cls: 'partial-translation-heading' });
+        this.contentEl.createEl('h4', { text: t('modal.partialTranslation.partialHeading'), cls: 'partial-translation-heading' });
         const list = this.contentEl.createEl('ul');
         for (const entry of this.report.partial) {
             const li = list.createEl('li');
@@ -129,7 +128,7 @@ export class PartialTranslationModal extends Modal {
     }
 
     private renderUnmappableSection(): void {
-        this.contentEl.createEl('h4', { text: 'Unmappable (no JavaScript equivalent)', cls: 'partial-translation-heading' });
+        this.contentEl.createEl('h4', { text: t('modal.partialTranslation.unmappableHeading'), cls: 'partial-translation-heading' });
         const list = this.contentEl.createEl('ul');
         for (const entry of this.report.unmappable) {
             const li = list.createEl('li');
@@ -143,7 +142,7 @@ export class PartialTranslationModal extends Modal {
         const bar = this.contentEl.createDiv({ cls: 'modal-button-container partial-translation-button-bar' });
 
         const cancelBtn = bar.createEl('button', {
-            text: 'Cancel and use skill-creator instead',
+            text: t('modal.partialTranslation.cancelBtn'),
         });
         cancelBtn.addEventListener('click', () => {
             this.onDecision('cancel');
@@ -152,8 +151,8 @@ export class PartialTranslationModal extends Modal {
 
         const acceptBtn = bar.createEl('button', {
             text: this.report.status === 'unmappable'
-                ? 'Accept anyway (will skip unmappable parts)'
-                : 'Accept partial translation',
+                ? t('modal.partialTranslation.acceptUnmappableBtn')
+                : t('modal.partialTranslation.acceptBtn'),
             cls: 'mod-cta',
         });
         acceptBtn.addEventListener('click', () => {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { InlineChatPanel, type InlineChatPanelOptions } from '../InlineChatPanel';
 import type { InlineTriggerContext } from '../../InlineTriggerContext';
+import { t } from '../../../../i18n';
 
 interface FakeNode {
     tagName: string;
@@ -252,7 +253,7 @@ describe('InlineChatPanel (Sidebar-Composer-Layout)', () => {
 
         const toggle = findByClass(root, 'agent-inline-panel__anchor-toggle');
         expect(toggle).not.toBeNull();
-        expect(toggle!.getAttribute('title')).toBe('Expand');
+        expect(toggle!.getAttribute('title')).toBe(t('ui.inline.expandTooltip'));
         // Initial render: chevron-down icon requested via setIcon hook.
         const initialIcons = setIcon.mock.calls.map(c => c[1]);
         expect(initialIcons).toContain('chevron-down');
@@ -260,13 +261,13 @@ describe('InlineChatPanel (Sidebar-Composer-Layout)', () => {
         toggle!.click();
         expect(preview!.textContent).toContain('line 4');
         expect(preview!.textContent).toContain('line 5');
-        expect(toggle!.getAttribute('title')).toBe('Collapse');
+        expect(toggle!.getAttribute('title')).toBe(t('ui.inline.collapseTooltip'));
         const afterExpandIcons = setIcon.mock.calls.map(c => c[1]);
         expect(afterExpandIcons).toContain('chevron-up');
 
         toggle!.click();
         expect(preview!.textContent).not.toContain('line 4');
-        expect(toggle!.getAttribute('title')).toBe('Expand');
+        expect(toggle!.getAttribute('title')).toBe(t('ui.inline.expandTooltip'));
     });
 
     it('preview toggle is omitted when selection has 3 or fewer lines', () => {

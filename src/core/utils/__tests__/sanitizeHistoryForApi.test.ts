@@ -169,3 +169,72 @@ describe('sanitizeHistoryForApi (BUG-017)', () => {
         expect(result.stats.droppedEmptyMessages).toBe(0);
     });
 });
+
+describe('empty-message repair (loop-economy FIX C)', () => {
+    it('repairs an already-empty assistant message even when tool pairing is clean', () => {
+        const history: MessageParam[] = [
+            { role: 'user', content: 'do it' },
+            {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'a', name: 'read_file', input: {} }],
+            },
+            { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'a', content: 'ok' }] },
+            // max_tokens truncation mid-reasoning left nothing visible:
+            { role: 'assistant', content: [] },
+            { role: 'user', content: '[System] respond please' },
+        ];
+
+        const result = sanitizeHistoryForApi(history);
+        expect(result.history).toHaveLength(5);
+        const repaired = result.history[3];
+        expect(repaired.role).toBe('assistant');
+        expect(Array.isArray(repaired.content)).toBe(true);
+        expect((repaired.content as Array<{ type: string; text?: string }>)[0].type).toBe('text');
+        expect((repaired.content as Array<{ type: string; text?: string }>)[0].text).toBeTruthy();
+        expect(result.stats.repairedEmptyMessages).toBe(1);
+    });
+
+    it('repairs an empty message in a history with no tool blocks at all', () => {
+        const history: MessageParam[] = [
+            { role: 'user', content: 'hello' },
+            { role: 'assistant', content: [] },
+            { role: 'user', content: 'still there?' },
+        ];
+
+        const result = sanitizeHistoryForApi(history);
+        expect(result.history).toHaveLength(3);
+        expect(Array.isArray(result.history[1].content)).toBe(true);
+        expect((result.history[1].content as unknown[]).length).toBeGreaterThan(0);
+        expect(result.stats.repairedEmptyMessages).toBe(1);
+    });
+
+    it('repairs an empty-string content message', () => {
+        const history: MessageParam[] = [
+            { role: 'user', content: 'hello' },
+            { role: 'assistant', content: '' },
+            { role: 'user', content: 'and?' },
+        ];
+
+        const result = sanitizeHistoryForApi(history);
+        expect(result.history).toHaveLength(3);
+        const content = result.history[1].content;
+        expect(typeof content === 'string' ? content.length : (content as unknown[]).length).toBeGreaterThan(0);
+        expect(result.stats.repairedEmptyMessages).toBe(1);
+    });
+
+    it('still DROPS messages that only became empty through orphan cleaning (BUG-017 behaviour)', () => {
+        const history: MessageParam[] = [
+            { role: 'user', content: 'do it' },
+            {
+                role: 'assistant',
+                content: [{ type: 'tool_use', id: 'orphan', name: 'read_file', input: {} }],
+            },
+            { role: 'user', content: 'never mind' },
+        ];
+
+        const result = sanitizeHistoryForApi(history);
+        expect(result.stats.droppedEmptyMessages).toBe(1);
+        expect(result.stats.repairedEmptyMessages).toBe(0);
+        expect(result.history).toHaveLength(2);
+    });
+});

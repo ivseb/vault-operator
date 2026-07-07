@@ -22,6 +22,7 @@
 
 import { normalizePath, type DataAdapter } from 'obsidian';
 import type { FileAdapter } from './types';
+import { atomicAdapterWrite } from '../utils/atomicAdapterWrite';
 
 export class VaultDataFileAdapter implements FileAdapter {
     private readonly adapter: DataAdapter;
@@ -43,7 +44,10 @@ export class VaultDataFileAdapter implements FileAdapter {
     }
 
     async write(p: string, data: string): Promise<void> {
-        await this.adapter.write(this.np(p), data);
+        // FIX-01-07-04 parity: consumers include TaskTelemetry's
+        // read-modify-write of tasks.jsonl; a raw truncate-then-write could
+        // zero the accumulated history on interruption.
+        await atomicAdapterWrite(this.adapter, this.np(p), data);
     }
 
     async append(p: string, data: string): Promise<void> {
@@ -69,6 +73,10 @@ export class VaultDataFileAdapter implements FileAdapter {
 
     async remove(p: string): Promise<void> {
         await this.adapter.remove(this.np(p));
+    }
+
+    async rmdir(p: string, recursive = false): Promise<void> {
+        await this.adapter.rmdir(this.np(p), recursive);
     }
 
     async list(p: string): Promise<{ files: string[]; folders: string[] }> {

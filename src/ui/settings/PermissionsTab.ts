@@ -28,10 +28,7 @@ export class PermissionsTab {
             const hintIcon = hint.createSpan({ cls: 'vault-op-box__icon' });
             setIcon(hintIcon, 'info');
             const hintText = hint.createDiv({ cls: 'vault-op-box__text' });
-            hintText.setText(
-                'Auto-approve is off by default. The first-run wizard explains the trade-offs; '
-                + 'you can run it any time from Settings, General tab, Onboarding section.',
-            );
+            hintText.setText(t('settings.permissions.onboardingHint'));
         }
     }
 

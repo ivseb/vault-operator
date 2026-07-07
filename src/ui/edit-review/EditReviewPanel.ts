@@ -26,6 +26,7 @@
  * Related: EPIC-33 Diff-UX-refresh (User-Feedback 2026-06-22).
  */
 
+import { t } from '../../i18n';
 import { diffLines } from '../../core/utils/diffLines';
 import { buildAlignedDiff, type AlignedLine } from './alignedDiff';
 
@@ -101,7 +102,7 @@ export class EditReviewPanel {
         this.containerEl = options.containerEl;
         this.entries = options.entries;
         this.mode = options.mode;
-        this.title = options.title ?? (options.mode === 'checkpoint' ? 'Checkpoint anzeigen' : 'Änderungen prüfen');
+        this.title = options.title ?? (options.mode === 'checkpoint' ? t('ui.editReview.titleCheckpoint') : t('ui.editReview.titleReview'));
         this.sourceLabel = options.sourceLabel ?? '';
         this.onApply = options.onApply;
         this.onDiscard = options.onDiscard;
@@ -130,7 +131,7 @@ export class EditReviewPanel {
         if (this.entries.length === 0) {
             const empty = doc.createElement('div');
             empty.classList.add('agent-edit-review__empty');
-            empty.textContent = 'Keine Änderungen.';
+            empty.textContent = t('ui.editReview.noChanges');
             root.appendChild(empty);
             this.buildFooter(root, doc);
             this.containerEl.appendChild(root);
@@ -202,7 +203,7 @@ export class EditReviewPanel {
         list.classList.add('agent-edit-review__filelist');
         const heading = doc.createElement('div');
         heading.classList.add('agent-edit-review__filelist-heading');
-        heading.textContent = `Dateien (${this.entries.length})`;
+        heading.textContent = t('ui.editReview.filesHeading', { count: this.entries.length });
         list.appendChild(heading);
 
         this.entries.forEach((entry, index) => {
@@ -250,7 +251,7 @@ export class EditReviewPanel {
             const skip = doc.createElement('button');
             skip.classList.add('agent-edit-review__skip-btn');
             skip.setAttribute('type', 'button');
-            skip.textContent = 'Skip this file';
+            skip.textContent = t('ui.editReview.skipFile');
             skip.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 this.toggleSkipCurrent();
@@ -268,7 +269,7 @@ export class EditReviewPanel {
         beforeCol.classList.add('agent-edit-review__column--before');
         const beforeLabel = doc.createElement('div');
         beforeLabel.classList.add('agent-edit-review__column-label');
-        beforeLabel.textContent = 'Original';
+        beforeLabel.textContent = t('ui.editReview.original');
         beforeCol.appendChild(beforeLabel);
         const beforeBody = doc.createElement('div');
         beforeBody.classList.add('agent-edit-review__column-body');
@@ -282,7 +283,7 @@ export class EditReviewPanel {
         const afterLabel = doc.createElement('div');
         afterLabel.classList.add('agent-edit-review__column-label');
         const afterLabelText = doc.createElement('span');
-        afterLabelText.textContent = this.mode === 'checkpoint' ? 'Snapshot' : 'Neu (klick rein und schreib einfach)';
+        afterLabelText.textContent = this.mode === 'checkpoint' ? t('ui.editReview.snapshot') : t('ui.editReview.editableNew');
         afterLabel.appendChild(afterLabelText);
         const stats = doc.createElement('span');
         stats.classList.add('agent-edit-review__stats');
@@ -322,7 +323,7 @@ export class EditReviewPanel {
         const discardBtn = doc.createElement('button');
         discardBtn.classList.add('agent-edit-review__discard-btn');
         discardBtn.setAttribute('type', 'button');
-        discardBtn.textContent = 'Verwerfen';
+        discardBtn.textContent = t('ui.editReview.discard');
         discardBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
             this.handleDiscard();
@@ -334,7 +335,7 @@ export class EditReviewPanel {
             restoreBtn.classList.add('agent-edit-review__restore-btn');
             restoreBtn.classList.add('mod-cta');
             restoreBtn.setAttribute('type', 'button');
-            restoreBtn.textContent = 'Wiederherstellen';
+            restoreBtn.textContent = t('ui.editReview.restore');
             restoreBtn.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 this.handleRestore();
@@ -345,7 +346,7 @@ export class EditReviewPanel {
             applyBtn.classList.add('agent-edit-review__apply-btn');
             applyBtn.classList.add('mod-cta');
             applyBtn.setAttribute('type', 'button');
-            applyBtn.textContent = 'Anwenden';
+            applyBtn.textContent = t('ui.editReview.apply');
             applyBtn.addEventListener('click', (ev) => {
                 ev.preventDefault();
                 this.handleApply();
@@ -382,7 +383,7 @@ export class EditReviewPanel {
 
         if (this.skipBtnEl !== null) {
             this.skipBtnEl.classList.toggle('is-active', file.skipped);
-            this.skipBtnEl.textContent = file.skipped ? 'Skippen aufheben' : 'Diese Datei skippen';
+            this.skipBtnEl.textContent = file.skipped ? t('ui.editReview.unskipFile') : t('ui.editReview.skipFile');
         }
     }
 
@@ -408,7 +409,7 @@ export class EditReviewPanel {
         if (aligned.left.length === 0) {
             const empty = doc.createElement('div');
             empty.classList.add('agent-edit-review__line');
-            empty.textContent = '(leer)';
+            empty.textContent = t('ui.editReview.emptyFile');
             beforeHost.appendChild(empty);
             const emptyR = doc.createElement('div');
             emptyR.classList.add('agent-edit-review__line');
@@ -477,7 +478,7 @@ export class EditReviewPanel {
             else if (l.type === 'removed') removed += 1;
         }
         if (added === 0 && removed === 0) {
-            this.afterStatsEl.textContent = 'Unchanged';
+            this.afterStatsEl.textContent = t('ui.editReview.unchanged');
             this.afterStatsEl.classList.remove('is-changed');
         } else {
             const parts: string[] = [];

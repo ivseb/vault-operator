@@ -3363,6 +3363,27 @@
 
 .approval-deny-small:hover { color: var(--color-red); }
 
+/* ── Install-prompt row (in-chat asset install consent) ──────────────── */
+.tool-approval-row.install-prompt-row {
+    /* Slightly cooler tone than the amber approval row so the two never blur */
+    border-color: color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+    background: color-mix(in srgb, var(--interactive-accent) 4%, transparent);
+}
+.tool-approval-row.install-prompt-row .tool-approval-icon { color: var(--interactive-accent); }
+.tool-approval-row.install-prompt-row .tool-approval-text {
+    color: var(--text-normal);
+    font-weight: 500;
+}
+.tool-approval-row.install-prompt-row .tool-approval-explanation {
+    color: var(--text-muted);
+    font-size: 11px;
+    width: 100%;
+    line-height: 1.45;
+}
+.tool-approval-row.install-prompt-row .tool-approval-explanation.is-hidden {
+    display: none;
+}
+
 /* Human-readable explanation in approval card */
 .tool-approval-explanation {
     width: 100%;
@@ -3420,6 +3441,39 @@
     color: var(--text-faint);
     cursor: pointer;
     margin-top: 2px;
+}
+
+/* IMP-41-03-05: background research task status tile above the input */
+.background-task-tile {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    margin-bottom: 4px;
+}
+
+.background-task-tile-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.background-task-tile-stop {
+    font-size: 11px;
+    padding: 1px 8px;
+}
+
+/* IMP-41-01-02: countdown shown during the final 60s before auto-deny */
+.tool-approval-countdown {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: auto;
+    align-self: center;
 }
 
 .tool-approval-details-toggle:hover {
@@ -5397,17 +5451,6 @@
     font-family: var(--font-monospace);
 }
 
-/* ── Streaming text container ────────────────────────────────────── */
-/* Raw text appended per-chunk during streaming; replaced by Markdown on complete */
-.streaming-para {
-    margin: 0;
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-size: var(--font-text-size);
-    line-height: var(--line-height-normal);
-    color: var(--text-normal);
-}
-
 /* ── Per-model temperature controls (ModelConfigModal) ────────────── */
 
 .mcm-temperature-controls {
@@ -6133,6 +6176,34 @@
     margin-left: auto;
 }
 .chat-model-picker-check svg { width: 14px; height: 14px; }
+
+/* Provider switcher chips (issue #48.5) */
+.chat-model-picker-providers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.chat-model-picker-provider-chip {
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.chat-model-picker-provider-chip:hover {
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
+}
+.chat-model-picker-provider-chip.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+    cursor: default;
+}
 
 /* Tier badge -- small pill next to the model name */
 .chat-model-picker-tier {
@@ -8434,4 +8505,9 @@
 }
 .agent-inline-panel__bubble--checkpoint .checkpoint-action-btn:hover {
     opacity: 1;
+}
+
+/* FEAT-42-05: clickable language-pack download notice */
+.agent-clickable-notice {
+    cursor: pointer;
 }

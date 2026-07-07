@@ -60,6 +60,7 @@ const referenceSidebar = [
       { text: 'Tools', link: '/reference/tools' },
       { text: 'Providers and models', link: '/reference/providers' },
       { text: 'Settings', link: '/reference/settings' },
+      { text: 'Languages', link: '/reference/languages' },
       { text: 'Troubleshooting', link: '/reference/troubleshooting' },
     ],
   },

@@ -19,17 +19,24 @@
  * - the most recent `keepRecentMessages` messages (the active working set)
  * - `tool_result` blocks whose content is already small or already a skeleton
  *
- * KV-cache note: pruning rewrites history retroactively and invalidates the
- * provider KV-cache from the first changed message onward. Accepted per the
- * ADR-12 amendment: it happens at turn grenzen (not mid-iteration), the saved
- * re-send cost far exceeds the cache re-build, and the stable system-prompt
- * prefix (ADR-62 amendment) is unaffected.
+ * KV-cache note (revised, FIX-COMPACT-09): pruning rewrites history BEFORE the
+ * stable rolling cache breakpoint and invalidates the provider prompt-cache
+ * prefix from the first changed message onward. The original ADR-12 amendment
+ * accepted this on the assumption that the saved re-send cost far exceeds the
+ * cache re-build; live traces showed the opposite for small frees (~260 tokens
+ * freed vs 30k+ tokens cache re-write per turn). Callers must therefore gate
+ * pruning through `shouldDeferMicrocompact` (probe with `dryRun` first): only
+ * prune when the free is large or the context is under real pressure.
  */
 
 import type { ContentBlock, MessageParam, ToolResultContentBlock } from '../../api/types';
+import type { FileDossier } from './FileDossier';
 
 /** Marker that identifies an already-pruned `tool_result` content string. */
 export const PRUNED_MARKER = '[context-pruned]';
+
+/** Tools whose pruned results represent a WRITE to the path (dossier marker). */
+const WRITE_TOOLS = new Set(['write_file', 'edit_file', 'append_to_file', 'create_base', 'update_base']);
 
 export interface MicrocompactOptions {
     /**
@@ -47,6 +54,19 @@ export interface MicrocompactOptions {
      * skeleton so the agent still has a hint of what was there. Default 240.
      */
     teaserChars?: number;
+    /**
+     * IMP-41-03-06: when set, every pruned path-bearing tool_result feeds a
+     * dossier entry (path + teaser + read/write kind). Pruning is exactly
+     * the moment verbatim content leaves the context, so the dossier is the
+     * durable per-file memory the flat condense summary lacks.
+     */
+    dossier?: FileDossier;
+    /**
+     * FIX-COMPACT-09: count what a real run would prune without mutating the
+     * history or feeding the dossier. Used to probe the freed volume before
+     * deciding whether the prune is worth a prompt-cache rebuild.
+     */
+    dryRun?: boolean;
 }
 
 export interface MicrocompactResult {
@@ -103,6 +123,39 @@ function isAlreadyPruned(content: string | ToolResultContentBlock[]): boolean {
     return content.length === 1 && content[0].type === 'text' && content[0].text.startsWith(PRUNED_MARKER);
 }
 
+/** Input for the FIX-COMPACT-09 economy decision. */
+export interface MicrocompactGuardInput {
+    /** Estimated history tokens divided by the model context window (0..1). */
+    pressure: number;
+    /** Tokens a prune would free, measured via a `dryRun` probe. */
+    wouldFreeTokens: number;
+    /**
+     * At/above this pressure the context is under real pressure and a prune runs
+     * regardless of cache cost (make room before full condensing). Below it, the
+     * economy guard applies at ANY pressure (fraction of the window).
+     */
+    pressureCeiling: number;
+    /** Frees below this token count never justify a prompt-cache rebuild. */
+    minFreedTokens: number;
+}
+
+/**
+ * FIX-COMPACT-09 (extended 2026-07-05): a prune rewrites history before the
+ * stable cache breakpoint, so it costs one full prompt-cache prefix re-write.
+ *
+ * - At/above `pressureCeiling`: never defer. The context is close to the full
+ *   condense threshold; pruning frees room and is worth the cache cost.
+ * - Below the ceiling (at ANY pressure): defer while the freed volume is too
+ *   small to amortize the cache rebuild. The original guard only evaluated this
+ *   below a 0.60 floor, so the 0.60..ceiling band pruned every turn and busted
+ *   the cache exactly where the rebuild is most expensive. Deferred candidates
+ *   accumulate until one batch prune clears the min-freed bar or pressure rises.
+ */
+export function shouldDeferMicrocompact(g: MicrocompactGuardInput): boolean {
+    if (g.pressure >= g.pressureCeiling) return false;
+    return g.wouldFreeTokens < g.minFreedTokens;
+}
+
 /**
  * Prune old `tool_result` contents in-place. Returns counts for logging.
  * Safe to call repeatedly — already-pruned blocks are skipped (idempotent).
@@ -144,6 +197,7 @@ export function microcompactToolResults(history: MessageParam[], opts: Microcomp
             const hint = pathHint(meta?.input);
             const inputStr = shortInput(meta?.input);
             const head = teaserChars > 0 ? ` Starts: "${teaser(block.content, teaserChars)}"` : '';
+
             const pointer = hint
                 ? ` Re-read with read_file path=${hint} (or re-run ${toolName}) if you need it again.`
                 : ` Re-run ${toolName}${inputStr ? ` with input ${inputStr}` : ''} if you need it again.`;
@@ -151,6 +205,18 @@ export function microcompactToolResults(history: MessageParam[], opts: Microcomp
 
             result.prunedBlocks++;
             result.freedCharsApprox += len - skeleton.length;
+
+            // FIX-COMPACT-09: probe mode — count, but leave everything untouched
+            // (no mutation, no dossier feed).
+            if (opts.dryRun) return block;
+
+            // IMP-41-03-06: dossier entry BEFORE the verbatim content is gone.
+            if (opts.dossier && hint) {
+                opts.dossier.record(hint, {
+                    detail: teaser(block.content, 180),
+                    kind: WRITE_TOOLS.has(toolName) ? 'write' : 'read',
+                });
+            }
             changed = true;
             return { type: 'tool_result', tool_use_id: block.tool_use_id, content: skeleton, is_error: block.is_error };
         });

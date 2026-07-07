@@ -80,7 +80,7 @@ async function createServices() {
     const graphStore = new GraphStore(shim as never);
     const implicitService = new ImplicitConnectionService(shim as never, vectorStore, graphStore);
 
-    return { db, vectorStore, graphStore, implicitService };
+    return { db, vectorStore, graphStore, implicitService, shim };
 }
 
 // ---------------------------------------------------------------------------
@@ -154,6 +154,30 @@ describe('ImplicitConnectionService', () => {
             const lowCount = implicitService.getCount();
 
             expect(lowCount).toBeGreaterThanOrEqual(highCount);
+        });
+
+        it('leaves the primary table intact when the pass aborts mid-way (atomic swap)', async () => {
+            const { vectorStore, implicitService, shim } = await createServices();
+            const dim = 8;
+            // >= 46 notes so the pairwise loop (n*(n-1)/2 > 1000) hits at least one
+            // yield -- the point where a DB close / timeout can interrupt the pass.
+            for (let k = 0; k < 50; k++) {
+                vectorStore.insertChunks(`n${k}.md`, ['x'], [normalizedVec(dim, 1.0 + k * 0.01)], 1000);
+            }
+            await implicitService.computeAll(0.5);
+            const before = implicitService.getCount();
+            expect(before).toBeGreaterThan(0);
+
+            // DB reports open for the initial guard, then closed at the first yield,
+            // so the second pass aborts mid-way.
+            let checks = 0;
+            shim.isOpen = () => { checks++; return checks <= 1; };
+            await implicitService.computeAll(0.9); // a full pass would change the edge set
+
+            shim.isOpen = () => true; // restore for the read
+            // The old DELETE-then-repopulate truncated the table up front, so an
+            // aborted pass lost every edge. The atomic swap keeps the prior result.
+            expect(implicitService.getCount()).toBe(before);
         });
     });
 

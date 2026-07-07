@@ -221,6 +221,9 @@ export function getAutoSessionId(): string | null {
 // Dispatcher
 // ---------------------------------------------------------------------------
 
+/** MCP-2: MCP tools that mutate the vault; gated behind settings.mcpAllowWriteTools. */
+const MCP_WRITE_TOOLS = new Set<string>(['write_vault']);
+
 export async function handleToolCall(
     plugin: ObsidianAgentPlugin,
     tool: string,
@@ -231,6 +234,23 @@ export async function handleToolCall(
     if (!handler) {
         return {
             content: [{ type: 'text', text: `Unknown tool: ${tool}` }],
+            isError: true,
+        };
+    }
+
+    // MCP-2: external MCP write tools are gated behind an explicit, default-off
+    // setting and fail closed. Any bearer-token holder (Claude Desktop, the
+    // relay, a prompt-injected external LLM) could otherwise create/overwrite/
+    // delete vault files with no user confirmation -- the generic
+    // execute_vault_op path already fails write tools closed, so the dedicated
+    // write_vault handler must not be an ungated bypass.
+    if (MCP_WRITE_TOOLS.has(tool) && !plugin.settings.mcpAllowWriteTools) {
+        return {
+            content: [{
+                type: 'text',
+                text: 'write_vault is disabled over MCP. Enable "Allow write tools over MCP" '
+                    + 'in Vault Operator settings to permit external writes.',
+            }],
             isError: true,
         };
     }

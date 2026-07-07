@@ -9,6 +9,7 @@ import {
     getModelEffortSupport,
     getModelEffortLevels,
     modelUsesBudgetTokensThinking,
+    setLearnedOutputCaps,
 } from '../model-registry';
 
 describe('normalizeModelId', () => {
@@ -61,9 +62,92 @@ describe('getModelOutputCeiling / getModelMaxTokens', () => {
         expect(getModelOutputCeiling('anthropic/claude-fable-5')).toBe(128_000);
     });
 
+    // Sonnet 5 was missing from the registry (same failure mode as BUG-2):
+    // resolveOutputBudget fell back to the 8192 legacy default, and with
+    // adaptive thinking counted inside max_tokens the curation turn of the
+    // daily-briefing skill burned the whole budget on reasoning and never
+    // reached a tool call (two out=8192 truncations, then "no response").
+    it('resolves Claude Sonnet 5 including Bedrock-decorated IDs', () => {
+        expect(getModelOutputCeiling('claude-sonnet-5')).toBe(128_000);
+        expect(getModelOutputCeiling('global.anthropic.claude-sonnet-5')).toBe(128_000);
+        expect(resolveOutputBudget('global.anthropic.claude-sonnet-5', undefined)).toEqual({
+            maxTokens: 32_000,
+            thinkingBudgetTokens: 0,
+        });
+    });
+
     it('getModelMaxTokens falls back to 8192 for unknown models', () => {
         expect(getModelMaxTokens('llama3.2')).toBe(8_192);
         expect(getModelMaxTokens('eu.anthropic.claude-opus-4-6-v1')).toBe(128_000);
+    });
+});
+
+// ADR-148 layer 1: generation-based size inference. New Claude releases must
+// get a sane output budget WITHOUT a code deploy. Patterns encode documented
+// family floors, never invented per-model numbers. Exact registry entries
+// always win; inference only fires on a registry miss.
+describe('inferModelInfo via getModelInfo (ADR-148)', () => {
+    it('infers future Claude 5+/next-gen ids at the 1M/128k family floor', () => {
+        expect(resolveOutputBudget('claude-sonnet-6', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+        expect(resolveOutputBudget('claude-opus-5', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+        expect(resolveOutputBudget('global.anthropic.claude-fable-6-v1:0', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('infers unknown Claude 4.x aliases at the 200k/64k family floor', () => {
+        // undated alias -- only the dated snapshot is registered exactly
+        expect(resolveOutputBudget('claude-sonnet-4-5', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('infers future Haiku generations at 200k/64k', () => {
+        expect(resolveOutputBudget('eu.anthropic.claude-haiku-5-v1:0', undefined)).toEqual({
+            maxTokens: 32_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('caps an over-eager configured value at the inferred family ceiling', () => {
+        expect(resolveOutputBudget('claude-haiku-5', 100_000)).toEqual({
+            maxTokens: 64_000, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('raises the unknown non-Claude default from 8192 to 16384 (self-healing net below)', () => {
+        expect(resolveOutputBudget('llama3.2', undefined)).toEqual({
+            maxTokens: 16_384, thinkingBudgetTokens: 0,
+        });
+    });
+
+    it('exact registry entries still win over inference', () => {
+        // haiku-4-5 dated snapshot is registered with an 8192 ceiling
+        expect(resolveOutputBudget('claude-haiku-4-5-20251001', 100_000)).toEqual({
+            maxTokens: 8_192, thinkingBudgetTokens: 0,
+        });
+    });
+});
+
+// ADR-148 layer 3: caps learned at runtime from provider 400s clamp the
+// budget on every later request (injected like the live price catalog).
+describe('learned output caps (ADR-148)', () => {
+    it('clamps resolveOutputBudget to an injected learned cap and can be cleared', () => {
+        setLearnedOutputCaps({ 'claude-sonnet-6': 12_000 });
+        try {
+            expect(resolveOutputBudget('claude-sonnet-6', undefined)).toEqual({
+                maxTokens: 12_000, thinkingBudgetTokens: 0,
+            });
+            expect(resolveOutputBudget('global.anthropic.claude-sonnet-6-v1:0', undefined)).toEqual({
+                maxTokens: 12_000, thinkingBudgetTokens: 0,
+            });
+        } finally {
+            setLearnedOutputCaps({});
+        }
+        expect(resolveOutputBudget('claude-sonnet-6', undefined).maxTokens).toBe(32_000);
     });
 });
 
@@ -92,9 +176,12 @@ describe('resolveOutputBudget', () => {
         });
     });
 
-    it('stays conservative (8192) for unknown models with no configured value', () => {
+    it('uses the raised unknown-model default (ADR-148: 16384, was 8192)', () => {
+        // Deliberate behavior change: a too-high guess now triggers the
+        // output-cap corrective retry which learns the real limit; a too-low
+        // value silently truncates long turns (the worse failure mode).
         expect(resolveOutputBudget('llama3.2', undefined)).toEqual({
-            maxTokens: 8_192,
+            maxTokens: 16_384,
             thinkingBudgetTokens: 0,
         });
     });
@@ -441,5 +528,45 @@ describe('modelUsesBudgetTokensThinking', () => {
     it('returns true for non-Claude and unknown ids (default to the existing budget path)', () => {
         expect(modelUsesBudgetTokensThinking('gpt-4o')).toBe(true);
         expect(modelUsesBudgetTokensThinking('totally-made-up-1234')).toBe(true);
+    });
+});
+
+describe('Claude 5 generation sampling/thinking (FIX-04-03-12)', () => {
+    // Live incident 2026-07-02: Bedrock global.anthropic.claude-sonnet-5
+    // returned 400 "temperature is deprecated for this model" because no
+    // regex covered the Claude 5 generation. The whole 5+ lineup dropped
+    // sampling parameters and budget_tokens thinking.
+    it('flags Sonnet 5 as default-only temperature', () => {
+        expect(modelSupportsTemperature('claude-sonnet-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-sonnet-5-20260929')).toBe(false);
+    });
+
+    it('flags Sonnet 5 across normalized aliases (Bedrock global profile, OpenRouter)', () => {
+        expect(modelSupportsTemperature('global.anthropic.claude-sonnet-5')).toBe(false);
+        expect(modelSupportsTemperature('eu.anthropic.claude-sonnet-5-v1:0')).toBe(false);
+        expect(modelSupportsTemperature('anthropic/claude-sonnet-5')).toBe(false);
+    });
+
+    it('covers future 5+ generation members', () => {
+        expect(modelSupportsTemperature('claude-opus-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-haiku-5')).toBe(false);
+        expect(modelSupportsTemperature('claude-sonnet-6')).toBe(false);
+    });
+
+    it('keeps temperature for pre-5 non-Opus models', () => {
+        expect(modelSupportsTemperature('claude-haiku-4-5')).toBe(true);
+        expect(modelSupportsTemperature('claude-3-5-sonnet-20241022')).toBe(true);
+        expect(modelSupportsTemperature('claude-sonnet-4-5')).toBe(true);
+    });
+
+    it('flags Sonnet 5 as adaptive-thinking (no budget_tokens)', () => {
+        expect(modelUsesBudgetTokensThinking('claude-sonnet-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('global.anthropic.claude-sonnet-5')).toBe(false);
+        expect(modelUsesBudgetTokensThinking('claude-opus-5')).toBe(false);
+    });
+
+    it('keeps budget_tokens for pre-5 non-Opus models', () => {
+        expect(modelUsesBudgetTokensThinking('claude-sonnet-4-5')).toBe(true);
+        expect(modelUsesBudgetTokensThinking('claude-haiku-4-5')).toBe(true);
     });
 });

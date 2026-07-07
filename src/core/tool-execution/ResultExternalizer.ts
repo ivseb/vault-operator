@@ -23,6 +23,17 @@ import { safeSetTimeout } from '../utils/runtime';
 const EXTERNALIZE_THRESHOLD = 2000;
 
 /**
+ * FIX A (loop economy, 2026-07-04): web results are preview-lossy — the
+ * 1200-char preview forces a follow-up read_file of the tmp file, so every
+ * source is paid for twice plus an extra turn. Keep them inline up to 10k;
+ * the 60k hard cap in ToolExecutionPipeline step 6c still applies.
+ */
+const PER_TOOL_THRESHOLDS: Record<string, number> = {
+    web_fetch: 10_000,
+    web_search: 10_000,
+};
+
+/**
  * FIX-24-03-01: when the agent re-reads a tmp file the externalizer itself
  * produced, keep at most this many characters of the head in the conversation.
  * The full text already lives in that file and was summarized when it was first
@@ -190,7 +201,8 @@ export class ResultExternalizer {
         // Never externalize errors, disabled state, or small results
         if (this._disabled) return null;
         if (isError) return null;
-        if (content.length <= EXTERNALIZE_THRESHOLD) return null;
+        const threshold = PER_TOOL_THRESHOLDS[toolName] ?? EXTERNALIZE_THRESHOLD;
+        if (content.length <= threshold) return null;
 
         // FIX-24-03-01: a re-read of a tmp file the externalizer itself produced
         // must not put the full text back into history — return a capped echo
@@ -245,7 +257,7 @@ export class ResultExternalizer {
             for (const file of listing.files) {
                 await removeWithRetry(this.fs, file);
             }
-            await removeWithRetry(this.fs, this.tmpDir);
+            await removeWithRetry(this.fs, this.tmpDir, true);
             console.debug(`[Externalize] Cleaned up ${this.tmpDir}`);
         } catch (e) {
             // FIX-24-03-03: persistent EPERM on iCloud is expected during
@@ -279,7 +291,7 @@ export class ResultExternalizer {
                     if (stat && Date.now() - stat.mtime > ONE_HOUR) {
                         const files = await fs.list(dir);
                         for (const f of files.files) await removeWithRetry(fs, f);
-                        await removeWithRetry(fs, dir);
+                        await removeWithRetry(fs, dir, true);
                         console.debug(`[Externalize] Removed orphaned ${dir}`);
                     }
                 } catch { /* skip */ }
@@ -303,7 +315,7 @@ export class ResultExternalizer {
  * the vast majority of iCloud sync windows; anything stuck longer
  * gets swept up by `cleanupOrphaned` on the next plugin start.
  */
-async function removeWithRetry(fs: FileAdapter, path: string): Promise<void> {
+async function removeWithRetry(fs: FileAdapter, path: string, isDirectory = false): Promise<void> {
     const delays = [0, 150, 500, 1500];
     let lastError: unknown = null;
     for (const delay of delays) {
@@ -313,7 +325,16 @@ async function removeWithRetry(fs: FileAdapter, path: string): Promise<void> {
         // tests under vitest's default node env.
         if (delay > 0) await new Promise((r) => safeSetTimeout(r, delay));
         try {
-            await fs.remove(path);
+            // FIX-24-03-04: DataAdapter.remove() maps to node unlink, which
+            // rejects DIRECTORIES with EPERM on macOS -- the retry loop then
+            // burned all four attempts on an error that could never succeed
+            // (live log 2026-07-03: "Cleanup failed ... unlink task-...").
+            // Directories go through rmdir when the adapter provides it.
+            if (isDirectory && typeof fs.rmdir === 'function') {
+                await fs.rmdir(path, true);
+            } else {
+                await fs.remove(path);
+            }
             return;
         } catch (e) {
             lastError = e;

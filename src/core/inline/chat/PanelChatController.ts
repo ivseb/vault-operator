@@ -32,6 +32,7 @@ import { ModeService } from '../../modes/ModeService';
 import { buildAgentRuntimeContext } from '../../agent/AgentRuntimeContext';
 import type { ConversationStore, UiMessage } from '../../history/ConversationStore';
 import { getModelKey } from '../../../types/settings';
+import { t } from '../../../i18n';
 import { Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../../main';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
@@ -192,7 +193,7 @@ export class PanelChatController {
         }
         if (this.isAtTurnCap() === true) {
             args.handle.setStatus(`Inline chat reached ${INLINE_TURN_CAP}-turn cap. Open the sidebar to continue this thread.`, 'error');
-            new Notice(`Inline chat reached ${INLINE_TURN_CAP}-turn cap.`);
+            new Notice(t('notice.inlineChat.turnCapReached', { cap: INLINE_TURN_CAP }));
             return;
         }
         this.running = true;
@@ -241,7 +242,7 @@ export class PanelChatController {
         if (this.activeConversationId === null) {
             if (convStore === null) {
                 console.warn('[PanelChatController] plugin.conversationStore is null -- chat will NOT persist. Likely plugin not fully loaded.');
-                new Notice('Inline chat: history store not ready, this chat will not be saved.');
+                new Notice(t('notice.inlineChat.historyStoreNotReady'));
             } else {
                 try {
                     const modelKey = this.plugin.settings.activeModelKey;
@@ -251,7 +252,7 @@ export class PanelChatController {
                     console.debug(`[PanelChatController] conversation created: ${this.activeConversationId} (mode=${mode.slug}, model=${modelDisplay})`);
                 } catch (e) {
                     console.error('[PanelChatController] conversationStore.create FAILED:', e);
-                    new Notice(`Inline chat: history create failed -- ${e instanceof Error ? e.message : String(e)}`);
+                    new Notice(t('notice.inlineChat.historyCreateFailed', { error: e instanceof Error ? e.message : String(e) }));
                 }
             }
         }
@@ -371,7 +372,7 @@ export class PanelChatController {
     }): Promise<void> {
         if (this.isAtTurnCap() === true) {
             console.debug(`[PanelChatController] quick-action dropped: ${INLINE_TURN_CAP}-turn cap reached`);
-            new Notice(`Inline chat reached ${INLINE_TURN_CAP}-turn cap; quick-action not recorded.`);
+            new Notice(t('notice.inlineChat.turnCapQuickAction', { cap: INLINE_TURN_CAP }));
             return;
         }
         const convStore: ConversationStore | null = (this.plugin as { conversationStore?: ConversationStore | null }).conversationStore ?? null;
@@ -389,7 +390,7 @@ export class PanelChatController {
                 console.debug(`[PanelChatController] quick-action conversation created: ${this.activeConversationId}`);
             } catch (e) {
                 console.error('[PanelChatController] recordQuickAction create FAILED:', e);
-                new Notice(`Inline chat: history create failed -- ${e instanceof Error ? e.message : String(e)}`);
+                new Notice(t('notice.inlineChat.historyCreateFailed', { error: e instanceof Error ? e.message : String(e) }));
                 return;
             }
         }
@@ -445,7 +446,7 @@ export class PanelChatController {
             }
         } catch (e) {
             console.error('[PanelChatController] persistConversation FAILED:', e);
-            new Notice(`Inline chat save failed: ${e instanceof Error ? e.message : String(e)}`);
+            new Notice(t('notice.inlineChat.saveFailed', { error: e instanceof Error ? e.message : String(e) }));
         }
     }
 

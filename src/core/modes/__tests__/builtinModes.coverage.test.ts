@@ -38,7 +38,7 @@ const MUST_BE_REACHABLE: ToolName[] = [
     'mark_note_as_memory_source', 'unmark_note_as_memory_source', 'list_memory_source_notes',
     // Edit
     'write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file',
-    'move_file', 'extract_zip', 'update_frontmatter', 'generate_canvas', 'create_excalidraw',
+    'move_file', 'extract_zip', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_drawio',
     'create_base', 'update_base', 'create_pptx', 'create_docx', 'create_xlsx',
     'plan_presentation', 'ingest_document', 'ingest_deep', 'ingest_triage',
     'restore_checkpoint',
@@ -46,7 +46,7 @@ const MUST_BE_REACHABLE: ToolName[] = [
     'web_fetch', 'web_search', 'anti_echo_search',
     // Agent control
     'ask_followup_question', 'attempt_completion', 'update_todo_list',
-    'new_task', 'consult_flagship', 'switch_agent', 'update_settings', 'configure_model',
+    'new_task', 'run_in_background', 'consult_flagship', 'switch_agent', 'update_settings', 'configure_model',
     'read_agent_logs', 'manage_mcp_server',
     'evaluate_expression', 'manage_source',
     // Meta-tools (FEATURE-1600 find_tool, FEAT-24-09 read_skill / ADR-116)
@@ -69,7 +69,12 @@ const MUST_BE_REACHABLE: ToolName[] = [
 // Tools intentionally NOT in any group -- listed here so an ad-hoc
 // reviewer can see the intent instead of grepping.
 const INTENTIONALLY_NOT_REACHABLE: ToolName[] = [
-    'create_drawio',   // accessed via plugin routing, not via mode groups
+    // FIX-PERF-26 completion (2026-07-05): create_drawio moved to
+    // MUST_BE_REACHABLE. It carries group='edit' in TOOL_METADATA and write_file
+    // redirects hallucinated .drawio(.svg) writes to it, so it must live in the
+    // edit schema, not only in the prompt descriptions. Deriving the group map
+    // from metadata turned the old "described but not callable" state into a
+    // test failure -- the correct signal.
 ];
 
 // Engine-internal tools that ship in the ToolName union for type-checking

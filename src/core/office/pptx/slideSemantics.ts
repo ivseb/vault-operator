@@ -241,36 +241,36 @@ export function buildDefaultUseWhen(
     warnings: SlideWarningFlag[] = [],
 ): string | undefined {
     if (warnings.includes('possible-style-guide')) {
-        return 'Nur verwenden, wenn du wirklich Styleguide-, Regel- oder Bibliotheksinhalte zeigen willst.';
+        return 'Use only when you genuinely want to show style-guide, rule, or library content.';
     }
 
     switch (family) {
         case 'cover':
-            return 'Auftaktfolie für Titel, Kontext und ersten Eindruck.';
+            return 'Opening slide for title, context, and first impression.';
         case 'section':
-            return 'Kapiteltrenner oder dramaturgischer Übergang zwischen Themenblöcken.';
+            return 'Chapter divider or dramaturgical transition between topic blocks.';
         case 'agenda':
-            return 'Agenda, Inhaltsübersicht oder Navigationsfolie am Anfang.';
+            return 'Agenda, table of contents, or navigation slide at the start.';
         case 'comparison':
-            return 'Zwei Optionen, Perspektiven oder Vorher/Nachher sauber gegenüberstellen.';
+            return 'Cleanly contrast two options, perspectives, or before/after states.';
         case 'process':
-            return 'Ablauf, Roadmap, Schritte oder Verantwortungsübergaben visualisieren.';
+            return 'Visualize a flow, roadmap, steps, or handovers of responsibility.';
         case 'kpi':
-            return 'Wenige zentrale Kennzahlen oder Statuswerte prägnant hervorheben.';
+            return 'Highlight a few central metrics or status values concisely.';
         case 'chart':
-            return 'Datenentwicklung oder Vergleich mit einem Diagramm belegen.';
+            return 'Support a data trend or comparison with a chart.';
         case 'table':
-            return 'Strukturierte Detaildaten, Maßnahmen oder Listen tabellarisch darstellen.';
+            return 'Present structured detail data, actions, or lists as a table.';
         case 'image':
-            return 'Nur einsetzen, wenn passendes echtes Bildmaterial vorhanden ist.';
+            return 'Use only when suitable real image material is available.';
         case 'closing':
-            return 'Abschluss, Kontakt, Call to action oder letzte Botschaft am Ende.';
+            return 'Closing, contact, call to action, or final message at the end.';
         case 'library':
-            return 'Für Icon-, Baustein- oder Komponentenübersichten nutzen, nicht als Standard-Content-Slide.';
+            return 'Use for icon, building-block, or component overviews, not as a standard content slide.';
         case 'quote':
-            return 'Ein prägnantes Zitat oder ein starkes Statement isoliert inszenieren.';
+            return 'Stage a striking quote or strong statement in isolation.';
         case 'content':
-            return 'Für strukturierte Inhaltsvermittlung, wenn kein spezialisierterer Slide-Typ passt.';
+            return 'For structured content delivery when no more specialized slide type fits.';
         default:
             return undefined;
     }

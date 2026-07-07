@@ -35,14 +35,24 @@ export interface SkillMeta {
     trigger?: string;
 }
 
+/**
+ * How long a discoverSkills() result stays valid. Internal writes invalidate
+ * eagerly; the TTL exists for EXTERNAL changes (manual copy, git checkout,
+ * iCloud sync) that no plugin code path sees. Obsidian vault events do not
+ * fire under the hidden agent folder and fs.watch is Electron-only, so a
+ * short TTL is the platform-neutral way to pick those changes up.
+ */
+const DISCOVER_CACHE_TTL_MS = 30_000;
+
 export class SkillsManager {
     private readonly fs: FileAdapter;
     readonly skillsDir: string;
     // FIX-PERF-32: cache the in-flight promise so two near-simultaneous
     // callers (AgentSidebarView pre-send + AgentTask.run) share the same
     // FS scan instead of duplicating it. invalidateCache() drops the
-    // cache when a skill file changes.
+    // cache when a skill file changes; the TTL drops it for external edits.
     private cachedDiscover: Promise<SkillMeta[]> | null = null;
+    private cachedDiscoverAt = 0;
 
     constructor(fs: FileAdapter) {
         this.fs = fs;
@@ -66,7 +76,9 @@ export class SkillsManager {
      * is created, modified, deleted or renamed.
      */
     async discoverSkills(): Promise<SkillMeta[]> {
-        if (this.cachedDiscover) return this.cachedDiscover;
+        const fresh = Date.now() - this.cachedDiscoverAt < DISCOVER_CACHE_TTL_MS;
+        if (this.cachedDiscover && fresh) return this.cachedDiscover;
+        this.cachedDiscoverAt = Date.now();
         this.cachedDiscover = this.discoverSkillsUncached().catch((err) => {
             // Do not stick a rejected promise in the cache; let the next
             // caller retry the scan.
@@ -81,6 +93,7 @@ export class SkillsManager {
      */
     invalidateCache(): void {
         this.cachedDiscover = null;
+        this.cachedDiscoverAt = 0;
     }
 
     private async discoverSkillsUncached(): Promise<SkillMeta[]> {
@@ -174,18 +187,64 @@ export class SkillsManager {
         if (!match) return null;
         const yaml = match[1];
 
-        const nameMatch = yaml.match(/^name:\s*(.+)$/m);
-        const descMatch = yaml.match(/^description:\s*(.+)$/m);
-        const sourceMatch = yaml.match(/^source:\s*(.+)$/m);
-        const triggerMatch = yaml.match(/^trigger:\s*(.+)$/m);
-
-        const name = nameMatch?.[1]?.trim() ?? folder.split('/').pop() ?? 'unknown';
-        const description = descMatch?.[1]?.trim() ?? '';
-        const source = sourceMatch?.[1]?.trim() as SkillMeta['source'];
-        const trigger = triggerMatch?.[1]?.trim();
+        const name = extractYamlField(yaml, 'name') ?? folder.split('/').pop() ?? 'unknown';
+        const description = extractYamlField(yaml, 'description') ?? '';
+        const source = extractYamlField(yaml, 'source') as SkillMeta['source'];
+        const trigger = extractYamlField(yaml, 'trigger');
 
         if (!description) return null;
 
         return { path: skillPath, name, description, source, trigger };
     }
+}
+
+/**
+ * Extract a scalar field from a minimal YAML frontmatter block.
+ * Supports:
+ *   key: value                    -- plain single line
+ *   key: >                        -- folded: newlines collapse to a single space
+ *     line 1
+ *     line 2
+ *   key: |                        -- literal: newlines are preserved
+ *     line 1
+ *     line 2
+ * The block scalar terminates at the next top-level key or at the end of the
+ * frontmatter (this parser only ever sees the content between the --- fences).
+ * Nested keys, anchors, tags and other YAML features are intentionally unsupported.
+ */
+function extractYamlField(yaml: string, key: string): string | undefined {
+    const lines = yaml.split('\n');
+    const keyRe = new RegExp(`^${key}:\\s*(.*)$`);
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const m = line.match(keyRe);
+        if (!m) continue;
+
+        const rest = m[1].trim();
+        if (rest !== '>' && rest !== '|') {
+            return rest.length > 0 ? rest : undefined;
+        }
+
+        // Block scalar: collect indented follow-up lines until we hit a top-level key.
+        const collected: string[] = [];
+        for (let j = i + 1; j < lines.length; j++) {
+            const follow = lines[j];
+            // Blank lines terminate '>' folding cleanly but do not end the block;
+            // for our purposes (single description paragraph) treat them as separators.
+            if (follow.trim() === '') {
+                if (rest === '|') collected.push('');
+                continue;
+            }
+            // A non-indented line that looks like `newkey:` ends the block.
+            if (/^[A-Za-z_][\w-]*\s*:/.test(follow)) break;
+            collected.push(follow.replace(/^\s+/, ''));
+        }
+
+        const joined = rest === '|' ? collected.join('\n') : collected.join(' ');
+        const trimmed = joined.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
+    }
+
+    return undefined;
 }

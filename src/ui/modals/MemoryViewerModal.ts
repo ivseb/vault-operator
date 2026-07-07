@@ -19,6 +19,7 @@ import type ObsidianAgentPlugin from '../../main';
 import { FactStore, type Fact } from '../../core/memory/FactStore';
 import { OBSILO_PROFILE } from '../../core/memory/SoulView';
 import { confirmModal, promptModal } from './PromptModal';
+import { t } from '../../i18n';
 
 type Tab = 'all' | 'user' | 'soul' | 'capabilities';
 
@@ -31,7 +32,7 @@ export class MemoryViewerModal extends Modal {
     }
 
     onOpen(): void {
-        this.titleEl.setText('Memory contents');
+        this.titleEl.setText(t('settings.memory.headingContents'));
         this.contentEl.empty();
         this.contentEl.addClass('memory-viewer-modal');
         // v2.10.4: also flag the outer modal element so CSS can size it
@@ -47,16 +48,13 @@ export class MemoryViewerModal extends Modal {
         if (!this.plugin.memoryDB?.isOpen()) {
             this.contentEl.createEl('p', {
                 cls: 'memory-viewer-empty',
-                text: 'Memory database is not open.',
+                text: t('notice.memory.dbNotOpen'),
             });
             return;
         }
 
         const intro = this.contentEl.createEl('p', { cls: 'memory-viewer-intro' });
-        intro.setText(
-            'Everything Vault Operator remembers about you and how it knows itself. ' +
-            'New entries come from chat (just say it). This view shows what is stored and lets you remove anything.',
-        );
+        intro.setText(t('modal.memoryViewer.intro'));
 
         // Compute counts per bucket
         const factStore = new FactStore(this.plugin.memoryDB);
@@ -75,20 +73,20 @@ export class MemoryViewerModal extends Modal {
         } catch { /* sessions table may not exist on fresh DB */ }
 
         const stats = this.contentEl.createEl('p', { cls: 'memory-viewer-stats' });
-        stats.setText(`${all.length} fact(s) · ${sessionCount} session summary(ies)`);
+        stats.setText(t('modal.memoryViewer.stats', { factCount: all.length, sessionCount }));
 
         // Tab switcher
         const tabBar = this.contentEl.createDiv({ cls: 'memory-viewer-tabs' });
         const tabs: Array<{ key: Tab; label: string; count: number }> = [
-            { key: 'all', label: 'All', count: all.length },
-            { key: 'user', label: 'User memory', count: userFacts.length },
-            { key: 'soul', label: 'Vault Operator’s soul', count: soulFacts.length },
-            { key: 'capabilities', label: 'Capabilities', count: capabilityFacts.length },
+            { key: 'all', label: t('modal.memoryViewer.tabAll'), count: all.length },
+            { key: 'user', label: t('modal.memoryViewer.tabUser'), count: userFacts.length },
+            { key: 'soul', label: t('modal.memoryViewer.tabSoul'), count: soulFacts.length },
+            { key: 'capabilities', label: t('modal.memoryViewer.tabCapabilities'), count: capabilityFacts.length },
         ];
         for (const tab of tabs) {
             const btn = tabBar.createEl('button', {
                 cls: `memory-viewer-tab${this.activeTab === tab.key ? ' memory-viewer-tab-active' : ''}`,
-                text: `${tab.label} (${tab.count})`,
+                text: t('modal.memoryViewer.labelWithCount', { label: tab.label, count: tab.count }),
             });
             btn.addEventListener('click', () => {
                 this.activeTab = tab.key;
@@ -100,7 +98,7 @@ export class MemoryViewerModal extends Modal {
         const filterRow = this.contentEl.createDiv({ cls: 'memory-viewer-filter' });
         const filterInput = filterRow.createEl('input', {
             type: 'text',
-            placeholder: 'Filter within current tab...',
+            placeholder: t('modal.memoryViewer.filterPlaceholder'),
         });
         filterInput.value = this.filterText;
         filterInput.addEventListener('input', () => {
@@ -116,12 +114,12 @@ export class MemoryViewerModal extends Modal {
         const footer = this.contentEl.createDiv({ cls: 'memory-viewer-footer' });
         const wipeBtn = footer.createEl('button', {
             cls: 'memory-viewer-wipe',
-            text: 'Delete all memory',
+            text: t('settings.memory.deleteAll'),
         });
         wipeBtn.addEventListener('click', () => { void this.handleWipeAll(); });
         footer.createSpan({
             cls: 'memory-viewer-footer-hint',
-            text: 'Permanently removes every entry across user memory, agent soul, sessions, and audit log.',
+            text: t('modal.memoryViewer.wipeHint'),
         });
     }
 
@@ -143,17 +141,16 @@ export class MemoryViewerModal extends Modal {
             : facts;
 
         if (this.activeTab === 'all' || this.activeTab === 'user') {
-            this.renderSection(container, 'User memory', filterFn(userFacts), true,
-                'Facts Vault Operator learned about you across conversations.');
+            this.renderSection(container, t('modal.memoryViewer.tabUser'), filterFn(userFacts), true,
+                t('modal.memoryViewer.sectionUserDesc'));
         }
         if (this.activeTab === 'all' || this.activeTab === 'soul') {
-            this.renderSection(container, 'Vault Operator’s soul', filterFn(soulFacts), true,
-                'How Vault Operator behaves: identity, values, anti-patterns, communication style. ' +
-                'Tell the agent in chat to add or change.');
+            this.renderSection(container, t('modal.memoryViewer.tabSoul'), filterFn(soulFacts), true,
+                t('modal.memoryViewer.sectionSoulDesc'));
         }
         if (this.activeTab === 'all' || this.activeTab === 'capabilities') {
-            this.renderSection(container, 'Capabilities (read-only)', filterFn(capabilityFacts), false,
-                'What Vault Operator knows about its own features. Auto-generated from the plugin code.');
+            this.renderSection(container, t('modal.memoryViewer.sectionCapabilitiesReadonly'), filterFn(capabilityFacts), false,
+                t('modal.memoryViewer.sectionCapabilitiesDesc'));
         }
     }
 
@@ -166,11 +163,11 @@ export class MemoryViewerModal extends Modal {
     ): void {
         const section = container.createDiv({ cls: 'memory-viewer-section' });
         const header = section.createDiv({ cls: 'memory-viewer-section-header' });
-        header.createEl('h3', { text: `${title} (${facts.length})` });
+        header.createEl('h3', { text: t('modal.memoryViewer.labelWithCount', { label: title, count: facts.length }) });
         section.createDiv({ cls: 'memory-viewer-section-desc', text: description });
 
         if (facts.length === 0) {
-            section.createDiv({ cls: 'memory-viewer-empty', text: 'No entries.' });
+            section.createDiv({ cls: 'memory-viewer-empty', text: t('modal.memoryViewer.noEntries') });
             return;
         }
 
@@ -199,14 +196,14 @@ export class MemoryViewerModal extends Modal {
             if (editable) {
                 const editBtn = actions.createEl('button', {
                     cls: 'memory-viewer-item-edit clickable-icon',
-                    attr: { 'aria-label': 'Edit this memory entry' },
+                    attr: { 'aria-label': t('modal.memoryViewer.editAria') },
                 });
                 setIcon(editBtn, 'pencil');
                 editBtn.addEventListener('click', () => { void this.handleEdit(fact); });
 
                 const delBtn = actions.createEl('button', {
                     cls: 'memory-viewer-item-delete clickable-icon',
-                    attr: { 'aria-label': 'Remove this entry from memory' },
+                    attr: { 'aria-label': t('modal.memoryViewer.deleteAria') },
                 });
                 setIcon(delBtn, 'trash-2');
                 delBtn.addEventListener('click', () => { void this.handleDelete(fact); });
@@ -216,11 +213,11 @@ export class MemoryViewerModal extends Modal {
 
     private async handleEdit(fact: Fact): Promise<void> {
         const next = await promptModal(this.app, {
-            title: 'Edit memory entry',
-            message: 'Updating creates a new entry that supersedes the old one. The audit trail keeps the prior version.',
+            title: t('modal.memoryViewer.editTitle'),
+            message: t('modal.memoryViewer.editMessage'),
             placeholder: fact.text,
             defaultValue: fact.text,
-            submitLabel: 'Save',
+            submitLabel: t('modal.modelConfig.save'),
         });
         if (next === null) return;
         const trimmed = next.trim();
@@ -239,7 +236,7 @@ export class MemoryViewerModal extends Modal {
             metadata: fact.metadata,
         });
         await this.plugin.memoryDB!.save().catch(() => undefined);
-        new Notice('Memory entry updated.');
+        new Notice(t('notice.memory.entryUpdated'));
         this.render();
     }
 
@@ -252,17 +249,17 @@ export class MemoryViewerModal extends Modal {
 
     private async handleDelete(fact: Fact): Promise<void> {
         const ok = await confirmModal(this.app, {
-            title: 'Remove this memory entry?',
-            message: `"${fact.text}"\n\nThis is a soft-delete. The audit trail keeps it for recovery.`,
-            confirmLabel: 'Remove',
-            cancelLabel: 'Cancel',
+            title: t('modal.memoryViewer.deleteTitle'),
+            message: t('modal.memoryViewer.deleteMessage', { text: fact.text }),
+            confirmLabel: t('modal.memoryViewer.deleteConfirm'),
+            cancelLabel: t('modal.modelConfig.cancel'),
             destructive: true,
         });
         if (!ok) return;
         const factStore = new FactStore(this.plugin.memoryDB!);
         factStore.deprecate(fact.id, 'removed by user via memory viewer');
         await this.plugin.memoryDB!.save().catch(() => undefined);
-        new Notice('Memory entry removed.');
+        new Notice(t('notice.memory.entryRemoved'));
         this.render();
     }
 }

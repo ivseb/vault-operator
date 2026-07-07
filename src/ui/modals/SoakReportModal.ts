@@ -1,4 +1,5 @@
 import { App, Modal, Notice, Setting } from 'obsidian';
+import { t } from '../../i18n';
 
 /**
  * SoakReportModal -- shows the Memory v2 health snapshot as a JSON
@@ -24,13 +25,10 @@ export class SoakReportModal extends Modal {
         contentEl.empty();
         contentEl.addClass('vault-operator-soak-report-modal');
 
-        contentEl.createEl('h3', { text: 'Memory soak report' });
+        contentEl.createEl('h3', { text: t('modal.soakReport.title') });
 
         const desc = contentEl.createEl('p');
-        desc.appendText(
-            'Daily snapshot of Memory v2 health metrics. Copy the JSON ' +
-            'and paste it into the agent chat for trend analysis.',
-        );
+        desc.appendText(t('modal.soakReport.desc'));
 
         const ta = contentEl.createEl('textarea', {
             cls: 'vault-operator-soak-report-textarea',
@@ -44,34 +42,34 @@ export class SoakReportModal extends Modal {
 
         new Setting(contentEl)
             .addButton((btn) => btn
-                .setButtonText('Copy to clipboard')
+                .setButtonText(t('modal.promptPreview.copy'))
                 .setCta()
                 .onClick(async () => {
                     try {
                         await navigator.clipboard.writeText(this.json);
-                        new Notice('Soak report copied. Paste into chat.');
+                        new Notice(t('notice.memory.soakCopied'));
                     } catch {
                         // Clipboard rejected (no focus, permission denied).
                         // The textarea is auto-selected on focus, so the
                         // user can still copy manually with Cmd/Ctrl+C, or
                         // use "Save to vault" instead.
                         ta.focus();
-                        new Notice('Copy blocked. Select the text and press Cmd/Ctrl+C, or use Save to vault.');
+                        new Notice(t('notice.memory.soakCopyBlocked'));
                     }
                 }))
             .addButton((btn) => btn
-                .setButtonText('Save to vault')
+                .setButtonText(t('modal.soakReport.saveToVault'))
                 .onClick(async () => {
                     try {
                         const path = await this.saveToVault();
-                        new Notice(`Soak report saved: ${path}`);
+                        new Notice(t('notice.memory.soakSaved', { path }));
                     } catch (e) {
                         console.warn('[SoakReportModal] Save to vault failed:', e);
-                        new Notice('Save to vault failed. See console.');
+                        new Notice(t('notice.memory.soakSaveFailed'));
                     }
                 }))
             .addButton((btn) => btn
-                .setButtonText('Close')
+                .setButtonText(t('modal.vaultHealth.closeBtn'))
                 .onClick(() => this.close()));
     }
 

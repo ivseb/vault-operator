@@ -100,8 +100,8 @@ export class VaultTab {
 
         // ── Default output folder (v2.10.0) ────────────────────────────────────
         new Setting(containerEl)
-            .setName('Default output folder')
-            .setDesc('Folder where generated files (xlsx, docx, pptx, drawio, excalidraw) land when the agent provides only a filename without a path. Use a trailing slash, e.g. "Inbox/".')
+            .setName(t('settings.vault.defaultOutputFolder'))
+            .setDesc(t('settings.vault.defaultOutputFolderDesc'))
             .addText((text) =>
                 text
                     .setPlaceholder('Inbox/')
@@ -189,15 +189,15 @@ export class VaultTab {
      * covered so the user knows what gets auto-applied.
      */
     private buildVaultHealthSection(containerEl: HTMLElement): void {
-        addSectionHeading(containerEl, 'Vault health auto-fix', {
-            body: 'When the health check finds reciprocity or consistency rule violations, the modal can auto-apply the fix before showing you the list. You stay in control of the broader review.',
+        addSectionHeading(containerEl, t('settings.vault.headingVaultHealth'), {
+            body: t('settings.vault.sectionVaultHealthInfo'),
         });
 
         const vh = this.plugin.settings.vaultHealth;
 
         new Setting(containerEl)
-            .setName('Auto-apply rule-based repairs on health check')
-            .setDesc('Auto-fix the three deterministic rule checks (missing backlinks, category mismatches, inconsistent tags) before the modal opens. Checkpoint runs first so you can undo from the post-repair screen. Default off.')
+            .setName(t('settings.vault.vaultHealthAutoApply'))
+            .setDesc(t('settings.vault.vaultHealthAutoApplyDesc'))
             .addToggle((tg) =>
                 tg.setValue(vh.autoApplyRuleRepairs).onChange(async (v) => {
                     this.plugin.settings.vaultHealth = { ...vh, autoApplyRuleRepairs: v };
@@ -214,15 +214,15 @@ export class VaultTab {
      * mirror and frontier escalation are independent opt-ins on top.
      */
     private buildFreshnessSection(containerEl: HTMLElement): void {
-        addSectionHeading(containerEl, 'Note freshness verifier', {
-            body: 'Cross-check notes against external sources during the periodic update pass. All sub-toggles default off.',
+        addSectionHeading(containerEl, t('settings.vault.headingFreshness'), {
+            body: t('settings.vault.sectionFreshnessInfo'),
         });
 
         const freshness = this.plugin.settings.freshness;
 
         new Setting(containerEl)
-            .setName('Enable external sources')
-            .setDesc('Send up to one short query per candidate note to the configured web search provider. Default off (no external traffic).')
+            .setName(t('settings.vault.freshnessExternalSources'))
+            .setDesc(t('settings.vault.freshnessExternalSourcesDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.externalSources.enabled).onChange(async (v) => {
                     this.plugin.settings.freshness = {
@@ -234,8 +234,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Write freshness hint to note frontmatter')
-            .setDesc('Mirror the latest verdict as a single `freshness` key in the note. Default off; the verdict already lives in the Knowledge review tab.')
+            .setName(t('settings.vault.freshnessWriteFrontmatter'))
+            .setDesc(t('settings.vault.freshnessWriteFrontmatterDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.writeFrontmatter).onChange(async (v) => {
                     this.plugin.settings.freshness = { ...freshness, writeFrontmatter: v };
@@ -244,8 +244,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Allow flagship escalation when verifier confidence is low')
-            .setDesc('Re-ask the flagship model when the mid-tier verdict confidence is low; only fires when a flagship provider is marked zero-data-retention.')
+            .setName(t('settings.vault.freshnessFrontierEscalation'))
+            .setDesc(t('settings.vault.freshnessFrontierEscalationDesc'))
             .addToggle((tg) =>
                 tg.setValue(freshness.allowFrontierEscalation).onChange(async (v) => {
                     this.plugin.settings.freshness = { ...freshness, allowFrontierEscalation: v };
@@ -254,8 +254,8 @@ export class VaultTab {
             );
 
         const thresholdSetting = new Setting(containerEl)
-            .setName('Frontier confidence threshold')
-            .setDesc('Escalate only when the mid-tier verdict confidence is below this number.');
+            .setName(t('settings.vault.freshnessConfidenceThreshold'))
+            .setDesc(t('settings.vault.freshnessConfidenceThresholdDesc'));
         addSliderInput(thresholdSetting, {
             min: 0.0, max: 1.0, step: 0.05,
             value: freshness.frontierConfidenceThreshold,
@@ -266,8 +266,8 @@ export class VaultTab {
         });
 
         new Setting(containerEl)
-            .setName('Exclude paths')
-            .setDesc('Comma-separated path prefixes the verifier never reads from.')
+            .setName(t('settings.vault.freshnessExcludePaths'))
+            .setDesc(t('settings.vault.freshnessExcludePathsDesc'))
             .addText((text) => {
                 text.setValue(freshness.excludePaths.join(', '))
                     .onChange(async (v) => {
@@ -294,70 +294,52 @@ export class VaultTab {
     ): void {
         addSectionHeading(
             containerEl,
-            'Storage layout consolidation',
-            {
-                body:
-                    'Consolidates plugin storage into a single vault-local path with '
-                    + 'data/ and cache/ sub-folders. Replaces the historical roots '
-                    + '.obsidian-agent, .obsilo-vault, .vault-operator and the '
-                    + 'vault-parent obsilo-shared folder. A backup snapshot is written '
-                    + 'before any file is moved. The operation is resumable across '
-                    + 'plugin reloads.',
-            },
+            t('settings.vault.headingLayoutMigration'),
+            { body: t('settings.vault.sectionLayoutMigrationInfo') },
         );
 
         const statusValue = this.plugin.settings._layoutMigrationStatus ?? 'pending';
         new Setting(containerEl)
-            .setName('Migration status')
-            .setDesc(`Current state: ${statusValue}`);
+            .setName(t('settings.vault.layoutMigrationStatus'))
+            .setDesc(t('settings.vault.layoutMigrationStatusDesc', { status: statusValue }));
 
         new Setting(containerEl)
-            .setName('Run layout migration')
-            .setDesc(
-                'Activate the migration. After activation, reload the plugin '
-                + '(Cmd-P / Ctrl-P -> Reload Vault Operator). The migration runs on the next '
-                + 'plugin start. A backup snapshot is written first into the Obsidian '
-                + 'plugin data directory, outside the vault tree.',
-            )
+            .setName(t('settings.vault.layoutMigrationRun'))
+            .setDesc(t('settings.vault.layoutMigrationRunDesc'))
             .addButton((btn) =>
                 btn
                     .setButtonText(
-                        statusValue === 'complete' ? 'Already migrated' : 'Activate migration',
+                        statusValue === 'complete'
+                            ? t('settings.vault.layoutMigrationDoneButton')
+                            : t('settings.vault.layoutMigrationActivateButton'),
                     )
                     .setIcon('arrow-right-left')
                     .setTooltip(
                         statusValue === 'complete'
-                            ? 'Storage layout migration already completed. Nothing to do.'
-                            : 'Activate the storage layout migration. Plugin reload required afterwards.',
+                            ? t('settings.vault.layoutMigrationDoneTooltip')
+                            : t('settings.vault.layoutMigrationActivateTooltip'),
                     )
                     .setDisabled(statusValue === 'complete')
                     .onClick(() => {
                         void (async () => {
                             if (statusValue === 'complete') {
                                 new Notice(
-                                    'Storage layout migration already completed. Nothing to do.',
+                                    t('settings.vault.layoutMigrationDoneTooltip'),
                                     5000,
                                 );
                                 return;
                             }
                             const ok = await confirmModal(this.app, {
-                                title: 'Activate storage layout migration?',
-                                message:
-                                    'The migration moves all plugin data (knowledge index, history, '
-                                    + 'memory, skills, rules, workflows, episodes, logs, plugin-skills, '
-                                    + 'asset cache, checkpoints, dev-env, tmp) into a consolidated '
-                                    + 'path with data/ and cache/ sub-folders.\n\n'
-                                    + 'A backup snapshot is written before the first move. The '
-                                    + 'operation is resumable. After activation you have to reload '
-                                    + 'the plugin (Cmd-P / Ctrl-P -> Reload Vault Operator). Continue?',
-                                confirmLabel: 'Activate migration',
-                                cancelLabel: 'Cancel',
+                                title: t('settings.vault.layoutMigrationConfirmTitle'),
+                                message: t('settings.vault.layoutMigrationConfirmMessage'),
+                                confirmLabel: t('settings.vault.layoutMigrationActivateButton'),
+                                cancelLabel: t('settings.vault.cancel'),
                             });
                             if (!ok) return;
                             this.plugin.settings._layoutMigrationOptIn = true;
                             await this.plugin.saveSettings();
                             new Notice(
-                                'Migration activated. Please reload the plugin via the command palette to apply.',
+                                t('notice.vault.layoutMigrationActivated'),
                                 10000,
                             );
                             this.rerender();
@@ -369,42 +351,39 @@ export class VaultTab {
         const currentPath = this.plugin.settings.agentFolderPath ?? DEFAULT_AGENT_FOLDER;
         const isDefault = currentPath === DEFAULT_AGENT_FOLDER;
         new Setting(containerEl)
-            .setName('Reset to default agent folder path')
+            .setName(t('settings.vault.agentFolderReset'))
             .setDesc(
                 isDefault
-                    ? `Current path is already the default (${DEFAULT_AGENT_FOLDER}).`
-                    : `Current path: ${currentPath}. Reset sets it back to ${DEFAULT_AGENT_FOLDER}.`,
+                    ? t('settings.vault.agentFolderResetAlreadyDefault', { path: DEFAULT_AGENT_FOLDER })
+                    : t('settings.vault.agentFolderResetDesc', { currentPath, defaultPath: DEFAULT_AGENT_FOLDER }),
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText(`Reset to ${DEFAULT_AGENT_FOLDER}`)
+                    .setButtonText(t('settings.vault.agentFolderResetButton', { path: DEFAULT_AGENT_FOLDER }))
                     .setIcon('rotate-ccw')
                     .setTooltip(
                         isDefault
-                            ? `Agent folder path is already the default (${DEFAULT_AGENT_FOLDER}).`
-                            : `Reset the agent folder path to ${DEFAULT_AGENT_FOLDER}.`,
+                            ? t('settings.vault.agentFolderResetTooltipDefault', { path: DEFAULT_AGENT_FOLDER })
+                            : t('settings.vault.agentFolderResetTooltip', { path: DEFAULT_AGENT_FOLDER }),
                     )
                     .setDisabled(isDefault)
                     .onClick(() => {
                         void (async () => {
                             if (isDefault) {
                                 new Notice(
-                                    `Agent folder path is already the default (${DEFAULT_AGENT_FOLDER}).`,
+                                    t('settings.vault.agentFolderResetTooltipDefault', { path: DEFAULT_AGENT_FOLDER }),
                                     5000,
                                 );
                                 return;
                             }
                             const ok = await confirmModal(this.app, {
-                                title: 'Reset agent folder path?',
-                                message:
-                                    `Current path: ${currentPath}\n`
-                                    + `New path: ${DEFAULT_AGENT_FOLDER}\n\n`
-                                    + 'Plugin skills, knowledge index and memory databases are '
-                                    + 'copied from the current folder into the default. Original '
-                                    + 'files stay in place; remove them manually after verifying '
-                                    + 'the new location works. Continue?',
-                                confirmLabel: 'Reset and migrate files',
-                                cancelLabel: 'Cancel',
+                                title: t('settings.vault.agentFolderResetConfirmTitle'),
+                                message: t('settings.vault.agentFolderResetConfirmMessage', {
+                                    currentPath,
+                                    defaultPath: DEFAULT_AGENT_FOLDER,
+                                }),
+                                confirmLabel: t('settings.vault.agentFolderResetConfirmButton'),
+                                cancelLabel: t('settings.vault.cancel'),
                             });
                             if (!ok) return;
 
@@ -415,20 +394,24 @@ export class VaultTab {
                             await applyPathChange(DEFAULT_AGENT_FOLDER);
 
                             const movedSummary: string[] = [];
-                            if (migrationResult.movedKnowledgeDb) movedSummary.push('knowledge index');
-                            if (migrationResult.movedMemoryDb) movedSummary.push('memory database');
-                            if (migrationResult.movedVaultDna) movedSummary.push('vault-DNA snapshot');
+                            if (migrationResult.movedKnowledgeDb) movedSummary.push(t('notice.vault.movedKnowledgeIndex'));
+                            if (migrationResult.movedMemoryDb) movedSummary.push(t('notice.vault.movedMemoryDatabase'));
+                            if (migrationResult.movedVaultDna) movedSummary.push(t('notice.vault.movedVaultDna'));
                             if (migrationResult.movedPluginSkills > 0) {
-                                movedSummary.push(`${migrationResult.movedPluginSkills} plugin skill file(s)`);
+                                movedSummary.push(t('notice.vault.movedPluginSkills', { count: migrationResult.movedPluginSkills }));
                             }
                             const movedLine = movedSummary.length > 0
-                                ? `Moved: ${movedSummary.join(', ')}.`
-                                : 'Nothing to move (no plugin data at the previous path).';
+                                ? t('notice.vault.movedSummary', { items: movedSummary.join(', ') })
+                                : t('notice.vault.nothingToMove');
                             const errLine = migrationResult.errors.length > 0
-                                ? ` ${migrationResult.errors.length} non-fatal error(s); check developer console.`
+                                ? ' ' + t('notice.vault.nonFatalErrors', { count: migrationResult.errors.length })
                                 : '';
                             new Notice(
-                                `Agent folder path reset to ${DEFAULT_AGENT_FOLDER}. ${movedLine}${errLine}`,
+                                t('notice.vault.agentFolderResetDone', {
+                                    path: DEFAULT_AGENT_FOLDER,
+                                    movedLine,
+                                    errLine,
+                                }),
                                 8000,
                             );
                             if (migrationResult.errors.length > 0) {
@@ -441,20 +424,20 @@ export class VaultTab {
 
         // Restore previous layout from a backup snapshot
         new Setting(containerEl)
-            .setName('Restore previous layout from backup')
+            .setName(t('settings.vault.layoutRestore'))
             .setDesc(
                 statusValue === 'complete'
-                    ? 'Undo the storage layout consolidation by restoring from the backup snapshot the migration created. Choose the most recent backup, the four legacy roots get rebuilt, and the consolidated data/ and cache/ folders are removed. Plugin reload required after.'
-                    : 'Restore only makes sense after a completed migration. Currently the migration has not run or did not complete.',
+                    ? t('settings.vault.layoutRestoreDesc')
+                    : t('settings.vault.layoutRestoreNotReadyDesc'),
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText('Restore from backup')
+                    .setButtonText(t('settings.vault.layoutRestoreButton'))
                     .setIcon('history')
                     .setTooltip(
                         statusValue === 'complete'
-                            ? 'Restore the layout that was in place before the storage migration.'
-                            : 'Migration is not complete; nothing to restore.',
+                            ? t('settings.vault.layoutRestoreTooltip')
+                            : t('settings.vault.layoutRestoreNotReadyTooltip'),
                     )
                     .setDisabled(statusValue !== 'complete')
                     .onClick(() => {
@@ -466,15 +449,11 @@ export class VaultTab {
         const legacyChatHistory = this.plugin.settings._chatHistoryFolderLegacy;
         if (legacyChatHistory) {
             new Setting(containerEl)
-                .setName('Chat history folder setting removed')
-                .setDesc(
-                    `The chatHistoryFolder setting is no longer used. Your previous path was: ${legacyChatHistory}. `
-                    + 'Conversations remain accessible via the plugin sidebar history panel. The old vault folder '
-                    + 'is left in place; delete it manually if no longer needed.',
-                )
+                .setName(t('settings.vault.chatHistoryRemoved'))
+                .setDesc(t('settings.vault.chatHistoryRemovedDesc', { path: legacyChatHistory }))
                 .addButton((btn) =>
                     btn
-                        .setButtonText('Got it, dismiss')
+                        .setButtonText(t('settings.vault.chatHistoryRemovedDismiss'))
                         .setIcon('check')
                         .onClick(() => {
                             void (async () => {
@@ -533,12 +512,8 @@ export class VaultTab {
 
         // Auto-Summary-Toggle
         new Setting(containerEl)
-            .setName('Auto-summary on indexing')
-            .setDesc(
-                'When enabled, the semantic index generates a short summary for each note that does '
-                + 'not already have one in its frontmatter. Existing summaries are reused and never '
-                + 'overwritten. Costs one LLM call per note (uses your default model).',
-            )
+            .setName(t('settings.vault.autoSummary'))
+            .setDesc(t('settings.vault.autoSummaryDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoSummary.enabled).onChange(async (v) => {
                     cfg.autoSummary.enabled = v;
@@ -549,13 +524,8 @@ export class VaultTab {
 
         // Frontmatter-Write-Toggle
         new Setting(containerEl)
-            .setName('Write auto-summary into frontmatter')
-            .setDesc(
-                'When enabled, the generated summary is also written into the note\'s frontmatter as '
-                + 'a "Zusammenfassung" property (structure-preserving, never overwrites existing values). '
-                + 'Default OFF so the agent never modifies your notes without consent. After enabling, '
-                + 'run the backfill action below to summarize existing notes.',
-            )
+            .setName(t('settings.vault.autoSummaryFrontmatter'))
+            .setDesc(t('settings.vault.autoSummaryFrontmatterDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoSummary.writeFrontmatter).onChange(async (v) => {
                     cfg.autoSummary.writeFrontmatter = v;
@@ -566,21 +536,18 @@ export class VaultTab {
 
         // Standard-Prompt-Editor
         new Setting(containerEl)
-            .setName('Default summary prompt')
-            .setDesc(
-                'Prompt template used to generate note summaries. Editable per vault. '
-                + '"Reset" restores the built-in default.',
-            )
+            .setName(t('settings.vault.summaryPrompt'))
+            .setDesc(t('settings.vault.summaryPromptDesc'))
             .addButton((btn) =>
                 btn
-                    .setButtonText('Edit')
+                    .setButtonText(t('settings.vault.edit'))
                     .setIcon('pencil')
                     .onClick(async () => {
                         const next = await promptModal(this.app, {
-                            title: 'Default summary prompt',
+                            title: t('settings.vault.summaryPrompt'),
                             defaultValue: cfg.summaryPrompt.template,
-                            placeholder: 'Multi-line prompt template...',
-                            submitLabel: 'Save',
+                            placeholder: t('settings.vault.summaryPromptPlaceholder'),
+                            submitLabel: t('settings.vault.save'),
                         });
                         if (next === null) return;
                         cfg.summaryPrompt.template = next || DEFAULT_SUMMARY_PROMPT_TEMPLATE;
@@ -591,7 +558,7 @@ export class VaultTab {
             )
             .addButton((btn) =>
                 btn
-                    .setButtonText('Reset')
+                    .setButtonText(t('settings.vault.reset'))
                     .onClick(async () => {
                         cfg.summaryPrompt.template = DEFAULT_SUMMARY_PROMPT_TEMPLATE;
                         this.plugin.settings.vaultIngest = cfg;
@@ -602,28 +569,28 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'Auto-trigger for inbox triage',
-            { body: 'Watches your vault for notes that carry a specific frontmatter property and value. When a match appears (e.g. you save a note with `category: source`), the agent automatically queues it for triage and processes it in the background. Useful for inbox-style workflows where new sources should be summarised and filed without manual invocation. Toggling the master switch requires a plugin reload to (de)register the file watcher.' },
+            t('settings.vault.headingAutoTrigger'),
+            { body: t('settings.vault.sectionAutoTriggerInfo') },
             { level: 'h4' },
         );
 
         new Setting(containerEl)
-            .setName('Enable auto-trigger')
-            .setDesc('Triage starts automatically when a note carries the property and value configured below. Default off.')
+            .setName(t('settings.vault.autoTriggerEnable'))
+            .setDesc(t('settings.vault.autoTriggerEnableDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoTrigger.enabled).onChange(async (v) => {
                     cfg.autoTrigger.enabled = v;
                     this.plugin.settings.vaultIngest = cfg;
                     await this.plugin.saveSettings();
                     if (v) {
-                        new Notice('Auto-trigger enabled. Reload the plugin so the file watcher registers.', 8000);
+                        new Notice(t('notice.vault.autoTriggerEnabled'), 8000);
                     }
                 }),
             );
 
         new Setting(containerEl)
-            .setName('Property name')
-            .setDesc('Name of the frontmatter property to watch, for example category.')
+            .setName(t('settings.vault.autoTriggerPropertyName'))
+            .setDesc(t('settings.vault.autoTriggerPropertyNameDesc'))
             .addText((text) =>
                 text
                     .setValue(cfg.autoTrigger.propertyName)
@@ -636,8 +603,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Property value')
-            .setDesc('Value that triggers a match, for example source. Separate multiple values with commas.')
+            .setName(t('settings.vault.autoTriggerPropertyValue'))
+            .setDesc(t('settings.vault.autoTriggerPropertyValueDesc'))
             .addText((text) =>
                 text
                     .setValue(Array.isArray(cfg.autoTrigger.propertyValue) ? cfg.autoTrigger.propertyValue.join(', ') : cfg.autoTrigger.propertyValue)
@@ -651,8 +618,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Show notification on trigger')
-            .setDesc('Display a toast when auto-trigger fires. Default off (the vault health modal already lists triggered notes).')
+            .setName(t('settings.vault.autoTriggerNotification'))
+            .setDesc(t('settings.vault.autoTriggerNotificationDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(cfg.autoTrigger.notification).onChange(async (v) => {
                     cfg.autoTrigger.notification = v;
@@ -663,22 +630,18 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'PDF handling',
-            { body: 'Controls how PDFs are referenced when the agent cites them. Page-refs keeps the PDF untouched and links to specific pages. Markdown-mirror additionally extracts the text into a parallel markdown file, which lets the agent quote and link at block level. Page-refs is the default; use Markdown-mirror only for text-heavy PDFs where you need quote-level granularity.' },
+            t('settings.vault.headingPdf'),
+            { body: t('settings.vault.sectionPdfInfo') },
             { level: 'h4' },
         );
 
         new Setting(containerEl)
-            .setName('PDF strategy')
-            .setDesc(
-                'Page-refs (default): PDF stays in the vault, citations use [[file.pdf#page=N]]. '
-                + 'Markdown-mirror (opt-in): an additional markdown copy is created for block-level '
-                + 'granularity. Useful for text-heavy PDFs where you want quote-level references.',
-            )
+            .setName(t('settings.vault.pdfStrategy'))
+            .setDesc(t('settings.vault.pdfStrategyDesc'))
             .addDropdown((dd) =>
                 dd
-                    .addOption('page-refs', 'Page-refs (default)')
-                    .addOption('markdown-mirror', 'Markdown-mirror (opt-in)')
+                    .addOption('page-refs', t('settings.vault.pdfStrategyPageRefs'))
+                    .addOption('markdown-mirror', t('settings.vault.pdfStrategyMarkdownMirror'))
                     .setValue(cfg.pdfStrategy)
                     .onChange(async (v) => {
                         cfg.pdfStrategy = v as 'page-refs' | 'markdown-mirror';
@@ -689,14 +652,14 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'Note templates for ingest skills',
-            { body: 'Vault-relative path to a Markdown file whose YAML frontmatter is used as the basis for newly ingested source notes. Leave empty to fall back to the bundled defaults. Useful if you want a custom set of frontmatter properties on every new source note.' },
+            t('settings.vault.headingTemplates'),
+            { body: t('settings.vault.sectionTemplatesInfo') },
             { level: 'h4' },
         );
 
         new Setting(containerEl)
-            .setName('Template for /ingest')
-            .setDesc('Frontmatter template used by the quick single-pass ingest skill.')
+            .setName(t('settings.vault.templateIngest'))
+            .setDesc(t('settings.vault.templateIngestDesc'))
             .addText((text) =>
                 text
                     .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
@@ -710,8 +673,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Template for /ingest-deep')
-            .setDesc('Frontmatter template used by the multi-turn deep-ingest skill.')
+            .setName(t('settings.vault.templateIngestDeep'))
+            .setDesc(t('settings.vault.templateIngestDeepDesc'))
             .addText((text) =>
                 text
                     .setPlaceholder('Tools & Settings/Templates/Quelle Template.md')
@@ -725,8 +688,8 @@ export class VaultTab {
             );
 
         new Setting(containerEl)
-            .setName('Template for /meeting-summary')
-            .setDesc('Frontmatter template used by the meeting-transcript summary skill.')
+            .setName(t('settings.vault.templateMeetingSummary'))
+            .setDesc(t('settings.vault.templateMeetingSummaryDesc'))
             .addText((text) =>
                 text
                     .setPlaceholder('Tools & Settings/Templates/Meeting-Notiz Template.md')
@@ -743,8 +706,8 @@ export class VaultTab {
         // Zettel that /ingest and /ingest-deep produce on top of the
         // source note. Default category is "Quellen-Notiz" / "Source note".
         new Setting(containerEl)
-            .setName('Template for sense-making notes')
-            .setDesc('Frontmatter template used for the secondary output notes (sense-making summary or per-takeaway zettels) produced by /ingest and /ingest-deep.')
+            .setName(t('settings.vault.templateSenseMaking'))
+            .setDesc(t('settings.vault.templateSenseMakingDesc'))
             .addText((text) =>
                 text
                     .setPlaceholder('Tools & Settings/Templates/Notiz Template.md')
@@ -762,11 +725,11 @@ export class VaultTab {
         // `templatesLanguage` (default 'de'). Skip-existing by default
         // so user edits are preserved; the modal offers force-overwrite.
         new Setting(containerEl)
-            .setName('Re-materialize default templates')
-            .setDesc('Re-writes the bundled source, note and meeting-note templates into your configured templates folder. Existing files are skipped unless you confirm overwrite.')
+            .setName(t('settings.vault.rematerializeTemplates'))
+            .setDesc(t('settings.vault.rematerializeTemplatesDesc'))
             .addButton((btn) =>
                 btn
-                    .setButtonText('Re-materialize')
+                    .setButtonText(t('settings.vault.rematerializeTemplatesButton'))
                     .onClick(async () => {
                         await this.handleRematerializeTemplates();
                     }),
@@ -774,23 +737,18 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'Top-hub block in system prompt',
-            { body: 'Hubs are the most-linked notes in your vault, the structural backbone of your knowledge graph (central index notes, MOCs, key topic pages). With this on, short summaries of your top 30 hubs are injected into every conversation\'s system prompt so the agent has a high-level map of your vault. Improves grounding for general questions, raises token cost on every call.' },
+            t('settings.vault.headingTopHub'),
+            { body: t('settings.vault.sectionTopHubInfo') },
             { level: 'h4' },
         );
 
         const privacyWarn = containerEl.createEl('div', { cls: 'agent-settings-desc' });
-        privacyWarn.createEl('strong', { text: 'Privacy notice: ' });
-        privacyWarn.appendText(
-            'When enabled, the summaries of your top 30 hub notes are sent to the LLM provider on '
-            + 'EVERY conversation. Before enabling, check whether any of your hub notes contain '
-            + 'sensitive data (journal entries, patient notes, business information). The setting '
-            + 'can be revoked at any time, but data already sent to the provider remains with them.',
-        );
+        privacyWarn.createEl('strong', { text: t('settings.vault.topHubPrivacyLabel') });
+        privacyWarn.appendText(t('settings.vault.topHubPrivacyText'));
 
         new Setting(containerEl)
-            .setName('Privacy notice read and accepted')
-            .setDesc('The top-hub block can only be enabled after this confirmation.')
+            .setName(t('settings.vault.topHubPrivacyAck'))
+            .setDesc(t('settings.vault.topHubPrivacyAckDesc'))
             .addToggle((toggle) =>
                 toggle.setValue(cfg.topHubBlock.privacyAcknowledged).onChange(async (v) => {
                     cfg.topHubBlock.privacyAcknowledged = v;
@@ -802,15 +760,15 @@ export class VaultTab {
             );
 
         const enabledSetting = new Setting(containerEl)
-            .setName('Enable top-hub block')
-            .setDesc('Default off. Requires the privacy notice to be accepted first.')
+            .setName(t('settings.vault.topHubEnable'))
+            .setDesc(t('settings.vault.topHubEnableDesc'))
             .addToggle((toggle) =>
                 toggle
                     .setValue(cfg.topHubBlock.enabled)
                     .setDisabled(!cfg.topHubBlock.privacyAcknowledged)
                     .onChange(async (v) => {
                         if (v && !cfg.topHubBlock.privacyAcknowledged) {
-                            new Notice('Please accept the privacy notice first.', 6000);
+                            new Notice(t('notice.vault.privacyAckRequired'), 6000);
                             toggle.setValue(false);
                             return;
                         }
@@ -821,31 +779,36 @@ export class VaultTab {
             );
         if (!cfg.topHubBlock.privacyAcknowledged) {
             enabledSetting.descEl.createEl('br');
-            enabledSetting.descEl.createEl('em', { text: '(disabled until privacy notice is accepted)' });
+            enabledSetting.descEl.createEl('em', { text: t('settings.vault.topHubDisabledHint') });
         }
 
         addSectionHeading(
             containerEl,
-            'Hot clusters (periodic freshness lint)',
-            { body: 'A "cluster" is a topic group derived from your vault\'s ontology (e.g. "AI", "Cooking"). A weekly background job checks whether the external world has moved on since your notes were last updated, but only for clusters you mark as "hot" below. Mark topics where currency matters (fast-moving fields, active projects). Default: none selected. A token budget caps the cost of each run.' },
+            t('settings.vault.headingHotClusters'),
+            { body: t('settings.vault.sectionHotClustersInfo') },
             { level: 'h4' },
         );
 
         const store = this.plugin.clusterMetadataStore;
         if (!store) {
-            containerEl.createEl('p', { cls: 'agent-settings-desc', text: 'Cluster metadata store not loaded.' });
+            containerEl.createEl('p', { cls: 'agent-settings-desc', text: t('settings.vault.clusterStoreNotLoaded') });
         } else {
             const all = store.getAll();
             if (all.length === 0) {
                 containerEl.createEl('p', {
                     cls: 'agent-settings-desc',
-                    text: 'No clusters in the ontology yet. Run vault indexing first.',
+                    text: t('settings.vault.noClusters'),
                 });
             } else {
                 for (const cluster of all) {
                     new Setting(containerEl)
                         .setName(cluster.cluster)
-                        .setDesc(`Half-life: ${cluster.halfLifeDays}d${cluster.lastExternalCheck ? '. Last check: ' + cluster.lastExternalCheck.split('T')[0] : ''}`)
+                        .setDesc(cluster.lastExternalCheck
+                            ? t('settings.vault.clusterDesc', {
+                                days: cluster.halfLifeDays,
+                                date: cluster.lastExternalCheck.split('T')[0],
+                            })
+                            : t('settings.vault.clusterDescNoCheck', { days: cluster.halfLifeDays }))
                         .addToggle((toggle) =>
                             toggle
                                 .setValue(cluster.hotCluster)
@@ -860,13 +823,13 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'Activity hint on stale clusters',
-            { body: 'When you open or edit a note in a cluster whose knowledge looks stale (low freshness score), the plugin can show a subtle notice offering to run an "anti-echo" search against external sources to surface what may have changed. Default off to avoid notice spam. Per-cluster cooldowns and a daily cap prevent repeated nagging.' },
+            t('settings.vault.headingActivityHint'),
+            { body: t('settings.vault.sectionActivityHintInfo') },
             { level: 'h4' },
         );
         new Setting(containerEl)
-            .setName('Enable activity hint')
-            .setDesc('Shows subtle notices when you open or edit a note in a cluster that has not been refreshed in a while.')
+            .setName(t('settings.vault.activityHintEnable'))
+            .setDesc(t('settings.vault.activityHintEnableDesc'))
             .addToggle((toggle) => {
                 toggle.setValue(cfg.stufe2Hint.enabled).onChange(async (v) => {
                     cfg.stufe2Hint.enabled = v;
@@ -874,8 +837,8 @@ export class VaultTab {
                 });
             });
         new Setting(containerEl)
-            .setName('Freshness score threshold')
-            .setDesc('Hint fires when the cluster\'s freshness score drops below this value (0..100). Default 70.')
+            .setName(t('settings.vault.activityHintThreshold'))
+            .setDesc(t('settings.vault.activityHintThresholdDesc'))
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.hintThresholdScore))
                     .onChange(async (v) => {
@@ -887,8 +850,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Minimum days since last external check')
-            .setDesc('Default 30. Prevents hints right after the periodic freshness lint already ran.')
+            .setName(t('settings.vault.activityHintMinDays'))
+            .setDesc(t('settings.vault.activityHintMinDaysDesc'))
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.minDaysSinceCheck))
                     .onChange(async (v) => {
@@ -900,8 +863,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Cooldown per cluster (days)')
-            .setDesc('Default 7. At most one hint per cluster within this period.')
+            .setName(t('settings.vault.activityHintCooldown'))
+            .setDesc(t('settings.vault.activityHintCooldownDesc'))
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.perClusterCooldownDays))
                     .onChange(async (v) => {
@@ -913,8 +876,8 @@ export class VaultTab {
                     });
             });
         new Setting(containerEl)
-            .setName('Max hints per day (global)')
-            .setDesc('Default 5. Caps total hints on busy days to avoid notice spam.')
+            .setName(t('settings.vault.activityHintMaxPerDay'))
+            .setDesc(t('settings.vault.activityHintMaxPerDayDesc'))
             .addText((text) => {
                 text.setValue(String(cfg.stufe2Hint.maxHintsPerDay))
                     .onChange(async (v) => {
@@ -928,35 +891,35 @@ export class VaultTab {
 
         addSectionHeading(
             containerEl,
-            'Manual actions',
-            { body: 'One-off operations you can run on the whole vault: backfill missing frontmatter summaries, scan the inbox for auto-trigger matches, inject map-of-content markers into hub notes, or rebuild the cached top-hub block. Each action is idempotent and safe to re-run.' },
+            t('settings.vault.headingManualActions'),
+            { body: t('settings.vault.sectionManualActionsInfo') },
             { level: 'h4' },
         );
         new Setting(containerEl)
-            .setName('Run frontmatter backfill')
-            .setDesc('Iterates over all Markdown notes and adds missing frontmatter summaries. Requires the auto-summary toggle above to be enabled. Can take a while on large vaults.')
-            .addButton((btn) => btn.setButtonText('Run backfill').onClick(() => { void this.plugin.runFrontmatterBackfill(); }));
+            .setName(t('settings.vault.backfillRun'))
+            .setDesc(t('settings.vault.backfillRunDesc'))
+            .addButton((btn) => btn.setButtonText(t('settings.vault.backfillRunButton')).onClick(() => { void this.plugin.runFrontmatterBackfill(); }));
         new Setting(containerEl)
-            .setName('Run inbox triage now')
-            .setDesc('Scans all notes that match the auto-trigger property and queues them as pending in the triage log.')
-            .addButton((btn) => btn.setButtonText('Triage inbox').onClick(() => { void this.plugin.runInboxTriage(); }));
+            .setName(t('settings.vault.triageRun'))
+            .setDesc(t('settings.vault.triageRunDesc'))
+            .addButton((btn) => btn.setButtonText(t('settings.vault.triageRunButton')).onClick(() => { void this.plugin.runInboxTriage(); }));
         new Setting(containerEl)
-            .setName('Insert map-of-content markers')
-            .setDesc('A map-of-content is a hub note that lists related notes. This action inserts the auto-generated marker block into all hub-candidate notes whose name matches a known cluster. Idempotent (safe to re-run).')
-            .addButton((btn) => btn.setButtonText('Insert markers').onClick(() => { void this.plugin.injectInitialMOCMarkers(); }));
+            .setName(t('settings.vault.mocInsert'))
+            .setDesc(t('settings.vault.mocInsertDesc'))
+            .addButton((btn) => btn.setButtonText(t('settings.vault.mocInsertButton')).onClick(() => { void this.plugin.injectInitialMOCMarkers(); }));
         new Setting(containerEl)
-            .setName('Refresh map-of-content pages')
-            .setDesc('Updates the auto-generated marker blocks inside hub pages. User-edited blocks are skipped.')
-            .addButton((btn) => btn.setButtonText('Refresh hub pages').onClick(() => { void this.plugin.refreshAllMOCs(); }));
+            .setName(t('settings.vault.mocRefresh'))
+            .setDesc(t('settings.vault.mocRefreshDesc'))
+            .addButton((btn) => btn.setButtonText(t('settings.vault.mocRefreshButton')).onClick(() => { void this.plugin.refreshAllMOCs(); }));
         new Setting(containerEl)
-            .setName('Regenerate top-hub block')
-            .setDesc('Manually rebuild the cached system-prompt block listing your top hubs. Otherwise it only refreshes when hub membership changes (with a 24h cooldown).')
-            .addButton((btn) => btn.setButtonText('Regenerate').onClick(() => {
-                if (!this.plugin.topHubBlockGenerator) { new Notice('Top-hub generator not available.'); return; }
+            .setName(t('settings.vault.topHubRegenerate'))
+            .setDesc(t('settings.vault.topHubRegenerateDesc'))
+            .addButton((btn) => btn.setButtonText(t('settings.vault.topHubRegenerateButton')).onClick(() => {
+                if (!this.plugin.topHubBlockGenerator) { new Notice(t('notice.vault.topHubUnavailable')); return; }
                 const r = this.plugin.topHubBlockGenerator.generate();
                 this.plugin.topHubBlockState = r.state;
                 this.plugin.topHubBlockMarkdown = r.block;
-                new Notice(`Top-hub block regenerated: ${r.hubs.length} hubs.`);
+                new Notice(t('notice.vault.topHubRegenerated', { count: r.hubs.length }));
             }));
     }
 
@@ -973,14 +936,14 @@ export class VaultTab {
      */
     private async handleRestoreClick(statusValue: string): Promise<void> {
         if (statusValue !== 'complete') {
-            new Notice('Layout migration is not complete; nothing to restore.', 5000);
+            new Notice(t('notice.vault.restoreNotReady'), 5000);
             return;
         }
         const vaultBasePath = (this.app.vault.adapter as unknown as {
             getBasePath?(): string;
         }).getBasePath?.() ?? '';
         if (!vaultBasePath) {
-            new Notice('Cannot resolve vault base path; restore aborted.', 6000);
+            new Notice(t('notice.vault.restoreNoBasePath'), 6000);
             return;
         }
         const nodePath = await import('path');
@@ -1018,7 +981,7 @@ export class VaultTab {
         const backups = await listBackupFolders(pluginDataDir);
         if (backups.length === 0) {
             new Notice(
-                'No backup snapshot found. Restore is only available after a fresh migration.',
+                t('notice.vault.restoreNoBackup'),
                 7000,
             );
             return;
@@ -1026,16 +989,10 @@ export class VaultTab {
         const latest = backups[0];
         const latestName = nodePath.basename(latest);
         const ok = await confirmModal(this.app, {
-            title: 'Restore previous layout from backup?',
-            message:
-                `Latest backup: ${latestName}\n\n`
-                + 'Restoring this snapshot:\n'
-                + '  - Rebuilds the four legacy plugin folders\n'
-                + '  - Deletes the consolidated .vault-operator/data and .vault-operator/cache folders\n'
-                + '  - Resets the migration status so the consolidation can be re-run later\n\n'
-                + 'You will have to reload the plugin afterwards (Cmd-P / Ctrl-P -> Reload Vault Operator). Continue?',
-            confirmLabel: 'Restore from backup',
-            cancelLabel: 'Cancel',
+            title: t('settings.vault.layoutRestoreConfirmTitle'),
+            message: t('settings.vault.layoutRestoreConfirmMessage', { backupName: latestName }),
+            confirmLabel: t('settings.vault.layoutRestoreButton'),
+            cancelLabel: t('settings.vault.cancel'),
         });
         if (!ok) return;
 
@@ -1050,7 +1007,7 @@ export class VaultTab {
             const failed = report.entries.filter((e) => e.status === 'failed' || e.status === 'skipped-destination-populated');
             console.warn('[VaultOperator] Restore-from-backup partial failure:', report);
             new Notice(
-                `Restore did not complete cleanly: ${failed.length} target(s) blocked. Check developer console.`,
+                t('notice.vault.restoreIncomplete', { count: failed.length }),
                 10000,
             );
             return;
@@ -1063,7 +1020,7 @@ export class VaultTab {
         await this.plugin.saveSettings();
 
         new Notice(
-            'Layout restored from backup. Reload the plugin via the command palette to pick up the old layout.',
+            t('notice.vault.restoreDone'),
             10000,
         );
         this.rerender();
@@ -1072,18 +1029,15 @@ export class VaultTab {
     private async handleMigrateClick(service: AgentFolderService): Promise<void> {
         const currentPath = readStoredAgentFolder(this.plugin);
         const oldPathInput = await promptModal(this.app, {
-            title: 'Migrate agent folder data',
-            message:
-                `Migrate data FROM which folder?\n\n`
-                + `Current agent folder is "${currentPath}".\n`
-                + `Enter the OLD path whose data should be copied here.`,
+            title: t('settings.vault.migrateModalTitle'),
+            message: t('settings.vault.migrateModalMessage', { currentPath }),
             defaultValue: DEFAULT_AGENT_FOLDER,
-            submitLabel: 'Next',
+            submitLabel: t('settings.vault.migrateModalNext'),
         });
         if (!oldPathInput) return;
         const oldPath = oldPathInput.trim();
         if (!oldPath || oldPath === currentPath) {
-            new Notice('Nothing to do: old and new path are the same.');
+            new Notice(t('notice.vault.migrateSamePath'));
             return;
         }
 
@@ -1093,47 +1047,46 @@ export class VaultTab {
             || preview.knowledgeDbExists
             || preview.memoryDbExists;
         if (!hasAnything) {
-            new Notice(`No plugin data found at "${oldPath}". Nothing migrated.`);
+            new Notice(t('notice.vault.migrateNothingFound', { path: oldPath }));
             return;
         }
 
         const parts: string[] = [];
-        if (preview.pluginSkills.length > 0) parts.push(`${preview.pluginSkills.length} plugin-skill file(s)`);
+        if (preview.pluginSkills.length > 0) parts.push(t('notice.vault.migratePluginSkillFiles', { count: preview.pluginSkills.length }));
         if (preview.vaultDnaExists) parts.push('vault-dna.json');
         if (preview.knowledgeDbExists) parts.push('knowledge.db');
         if (preview.memoryDbExists) parts.push('memory.db');
         const mb = (preview.totalBytes / (1024 * 1024)).toFixed(1);
-        const summary = `${parts.join(', ')} (~${mb} MB)`;
+        const summary = t('settings.vault.migrateSummary', { items: parts.join(', '), mb });
 
         const confirmed = await confirmModal(this.app, {
-            title: 'Confirm migration',
-            message:
-                `Migrate ${summary}\n\n`
-                + `FROM: ${oldPath}\n`
-                + `TO:   ${currentPath}\n\n`
-                + `The originals stay in place. Delete them manually after verifying the new location works.\n\n`
-                + `Reload Obsidian after migration so the knowledge and memory databases re-open at the new path.`,
-            confirmLabel: 'Migrate',
+            title: t('settings.vault.migrateConfirmTitle'),
+            message: t('settings.vault.migrateConfirmMessage', { summary, oldPath, currentPath }),
+            confirmLabel: t('settings.vault.migrateConfirmButton'),
         });
         if (!confirmed) return;
 
         const result = await service.migrate(oldPath, currentPath);
         const summaryParts: string[] = [];
-        if (result.movedPluginSkills > 0) summaryParts.push(`${result.movedPluginSkills} plugin-skill file(s)`);
+        if (result.movedPluginSkills > 0) summaryParts.push(t('notice.vault.migratePluginSkillFiles', { count: result.movedPluginSkills }));
         if (result.movedVaultDna) summaryParts.push('vault-dna.json');
         if (result.movedKnowledgeDb) summaryParts.push('knowledge.db');
         if (result.movedMemoryDb) summaryParts.push('memory.db');
 
         if (result.errors.length > 0) {
             new Notice(
-                `Migration finished with ${result.errors.length} error(s). Moved: ${summaryParts.join(', ') || 'none'}. First error: ${result.errors[0]}`,
+                t('notice.vault.migrateFinishedWithErrors', {
+                    count: result.errors.length,
+                    moved: summaryParts.join(', ') || t('notice.vault.migrateMovedNone'),
+                    error: result.errors[0],
+                }),
                 15_000,
             );
         } else if (summaryParts.length === 0) {
-            new Notice('Nothing migrated. Destination already had identical files.');
+            new Notice(t('notice.vault.migrateNothingMigrated'));
         } else {
             new Notice(
-                `Migrated ${summaryParts.join(', ')}. Reload Obsidian so the knowledge and memory databases open at the new location.`,
+                t('notice.vault.migrateDone', { items: summaryParts.join(', ') }),
                 15_000,
             );
         }
@@ -1149,7 +1102,7 @@ export class VaultTab {
         const folder = await resolveCoreTemplatesFolder(this.app);
         if (!folder) {
             new Notice(
-                'No templates folder set. Enable the Obsidian core templates plugin and pick a folder first.',
+                t('notice.vault.templatesNoFolder'),
                 8000,
             );
             return;
@@ -1161,13 +1114,9 @@ export class VaultTab {
             : 'de';
 
         const force = await confirmModal(this.app, {
-            title: 'Re-materialize templates',
-            message:
-                `Target folder: ${folder}\n` +
-                `Language: ${lang}\n\n` +
-                'Click OK to write the bundled defaults, skipping any files that already exist.\n' +
-                'Click "Overwrite" to replace existing files with the bundled defaults (destructive!).',
-            confirmLabel: 'Overwrite',
+            title: t('settings.vault.rematerializeConfirmTitle'),
+            message: t('settings.vault.rematerializeConfirmMessage', { folder, lang }),
+            confirmLabel: t('settings.vault.rematerializeOverwriteButton'),
             destructive: true,
         });
 
@@ -1186,14 +1135,21 @@ export class VaultTab {
 
         try {
             const result = await materializer.materialize(folder, lang, { force, translator });
-            const summary = `Templates re-materialized: ${result.written.length} written, ${result.skipped.length} skipped${result.failed.length ? `, ${result.failed.length} failed` : ''}.`;
+            const failedPart = result.failed.length
+                ? t('notice.vault.templatesFailedPart', { count: result.failed.length })
+                : '';
+            const summary = t('notice.vault.templatesDone', {
+                written: result.written.length,
+                skipped: result.skipped.length,
+                failedPart,
+            });
             new Notice(summary, 6000);
             if (result.failed.length > 0) {
                 console.warn('[templates] re-materialization failures:', result.failed);
             }
         } catch (e) {
             console.error('[templates] re-materialization failed:', e);
-            new Notice(`Templates re-materialization failed -- ${(e as Error).message ?? String(e)}`, 10_000);
+            new Notice(t('notice.vault.templatesFailed', { error: (e as Error).message ?? String(e) }), 10_000);
         }
     }
 }

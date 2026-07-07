@@ -17,6 +17,7 @@
 
 import { requestUrl } from 'obsidian';
 import type { ObsidianAgentSettings } from '../../types/settings';
+import { safeOAuthErrorDetail } from './safeOAuthError';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -153,7 +154,7 @@ export class KiloAuthService {
 
         const data = res.json as Record<string, unknown>;
         if (!data.code || !data.user_code) {
-            throw new Error(`Kilo device auth: unexpected response — ${JSON.stringify(data)}`);
+            throw new Error(`Kilo device auth: ${safeOAuthErrorDetail(data)}`);
         }
 
         return {
@@ -212,7 +213,7 @@ export class KiloAuthService {
                 if (error === 'authorization_pending') continue;
                 if (error === 'expired_token') throw new Error('Device code expired. Start authorization again.');
                 if (error === 'access_denied') throw new Error('Authorization was denied.');
-                throw new Error(`Kilo auth error: ${error ?? JSON.stringify(data)}`);
+                throw new Error(`Kilo auth error: ${error ?? safeOAuthErrorDetail(data)}`);
             }
 
             throw new Error(`Kilo auth poll failed (HTTP ${res.status})`);

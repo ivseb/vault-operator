@@ -31,6 +31,7 @@ import type { ApiHandler } from '../../api/types';
 import type { ToolRegistry } from '../tools/ToolRegistry';
 import type { ModeService } from '../modes/ModeService';
 import type { CompositionStackService } from '../skills/CompositionStackService';
+import type { InflightStore } from './InflightStore';
 import {
     DEFAULT_CONDENSING_ENABLED,
     DEFAULT_CONDENSING_THRESHOLD,
@@ -80,6 +81,12 @@ export interface AgentTaskRunnerOptions {
      * parent's stack so the chain stays visible across hops.
      */
     compositionStack?: CompositionStackService;
+    /**
+     * IMP-41-03-01: inflight snapshot store for crash recovery. Foreground
+     * callers pass plugin.inflightStore; subtasks and headless probes omit
+     * it (their state is owned by the parent).
+     */
+    inflightStore?: InflightStore;
 }
 
 export class AgentTaskRunner {
@@ -107,6 +114,9 @@ export class AgentTaskRunner {
             options.modelOverrideActive ?? false,
             options.compositionStack,
         );
+        if (options.inflightStore) {
+            this.task.setInflightStore(options.inflightStore);
+        }
     }
 
     /**

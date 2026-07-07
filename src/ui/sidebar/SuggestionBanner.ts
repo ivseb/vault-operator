@@ -80,7 +80,7 @@ export class SuggestionBanner {
         // Header (collapsible)
         let collapsed = false;
         const header = banner.createDiv('agent-suggestions-header');
-        header.createSpan({ text: `Connections (${suggestions.length})`, cls: 'agent-suggestions-title' });
+        header.createSpan({ text: t('ui.suggestionBanner.title', { count: suggestions.length }), cls: 'agent-suggestions-title' });
 
         const headerActions = header.createDiv('agent-suggestions-header-actions');
         const toggleIcon = headerActions.createSpan('agent-suggestions-toggle');
@@ -135,14 +135,14 @@ export class SuggestionBanner {
 
             const actions = item.createDiv('agent-suggestion-actions');
 
-            const openBtn = actions.createEl('button', { cls: 'agent-suggestion-btn', attr: { 'aria-label': 'Open both notes' } });
+            const openBtn = actions.createEl('button', { cls: 'agent-suggestion-btn', attr: { 'aria-label': t('ui.suggestionBanner.openBoth') } });
             setIcon(openBtn, 'split');
             openBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 void this.openNotesSplit(s.pathA, s.pathB);
             });
 
-            const dismissBtn = actions.createEl('button', { cls: 'agent-suggestion-btn agent-suggestion-dismiss', attr: { 'aria-label': 'Dismiss' } });
+            const dismissBtn = actions.createEl('button', { cls: 'agent-suggestion-btn agent-suggestion-dismiss', attr: { 'aria-label': t('ui.suggestionBanner.dismiss') } });
             setIcon(dismissBtn, 'x');
             dismissBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -153,7 +153,7 @@ export class SuggestionBanner {
                     banner.remove();
                     this.bannerEl = null;
                 } else {
-                    header.querySelector('.agent-suggestions-title')?.setText(`Connections (${remaining})`);
+                    header.querySelector('.agent-suggestions-title')?.setText(t('ui.suggestionBanner.title', { count: remaining }));
                 }
             });
         }

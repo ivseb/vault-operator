@@ -21,6 +21,7 @@ import type { Vault } from 'obsidian';
 import * as path from 'path';
 import * as fs from '../security/safeFs';
 import { WriterLock, WriterLockHeldError } from '../persistence/WriterLock';
+import { getSqlModule, dbSizeWarning } from './dbOpenHelpers';
 
 export { WriterLockHeldError } from '../persistence/WriterLock';
 
@@ -320,10 +321,12 @@ export class KnowledgeDB {
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- sql.js WASM init needs require for Electron compatibility
         const initSqlJs = require('sql.js') as (config?: { wasmBinary?: ArrayBuffer }) => Promise<SqlJsStatic>;
 
-        // sql.js WASM is bundled inline at build time (Phase 1: no
-        // runtime download, no pluginDir read, no CDN fallback).
-        const wasmBinary = await this.loadWasmBinary();
-        this.SQL = await initSqlJs({ wasmBinary });
+        // Issue #32: share ONE compiled sql.js module across MemoryDB /
+        // HistoryDB / KnowledgeDB instead of compiling the ~740 KB WASM (and
+        // base64-decoding it) once per DB. The bundled WASM stays inline at
+        // build time (no runtime download, no pluginDir read, no CDN fallback);
+        // getSqlModule just memoizes the single compile.
+        this.SQL = await getSqlModule(initSqlJs, () => this.loadWasmBinary());
 
         // Clean up stale .tmp files from interrupted writes
         await this.cleanupTmp();
@@ -331,6 +334,11 @@ export class KnowledgeDB {
         // Try to load existing DB with integrity check + auto-recovery
         const data = await this.readDB();
         if (data) {
+            // Issue #32: sql.js holds the whole file resident in memory (no
+            // paging). Warn when a database has grown large enough to slow
+            // startup and queries so the user can rebuild / prune the index.
+            const sizeWarn = dbSizeWarning(data.byteLength, path.basename(this.absolutePath));
+            if (sizeWarn) console.warn(sizeWarn);
             if (await this.tryLoadWithIntegrityCheck(data)) return;
 
             // Primary DB corrupt -- try backup recovery

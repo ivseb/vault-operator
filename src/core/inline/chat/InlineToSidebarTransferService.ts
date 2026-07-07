@@ -39,7 +39,8 @@ const VIEW_TYPE_AGENT_SIDEBAR = 'obsidian-agent-sidebar';
  */
 interface SidebarHandshake {
     readonly isBusy: boolean;
-    importConversation(state: TransferState): Promise<void>;
+    /** Resolves false when the sidebar refused the import (GUARD-I1). */
+    importConversation(state: TransferState): Promise<boolean>;
 }
 
 export interface TransferState {
@@ -136,7 +137,14 @@ export class InlineToSidebarTransferService {
             return { ok: false, reason: 'sidebar-busy' };
         }
         try {
-            await sidebar.importConversation(fresh.state);
+            // AUDIT 2026-07-07 GUARD-I1: a refusal (FIX-01-01-02 guard fired
+            // inside the sidebar) must not read as success -- the panel would
+            // close while the conversation never arrived.
+            const imported = await sidebar.importConversation(fresh.state);
+            if (imported === false) {
+                this.notifyForReason('sidebar-busy');
+                return { ok: false, reason: 'sidebar-busy' };
+            }
         } catch (e) {
             console.warn('[InlineToSidebarTransferService] importConversation failed:', e);
             this.notify('Could not move the conversation to the sidebar. See console for details.');

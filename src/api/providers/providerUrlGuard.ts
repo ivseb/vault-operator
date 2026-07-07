@@ -177,7 +177,48 @@ export function isLocalHostname(hostname: string): boolean {
     return false;
 }
 
+/**
+ * MCP-1: normalize alternate IPv4/IPv6 literal encodings to canonical
+ * dotted-quad so the private-range check cannot be bypassed via decimal
+ * (`2130706433` = 127.0.0.1), hex (`0x7f000001`), octal (`0177.0.0.1`), or
+ * IPv4-mapped IPv6 (`::ffff:7f00:1`) forms. Pure string parsing, no DNS, so it
+ * behaves identically on desktop and mobile. Returns canonical dotted-quad, or
+ * null when the host is not one of these integer/mapped IP encodings.
+ */
+function normalizeIpv4Encoding(hostname: string): string | null {
+    let h = hostname.trim().toLowerCase();
+    if (h.startsWith('[') && h.endsWith(']')) h = h.slice(1, -1);
+
+    const toQuad = (n: number): string | null =>
+        Number.isInteger(n) && n >= 0 && n <= 0xffffffff
+            ? `${(n >>> 24) & 255}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}`
+            : null;
+
+    // IPv4-mapped IPv6: ::ffff:127.0.0.1 or ::ffff:7f00:1
+    const mapped = h.match(/^::ffff:(.+)$/i);
+    if (mapped) {
+        const tail = mapped[1];
+        if (/^\d{1,3}(\.\d{1,3}){3}$/.test(tail)) return tail;
+        const pair = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+        if (pair) return toQuad(((parseInt(pair[1], 16) & 0xffff) << 16) | (parseInt(pair[2], 16) & 0xffff));
+    }
+    // Bare decimal integer: 2130706433
+    if (/^\d+$/.test(h)) return toQuad(Number(h));
+    // Hex integer: 0x7f000001
+    if (/^0x[0-9a-f]+$/i.test(h)) return toQuad(parseInt(h, 16));
+    // Dotted form with an octal (leading-zero) component: 0177.0.0.1
+    const parts = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+    if (parts && parts.slice(1).some((p) => /^0\d+$/.test(p))) {
+        const nums = parts.slice(1).map((p) => (/^0\d+$/.test(p) ? parseInt(p, 8) : Number(p)));
+        if (nums.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) return nums.join('.');
+    }
+    return null;
+}
+
 export function isPrivateIpHostname(hostname: string): boolean {
+    // MCP-1: fold alternate IP encodings to canonical dotted-quad first.
+    const canonical = normalizeIpv4Encoding(hostname);
+    if (canonical) hostname = canonical;
     const v4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (v4) {
         const a = Number(v4[1]);

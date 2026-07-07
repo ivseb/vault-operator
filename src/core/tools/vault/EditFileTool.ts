@@ -13,6 +13,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
+import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { validateVaultRelativePath } from './pathValidation';
 
 interface EditFileInput {
@@ -143,7 +144,10 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                         // but the user sees the pre-edit buffer.
                         await refreshOpenMarkdownViewsFor(this.app, file, normalized);
                     } else {
-                        await this.app.vault.adapter.write(cleanPath, normalized);
+                        // FIX-01-07-04 parity: non-indexed (dot-path) writes go
+                        // through the atomic temp+rename path, never a raw
+                        // truncate-then-write that can leave a 0-byte file.
+                        await atomicAdapterWrite(this.app.vault.adapter, cleanPath, normalized);
                     }
                     const stats = this.diffStats(content, normalized);
                     const { added, removed } = this.diffNums(content, normalized);
@@ -183,7 +187,8 @@ export class EditFileTool extends BaseTool<'edit_file'> {
                 // FIX-01-07-03: see note above; same editor-buffer push.
                 await refreshOpenMarkdownViewsFor(this.app, file, newContent);
             } else {
-                await this.app.vault.adapter.write(cleanPath, newContent);
+                // FIX-01-07-04 parity: see fuzzy-match branch above.
+                await atomicAdapterWrite(this.app.vault.adapter, cleanPath, newContent);
             }
 
             const stats = this.diffStats(content, newContent);

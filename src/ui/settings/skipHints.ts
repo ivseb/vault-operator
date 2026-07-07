@@ -9,6 +9,7 @@
  */
 
 import type ObsidianAgentPlugin from '../../main';
+import { t } from '../../i18n';
 
 export type SkippedStepId =
     | 'welcome'
@@ -19,15 +20,11 @@ export type SkippedStepId =
     | 'optional-downloads'
     | 'done';
 
-const STEP_MESSAGES: Record<string, string> = {
-    'llm-model':
-        'You skipped this during setup. Add at least one LLM model so the agent can answer messages.',
-    'embedding-model':
-        'You skipped this during setup. Add an embedding model to unlock semantic search and memory retrieval.',
-    'search-provider':
-        'You skipped this during setup. Configure a search provider (Tavily, Brave) to enable the agent\'s web-search tools.',
-    'role-models':
-        'You skipped this during setup. Optionally assign smaller, cheaper models to titling, internal calls and memory extraction.',
+const STEP_MESSAGE_KEYS: Record<string, string> = {
+    'llm-model': 'settings.skipHint.llmModel',
+    'embedding-model': 'settings.skipHint.embeddingModel',
+    'search-provider': 'settings.skipHint.searchProvider',
+    'role-models': 'settings.skipHint.roleModels',
 };
 
 /**
@@ -43,24 +40,24 @@ export function renderSkipHintIfSkipped(
     const skipped = plugin.settings.onboarding?.skippedSteps as string[] | undefined;
     if (!skipped || !skipped.includes(stepId)) return false;
 
-    const message = STEP_MESSAGES[stepId];
-    if (!message) return false;
+    const messageKey = STEP_MESSAGE_KEYS[stepId];
+    if (!messageKey) return false;
 
     const banner = containerEl.createDiv({ cls: 'vault-op-box vault-op-box--info' });
     const text = banner.createDiv({ cls: 'vault-op-box__text' });
     const headline = text.createEl('strong');
-    headline.setText('Setup left this for later');
-    text.createDiv({ text: message });
+    headline.setText(t('settings.skipHint.title'));
+    text.createDiv({ text: t(messageKey) });
 
     const actions = banner.createDiv({ cls: 'vault-op-box__actions' });
-    const reopenBtn = actions.createEl('button', { text: 'Reopen wizard' });
+    const reopenBtn = actions.createEl('button', { text: t('settings.skipHint.reopenWizard') });
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
     reopenBtn.addEventListener('click', async () => {
         const { FirstRunWizardModal } = await import('../modals/FirstRunWizardModal');
         new FirstRunWizardModal(plugin.app, plugin).open();
     });
 
-    const dismissBtn = actions.createEl('button', { text: 'Dismiss' });
+    const dismissBtn = actions.createEl('button', { text: t('settings.skipHint.dismiss') });
     // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
     dismissBtn.addEventListener('click', async () => {
         const arr = plugin.settings.onboarding.skippedSteps as string[];

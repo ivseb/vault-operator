@@ -18,6 +18,7 @@
 
 import { requestUrl } from 'obsidian';
 import type { ObsidianAgentSettings } from '../../types/settings';
+import { safeOAuthErrorDetail } from './safeOAuthError';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -175,7 +176,7 @@ export class GitHubCopilotAuthService {
         const data = res.json as Record<string, unknown>;
 
         if (!data.device_code || !data.user_code) {
-            throw new Error(`Device flow failed: ${JSON.stringify(data)}`);
+            throw new Error(`Device flow failed: ${safeOAuthErrorDetail(data)}`);
         }
 
         return {

@@ -17,6 +17,8 @@ interface MockAdapter {
     exists: (p: string) => Promise<boolean>;
     read: (p: string) => Promise<string>;
     write: (p: string, content: string) => Promise<void>;
+    rename: (from: string, to: string) => Promise<void>;
+    remove: (p: string) => Promise<void>;
 }
 
 function makePlugin(initialFiles: Record<string, string>) {
@@ -30,6 +32,16 @@ function makePlugin(initialFiles: Record<string, string>) {
         },
         write: async (p, content) => {
             files.set(p, content);
+        },
+        // FIX-01-07-04: hidden-path writes stage via temp+rename now.
+        rename: async (from, to) => {
+            const v = files.get(from);
+            if (v === undefined) throw new Error(`ENOENT rename src: ${from}`);
+            files.set(to, v);
+            files.delete(from);
+        },
+        remove: async (p) => {
+            files.delete(p);
         },
     };
 

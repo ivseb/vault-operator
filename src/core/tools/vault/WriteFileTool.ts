@@ -12,6 +12,7 @@ import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getAgentFolderPath } from '../../utils/agentFolder';
+import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { validateVaultRelativePath } from './pathValidation';
 
@@ -170,6 +171,9 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 }
 
                 const existingContent = await this.app.vault.read(existingFile);
+                // P0 (2026-07-05 data-loss): do not wipe a finished note when
+                // the new content is empty/whitespace-only (lost/truncated arg).
+                this.guardDestructiveEmptyOverwrite(safePath, content, existingContent);
                 await this.app.vault.modify(existingFile, content);
                 // FIX-01-07-03: push the new content directly into the open
                 // CodeMirror buffer so the editor view shows the write
@@ -226,6 +230,14 @@ export class WriteFileTool extends BaseTool<'write_file'> {
         const adapter = this.app.vault.adapter;
         const existed = await adapter.exists(safePath);
 
+        // P0 (2026-07-05 data-loss): refuse to clobber a finished file with
+        // empty/whitespace content. Reading the current content only when the
+        // new content is empty keeps the common path free of an extra read.
+        if (existed && content.trim() === '') {
+            const current = await adapter.read(safePath);
+            this.guardDestructiveEmptyOverwrite(safePath, content, current);
+        }
+
         // Ensure parent directory exists
         const parentPath = safePath.substring(0, safePath.lastIndexOf('/'));
         if (parentPath) {
@@ -235,7 +247,13 @@ export class WriteFileTool extends BaseTool<'write_file'> {
             }
         }
 
-        await adapter.write(safePath, content);
+        // P0 (2026-07-05 data-loss): atomic write. adapter.write is a
+        // truncate-then-write (fs.writeFile, O_TRUNC) with no temp+rename, so
+        // an interruption after the truncate leaves the primary file at 0
+        // bytes. This was the daily-briefing 0-byte incident. Stage to a temp
+        // sibling and rename over the target so an interrupted write can never
+        // destroy the previous good file.
+        await atomicAdapterWrite(adapter, safePath, content);
 
         if (existed) {
             callbacks.pushToolResult(this.formatSuccess(`File updated: ${safePath} (${content.length} chars)`));
@@ -243,6 +261,24 @@ export class WriteFileTool extends BaseTool<'write_file'> {
         } else {
             callbacks.pushToolResult(this.formatSuccess(`File created: ${safePath} (${content.length} chars)`));
             callbacks.log(`Successfully created file: ${safePath}`);
+        }
+    }
+
+    /**
+     * P0 (2026-07-05 data-loss guard). Refuse to overwrite an existing
+     * non-empty file with empty or whitespace-only content. The trigger was a
+     * same-day daily-briefing rerun whose write_file content argument was lost
+     * or truncated (model give-up), which zeroed the finished day-file. Empty
+     * NEW files and empty-over-empty writes stay allowed; only destroying real
+     * content is blocked, with a message that tells the agent to re-send.
+     */
+    private guardDestructiveEmptyOverwrite(safePath: string, content: string, existingContent: string): void {
+        if (content.trim() === '' && existingContent.trim() !== '') {
+            throw new Error(
+                `Refusing to overwrite non-empty file ${safePath} with empty content. `
+                + 'This guards against wiping a finished file when a tool argument was lost or truncated. '
+                + 'Re-send write_file with the full intended content.',
+            );
         }
     }
 

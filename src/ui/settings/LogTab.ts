@@ -32,18 +32,18 @@ export class LogTab {
         const icon = banner.createSpan({ cls: 'vault-op-box__icon' });
         setIcon(icon, 'alert-triangle');
         const text = banner.createDiv({ cls: 'vault-op-box__text' });
-        text.createEl('strong', { text: 'Audit log write failures' });
+        text.createEl('strong', { text: t('settings.log.writeFailuresTitle') });
         text.createDiv({
-            text: `${failedCount} log write${failedCount === 1 ? '' : 's'} failed since plugin start. Operations continued, but the audit trail has a gap.`,
+            text: t('settings.log.writeFailuresBody', { count: failedCount }),
         });
         const lastMsg = logger.getLastFailureMessage();
         if (lastMsg) {
             const detail = text.createDiv({ cls: 'agent-settings-desc' });
-            detail.setText(`Last error: ${this.truncate(lastMsg, 200)}`);
+            detail.setText(t('settings.log.lastError', { message: this.truncate(lastMsg, 200) }));
         }
         const actions = text.createDiv({ cls: 'agent-log-controls' });
         const clearBtn = actions.createEl('button', {
-            text: 'Clear notice',
+            text: t('settings.log.clearNotice'),
             cls: 'agent-log-clear-btn',
         });
         clearBtn.addEventListener('click', () => {

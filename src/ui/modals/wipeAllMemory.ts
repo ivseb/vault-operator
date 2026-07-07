@@ -15,6 +15,7 @@ import type { App } from 'obsidian';
 import { Notice } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { confirmModal, promptModal } from './PromptModal';
+import { t } from '../../i18n';
 
 export type WipeOutcome = 'deleted' | 'cancelled' | 'failed' | 'no-db';
 
@@ -23,35 +24,27 @@ export async function confirmAndWipeAllMemory(
     plugin: ObsidianAgentPlugin,
 ): Promise<WipeOutcome> {
     if (!plugin.memoryDB?.isOpen()) {
-        new Notice('Memory database is not open.');
+        new Notice(t('notice.memory.dbNotOpen'));
         return 'no-db';
     }
 
     const ok = await confirmModal(app, {
-        title: 'Delete all memory?',
-        message:
-            'This permanently removes EVERYTHING Vault Operator has stored:\n\n' +
-            '· All facts you taught it about yourself\n' +
-            '· Vault Operator\'s entire soul (identity, values, anti-patterns, communication style)\n' +
-            '· All session summaries from past conversations\n' +
-            '· The audit trail (no recovery, no undo)\n' +
-            '· The capability snapshot (will rebuild on next plugin reload)\n\n' +
-            'You will keep your conversations themselves and your vault content. ' +
-            'Continue?',
-        confirmLabel: 'Continue',
-        cancelLabel: 'Cancel',
+        title: t('modal.wipeMemory.title'),
+        message: t('modal.wipeMemory.message'),
+        confirmLabel: t('modal.wipeMemory.confirm'),
+        cancelLabel: t('modal.modelConfig.cancel'),
         destructive: true,
     });
     if (!ok) return 'cancelled';
 
     const typed = await promptModal(app, {
-        title: 'Type DELETE to confirm',
-        message: 'This action cannot be undone. Type DELETE in capital letters to proceed.',
+        title: t('modal.wipeMemory.typeDeleteTitle'),
+        message: t('modal.wipeMemory.typeDeleteMessage'),
         placeholder: 'DELETE',
-        submitLabel: 'Delete all memory',
+        submitLabel: t('settings.memory.deleteAll'),
     });
     if (typed === null || typed.trim() !== 'DELETE') {
-        new Notice('Cancelled. Memory not deleted.');
+        new Notice(t('notice.memory.wipeCancelled'));
         return 'cancelled';
     }
 
@@ -73,11 +66,11 @@ export async function confirmAndWipeAllMemory(
         plugin.settings.memory.tokenBudgetState = null;
         await plugin.saveSettings();
 
-        new Notice('All memory deleted.');
+        new Notice(t('notice.memory.wipeDone'));
         return 'deleted';
     } catch (e) {
         console.warn('[wipeAllMemory] failed:', e);
-        new Notice('Memory deletion failed. See console for details.');
+        new Notice(t('notice.memory.wipeFailed'));
         return 'failed';
     }
 }

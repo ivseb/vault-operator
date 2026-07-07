@@ -16,6 +16,7 @@ import { GitHubCopilotProvider } from '../github-copilot';
 import { KiloGatewayProvider } from '../kilo-gateway';
 import type { LLMProvider } from '../../../types/settings';
 import type { MessageParam } from '../../types';
+import { convertToOpenAiChatMessages } from '../../adapters/openaiChat';
 
 interface OpenAiUserMessage {
     role: 'user' | 'system' | 'assistant' | 'tool';
@@ -34,23 +35,25 @@ const kiloConfig: LLMProvider = {
     id: 'c', name: 'c', type: 'kilo-gateway', apiKey: 'sk', model: 'claude-sonnet-4-5',
 } as LLMProvider;
 
+// IMP-41-03-03 / ADR-150: conversion moved into the shared openai-chat
+// adapter; the per-provider parametrisation now exercises the provider TYPE
+// gate (all three consume the same function).
 function convert(
-    provider: OpenAiProvider | GitHubCopilotProvider | KiloGatewayProvider,
+    _provider: OpenAiProvider | GitHubCopilotProvider | KiloGatewayProvider,
+    providerType: string,
     messages: MessageParam[],
 ): OpenAiUserMessage[] {
-    return (provider as unknown as {
-        convertMessages(sys: string, m: MessageParam[]): OpenAiUserMessage[];
-    }).convertMessages('sys', messages);
+    return convertToOpenAiChatMessages('sys', messages, providerType) as unknown as OpenAiUserMessage[];
 }
 
 describe.each([
-    ['OpenAiProvider', () => new OpenAiProvider(openAiConfig)],
-    ['GitHubCopilotProvider', () => new GitHubCopilotProvider(copilotConfig)],
-    ['KiloGatewayProvider', () => new KiloGatewayProvider(kiloConfig)],
-] as const)('FIX-04-03-09 image-block mapping (%s)', (_name, factory) => {
+    ['OpenAiProvider', () => new OpenAiProvider(openAiConfig), 'openai'],
+    ['GitHubCopilotProvider', () => new GitHubCopilotProvider(copilotConfig), 'github-copilot'],
+    ['KiloGatewayProvider', () => new KiloGatewayProvider(kiloConfig), 'kilo-gateway'],
+] as const)('FIX-04-03-09 image-block mapping (%s)', (_name, factory, providerType) => {
     it('emits image_url for an image-only user message', () => {
         const provider = factory();
-        const out = convert(provider, [
+        const out = convert(provider, providerType as string, [
             {
                 role: 'user',
                 content: [
@@ -71,7 +74,7 @@ describe.each([
 
     it('emits a mixed text + image content array, preserving order', () => {
         const provider = factory();
-        const out = convert(provider, [
+        const out = convert(provider, providerType as string, [
             {
                 role: 'user',
                 content: [
@@ -93,7 +96,7 @@ describe.each([
 
     it('keeps text-only user messages as a string (backwards-compat)', () => {
         const provider = factory();
-        const out = convert(provider, [
+        const out = convert(provider, providerType as string, [
             {
                 role: 'user',
                 content: [{ type: 'text', text: 'pure text question' }],
@@ -106,7 +109,7 @@ describe.each([
 
     it('roundtrips every supported media type into the data-URL prefix', () => {
         const provider = factory();
-        const out = convert(provider, [
+        const out = convert(provider, providerType as string, [
             {
                 role: 'user',
                 content: [

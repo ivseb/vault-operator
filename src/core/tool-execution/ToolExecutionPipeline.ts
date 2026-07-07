@@ -198,6 +198,7 @@ const TOOL_GROUPS: Record<string, ApprovalGroup> = {
     switch_agent: 'agent',
     // Subtask spawning (respects autoApproval.subtasks)
     new_task: 'subtask',
+    run_in_background: 'subtask',
     // MCP
     use_mcp_tool: 'mcp',
     // Plugin Skills (PAS-1)
@@ -226,6 +227,31 @@ export interface ApprovalResult {
     decision: 'auto' | 'approved' | 'rejected';
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
+    /**
+     * IMP-41-01-02: optional rejection context surfaced to the model (e.g.
+     * "Approval timed out after 10 minutes"). Without it the tool_result
+     * carries the generic "denied by user" line.
+     */
+    reason?: string;
+}
+
+/**
+ * Result of an in-chat asset-install prompt (Obsidian policy compliance:
+ * network fetches must be triggered by an explicit user click, so tools
+ * that need an optional asset call `onOptionalAssetRequired` which
+ * renders an inline install-card and awaits the user's decision).
+ */
+export interface OptionalAssetInstallResult {
+    /**
+     * - `installed`: user clicked Install, download+SHA-check succeeded, the
+     *   asset is now on disk. The calling tool should retry its asset load.
+     * - `skipped`: user closed / declined the card. The calling tool should
+     *   surface the normal "not installed" error to the model.
+     * - `failed`: user clicked Install but the download or SHA-check failed.
+     *   The error message is in `error`. Tool should surface it to the model.
+     */
+    decision: 'installed' | 'skipped' | 'failed';
+    error?: string;
 }
 
 /** Extra context injected by AgentTask for agent-control tools */
@@ -239,6 +265,18 @@ export interface ContextExtensions {
      * Returns an ApprovalResult with decision and optional edited content.
      */
     onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<ApprovalResult>;
+    /**
+     * Ask the user to install a missing optional asset (office bundle,
+     * pdfjs bundle, reranker WASM, ...). Renders an in-chat install card
+     * with description, size, SHA info and an Install button. The Promise
+     * resolves once the user decides (installed, skipped, or failed).
+     * Obsidian community policy: network fetches must be behind an
+     * explicit user click; the card is that click.
+     */
+    onOptionalAssetRequired?: (
+        spec: import('../assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ) => Promise<OptionalAssetInstallResult>;
     /** Publish the current todo list to the UI */
     updateTodos?: (items: import('../tools/agent/UpdateTodoListTool').TodoItem[]) => void;
     /** Switch the active mode (called by switch_mode tool) */
@@ -441,7 +479,18 @@ export class ToolExecutionPipeline {
         toolCall: ToolUse,
         callbacks: ToolCallbacks,
         extensions?: ContextExtensions,
-        opts?: { source?: DispatchSource },
+        opts?: {
+            source?: DispatchSource;
+            /**
+             * IMP-41-02-05 / ADR-151: dispatch trust level. 'user' keeps the
+             * historical gate bypass for user-authored recipes and internal
+             * planners; 'learned' (machine-promoted recipes, ADR-058 Gate 3)
+             * runs the full mode gate + subagent allowlist like model picks.
+             * Absent trust on a fastpath/planner source defaults to 'user'
+             * for legacy callers.
+             */
+            trust?: 'user' | 'learned';
+        },
     ): Promise<ToolResult> {
         const startTime = Date.now();
 
@@ -460,7 +509,11 @@ export class ToolExecutionPipeline {
             // active mode normally allows it. Same dispatch-source bypass
             // logic as the mode gate.
             const dispatchSourceForGate: DispatchSource = opts?.source ?? 'model';
-            const enforceModeGate = dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner';
+            // IMP-41-02-05: the bypass only ever applied because "recipes are
+            // user-authored" — machine-promoted (learned) recipes do not get
+            // that trust and run the full gates like model picks.
+            const enforceModeGate = (dispatchSourceForGate !== 'fastpath' && dispatchSourceForGate !== 'planner')
+                || opts?.trust === 'learned';
             if (enforceModeGate && this.subagentAllowedTools !== undefined) {
                 if (this.subagentAllowedTools.has(toolCall.name) === false) {
                     const msg = `Tool "${toolCall.name}" is not in this subtask's allowlist.`;
@@ -523,7 +576,7 @@ export class ToolExecutionPipeline {
             if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'subtask' || toolGroup === 'sandbox') {
                 const approval = await this.checkApproval(toolCall, extensions);
                 if (approval.decision === 'rejected') {
-                    return this.errorResult(toolCall.id, 'Operation denied by user');
+                    return this.errorResult(toolCall.id, approval.reason ?? 'Operation denied by user');
                 }
                 // FEAT-29-07: when the user approves a dynamically-discovered
                 // plugin-API call, count the approval. Once the per-method
@@ -611,6 +664,7 @@ export class ToolExecutionPipeline {
                 abortSignal: extensions?.abortSignal,
                 callbacks: wrappedCallbacks,
                 askQuestion: extensions?.askQuestion,
+                onOptionalAssetRequired: extensions?.onOptionalAssetRequired,
                 signalCompletion: extensions?.signalCompletion,
                 updateTodos: extensions?.updateTodos,
                 switchMode: extensions?.switchMode,

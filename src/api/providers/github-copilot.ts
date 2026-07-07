@@ -17,11 +17,12 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
-import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking } from '../../types/model-registry';
+import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
 import { appendOpenAiChatUserMessage, type OpenAiChatMessage } from '../openaiShapeUserBlocks';
+import { convertToOpenAiChatMessages, convertToOpenAiChatTools, type OpenAIMessage, type OpenAITool } from '../adapters/openaiChat';
 
 // ---------------------------------------------------------------------------
 // OpenAI REST API types (subset — mirrors openai.ts)
@@ -33,31 +34,8 @@ type OpenAIContentPart =
     | { type: 'text'; text: string }
     | { type: 'image_url'; image_url: { url: string } };
 
-interface OpenAIMessage {
-    role: 'system' | 'user' | 'assistant' | 'tool';
-    content: string | null | OpenAIContentPart[];
-    tool_calls?: OpenAIToolCall[];
-    tool_call_id?: string;
-    name?: string;
-}
-
-interface OpenAIToolCall {
-    id: string;
-    type: 'function';
-    function: {
-        name: string;
-        arguments: string;
-    };
-}
-
-interface OpenAITool {
-    type: 'function';
-    function: {
-        name: string;
-        description: string;
-        parameters: Record<string, unknown>;
-    };
-}
+// IMP-41-03-03 / ADR-150: message/tool types + conversion live in the
+// shared openai-chat wire adapter (one implementation, three consumers).
 
 // ToolCallAccumulator moved to utils/toolCallFlush.ts (FIX-13-02-01); see import above.
 
@@ -130,8 +108,8 @@ export class GitHubCopilotProvider implements ApiHandler {
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
-        const openAiMessages = this.convertMessages(systemPrompt, messages);
-        const openAiTools = tools.length > 0 ? this.convertTools(tools) : undefined;
+        const openAiMessages = convertToOpenAiChatMessages(systemPrompt, messages, 'github-copilot');
+        const openAiTools = tools.length > 0 ? convertToOpenAiChatTools(tools) : undefined;
 
         // Extended thinking for Claude models via Copilot
         const isClaude = /^claude/i.test(this.config.model);
@@ -152,10 +130,13 @@ export class GitHubCopilotProvider implements ApiHandler {
             },
         );
 
-        // Temperature: o-series omit, thinking forces 1, otherwise respect config or use 0.2 default
+        // Temperature: o-series omit, thinking forces 1, otherwise respect config or use 0.2 default.
+        // ADR-148 side fix: gate through modelSupportsTemperature — Copilot was
+        // the one provider without the FIX-04-03-12 gate, so Claude 5 / Opus
+        // 4.7+ routed via Copilot got temperature 0.2 and a 400.
         const isOSeries = /^o[1-9]/.test(this.config.model);
         let temperature: number | undefined;
-        if (isOSeries) {
+        if (isOSeries || !modelSupportsTemperature(this.config.model)) {
             temperature = undefined;
         } else if (thinkingEnabled) {
             temperature = 1;
@@ -316,71 +297,6 @@ export class GitHubCopilotProvider implements ApiHandler {
     // ---------------------------------------------------------------------------
     // Format conversion: Anthropic → OpenAI (mirrors OpenAiProvider)
     // ---------------------------------------------------------------------------
-
-    private convertMessages(systemPrompt: string, messages: MessageParam[]): OpenAIMessage[] {
-        const result: OpenAIMessage[] = [
-            { role: 'system', content: systemPrompt },
-        ];
-
-        for (const msg of messages) {
-            if (typeof msg.content === 'string') {
-                result.push({ role: msg.role, content: msg.content });
-                continue;
-            }
-
-            const blocks = msg.content;
-
-            if (msg.role === 'assistant') {
-                // FIX-04-03-07: thinking blocks (DeepSeek-style reasoning) are
-                // dropped here -- Copilot routes through Claude/GPT which do
-                // not consume a plain `reasoning_content` field.
-                const textParts = blocks
-                    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                    .map((b) => b.text)
-                    .join('');
-
-                const toolUseParts = blocks.filter(
-                    (b): b is { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> } =>
-                        b.type === 'tool_use',
-                );
-
-                if (toolUseParts.length > 0) {
-                    result.push({
-                        role: 'assistant',
-                        content: textParts || null,
-                        tool_calls: toolUseParts.map((b) => ({
-                            id: b.id,
-                            type: 'function',
-                            function: {
-                                name: b.name,
-                                arguments: JSON.stringify(b.input),
-                            },
-                        })),
-                    });
-                } else {
-                    result.push({ role: 'assistant', content: textParts });
-                }
-            } else {
-                // REF-06: shared user-message helper (see openai.ts for the
-                // history). Keeps the three OpenAI-shape providers byte-
-                // identical without three near-duplicate branches.
-                appendOpenAiChatUserMessage(result as OpenAiChatMessage[], msg);
-            }
-        }
-
-        return result;
-    }
-
-    private convertTools(tools: ToolDefinition[]): OpenAITool[] {
-        return tools.map((tool) => ({
-            type: 'function',
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.input_schema,
-            },
-        }));
-    }
 
     // ---------------------------------------------------------------------------
     // Error handling

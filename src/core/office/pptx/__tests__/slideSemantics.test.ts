@@ -117,6 +117,6 @@ describe('slideSemantics', () => {
     });
 
     it('provides a default usage hint for process slides', () => {
-        expect(buildDefaultUseWhen('process')).toContain('Ablauf');
+        expect(buildDefaultUseWhen('process')).toContain('roadmap');
     });
 });

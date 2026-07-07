@@ -19,7 +19,7 @@ import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } f
 import { truncatedToolInputError } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
-import { modelSupportsTemperature } from '../../types/model-registry';
+import { prepareResponsesRequest, resolveGptEffort, isGpt5Family, type ResponsesRequestBody } from '../adapters/openaiResponses';
 
 void OpenAI; // retained: Errors instance kept for compatibility but not actively used
 
@@ -154,81 +154,8 @@ const DEFAULT_MODEL_INFO: ModelInfo = {
 // Responses API types (observed 2026-04-28)
 // ---------------------------------------------------------------------------
 
-interface ResponsesInputMessage {
-    type: 'message';
-    role: 'user' | 'assistant' | 'system';
-    content: ResponsesContentBlock[];
-}
-
-interface ResponsesFunctionCallOutput {
-    type: 'function_call_output';
-    call_id: string;
-    output: string;
-}
-
-interface ResponsesFunctionCall {
-    type: 'function_call';
-    call_id: string;
-    name: string;
-    arguments: string;
-}
-
-type ResponsesInputItem = ResponsesInputMessage | ResponsesFunctionCallOutput | ResponsesFunctionCall;
-
-type ResponsesContentBlock =
-    | { type: 'input_text'; text: string }
-    | { type: 'output_text'; text: string }
-    // FIX-04-03-11: Responses API image input. detail defaults to 'auto' so
-    // the upload tokens stay bounded for OCR-style screenshots.
-    | { type: 'input_image'; image_url: string; detail?: 'auto' | 'low' | 'high' };
-
-interface ResponsesTool {
-    type: 'function';
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-}
-
-type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high';
-
-/** The GPT-5 / o-series effort levels accepted on the Codex Responses surface. */
-const GPT_EFFORT_LEVELS: ReasoningEffort[] = ['minimal', 'low', 'medium', 'high'];
-
-/**
- * Resolve the reasoning effort to send. The configured level may be a wider
- * EffortLevel (Claude has xhigh/max) so only a GPT-valid level is forwarded;
- * anything else (unset, or a Claude-only level) falls back to the documented
- * 'low' 400-avoidance floor. An explicit GPT-valid value overrides the floor.
- */
-function resolveGptEffort(level: string | undefined): ReasoningEffort {
-    return GPT_EFFORT_LEVELS.find((valid) => valid === level) ?? 'low';
-}
-
-interface ResponsesRequestBody {
-    model: string;
-    instructions?: string;
-    input: ResponsesInputItem[];
-    tools?: ResponsesTool[];
-    stream: true;
-    parallel_tool_calls?: boolean;
-    store?: boolean;
-    /** Required for GPT-5* models on the Codex backend; omitting it yields HTTP 400. */
-    reasoning?: { effort: ReasoningEffort; summary?: 'auto' };
-    include?: string[];
-    [extra: string]: unknown;
-}
-
-/**
- * GPT-5* are reasoning models; the chatgpt.com Codex backend rejects requests
- * for them with HTTP 400 when the `reasoning` field is missing. "low" is the
- * narrowest effort accepted by both `gpt-5` (minimal/low/medium/high) and the
- * stricter codex variants (low/medium/high), so it is the safe default for
- * connection tests and short calls. Verified against
- * forked-kilocode/packages/types/src/providers/openai-codex.ts (supportsReasoningEffort matrix).
- */
-function isGpt5Family(modelId: string): boolean {
-    return /^gpt-5(\b|[.-])/i.test(modelId);
-}
+// IMP-41-03-03 / ADR-150: Responses-API types, conversion and request
+// construction live in ../adapters/openaiResponses.
 
 // ---------------------------------------------------------------------------
 // Provider
@@ -254,29 +181,7 @@ export class ChatGptOAuthProvider implements ApiHandler {
         tools: ToolDefinition[],
         abortSignal?: AbortSignal,
     ): ApiStream {
-        const body: ResponsesRequestBody = {
-            model: this.config.model,
-            instructions: systemPrompt,
-            input: this.convertMessages(messages),
-            stream: true,
-            store: false,
-        };
-        if (tools.length > 0) {
-            body.tools = this.convertTools(tools);
-            body.parallel_tool_calls = false;
-        }
-        if (isGpt5Family(this.config.model)) {
-            // The Codex backend rejects GPT-5* requests without a reasoning field.
-            // Default to 'low' (the documented 400-avoidance value); an explicit
-            // user-chosen effort overrides it. Never derive medium/high without
-            // an explicit user value -- the hardcoded low stays the floor.
-            body.reasoning = { effort: resolveGptEffort(this.config.reasoningEffort), summary: 'auto' };
-            body.include = ['reasoning.encrypted_content'];
-        }
-        // FIX-04-03-02: omit temperature for default-only models (e.g. GPT-5.x)
-        if (this.config.temperature !== undefined && modelSupportsTemperature(this.config.model)) {
-            body.temperature = Math.min(this.config.temperature, 2.0);
-        }
+        const body = prepareResponsesRequest(this.config, systemPrompt, messages, tools);
 
         let response = await this.streamRequest(body, abortSignal);
         if (response.status === 401) {
@@ -339,108 +244,6 @@ export class ChatGptOAuthProvider implements ApiHandler {
     // -----------------------------------------------------------------------
     // Format conversion
     // -----------------------------------------------------------------------
-
-    private convertMessages(messages: MessageParam[]): ResponsesInputItem[] {
-        const result: ResponsesInputItem[] = [];
-
-        for (const msg of messages) {
-            if (typeof msg.content === 'string') {
-                result.push({
-                    type: 'message',
-                    role: msg.role,
-                    content: [
-                        msg.role === 'assistant'
-                            ? { type: 'output_text', text: msg.content }
-                            : { type: 'input_text', text: msg.content },
-                    ],
-                });
-                continue;
-            }
-
-            const blocks = msg.content;
-
-            if (msg.role === 'assistant') {
-                // FIX-04-03-07: thinking blocks (DeepSeek-style reasoning) are
-                // dropped here -- ChatGPT-OAuth uses the Responses API with
-                // encrypted reasoning summaries, not a plaintext echo field.
-                const textParts = blocks
-                    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                    .map((b) => b.text)
-                    .join('');
-                if (textParts) {
-                    result.push({
-                        type: 'message',
-                        role: 'assistant',
-                        content: [{ type: 'output_text', text: textParts }],
-                    });
-                }
-                for (const block of blocks) {
-                    if (block.type === 'tool_use') {
-                        result.push({
-                            type: 'function_call',
-                            call_id: block.id,
-                            name: block.name,
-                            arguments: JSON.stringify(block.input),
-                        });
-                    }
-                }
-            } else {
-                // FIX-04-03-11: pre-fix this branch handled only text and
-                // tool_result blocks; image blocks were silently dropped, so
-                // GPT-5 / o-series vision through the Codex Responses path
-                // saw text only and answered "I don't see an image". Same
-                // class as FIX-04-03-09 (which fixed the openai / copilot /
-                // kilo OpenAI-Chat-Completions shape). The Responses API
-                // expects { type: 'input_image', image_url: data:... } on a
-                // user message content array.
-                const textParts: string[] = [];
-                const userContent: ResponsesContentBlock[] = [];
-                for (const block of blocks) {
-                    if (block.type === 'text') {
-                        textParts.push(block.text);
-                    } else if (block.type === 'image') {
-                        userContent.push({
-                            type: 'input_image',
-                            image_url: `data:${block.source.media_type};base64,${block.source.data}`,
-                        });
-                    } else if (block.type === 'tool_result') {
-                        const text = typeof block.content === 'string'
-                            ? block.content
-                            : block.content
-                                .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
-                                .map((b) => b.text)
-                                .join('\n');
-                        result.push({
-                            type: 'function_call_output',
-                            call_id: block.tool_use_id,
-                            output: text,
-                        });
-                    }
-                }
-                if (textParts.length > 0) {
-                    userContent.unshift({ type: 'input_text', text: textParts.join('\n') });
-                }
-                if (userContent.length > 0) {
-                    result.push({
-                        type: 'message',
-                        role: 'user',
-                        content: userContent,
-                    });
-                }
-            }
-        }
-
-        return result;
-    }
-
-    private convertTools(tools: ToolDefinition[]): ResponsesTool[] {
-        return tools.map((tool) => ({
-            type: 'function',
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
-        }));
-    }
 
     // -----------------------------------------------------------------------
     // Error mapping
@@ -706,7 +509,19 @@ function* dispatchEvent(
         if (usage) {
             const input = num(usage.input_tokens) ?? num(usage.prompt_tokens) ?? 0;
             const output = num(usage.output_tokens) ?? num(usage.completion_tokens) ?? 0;
-            yield { type: 'usage', inputTokens: input, outputTokens: output };
+            // FIX-21-02-01 / IMP-18-01-02: input_tokens INCLUDES the cached
+            // prefix (input_tokens_details.cached_tokens). Report the
+            // non-cached part as inputTokens and the cached part separately,
+            // matching the other OpenAI-shaped providers, so the cost calc
+            // bills the cached prefix at the cache-read rate.
+            const details = usage.input_tokens_details as Record<string, unknown> | undefined;
+            const cachedIn = num(details?.cached_tokens) ?? 0;
+            yield {
+                type: 'usage',
+                inputTokens: Math.max(0, input - cachedIn),
+                outputTokens: output,
+                cacheReadTokens: cachedIn > 0 ? cachedIn : undefined,
+            };
         }
         // Drain any tool calls that didn't get an explicit done event
         for (const tc of toolCalls.values()) yield* finalizeToolCall(tc);

@@ -12,6 +12,7 @@ import https from 'https';
 import http from 'http';
 import type ObsidianAgentPlugin from '../../main';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
+import { atomicAdapterWrite, atomicAdapterWriteBinary } from '../utils/atomicAdapterWrite';
 import { followAllowlistedRedirects, type HopResponse } from './redirectGuard';
 
 // ---------------------------------------------------------------------------
@@ -154,8 +155,10 @@ export class SandboxBridge {
         this.checkWriteRateLimit();
         this.logBridgeOp('vault-write', `${path} (${content.length} chars)`);
         // FEAT-29-05: adapter.write for hidden folders (Vault.create skips them).
+        // FIX-01-07-04 parity: atomic temp+rename so a skill bug or crash
+        // mid-write cannot leave persistent skill state at 0 bytes.
         if (this.isHiddenPath(path)) {
-            await this.plugin.app.vault.adapter.write(path, content);
+            await atomicAdapterWrite(this.plugin.app.vault.adapter, path, content);
             this.recordSuccess();
             return;
         }
@@ -206,7 +209,8 @@ export class SandboxBridge {
         this.checkWriteRateLimit();
         this.logBridgeOp('vault-write-binary', `${path} (${content.byteLength} bytes)`);
         if (this.isHiddenPath(path)) {
-            await this.plugin.app.vault.adapter.writeBinary(path, content);
+            // FIX-01-07-04 parity: see vaultWrite above.
+            await atomicAdapterWriteBinary(this.plugin.app.vault.adapter, path, content);
             this.recordSuccess();
             return;
         }

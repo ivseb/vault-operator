@@ -13,6 +13,7 @@ import { Setting, type App } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
 import { resolveInlineActionsSettings } from '../../core/inline/inlineSettings';
 import type { InlineActionsSettings } from '../../types/settings';
+import { t } from '../../i18n';
 
 export class InlineActionsTab {
     constructor(private plugin: ObsidianAgentPlugin, private _app: App, private rerender: () => void) {}
@@ -30,41 +31,41 @@ export class InlineActionsTab {
 
     build(containerEl: HTMLElement): void {
         const intro = containerEl.createDiv('vault-op-box vault-op-box--intro');
-        intro.createEl('strong', { text: 'Inline editor AI actions' });
+        intro.createEl('strong', { text: t('settings.inlineActions.introTitle') });
         intro.createDiv({
-            text: 'Run AI actions on a marked selection directly in the editor. Open via the inline-AI command (bind a hotkey in settings, e.g. Cmd+K).',
+            text: t('settings.inlineActions.introDesc'),
         });
 
         const settings = this.getSettings();
         const resolved = resolveInlineActionsSettings(settings);
 
         new Setting(containerEl)
-            .setName('Inline editor AI actions enabled')
-            .setDesc('Master toggle for the inline-menu, hotkey and command-palette entry.')
+            .setName(t('settings.inlineActions.enabled'))
+            .setDesc(t('settings.inlineActions.enabledDesc'))
             .addToggle(t => t
                 .setValue(resolved.enabled)
                 .onChange(async (v) => { settings.enabled = v; await this.save(); }),
             );
 
         new Setting(containerEl)
-            .setName('Show inline AI action icon on selection')
-            .setDesc('Off by default. When on, a small icon appears next to a finished text selection. Click it to open the inline chat. The selection stays alive so copy and the format toolbar keep working in parallel. When off, only the hotkey or command-palette opens the chat.')
+            .setName(t('settings.inlineActions.floatingMenu'))
+            .setDesc(t('settings.inlineActions.floatingMenuDesc'))
             .addToggle(t => t
                 .setValue(resolved.floatingMenuEnabled)
                 .onChange(async (v) => { settings.floatingMenuEnabled = v; await this.save(); }),
             );
 
         new Setting(containerEl)
-            .setName('Use vault knowledge in lookup')
-            .setDesc('Augment the lookup action with semantic-search hits from your vault.')
+            .setName(t('settings.inlineActions.vaultRag'))
+            .setDesc(t('settings.inlineActions.vaultRagDesc'))
             .addToggle(t => t
                 .setValue(resolved.vaultRagInLookup)
                 .onChange(async (v) => { settings.vaultRagInLookup = v; await this.save(); }),
             );
 
         new Setting(containerEl)
-            .setName('Vault knowledge confidence threshold')
-            .setDesc('Cosine similarity 0 to 1. Lookup falls back to LLM-only when no vault hit meets this threshold.')
+            .setName(t('settings.inlineActions.ragThreshold'))
+            .setDesc(t('settings.inlineActions.ragThresholdDesc'))
             .addSlider(s => s
                 .setLimits(0, 1, 0.05)
                 .setValue(resolved.vaultRagConfidenceThreshold)
@@ -73,19 +74,19 @@ export class InlineActionsTab {
             );
 
         new Setting(containerEl)
-            .setName('Show vault source links in lookup tooltip')
-            .setDesc('When on, the lookup preview block lists the wiki-links of the vault notes used.')
+            .setName(t('settings.inlineActions.showSources'))
+            .setDesc(t('settings.inlineActions.showSourcesDesc'))
             .addToggle(t => t
                 .setValue(resolved.showVaultSourcesInTooltip)
                 .onChange(async (v) => { settings.showVaultSourcesInTooltip = v; await this.save(); }),
             );
 
         new Setting(containerEl)
-            .setName('Inline chat display')
-            .setDesc('How the inline chat panel mounts in the editor. Block widget is recommended for source and live-preview. Switch to the floating popover if you frequently work in reading view or prefer a floating panel.')
+            .setName(t('settings.inlineActions.chatDisplay'))
+            .setDesc(t('settings.inlineActions.chatDisplayDesc'))
             .addDropdown(d => d
-                .addOption('cm-block-widget', 'Block widget in editor (recommended)')
-                .addOption('popover-overlay', 'Floating popover')
+                .addOption('cm-block-widget', t('settings.inlineActions.chatDisplayBlock'))
+                .addOption('popover-overlay', t('settings.inlineActions.chatDisplayPopover'))
                 .setValue(resolved.inlineChatDisplay)
                 .onChange(async (v) => {
                     settings.inlineChatDisplay = v === 'popover-overlay' ? 'popover-overlay' : 'cm-block-widget';
@@ -94,8 +95,8 @@ export class InlineActionsTab {
             );
 
         new Setting(containerEl)
-            .setName('Skills in floating menu (top N)')
-            .setDesc('Maximum number of inline-eligible skills to list. Set to 0 to hide all skills.')
+            .setName(t('settings.inlineActions.skillsTopN'))
+            .setDesc(t('settings.inlineActions.skillsTopNDesc'))
             .addText(t => t
                 .setPlaceholder('10')
                 .setValue(String(resolved.skillsTopN))
@@ -110,8 +111,8 @@ export class InlineActionsTab {
 
         // Footer: rerender control + reload hint.
         const footer = containerEl.createDiv({ cls: 'setting-item-description' });
-        footer.setText('Some changes (action registration) take effect after reloading the plugin.');
+        footer.setText(t('settings.inlineActions.reloadHint'));
         new Setting(containerEl)
-            .addButton(b => b.setButtonText('Refresh settings view').onClick(() => this.rerender()));
+            .addButton(b => b.setButtonText(t('settings.inlineActions.refreshView')).onClick(() => this.rerender()));
     }
 }

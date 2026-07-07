@@ -10,12 +10,12 @@ import {
 } from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
 import type { MessageParam, ContentBlock } from '../api/types';
-import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider } from '../types/settings';
+import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
-import { ChatModelPickerPopover } from './sidebar/ChatModelPickerPopover';
+import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
 import { resolveOverrideModel } from './sidebar/chatModelDropdown';
 import {
     DEFAULT_THINKING_OVERRIDE,
@@ -33,6 +33,7 @@ import { getModelEffortLevels, type EffortLevel } from '../types/model-registry'
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
+import { wireApprovalTimeout } from './sidebar/approvalTimeout';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
@@ -40,6 +41,7 @@ import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
 import { resolveObsidianDraggedFiles } from './sidebar/dragManagerBridge';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
+import { LazyConversationId } from '../core/history/LazyConversationId';
 import { MemoryRetriever } from '../core/memory/MemoryRetriever';
 import { OnboardingService } from '../core/memory/OnboardingService';
 import { isActiveOnboardingFlow } from '../core/onboarding-status';
@@ -53,7 +55,7 @@ import { scan as scanTasks } from '../core/tasks/TaskExtractor';
 import { TaskNoteCreator } from '../core/tasks/TaskNoteCreator';
 import { TaskNotesAdapter } from '../core/tasks/TaskNotesAdapter';
 import { TaskSelectionModal } from './TaskSelectionModal';
-import { t } from '../i18n';
+import { t, getActiveLocale } from '../i18n';
 import DOMPurify from 'dompurify';
 import { getPerformanceMarks } from '../core/observability/PerformanceMarks';
 
@@ -133,13 +135,25 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 1: Persistent conversation history (survives across messages)
     private conversationHistory: MessageParam[] = [];
+    /**
+     * IMP-41-03-01: inflight snapshot armed for the next send. Set by the
+     * boot recovery banner's Resume button; consumed (and cleared) at the
+     * execute() call so the loop continues with the snapshot's state and
+     * full history instead of starting fresh.
+     */
+    private pendingResume: import('../core/agent/InflightStore').InflightSnapshot | null = null;
     // Chat History: active conversation tracking + UI messages for persistence
     private activeConversationId: string | null = null;
+    /** FIX-03-20-01: race-free lazy id creation when the store initializes late. */
+    private readonly lazyConversationId = new LazyConversationId();
     private uiMessages: UiMessage[] = [];
     private historyPanel: HistoryPanel | null = null;
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+    /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
+    private taskDraining = false;
+    private taskDrainingTimer = 0;
 
     // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
     // queue up while a task is running and get drained by AgentTask at the
@@ -325,7 +339,74 @@ export class AgentSidebarView extends ItemView {
         });
 
         this.showWelcomeMessage();
+        // IMP-41-03-01: offer recovery for tasks interrupted by a crash or
+        // reload. Non-blocking; skips silently when the store is not ready.
+        void this.maybeOfferInflightResume();
+        // Language-pack install-prompt: renders the same consent card as
+        // tool-triggered asset installs, so a non-English user gets a
+        // visible chat card instead of a small notice that is easy to
+        // miss. Non-blocking; skips silently when English or already
+        // installed. Obsidian policy: download only on explicit click.
+        void this.maybeOfferLocalePackCard();
         perfMarks.end('sidebar.onOpen', { log: true });
+    }
+
+    /**
+     * IMP-41-03-01: boot recovery banner. When a fresh inflight snapshot
+     * exists, render a card offering Resume (arms pendingResume, loads the
+     * conversation, sends a resume note through the normal send path) or
+     * Discard (clears the snapshot). Fail-closed: any error only logs.
+     */
+    private async maybeOfferInflightResume(): Promise<void> {
+        try {
+            const store = this.plugin.inflightStore;
+            if (!store || !this.chatContainer) return;
+            const recoverable = await store.listRecoverable();
+            if (recoverable.length === 0) return;
+            const snapshot = recoverable[0];
+
+            const row = this.chatContainer.createDiv('tool-approval-row');
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'history');
+            row.createSpan('tool-approval-text').setText(
+                t('ui.resume.interrupted', {
+                    time: new Date(snapshot.savedAt).toLocaleTimeString(),
+                    messages: String(snapshot.history.length),
+                }),
+            );
+            const actions = row.createDiv('tool-approval-actions');
+            const resumeBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.resume.resume'),
+            });
+            const discardBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: t('ui.resume.discard'),
+            });
+
+            resumeBtn.addEventListener('click', () => {
+                void (async () => {
+                    row.remove();
+                    if (snapshot.conversationId) {
+                        await this.loadConversation(snapshot.conversationId, { skipNavPush: true })
+                            .catch(() => { /* stale id: resume still works from the snapshot history */ });
+                    }
+                    this.pendingResume = snapshot;
+                    await store.clear(snapshot.taskId);
+                    if (this.textarea) {
+                        this.textarea.value = '[System] The previous task was interrupted by a reload. '
+                            + 'Resume from where you left off and finish it.';
+                        await this.handleSendMessage();
+                    }
+                })();
+            });
+            discardBtn.addEventListener('click', () => {
+                row.remove();
+                void store.clear(snapshot.taskId);
+            });
+        } catch (e) {
+            console.warn('[InflightResume] banner failed (non-fatal):', e instanceof Error ? e.message : e);
+        }
     }
 
     onClose(): Promise<void> {
@@ -343,7 +424,7 @@ export class AgentSidebarView extends ItemView {
         const titleRow = header.createDiv('agent-title');
         titleRow.createSpan({
             cls: 'agent-title-wordmark',
-            text: '/ Vault Operator',
+            text: '/ Vault Operator', // i18n-ignore: brand wordmark
         });
 
         const headerRight = header.createDiv('agent-header-right');
@@ -408,14 +489,14 @@ export class AgentSidebarView extends ItemView {
         // better than full arrows in the narrow sidebar.
         this.navBackBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Previous chat' },
+            attr: { 'aria-label': t('ui.sidebar.previousChat') },
         });
         setIcon(this.navBackBtn.createSpan('toolbar-icon'), 'chevron-left');
         this.navBackBtn.addEventListener('click', () => { void this.navBack(); });
 
         this.navForwardBtn = headerRight.createEl('button', {
             cls: 'header-button header-button--nav',
-            attr: { 'aria-label': 'Next chat' },
+            attr: { 'aria-label': t('ui.sidebar.nextChat') },
         });
         setIcon(this.navForwardBtn.createSpan('toolbar-icon'), 'chevron-right');
         this.navForwardBtn.addEventListener('click', () => { void this.navForward(); });
@@ -480,13 +561,47 @@ export class AgentSidebarView extends ItemView {
         this.suggestionBanner.mount(container, (fn) => this.register(fn));
     }
 
+    /**
+     * IMP-41-03-05: compact status tile for the single background research
+     * task. Subscribes to the runner and unsubscribes on view unload.
+     */
+    private buildBackgroundTaskTile(container: HTMLElement): void {
+        const runner = this.plugin.backgroundTaskRunner;
+        if (!runner) return;
+        const tile = container.createDiv('background-task-tile');
+        tile.hide();
+        const icon = tile.createSpan('background-task-tile-icon');
+        setIcon(icon, 'satellite');
+        const label = tile.createSpan('background-task-tile-label');
+        const stopBtn = tile.createEl('button', {
+            cls: 'background-task-tile-stop',
+            text: t('ui.backgroundTask.stop'),
+        });
+        stopBtn.addEventListener('click', () => runner.stop());
+
+        const render = (): void => {
+            const status = runner.getStatus();
+            if (status) {
+                label.setText(t('ui.backgroundTask.running', { title: status.title }));
+                tile.show();
+            } else {
+                tile.hide();
+            }
+        };
+        render();
+        this.register(runner.onChange(() => render()));
+    }
+
     private buildAiDisclaimer(container: HTMLElement): void {
         const disclaimer = container.createDiv({ cls: 'chat-ai-disclaimer' });
-        disclaimer.setText('Vault Operator is AI and can make mistakes. Please double-check responses.');
+        disclaimer.setText(t('ui.sidebar.aiDisclaimer'));
     }
 
     private buildChatInput(container: HTMLElement): void {
         this.inputArea = container.createDiv('chat-input-container');
+        // IMP-41-03-05: background-task status tile above the input. Hidden
+        // by default; the runner's onChange subscription toggles it.
+        this.buildBackgroundTaskTile(this.inputArea);
         const inputWrapper = this.inputArea.createDiv('chat-input-wrapper');
 
         // Context chips at the top of the input wrapper (like Kilo Code)
@@ -681,7 +796,7 @@ export class AgentSidebarView extends ItemView {
             const sendEl = this.sendButton as HTMLButtonElement;
             sendEl.disabled = true;
             sendEl.classList.add('send-button-preparing');
-            sendEl.setAttribute('title', 'Vault Operator is preparing services...');
+            sendEl.setAttribute('title', t('ui.sidebar.preparingServices'));
             services.then(() => {
                 sendEl.disabled = false;
                 sendEl.classList.remove('send-button-preparing');
@@ -711,15 +826,15 @@ export class AgentSidebarView extends ItemView {
             .onClick(() => this.vaultFilePicker.show(anchor, this.containerEl)));
         menu.addSeparator();
         menu.addItem(item => item
-            .setTitle('Insert skill...')
+            .setTitle(t('ui.sidebar.insertSkill'))
             .setIcon('sparkles')
             .onClick(() => this.openCommandPicker('skills', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert prompt...')
+            .setTitle(t('ui.sidebar.insertPrompt'))
             .setIcon('message-square-quote')
             .onClick(() => this.openCommandPicker('prompts', anchor)));
         menu.addItem(item => item
-            .setTitle('Insert workflow...')
+            .setTitle(t('ui.sidebar.insertWorkflow'))
             .setIcon('workflow')
             .onClick(() => this.openCommandPicker('workflows', anchor)));
         menu.addSeparator();
@@ -736,15 +851,15 @@ export class AgentSidebarView extends ItemView {
     ): Promise<void> {
         const items = await this.collectCommandItems(category);
         const title = category === 'skills'
-            ? 'Search skills...'
+            ? t('ui.commandPicker.searchSkills')
             : category === 'prompts'
-                ? 'Search prompts...'
-                : 'Search workflows...';
+                ? t('ui.commandPicker.searchPrompts')
+                : t('ui.commandPicker.searchWorkflows');
         const empty = category === 'skills'
-            ? 'No skills installed. Import one via Settings -> Skills.'
+            ? t('ui.commandPicker.emptySkills')
             : category === 'prompts'
-                ? 'No custom prompts configured yet.'
-                : 'No workflows available in this vault.';
+                ? t('ui.commandPicker.emptyPrompts')
+                : t('ui.commandPicker.emptyWorkflows');
         const picker = new CommandPicker(items, title, empty);
         picker.show(anchor, this.containerEl);
     }
@@ -1041,7 +1156,37 @@ export class AgentSidebarView extends ItemView {
                 this.updateModelButton();
             },
             getEffortLevels: () => this.resolveEffortLevelsForPinnedModel(provider),
-        });
+        }, this.buildChatProviderNav(event));
+    }
+
+    /**
+     * Issue #48.5: provider-switcher wiring for the chat model picker. Lets the
+     * user switch the active provider (a global settings change) from the chat
+     * without opening Settings > Providers. Only enabled providers are offered;
+     * the picker itself hides the row when fewer than two are enabled.
+     */
+    private buildChatProviderNav(event: MouseEvent): ChatProviderNav {
+        const enabled = (this.plugin.settings.providerConfigs ?? []).filter((p) => p.enabled);
+        return {
+            items: enabled.map((p) => ({ id: p.id, label: p.displayName ?? p.type })),
+            activeId: this.plugin.settings.activeProviderId,
+            onSelect: (id) => {
+                void (async () => {
+                    if (id === this.plugin.settings.activeProviderId) return;
+                    this.plugin.settings.activeProviderId = id;
+                    // A pinned model belongs to the previous provider; reset to Auto
+                    // so a stale model id never reaches the newly active provider.
+                    this.chatModelOverride = null;
+                    this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
+                    await this.plugin.saveSettings();
+                    this.updateModelButton();
+                    // Re-open the picker on the newly active provider's models.
+                    const next = resolveActiveProvider(this.plugin.settings);
+                    this.chatModelPicker?.close();
+                    if (next) this.showProviderModelMenu(event, next);
+                })();
+            },
+        };
     }
 
     /**
@@ -1210,7 +1355,7 @@ export class AgentSidebarView extends ItemView {
         try {
             const flipped = await store.confirm(id);
             if (!flipped) {
-                new Notice('Conversation already confirmed.');
+                new Notice(t('notice.memory.alreadyConfirmed'));
                 return;
             }
             // Trigger memory extraction (auto-sync would have done this on save).
@@ -1226,7 +1371,7 @@ export class AgentSidebarView extends ItemView {
                     });
                 }
             }
-            new Notice(`Confirmed: ${title}`);
+            new Notice(t('notice.memory.confirmed', { title }));
         } catch (e) {
             console.warn('[Memory] Confirm pending failed:', e);
             new Notice(t('notice.memorySaveFailed'));
@@ -1619,14 +1764,11 @@ export class AgentSidebarView extends ItemView {
         this.lastUserMessage = text;
 
         // Create a new conversation on first message (if history enabled)
+        // FIX-03-20-01: routed through the lazy ensurer so save paths that
+        // run before/after this share the same memoized create.
         if (!this.activeConversationId && this.plugin.conversationStore) {
-            const mode = this.modeService.getActiveMode().slug;
-            const modelKey = this.resolveEnabledModelKey(mode);
-            const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === modelKey);
-            this.activeConversationId = await this.plugin.conversationStore.create(
-                mode,
-                model?.displayName ?? model?.name ?? modelKey,
-            );
+            const ensured = this.ensureConversationId();
+            if (ensured) await ensured;
             // If the nav stack top is the "fresh-chat" sentinel (null), upgrade
             // it to this just-created conversation id. That keeps back/forward
             // consistent: visiting a fresh chat counts as one stack entry,
@@ -1946,6 +2088,38 @@ export class AgentSidebarView extends ItemView {
             window.requestAnimationFrame(() => { scrollPending = false; this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight }); });
         };
 
+        // Issue #48.3: incremental Q&A markdown render. Previously Q&A text was
+        // appended as RAW characters into a <p class="streaming-para"> sized at
+        // the editor font, then replaced by a single Markdown pass in onComplete
+        // — the user saw large raw markdown syntax that "lingered then
+        // reformatted". Now the accumulated text is rendered as Markdown at a
+        // throttled cadence (leading edge for instant first paint, then at most
+        // every QA_RENDER_INTERVAL_MS), so formatted text grows in place at the
+        // final bubble size with no raw->formatted swap. onComplete still does
+        // the authoritative pass (sources/followups parsing). Throttling keeps
+        // re-parses bounded, preserving the perf goal of the old raw-append path.
+        const QA_RENDER_INTERVAL_MS = 120;
+        let qaLastRenderAt = 0;
+        let qaTrailingTimer = 0;
+        const renderQaNow = (): void => {
+            if (hasTools) return; // switched to agentic mode; onComplete owns the render
+            qaLastRenderAt = Date.now();
+            contentEl.empty();
+            void this.renderMarkdownAndWire(accumulatedText, contentEl);
+            scheduleScroll();
+        };
+        const scheduleQaRender = (): void => {
+            const sinceLast = Date.now() - qaLastRenderAt;
+            if (sinceLast >= QA_RENDER_INTERVAL_MS) {
+                renderQaNow();
+            } else if (qaTrailingTimer === 0) {
+                qaTrailingTimer = window.setTimeout(() => { qaTrailingTimer = 0; renderQaNow(); }, QA_RENDER_INTERVAL_MS - sinceLast);
+            }
+        };
+        const cancelQaRender = (): void => {
+            if (qaTrailingTimer !== 0) { window.clearTimeout(qaTrailingTimer); qaTrailingTimer = 0; }
+        };
+
         // FIX-PERF-03: coalesce per-chunk tool-progress renders. Previously
         // onToolProgress called MarkdownRenderer.render() for every chunk
         // - on a 20-tool turn that meant 40+ synchronous parser passes per
@@ -2113,6 +2287,9 @@ export class AgentSidebarView extends ItemView {
         const task = new AgentTaskRunner({
             api: resolvedApiHandler,
             toolRegistry: this.plugin.toolRegistry,
+            // IMP-41-03-01: foreground tasks snapshot their state per turn
+            // so a crash mid-run leaves recoverable data.
+            inflightStore: this.plugin.inflightStore ?? undefined,
             callbacks: {
                 onIterationStart: (iteration) => {
                     // Show the steps block immediately so the user can expand it from the start.
@@ -2172,15 +2349,14 @@ export class AgentSidebarView extends ItemView {
                     }
                     accumulatedText += chunk;
                     if (!hasTools) {
-                        // Q&A streaming: append raw text directly — O(1), no re-parse.
-                        // On first chunk, clear the loading state and create the container.
-                        // On completion, the container is replaced by a full Markdown render.
+                        // Q&A streaming: render Markdown incrementally (throttled) so the
+                        // user sees formatted text grow at the final bubble size — no raw
+                        // markdown syntax, no raw->formatted swap at the end (issue #48.3).
                         if (!streamingPara) {
                             contentEl.empty();
-                            streamingPara = contentEl.createEl('p', { cls: 'streaming-para' });
+                            streamingPara = contentEl; // sentinel: Q&A stream is active
                         }
-                        streamingPara.insertAdjacentText('beforeend', chunk);
-                        scheduleScroll();
+                        scheduleQaRender();
                     }
                     // Agentic mode: text is buffered and rendered once in onComplete.
                 },
@@ -2192,6 +2368,7 @@ export class AgentSidebarView extends ItemView {
                             // Hide + clear the streaming UI — text will be re-rendered as
                             // Markdown in onQuestion/onComplete. Hide first to avoid the
                             // flash of raw streaming text disappearing.
+                            cancelQaRender();
                             contentEl.classList.add('agent-u-visibility-hidden');
                             contentEl.empty();
                             streamingPara = null;
@@ -2403,9 +2580,14 @@ export class AgentSidebarView extends ItemView {
                     // as markdown so partial wikilinks/links are clickable.
                     scheduleToolProgressRender(outputEl, content);
                 },
-                onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens) => {
+                onUsage: (inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode, usageByModel) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onUsage
-                    taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens);
+                    // FIX-24-05-02: modelId + routingMode must reach the
+                    // monitor, otherwise TaskRouter-routed tasks are priced
+                    // on the configured main model.
+                    // FIX-24-05-05: usageByModel carries the per-model
+                    // breakdown for correct mixed-model pricing.
+                    taskMonitor.onUsage(inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, modelId, routingMode, usageByModel);
                 },
                 onTodoUpdate: (items) => {
                     lastTodoItems = items;
@@ -2444,7 +2626,7 @@ export class AgentSidebarView extends ItemView {
                     // threshold state. Renders as a badge in the same footer.
                     if (footerEl) {
                         const badge = footerEl.createSpan('context-condense-failed-badge');
-                        badge.setText('Context condense failed: ' + error.message);
+                        badge.setText(t('ui.sidebar.condenseFailed', { error: error.message }));
                         footerEl.classList.remove('agent-u-hidden');
                     }
                     console.warn('[Sidebar] Context condense failed:', error.message);
@@ -2523,6 +2705,8 @@ export class AgentSidebarView extends ItemView {
                         accumulatedThinking = '';
                         accumulatedToolContent = '';
                         hasTools = false;
+                        cancelQaRender();
+                        qaLastRenderAt = 0;
                         streamingPara = null;
                         stepsBlockEl = null;
                         stepsBodyEl = null;
@@ -2541,6 +2725,9 @@ export class AgentSidebarView extends ItemView {
                 },
                 onApprovalRequired: async (toolName, input) => {
                     return this.showApprovalCard(toolName, input);
+                },
+                onOptionalAssetRequired: async (spec, toolName) => {
+                    return this.showInstallPromptCard(spec, toolName);
                 },
                 onAttemptCompletion: () => {
                     // Auto-complete any unfinished todo items — agent often skips
@@ -2611,8 +2798,10 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
 
-                    // Replace the raw streaming text with the properly formatted Markdown.
-                    // This fires exactly once — giving us instant streaming + clean final output.
+                    // Replace the streamed Markdown with the authoritative pass (sources /
+                    // followups parsed). Cancel any pending throttled Q&A render first so a
+                    // late trailing tick cannot re-render the unparsed text over this one.
+                    cancelQaRender();
                     streamingPara = null;
                     // Parse [sources] and [followups] blocks before rendering
                     let renderText = accumulatedText;
@@ -2672,7 +2861,7 @@ export class AgentSidebarView extends ItemView {
                             });
                             // "+" button: append text to textarea without sending (inside item, right-aligned, hover-only)
                             const appendBtn = item.createEl('span', { cls: 'followup-append-btn', text: '+' });
-                            appendBtn.setAttribute('aria-label', 'Add to input');
+                            appendBtn.setAttribute('aria-label', t('ui.sidebar.addToInput'));
                             appendBtn.addEventListener('click', (ev) => {
                                 ev.stopPropagation();
                                 ev.preventDefault();
@@ -2687,6 +2876,7 @@ export class AgentSidebarView extends ItemView {
                     }
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
@@ -2755,6 +2945,7 @@ export class AgentSidebarView extends ItemView {
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                 },
                 onTaskTelemetry: (data) => {
@@ -2910,7 +3101,7 @@ export class AgentSidebarView extends ItemView {
 
                 // Onboarding: inject step-specific setup instructions when setup is incomplete
                 const onboarding = new OnboardingService(this.plugin.memoryService, this.plugin);
-                const onboardingPrompt = onboarding.getOnboardingPrompt();
+                const onboardingPrompt = onboarding.getOnboardingPrompt(getActiveLocale());
                 if (onboardingPrompt) parts.unshift(onboardingPrompt);
 
                 // Session retrieval — only on first message, using raw user text
@@ -2959,11 +3150,21 @@ export class AgentSidebarView extends ItemView {
             console.debug(`[Mastery] Skipped: enabled=${this.plugin.settings.mastery.enabled}, service=${!!this.plugin.recipeMatchingService}`);
         }
 
+        // IMP-41-03-01: an armed resume snapshot replaces the working history
+        // with the (more complete) inflight copy and hands the loop its
+        // persisted state. One-shot: consumed here, cleared immediately.
+        const resumeSnapshot = this.pendingResume;
+        this.pendingResume = null;
+        if (resumeSnapshot) {
+            this.conversationHistory = [...resumeSnapshot.history];
+        }
+
         await task.execute({
             userMessage: messageToSend,
             taskId,
             initialMode: activeMode,
             history: this.conversationHistory,
+            resumeState: resumeSnapshot?.state,
             abortSignal: this.currentAbortController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
             includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
@@ -2988,7 +3189,7 @@ export class AgentSidebarView extends ItemView {
      */
     private triggerManualCondensing(): void {
         if (!this.contextTracker) {
-            new Notice('Context tracker not initialized');
+            new Notice(t('notice.context.trackerNotInitialized'));
             return;
         }
 
@@ -2996,11 +3197,11 @@ export class AgentSidebarView extends ItemView {
         const percentage = usage.maxTokens > 0 ? (usage.tokensUsed / usage.maxTokens) * 100 : 0;
 
         if (percentage < 60) {
-            new Notice('Context usage is below 60%. Condensing not needed yet.');
+            new Notice(t('notice.context.condenseBelowThreshold'));
             return;
         }
 
-        new Notice('Manual context condensing is not yet fully implemented. Please use automatic condensing.');
+        new Notice(t('notice.context.manualCondenseNotImplemented'));
         // TODO: Implement manual condensing trigger
         // This requires either:
         // 1. Storing reference to current AgentTask
@@ -3014,6 +3215,7 @@ export class AgentSidebarView extends ItemView {
      * Feature 3: Cancel the running request
      */
     private handleStop(): void {
+        if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
         this.currentAbortController?.abort();
         this.currentAbortController = null;
         // FEAT-24-08 Steering: pending bubbles never reached the agent --
@@ -3058,9 +3260,52 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * FIX-01-01-02: while a task runs, the loop holds THE reference to
+     * this.conversationHistory and pushes into it. Reassigning the array
+     * mid-task (load/clear/import/delete-active) decouples the running task
+     * from what gets persisted: saves then freeze the api history mid-task
+     * (orphaned tool_use tails) while onComplete pushes the final answer
+     * into the NEW uiMessages array -- the divergence behind two documented
+     * data-loss incidents. Conversation switches are therefore refused
+     * until the task finishes or the user stops it.
+     */
+    private refuseWhileTaskRuns(): boolean {
+        // GUARD-L1 (audit 2026-07-07): after Stop the controller is nulled
+        // immediately, but the aborted loop keeps draining until its next
+        // abort checkpoint (a running tool call or approval wait can hold it
+        // for seconds to minutes) and then still fires onComplete. Switching
+        // conversations inside that window would let the late onComplete
+        // closure push the stopped task's text into the WRONG conversation,
+        // so the guard also holds while a stopped task drains. A timeout
+        // fallback keeps a wedged task from locking the user out forever.
+        if (!this.currentAbortController && !this.taskDraining) return false;
+        new Notice(t('ui.sidebar.taskRunningNoSwitch'), 6000);
+        return true;
+    }
+
+    /** GUARD-L1: hold the switch guard while a stopped task drains. */
+    private beginTaskDraining(): void {
+        this.taskDraining = true;
+        if (this.taskDrainingTimer) window.clearTimeout(this.taskDrainingTimer);
+        this.taskDrainingTimer = window.setTimeout(() => {
+            this.taskDraining = false;
+            this.taskDrainingTimer = 0;
+        }, 30_000);
+    }
+
+    private endTaskDraining(): void {
+        this.taskDraining = false;
+        if (this.taskDrainingTimer) {
+            window.clearTimeout(this.taskDrainingTimer);
+            this.taskDrainingTimer = 0;
+        }
+    }
+
+    /**
      * Clear conversation history and chat UI (New Chat)
      */
     private clearConversation(opts: { skipNavPush?: boolean } = {}): void {
+        if (this.refuseWhileTaskRuns()) return;
         // Save current conversation before clearing (if there is one)
         this.saveCurrentConversation();
         // Enqueue memory extraction (fire-and-forget, threshold-gated)
@@ -3072,6 +3317,7 @@ export class AgentSidebarView extends ItemView {
             void this.finalizeConversation(this.activeConversationId, msgs);
         }
         this.activeConversationId = null;
+        this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
@@ -3103,13 +3349,46 @@ export class AgentSidebarView extends ItemView {
         }
     }
 
+    /**
+     * FIX-03-20-01: create the conversation id as soon as the store allows.
+     * Returns null while no store exists (nothing to save against).
+     */
+    private ensureConversationId(): Promise<string> | null {
+        return this.lazyConversationId.ensure(
+            this.activeConversationId,
+            this.plugin.conversationStore,
+            () => {
+                const mode = this.modeService.getActiveMode().slug;
+                const modelKey = this.resolveEnabledModelKey(mode);
+                const model = this.plugin.settings.activeModels.find((m) => getModelKey(m) === modelKey);
+                return { mode, model: model?.displayName ?? model?.name ?? modelKey };
+            },
+            (id) => {
+                // Only adopt the id if the view still has none -- the user
+                // may have switched to a loaded conversation meanwhile.
+                if (!this.activeConversationId) this.activeConversationId = id;
+            },
+        );
+    }
+
     /** Save the current conversation to ConversationStore (non-blocking). */
     private saveCurrentConversation(): void {
         const store = this.plugin.conversationStore;
-        if (!store || !this.activeConversationId || this.uiMessages.length === 0) return;
-        const convId = this.activeConversationId;
+        if (!store || this.uiMessages.length === 0) return;
+        // FIX-03-20-01: a send during boot may predate store init. Create
+        // the id lazily now instead of silently skipping the save (this
+        // was how a completed chat could vanish from history entirely).
+        const ensured = this.ensureConversationId();
+        if (!ensured) return;
+        // AUDIT-2026-07-02 L-2: snapshot BOTH arrays at call time. The id may
+        // resolve after the user switched conversations (boot-race + load);
+        // saving live this.* would then persist the newly loaded
+        // conversation's content under this save's id. Snapshots bind the
+        // payload to the conversation that was active when the save fired.
         const messagesSnapshot = [...this.uiMessages];
-        store.save(convId, this.conversationHistory, this.uiMessages).then(() => {
+        const historySnapshot = [...this.conversationHistory];
+        ensured.then(async (convId) => {
+            await store.save(convId, historySnapshot, messagesSnapshot);
             // FEATURE-0320 Phase 6: re-index history_chunks after every save.
             void this.plugin.historyIndexer?.onConversationSaved(convId, messagesSnapshot);
         }).catch((e) => console.warn('[History] Save failed:', e));
@@ -3143,7 +3422,11 @@ export class AgentSidebarView extends ItemView {
                     try {
                         const creator = useTaskNotes
                             ? new TaskNotesAdapter(this.app)
-                            : new TaskNoteCreator(this.app);
+                            : new TaskNoteCreator(this.app, {
+                                categoryProperty: this.plugin.settings.categoryProperty,
+                                summaryProperty: this.plugin.settings.summaryProperty,
+                                backlinksProperty: this.plugin.settings.backlinksProperty,
+                            });
                         const created = await creator.createNotes(selected, settings, sourceNote);
                         if (created.length > 0) {
                             const format = useTaskNotes ? t('notice.taskNotesCreatedFormatSuffix') : '';
@@ -3173,13 +3456,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['tasknotes'];
 
         const message = isInstalled
-            ? 'Das Community Plugin "TaskNotes" ist installiert aber nicht aktiv. Aktiviere es fuer erweiterte Task-Verwaltung (Kanban, Kalender, Recurring Tasks).'
-            : 'Tipp: Das Community Plugin "TaskNotes" bietet erweiterte Task-Verwaltung mit Kanban, Kalender und Recurring Tasks. Installierbar ueber Einstellungen > Community Plugins.';
+            ? t('notice.taskNotes.hintDisabled')
+            : t('notice.taskNotes.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message });
             const dismissLink = frag.createEl('a', {
-                text: 'Nicht mehr anzeigen',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -3219,13 +3502,13 @@ export class AgentSidebarView extends ItemView {
         const isInstalled = !!plugins?.manifests?.['frontmatter-operator'];
 
         const message = isInstalled
-            ? 'Frontmatter Operator is installed but disabled. Enable it in Community Plugins for bulk frontmatter operations and undoable snapshots.'
-            : 'Tip: Frontmatter Operator adds bulk operations, structural rename/delete, and undoable snapshots for YAML frontmatter. Install it from Community Plugins for advanced workflows.';
+            ? t('notice.frontmatterOperator.hintDisabled')
+            : t('notice.frontmatterOperator.hintNotInstalled');
 
         const fragment = createFragment((frag) => {
             frag.createSpan({ text: message + ' ' });
             const dismissLink = frag.createEl('a', {
-                text: 'Do not show again',
+                text: t('ui.sidebar.doNotShowAgain'),
                 cls: 'agent-u-task-hint-dismiss',
             });
             dismissLink.addClass('agent-u-task-hint-dismiss-link');
@@ -3438,6 +3721,7 @@ export class AgentSidebarView extends ItemView {
             this.clearConversation({ skipNavPush: true });
             return;
         }
+        if (this.refuseWhileTaskRuns()) return; // FIX-01-01-02
         const store = this.plugin.conversationStore;
         if (!store) return;
 
@@ -3446,6 +3730,11 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('notice.loadConversationFailed'));
             return;
         }
+        // DELTA-0707B-L1: re-check after the await -- a task started from
+        // the composer while the file was loading would otherwise get its
+        // history arrays swapped mid-run (the exact decoupling this guard
+        // exists to prevent). The loaded data is simply discarded.
+        if (this.refuseWhileTaskRuns()) return;
 
         // Save current conversation before switching
         this.saveCurrentConversation();
@@ -3460,6 +3749,7 @@ export class AgentSidebarView extends ItemView {
         this.conversationHistory = data.messages;
         this.uiMessages = data.uiMessages;
         this.activeConversationId = id;
+        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         // Conversation switch drops any pending fullDocTexts too (FIX-19-28-05 audit).
@@ -3522,11 +3812,15 @@ export class AgentSidebarView extends ItemView {
      *     just like a History click would do.
      *   - After import the composer is focused so the user can keep typing.
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public transfer API keeps its Promise signature for callers; the body is synchronous by design
     public async importConversation(state: {
         conversationId: string | null;
         history: MessageParam[];
         uiMessages: UiMessage[];
-    }): Promise<void> {
+    }): Promise<boolean> {
+        // GUARD-I1: a refusal must be distinguishable from success -- the
+        // inline-transfer caller closes its panel on ok.
+        if (this.refuseWhileTaskRuns()) return false; // FIX-01-01-02
         // Save current conversation before switching (same as loadConversation).
         this.saveCurrentConversation();
         if (this.activeConversationId) {
@@ -3538,6 +3832,7 @@ export class AgentSidebarView extends ItemView {
         this.conversationHistory = [...state.history];
         this.uiMessages = [...state.uiMessages];
         this.activeConversationId = state.conversationId;
+        this.lazyConversationId.reset(); // FIX-03-20-01: drop any in-flight create
         this.userDismissedContext = false;
         this.attachments.clear();
         void this.attachments.consumeFullDocTexts();
@@ -3561,6 +3856,7 @@ export class AgentSidebarView extends ItemView {
 
         if (state.conversationId !== null) this.pushNav(state.conversationId);
         try { this.textarea?.focus(); } catch { /* noop in test stubs */ }
+        return true;
     }
 
     /**
@@ -3593,6 +3889,9 @@ export class AgentSidebarView extends ItemView {
 
     /** Delete a conversation from history. */
     private async deleteConversation(id: string): Promise<void> {
+        // FIX-01-01-02: deleting the ACTIVE conversation mid-task would
+        // reassign the shared history arrays under the running loop.
+        if (this.activeConversationId === id && this.refuseWhileTaskRuns()) return;
         const store = this.plugin.conversationStore;
         if (!store) return;
         // Cascade: remove derived memory artefacts (facts, session summary,
@@ -3604,7 +3903,12 @@ export class AgentSidebarView extends ItemView {
         await store.delete(id);
         // If the deleted conversation is the active one, clear the chat
         if (this.activeConversationId === id) {
+            // DELTA-0707B-L1: re-check after the awaits above. If a task
+            // started meanwhile, keep the in-memory arrays under the running
+            // loop; its next save recreates the conversation file.
+            if (this.refuseWhileTaskRuns()) return;
             this.activeConversationId = null;
+            this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
             this.uiMessages = [];
             this.conversationHistory = [];
             this.plugin.sessionFlags.clear(); // ADR-048
@@ -3933,23 +4237,23 @@ export class AgentSidebarView extends ItemView {
 
         // Vault Health Check
         menu.addItem((item) => {
-            item.setTitle('Vault health check');
+            item.setTitle(t('modal.vaultHealth.title'));
             item.setIcon('stethoscope');
             item.onClick(async () => {
                 if (!this.plugin.vaultHealthService) {
-                    new Notice('Vault health service not available. Enable semantic index first.');
+                    new Notice(t('notice.vaultHealth.serviceUnavailable'));
                     return;
                 }
-                new Notice('Running vault health check...');
+                new Notice(t('notice.vaultHealth.checkRunning'));
                 await this.plugin.vaultHealthService.runChecks(undefined, {
-                    backlinksProperty: this.plugin.settings.backlinksProperty ?? 'Notizen',
+                    backlinksProperty: this.plugin.settings.backlinksProperty ?? OKF_DEFAULTS.backlinksProperty,
                     silenceWithContextOrphans: this.plugin.settings.vaultHealth?.silenceWithContextOrphans ?? true,
                     orphanExcludePathPrefixes: this.plugin.settings.vaultHealth?.orphanExcludePathPrefixes ?? [],
                     reciprocalProperties: this.plugin.settings.vaultHealth?.reciprocalProperties ?? [['Notizen', 'Quellen']],
                 });
                 const findings = this.plugin.vaultHealthService.getFindings();
                 if (findings.length === 0) {
-                    new Notice('No issues found. Vault is healthy.');
+                    new Notice(t('notice.vaultHealth.noIssues'));
                     return;
                 }
                 this.openHealthModal();
@@ -4063,9 +4367,21 @@ export class AgentSidebarView extends ItemView {
      * context to fall back on -- matches the inline chat bridge in
      * `PluginWiring.ts`.
      */
+    /** DOM-D1: newest render generation per container; stale passes skip link wiring. */
+    private renderGenerations = new WeakMap<HTMLElement, number>();
+
     private async renderMarkdownAndWire(markdown: string, containerEl: HTMLElement): Promise<void> {
+        // AUDIT 2026-07-07 DOM-D1: overlapping passes into the same container
+        // (throttled Q&A streaming render vs. the next tick or onComplete's
+        // authoritative render) stacked duplicate click handlers -- the stale
+        // pass resolved after a newer pass had emptied and re-rendered the
+        // container, then wired the newer pass's anchors a second time. Only
+        // the newest pass per container may wire links.
+        const gen = (this.renderGenerations.get(containerEl) ?? 0) + 1;
+        this.renderGenerations.set(containerEl, gen);
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
         await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        if (this.renderGenerations.get(containerEl) !== gen) return;
         this.wireInternalLinks(containerEl);
     }
 
@@ -4685,7 +5001,7 @@ export class AgentSidebarView extends ItemView {
 
         // Insert placeholder immediately so it appears above the details toggle.
         const previewEl = row.createDiv('tool-approval-fo-preview');
-        previewEl.setText('Resolving affected notes...');
+        previewEl.setText(t('ui.sidebar.resolvingAffectedNotes'));
 
         // Async resolution. Failures silently remove the placeholder.
         // AUDIT-FEAT-14-07 L-2: guard every DOM mutation with an isConnected
@@ -4843,7 +5159,33 @@ export class AgentSidebarView extends ItemView {
                 });
             }
 
-            const cleanup = () => row.remove();
+            // IMP-41-01-02: wall-clock timeout + abort coupling. Without this
+            // the loop parks forever on a walked-away user, and Stop during an
+            // open card still required a second click on the card itself.
+            const timeoutMinutes = this.plugin.settings.advancedApi?.approvalTimeoutMinutes ?? 10;
+            const countdownEl = timeoutMinutes > 0 ? actions.createSpan('tool-approval-countdown') : null;
+            // Declared before wireApprovalTimeout: an ALREADY-aborted signal
+            // fires onAbort synchronously inside the call.
+            let timeoutHandle: import('./sidebar/approvalTimeout').ApprovalTimeoutHandle | null = null;
+            const cleanup = () => { timeoutHandle?.dispose(); row.remove(); };
+            timeoutHandle = wireApprovalTimeout({
+                timeoutMs: timeoutMinutes * 60_000,
+                abortSignal: this.currentAbortController?.signal,
+                onExpire: () => {
+                    cleanup();
+                    resolve({
+                        decision: 'rejected',
+                        reason: `Approval timed out after ${timeoutMinutes} minute(s); operation denied.`,
+                    });
+                },
+                onAbort: () => {
+                    cleanup();
+                    resolve({ decision: 'rejected', reason: 'Task was stopped while approval was pending.' });
+                },
+                onCountdownTick: (remainingSec) => {
+                    countdownEl?.setText(t('ui.approval.expiresIn', { seconds: String(remainingSec) }));
+                },
+            });
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
@@ -4856,6 +5198,151 @@ export class AgentSidebarView extends ItemView {
                     cleanup();
                     resolve({ decision: 'approved' });
                 })();
+            });
+
+            this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
+        });
+    }
+
+    /**
+     * Offer the missing language pack as a visible in-chat card at
+     * sidebar open. Reuses `showInstallPromptCard` so the visual is
+     * identical to tool-triggered asset installs. Skips silently on
+     * English, when the pack is already installed, or when the pack
+     * offer for this locale was previously handled (persisted via
+     * settings.localePackPromptedFor). Fire-and-forget.
+     */
+    private async maybeOfferLocalePackCard(): Promise<void> {
+        try {
+            const { activeLocaleSpec, LOCALE_LABELS } = await import('../i18n/localePacks');
+            const { needsLocalePack, getActiveLocale } = await import('../i18n');
+            if (!needsLocalePack()) return;
+            const spec = activeLocaleSpec(this.plugin);
+            if (!spec) return;
+            const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+            const manager = new OptionalAssetManager(this.plugin);
+            const snap = await manager.snapshot(spec);
+            if (snap.status === 'installed') return;
+            const outcome = await this.showInstallPromptCard(spec, 'language-pack');
+            if (outcome.decision === 'installed') {
+                const locale = getActiveLocale();
+                const label = (LOCALE_LABELS as Record<string, string>)[locale] ?? locale;
+                new Notice(t('notice.localePack.installedReload', { language: label }), 10_000);
+            }
+        } catch (e) {
+            console.debug('[i18n] locale pack card skipped:', e);
+        }
+    }
+
+    /**
+     * Inline install-prompt card. Rendered when a tool needs an optional
+     * asset (office bundle, pdfjs bundle, reranker WASM, ...) that is not
+     * yet installed. Obsidian community policy requires network fetches
+     * to be triggered by an explicit user click -- this card IS that
+     * click. Resolves to `installed` once download+SHA verification
+     * succeeded (tool retries its asset load), `skipped` if the user
+     * dismisses, `failed` on download/verification error.
+     */
+    private async showInstallPromptCard(
+        spec: import('../core/assets/OptionalAssetManager').AssetSpec,
+        toolName: string,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').OptionalAssetInstallResult> {
+        return new Promise((resolve) => {
+            if (!this.chatContainer) { resolve({ decision: 'skipped' }); return; }
+
+            const row = this.chatContainer.createDiv('tool-approval-row install-prompt-row');
+
+            const iconSpan = row.createSpan('tool-approval-icon');
+            setIcon(iconSpan, 'download-cloud');
+
+            const toolLabel = toolName === 'language-pack'
+                ? t('ui.installPrompt.languagePackToolLabel')
+                : this.formatToolLabel(toolName);
+            const title = t('ui.installPrompt.title', {
+                tool: toolLabel,
+                asset: spec.label,
+            });
+            row.createSpan('tool-approval-text').setText(title);
+
+            const explanation = row.createDiv('tool-approval-explanation');
+            explanation.createSpan().setText(t('ui.installPrompt.body', {
+                asset: spec.label,
+                sizeMb: String(spec.sizeMb),
+            }));
+
+            const detailsToggle = row.createEl('span', {
+                cls: 'tool-approval-details-toggle',
+                text: t('ui.installPrompt.whatHappens'),
+            });
+            const detailsContainer = row.createDiv('tool-approval-details');
+            const details = detailsContainer.createEl('pre', { cls: 'tool-approval-details-content' });
+            details.setText(t('ui.installPrompt.details', {
+                filename: spec.filename,
+                sizeMb: String(spec.sizeMb),
+                sha: spec.expectedSha256.slice(0, 16) + '...',
+                url: spec.downloadUrl,
+            }));
+            detailsToggle.addEventListener('click', () => {
+                const visible = detailsContainer.hasClass('is-visible');
+                if (visible) {
+                    detailsContainer.removeClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.whatHappens'));
+                } else {
+                    detailsContainer.addClass('is-visible');
+                    detailsToggle.setText(t('ui.installPrompt.hideDetails'));
+                }
+            });
+
+            const statusEl = row.createDiv('tool-approval-explanation is-hidden');
+            const actions = row.createDiv('tool-approval-actions');
+            const installBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-allow-once',
+                text: t('ui.installPrompt.installNow', { sizeMb: String(spec.sizeMb) }),
+            });
+            const skipBtn = actions.createEl('button', {
+                cls: 'tool-approval-btn approval-deny-small',
+                text: '✕',
+            });
+            skipBtn.setAttr('title', t('ui.installPrompt.skipTooltip'));
+
+            let done = false;
+            const cleanup = () => { done = true; row.remove(); };
+
+            installBtn.addEventListener('click', () => {
+                void (async () => {
+                    if (done) return;
+                    installBtn.disabled = true;
+                    skipBtn.disabled = true;
+                    installBtn.setText(t('ui.installPrompt.downloading', { asset: spec.label }));
+                    statusEl.removeClass('is-hidden');
+                    statusEl.setText(t('ui.installPrompt.downloadingStatus'));
+                    try {
+                        const { OptionalAssetManager } = await import('../core/assets/OptionalAssetManager');
+                        const manager = new OptionalAssetManager(this.plugin);
+                        await manager.install(spec);
+                        new Notice(t('notice.assets.installed', { label: spec.label }));
+                        cleanup();
+                        resolve({ decision: 'installed' });
+                    } catch (e) {
+                        const msg = e instanceof Error ? e.message : String(e);
+                        installBtn.disabled = false;
+                        skipBtn.disabled = false;
+                        installBtn.setText(t('ui.installPrompt.retry'));
+                        statusEl.setText(t('ui.installPrompt.failed', { error: msg }));
+                        // Do not cleanup -- user can retry or skip.
+                        // We only resolve on skip after a failed try so the
+                        // model sees the error message via the tool's fallback.
+                        skipBtn.onclick = () => {
+                            cleanup();
+                            resolve({ decision: 'failed', error: msg });
+                        };
+                    }
+                })();
+            });
+
+            skipBtn.addEventListener('click', () => {
+                cleanup();
+                resolve({ decision: 'skipped' });
             });
 
             this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
@@ -5274,20 +5761,20 @@ export class AgentSidebarView extends ItemView {
             }
         }
 
-        // Build entries: before = earliest checkpoint, after = current vault.
-        // EPIC-33 Diff-UX-refresh (2026-06-22) replaced the section-accordion
-        // DiffReviewModal with the unified EditReviewModal so inline + sidebar
-        // share a single review surface.
+        // Build entries: before = earliest checkpoint, after = current disk
+        // state. EPIC-33 Diff-UX-refresh (2026-06-22) replaced the
+        // section-accordion DiffReviewModal with the unified EditReviewModal
+        // so inline + sidebar share a single review surface.
+        // FIX-01-07-04: the after-state MUST come from an index-independent
+        // read. vault.getFileByPath returns null for dot-paths (.obsidian/,
+        // agent folder), which made the review show after='' and Apply then
+        // zeroed the file through a raw adapter.write.
+        const { readCurrentContent, applyReviewDecisions } = await import('./edit-review/postTaskReviewIO');
         const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
         const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
         for (const [filePath, before] of fileOldContent) {
-            let after = '';
-            try {
-                const file = this.app.vault.getFileByPath(filePath);
-                if (file) after = await this.app.vault.read(file);
-            } catch { /* file may have been deleted */ }
-
+            const after = (await readCurrentContent(this.app, filePath)) ?? '';
             if (before === after) continue;
             entries.push({ path: filePath, before, after });
         }
@@ -5299,11 +5786,7 @@ export class AgentSidebarView extends ItemView {
             }
         }
         for (const filePath of newFiles) {
-            let after = '';
-            try {
-                const file = this.app.vault.getFileByPath(filePath);
-                if (file) after = await this.app.vault.read(file);
-            } catch { continue; }
+            const after = await readCurrentContent(this.app, filePath);
             if (after) {
                 entries.push({ path: filePath, before: '', after, isNew: true });
             }
@@ -5314,35 +5797,31 @@ export class AgentSidebarView extends ItemView {
         const result = await showEditReviewModal({
             app: this.app,
             entries,
-            title: 'Änderungen prüfen',
-            source: `Aufgabe ${taskId}`,
+            title: t('ui.editReview.titleReview'),
+            source: t('ui.editReview.sourceTask', { taskId }),
         });
         if (result.decisions === null) return;
 
-        for (const d of result.decisions) {
-            if (d.skipped === true) continue;
-            try {
-                const file = this.app.vault.getFileByPath(d.path);
-                if (file instanceof TFile) {
-                    await this.app.vault.modify(file, d.finalContent);
-                    // Beat the CodeMirror stale-buffer cache that overwrites
-                    // vault.modify after the modal closes (FIX-01-07-03).
-                    const { refreshOpenMarkdownViewsFor } = await import('../core/utils/refreshMarkdownView');
-                    await refreshOpenMarkdownViewsFor(this.app, file, d.finalContent);
-                } else {
-                    await this.app.vault.adapter.write(d.path, d.finalContent);
-                }
-            } catch (e) {
-                console.error(`[PostTaskReview] Failed to apply decision for ${d.path}:`, e);
-            }
-        }
-        const applied = result.decisions.filter(d => d.skipped !== true);
-        if (applied.length > 0) {
-            const files = applied.map(d => d.path).join(', ');
+        // FIX-01-07-04: only decisions the user actually changed are written,
+        // through the atomic + empty-guarded path. An unchanged Apply is a
+        // no-op instead of a rewrite of the displayed after-state.
+        const reviewedAfter = new Map(entries.map(e => [e.path, e.after]));
+        const outcome = await applyReviewDecisions(this.app, result.decisions, reviewedAfter);
+        if (outcome.written.length > 0) {
             this.conversationHistory.push({
                 role: 'user',
-                content: `[System] Post-task review: User edited ${applied.length} file(s): ${files}.`,
+                content: `[System] Post-task review: User edited ${outcome.written.length} file(s): ${outcome.written.join(', ')}.`,
             });
+        }
+        // AUDIT 2026-07-07 PTR-2: guarded/failed decisions previously died in
+        // the console -- the user edited, clicked Apply, the modal closed,
+        // and the change was silently gone. Surface them.
+        const notApplied = [...outcome.guarded, ...outcome.failed];
+        if (notApplied.length > 0) {
+            new Notice(t('ui.editReview.applyIncomplete', {
+                count: notApplied.length,
+                paths: notApplied.join(', '),
+            }), 10000);
         }
     }
 
