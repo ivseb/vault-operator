@@ -52,6 +52,7 @@ const NUMERIC_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
     'iteration', 'consecutiveMistakes', 'totalToolErrors', 'rateLimitRetries',
     'advisorCallsUsed', 'telemetryIterations', 'totalInputTokens',
     'totalOutputTokens', 'totalCacheReadTokens', 'totalCacheCreationTokens',
+    'streamedTextChars',
 ];
 const BOOLEAN_STATE_KEYS: readonly (keyof AgentLoopState)[] = [
     'attemptCompletionFired', 'fastPathFired', 'cleanNaturalExit',

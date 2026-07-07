@@ -232,6 +232,7 @@ export class AgentLoopEngine {
                 result.thinking.seal(chunk.signature);
             } else if (chunk.type === 'text') {
                 state.hasStreamedText = true;
+                state.streamedTextChars += chunk.text.length;
                 result.textParts.push(chunk.text);
                 ports.onText(chunk.text);
             } else if (chunk.type === 'tool_use') {

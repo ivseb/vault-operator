@@ -704,6 +704,7 @@
   "ui.editReview.unchanged": "未更改",
   "ui.editReview.sourceTask": "任务 {{taskId}}",
   "ui.editReview.applyIncomplete": "任务后审查：{{count}} 项更改未能应用（{{paths}}）。这些文件保留原有内容。",
+  "ui.sidebar.taskRunningNoSwitch": "任务仍在运行。请先停止任务或等待其完成，再切换、清空或删除此对话。",
   "ui.inline.editorMissing": "缺少编辑器连接，无法应用更改。",
   "ui.inline.readyToApply": "已准备好应用，请在差异对话框中确认。",
   "ui.inline.reviewChange": "审阅更改",

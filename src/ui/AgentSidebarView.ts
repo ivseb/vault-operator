@@ -3254,9 +3254,26 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * FIX-01-01-02: while a task runs, the loop holds THE reference to
+     * this.conversationHistory and pushes into it. Reassigning the array
+     * mid-task (load/clear/import/delete-active) decouples the running task
+     * from what gets persisted: saves then freeze the api history mid-task
+     * (orphaned tool_use tails) while onComplete pushes the final answer
+     * into the NEW uiMessages array -- the divergence behind two documented
+     * data-loss incidents. Conversation switches are therefore refused
+     * until the task finishes or the user stops it.
+     */
+    private refuseWhileTaskRuns(): boolean {
+        if (!this.currentAbortController) return false;
+        new Notice(t('ui.sidebar.taskRunningNoSwitch'), 6000);
+        return true;
+    }
+
+    /**
      * Clear conversation history and chat UI (New Chat)
      */
     private clearConversation(opts: { skipNavPush?: boolean } = {}): void {
+        if (this.refuseWhileTaskRuns()) return;
         // Save current conversation before clearing (if there is one)
         this.saveCurrentConversation();
         // Enqueue memory extraction (fire-and-forget, threshold-gated)
@@ -3672,6 +3689,7 @@ export class AgentSidebarView extends ItemView {
             this.clearConversation({ skipNavPush: true });
             return;
         }
+        if (this.refuseWhileTaskRuns()) return; // FIX-01-01-02
         const store = this.plugin.conversationStore;
         if (!store) return;
 
@@ -3757,11 +3775,13 @@ export class AgentSidebarView extends ItemView {
      *     just like a History click would do.
      *   - After import the composer is focused so the user can keep typing.
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public transfer API keeps its Promise signature for callers; the body is synchronous by design
     public async importConversation(state: {
         conversationId: string | null;
         history: MessageParam[];
         uiMessages: UiMessage[];
     }): Promise<void> {
+        if (this.refuseWhileTaskRuns()) return; // FIX-01-01-02
         // Save current conversation before switching (same as loadConversation).
         this.saveCurrentConversation();
         if (this.activeConversationId) {
@@ -3829,6 +3849,9 @@ export class AgentSidebarView extends ItemView {
 
     /** Delete a conversation from history. */
     private async deleteConversation(id: string): Promise<void> {
+        // FIX-01-01-02: deleting the ACTIVE conversation mid-task would
+        // reassign the shared history arrays under the running loop.
+        if (this.activeConversationId === id && this.refuseWhileTaskRuns()) return;
         const store = this.plugin.conversationStore;
         if (!store) return;
         // Cascade: remove derived memory artefacts (facts, session summary,
