@@ -84,6 +84,7 @@
     "sql.js": "^1.14.1"
   },
   "overrides": {
+    "fast-uri": ">=4.0.1",
     "hono": ">=4.12.25",
     "@hono/node-server": ">=1.19.10",
     "express-rate-limit": ">=8.2.2",
@@ -95,7 +96,6 @@
     "vite": "$vite",
     "protobufjs": ">=8.6.0",
     "dompurify": "$dompurify",
-    "fast-uri": ">=3.1.2",
     "fast-xml-builder": ">=1.1.7",
     "uuid": "^14.0.0",
     "qs": ">=6.15.2",

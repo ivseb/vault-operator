@@ -51,6 +51,14 @@ export interface AgentLoopState {
 
     // --- stream / reply bookkeeping ---
     hasStreamedText: boolean;
+    /**
+     * FIX-41-03-01: total characters of narration/answer text streamed this
+     * run. The completion gate compares attempt_completion.result against
+     * this so an answer that only lives in the result param (model streamed
+     * a few narration sentences, put the deliverable into the tool input)
+     * is rendered instead of silently discarded.
+     */
+    streamedTextChars: number;
     hasRetriedEmpty: boolean;
 
     // --- mode / prompt-cache ---
@@ -80,7 +88,13 @@ export function initLoopStateForRun(resumeFrom?: AgentLoopState): AgentLoopState
     state.iteration = resumeFrom.iteration + 1;
     state.phase = 'preamble';
     state.hasStreamedText = false;
+    state.streamedTextChars = 0;
     state.hasRetriedEmpty = false;
+    // FIX-41-03-01 follow-on: snapshots are stamped right after the
+    // completion tool_result push, so a resumed run would otherwise hit the
+    // completion break before its first own iteration and insta-complete.
+    state.completionResult = null;
+    state.attemptCompletionFired = false;
     return state;
 }
 
@@ -100,6 +114,7 @@ export function createInitialLoopState(opts: { fastPathFired?: boolean } = {}): 
         outputCapRetried: false,
         advisorCallsUsed: 0,
         hasStreamedText: false,
+        streamedTextChars: 0,
         hasRetriedEmpty: false,
         pendingModeSwitch: null,
         cacheInvalidated: false,

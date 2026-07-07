@@ -151,6 +151,9 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+    /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
+    private taskDraining = false;
+    private taskDrainingTimer = 0;
 
     // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
     // queue up while a task is running and get drained by AgentTask at the
@@ -2873,6 +2876,7 @@ export class AgentSidebarView extends ItemView {
                     }
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
@@ -2941,6 +2945,7 @@ export class AgentSidebarView extends ItemView {
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                 },
                 onTaskTelemetry: (data) => {
@@ -3210,6 +3215,7 @@ export class AgentSidebarView extends ItemView {
      * Feature 3: Cancel the running request
      */
     private handleStop(): void {
+        if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
         this.currentAbortController?.abort();
         this.currentAbortController = null;
         // FEAT-24-08 Steering: pending bubbles never reached the agent --
@@ -3254,9 +3260,52 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * FIX-01-01-02: while a task runs, the loop holds THE reference to
+     * this.conversationHistory and pushes into it. Reassigning the array
+     * mid-task (load/clear/import/delete-active) decouples the running task
+     * from what gets persisted: saves then freeze the api history mid-task
+     * (orphaned tool_use tails) while onComplete pushes the final answer
+     * into the NEW uiMessages array -- the divergence behind two documented
+     * data-loss incidents. Conversation switches are therefore refused
+     * until the task finishes or the user stops it.
+     */
+    private refuseWhileTaskRuns(): boolean {
+        // GUARD-L1 (audit 2026-07-07): after Stop the controller is nulled
+        // immediately, but the aborted loop keeps draining until its next
+        // abort checkpoint (a running tool call or approval wait can hold it
+        // for seconds to minutes) and then still fires onComplete. Switching
+        // conversations inside that window would let the late onComplete
+        // closure push the stopped task's text into the WRONG conversation,
+        // so the guard also holds while a stopped task drains. A timeout
+        // fallback keeps a wedged task from locking the user out forever.
+        if (!this.currentAbortController && !this.taskDraining) return false;
+        new Notice(t('ui.sidebar.taskRunningNoSwitch'), 6000);
+        return true;
+    }
+
+    /** GUARD-L1: hold the switch guard while a stopped task drains. */
+    private beginTaskDraining(): void {
+        this.taskDraining = true;
+        if (this.taskDrainingTimer) window.clearTimeout(this.taskDrainingTimer);
+        this.taskDrainingTimer = window.setTimeout(() => {
+            this.taskDraining = false;
+            this.taskDrainingTimer = 0;
+        }, 30_000);
+    }
+
+    private endTaskDraining(): void {
+        this.taskDraining = false;
+        if (this.taskDrainingTimer) {
+            window.clearTimeout(this.taskDrainingTimer);
+            this.taskDrainingTimer = 0;
+        }
+    }
+
+    /**
      * Clear conversation history and chat UI (New Chat)
      */
     private clearConversation(opts: { skipNavPush?: boolean } = {}): void {
+        if (this.refuseWhileTaskRuns()) return;
         // Save current conversation before clearing (if there is one)
         this.saveCurrentConversation();
         // Enqueue memory extraction (fire-and-forget, threshold-gated)
@@ -3672,6 +3721,7 @@ export class AgentSidebarView extends ItemView {
             this.clearConversation({ skipNavPush: true });
             return;
         }
+        if (this.refuseWhileTaskRuns()) return; // FIX-01-01-02
         const store = this.plugin.conversationStore;
         if (!store) return;
 
@@ -3680,6 +3730,11 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('notice.loadConversationFailed'));
             return;
         }
+        // DELTA-0707B-L1: re-check after the await -- a task started from
+        // the composer while the file was loading would otherwise get its
+        // history arrays swapped mid-run (the exact decoupling this guard
+        // exists to prevent). The loaded data is simply discarded.
+        if (this.refuseWhileTaskRuns()) return;
 
         // Save current conversation before switching
         this.saveCurrentConversation();
@@ -3757,11 +3812,15 @@ export class AgentSidebarView extends ItemView {
      *     just like a History click would do.
      *   - After import the composer is focused so the user can keep typing.
      */
+    // eslint-disable-next-line @typescript-eslint/require-await -- public transfer API keeps its Promise signature for callers; the body is synchronous by design
     public async importConversation(state: {
         conversationId: string | null;
         history: MessageParam[];
         uiMessages: UiMessage[];
-    }): Promise<void> {
+    }): Promise<boolean> {
+        // GUARD-I1: a refusal must be distinguishable from success -- the
+        // inline-transfer caller closes its panel on ok.
+        if (this.refuseWhileTaskRuns()) return false; // FIX-01-01-02
         // Save current conversation before switching (same as loadConversation).
         this.saveCurrentConversation();
         if (this.activeConversationId) {
@@ -3797,6 +3856,7 @@ export class AgentSidebarView extends ItemView {
 
         if (state.conversationId !== null) this.pushNav(state.conversationId);
         try { this.textarea?.focus(); } catch { /* noop in test stubs */ }
+        return true;
     }
 
     /**
@@ -3829,6 +3889,9 @@ export class AgentSidebarView extends ItemView {
 
     /** Delete a conversation from history. */
     private async deleteConversation(id: string): Promise<void> {
+        // FIX-01-01-02: deleting the ACTIVE conversation mid-task would
+        // reassign the shared history arrays under the running loop.
+        if (this.activeConversationId === id && this.refuseWhileTaskRuns()) return;
         const store = this.plugin.conversationStore;
         if (!store) return;
         // Cascade: remove derived memory artefacts (facts, session summary,
@@ -3840,6 +3903,10 @@ export class AgentSidebarView extends ItemView {
         await store.delete(id);
         // If the deleted conversation is the active one, clear the chat
         if (this.activeConversationId === id) {
+            // DELTA-0707B-L1: re-check after the awaits above. If a task
+            // started meanwhile, keep the in-memory arrays under the running
+            // loop; its next save recreates the conversation file.
+            if (this.refuseWhileTaskRuns()) return;
             this.activeConversationId = null;
             this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
             this.uiMessages = [];
@@ -4300,9 +4367,21 @@ export class AgentSidebarView extends ItemView {
      * context to fall back on -- matches the inline chat bridge in
      * `PluginWiring.ts`.
      */
+    /** DOM-D1: newest render generation per container; stale passes skip link wiring. */
+    private renderGenerations = new WeakMap<HTMLElement, number>();
+
     private async renderMarkdownAndWire(markdown: string, containerEl: HTMLElement): Promise<void> {
+        // AUDIT 2026-07-07 DOM-D1: overlapping passes into the same container
+        // (throttled Q&A streaming render vs. the next tick or onComplete's
+        // authoritative render) stacked duplicate click handlers -- the stale
+        // pass resolved after a newer pass had emptied and re-rendered the
+        // container, then wired the newer pass's anchors a second time. Only
+        // the newest pass per container may wire links.
+        const gen = (this.renderGenerations.get(containerEl) ?? 0) + 1;
+        this.renderGenerations.set(containerEl, gen);
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
         await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        if (this.renderGenerations.get(containerEl) !== gen) return;
         this.wireInternalLinks(containerEl);
     }
 
@@ -5733,6 +5812,16 @@ export class AgentSidebarView extends ItemView {
                 role: 'user',
                 content: `[System] Post-task review: User edited ${outcome.written.length} file(s): ${outcome.written.join(', ')}.`,
             });
+        }
+        // AUDIT 2026-07-07 PTR-2: guarded/failed decisions previously died in
+        // the console -- the user edited, clicked Apply, the modal closed,
+        // and the change was silently gone. Surface them.
+        const notApplied = [...outcome.guarded, ...outcome.failed];
+        if (notApplied.length > 0) {
+            new Notice(t('ui.editReview.applyIncomplete', {
+                count: notApplied.length,
+                paths: notApplied.join(', '),
+            }), 10000);
         }
     }
 

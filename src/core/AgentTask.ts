@@ -1701,17 +1701,21 @@ export class AgentTask {
                 await this.loopEngine.maybeCondenseAfterToolBatch(loopState, history, condensePorts);
 
                 // Break loop if attempt_completion was signaled.
-                // The result field is an internal log entry — NEVER render it
-                // when the model already streamed its answer as text (which is
-                // the intended flow). Only render as last-resort fallback for
-                // models that skip text streaming entirely (e.g. GPT-5-mini).
+                // The result field is an internal log entry — when the model
+                // already streamed its answer as text (the intended flow), a
+                // short summary result stays silent. FIX-41-03-01: the old
+                // binary hasStreamedText gate was task-global, so a single
+                // early narration chunk discarded an answer that lived ONLY
+                // in the result param (2026-07-07 incident: 325 chars of
+                // narration streamed, the whole deliverable suppressed).
+                // Render the result whenever it carries more substance than
+                // everything the run streamed; also keep the last-resort
+                // fallback for models that skip text streaming entirely.
                 if (loopState.completionResult !== null) {
                     this.taskCallbacks.onAttemptCompletion?.();
-                    if (!loopState.hasStreamedText) {
-                        const resultText = loopState.completionResult as string;
-                        if (resultText.trim()) {
-                            this.taskCallbacks.onText?.(resultText);
-                        }
+                    const resultText = loopState.completionResult.trim();
+                    if (resultText && (!loopState.hasStreamedText || resultText.length > loopState.streamedTextChars)) {
+                        this.taskCallbacks.onText?.(resultText);
                     }
                     break;
                 }
