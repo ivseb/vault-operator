@@ -41,6 +41,7 @@ export function looksLikeExternalisedTmpPath(path: string): boolean {
 
 interface ReadFileInput {
     path: string;
+    offset?: number;
 }
 
 export class ReadFileTool extends BaseTool<'read_file'> {
@@ -55,7 +56,8 @@ export class ReadFileTool extends BaseTool<'read_file'> {
         return {
             name: 'read_file',
             description:
-                'Read the complete content of a file from the vault. Use this to view notes, check existing content before editing, or gather information.',
+                'Read the complete content of a file from the vault. Use this to view notes, check existing content before editing, or gather information. ' +
+                'Files larger than 50000 chars are returned in chunks; the result names the offset to continue with.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -64,6 +66,12 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                         description:
                             'Path to the file relative to vault root (e.g., "folder/note.md")',
                     },
+                    offset: {
+                        type: 'integer',
+                        description:
+                            'Character offset to start reading from (default 0). Use the offset value ' +
+                            'from a previous truncated read to continue with the next chunk.',
+                    },
                 },
                 required: ['path'],
             },
@@ -71,7 +79,7 @@ export class ReadFileTool extends BaseTool<'read_file'> {
     }
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
-        const { path } = input as unknown as ReadFileInput;
+        const { path, offset } = input as unknown as ReadFileInput;
         const { callbacks } = context;
 
         try {
@@ -140,11 +148,21 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                 extension = dotIdx > 0 ? filename.substring(dotIdx + 1) : '';
             }
 
-            // Truncate very large files to prevent context explosion
+            // Truncate very large files to prevent context explosion.
+            // FIX-PERF-45: the optional offset parameter continues a
+            // truncated read at the given character position, so a long
+            // transcript is readable in sequential chunks without a
+            // search_files/externaliser detour.
             const originalLength = content.length;
-            if (content.length > MAX_CONTENT_CHARS) {
-                content = content.slice(0, MAX_CONTENT_CHARS);
+            const start = Math.max(0, Math.floor(offset ?? 0));
+            if (start > 0 && start >= originalLength) {
+                callbacks.pushToolResult(this.formatError(
+                    `Offset ${start} is beyond the end of the file (${originalLength} chars).`,
+                ));
+                return;
             }
+            const end = Math.min(start + MAX_CONTENT_CHARS, originalLength);
+            content = content.slice(start, end);
 
             // Return formatted content. AUDIT-034 L-15: vault file content is
             // externally-sourced data, so wrap it in the untrusted-content
@@ -156,18 +174,19 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                 extension,
             });
 
-            if (originalLength > MAX_CONTENT_CHARS) {
-                const overflowRatio = (originalLength - MAX_CONTENT_CHARS) / originalLength;
-                const hint = overflowRatio > 0.1
-                    ? ' Use search_files for specific content.'
-                    : '';
+            if (end < originalLength) {
                 callbacks.pushToolResult(
-                    result + `\n[Truncated: showing ${MAX_CONTENT_CHARS} of ${originalLength} chars.${hint}]`,
+                    result + `\n[Truncated: showing chars ${start}-${end} of ${originalLength}. ` +
+                    `Continue with offset=${end}, or use search_files for specific content.]`,
+                );
+            } else if (start > 0) {
+                callbacks.pushToolResult(
+                    result + `\n[Final chunk: chars ${start}-${end} of ${originalLength}.]`,
                 );
             } else {
                 callbacks.pushToolResult(result);
             }
-            callbacks.log(`Successfully read file: ${safePath} (${content.length} chars)`);
+            callbacks.log(`Successfully read file: ${safePath} (${content.length} chars${start > 0 ? ` from offset ${start}` : ''})`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('read_file', error);

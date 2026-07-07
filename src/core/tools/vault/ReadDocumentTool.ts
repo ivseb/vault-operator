@@ -24,6 +24,19 @@ interface ReadDocumentInput {
     end_page?: number;
 }
 
+/**
+ * FIX-PERF-46: extensions read_document tolerates via plain-text fallback
+ * instead of erroring. LLMs routinely route .md transcripts here despite
+ * the tool description; a hard error costs a full agent turn. Mirrors the
+ * read_file cap so a fallback read cannot blow up the context.
+ */
+const PLAINTEXT_FALLBACK_EXTENSIONS = new Set([
+    'md', 'markdown', 'txt', 'canvas', 'log',
+    'ts', 'tsx', 'js', 'jsx', 'py', 'java', 'sh', 'sql',
+    'html', 'css', 'yaml', 'yml', 'toml', 'ini',
+]);
+const PLAINTEXT_FALLBACK_MAX_CHARS = 50_000;
+
 export class ReadDocumentTool extends BaseTool<'read_document'> {
     readonly name = 'read_document' as const;
     readonly isWriteOperation = false;
@@ -165,6 +178,11 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
     private async parseFromVault(path: string, ctx?: ToolExecutionContext): Promise<{ text: string; format: string; pageCount?: number }> {
         const ext = path.split('.').pop()?.toLowerCase() ?? '';
         if (!SUPPORTED_DOCUMENT_EXTENSIONS.has(ext)) {
+            // FIX-PERF-46: tolerate plain-text files instead of burning an
+            // agent turn on an error round-trip.
+            if (PLAINTEXT_FALLBACK_EXTENSIONS.has(ext)) {
+                return this.readPlainTextFallback(path, ext);
+            }
             throw new Error(
                 `Unsupported format: .${ext}. Supported: ${[...SUPPORTED_DOCUMENT_EXTENSIONS].join(', ')}. ` +
                 'For plain text files (.md, .txt, .ts, etc.), use read_file instead.'
@@ -193,6 +211,32 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
 
         const result = await parseDocument(data, ext, this.plugin, ctx);
         return { text: result.text, format: ext, pageCount: result.metadata.pageCount };
+    }
+
+    /**
+     * FIX-PERF-46: plain-text fallback for misrouted read_document calls.
+     * Mirrors the read_file 50k cap and steers the model back to read_file
+     * (which supports offset-based chunk reading) for the rest.
+     */
+    private async readPlainTextFallback(path: string, ext: string): Promise<{ text: string; format: string }> {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!file || !(file instanceof TFile)) {
+            throw new Error(`File not found: ${path}`);
+        }
+        const full = await this.app.vault.read(file);
+        if (full.length > PLAINTEXT_FALLBACK_MAX_CHARS) {
+            const text = full.slice(0, PLAINTEXT_FALLBACK_MAX_CHARS);
+            return {
+                text: text +
+                    `\n[Truncated: showing chars 0-${PLAINTEXT_FALLBACK_MAX_CHARS} of ${full.length}. ` +
+                    `Plain-text file -- continue with read_file offset=${PLAINTEXT_FALLBACK_MAX_CHARS}.]`,
+                format: `${ext} (plain text -- prefer read_file)`,
+            };
+        }
+        return {
+            text: full + '\n[Note: plain-text file -- prefer read_file for this format.]',
+            format: `${ext} (plain text -- prefer read_file)`,
+        };
     }
 
     /**
