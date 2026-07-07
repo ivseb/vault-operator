@@ -25,6 +25,7 @@ import type ObsidianAgentPlugin from '../../main';
 import * as path from 'path';
 import * as fs from '../security/safeFs';
 import { sanitizeWithDetails } from '../memory/sanitizeVaultContentForLLM';
+import { Semaphore, mapWithConcurrency } from '../utils/asyncPool';
 
 /**
  * Escape a string for safe use inside an XML attribute value.
@@ -225,8 +226,12 @@ export class SemanticIndexService {
     lastBuildResult: BuildResult | null = null;
 
     // Background enrichment state (Pass 2)
-    /** Per-chunk freshness votes collected during enrichment (FEATURE-2006). */
-    private freshnessVotes: Array<'volatile' | 'evolving' | 'stable'> = [];
+    /**
+     * Issue #35: bounds concurrent contextual-prefix LLM calls during
+     * background enrichment. Files enrich in parallel but the actual API
+     * round-trips stay capped so we do not flood the provider.
+     */
+    private readonly enrichSemaphore = new Semaphore(6);
     private enrichmentRunning = false;
     private enrichmentCancelled = false;
     private enrichmentAbortController: AbortController | null = null;
@@ -1143,7 +1148,66 @@ export class SemanticIndexService {
 
         try {
             const BATCH_SIZE = 50;
+            const FILE_CONCURRENCY = 6;
             let batch = this.vectorStore.getUnenrichedChunks(BATCH_SIZE);
+
+            // Issue #35: enrich one file end-to-end (read context, LLM-enrich its
+            // chunks, batched embed, note freshness). Files run with cross-file
+            // concurrency (mapWithConcurrency below); the per-chunk LLM calls are
+            // globally bounded by this.enrichSemaphore inside generateContextPrefix.
+            // Freshness votes go into a per-file LOCAL array, not shared instance
+            // state, so concurrent files cannot cross-contaminate each other.
+            const enrichOneFile = async (filePath: string, chunks: typeof batch): Promise<void> => {
+                if (this.enrichmentCancelled) return;
+                let fullContent: string;
+                try {
+                    const file = this.vault.getFileByPath(filePath);
+                    if (!file) { this.enrichmentProcessed += chunks.length; return; } // deleted since indexing
+                    fullContent = await this.readFileContent(file);
+                } catch {
+                    this.enrichmentProcessed += chunks.length;
+                    return;
+                }
+
+                const localVotes: Array<'volatile' | 'evolving' | 'stable'> = [];
+                const pendingEmbeds: Array<{ chunkId: number; enrichedText: string }> = [];
+
+                // Phase A: one LLM call per chunk. All chunks of this file are
+                // fired at once; the enrich semaphore caps the real API concurrency.
+                const results = await Promise.allSettled(chunks.map((chunk) =>
+                    this.enrichChunkWithContext([chunk.text], filePath, fullContent, localVotes)
+                        .then((enrichedTexts) => ({ chunkId: chunk.id, enrichedText: enrichedTexts[0] })),
+                ));
+                for (let j = 0; j < results.length; j++) {
+                    const r = results[j];
+                    if (r.status === 'fulfilled') {
+                        pendingEmbeds.push(r.value);
+                    } else {
+                        console.warn(`[SemanticIndex] Enrichment failed for chunk ${chunks[j].id}:`, r.reason);
+                        this.enrichmentProcessed++;
+                    }
+                }
+
+                if (this.enrichmentCancelled) return; // cancelled mid-file: leave chunks for next run
+
+                // Phase B: one batched embed for the whole file.
+                if (pendingEmbeds.length > 0) {
+                    try {
+                        const vectors = await this.embedBatch(pendingEmbeds.map(p => p.enrichedText));
+                        for (let i = 0; i < pendingEmbeds.length; i++) {
+                            this.vectorStore.updateChunkEnriched(pendingEmbeds[i].chunkId, pendingEmbeds[i].enrichedText, vectors[i]);
+                            this.enrichmentProcessed++;
+                        }
+                    } catch (e) {
+                        // Leave the file's chunks unenriched; they retry on the next run.
+                        console.warn(`[SemanticIndex] Batch embed failed for ${filePath}:`, e);
+                        this.enrichmentProcessed += pendingEmbeds.length;
+                    }
+                }
+
+                // Store note-level freshness from this file's own votes (FEATURE-2006).
+                if (localVotes.length > 0) this.storeFreshnessClass(filePath, localVotes);
+            };
 
             while (batch.length > 0 && !this.enrichmentCancelled) {
                 // Group chunks by path so we read each file only once
@@ -1154,94 +1218,12 @@ export class SemanticIndexService {
                     byPath.set(chunk.path, list);
                 }
 
-                for (const [filePath, chunks] of byPath) {
-                    if (this.enrichmentCancelled) break;
-
-                    // Read full document for context
-                    let fullContent: string;
-                    try {
-                        const file = this.vault.getFileByPath(filePath);
-                        if (!file) {
-                            // File deleted since indexing — skip
-                            this.enrichmentProcessed += chunks.length;
-                            continue;
-                        }
-                        fullContent = await this.readFileContent(file);
-                    } catch {
-                        this.enrichmentProcessed += chunks.length;
-                        continue;
-                    }
-
-                    // FIX-15-01-01: two-phase enrichment per file.
-                    // Phase A: LLM-enrichment is intrinsically per-chunk (each
-                    // chunk gets its own contextual prefix from the model) so
-                    // we still loop one-by-one and collect the enriched texts.
-                    // Phase B: a single batched embedBatch() call replaces the
-                    // previous per-chunk single-text embed (which produced
-                    // hundreds of `texts=1` HTTP roundtrips on a Vault reindex).
-                    const pendingEmbeds: Array<{ chunkId: number; enrichedText: string }> = [];
-
-                    // FIX-PERF-30: Phase A bounded-concurrency. Previously
-                    // every chunk waited for the previous chunk's LLM call
-                    // to return. With a per-file context shared across
-                    // chunks, running up to ENRICH_CONCURRENCY enrich
-                    // calls in parallel cuts wallclock by roughly that
-                    // factor without changing call shape or output.
-                    const ENRICH_CONCURRENCY = 4;
-                    for (let i = 0; i < chunks.length; i += ENRICH_CONCURRENCY) {
-                        if (this.enrichmentCancelled) break;
-                        const slice = chunks.slice(i, i + ENRICH_CONCURRENCY);
-                        const results = await Promise.allSettled(slice.map((chunk) =>
-                            this.enrichChunkWithContext([chunk.text], filePath, fullContent)
-                                .then((enrichedTexts) => ({ chunkId: chunk.id, enrichedText: enrichedTexts[0] })),
-                        ));
-                        for (let j = 0; j < results.length; j++) {
-                            const r = results[j];
-                            if (r.status === 'fulfilled') {
-                                pendingEmbeds.push(r.value);
-                            } else {
-                                console.warn(`[SemanticIndex] Enrichment failed for chunk ${slice[j].id}:`, r.reason);
-                                this.enrichmentProcessed++;
-                            }
-                        }
-                        // Yield to UI thread between batches so the
-                        // renderer never starves under enrichment load.
-                        await new Promise<void>(r => window.setTimeout(r, 0));
-                    }
-
-                    // Phase B -- one batched embed for the whole file.
-                    if (pendingEmbeds.length > 0 && !this.enrichmentCancelled) {
-                        try {
-                            const vectors = await this.embedBatch(pendingEmbeds.map(p => p.enrichedText));
-                            for (let i = 0; i < pendingEmbeds.length; i++) {
-                                this.vectorStore.updateChunkEnriched(
-                                    pendingEmbeds[i].chunkId,
-                                    pendingEmbeds[i].enrichedText,
-                                    vectors[i],
-                                );
-                                this.enrichmentProcessed++;
-                            }
-                        } catch (e) {
-                            // Batch embed failed -- leave the file's chunks
-                            // unenriched, they will retry on the next run.
-                            console.warn(`[SemanticIndex] Batch embed failed for ${filePath}:`, e);
-                            this.enrichmentProcessed += pendingEmbeds.length;
-                        }
-                    } else if (this.enrichmentCancelled) {
-                        // Cancelled mid Phase A -- whatever was collected is
-                        // discarded; chunks stay unenriched for next run.
-                        // No counter increment (we did not finish them).
-                    }
-
-                    // Store note-level freshness class from per-chunk votes (FEATURE-2006)
-                    if (this.freshnessVotes.length > 0) {
-                        this.storeFreshnessClass(filePath, this.freshnessVotes);
-                        this.freshnessVotes = [];
-                    }
-
-                    // Pause between files to avoid rate limiting
-                    await this.sleep(100);
-                }
+                // Enrich the batch's files with cross-file concurrency. Each
+                // file is self-contained (see enrichOneFile); the per-chunk LLM
+                // calls are globally capped by this.enrichSemaphore, so no fixed
+                // per-file pause is needed anymore.
+                await mapWithConcurrency([...byPath.entries()], FILE_CONCURRENCY, ([filePath, chunks]) =>
+                    enrichOneFile(filePath, chunks));
 
                 // Persist progress periodically
                 await this.knowledgeDB.save();
@@ -1279,6 +1261,8 @@ export class SemanticIndexService {
         chunks: string[],
         filePath: string,
         fullContent: string,
+        /** Per-file freshness-vote collector (issue #35: avoids shared instance state under concurrency). */
+        votesOut?: Array<'volatile' | 'evolving' | 'stable'>,
     ): Promise<string[]> {
         if (!this.enableContextualRetrieval || !this.contextualApiHandler || chunks.length === 0) {
             return chunks;
@@ -1354,9 +1338,10 @@ export class SemanticIndexService {
                     const contextPrefix = freshnessMatch
                         ? rawPrefix.slice(freshnessMatch[0].length).trim()
                         : rawPrefix;
-                    // Collect freshness classification per chunk
-                    if (freshnessMatch) {
-                        this.freshnessVotes.push(freshnessMatch[1] as 'volatile' | 'evolving' | 'stable');
+                    // Collect freshness classification per chunk into the caller's
+                    // per-file collector (issue #35: no shared instance state).
+                    if (freshnessMatch && votesOut) {
+                        votesOut.push(freshnessMatch[1] as 'volatile' | 'evolving' | 'stable');
                     }
                     enriched.push(contextPrefix ? `${contextPrefix}\n\n${chunk}` : chunk);
                 } else {
@@ -1402,27 +1387,33 @@ export class SemanticIndexService {
 
         const TIMEOUT_MS = 15_000;
         try {
-            const resultPromise = (async () => {
-                let result = '';
-                for await (const chunk of this.contextualApiHandler!.createMessage(
-                    'You generate short context descriptions for document chunks. Answer only with the context, no preamble.',
-                    [{ role: 'user', content: prompt }],
-                    [],
-                )) {
-                    if (this.cancelled) break;
-                    if (chunk.type === 'text') result += chunk.text;
-                }
-                return result.trim();
-            })();
-            const abortPromise = this.abortController
-                ? new Promise<never>((_, reject) => {
-                    this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
-                })
-                : new Promise<never>(() => {}); // never resolves
-            const timeoutPromise = new Promise<string>((_, reject) =>
-                window.setTimeout(() => reject(new Error('Context prefix timed out')), TIMEOUT_MS),
-            );
-            const trimmed = await Promise.race([resultPromise, abortPromise, timeoutPromise]);
+            // Issue #35: gate the actual API round-trip behind the enrich
+            // semaphore so many files can enrich in parallel while the number of
+            // concurrent context-model calls stays capped. The stream is created
+            // INSIDE run() so it does not start before a slot is acquired.
+            const trimmed = await this.enrichSemaphore.run(async () => {
+                const resultPromise = (async () => {
+                    let result = '';
+                    for await (const chunk of this.contextualApiHandler!.createMessage(
+                        'You generate short context descriptions for document chunks. Answer only with the context, no preamble.',
+                        [{ role: 'user', content: prompt }],
+                        [],
+                    )) {
+                        if (this.cancelled) break;
+                        if (chunk.type === 'text') result += chunk.text;
+                    }
+                    return result.trim();
+                })();
+                const abortPromise = this.abortController
+                    ? new Promise<never>((_, reject) => {
+                        this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
+                    })
+                    : new Promise<never>(() => {}); // never resolves
+                const timeoutPromise = new Promise<string>((_, reject) =>
+                    window.setTimeout(() => reject(new Error('Context prefix timed out')), TIMEOUT_MS),
+                );
+                return Promise.race([resultPromise, abortPromise, timeoutPromise]);
+            });
             return trimmed.length > 10 ? trimmed : null;
         } catch (e) {
             // BUG-016: auth / credit / quota failures on the configured context model would

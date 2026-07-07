@@ -6177,6 +6177,34 @@
 }
 .chat-model-picker-check svg { width: 14px; height: 14px; }
 
+/* Provider switcher chips (issue #48.5) */
+.chat-model-picker-providers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+.chat-model-picker-provider-chip {
+    padding: 2px 8px;
+    font-size: 11px;
+    border-radius: 10px;
+    border: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    color: var(--text-muted);
+    cursor: pointer;
+}
+.chat-model-picker-provider-chip:hover {
+    color: var(--text-normal);
+    border-color: var(--interactive-accent);
+}
+.chat-model-picker-provider-chip.is-active {
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border-color: var(--interactive-accent);
+    cursor: default;
+}
+
 /* Tier badge -- small pill next to the model name */
 .chat-model-picker-tier {
     font-size: 10px;

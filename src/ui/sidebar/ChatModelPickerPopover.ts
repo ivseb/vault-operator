@@ -31,6 +31,24 @@ import {
     thinkingSwitchIsOn,
 } from './effortOverride';
 
+/** One switchable provider chip in the picker's provider row (issue #48.5). */
+export interface ChatProviderNavItem {
+    id: string;
+    label: string;
+}
+
+/**
+ * Provider-switcher wiring for the chat model picker (issue #48.5). When more
+ * than one provider is enabled the picker shows a chip row so the user can
+ * change the active provider without opening Settings.
+ */
+export interface ChatProviderNav {
+    items: ChatProviderNavItem[];
+    activeId: string | null;
+    /** Switch the active provider (a global settings change; handled by the caller). */
+    onSelect: (id: string) => void;
+}
+
 export interface ChatModelPickerCallbacks {
     /** Currently selected override (null = Auto). */
     getCurrent: () => string | null;
@@ -64,6 +82,7 @@ export class ChatModelPickerPopover {
         containerEl: HTMLElement,
         provider: ProviderConfig,
         callbacks: ChatModelPickerCallbacks,
+        providerNav?: ChatProviderNav,
     ): void {
         this.close();
 
@@ -79,6 +98,25 @@ export class ChatModelPickerPopover {
                 provider: provider.displayName ?? provider.type,
             }),
         });
+
+        // ── Provider switcher (issue #48.5) ──────────────────────────────
+        // Only shown when more than one provider is enabled. Switching is a
+        // global change (settings.activeProviderId); the caller persists it and
+        // re-opens the picker on the newly active provider.
+        if (providerNav && providerNav.items.length > 1) {
+            const navRow = popover.createDiv('chat-model-picker-providers');
+            for (const item of providerNav.items) {
+                const chip = navRow.createEl('button', {
+                    cls: 'chat-model-picker-provider-chip',
+                    text: item.label,
+                });
+                if (item.id === providerNav.activeId) chip.addClass('is-active');
+                chip.addEventListener('click', () => {
+                    if (item.id === providerNav.activeId) return;
+                    providerNav.onSelect(item.id);
+                });
+            }
+        }
 
         // ── Search input ─────────────────────────────────────────────────
         const searchInput = popover.createEl('input', {
