@@ -36,9 +36,11 @@ export class FileDossier {
             written: (previous?.written ?? false) || info.kind === 'write',
         });
         while (this.entries.size > MAX_FILES) {
-            const oldest = this.entries.keys().next().value;
-            if (oldest === undefined) break;
-            this.entries.delete(oldest);
+            // done-narrowing keeps the key typed as string on both older
+            // and newer TS iterator typings (same pattern as RunSkillScriptCache).
+            const oldest = this.entries.keys().next();
+            if (oldest.done) break;
+            this.entries.delete(oldest.value);
         }
     }
 

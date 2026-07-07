@@ -48,12 +48,15 @@ export class RunInBackgroundTool extends BaseTool<'run_in_background'> {
         };
     }
 
-    async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
+    // Body is fully synchronous (runner.start is sync); non-async with an
+    // explicit resolved Promise satisfies the abstract signature without
+    // tripping require-await.
+    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { callbacks } = context;
         const message = typeof input.message === 'string' ? input.message.trim() : '';
         if (!message) {
             callbacks.pushToolResult(this.formatError(new Error('message is required')));
-            return;
+            return Promise.resolve();
         }
         const title = (typeof input.title === 'string' && input.title.trim())
             ? input.title.trim().slice(0, 60)
@@ -64,13 +67,13 @@ export class RunInBackgroundTool extends BaseTool<'run_in_background'> {
             callbacks.pushToolResult(this.formatError(
                 new Error('Background tasks are not available (runner not initialized).'),
             ));
-            return;
+            return Promise.resolve();
         }
 
         const result = runner.start(message, title);
         if (!result.ok) {
             callbacks.pushToolResult(this.formatError(new Error(result.reason)));
-            return;
+            return Promise.resolve();
         }
 
         callbacks.pushToolResult(
@@ -79,5 +82,6 @@ export class RunInBackgroundTool extends BaseTool<'run_in_background'> {
             + 'conversation in the history when done. Continue with the parts of the task that '
             + 'do not depend on it.',
         );
+        return Promise.resolve();
     }
 }
