@@ -39,6 +39,27 @@ describe('ProviderHealth', () => {
         expect(health.getState('anthropic')).toBe('closed');
     });
 
+    it('never opens on the non-outage classes (auth / abort / client / context-overflow)', () => {
+        // A classification drift that moved any of these INTO the outage set
+        // would silently start tripping the breaker on user-side problems.
+        for (const cls of ['auth', 'abort', 'client', 'context-overflow'] as const) {
+            const health = new ProviderHealth();
+            for (let i = 0; i < 5; i++) health.reportFailure('anthropic', cls);
+            expect(health.getState('anthropic')).toBe('closed');
+        }
+    });
+
+    it('opens on every outage class (server / network / overloaded / rate-limit / unknown)', () => {
+        for (const cls of ['server', 'network', 'overloaded', 'rate-limit', 'unknown'] as const) {
+            const health = new ProviderHealth();
+            health.reportFailure('anthropic', cls);
+            health.reportFailure('anthropic', cls);
+            expect(health.getState('anthropic')).toBe('closed'); // under threshold
+            health.reportFailure('anthropic', cls);
+            expect(health.getState('anthropic')).toBe('open');   // 3rd trips it
+        }
+    });
+
     it('half-opens after the probe delay and closes on success', () => {
         const health = new ProviderHealth();
         for (let i = 0; i < 3; i++) health.reportFailure('anthropic', 'server');
