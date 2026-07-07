@@ -158,8 +158,13 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
                 }
             }
 
-            // Format output
-            const meta: Record<string, string> = { source: sourceName, format };
+            // Format output. AUDIT-2026-07-07 M-1: parsed document text and
+            // plain-text fallback reads are externally-sourced data -- wrap
+            // them in the untrusted-content boundary (same rationale as
+            // read_file, AUDIT-034 L-15). The trust-domain label lives in
+            // the wrapper's `source` attribute, so the origin file moves to
+            // `path`.
+            const meta: Record<string, string> = { path: sourceName, format };
             if (totalPageCount !== undefined) {
                 meta['total_pages'] = String(totalPageCount);
             }
@@ -167,7 +172,11 @@ export class ReadDocumentTool extends BaseTool<'read_document'> {
                 meta['pages_returned'] = pagesReturned;
             }
 
-            callbacks.pushToolResult(this.formatContent(outputText, meta));
+            callbacks.pushToolResult(this.formatUntrustedContent(
+                path ? 'vault' : 'attachment',
+                outputText,
+                meta,
+            ));
             callbacks.log(`Parsed document: ${sourceName} (${format}, ${outputText.length} chars${pagesReturned ? `, pages ${pagesReturned}` : ''})`);
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));

@@ -154,7 +154,17 @@ export class ReadFileTool extends BaseTool<'read_file'> {
             // transcript is readable in sequential chunks without a
             // search_files/externaliser detour.
             const originalLength = content.length;
-            const start = Math.max(0, Math.floor(offset ?? 0));
+            // AUDIT-2026-07-07 L-1: reject non-numeric offsets instead of
+            // silently returning an empty slice (NaN propagates through
+            // Math.max/slice without erroring).
+            const rawOffset = offset === undefined ? 0 : Number(offset);
+            if (!Number.isFinite(rawOffset) || rawOffset < 0) {
+                callbacks.pushToolResult(this.formatError(
+                    `Invalid offset: ${String(offset)}. Expected a non-negative integer.`,
+                ));
+                return;
+            }
+            const start = Math.floor(rawOffset);
             if (start > 0 && start >= originalLength) {
                 callbacks.pushToolResult(this.formatError(
                     `Offset ${start} is beyond the end of the file (${originalLength} chars).`,

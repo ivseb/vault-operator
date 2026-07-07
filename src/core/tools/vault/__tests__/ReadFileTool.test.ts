@@ -230,6 +230,17 @@ describe('ReadFileTool chunked reading -- FIX-PERF-45', () => {
         expect(pushed[0].toLowerCase()).toContain('offset');
     });
 
+    it('rejects non-numeric offsets instead of returning an empty slice', async () => {
+        const { plugin } = makeLargeFilePlugin(1_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md', offset: 'abc' }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('Invalid offset');
+    });
+
     it('small files behave exactly as before (no hint, full content)', async () => {
         const { plugin, content } = makeLargeFilePlugin(500);
         const tool = new ReadFileTool(plugin);

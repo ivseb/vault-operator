@@ -60,6 +60,8 @@ describe('ReadDocumentTool plain-text fallback -- FIX-PERF-46', () => {
         expect(pushed[0]).toContain('line one');
         // Tells the model the right tool for next time
         expect(pushed[0]).toContain('read_file');
+        // AUDIT-2026-07-07 M-1: vault content must carry the untrusted boundary
+        expect(pushed[0]).toContain('<untrusted-content source="vault"');
     });
 
     it('caps plain-text fallback at 50k chars with a continue hint', async () => {
