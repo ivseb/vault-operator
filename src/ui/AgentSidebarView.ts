@@ -15,7 +15,7 @@ import type { CustomModel } from '../types/settings';
 import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
-import { ChatModelPickerPopover } from './sidebar/ChatModelPickerPopover';
+import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
 import { resolveOverrideModel } from './sidebar/chatModelDropdown';
 import {
     DEFAULT_THINKING_OVERRIDE,
@@ -1153,7 +1153,37 @@ export class AgentSidebarView extends ItemView {
                 this.updateModelButton();
             },
             getEffortLevels: () => this.resolveEffortLevelsForPinnedModel(provider),
-        });
+        }, this.buildChatProviderNav(event));
+    }
+
+    /**
+     * Issue #48.5: provider-switcher wiring for the chat model picker. Lets the
+     * user switch the active provider (a global settings change) from the chat
+     * without opening Settings > Providers. Only enabled providers are offered;
+     * the picker itself hides the row when fewer than two are enabled.
+     */
+    private buildChatProviderNav(event: MouseEvent): ChatProviderNav {
+        const enabled = (this.plugin.settings.providerConfigs ?? []).filter((p) => p.enabled);
+        return {
+            items: enabled.map((p) => ({ id: p.id, label: p.displayName ?? p.type })),
+            activeId: this.plugin.settings.activeProviderId,
+            onSelect: (id) => {
+                void (async () => {
+                    if (id === this.plugin.settings.activeProviderId) return;
+                    this.plugin.settings.activeProviderId = id;
+                    // A pinned model belongs to the previous provider; reset to Auto
+                    // so a stale model id never reaches the newly active provider.
+                    this.chatModelOverride = null;
+                    this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
+                    await this.plugin.saveSettings();
+                    this.updateModelButton();
+                    // Re-open the picker on the newly active provider's models.
+                    const next = resolveActiveProvider(this.plugin.settings);
+                    this.chatModelPicker?.close();
+                    if (next) this.showProviderModelMenu(event, next);
+                })();
+            },
+        };
     }
 
     /**
