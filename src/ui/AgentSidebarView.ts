@@ -151,6 +151,9 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+    /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
+    private taskDraining = false;
+    private taskDrainingTimer = 0;
 
     // FEAT-24-08 / ADR-114 Steering-Hook: user-typed mid-run messages
     // queue up while a task is running and get drained by AgentTask at the
@@ -2873,6 +2876,7 @@ export class AgentSidebarView extends ItemView {
                     }
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
@@ -2941,6 +2945,7 @@ export class AgentSidebarView extends ItemView {
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
                     this.currentAbortController = null;
+                    this.endTaskDraining(); // GUARD-L1
                     this.setRunningState(false);
                 },
                 onTaskTelemetry: (data) => {
@@ -3210,6 +3215,7 @@ export class AgentSidebarView extends ItemView {
      * Feature 3: Cancel the running request
      */
     private handleStop(): void {
+        if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
         this.currentAbortController?.abort();
         this.currentAbortController = null;
         // FEAT-24-08 Steering: pending bubbles never reached the agent --
@@ -3264,9 +3270,35 @@ export class AgentSidebarView extends ItemView {
      * until the task finishes or the user stops it.
      */
     private refuseWhileTaskRuns(): boolean {
-        if (!this.currentAbortController) return false;
+        // GUARD-L1 (audit 2026-07-07): after Stop the controller is nulled
+        // immediately, but the aborted loop keeps draining until its next
+        // abort checkpoint (a running tool call or approval wait can hold it
+        // for seconds to minutes) and then still fires onComplete. Switching
+        // conversations inside that window would let the late onComplete
+        // closure push the stopped task's text into the WRONG conversation,
+        // so the guard also holds while a stopped task drains. A timeout
+        // fallback keeps a wedged task from locking the user out forever.
+        if (!this.currentAbortController && !this.taskDraining) return false;
         new Notice(t('ui.sidebar.taskRunningNoSwitch'), 6000);
         return true;
+    }
+
+    /** GUARD-L1: hold the switch guard while a stopped task drains. */
+    private beginTaskDraining(): void {
+        this.taskDraining = true;
+        if (this.taskDrainingTimer) window.clearTimeout(this.taskDrainingTimer);
+        this.taskDrainingTimer = window.setTimeout(() => {
+            this.taskDraining = false;
+            this.taskDrainingTimer = 0;
+        }, 30_000);
+    }
+
+    private endTaskDraining(): void {
+        this.taskDraining = false;
+        if (this.taskDrainingTimer) {
+            window.clearTimeout(this.taskDrainingTimer);
+            this.taskDrainingTimer = 0;
+        }
     }
 
     /**
@@ -3698,6 +3730,11 @@ export class AgentSidebarView extends ItemView {
             new Notice(t('notice.loadConversationFailed'));
             return;
         }
+        // DELTA-0707B-L1: re-check after the await -- a task started from
+        // the composer while the file was loading would otherwise get its
+        // history arrays swapped mid-run (the exact decoupling this guard
+        // exists to prevent). The loaded data is simply discarded.
+        if (this.refuseWhileTaskRuns()) return;
 
         // Save current conversation before switching
         this.saveCurrentConversation();
@@ -3780,8 +3817,10 @@ export class AgentSidebarView extends ItemView {
         conversationId: string | null;
         history: MessageParam[];
         uiMessages: UiMessage[];
-    }): Promise<void> {
-        if (this.refuseWhileTaskRuns()) return; // FIX-01-01-02
+    }): Promise<boolean> {
+        // GUARD-I1: a refusal must be distinguishable from success -- the
+        // inline-transfer caller closes its panel on ok.
+        if (this.refuseWhileTaskRuns()) return false; // FIX-01-01-02
         // Save current conversation before switching (same as loadConversation).
         this.saveCurrentConversation();
         if (this.activeConversationId) {
@@ -3817,6 +3856,7 @@ export class AgentSidebarView extends ItemView {
 
         if (state.conversationId !== null) this.pushNav(state.conversationId);
         try { this.textarea?.focus(); } catch { /* noop in test stubs */ }
+        return true;
     }
 
     /**
@@ -3863,6 +3903,10 @@ export class AgentSidebarView extends ItemView {
         await store.delete(id);
         // If the deleted conversation is the active one, clear the chat
         if (this.activeConversationId === id) {
+            // DELTA-0707B-L1: re-check after the awaits above. If a task
+            // started meanwhile, keep the in-memory arrays under the running
+            // loop; its next save recreates the conversation file.
+            if (this.refuseWhileTaskRuns()) return;
             this.activeConversationId = null;
             this.lazyConversationId.reset(); // FIX-03-20-01: fresh chat, fresh memo
             this.uiMessages = [];

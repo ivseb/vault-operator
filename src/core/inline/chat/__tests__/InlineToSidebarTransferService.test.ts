@@ -155,3 +155,28 @@ describe('InlineToSidebarTransferService', () => {
         expect(sidebar.importConversation).not.toHaveBeenCalled();
     });
 });
+
+// AUDIT 2026-07-07 GUARD-I1: a refused import (FIX-01-01-02 guard fired
+// inside the sidebar) must not be reported as success -- previously the
+// void return was indistinguishable from a completed transfer, so the
+// panel closed while the conversation never arrived.
+it('GUARD-I1: reports ok:false when the sidebar refuses the import', async () => {
+    const sidebar = buildFakeSidebar();
+    sidebar.importConversation = vi.fn().mockResolvedValue(false);
+    const onTransferred = vi.fn();
+    const notify = vi.fn();
+    const svc = new InlineToSidebarTransferService({
+        plugin: buildFakePlugin({ sidebar }) as never,
+        onTransferred,
+        notify,
+    });
+    const out = await svc.transfer({
+        inlineRunning: false,
+        snapshotProvider: () => ({
+            state: { conversationId: 'abc', history: [], uiMessages: [] },
+            isRunning: false,
+        }),
+    });
+    expect(out).toEqual({ ok: false, reason: 'sidebar-busy' });
+    expect(onTransferred).not.toHaveBeenCalled();
+});
