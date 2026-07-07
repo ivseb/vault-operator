@@ -176,12 +176,12 @@ function abortError(): Error {
 export function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         if (signal?.aborted) { reject(abortError()); return; }
-        const timer = setTimeout(() => {
+        const timer = window.setTimeout(() => {
             signal?.removeEventListener('abort', onAbort);
             resolve();
         }, ms);
         const onAbort = (): void => {
-            clearTimeout(timer);
+            window.clearTimeout(timer);
             reject(abortError());
         };
         signal?.addEventListener('abort', onAbort, { once: true });

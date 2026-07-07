@@ -138,7 +138,7 @@ export class VaultEventDispatcher {
     private scheduleIdleDrain(): void {
         if (this.idleScheduled) return;
         this.idleScheduled = true;
-        const idle = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback;
+        const idle = (window as unknown as { requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number }).requestIdleCallback;
         const drain = (): void => {
             this.idleScheduled = false;
             const queue = this.idleQueue;

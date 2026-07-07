@@ -518,7 +518,7 @@ export class ToolExecutionPipeline {
                 if (this.subagentAllowedTools.has(toolCall.name) === false) {
                     const msg = `Tool "${toolCall.name}" is not in this subtask's allowlist.`;
                     console.warn(`[Pipeline] Subagent-gate denied: ${toolCall.name} (source=${dispatchSourceForGate})`);
-                    await this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                    this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
                     return this.errorResult(toolCall.id, msg);
                 }
             }
@@ -536,7 +536,7 @@ export class ToolExecutionPipeline {
                 if (!this.modeService.modeHasTool(activeMode, toolCall.name)) {
                     const msg = `Tool "${toolCall.name}" is not available in mode "${activeMode.slug}". The active agent does not include this tool in its toolGroups.`;
                     console.warn(`[Pipeline] Mode-gate denied: ${toolCall.name} not in ${activeMode.slug} (source=${dispatchSourceForGate})`);
-                    await this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                    this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
                     return this.errorResult(toolCall.id, msg);
                 }
             }
@@ -565,7 +565,7 @@ export class ToolExecutionPipeline {
                 const cached = this.resultCache.get(cKey);
                 if (cached !== undefined) {
                     callbacks.log(`[Cache HIT] ${toolCall.name}`);
-                    await this.logOperation(toolCall, true, 0, undefined, '[cached]');
+                    this.logOperation(toolCall, true, 0, undefined, '[cached]');
                     return { type: 'tool_result', tool_use_id: toolCall.id, content: cached, is_error: false };
                 }
             }
@@ -748,7 +748,7 @@ export class ToolExecutionPipeline {
             // 6. Persistent operation log + cache write
             const durationMs = Date.now() - startTime;
             const textContent = collectedContent.join('\n');
-            await this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
+            this.logOperation(toolCall, !executionHadError, durationMs, undefined, textContent);
 
             // Cache successful read-only results for deduplication (text-only, FULL content)
             // FIX-PERF-23: enforce LRU cap + update pathIndex for O(1)
@@ -758,11 +758,13 @@ export class ToolExecutionPipeline {
                 this.resultCache.delete(key);
                 this.resultCache.set(key, textContent);
                 if (this.resultCache.size > ToolExecutionPipeline.RESULT_CACHE_LIMIT) {
-                    const oldest = this.resultCache.keys().next().value;
-                    if (oldest !== undefined) {
-                        this.resultCache.delete(oldest);
+                    // done-narrowing keeps the key typed as string on both older
+                    // and newer TS iterator typings (same pattern as RunSkillScriptCache).
+                    const oldest = this.resultCache.keys().next();
+                    if (!oldest.done) {
+                        this.resultCache.delete(oldest.value);
                         for (const [path, keys] of this.pathIndex) {
-                            keys.delete(oldest);
+                            keys.delete(oldest.value);
                             if (keys.size === 0) this.pathIndex.delete(path);
                         }
                     }
@@ -820,7 +822,7 @@ export class ToolExecutionPipeline {
             const errorMessage = error instanceof Error ? error.message : String(error);
             console.error(`[Pipeline] Tool execution failed: ${toolCall.name}`, error);
             await callbacks.handleError(toolCall.name, error);
-            await this.logOperation(toolCall, false, Date.now() - startTime, errorMessage, undefined);
+            this.logOperation(toolCall, false, Date.now() - startTime, errorMessage, undefined);
             return this.errorResult(toolCall.id, errorMessage);
         }
     }
@@ -1043,14 +1045,16 @@ export class ToolExecutionPipeline {
 
     /**
      * Write a log entry via OperationLogger (if available).
+     * Synchronous by design: the log write itself is fire-and-forget
+     * (FIX-PERF-08), so there is nothing to await here.
      */
-    private async logOperation(
+    private logOperation(
         toolCall: ToolUse,
         success: boolean,
         durationMs: number,
         errorMessage?: string,
         resultContent?: string,
-    ): Promise<void> {
+    ): void {
         const logger: OperationLogger | undefined = this.plugin.operationLogger;
         if (logger) {
             // FIX-PERF-08: fire-and-forget. Tool dispatch should not wait

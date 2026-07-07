@@ -13,7 +13,7 @@
  */
 
 export function stableStringify(value: unknown): string {
-    return JSON.stringify(value, (_, v) => {
+    return JSON.stringify(value, (_: string, v: unknown) => {
         if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
         const obj = v as Record<string, unknown>;
         const sorted: Record<string, unknown> = {};

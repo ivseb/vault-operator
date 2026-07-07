@@ -157,6 +157,105 @@ describe('ReadFileTool integration -- BUG-020 tmp retry', () => {
 });
 
 /**
+ * FIX-PERF-45: chunked reading for large files. read_file caps at
+ * 50k chars; before this fix the agent had to detour via search_files
+ * plus externalised tmp files to see the rest of a long transcript
+ * (4+ wasted turns). The offset parameter lets it continue reading
+ * where the previous call stopped.
+ */
+describe('ReadFileTool chunked reading -- FIX-PERF-45', () => {
+    const CAP = 50_000;
+
+    function makeLargeFilePlugin(totalChars: number) {
+        // Position-coded content: 10-char tokens "000000000|000000001|..."
+        // so every slice is uniquely identifiable by its token numbers.
+        const content = Array.from(
+            { length: totalChars / 10 },
+            (_, i) => String(i).padStart(9, '0') + '|',
+        ).join('');
+        const { plugin } = makePlugin({
+            agentFolderPath: '.obsidian-agent',
+            vaultAdapterFiles: { 'notes/long.md': content },
+        });
+        return { plugin, content };
+    }
+
+    it('truncates at 50k and tells the agent how to continue', async () => {
+        const { plugin } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain(`offset=${CAP}`);
+        expect(pushed[0]).toContain('120000');
+    });
+
+    it('returns the requested slice for offset > 0', async () => {
+        const { plugin, content } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md', offset: CAP }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        // Slice starts exactly at char 50k (= token 5000), not at 0
+        expect(pushed[0]).toContain(content.slice(CAP, CAP + 40));
+        expect(pushed[0]).not.toContain('000000000|');
+        // And points at the next chunk
+        expect(pushed[0]).toContain(`offset=${CAP * 2}`);
+    });
+
+    it('final chunk has no continue hint', async () => {
+        const { plugin } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md', offset: 100_000 }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).not.toContain('offset=');
+    });
+
+    it('rejects an offset beyond the end of the file', async () => {
+        const { plugin } = makeLargeFilePlugin(1_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md', offset: 5_000 }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('1000');
+        expect(pushed[0].toLowerCase()).toContain('offset');
+    });
+
+    it('rejects non-numeric offsets instead of returning an empty slice', async () => {
+        const { plugin } = makeLargeFilePlugin(1_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md', offset: 'abc' }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('Invalid offset');
+    });
+
+    it('small files behave exactly as before (no hint, full content)', async () => {
+        const { plugin, content } = makeLargeFilePlugin(500);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain(content);
+        expect(pushed[0]).not.toContain('offset=');
+        expect(pushed[0]).not.toContain('Truncated');
+    });
+});
+
+/**
  * AUDIT-034 M-2: Regression test for path traversal via the adapter
  * fallback. Before the fix, ReadFileTool passed the raw `path` to
  * vault.adapter.exists / vault.adapter.read; FileSystemAdapter resolves

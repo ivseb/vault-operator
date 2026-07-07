@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return -- File-level disable: interacts with the external SDK where untyped values are unavoidable. */
 /**
  * AnthropicProvider - LLM provider for Anthropic Claude
  *
@@ -95,8 +94,8 @@ export class AnthropicProvider implements ApiHandler {
         abortSignal?: AbortSignal,
     ): Promise<number | undefined> {
         try {
-            const countFn = this.client.messages?.countTokens;
-            if (typeof countFn !== 'function') return undefined;
+            const messagesApi = this.client.messages as unknown as { countTokens?: unknown } | undefined;
+            if (typeof messagesApi?.countTokens !== 'function') return undefined;
             const result = await this.client.messages.countTokens({
                 model: this.config.model,
                 system: systemPrompt,
@@ -151,4 +150,3 @@ export class AnthropicProvider implements ApiHandler {
     }
 }
 
-/* eslint-enable -- end of file-level disable for boundary code (SDK internals) */

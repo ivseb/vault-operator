@@ -78,10 +78,11 @@ export class RunSkillScriptCache {
             this.store.delete(key);
         }
         this.store.set(key, compiled);
-        // Drop the oldest if past cap.
+        // Drop the oldest if past cap. The done-narrowing keeps the key
+        // typed as string on both older and newer TS iterator typings.
         if (this.store.size > this.maxEntries) {
-            const oldestKey = this.store.keys().next().value as string | undefined;
-            if (oldestKey !== undefined) this.store.delete(oldestKey);
+            const oldest = this.store.keys().next();
+            if (!oldest.done) this.store.delete(oldest.value);
         }
     }
 
