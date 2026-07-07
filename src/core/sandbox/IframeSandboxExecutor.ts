@@ -19,6 +19,7 @@ import type { ISandboxExecutor } from './ISandboxExecutor';
 import { SandboxBridge } from './SandboxBridge';
 import { SANDBOX_HTML } from './sandboxHtml';
 import { isFromOwnSandboxFrame } from './iframeSandboxSourceCheck';
+import { scheduleRecurring, type RecurringHandle } from '../../util/scheduleRecurring';
 
 // ---------------------------------------------------------------------------
 // Types — Typed bridge message protocol
@@ -88,10 +89,7 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
 
         return new Promise<unknown>((resolve, reject) => {
             const timeout = window.setTimeout(() => {
-                if (this.heapSampler !== null) {
-                    window.clearInterval(this.heapSampler);
-                    this.heapSampler = null;
-                }
+                this.stopHeapSampler();
                 this.pending.delete(id);
                 reject(new Error('Sandbox execution timeout (30s)'));
             }, 30000);
@@ -119,18 +117,26 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
      * pending is empty (every execution finished). On limit breach destroys
      * the iframe and rejects all pending executions so a memory bomb cannot
      * starve the host renderer indefinitely.
+     *
+     * FIX-PERF-44: uses scheduleRecurring, NOT window.setInterval -- the
+     * post-build rename in esbuild.config.mjs turns every setInterval
+     * identifier into __si_polyfill, which made this sampler throw
+     * "window.__si_polyfill is not a function" on every sandbox execute().
      */
-    private heapSampler: number | null = null;
+    private heapSampler: RecurringHandle | null = null;
     private static readonly HEAP_SAMPLE_INTERVAL_MS = 500;
     private static readonly HEAP_LIMIT_BYTES = 128 * 1024 * 1024;
+    private stopHeapSampler(): void {
+        this.heapSampler?.stop();
+        this.heapSampler = null;
+    }
     private startHeapSampler(): void {
         if (this.heapSampler !== null) return;
         const perf = (window as unknown as { performance?: { memory?: { usedJSHeapSize?: number } } }).performance;
         if (!perf?.memory || typeof perf.memory.usedJSHeapSize !== 'number') return;
-        this.heapSampler = window.setInterval(() => {
+        this.heapSampler = scheduleRecurring(() => {
             if (this.pending.size === 0) {
-                if (this.heapSampler !== null) window.clearInterval(this.heapSampler);
-                this.heapSampler = null;
+                this.stopHeapSampler();
                 return;
             }
             const used = perf.memory?.usedJSHeapSize ?? 0;
@@ -141,8 +147,6 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
                     p.reject(new Error('Sandbox terminated: heap limit exceeded (128 MB)'));
                 }
                 this.pending.clear();
-                if (this.heapSampler !== null) window.clearInterval(this.heapSampler);
-                this.heapSampler = null;
                 this.destroy();
             }
         }, IframeSandboxExecutor.HEAP_SAMPLE_INTERVAL_MS);
@@ -168,10 +172,7 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
         this.pending.clear();
         // AUDIT-037 L-2: clear the heap sampler if destroy() runs while a
         // sandbox call is still in flight (host shutdown, manual teardown).
-        if (this.heapSampler !== null) {
-            window.clearInterval(this.heapSampler);
-            this.heapSampler = null;
-        }
+        this.stopHeapSampler();
     }
 
     // -----------------------------------------------------------------------
