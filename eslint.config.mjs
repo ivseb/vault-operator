@@ -45,6 +45,12 @@ const VAULT_OPERATOR_ACRONYMS = [...DEFAULT_ACRONYMS, 'AWS', 'IAM', 'SSO', 'STS'
     'DOCX', 'XLSX', 'PPTX',
     // EPIC-42: OKF frontmatter standard referenced in graph-expansion copy.
     'OKF',
+    // FIX-42-06-01: reranker asset UI copy names the WebAssembly backend.
+    // Only ever appears uppercase in locale strings, so no lowercase "wasm"
+    // token gets folded.
+    'WASM',
+    // FIX-42-06-01: integrity-check acronym in the asset-download status copy.
+    'SHA256',
 ];
 // Proper nouns that should keep their casing in Bedrock-related UI copy but
 // don't belong in the general brand list (they are not branded products).
@@ -61,6 +67,7 @@ const VAULT_OPERATOR_IGNORE_WORDS = [
     // would lowercase them mid-sentence ("see the History sidebar" ->
     // "see the history sidebar"); we want to preserve the on-screen label.
     'History', 'Permissions', 'Permissive', 'Providers', 'Connectors',
+    'Embeddings',
     'Customize', 'Migrate', 'Connect', 'Disconnect', 'Duplicate', 'New',
     'Note', 'Web', 'Vault', 'Read', 'Edits', 'Sub-agents',
     'External-commands', 'Remote',
