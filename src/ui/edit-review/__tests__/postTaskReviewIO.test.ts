@@ -208,3 +208,26 @@ describe('applyReviewDecisions (FIX-01-07-04)', () => {
         expect(outcome.written).toEqual([]);
     });
 });
+
+describe('adapter-sink path revalidation (AUDIT 2026-07-07 PTR-1)', () => {
+    // The adapter sink is the security-relevant boundary (AUDIT-034 M-1
+    // convention): every caller-supplied path gets revalidated here so a
+    // future caller cannot hand a traversal-laden string to adapter IO.
+    it('applyReviewDecisions refuses traversal paths and reports them as failed', async () => {
+        const { app, calls } = makeApp();
+        const outcome = await applyReviewDecisions(
+            app,
+            [{ path: '../outside/secret.md', finalContent: 'x', skipped: false }],
+            new Map(),
+        );
+        expect(outcome.failed).toEqual(['../outside/secret.md']);
+        expect(outcome.written).toEqual([]);
+        expect(calls.filter((c) => c.op === 'write' || c.op === 'rename' || c.op === 'remove')).toEqual([]);
+    });
+
+    it('readCurrentContent refuses traversal paths without touching the adapter', async () => {
+        const { app, calls } = makeApp({ adapterSeed: { 'x.md': 'v' } });
+        expect(await readCurrentContent(app, '..\\..\\evil.md')).toBeNull();
+        expect(calls).toEqual([]);
+    });
+});

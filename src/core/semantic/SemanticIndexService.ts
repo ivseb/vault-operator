@@ -1392,33 +1392,63 @@ export class SemanticIndexService {
             // concurrent context-model calls stays capped. The stream is created
             // INSIDE run() so it does not start before a slot is acquired.
             const trimmed = await this.enrichSemaphore.run(async () => {
-                const resultPromise = (async () => {
-                    let result = '';
-                    for await (const chunk of this.contextualApiHandler!.createMessage(
-                        'You generate short context descriptions for document chunks. Answer only with the context, no preamble.',
-                        [{ role: 'user', content: prompt }],
-                        [],
-                    )) {
-                        if (this.cancelled) break;
-                        if (chunk.type === 'text') result += chunk.text;
-                    }
-                    return result.trim();
-                })();
-                const abortPromise = this.abortController
-                    ? new Promise<never>((_, reject) => {
-                        this.abortController!.signal.addEventListener('abort', () => reject(new Error('Build cancelled')), { once: true });
-                    })
-                    : new Promise<never>(() => {}); // never resolves
-                const timeoutPromise = new Promise<string>((_, reject) =>
-                    window.setTimeout(() => reject(new Error('Context prefix timed out')), TIMEOUT_MS),
-                );
-                return Promise.race([resultPromise, abortPromise, timeoutPromise]);
+                // AUDIT 2026-07-07 SEM-1: queued calls must observe cancellation
+                // the moment they acquire their slot -- otherwise a full
+                // 50-chunk batch drains at 6-way concurrency after cancel.
+                if (this.enrichmentCancelled || this.cancelled) {
+                    throw new Error('Context prefix skipped: enrichment cancelled');
+                }
+                // AUDIT 2026-07-07 SEM-2: per-call controller so timeout, build
+                // abort, and enrichment cancel actually TERMINATE the stream.
+                // Previously the race settled and released the slot while the
+                // for-await kept consuming (zombie streams escaping the cap).
+                const callAbort = new AbortController();
+                const onOuterAbort = (): void => callAbort.abort();
+                // Capture the signals valid at registration time: the finally
+                // must remove from these exact signals even if the instance
+                // controllers get replaced/nulled mid-call (buildIndex finally).
+                const buildSignal = this.abortController?.signal;
+                const enrichSignal = this.enrichmentAbortController?.signal;
+                buildSignal?.addEventListener('abort', onOuterAbort, { once: true });
+                enrichSignal?.addEventListener('abort', onOuterAbort, { once: true });
+                const timer = window.setTimeout(() => callAbort.abort(), TIMEOUT_MS);
+                try {
+                    const resultPromise = (async () => {
+                        let result = '';
+                        for await (const chunk of this.contextualApiHandler!.createMessage(
+                            'You generate short context descriptions for document chunks. Answer only with the context, no preamble.',
+                            [{ role: 'user', content: prompt }],
+                            [],
+                            callAbort.signal,
+                        )) {
+                            if (this.cancelled || callAbort.signal.aborted) break;
+                            if (chunk.type === 'text') result += chunk.text;
+                        }
+                        return result.trim();
+                    })();
+                    const abortPromise = new Promise<never>((_, reject) => {
+                        callAbort.signal.addEventListener('abort', () => reject(new Error(
+                            this.enrichmentCancelled || this.cancelled ? 'Build cancelled' : 'Context prefix timed out',
+                        )), { once: true });
+                    });
+                    return await Promise.race([resultPromise, abortPromise]);
+                } finally {
+                    window.clearTimeout(timer);
+                    callAbort.abort(); // terminate a still-running stream
+                    buildSignal?.removeEventListener('abort', onOuterAbort);
+                    enrichSignal?.removeEventListener('abort', onOuterAbort);
+                }
             });
             return trimmed.length > 10 ? trimmed : null;
         } catch (e) {
             // BUG-016: auth / credit / quota failures on the configured context model would
             // otherwise re-fire on every chunk of every rebuild. One warning, then disable.
             const msg = String((e as { message?: string })?.message ?? e ?? '');
+            // SEM-1: cancellation is not an error -- up to a whole batch of
+            // queued calls lands here at once, so stay silent. Guarded by the
+            // cancel flags so a provider error that merely CONTAINS the word
+            // (e.g. "subscription cancelled") cannot mask the BUG-016 path.
+            if ((this.enrichmentCancelled || this.cancelled) && /cancelled/i.test(msg)) return null;
             const statusCode = (e as { status?: number })?.status;
             const isPermanent = statusCode === 401 || statusCode === 402 || statusCode === 403
                 || /credit balance is too low|insufficient.?quota|quota.?exceeded|invalid.?api.?key|api.?key.?not.?found|authentication.?failed/i.test(msg);

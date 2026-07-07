@@ -4300,9 +4300,21 @@ export class AgentSidebarView extends ItemView {
      * context to fall back on -- matches the inline chat bridge in
      * `PluginWiring.ts`.
      */
+    /** DOM-D1: newest render generation per container; stale passes skip link wiring. */
+    private renderGenerations = new WeakMap<HTMLElement, number>();
+
     private async renderMarkdownAndWire(markdown: string, containerEl: HTMLElement): Promise<void> {
+        // AUDIT 2026-07-07 DOM-D1: overlapping passes into the same container
+        // (throttled Q&A streaming render vs. the next tick or onComplete's
+        // authoritative render) stacked duplicate click handlers -- the stale
+        // pass resolved after a newer pass had emptied and re-rendered the
+        // container, then wired the newer pass's anchors a second time. Only
+        // the newest pass per container may wire links.
+        const gen = (this.renderGenerations.get(containerEl) ?? 0) + 1;
+        this.renderGenerations.set(containerEl, gen);
         const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
         await MarkdownRenderer.render(this.app, markdown, containerEl, sourcePath, this);
+        if (this.renderGenerations.get(containerEl) !== gen) return;
         this.wireInternalLinks(containerEl);
     }
 
@@ -5733,6 +5745,16 @@ export class AgentSidebarView extends ItemView {
                 role: 'user',
                 content: `[System] Post-task review: User edited ${outcome.written.length} file(s): ${outcome.written.join(', ')}.`,
             });
+        }
+        // AUDIT 2026-07-07 PTR-2: guarded/failed decisions previously died in
+        // the console -- the user edited, clicked Apply, the modal closed,
+        // and the change was silently gone. Surface them.
+        const notApplied = [...outcome.guarded, ...outcome.failed];
+        if (notApplied.length > 0) {
+            new Notice(t('ui.editReview.applyIncomplete', {
+                count: notApplied.length,
+                paths: notApplied.join(', '),
+            }), 10000);
         }
     }
 

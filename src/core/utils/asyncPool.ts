@@ -14,7 +14,13 @@ export class Semaphore {
     private active = 0;
     private readonly queue: Array<() => void> = [];
 
-    constructor(private readonly limit: number) {}
+    constructor(private readonly limit: number) {
+        // AUDIT 2026-07-07 POOL-1: limit <= 0 would deadlock every caller
+        // (run() waits forever for a slot that can never free up).
+        if (!Number.isFinite(limit) || limit < 1) {
+            throw new Error(`Semaphore limit must be >= 1, got ${limit}`);
+        }
+    }
 
     async run<T>(fn: () => Promise<T>): Promise<T> {
         if (this.active >= this.limit) {
@@ -50,12 +56,23 @@ export async function mapWithConcurrency<T, R>(
     const results: R[] = new Array<R>(items.length);
     if (items.length === 0) return results;
     let next = 0;
+    // AUDIT 2026-07-07 POOL-1: once one worker rejects, Promise.all settles
+    // and nobody observes the surviving runners anymore -- without this flag
+    // they would keep pulling next++ and process every remaining item as
+    // detached orphans (for LLM workers: unobserved background API spend).
+    let failed = false;
     const workers = Math.min(Math.max(1, limit), items.length);
     const runners = Array.from({ length: workers }, async () => {
         for (;;) {
+            if (failed) return;
             const i = next++;
             if (i >= items.length) return;
-            results[i] = await worker(items[i], i);
+            try {
+                results[i] = await worker(items[i], i);
+            } catch (err) {
+                failed = true;
+                throw err;
+            }
         }
     });
     await Promise.all(runners);

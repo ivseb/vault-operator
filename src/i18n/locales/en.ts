@@ -818,6 +818,7 @@ export const en = {
     'ui.editReview.emptyFile': '(empty)',
     'ui.editReview.unchanged': 'Unchanged',
     'ui.editReview.sourceTask': 'Task {{taskId}}',
+    'ui.editReview.applyIncomplete': 'Post-task review: {{count}} change(s) were not applied ({{paths}}). The files keep their previous content.',
 
     // =========================================================================
     // UI -- Inline Chat (FIX-42-01-02)

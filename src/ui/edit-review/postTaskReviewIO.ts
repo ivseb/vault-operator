@@ -1,5 +1,6 @@
 import { TFile, type App } from 'obsidian';
 import { atomicAdapterWrite } from '../../core/utils/atomicAdapterWrite';
+import { validateVaultRelativePath } from '../../core/tools/vault/pathValidation';
 
 /**
  * FIX-01-07-04: index-independent read/write helpers for the post-task
@@ -16,13 +17,18 @@ import { atomicAdapterWrite } from '../../core/utils/atomicAdapterWrite';
  * the file does not exist at all.
  */
 export async function readCurrentContent(app: App, filePath: string): Promise<string | null> {
-    const file = app.vault.getFileByPath(filePath);
+    // AUDIT 2026-07-07 PTR-1: the adapter sink is the security-relevant
+    // boundary (AUDIT-034 M-1 convention) -- revalidate here so no caller
+    // can hand a traversal-laden string to adapter IO.
+    const safePath = validateVaultRelativePath(filePath);
+    if (!safePath) return null;
+    const file = app.vault.getFileByPath(safePath);
     if (file) {
         return app.vault.read(file);
     }
     const adapter = app.vault.adapter;
-    if (await adapter.exists(filePath)) {
-        return adapter.read(filePath);
+    if (await adapter.exists(safePath)) {
+        return adapter.read(safePath);
     }
     return null;
 }
@@ -64,15 +70,23 @@ export async function applyReviewDecisions(
             outcome.skippedUnchanged.push(d.path);
             continue;
         }
+        // AUDIT 2026-07-07 PTR-1: revalidate at the sink (AUDIT-034 M-1
+        // convention); a traversal-laden path must never reach adapter IO.
+        const safePath = validateVaultRelativePath(d.path);
+        if (!safePath) {
+            console.error(`[PostTaskReview] Refusing decision with invalid path: ${d.path}`);
+            outcome.failed.push(d.path);
+            continue;
+        }
         try {
-            const current = await readCurrentContent(app, d.path);
+            const current = await readCurrentContent(app, safePath);
             if (d.finalContent.trim() === '' && (current ?? '').trim() !== '') {
-                console.warn(`[PostTaskReview] Refusing to overwrite non-empty file with empty content: ${d.path}`);
+                console.warn(`[PostTaskReview] Refusing to overwrite non-empty file with empty content: ${safePath}`);
                 outcome.guarded.push(d.path);
                 continue;
             }
 
-            const file = app.vault.getFileByPath(d.path);
+            const file = app.vault.getFileByPath(safePath);
             if (file instanceof TFile) {
                 await app.vault.modify(file, d.finalContent);
                 // Beat the CodeMirror stale-buffer cache that overwrites
@@ -80,7 +94,7 @@ export async function applyReviewDecisions(
                 const { refreshOpenMarkdownViewsFor } = await import('../../core/utils/refreshMarkdownView');
                 await refreshOpenMarkdownViewsFor(app, file, d.finalContent);
             } else {
-                await atomicAdapterWrite(app.vault.adapter, d.path, d.finalContent);
+                await atomicAdapterWrite(app.vault.adapter, safePath, d.finalContent);
             }
             outcome.written.push(d.path);
         } catch (e) {

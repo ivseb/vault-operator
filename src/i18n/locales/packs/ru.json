@@ -703,6 +703,7 @@
   "ui.editReview.emptyFile": "(пусто)",
   "ui.editReview.unchanged": "Без изменений",
   "ui.editReview.sourceTask": "Задача {{taskId}}",
+  "ui.editReview.applyIncomplete": "Проверка после задачи: {{count}} изменение(й) не применено ({{paths}}). Файлы сохраняют прежнее содержимое.",
   "ui.inline.editorMissing": "Нет связи с редактором. Изменение не может быть применено.",
   "ui.inline.readyToApply": "Готово к применению. Подтвердите в диалоге diff.",
   "ui.inline.reviewChange": "Проверить изменение",

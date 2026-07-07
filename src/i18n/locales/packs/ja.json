@@ -703,6 +703,7 @@
   "ui.editReview.emptyFile": "(空)",
   "ui.editReview.unchanged": "変更なし",
   "ui.editReview.sourceTask": "タスク {{taskId}}",
+  "ui.editReview.applyIncomplete": "タスク後レビュー: {{count}} 件の変更を適用できませんでした（{{paths}}）。ファイルは以前の内容のままです。",
   "ui.inline.editorMissing": "エディタとの接続がありません。変更を適用できません。",
   "ui.inline.readyToApply": "適用の準備ができました。差分ダイアログで確認してください。",
   "ui.inline.reviewChange": "変更をレビュー",

@@ -56,4 +56,31 @@ describe('mapWithConcurrency', () => {
         expect(await mapWithConcurrency([], 4, async (x) => x)).toEqual([]);
         expect(await mapWithConcurrency([1, 2], 10, async (x: number) => x + 1)).toEqual([2, 3]);
     });
+
+    // AUDIT 2026-07-07 POOL-1: after the first worker rejection settled
+    // Promise.all, surviving runners kept pulling next++ and processed every
+    // remaining item detached (orphaned LLM calls, later rejections silently
+    // swallowed). Runners must stop picking up new items once one failed.
+    it('POOL-1: stops picking up new items after the first worker rejection', async () => {
+        const started: number[] = [];
+        const items = Array.from({ length: 20 }, (_, i) => i);
+        await expect(mapWithConcurrency(items, 2, async (n) => {
+            started.push(n);
+            if (n === 1) throw new Error('boom');
+            await tick(3);
+            return n;
+        })).rejects.toThrow('boom');
+        // Let any detached runners drain before asserting.
+        await tick(20);
+        // With 2 workers and item 1 failing immediately, only a handful of
+        // items may have started; the pre-fix behaviour processed all 20.
+        expect(started.length).toBeLessThan(6);
+    });
+});
+
+describe('Semaphore constructor guard (POOL-1)', () => {
+    it('rejects a non-positive limit instead of deadlocking every caller', () => {
+        expect(() => new Semaphore(0)).toThrow();
+        expect(() => new Semaphore(-1)).toThrow();
+    });
 });
