@@ -131,7 +131,7 @@ export function convertToAnthropicMessages(messages: MessageParam[]): Anthropic.
         }).filter((b): b is NonNullable<typeof b> => b !== null);
 
         return { role: msg.role, content };
-    }) as Anthropic.MessageParam[];
+    });
 }
 
 /** Convert ToolDefinition[] to Anthropic's tool format. */
@@ -140,7 +140,7 @@ export function convertToAnthropicTools(tools: ToolDefinition[]): Anthropic.Tool
         name: tool.name,
         description: tool.description,
         input_schema: tool.input_schema,
-    })) as Anthropic.Tool[];
+    }));
 }
 
 /**
@@ -434,3 +434,4 @@ export async function* parseAnthropicStream(
         } satisfies ApiStreamChunk;
     }
 }
+/* eslint-enable -- end of file-level disable for boundary code (Anthropic SDK wire format) */

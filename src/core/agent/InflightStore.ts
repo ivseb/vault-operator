@@ -143,6 +143,7 @@ export class InflightStore {
     constructor(private fs: InflightFs) {}
 
     /** Debounced snapshot write; the latest snapshot per task wins. */
+    // eslint-disable-next-line @typescript-eslint/require-await -- keeps the async store contract for callers; the body only arms the debounced flush timer
     async saveSnapshot(snapshot: InflightSnapshot): Promise<void> {
         this.pending.set(snapshot.taskId, snapshot);
         if (this.flushTimer !== undefined) return;
