@@ -69,7 +69,6 @@ export class InlineActionsTab {
             .addSlider(s => s
                 .setLimits(0, 1, 0.05)
                 .setValue(resolved.vaultRagConfidenceThreshold)
-                .setDynamicTooltip()
                 .onChange(async (v) => { settings.vaultRagConfidenceThreshold = v; await this.save(); }),
             );
 

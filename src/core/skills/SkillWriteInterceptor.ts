@@ -18,8 +18,8 @@
  */
 
 interface AdapterLike {
-    write(path: string, content: string): Promise<void>;
-    writeBinary?(path: string, content: ArrayBuffer): Promise<void>;
+    write: (path: string, content: string) => Promise<void>;
+    writeBinary?: (path: string, content: ArrayBuffer) => Promise<void>;
 }
 
 interface SnapshotServiceLike {
@@ -45,9 +45,16 @@ export class SkillWriteInterceptor {
      */
     install(): void {
         if (this.installed) return;
-        this.originalWrite = this.adapter.write.bind(this.adapter) as AdapterLike['write'];
-        if (typeof this.adapter.writeBinary === 'function') {
-            this.originalWriteBinary = this.adapter.writeBinary.bind(this.adapter) as AdapterLike['writeBinary'];
+        // Wrap instead of .bind(): without strictBindCallApply bind()
+        // returns 'any' locally, while stricter checkers flag the
+        // compensating type assertion as unnecessary. The .call()
+        // wrapper stays typed under both configurations.
+        const adapter = this.adapter;
+        const rawWrite = adapter.write;
+        this.originalWrite = async (path, content) => { await rawWrite.call(adapter, path, content); };
+        if (typeof adapter.writeBinary === 'function') {
+            const rawWriteBinary = adapter.writeBinary;
+            this.originalWriteBinary = async (path, content) => { await rawWriteBinary.call(adapter, path, content); };
         }
 
         this.adapter.write = async (path: string, content: string): Promise<void> => {

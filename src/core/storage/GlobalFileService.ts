@@ -57,8 +57,8 @@ async function chmodOwnerOnly(absPath: string): Promise<void> {
 export interface GlobalFileServiceLayoutHint {
     /** Vault-relative agent folder (e.g. ".vault-operator"). */
     agentFolderPath: string;
-    /** FEAT-29-01 migration status from vault-local settings. */
-    layoutMigrationStatus: 'pending' | 'in-progress' | 'complete' | string;
+    /** FEAT-29-01 migration status from vault-local settings: 'pending' | 'in-progress' | 'complete' (forward-compatible with unknown values). */
+    layoutMigrationStatus: string;
 }
 
 export class GlobalFileService implements FileAdapter {

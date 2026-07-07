@@ -23,7 +23,7 @@ interface Bucket {
     lastRefillMs: number;
     rateLimitedUntilMs: number;
     waiters: Array<{ resolve: () => void; reject: (e: Error) => void; signal?: AbortSignal; onAbort?: () => void }>;
-    timer?: ReturnType<typeof setTimeout>;
+    timer?: number;
 }
 
 function abortError(): Error {
@@ -117,7 +117,7 @@ export class RequestRateLimiter {
             ? Math.max(1, Math.floor(bucket.rpm / 2))
             : bucket.rpm;
         const msPerToken = 60_000 / effectiveRpm;
-        bucket.timer = setTimeout(() => {
+        bucket.timer = window.setTimeout(() => {
             bucket.timer = undefined;
             this.refill(bucket);
             while (bucket.tokens >= 1 && bucket.waiters.length > 0) {

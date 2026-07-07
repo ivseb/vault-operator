@@ -2,7 +2,6 @@ import { App, Notice, Setting, setIcon, type ButtonComponent } from 'obsidian';
 import JSZip from 'jszip';
 import type ObsidianAgentPlugin from '../../main';
 import { DEFAULT_SETTINGS } from '../../types/settings';
-import type { ObsidianAgentSettings } from '../../types/settings';
 import type { GlobalFileService } from '../../core/storage/GlobalFileService';
 import { getAgentFolderPath, getPluginSkillsDir, getVaultDnaPath } from '../../core/utils/agentFolder';
 import { MANIFEST_FILENAME } from '../../util/pluginFiles';

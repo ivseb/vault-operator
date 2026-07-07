@@ -382,7 +382,6 @@ export class EmbeddingsTab {
         batchSetting.addSlider((s) =>
             s.setLimits(10, 200, 10)
                 .setValue(this.plugin.settings.semanticBatchSize ?? 50)
-                .setDynamicTooltip()
                 .onChange(async (v) => {
                     this.plugin.settings.semanticBatchSize = v;
                     getIdx()?.configure({ batchSize: v });
@@ -655,7 +654,6 @@ export class EmbeddingsTab {
             .addSlider((s) =>
                 s.setLimits(0.5, 0.9, 0.05)
                     .setValue(this.plugin.settings.implicitThreshold ?? 0.7)
-                    .setDynamicTooltip()
                     .onChange(async (v) => {
                         this.plugin.settings.implicitThreshold = v;
                         await this.plugin.saveSettings();
@@ -709,7 +707,6 @@ export class EmbeddingsTab {
             .addSlider((s) =>
                 s.setLimits(10, 30, 5)
                     .setValue(this.plugin.settings.rerankCandidates ?? 20)
-                    .setDynamicTooltip()
                     .onChange(async (v) => {
                         this.plugin.settings.rerankCandidates = v;
                         await this.plugin.saveSettings();

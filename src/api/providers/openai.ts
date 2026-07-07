@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
  * OpenAiProvider - LLM provider for OpenAI-compatible APIs
  *
@@ -21,10 +20,7 @@ import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/too
 // OpenAI REST API types (subset we need)
 // ---------------------------------------------------------------------------
 
-// FIX-04-03-09: content may be a content-part array on user messages to
-// carry multimodal input ({type:'image_url'|'text'}).
-import { appendOpenAiChatUserMessage, type OpenAiChatMessage } from '../openaiShapeUserBlocks';
-import { convertToOpenAiChatMessages, convertToOpenAiChatTools, type OpenAIMessage, type OpenAITool } from '../adapters/openaiChat';
+import { convertToOpenAiChatMessages, convertToOpenAiChatTools } from '../adapters/openaiChat';
 
 // IMP-41-03-03 / ADR-150: message/tool types and the conversion itself live
 // in the shared openai-chat wire adapter (../adapters/openaiChat) — one
@@ -514,4 +510,3 @@ export class OpenAiProvider implements ApiHandler {
     }
 }
 
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */
