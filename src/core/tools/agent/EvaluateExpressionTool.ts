@@ -25,6 +25,17 @@ interface EvaluateExpressionInput {
     dependencies?: string[];
 }
 
+/**
+ * FIX-05-02-05: cap on the formatted return value. The result is pushed
+ * 1:1 into the message history; without a cap, expressions returning file
+ * contents (`return ctx.vault.read(path)`) pump arbitrarily large payloads
+ * into the context until the 50k per-message truncation destroys the
+ * agent's own earlier tool results. read_file has the equivalent guard at
+ * MAX_CONTENT_CHARS with an offset-based continuation; here the correct
+ * escape hatch is writing large data to the vault inside the expression.
+ */
+const MAX_RESULT_CHARS = 16_000;
+
 // ---------------------------------------------------------------------------
 // Tool
 // ---------------------------------------------------------------------------
@@ -44,7 +55,7 @@ export class EvaluateExpressionTool extends BaseTool<'evaluate_expression'> {
     getDefinition(): ToolDefinition {
         return {
             name: this.name,
-            description: 'Execute TypeScript/JavaScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl (HTTPS CDN-only). No Blob, Buffer, DOM, require, fetch available. Binary output: ArrayBuffer/Uint8Array (outputType:"arraybuffer"). npm packages via dependencies param (browser ESM from esm.sh). NEVER write Python.',
+            description: 'Execute TypeScript/JavaScript in an isolated sandbox. Provides ctx.vault (read, readBinary, write, writeBinary, list) and ctx.requestUrl (HTTPS CDN-only). No Blob, Buffer, DOM, require, fetch available. Binary output: ArrayBuffer/Uint8Array (outputType:"arraybuffer"). npm packages via dependencies param (browser ESM from esm.sh). NEVER write Python. Return values are capped at 16000 chars -- NOT a file reader: to read vault files use read_file; for large computed data write to a vault file (ctx.vault.write) and return a short summary.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -114,9 +125,18 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
                 context: params.context ?? {},
             });
 
-            const output = typeof result === 'string'
+            let output = typeof result === 'string'
                 ? result
                 : JSON.stringify(result, null, 2);
+
+            if (output.length > MAX_RESULT_CHARS) {
+                output = output.slice(0, MAX_RESULT_CHARS)
+                    + `\n[Truncated: result was ${output.length} chars, cap is ${MAX_RESULT_CHARS}. `
+                    + 'Do NOT page through data via repeated evaluate_expression returns. '
+                    + 'To read a vault file use read_file (offset= continues a truncated read). '
+                    + 'For large computed data, write it to a vault file inside the expression '
+                    + '(ctx.vault.write) and return only a short summary plus the file path.]';
+            }
 
             callbacks.pushToolResult(this.formatSuccess(output));
         } catch (error) {
