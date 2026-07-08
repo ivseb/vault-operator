@@ -2718,6 +2718,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     onunload(): void {
         console.debug('Unloading Vault Operator plugin');
+        // FIX-24-08-03: abort a running background agent task -- it holds
+        // its own AbortController and would otherwise keep calling the API
+        // after the plugin is gone.
+        try {
+            this.backgroundTaskRunner?.stop();
+        } catch (e) {
+            console.debug('[main] background-task stop error (non-fatal):', e);
+        }
         // EPIC-33: dispose inline-actions before async cleanup so the
         // floating-menu listeners detach immediately.
         try {

@@ -480,6 +480,19 @@ export class ToolExecutionPipeline {
         const startTime = Date.now();
 
         try {
+            // 0. FIX-24-08-03: a stopped task must not start new tools.
+            // No tool consumes the abort signal itself, so without this
+            // pre-check a Stop only takes effect at the next loop
+            // checkpoint and a long tool batch keeps a "stopped" run
+            // visibly working. Returning an error result (instead of
+            // throwing) keeps every tool_use answered for history
+            // consistency and task resume.
+            if (extensions?.abortSignal?.aborted) {
+                const msg = `Tool "${toolCall.name}" skipped: task was stopped.`;
+                this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                return this.errorResult(toolCall.id, msg);
+            }
+
             // 1. Validate tool exists
             const tool = this.toolRegistry.getTool(toolCall.name);
             if (!tool) {

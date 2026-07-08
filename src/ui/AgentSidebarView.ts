@@ -34,6 +34,7 @@ import { providerConfigToCustomModel, resolveActiveProvider } from '../core/rout
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import { wireApprovalTimeout } from './sidebar/approvalTimeout';
+import { resolveRunStateButtons } from './sidebar/runStateButtons';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
@@ -151,6 +152,14 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+    /**
+     * FIX-24-08-03: signal of the most recently started run. Unlike
+     * `currentAbortController` this is NOT nulled by handleStop, so
+     * approval cards surfacing from a draining task bind an already-
+     * aborted signal (immediate rejection) instead of undefined
+     * (10-minute wall-clock hang).
+     */
+    private lastRunAbortSignal: AbortSignal | null = null;
     /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
     private taskDraining = false;
     private taskDrainingTimer = 0;
@@ -637,6 +646,15 @@ export class AgentSidebarView extends ItemView {
         this.textarea.addEventListener('keydown', (e: KeyboardEvent) => {
             // Autocomplete navigation takes priority
             if (this.autocomplete.handleKeyDown(e)) return;
+
+            // FIX-24-08-03: Escape always stops a running task, independent
+            // of textarea content (the button alone was unreachable while
+            // steering text sat in the field).
+            if (e.key === 'Escape' && this.currentAbortController) {
+                e.preventDefault();
+                this.handleStop();
+                return;
+            }
 
             if (e.key === 'Enter') {
                 const sendWithEnter = this.plugin.settings.sendWithEnter ?? true;
@@ -1749,6 +1767,15 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
+        // FIX-24-08-03 / GUARD-L1: a stopped task is still draining to its
+        // next abort checkpoint. Starting a new run in this window lets the
+        // old run's late onComplete/onError race the new run's controller
+        // (and both render into the same chat). Refuse until the drain ends.
+        if (this.taskDraining) {
+            new Notice(t('ui.sidebar.taskStillStopping'), 6000);
+            return;
+        }
+
         // MEAS-02: TTFT split. point captures the send click; the
         // span runs until AgentTask hands off to the provider, then
         // the provider-span runs until the first stream chunk arrives.
@@ -2048,8 +2075,16 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
-        // Feature 3: Create AbortController, show stop button
+        // Feature 3: Create AbortController, show stop button.
+        // FIX-24-08-03: `myController` pins this run's identity -- the
+        // completion closures below may fire LATE (after Stop + a newer
+        // run's start) and must only clean up their own controller.
+        // `lastRunAbortSignal` survives handleStop's nulling so approval
+        // cards created by a draining task still bind an (aborted) signal
+        // instead of undefined.
         this.currentAbortController = new AbortController();
+        const myController = this.currentAbortController;
+        this.lastRunAbortSignal = myController.signal;
         // FEAT-24-08 Steering: clear any stale entries before a new task
         // starts so leftover mid-run messages from a previous run cannot
         // leak into a fresh conversation. Any pending bubbles that never
@@ -2871,9 +2906,15 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
                     messageEl.removeClass('message-streaming');
-                    this.currentAbortController = null;
+                    // FIX-24-08-03: only clean up when this is still OUR
+                    // controller. A late onComplete of a stopped, drained
+                    // run must not clobber a newer run's controller (which
+                    // would make that run unstoppable).
+                    if (this.currentAbortController === myController) {
+                        this.currentAbortController = null;
+                        this.setRunningState(false);
+                    }
                     this.endTaskDraining(); // GUARD-L1
-                    this.setRunningState(false);
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
                         this.showUndoBar(taskId, taskWriteCount);
@@ -2940,9 +2981,12 @@ export class AgentSidebarView extends ItemView {
 
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
-                    this.currentAbortController = null;
+                    // FIX-24-08-03: identity check, see onComplete.
+                    if (this.currentAbortController === myController) {
+                        this.currentAbortController = null;
+                        this.setRunningState(false);
+                    }
                     this.endTaskDraining(); // GUARD-L1
-                    this.setRunningState(false);
                 },
                 onTaskTelemetry: (data) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
@@ -3161,7 +3205,10 @@ export class AgentSidebarView extends ItemView {
             initialMode: activeMode,
             history: this.conversationHistory,
             resumeState: resumeSnapshot?.state,
-            abortSignal: this.currentAbortController.signal,
+            // FIX-24-08-03: bind the pinned controller, not the mutable
+            // field -- awaits between controller creation and this call
+            // could otherwise hand this run a different run's signal.
+            abortSignal: myController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
             includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
             rulesContent: rulesContent || undefined,
@@ -3248,11 +3295,13 @@ export class AgentSidebarView extends ItemView {
     private refreshRunStateButtons(): void {
         const running = this.currentAbortController !== null;
         const hasText = (this.textarea?.value.trim().length ?? 0) > 0;
-        // Show Send when: not running OR running-with-text (steering mode).
-        // Show Stop when: running AND empty textarea.
-        const showSend = !running || hasText;
+        // FIX-24-08-03: Stop stays visible for the whole task lifetime;
+        // Send appears NEXT TO it in steering mode. The old morph replaced
+        // Stop with Send at the same position, making a running task
+        // unstoppable as soon as text sat in the textarea.
+        const { showSend, showStop } = resolveRunStateButtons(running, hasText);
         if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
-        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', showSend);
+        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !showStop);
     }
 
     /**
@@ -5166,7 +5215,13 @@ export class AgentSidebarView extends ItemView {
             const cleanup = () => { timeoutHandle?.dispose(); row.remove(); };
             timeoutHandle = wireApprovalTimeout({
                 timeoutMs: timeoutMinutes * 60_000,
-                abortSignal: this.currentAbortController?.signal,
+                // FIX-24-08-03: bind the run's signal, not the mutable
+                // controller field. handleStop nulls the field immediately,
+                // so a card surfacing from a still-draining tool would bind
+                // undefined and hang until the wall-clock timeout. The
+                // already-aborted signal fires onAbort synchronously inside
+                // wireApprovalTimeout instead.
+                abortSignal: this.lastRunAbortSignal ?? undefined,
                 onExpire: () => {
                     cleanup();
                     resolve({
