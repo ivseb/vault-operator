@@ -44,7 +44,7 @@ import { StigmergyInterceptor } from './agent/interceptors/StigmergyInterceptor'
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay, parseOutputCapLimit } from '../api/retry';
-import { resolveOutputBudget } from '../types/model-registry';
+import { resolveOutputBudget, getModelContextWindow as registryContextWindow } from '../types/model-registry';
 import { learnOutputCap } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -2125,11 +2125,13 @@ export class AgentTask {
         const model = this.api.getModel();
         // getModel() returns { id: string; info: ModelInfo } — extract the id string
         const modelId: string = typeof model === 'string' ? model : (model?.id ?? '');
-        // Use the provider-reported context window when available
+        // Use the provider-reported context window when available. Providers now
+        // resolve this through the registry, so this branch is the normal path.
         if (model?.info?.contextWindow) return model.info.contextWindow;
-        if (modelId.includes('claude')) return 200_000;
-        if (modelId.includes('gpt-4') || modelId.includes('gpt-5')) return 128_000;
-        return 128_000;
+        // Fallback for a provider that returns no window: consult the same
+        // registry (with normalization + Claude family-floor inference) rather
+        // than the old flat claude=200k/gpt=128k ladder, which capped 1M models.
+        return registryContextWindow(modelId);
     }
 
     /**

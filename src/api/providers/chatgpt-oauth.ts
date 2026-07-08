@@ -20,6 +20,7 @@ import { truncatedToolInputError } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
 import { prepareResponsesRequest, resolveGptEffort, isGpt5Family, type ResponsesRequestBody } from '../adapters/openaiResponses';
+import { getModelInfo } from '../../types/model-registry';
 
 void OpenAI; // retained: Errors instance kept for compatibility but not actively used
 
@@ -171,8 +172,13 @@ export class ChatGptOAuthProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
-        const info = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
-        return { id: this.config.model, info };
+        // Registry first for the context window (covers any GPT id it knows and
+        // future Claude routing); KNOWN_MODELS stays as the override for the
+        // GPT-5.x Codex ids the registry does not carry, then the 400k default
+        // for unknown ids. The table also supplies the tools/streaming flags.
+        const known = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
+        const contextWindow = getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
+        return { id: this.config.model, info: { ...known, contextWindow } };
     }
 
     async *createMessage(

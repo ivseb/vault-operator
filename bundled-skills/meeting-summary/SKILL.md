@@ -24,6 +24,15 @@ keine Ergänzungen.**
    `read_file path="{activeNote}" offset=<angegebener Wert>` weiterlesen,
    bis das Transkript vollständig gelesen ist. **Kein** Umweg über
    `search_files`, um Rest-Inhalte zu finden.
+3. **Verboten für das Transkript-Lesen:** `evaluate_expression` mit
+   `ctx.vault.read(path)` und `.slice(...)`-Return. Der Rückgabewert
+   landet 1:1 als Tool-Result in der Message-History; bei mehreren
+   Chunks läuft der Context in die 50k-Message-Truncation und der
+   Agent verliert die eigenen früheren Tool-Results. `read_file offset=`
+   liefert stattdessen einen sauber gekappten `[Truncated: ...]`-Marker
+   ohne Payload-Wachstum. `evaluate_expression` ist ausschließlich für
+   den Bulk-Write-Pfad in Schritt "Block-IDs setzen" gedacht -- dort
+   wird das Ergebnis `write`-t, nicht `return`-ed.
 
 ## Fokus
 
@@ -154,7 +163,10 @@ anhängen (Leerzeichen vor dem Anker), danach Leerzeile (siehe oben).
 machen (N Runden = N mal volles Kontext-Roundtrip). Stattdessen:
 
 - **Bevorzugt:** `evaluate_expression` -- Note einmal lesen, alle Anker
-  plus Absatz-Splits im Code setzen, einmal schreiben:
+  plus Absatz-Splits im Code setzen, einmal schreiben. Der `read` in
+  diesem Block ist ausschließlich Vorbereitung für den `write`; die
+  Note wird NICHT als `.slice(...)`-Chunk zurückgegeben. Rückgabewert
+  bleibt eine Kurz-Statistik (z.B. `{ set, missed }`):
 
   ```typescript
   const path = "<activeNote>";
@@ -255,3 +267,10 @@ aufbereitet.
 - `search_files` für etwas anderes als die Block-Ref-Verifikation
   (Schritt 5). Niemals, um Dateien, Templates oder Inhalte zu
   beschaffen.
+- `evaluate_expression` mit `ctx.vault.read(...)` und Rückgabe des
+  Note-Contents (voll oder als `.slice(...)`-Chunk) als Lese-Ersatz.
+  Der Rückgabewert füllt die Message-History und löst
+  50k-Message-Truncation aus. Für Lesen ausnahmslos `read_file` (mit
+  `offset` bei Truncation) verwenden. `evaluate_expression` ist nur
+  für Bulk-Write-Vorbereitung erlaubt (Block-IDs im Code setzen und
+  in einem Rutsch `write`en).

@@ -118,7 +118,11 @@ export class RecipeMatchingService {
         const parts: string[] = [
             '====', '',
             'PROCEDURAL RECIPES', '',
-            'For the following task types, use this proven step-by-step approach:', '',
+            'For the following task types, use this proven step-by-step approach.',
+            'ONLY apply a recipe when the user asked you to EXECUTE that workflow.',
+            'If the user asked a question about existing content (compare, review,',
+            'analyze, "what should change"), answer in chat and do NOT modify any',
+            'files -- ignore the recipe in that case.', '',
         ];
 
         for (const { recipe } of matches) {
