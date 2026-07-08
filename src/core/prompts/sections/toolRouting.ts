@@ -16,7 +16,7 @@ export function getToolRoutingSection(configDir: string): string {
 2. CHECK CONTEXT FIRST. <vault_context> shows vault structure; <context> in the user message has the active file path. Use them before list_files / get_vault_stats / asking the user.
 3. PARALLEL BY DEFAULT. Independent reads in one step.
 4. NO REDUNDANT READS. Don't read_file for files already in conversation.
-5. READ BEFORE EDIT. Always read_file before edit_file / write_file on existing files.
+5. READ BEFORE EDIT (once). read_file a file you have NOT already read this task, before editing it. Do NOT re-read after your OWN edit_file / append_to_file / set_block_anchors: untouched regions stay byte-identical, so build the next edit from your in-context copy plus the tool's returned diff (rule 4).
 6. DEDICATED FORMAT TOOLS. Never use write_file / evaluate_expression for:
    .pptx -> create_pptx | .docx -> create_docx | .xlsx -> create_xlsx
    .canvas -> generate_canvas | .base -> create_base | .excalidraw.md -> create_excalidraw

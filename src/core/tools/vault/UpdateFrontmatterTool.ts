@@ -84,8 +84,22 @@ export class UpdateFrontmatterTool extends BaseTool<'update_frontmatter'> {
             });
 
             const summary = changed.join(', ');
+            // IMP-01-04-03 (Lever C): echo the ACTUAL re-read frontmatter block
+            // (Obsidian serialises YAML its own way, not JSON) so the model has
+            // the authoritative post-write frontmatter and the file's top
+            // structure without re-reading the whole file. Small + size-safe.
+            let echo = '';
+            try {
+                const after = await this.app.vault.read(file);
+                const m = after.match(/^---\n[\s\S]*?\n---/);
+                if (m) {
+                    echo = '\n' + this.formatUntrustedContent('vault', m[0], { path, region: 'frontmatter' });
+                }
+            } catch { /* non-fatal: fall back to the change summary only */ }
             callbacks.pushToolResult(
-                this.formatSuccess(`Updated frontmatter in ${path} — ${summary}`)
+                this.formatSuccess(
+                    `Updated frontmatter in ${path} — ${summary}. Frontmatter now (no need to re-read the file):`,
+                ) + echo,
             );
             callbacks.log(`Updated frontmatter in ${path}`);
         } catch (error) {

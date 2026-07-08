@@ -17,6 +17,7 @@
 
 import { requestUrl } from 'obsidian';
 import type { Vault } from 'obsidian';
+import { waitWhileBusy, BACKGROUND_STARVATION_MS, BACKGROUND_POLL_MS } from './agentBusyGate';
 import type { CustomModel } from '../../types/settings';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
 import type { VectorStore } from '../knowledge/VectorStore';
@@ -323,6 +324,24 @@ export class SemanticIndexService {
         this.enrichmentAbortController?.abort();
     }
 
+    /**
+     * IMP-01-04-03 (Lever A step 2): at a batch boundary, defer to a running
+     * agent task. The boot reindex + enrichment sidecar otherwise compete with
+     * the task for the model provider and the renderer thread. Capped by a
+     * starvation deadline so back-to-back tasks can never starve indexing.
+     * Only the resumable batch loops call this; scheduleFileIndex (freshness
+     * for a just-written note) is deliberately NOT gated.
+     */
+    private async awaitAgentIdle(isCancelled: () => boolean): Promise<void> {
+        const plugin = this.plugin;
+        if (!plugin) return;
+        await waitWhileBusy(() => plugin.isAgentBusy(), {
+            maxWaitMs: BACKGROUND_STARVATION_MS,
+            pollMs: BACKGROUND_POLL_MS,
+            isCancelled,
+        });
+    }
+
     /** Restore state from checkpoint stored in the KnowledgeDB. */
     async initialize(): Promise<void> {
         try {
@@ -529,6 +548,8 @@ export class SemanticIndexService {
                         this.knowledgeDB.markDirty();
                         uncommitted = 0;
                         await new Promise<void>((r) => window.setTimeout(r, 0)); // yield
+                        // Lever A step 2: pause the boot reindex while a task runs.
+                        await this.awaitAgentIdle(() => this.cancelled);
                     }
                 } catch (e) {
                     errors++;
@@ -1216,6 +1237,10 @@ export class SemanticIndexService {
             };
 
             while (batch.length > 0 && !this.enrichmentCancelled) {
+                // Lever A step 2: pause the Haiku enrichment sidecar while an
+                // agent task is running so it does not compete for the provider.
+                await this.awaitAgentIdle(() => this.enrichmentCancelled);
+                if (this.enrichmentCancelled) break;
                 // Group chunks by path so we read each file only once
                 const byPath = new Map<string, typeof batch>();
                 for (const chunk of batch) {
