@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { applyAnchors } from '../blockAnchorMatcher';
+import { applyAnchors, MAX_FIND_CHARS } from '../blockAnchorMatcher';
 
 /** Strip anchors + collapse whitespace runs, for the non-corruption invariant. */
 function words(s: string): string {
@@ -138,6 +138,21 @@ describe('blockAnchorMatcher.applyAnchors', () => {
         expect(r.missed).toEqual([4]);
         expect(r.set).toEqual([]);
         expect(r.text).toBe(text);
+    });
+
+    it('12. an oversized find is reported missed WITHOUT entering the fuzzy DP (CWE-400 guard)', () => {
+        // A garbled/huge find must not drive the O(n^2) alignment; it is
+        // short-circuited to missed before resolveAnchor runs.
+        const text = 'Ein normaler Absatz mit etwas Inhalt zum Ankern.';
+        const hugeFind = 'x '.repeat(MAX_FIND_CHARS); // well over the cap
+        const start = Date.now();
+        const r = applyAnchors(text, [{ find: hugeFind, id: 1 }]);
+        const elapsed = Date.now() - start;
+
+        expect(r.missed).toEqual([1]);
+        expect(r.set).toEqual([]);
+        expect(r.text).toBe(text);
+        expect(elapsed).toBeLessThan(200); // did not run the expensive alignment
     });
 
     it('11. an id containing whitespace or anchor-syntax is rejected, not written', () => {

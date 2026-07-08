@@ -141,6 +141,18 @@ describe('SetBlockAnchorsTool', () => {
         expect(captured.content).toContain('^block-1');
     });
 
+    it('rejects an absurd batch size (CWE-400 fail-closed) without reading or writing', async () => {
+        const { tool, captured } = makeIndexedTool('some note body');
+        const { context, results } = makeCapturedContext();
+        const anchors = Array.from({ length: 501 }, (_, i) => ({ find: `x${i}`, id: i + 1 }));
+
+        await tool.execute({ path: 'Inbox/M.md', anchors }, context);
+
+        expect(captured.modifyCalls).toBe(0);
+        expect(results[0]).toContain('<error>');
+        expect(results[0].toLowerCase()).toContain('too many anchors');
+    });
+
     it('rejects a path-traversal attempt without reading or writing', async () => {
         const { tool, captured } = makeIndexedTool('irrelevant');
         const { context, results } = makeCapturedContext();

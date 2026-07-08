@@ -38,6 +38,13 @@ const PER_TOKEN_THRESHOLD = 0.7;
 const MAX_CANDIDATE_POSTINGS = 200;
 /** Extra transcript tokens included on each side of a candidate window, to absorb ASR insertions. */
 const WINDOW_SLACK = 3;
+/**
+ * Max chars for a single `find`. A legitimate anchor quote is a sentence
+ * (tens to a few hundred chars); anything larger is garble/abuse and would
+ * blow up the O(n*w) alignment DP (CWE-400, AUDIT 2026-07-08 L-1). Oversized
+ * finds are reported missed without entering the matcher.
+ */
+export const MAX_FIND_CHARS = 2000;
 
 /** Trailing sentence punctuation that belongs to a matched token span (so the anchor lands after the period, not before it). */
 const TRAILING_PUNCT = new Set(['.', ',', ';', ':', '!', '?', ')', ']', '}', '"', "'", '”', '’', '»']);
@@ -370,6 +377,12 @@ export function applyAnchors(text: string, anchors: AnchorRequest[]): ApplyAncho
         if (anchorExists(text, id)) {
             set.push(id);
             details.push({ id, status: 'already-anchored', confidence: 1 });
+            continue;
+        }
+        // CWE-400 guard: skip the fuzzy DP for an oversized find.
+        if (typeof find !== 'string' || find.length > MAX_FIND_CHARS) {
+            missed.push(id);
+            details.push({ id, status: 'missed', confidence: 0 });
             continue;
         }
         const res = resolveAnchor(idx, find);

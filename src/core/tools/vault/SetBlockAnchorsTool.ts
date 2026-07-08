@@ -27,6 +27,9 @@ interface SetBlockAnchorsInput {
     anchors: AnchorRequest[];
 }
 
+/** Fail-closed cap on batch size (CWE-400, AUDIT 2026-07-08 L-1). A summary has tens of anchors, not hundreds. */
+const MAX_ANCHORS = 500;
+
 export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
     readonly name = 'set_block_anchors' as const;
     readonly isWriteOperation = true;
@@ -83,6 +86,12 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
             if (!path) throw new Error('path parameter is required');
             if (!Array.isArray(anchors) || anchors.length === 0) {
                 throw new Error('anchors parameter is required and must be a non-empty array of {find, id}');
+            }
+            if (anchors.length > MAX_ANCHORS) {
+                throw new Error(
+                    `Too many anchors (${anchors.length}); the limit is ${MAX_ANCHORS}. ` +
+                    'A meeting summary needs tens of anchors, not hundreds -- split the work or set fewer.',
+                );
             }
 
             // AUDIT-034 H-1: normalise + reject traversal BEFORE any adapter/vault call.
