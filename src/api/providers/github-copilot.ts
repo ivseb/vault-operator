@@ -16,7 +16,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
-import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature } from '../../types/model-registry';
+import { resolveOutputBudget, estimatePromptTokens, modelUsesBudgetTokensThinking, modelSupportsTemperature, getModelInfo } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
@@ -90,8 +90,15 @@ export class GitHubCopilotProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
-        const info = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
-        return { id: this.config.model, info };
+        // Registry first for the context window so Claude ids resolve correctly
+        // (incl. the 1M family-floor inference for Opus 4.7+/Sonnet 5+); the
+        // local KNOWN_MODELS table stays as the override for ids the registry
+        // does not carry (GPT/o-series/Gemini via Copilot) and supplies the
+        // tools/streaming flags. Prevents Claude models from silently dropping
+        // to the 128k default and condensing too early.
+        const known = KNOWN_MODELS[this.config.model] ?? DEFAULT_MODEL_INFO;
+        const contextWindow = getModelInfo(this.config.model)?.contextWindow ?? known.contextWindow;
+        return { id: this.config.model, info: { ...known, contextWindow } };
     }
 
     async *createMessage(
