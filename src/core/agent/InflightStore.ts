@@ -153,6 +153,19 @@ export class InflightStore {
         }, DEBOUNCE_MS);
     }
 
+    /**
+     * IMP-24-08-04 (stop=pause): flush the pending debounced snapshot
+     * immediately. The abort path calls this so the Resume card can list
+     * the stopped task without waiting out the debounce window.
+     */
+    async flushNow(): Promise<void> {
+        if (this.flushTimer !== undefined) {
+            window.clearTimeout(this.flushTimer);
+            this.flushTimer = undefined;
+        }
+        await this.flush();
+    }
+
     /** Remove a task's snapshot (clean end, discard, resume consumed). */
     async clear(taskId: string): Promise<void> {
         this.pending.delete(taskId);

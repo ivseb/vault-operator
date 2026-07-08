@@ -706,6 +706,7 @@
   "ui.editReview.applyIncomplete": "Revue post-tâche : {{count}} modification(s) non appliquées ({{paths}}). Les fichiers conservent leur contenu précédent.",
   "ui.sidebar.taskRunningNoSwitch": "Une tâche est encore en cours. Arrêtez-la ou attendez sa fin avant de changer, vider ou supprimer cette conversation.",
   "ui.sidebar.taskStillStopping": "La tâche précédente est encore en cours d’arrêt. Patientez un instant, puis renvoyez.",
+  "ui.sidebar.stopping": "Arrêt de la tâche en cours. Vous pourrez la reprendre ensuite.",
   "ui.inline.editorMissing": "Connexion à l'éditeur manquante. La modification ne peut pas être appliquée.",
   "ui.inline.readyToApply": "Prêt à appliquer. Confirmez dans le dialogue de diff.",
   "ui.inline.reviewChange": "Vérifier la modification",

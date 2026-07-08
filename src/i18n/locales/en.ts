@@ -821,6 +821,7 @@ export const en = {
     'ui.editReview.applyIncomplete': 'Post-task review: {{count}} change(s) were not applied ({{paths}}). The files keep their previous content.',
     'ui.sidebar.taskRunningNoSwitch': 'A task is still running. Stop it or wait for it to finish before switching, clearing, or deleting this conversation.',
     'ui.sidebar.taskStillStopping': 'The previous task is still stopping. Wait a moment, then send again.',
+    'ui.sidebar.stopping': 'Stopping the task. You can resume it afterwards.',
 
     // =========================================================================
     // UI -- Inline Chat (FIX-42-01-02)

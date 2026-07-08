@@ -706,6 +706,7 @@
   "ui.editReview.applyIncomplete": "Post-Task-Review: {{count}} Änderung(en) wurden nicht übernommen ({{paths}}). Die Dateien behalten ihren bisherigen Inhalt.",
   "ui.sidebar.taskRunningNoSwitch": "Ein Task läuft noch. Stoppe ihn oder warte auf den Abschluss, bevor du diese Konversation wechselst, leerst oder löschst.",
   "ui.sidebar.taskStillStopping": "Der vorherige Task wird noch gestoppt. Warte einen Moment und sende dann erneut.",
+  "ui.sidebar.stopping": "Task wird gestoppt. Du kannst ihn danach fortsetzen.",
   "ui.inline.editorMissing": "Editor-Verbindung fehlt. Änderung kann nicht angewendet werden.",
   "ui.inline.readyToApply": "Bereit zum Anwenden. Bestätige im Diff-Dialog.",
   "ui.inline.reviewChange": "Änderung prüfen",

@@ -1658,6 +1658,11 @@ export class AgentTask {
                 });
                 // Abort is negative evidence for the episode grading.
                 loopState.turnOutcome = 'abandon';
+                // IMP-24-08-04: mark the exit so telemetry/forensics can
+                // distinguish a user stop from a clean end. The snapshot
+                // keep-decision in the finally is signal-based (covers the
+                // loop-boundary abort break too), this is documentation.
+                loopState.phase = 'aborted';
                 this.taskCallbacks.onComplete();
                 return;
             }
@@ -1805,11 +1810,19 @@ export class AgentTask {
         } // while (true) — emergency condensing retry loop
         } finally {
             // IMP-41-03-01: clean exits clear the inflight snapshot. On a
-            // FAILED run (phase set below via the catch path) the snapshot
-            // stays as recovery/forensic data until the 24h sweep; on a hard
-            // crash this finally never runs and the snapshot survives too.
-            if (this.inflightStore && loopState.phase !== 'failed') {
+            // FAILED run the snapshot stays as recovery/forensic data until
+            // the 24h sweep; on a hard crash this finally never runs and
+            // the snapshot survives too.
+            // IMP-24-08-04 (stop=pause): an ABORTED run also keeps its
+            // snapshot -- the sidebar offers a Resume card so the user can
+            // continue from the last turn boundary. The pending debounced
+            // write is flushed so the card sees the freshest state. The
+            // check is signal-based because an abort at the loop boundary
+            // exits through the success path, not the catch.
+            if (this.inflightStore && loopState.phase !== 'failed' && !abortSignal?.aborted) {
                 void this.inflightStore.clear(taskId);
+            } else if (this.inflightStore && abortSignal?.aborted) {
+                void this.inflightStore.flushNow();
             }
 
             // ADR-133: episode recording (single source of truth for the
