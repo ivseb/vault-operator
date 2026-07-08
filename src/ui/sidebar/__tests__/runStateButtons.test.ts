@@ -91,3 +91,42 @@ describe('stop-chain source pins (FIX-24-08-03)', () => {
         expect(mainSource).toMatch(/onunload[\s\S]{0,2000}backgroundTaskRunner\?\.stop\(\)/);
     });
 });
+
+/**
+ * IMP-24-08-04: Stop is a PAUSE, not a kill. The aborted run keeps its
+ * inflight snapshot (instead of clearing it in the finally), flushes the
+ * debounced write so the snapshot is on disk, and the sidebar offers a
+ * Resume card right after the stopped run drains. handleStop also gives
+ * immediate visual feedback instead of letting the Working spinner run
+ * until the drain ends.
+ */
+describe('stop=pause source pins (IMP-24-08-04)', () => {
+    const sidebarSource = fs.readFileSync(
+        path.resolve(__dirname, '../../AgentSidebarView.ts'),
+        'utf-8',
+    );
+    const agentTaskSource = fs.readFileSync(
+        path.resolve(__dirname, '../../../core/AgentTask.ts'),
+        'utf-8',
+    );
+
+    it('AgentTask keeps the inflight snapshot when the run was aborted', () => {
+        expect(agentTaskSource).toMatch(/loopState\.phase !== 'failed' && !abortSignal\?\.aborted/);
+    });
+
+    it('AgentTask flushes the pending snapshot on abort so Resume sees it', () => {
+        expect(agentTaskSource).toMatch(/flushNow/);
+    });
+
+    it('AgentTask grades the abort exit with phase aborted (forensics)', () => {
+        expect(agentTaskSource).toMatch(/loopState\.phase = 'aborted'/);
+    });
+
+    it('sidebar offers the resume card after a stopped run drains', () => {
+        expect(sidebarSource).toMatch(/myController\.signal\.aborted[\s\S]{0,300}maybeOfferInflightResume/);
+    });
+
+    it('handleStop gives immediate visual feedback (spinner -> stopping row)', () => {
+        expect(sidebarSource).toMatch(/handleStop\(\): void \{[\s\S]{0,400}currentStopFeedback/);
+    });
+});

@@ -50,6 +50,20 @@ describe('InflightStore', () => {
         expect(recoverable[0].history[0].content).toBe('do things');
     });
 
+    it('flushNow persists a pending snapshot immediately (IMP-24-08-04 stop=pause)', async () => {
+        // Stop must be able to offer Resume right away: the abort path
+        // flushes the debounced snapshot instead of waiting out the timer.
+        const fs = makeFs();
+        const store = new InflightStore(fs);
+        await store.saveSnapshot(snap('task-1', Date.now()));
+        // No timer run -- the debounce window is still open.
+        await store.flushNow();
+
+        const recoverable = await store.listRecoverable(24 * 3600 * 1000, Date.now());
+        expect(recoverable).toHaveLength(1);
+        expect(recoverable[0].taskId).toBe('task-1');
+    });
+
     it('debounces rapid snapshots into one write', async () => {
         const fs = makeFs();
         const writeSpy = vi.spyOn(fs, 'write');

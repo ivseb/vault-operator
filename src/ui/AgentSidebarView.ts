@@ -160,6 +160,13 @@ export class AgentSidebarView extends ItemView {
      * (10-minute wall-clock hang).
      */
     private lastRunAbortSignal: AbortSignal | null = null;
+    /**
+     * IMP-24-08-04: per-run hook that swaps the Working spinner for a
+     * "Stopping" row the moment Stop is pressed. Without it the spinner
+     * keeps spinning until the stopped run drains to its next abort
+     * checkpoint, which reads as "Stop did nothing".
+     */
+    private currentStopFeedback: (() => void) | null = null;
     /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
     private taskDraining = false;
     private taskDrainingTimer = 0;
@@ -396,15 +403,19 @@ export class AgentSidebarView extends ItemView {
             resumeBtn.addEventListener('click', () => {
                 void (async () => {
                     row.remove();
-                    if (snapshot.conversationId) {
+                    // IMP-24-08-04: the card now also appears right after
+                    // Stop, in the conversation that is already active --
+                    // reloading it would repaint the chat mid-view.
+                    if (snapshot.conversationId && snapshot.conversationId !== this.activeConversationId) {
                         await this.loadConversation(snapshot.conversationId, { skipNavPush: true })
                             .catch(() => { /* stale id: resume still works from the snapshot history */ });
                     }
                     this.pendingResume = snapshot;
                     await store.clear(snapshot.taskId);
                     if (this.textarea) {
-                        this.textarea.value = '[System] The previous task was interrupted by a reload. '
-                            + 'Resume from where you left off and finish it.';
+                        this.textarea.value = '[System] The previous task was interrupted. '
+                            + 'Resume from where you left off using the conversation so far; '
+                            + 'do not redo work that is already done.';
                         await this.handleSendMessage();
                     }
                 })();
@@ -2274,6 +2285,18 @@ export class AgentSidebarView extends ItemView {
         const taskId = `task-${Date.now()}`;
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
+
+        // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
+        // Working spinner for a Stopping row; the drain-end removeLoading
+        // (which always clears .tool-computing-row) cleans it up again.
+        this.currentStopFeedback = () => {
+            removeLoading();
+            const host = stepsBodyEl ?? toolsEl;
+            host.querySelector('.tool-computing-row')?.remove();
+            const row = host.createDiv('tool-computing-row');
+            setIcon(row.createSpan('tool-computing-icon'), 'loader');
+            row.createSpan('tool-computing-text').setText(t('ui.sidebar.stopping'));
+        };
         let lastTodoItems: import('../core/tools/agent/UpdateTodoListTool').TodoItem[] = [];
 
         // Initialize context tracker for this conversation turn (only if not exists)
@@ -2913,8 +2936,15 @@ export class AgentSidebarView extends ItemView {
                     if (this.currentAbortController === myController) {
                         this.currentAbortController = null;
                         this.setRunningState(false);
+                        this.currentStopFeedback = null;
                     }
                     this.endTaskDraining(); // GUARD-L1
+                    // IMP-24-08-04 (stop=pause): a stopped run kept its
+                    // inflight snapshot -- offer the Resume card now that
+                    // the drain is over and sends are unblocked.
+                    if (myController.signal.aborted) {
+                        void this.maybeOfferInflightResume();
+                    }
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
                         this.showUndoBar(taskId, taskWriteCount);
@@ -3261,6 +3291,11 @@ export class AgentSidebarView extends ItemView {
         if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
         this.currentAbortController?.abort();
         this.currentAbortController = null;
+        // IMP-24-08-04: swap the Working spinner for a Stopping row NOW --
+        // the run drains to its next abort checkpoint in the background
+        // and offers a Resume card when it ends.
+        this.currentStopFeedback?.();
+        this.currentStopFeedback = null;
         // FEAT-24-08 Steering: pending bubbles never reached the agent --
         // flip them to "discarded" so the user knows the correction was
         // never applied.

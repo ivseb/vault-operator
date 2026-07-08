@@ -706,6 +706,7 @@
   "ui.editReview.applyIncomplete": "Revisión posterior a la tarea: {{count}} cambio(s) no se aplicaron ({{paths}}). Los archivos conservan su contenido anterior.",
   "ui.sidebar.taskRunningNoSwitch": "Todavía hay una tarea en ejecución. Deténla o espera a que termine antes de cambiar, vaciar o eliminar esta conversación.",
   "ui.sidebar.taskStillStopping": "La tarea anterior todavía se está deteniendo. Espera un momento y vuelve a enviar.",
+  "ui.sidebar.stopping": "Deteniendo la tarea. Podrás reanudarla después.",
   "ui.inline.editorMissing": "Falta la conexión con el editor. No se puede aplicar el cambio.",
   "ui.inline.readyToApply": "Listo para aplicar. Confirma en el diálogo de diff.",
   "ui.inline.reviewChange": "Revisar cambio",
