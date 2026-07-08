@@ -6,14 +6,10 @@ import type { ProceduralRecipe } from '../types';
 import type { ApiHandler } from '../../../api/types';
 
 /**
- * FEAT-32-02 PR 2.3 / ADR-132: RecipePromotionService gains 3 gates in
- * checkForPromotion(episode, evidence?):
- *
- *   Gate 1: recipeWinner -> incrementSuccess on the winner, no promote.
- *   Gate 2: sequence-mode + pinnedPath followed + accept -> promoteFromStigmergyPath.
- *   Gate 3: fallback to the existing ADR-058 path.
- *
- * Daemon-down (evidence undefined) and enforce/ranked modes fall through to Gate 3.
+ * ADR-058 semantic recipe promotion: checkForPromotion(episode) promotes a
+ * learned recipe once >= 3 semantically similar successful episodes exist
+ * (current episode + 2 candidates from the EpisodicExtractor). Guarded by
+ * getLearnedEnabled and the MAX_LEARNED_RECIPES cap.
  */
 
 function makeStore(initial: ProceduralRecipe[] = []): {
@@ -56,7 +52,6 @@ function makeEpisode(overrides: Partial<TaskEpisode> = {}): TaskEpisode {
         toolLedger: '',
         success: overrides.success ?? true,
         resultSummary: overrides.resultSummary ?? 'ok',
-        stigmergy: overrides.stigmergy,
     };
 }
 
@@ -70,8 +65,8 @@ function makeExtractor(similar: TaskEpisode[] = []): EpisodicExtractor {
 // expects { name, description, trigger, steps: [{tool, note}, ...] }.
 function makeApi(): ApiHandler {
     const json = JSON.stringify({
-        name: 'Stigmergy-Synth-1',
-        description: 'auto-generated from a Stigmergy pinned sequence',
+        name: 'Search-Read-Write',
+        description: 'searches files, reads them, writes a synthesis',
         trigger: 'search read write',
         steps: [
             { tool: 'search_files', note: 'find files' },
@@ -86,149 +81,61 @@ function makeApi(): ApiHandler {
     } as unknown as ApiHandler;
 }
 
-describe('RecipePromotionService 3 gates (FEAT-32-02 PR 2.3, ADR-132)', () => {
+describe('RecipePromotionService promotion (ADR-058)', () => {
     let getApi: () => ApiHandler | null;
     beforeEach(() => {
         getApi = () => makeApi();
     });
 
-    describe('Gate 1: recipe-wins', () => {
-        it('increments successCount on recipeWinner and skips promote', async () => {
-            const { store, saveSpy, incrementSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(makeEpisode(), {
-                enabled: true,
-                mode: 'sequence',
-                pinnedPath: [],
-                guidanceTextSuppressed: true,
-                recipeWinner: 'rcp-42',
-            });
-            expect(incrementSpy).toHaveBeenCalledWith('rcp-42');
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-    });
-
-    describe('Gate 2: stigmergy sequence shortcut', () => {
-        it('promotes when sequence mode + path followed + last is attempt_completion', async () => {
-            const { store, saves, saveSpy, incrementSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode({
-                    toolSequence: ['search_files', 'read_file', 'write_file', 'attempt_completion'],
-                }),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files', 'read_file', 'write_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
+    describe('ADR-058 semantic promotion', () => {
+        it('promotes when enough semantically similar successful episodes exist', async () => {
+            const similar = [
+                makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
+                makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
+            ];
+            const { store, saveSpy } = makeStore();
+            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor(similar));
+            await svc.checkForPromotion(makeEpisode());
+            // ADR-058 path will fire promoteToRecipe (LLM call). saveSpy should be called.
             expect(saveSpy).toHaveBeenCalledTimes(1);
-            expect(saves[0].source).toBe('learned');
-            expect(saves[0].successCount).toBe(1);
-            expect(saves[0].id.startsWith('learned-stigmergy-')).toBe(true);
-            expect(incrementSpy).not.toHaveBeenCalled();
-        });
-
-        it('SKIPs when toolSequence does NOT contain the pinned subsequence', async () => {
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode({
-                    toolSequence: ['search_files', 'attempt_completion'],
-                }),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files', 'read_file', 'write_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-
-        it('SKIPs when last tool is not attempt_completion', async () => {
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode({
-                    toolSequence: ['search_files', 'read_file', 'write_file'],
-                }),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files', 'read_file', 'write_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-
-        it('SKIPs when mode is enforce (set-semantics, not a path)', async () => {
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode(),
-                {
-                    enabled: true,
-                    mode: 'enforce',
-                    pinnedPath: ['search_files', 'read_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-
-        it('SKIPs when mode is ranked (observe-only)', async () => {
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode(),
-                {
-                    enabled: true,
-                    mode: 'ranked',
-                    pinnedPath: [],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-
-        it('SKIPs when pinnedPath length is below 2', async () => {
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode(),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
+            expect(saveSpy.mock.calls[0][0].source).toBe('learned');
         });
 
         it('SKIPs when getLearnedEnabled returns false', async () => {
+            const similar = [
+                makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
+                makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
+            ];
             const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => false, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode(),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files', 'read_file', 'write_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
+            const svc = new RecipePromotionService(store, getApi, () => false, makeExtractor(similar));
+            await svc.checkForPromotion(makeEpisode());
             expect(saveSpy).not.toHaveBeenCalled();
+        });
+
+        it('increments successCount on recipeWinner and skips promotion (recipe-win gate)', async () => {
+            // Without the gate this fixture WOULD promote (2 similar episodes
+            // + valid LLM JSON), so the assertions below prove the gate fires.
+            const similar = [
+                makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
+                makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
+            ];
+            const { store, saveSpy, incrementSpy } = makeStore();
+            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor(similar));
+            await svc.checkForPromotion(makeEpisode(), 'learned-winner-1');
+            expect(incrementSpy).toHaveBeenCalledExactlyOnceWith('learned-winner-1');
+            expect(saveSpy).not.toHaveBeenCalled();
+        });
+
+        it('runs the normal ADR-058 path when recipeWinner is null', async () => {
+            const similar = [
+                makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
+                makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
+            ];
+            const { store, saveSpy, incrementSpy } = makeStore();
+            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor(similar));
+            await svc.checkForPromotion(makeEpisode(), null);
+            expect(incrementSpy).not.toHaveBeenCalled();
+            expect(saveSpy).toHaveBeenCalledTimes(1);
         });
 
         it('SKIPs when MAX_LEARNED_RECIPES (50) is reached', async () => {
@@ -244,51 +151,14 @@ describe('RecipePromotionService 3 gates (FEAT-32-02 PR 2.3, ADR-132)', () => {
                 lastUsed: null,
                 modes: [],
             }));
-            const { store, saveSpy } = makeStore(existing);
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor());
-            await svc.checkForPromotion(
-                makeEpisode(),
-                {
-                    enabled: true,
-                    mode: 'sequence',
-                    pinnedPath: ['search_files', 'read_file', 'write_file'],
-                    guidanceTextSuppressed: false,
-                    recipeWinner: null,
-                },
-            );
-            expect(saveSpy).not.toHaveBeenCalled();
-        });
-    });
-
-    describe('Gate 3: ADR-058 fallback', () => {
-        it('falls through to ADR-058 path when evidence is undefined (daemon down)', async () => {
             const similar = [
                 makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
                 makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
             ];
-            const { store, saveSpy } = makeStore();
+            const { store, saveSpy } = makeStore(existing);
             const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor(similar));
             await svc.checkForPromotion(makeEpisode());
-            // ADR-058 path will fire promoteToRecipe (LLM call). saveSpy should be called.
-            expect(saveSpy).toHaveBeenCalledTimes(1);
-            expect(saveSpy.mock.calls[0][0].source).toBe('learned');
-        });
-
-        it('falls through to ADR-058 when evidence.enabled is false', async () => {
-            const similar = [
-                makeEpisode({ id: 'ep-a', userMessage: 'do thing' }),
-                makeEpisode({ id: 'ep-b', userMessage: 'do thing' }),
-            ];
-            const { store, saveSpy } = makeStore();
-            const svc = new RecipePromotionService(store, getApi, () => true, makeExtractor(similar));
-            await svc.checkForPromotion(makeEpisode(), {
-                enabled: false,
-                mode: 'none',
-                pinnedPath: [],
-                guidanceTextSuppressed: false,
-                recipeWinner: null,
-            });
-            expect(saveSpy).toHaveBeenCalledTimes(1);
+            expect(saveSpy).not.toHaveBeenCalled();
         });
     });
 });

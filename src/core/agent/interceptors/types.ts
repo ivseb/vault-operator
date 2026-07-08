@@ -17,7 +17,7 @@
  *                         accounting. Parity note: stream-side tool_error
  *                         chunks never fire this (they bypass execution).
  *   - onRunEnd            facade, in run()'s finally after the outcome
- *                         fields (stigmergyOutcome, cleanNaturalExit) are
+ *                         fields (turnOutcome, cleanNaturalExit) are
  *                         final.
  *
  * Migration status:
@@ -25,7 +25,7 @@
  *   - PowerSteeringInterceptor   migrated
  *   - AdvisorReminderInterceptor migrated
  *   - RouterEscalationInterceptor migrated (contract v2)
- *   - FastPath / Stigmergy       follow on the same contract.
+ *   - FastPathInterceptor        follows on the same contract.
  */
 
 import type { MessageParam } from '../../../api/types';

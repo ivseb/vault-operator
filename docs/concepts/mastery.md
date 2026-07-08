@@ -15,8 +15,6 @@ After each successful episode, `RecipePromotionService` checks whether two or mo
 
 This is intent-based by default. Two episodes count as similar even if the agent used different tools to solve the same problem.
 
-There is a second promotion path: when the Stigmergy substrate has pinned a tool sequence (FEAT-32-02 / ADR-132), a single successful run on that pinned path is enough to promote a learned recipe directly. The classic semantic triplet remains the fallback when no pinned path is in play.
-
 ## How recipes get used
 
 Recipe matching runs in two phases (`src/core/mastery/RecipeMatchingService.ts`):
@@ -48,6 +46,6 @@ A hard cap of 50 learned recipes prevents unbounded growth (see `MAX_LEARNED_REC
 - ADR-058: intent-based semantic promotion (replaces the old pattern-key approach)
 - ADR-059 and ADR-060: budget-aware extraction and database-backed memory retrieval
 - ADR-018: original episode recording format (still used for the on-disk layout)
-- ADR-131, ADR-132, ADR-133: VO-selector precedence, Stigmergy pinned-sequence direct promotion, and episode recording in finally blocks
+- ADR-133: episode recording in finally blocks
 
 See also: [Skills, rules, and workflows](/guides/skills-rules-workflows), [Tools reference: execute_recipe](/reference/tools#plugin-integration-tools).

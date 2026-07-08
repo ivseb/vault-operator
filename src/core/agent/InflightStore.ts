@@ -90,9 +90,9 @@ function validateLoopState(raw: unknown): AgentLoopState | null {
         if (typeof r.phase !== 'string' || !LOOP_PHASES.has(r.phase)) return null;
         out.phase = r.phase as LoopPhase;
     }
-    if (r.stigmergyOutcome !== undefined && r.stigmergyOutcome !== null) {
-        if (r.stigmergyOutcome !== 'accept' && r.stigmergyOutcome !== 'abandon') return null;
-        out.stigmergyOutcome = r.stigmergyOutcome;
+    if (r.turnOutcome !== undefined && r.turnOutcome !== null) {
+        if (r.turnOutcome !== 'accept' && r.turnOutcome !== 'abandon') return null;
+        out.turnOutcome = r.turnOutcome;
     }
     for (const k of ['completionResult', 'pendingModeSwitch'] as const) {
         const v = r[k];

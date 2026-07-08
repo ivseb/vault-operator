@@ -33,8 +33,6 @@ import {
     CompositionCycleError,
     CompositionDepthExceededError,
 } from '../../skills/CompositionStackService';
-import { stigmergySkillId } from '../../stigmergy/StigmergyAdapter';
-import { emitStigmergyInvoked, emitStigmergyReturned } from '../../stigmergy/stigmergyEmitGate';
 import { BUILT_IN_MODES, TOOL_GROUP_MAP, expandToolGroups } from '../../modes/builtinModes';
 import type { ToolGroup } from '../../../types/settings';
 
@@ -215,19 +213,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             return;
         }
 
-        // Stigmergy: emit at the inner dispatch (the spawn itself) with a
-        // namespaced skill id so the substrate sees `skill:<name>` as a
-        // first-class capability and not just the outer `invoke_skill`
-        // dispatcher star. Pipeline still emits `invoke_skill`
-        // invoked/returned around the whole call.
-        // FEAT-32-01 PR 1.2 / ADR-131: route emits through the gate helper so
-        // the inner `skill:<name>` event respects the outer dispatchSource
-        // (FastPath / planner -> no emit).
-        const stigmergyTurn = context.stigmergyTurn;
-        const dispatchSource = context.dispatchSource;
-        const capId = stigmergySkillId(skillName);
-        await emitStigmergyInvoked(stigmergyTurn, capId, dispatchSource);
-        let invokedOk = false;
         try {
             const message = this.composeSubtaskMessage(
                 skillName,
@@ -264,7 +249,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
                 result: subResult,
             }, null, 2)));
             callbacks.log(`Invoked sub-skill: ${skillName} (source=${skill.source}, depth ${compositionStack.depth()}, maxIter=${maxIterations}, tools=${allowedTools?.length ?? 'inherit'})`);
-            invokedOk = true;
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             callbacks.pushToolResult(this.formatError(
@@ -274,7 +258,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             // Pop unconditionally so a failed spawn does not leave the
             // stack in a bad state.
             compositionStack.pop();
-            await emitStigmergyReturned(stigmergyTurn, capId, invokedOk, dispatchSource);
         }
     }
 
