@@ -1,7 +1,7 @@
 ---
 name: meeting-summary
 description: Compact summary of a transcript note that stays digestible in under a minute. Strictly on the transcript, no interpretations. Sets block-IDs at key passages and links each statement in the summary discreetly via ↗ symbol to the source passage. Single-note layout (summary on top, transcript below).
-trigger: meeting.*summary|meeting.*zusammenfassung|protokoll|transkript.*zusammenfassung|gespraechsprotokoll|besprechung.*notiz
+trigger: meeting.*summary|meeting.*zusammenfassung|protokoll|transkript.*zusammenfassung|besprechung.*notiz
 source: bundled
 requiredTools: [read_file]
 allowedTools: [read_file, edit_file, write_file, append_to_file, search_files, evaluate_expression, update_todo_list, attempt_completion]
@@ -55,42 +55,72 @@ Pro Thema ein Gliederungspunkt:
 - Am Ende Todo-Liste mit Aufgaben aus dem Termin (sofern klar besprochen).
 - Neutraler, informativer Stil.
 
-## Frontmatter-Template (Pflicht, vor dem Schreiben)
+## Frontmatter (Pflicht, OKF-Schema)
 
-Das Frontmatter der Meeting-Note kommt aus den Settings:
-`vaultIngest.templates.meetingSummaryTemplate` (vault-relativer Pfad).
+Die Meeting-Note bekommt das OKF-Frontmatter (Inline-Default unten).
 
-Vorgehen:
+Quelle des Frontmatter-Blocks:
 
-1. Setting-Wert prüfen. Wenn nicht-leer:
-   - `read_file path="<setting-wert>"` -> extrahiere den Frontmatter-
-     Block.
-   - Felder einfüllen: `Zusammenfassung`, `Datum`, `Personen`,
-     `Themen`, `Konzepte`, `Projekt`, `Quellen`, `tags`.
-2. Wenn Setting leer: nutze den Inline-Default unten.
+1. Wenn dir ein Template-Pfad vorliegt (aus dem Task-Kontext, den
+   args oder dem Setting `vaultIngest.templates.meetingSummaryTemplate`):
+   `read_file path="<template-pfad>"` und den `---`-Frontmatter-Block
+   daraus extrahieren. Setting-Werte sind oft OHNE `.md`-Endung
+   gespeichert: liefert `read_file` "File not found" und der Pfad hat
+   keine Endung, genau EINEN Retry mit angehängtem `.md` machen.
+2. In JEDEM anderen Fall den Inline-Default unten verwenden: kein
+   Template-Pfad bekannt, Setting leer, Datei auch mit `.md`-Retry
+   nicht lesbar, oder Template ohne Frontmatter-Block. Niemals mit
+   `search_files` nach dem Template suchen, niemals wegen eines
+   fehlenden Templates abbrechen -- der Inline-Default ist
+   gleichwertig.
 
-**Inline-Default (Fallback wenn Setting leer):**
+**Inline-Default (OKF-Schema):**
 
 ```yaml
 ---
-Zusammenfassung:
-Datum:
-Personen:
-Themen:
-Konzepte:
-Notizen:
-Meeting-Notizen:
-Projekt:
-Quellen:
-Kategorie:
-  - Meeting-Notiz
+uid:
+title:
+description:
+resource:
 tags:
-Permanent: false
+type:
+  - meeting
+moc:
+related:
+timestamp:
 ---
 ```
 
-Wenn die Active-Note bereits Frontmatter hat: nicht überschreiben,
-sondern fehlende Felder ergänzen. Bestehende Werte bleiben.
+**Felder füllen (streng aus dem Transkript, nichts erfinden):**
+
+- `uid`: bestehenden Wert behalten. Wenn leer: UUID v4 eintragen,
+  bevorzugt via `evaluate_expression` (`return crypto.randomUUID();`),
+  sonst selbst eine im v4-Format erzeugen.
+- `title`: prägnanter Meeting-Titel (Thema des Termins).
+- `description`: Kernergebnis des Meetings in einem Satz.
+- `tags`: 3 bis 6 Schlagworte zu den besprochenen Themen
+  (kleingeschrieben, kebab-case).
+- `type`: muss `meeting` enthalten; bestehende Einträge ergänzen,
+  nicht ersetzen.
+- `timestamp`: Meeting-Datum als `YYYY-MM-DD` (aus Transkript oder
+  Dateiname). Wenn nicht ermittelbar: leer lassen.
+- `related`: Wikilinks auf Personen- oder Projekt-Notes, nur wenn
+  zweifelsfrei zuordenbar. Im Zweifel leer lassen; **keine**
+  Vault-Suche, um Kandidaten zu finden oder Existenz zu prüfen.
+- `resource`, `moc`: leer lassen bzw. bestehende Werte behalten.
+
+Merge-Regeln:
+
+- Die Note hat am Ende genau EINEN `---`-Frontmatter-Block am
+  Dateianfang. Existiert schon einer: in-place ergänzen, niemals
+  einen zweiten Block davor setzen.
+- Fehlende und leere OKF-Felder nach den Regeln oben füllen.
+  "Bestehende Werte bleiben" gilt für inhaltlich gefüllte Felder;
+  Platzhalter wie `title: Untitled` gelten als leer.
+- Felder außerhalb des OKF-Schemas (z.B. alte `Datum`/`Personen`-
+  Felder) unangetastet lassen.
+- Templater-Platzhalter aus dem Template (`{{...}}`, `<% ... %>`)
+  nicht übernehmen; das Feld nach den Regeln oben füllen.
 
 ## Block-Ref-Konvention
 
@@ -193,9 +223,11 @@ Nach dem Einfügen von Ankern und Zusammenfassung:
    Konvention.
 3. Setze Block-IDs an den Anker-Stellen im Transkript-Section der
    selben Note (ein Durchgang, siehe Effizienz-Pflicht).
-4. Füge die Zusammenfassung als `## Zusammenfassung`-Section am
-   Anfang der Datei ein (vor dem Transkript-Body).
-5. Verifiziere alle Block-Refs (Schritt 5 der Konvention).
+4. Setze das OKF-Frontmatter am Dateianfang (siehe Frontmatter-
+   Abschnitt): fehlende Felder ergänzen, bestehende Werte behalten.
+5. Füge die Zusammenfassung als `## Zusammenfassung`-Section nach
+   dem Frontmatter ein (vor dem Transkript-Body).
+6. Verifiziere alle Block-Refs (Schritt 5 der Konvention).
 
 ## Pflicht
 
@@ -218,5 +250,8 @@ aufbereitet.
 - Links auf Block-IDs, die nicht verifiziert in der Note stehen.
 - Interpretationen oder Ergänzungen über den Transkript-Inhalt
   hinaus.
-- `read_document` für `.md`-Dateien; pro Block-ID ein eigener
-  `edit_file`-Call.
+- `read_document` für Vault-Notes, auch für den Template-Pfad
+  (immer `read_file`); pro Block-ID ein eigener `edit_file`-Call.
+- `search_files` für etwas anderes als die Block-Ref-Verifikation
+  (Schritt 5). Niemals, um Dateien, Templates oder Inhalte zu
+  beschaffen.
