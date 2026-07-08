@@ -2,7 +2,7 @@
 name: presentation-design
 description: Universal presentation design principles -- content classification, storytelling frameworks, visual vocabulary. Applies to ALL presentations.
 trigger: pr[aä]sentation.*erstell|erstell.*pr[aä]sentation|presentation.*creat|creat.*presentation|folie.*erstell|erstell.*folie|deck.*erstell|powerpoint|pptx
-source: bundled
+source: pro
 requiredTools: [create_pptx]
 ---
 

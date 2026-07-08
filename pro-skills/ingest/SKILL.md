@@ -2,7 +2,7 @@
 name: ingest
 description: Quick single-pass ingest of a source (PDF/Markdown/URL/DOCX/PPTX/XLSX) into one note (OKF frontmatter + overview + key points + original text). PDFs stay page-refs (no mirror enforcement). Block-refs to the source rendered as a discreet ↗ symbol per key point. No multi-turn dialog.
 trigger: schneller.*ingest|quick.*ingest|inbox.*aufnahme|webclip.*ingest|aufnehmen.*note|integriere.note
-source: bundled
+source: pro
 requiredTools: [ingest_document, write_file, read_file, update_frontmatter]
 ---
 

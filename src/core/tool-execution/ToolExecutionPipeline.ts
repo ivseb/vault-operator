@@ -59,10 +59,17 @@ export const HARD_TOOL_OUTPUT_CAP_CHARS = 60_000;
  *
  * Keep this set tight. Adding `agent`/`learned`/etc here would silently
  * widen the trust boundary for every `invoke_skill` auto-approval path.
+ *
+ * `pro` (monetized publisher skills) is trusted here to mirror
+ * TRUSTED_SKILL_SOURCES in InvokeSkillTool.ts. SECURITY CONTRACT: sound
+ * only while `source: pro` is written exclusively by a verified installer
+ * (dev install today, hash-pinned download later). The download flow MUST
+ * verify integrity before stamping `source: pro`.
  */
 const PIPELINE_TRUSTED_SKILL_SOURCES: ReadonlySet<string> = new Set([
     'builtin',
     'bundled',
+    'pro',
 ]);
 
 /**

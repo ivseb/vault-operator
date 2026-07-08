@@ -41,6 +41,14 @@ describe('isUserSkillSource', () => {
         expect(isUserSkillSource('canvas')).toBe(false);
     });
 
+    it('accepts the pro source so purchased Pro skills show up in the list', () => {
+        // Pro skills are downloaded into data/skills/{name}/ after
+        // purchase and carry `source: pro`. They must surface in the
+        // Skills list (with a Pro badge), not get filtered out as if
+        // they were a plugin-id entry.
+        expect(isUserSkillSource('pro')).toBe(true);
+    });
+
     it('treats null and undefined as the default user source', () => {
         // Legacy SKILL.md files that predate the source-frontmatter
         // discriminator land with `source: undefined` from the parser
@@ -60,7 +68,7 @@ describe('isUserSkillSource', () => {
         // Pinning the contract so any caller that wants the raw set
         // does not drift from the predicate.
         expect([...USER_SKILL_SOURCES].sort()).toEqual(
-            ['agent', 'builtin', 'bundled', 'learned', 'user'],
+            ['agent', 'builtin', 'bundled', 'learned', 'pro', 'user'],
         );
     });
 });
@@ -90,17 +98,24 @@ describe('getSourceLabel', () => {
         expect(getSourceLabel('user')).toBe('User');
     });
 
+    it('maps pro to Pro (purchased premium skills)', () => {
+        // Pro skills are the monetized, on-demand-installed skills.
+        // They get their own top-level badge distinct from User/Agent.
+        expect(getSourceLabel('pro')).toBe('Pro');
+    });
+
     it('falls through to the raw value for unknown sources (plugin-ids etc.)', () => {
         expect(getSourceLabel('dataview')).toBe('dataview');
         expect(getSourceLabel('')).toBe('');
     });
 
-    it('exposes a tooltip text that names all three top-level categories', () => {
+    it('exposes a tooltip text that names all four top-level categories', () => {
         // The Source-column header carries this tooltip in the
         // SkillsTab. The test pins the contract so the UI string and
         // the tested constant stay in sync.
         expect(SOURCE_TOOLTIP).toContain('Built-in');
         expect(SOURCE_TOOLTIP).toContain('Agent');
         expect(SOURCE_TOOLTIP).toContain('User');
+        expect(SOURCE_TOOLTIP).toContain('Pro:');
     });
 });

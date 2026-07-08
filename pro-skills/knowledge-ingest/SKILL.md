@@ -2,7 +2,7 @@
 name: knowledge-ingest
 description: Integrate new notes into the knowledge graph. Create PDFs as markdown source notes. Set properties, links, MOC entries. Prefer existing entities, propose new ones as stub notes.
 trigger: integrier|einordne|ingest|einpflege|knowledge.*maintain|wissen.*pflege|note.*einordne|ordne.*ein|pdf.*umwandel|pdf.*markdown|quelle.*anlegen
-source: bundled
+source: pro
 requiredTools: [read_file, read_document, semantic_search, update_frontmatter, write_file, ingest_document, list_files]
 ---
 

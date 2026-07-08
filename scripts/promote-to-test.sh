@@ -25,6 +25,7 @@ INTERNAL_PATHS=(
     "scripts"          # this script itself — not needed in public release
     "memory"           # claude memory dir if present at root
     "CLAUDE.md"        # project manifest for Claude Code
+    "pro-skills"       # monetized Pro skills: never ship in the public bundle
 )
 
 # ── Guards ──────────────────────────────────────────────────────────────────

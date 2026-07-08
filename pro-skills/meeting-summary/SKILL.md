@@ -2,7 +2,7 @@
 name: meeting-summary
 description: Compact summary of a transcript note that stays digestible in under a minute. Strictly on the transcript, no interpretations. Sets block-IDs at key passages and links each statement in the summary discreetly via ↗ symbol to the source passage. Single-note layout (summary on top, transcript below).
 trigger: meeting.*summary|meeting.*zusammenfassung|protokoll|transkript.*zusammenfassung|besprechung.*notiz
-source: bundled
+source: pro
 requiredTools: [read_file]
 allowedTools: [read_file, edit_file, write_file, append_to_file, search_files, evaluate_expression, update_todo_list, attempt_completion]
 ---

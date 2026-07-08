@@ -352,6 +352,27 @@ describe('InvokeSkillTool', () => {
             expect(spawnCalls).toHaveLength(1);
         });
 
+        it('trusted skills (source=pro) skip the approval prompt entirely', async () => {
+            // Pro skills are publisher-curated, monetized skills. They
+            // are host-trusted like builtin/bundled so a paying user does
+            // not get a provenance prompt on every invoke. NOTE: this
+            // trust is only sound while Pro skills are installed via a
+            // verified path (dev install today; hash-pinned download
+            // later). The download flow MUST verify integrity before it
+            // writes `source: pro`, otherwise a downloaded skill could
+            // spoof the marker to escalate trust.
+            const plugin = makePlugin([{
+                name: 'premium', description: '', body: 'b', source: 'pro',
+            }]);
+            const tool = new InvokeSkillTool(plugin);
+            const { ctx, spawnCalls, questionCalls } = makeContext({});
+
+            await tool.execute({ skill_name: 'premium' }, ctx);
+
+            expect(questionCalls).toHaveLength(0);
+            expect(spawnCalls).toHaveLength(1);
+        });
+
         it('imported skills (source=user) prompt the user the first time', async () => {
             const plugin = makePlugin([{
                 name: 'imported', description: 'risky', body: 'b', source: 'user',

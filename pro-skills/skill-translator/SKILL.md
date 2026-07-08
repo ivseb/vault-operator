@@ -2,7 +2,7 @@
 name: skill-translator
 description: Translate an Anthropic-style skill (with Python scripts) into a native Vault Operator skill (with JavaScript scripts that run in the sandbox). Use when the user asks to translate, convert, port, or import an Anthropic skill, e.g. "Hol mir den pdf-Skill von Anthropic" or "translate this python skill". A dry-run pass classifies every Python import against the mapping table; partial or unmappable cases trigger a user-confirmation modal before any file is written.
 trigger: translate.*skill|convert.*python.*skill|port.*skill|uebersetze.*skill|konvertiere.*skill|import.*anthropic.*skill|hole.*anthropic.*skill
-source: bundled
+source: pro
 requiredTools: [read_file, write_file, run_skill_script]
 allowedTools: [read_file, write_file, edit_file, list_files, extract_zip, run_skill_script, ask_followup_question, invoke_skill, web_fetch, attempt_completion]
 ---

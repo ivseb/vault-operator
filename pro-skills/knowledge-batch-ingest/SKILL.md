@@ -2,7 +2,7 @@
 name: knowledge-batch-ingest
 description: Integrate an entire folder of notes and documents at once. Groups files thematically, presents proposals per group, and processes after user confirmation. Uses entity cache across files for token efficiency.
 trigger: batch.*ingest|alle.*integrier|ordner.*einpflege|inbox.*integrier|batch.*import|alle.*notes.*einordne
-source: bundled
+source: pro
 requiredTools: [list_files, read_file, read_document, semantic_search, update_frontmatter, write_file, ingest_document]
 ---
 
