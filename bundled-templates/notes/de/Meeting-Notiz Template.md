@@ -1,24 +1,19 @@
 ---
-Zusammenfassung:
-Datum:
-Personen:
-Themen:
-Konzepte:
-Notizen:
-Meeting-Notizen:
-Projekt:
-Quellen:
-Kategorie:
-  - Meeting-Notiz
-tags:
-Permanent: false
 uid:
+title:
+description:
+resource:
+tags:
+type:
+  - meeting
+moc:
+related:
+timestamp:
 ---
+
+## Zusammenfassung
+
 ---
 
-##### Transkript
+### Transkript
 
-``` Transkript
-
-
-```
