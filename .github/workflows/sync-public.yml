@@ -24,7 +24,10 @@ jobs:
           cp .github/workflows/release.yml /tmp/release.yml 2>/dev/null || true
           cp .github/workflows/deploy-pages.yml /tmp/deploy-pages.yml 2>/dev/null || true
 
-          for dir in _devprocess .github scripts _global _memory; do
+          # pro-skills: monetized Pro skills, must NOT ship in the public
+          # plugin bundle. Stripped here so esbuild on the public repo
+          # builds without them; the private repo keeps the catalog source.
+          for dir in _devprocess .github scripts _global _memory pro-skills; do
             git rm -rf --cached "$dir" 2>/dev/null || true
             rm -rf "$dir"
           done

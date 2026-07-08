@@ -902,6 +902,12 @@ export class AgentTask {
                                 return { decision: 'rejected' };
                             }
                         },
+                    // FIX-24-08-03 steering gap: while invoke_skill/new_task
+                    // parks the parent in `await spawnSubtask`, the parent
+                    // preamble never drains the steering queue. Forwarding
+                    // the consumer lets the child deliver mid-run
+                    // corrections at ITS iteration boundaries.
+                    consumeSteeringMessages: this.taskCallbacks.consumeSteeringMessages,
                 },
                 this.modeService,
                 this.consecutiveMistakeLimit,

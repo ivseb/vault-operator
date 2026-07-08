@@ -26,9 +26,13 @@
  * `agent` (FEAT-29-13) is what `init_skill` from the skill-creator
  * workflow stamps on new skills; `learned` is the legacy
  * recipe-promotion discriminator and folds into the same Agent bucket.
+ * `pro` marks monetized skills that are downloaded on demand after
+ * purchase into the same `data/skills/{name}/` folder; they belong in
+ * the Skills list with their own Pro badge, not filtered out as if
+ * they were a plugin-id entry.
  */
 export const USER_SKILL_SOURCES: ReadonlySet<string> = new Set([
-    'user', 'agent', 'learned', 'builtin', 'bundled',
+    'user', 'agent', 'learned', 'builtin', 'bundled', 'pro',
 ]);
 
 /**
@@ -60,6 +64,8 @@ export function getSourceLabel(source: string): string {
             return 'Agent';
         case 'user':
             return 'User';
+        case 'pro':
+            return 'Pro';
         default:
             return source;
     }
@@ -72,4 +78,5 @@ export function getSourceLabel(source: string): string {
 export const SOURCE_TOOLTIP =
     'Built-in: ships with the plugin. ' +
     'Agent: created via the skill-creator workflow (quality-gated). ' +
-    'User: manually written, copied or imported by you.';
+    'User: manually written, copied or imported by you. ' +
+    'Pro: purchased premium skill, installed on demand.';

@@ -2,7 +2,7 @@
 name: ingest-deep
 description: Deep ingest of a source (PDF/Markdown/URL/DOCX/PPTX/XLSX) in Karpathy multi-turn pattern. Forced Markdown conversion, OKF frontmatter, block-refs to the source rendered as a discreet ↗ symbol. Mandatory step 1 is triage (cluster match, source diversity, tension hint).
 trigger: ingest.deep|deep.ingest|karpathy|sense.?making|multi.?turn.*ingest|tiefe.*ingest|deep.?dive.*quelle
-source: bundled
+source: pro
 requiredTools: [ingest_triage, ingest_deep, ingest_document, read_file, write_file, update_frontmatter, get_frontmatter, ask_followup_question, move_file]
 ---
 

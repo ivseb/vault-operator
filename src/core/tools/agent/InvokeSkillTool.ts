@@ -53,7 +53,15 @@ interface InvokeSkillArgs {
  * to the model as if their instructions can override the host's approval
  * rules.
  */
-const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled']);
+// `pro` = publisher-curated monetized skills. Host-trusted so a paying
+// user does not hit the provenance gate on every invoke. SECURITY
+// CONTRACT: this trust is only sound while `source: pro` is written
+// exclusively by a verified installer -- dev install today, hash-pinned
+// on-demand download later. The download flow MUST verify integrity
+// (catalog hash pin, analogous to the language packs) BEFORE stamping
+// `source: pro`, otherwise a downloaded skill could spoof the marker to
+// escalate trust. Mirror any change in ToolExecutionPipeline.ts.
+const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled', 'pro']);
 
 /**
  * Per-process record of which imported skills the user has already approved

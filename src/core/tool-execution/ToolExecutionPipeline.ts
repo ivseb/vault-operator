@@ -59,10 +59,17 @@ export const HARD_TOOL_OUTPUT_CAP_CHARS = 60_000;
  *
  * Keep this set tight. Adding `agent`/`learned`/etc here would silently
  * widen the trust boundary for every `invoke_skill` auto-approval path.
+ *
+ * `pro` (monetized publisher skills) is trusted here to mirror
+ * TRUSTED_SKILL_SOURCES in InvokeSkillTool.ts. SECURITY CONTRACT: sound
+ * only while `source: pro` is written exclusively by a verified installer
+ * (dev install today, hash-pinned download later). The download flow MUST
+ * verify integrity before stamping `source: pro`.
  */
 const PIPELINE_TRUSTED_SKILL_SOURCES: ReadonlySet<string> = new Set([
     'builtin',
     'bundled',
+    'pro',
 ]);
 
 /**
@@ -473,6 +480,19 @@ export class ToolExecutionPipeline {
         const startTime = Date.now();
 
         try {
+            // 0. FIX-24-08-03: a stopped task must not start new tools.
+            // No tool consumes the abort signal itself, so without this
+            // pre-check a Stop only takes effect at the next loop
+            // checkpoint and a long tool batch keeps a "stopped" run
+            // visibly working. Returning an error result (instead of
+            // throwing) keeps every tool_use answered for history
+            // consistency and task resume.
+            if (extensions?.abortSignal?.aborted) {
+                const msg = `Tool "${toolCall.name}" skipped: task was stopped.`;
+                this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                return this.errorResult(toolCall.id, msg);
+            }
+
             // 1. Validate tool exists
             const tool = this.toolRegistry.getTool(toolCall.name);
             if (!tool) {

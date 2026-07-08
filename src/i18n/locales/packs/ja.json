@@ -705,6 +705,7 @@
   "ui.editReview.sourceTask": "タスク {{taskId}}",
   "ui.editReview.applyIncomplete": "タスク後レビュー: {{count}} 件の変更を適用できませんでした（{{paths}}）。ファイルは以前の内容のままです。",
   "ui.sidebar.taskRunningNoSwitch": "タスクがまだ実行中です。この会話を切り替え、クリア、削除する前に、タスクを停止するか完了を待ってください。",
+  "ui.sidebar.taskStillStopping": "前のタスクはまだ停止処理中です。少し待ってから再送信してください。",
   "ui.inline.editorMissing": "エディタとの接続がありません。変更を適用できません。",
   "ui.inline.readyToApply": "適用の準備ができました。差分ダイアログで確認してください。",
   "ui.inline.reviewChange": "変更をレビュー",

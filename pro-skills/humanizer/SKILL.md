@@ -2,7 +2,7 @@
 name: humanizer
 description: Identifies and removes signs of AI-generated writing from text. Detects inflated symbolism, promotional language, superficial -ing analyses, vague attributions, em dash overuse, rule of three, AI vocabulary, passive voice, negative parallelisms, filler phrases, and more. Makes text sound natural and human-written.
 trigger: humanize|humanis|human.*klingen|menschlich.*klingen|ai.*writing|ki.*text.*entfernen|natuerlich.*klingen|sound.*natural|remove.*ai|ai.*pattern|slop|ki.*muster|text.*ueberarbeiten|rewrite.*natural|mensch.*schreiben
-source: bundled
+source: pro
 ---
 
 # Humanizer: Remove AI Writing Patterns

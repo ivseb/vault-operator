@@ -341,16 +341,17 @@ export class SkillsTab {
             }
         }
 
-        // Sort: built-in first, then agent-created (skill-creator + legacy
-        // learned), then user-authored. Unknown sources land between the
-        // two named buckets so they stay near the bottom but above
-        // agent-created entries (which the user actively curates).
+        // Sort: built-in first, then purchased Pro skills, then
+        // agent-created (skill-creator + legacy learned), then
+        // user-authored. Unknown sources land in the agent bucket so they
+        // stay near the bottom but above user entries.
         const order: Record<string, number> = {
             bundled: 0,
             builtin: 0,
-            agent: 1,
-            learned: 1,
-            user: 2,
+            pro: 1,
+            agent: 2,
+            learned: 2,
+            user: 3,
         };
         return [...byName.values()].sort((a, b) => {
             const oa = order[a.source] ?? 1;
