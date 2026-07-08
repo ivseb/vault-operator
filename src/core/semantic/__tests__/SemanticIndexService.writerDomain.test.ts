@@ -4,8 +4,9 @@
  * Hintergrund: VectorStore.insertChunks() ist nur intern in VectorStore.ts
  * vorgesehen. Aufrufer ausserhalb sollen die domaenenspezifischen Helfer
  * (insertNoteVector, insertSessionVector, insertEpisodeVector) benutzen,
- * weil diese den Discriminator (note/session/episode) explizit setzen
- * und damit Stigmergy-Recall-Layer sauber separieren.
+ * weil diese den Discriminator (note/session/episode) explizit setzen und
+ * damit den Episode-Recall der VO-Recipe-Promotion (findSimilarEpisodes,
+ * ADR-058) sauber von Notes und Sessions separieren.
  *
  * Diese Source-Level-Probe sichert ab, dass SemanticIndexService.ts
  * keinen direkten vectorStore.insertChunks(...)-Aufruf mehr enthaelt.

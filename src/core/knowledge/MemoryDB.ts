@@ -296,8 +296,10 @@ export class MemoryDB {
         // SingleCallExtractor can pull only new messages and persist a
         // ~200 token rolling summary.
         this.applyV4ConversationDeltaColumns(db);
-        // Phase 5 (FEAT-32-02 / ADR-133): Stigmergy decision snapshot per
-        // episode. Additive TEXT column on the existing `episodes` table.
+        // Phase 5: legacy `stigmergy_json` column on `episodes`. The feature
+        // that wrote it was removed; the additive TEXT column stays because
+        // v5 shipped in a release and we never migrate schemas backwards
+        // (fresh installs must match upgraded v5 DBs).
         this.applyV5StigmergyColumn(db);
         this.bumpSchemaVersion(db);
         console.debug(`[MemoryDB] Schema initialized (version ${MEMORY_SCHEMA_VERSION})`);
@@ -336,15 +338,14 @@ export class MemoryDB {
     }
 
     /**
-     * Idempotent ADD COLUMN for episodes.stigmergy_json (FEAT-32-02 / ADR-133).
-     * Skips when the column already exists. The column persists the per-turn
-     * Stigmergy decision snapshot ({ enabled, mode, pinnedPath,
-     * guidanceTextSuppressed, recipeWinner }) as a JSON string. Old rows
-     * keep `stigmergy_json = NULL`; the EpisodicExtractor SELECT path parses
-     * defensively. Additive: no existing reader breaks, no existing row is
-     * touched. FIX-12-Lehre: the schema bump runs inside MemoryDB.open()
-     * BEFORE any concurrent writer (SemanticIndex, ExtractionQueue) wakes
-     * up; sql.js is single-threaded so no extra WriterLock is required at
+     * Idempotent ADD COLUMN for episodes.stigmergy_json. Historical v5
+     * migration (released): the column is a legacy artefact since the
+     * feature that wrote it was removed -- nothing writes or reads it
+     * anymore, new rows keep `stigmergy_json = NULL`. The DDL stays so
+     * fresh installs and upgraded v4 DBs land on an identical v5 schema.
+     * FIX-12-Lehre: the schema bump runs inside MemoryDB.open() BEFORE
+     * any concurrent writer (SemanticIndex, ExtractionQueue) wakes up;
+     * sql.js is single-threaded so no extra WriterLock is required at
      * this level.
      */
     private applyV5StigmergyColumn(db: SqlJsDatabase): void {

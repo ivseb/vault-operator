@@ -20,7 +20,6 @@ If you want to read the source, build a plugin on top, or just learn how an agen
 | `src/core/prompts/sections/` | Modular prompt section builders (one per stable block of the system prompt) |
 | `src/core/memory/` | Memory v2 layer: FactStore, EdgeStore, SingleCallExtractor/Processor, ContextComposer, soul, source-interface tagging |
 | `src/core/mastery/` | Recipe storage, matching, and semantic promotion (RecipeStore, RecipeMatchingService, RecipePromotionService) |
-| `src/core/stigmergy/` | Pheromone-based recall adapter that observes tool, skill, and MCP usage (StigmergyAdapter, precedence resolver) |
 | `src/core/knowledge/` | KnowledgeDB (sql.js), VectorStore, graph store, ontology, vault-health checks, reranker |
 | `src/core/ingest/` | Karpathy-style deep ingest pipeline, triage, block-id mirror, source-position annotator, tension detection, MOC maintainer |
 | `src/mcp/` | MCP server (cross-surface read/write to memory, history, vault) and the Cloudflare relay |

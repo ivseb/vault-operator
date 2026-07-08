@@ -14,38 +14,16 @@ import type { ToolRegistry } from '../tools/ToolRegistry';
  * followed by a text turn and asserts the cross-module contract the unit
  * tests split apart -- the assistant tool_use is executed via the pipeline,
  * its tool_result is pushed to history by the engine, the UI callback fires,
- * the Stigmergy turn opens before the loop and is graded in the finally, and
- * the run completes cleanly.
+ * and the run completes cleanly.
  *
- * The two genuinely external boundaries are mocked: the ToolExecutionPipeline
- * (touches the vault filesystem) and the StigmergyAdapter (talks to a
- * daemon). Everything between them -- engine, LoopState, interceptors,
- * system-prompt assembly, history handoff -- is the real code.
+ * The genuinely external boundary is mocked: the ToolExecutionPipeline
+ * (touches the vault filesystem). Everything else -- engine, LoopState,
+ * interceptors, system-prompt assembly, history handoff -- is the real code.
  */
 
-const { executeToolMock, beginTurnMock, registerMock, fakeTurn } = vi.hoisted(() => {
-    const calls: string[] = [];
-    const acceptAmounts: number[] = [];
+const { executeToolMock } = vi.hoisted(() => {
     return {
         executeToolMock: vi.fn(),
-        beginTurnMock: vi.fn(),
-        registerMock: vi.fn(async () => undefined),
-        fakeTurn: {
-            calls,
-            acceptAmounts,
-            turn: {
-                enabled: false,
-                taskId: 'itest',
-                decisionMode: 'none',
-                orderTools: <T,>(tools: readonly T[]) => [...tools],
-                pathGuidance: () => ({ text: '', path: [] as string[] }),
-                emitInvoked: async () => undefined,
-                emitReturned: async () => undefined,
-                end: async () => { calls.push('end'); },
-                accept: async (amount: number) => { calls.push('accept'); acceptAmounts.push(amount); },
-                abandon: async () => { calls.push('abandon'); },
-            },
-        },
     };
 });
 
@@ -53,21 +31,11 @@ vi.mock('../tool-execution/ToolExecutionPipeline', () => ({
     ToolExecutionPipeline: class {
         executeTool = executeToolMock;
         setSubagentAllowedTools = vi.fn();
-        setStigmergyTurn = vi.fn();
         getExternalizer = () => undefined;
         cleanupExternalized = vi.fn(async () => undefined);
         getPlugin = () => ({});
     },
 }));
-
-vi.mock('../stigmergy/StigmergyAdapter', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../stigmergy/StigmergyAdapter')>();
-    return {
-        ...actual,
-        beginStigmergyTurn: beginTurnMock,
-        registerCapabilitiesIfChanged: registerMock,
-    };
-});
 
 /** Async-generator ApiHandler that plays a scripted list of turns. */
 function scriptedApi(turns: ApiStreamChunk[][]): ApiHandler {
@@ -130,11 +98,6 @@ function baseConfig(overrides: Partial<AgentTaskRunConfig> = {}): AgentTaskRunCo
 
 beforeEach(() => {
     executeToolMock.mockReset();
-    beginTurnMock.mockReset();
-    registerMock.mockClear();
-    fakeTurn.calls.length = 0;
-    fakeTurn.acceptAmounts.length = 0;
-    beginTurnMock.mockImplementation(async () => fakeTurn.turn);
 });
 
 describe('AgentTask.run integration (engine + interceptors, real wiring)', () => {
@@ -174,27 +137,6 @@ describe('AgentTask.run integration (engine + interceptors, real wiring)', () =>
         expect(callbacks.onText).toHaveBeenCalledWith('The file says hello.');
         expect(callbacks.onComplete).toHaveBeenCalledTimes(1);
         expect(callbacks.onError).not.toHaveBeenCalled();
-    });
-
-    it('opens the Stigmergy turn before the loop and grades it in the finally on a clean exit', async () => {
-        executeToolMock.mockResolvedValue({ content: 'ok' });
-        const api = scriptedApi([
-            [{ type: 'tool_use', id: 'tu-1', name: 'read_file', input: {} }, { type: 'usage', inputTokens: 50, outputTokens: 10 }],
-            [{ type: 'text', text: 'answer' }],
-        ]);
-        const plugin = makePlugin();
-        const task = new AgentTask(api, makeToolRegistry(plugin), makeCallbacks());
-
-        await task.run(baseConfig());
-
-        // onRunStart consulted the daemon once, before any turn graded it.
-        expect(beginTurnMock).toHaveBeenCalledTimes(1);
-        expect(registerMock).toHaveBeenCalledTimes(1);
-        // onRunEnd in the finally: end() precedes exactly one resolution; a
-        // clean natural exit (streamed text, no errors, under the cap) grades
-        // to accept with the input+output token total.
-        expect(fakeTurn.calls).toEqual(['end', 'accept']);
-        expect(fakeTurn.acceptAmounts).toEqual([60]);
     });
 
     it('surfaces a stream tool_error to the UI and still exits cleanly', async () => {

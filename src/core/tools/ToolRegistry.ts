@@ -326,9 +326,9 @@ export class ToolRegistry {
      */
     // FIX-PERF-16: cache tool definitions. getDefinition() builds a
     // ToolDefinition object every call; the registry rebuilds the full
-    // list 3-4 times per turn (system-prompt assembly, mode filter,
-    // stigmergy inventory). The cache is invalidated when the tool set
-    // changes (register / unregister).
+    // list 3-4 times per turn (system-prompt assembly, mode filter).
+    // The cache is invalidated when the tool set changes
+    // (register / unregister).
     private cachedAllDefinitions: ToolDefinition[] | null = null;
     private cachedByName: Map<string, ToolDefinition> | null = null;
 

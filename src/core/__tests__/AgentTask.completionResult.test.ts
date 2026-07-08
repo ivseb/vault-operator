@@ -22,27 +22,9 @@ import { initLoopStateForRun, createInitialLoopState } from '../agent/LoopState'
  *    insta-complete the resumed run (completionResult reset).
  */
 
-const { executeToolMock, beginTurnMock, registerMock, fakeTurn } = vi.hoisted(() => {
-    const calls: string[] = [];
+const { executeToolMock } = vi.hoisted(() => {
     return {
         executeToolMock: vi.fn(),
-        beginTurnMock: vi.fn(),
-        registerMock: vi.fn(async () => undefined),
-        fakeTurn: {
-            calls,
-            turn: {
-                enabled: false,
-                taskId: 'ctest',
-                decisionMode: 'none',
-                orderTools: <T,>(tools: readonly T[]) => [...tools],
-                pathGuidance: () => ({ text: '', path: [] as string[] }),
-                emitInvoked: async () => undefined,
-                emitReturned: async () => undefined,
-                end: async () => { calls.push('end'); },
-                accept: async () => { calls.push('accept'); },
-                abandon: async () => { calls.push('abandon'); },
-            },
-        },
     };
 });
 
@@ -50,21 +32,11 @@ vi.mock('../tool-execution/ToolExecutionPipeline', () => ({
     ToolExecutionPipeline: class {
         executeTool = executeToolMock;
         setSubagentAllowedTools = vi.fn();
-        setStigmergyTurn = vi.fn();
         getExternalizer = () => undefined;
         cleanupExternalized = vi.fn(async () => undefined);
         getPlugin = () => ({});
     },
 }));
-
-vi.mock('../stigmergy/StigmergyAdapter', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('../stigmergy/StigmergyAdapter')>();
-    return {
-        ...actual,
-        beginStigmergyTurn: beginTurnMock,
-        registerCapabilitiesIfChanged: registerMock,
-    };
-});
 
 function scriptedApi(turns: ApiStreamChunk[][]): ApiHandler {
     let turn = 0;
@@ -138,10 +110,6 @@ function wireAttemptCompletion() {
 
 beforeEach(() => {
     executeToolMock.mockReset();
-    beginTurnMock.mockReset();
-    registerMock.mockClear();
-    fakeTurn.calls.length = 0;
-    beginTurnMock.mockImplementation(async () => fakeTurn.turn);
     wireAttemptCompletion();
 });
 

@@ -24,7 +24,7 @@ describe('AgentLoopState', () => {
         const state = createInitialLoopState();
         expect(state.completionResult).toBeNull();
         expect(state.consecutiveMistakes).toBe(0);
-        expect(state.stigmergyOutcome).toBe('abandon');
+        expect(state.turnOutcome).toBe('abandon');
         expect(state.emergencyRetried).toBe(false);
         expect(state.fastPathFired).toBe(false);
         expect(state.totalInputTokens).toBe(0);

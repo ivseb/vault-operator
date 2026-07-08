@@ -2739,9 +2739,9 @@ export class AgentSidebarView extends ItemView {
                     scheduleScroll();
                 },
                 onEpisodeData: (data) => {
-                    // Episodic memory: record task outcome (ADR-018 + FEAT-32-02 / ADR-133).
-                    // FEAT-32-02 PR 2.2: payload now includes success, mistakesEncountered,
-                    // attemptCompletionFired, fastPathFired, stigmergy. Fires for ALL exit
+                    // Episodic memory: record task outcome (ADR-018).
+                    // Payload includes success, mistakesEncountered,
+                    // attemptCompletionFired, fastPathFired. Fires for ALL exit
                     // paths (success, iteration-cap, abort, error). Fire-and-forget.
                     if (this.plugin.episodicExtractor && this.plugin.settings.mastery.enabled) {
                         const resultSummary = data.success
@@ -2754,17 +2754,13 @@ export class AgentSidebarView extends ItemView {
                             toolLedger: data.toolLedger,
                             success: data.success,
                             resultSummary,
-                            stigmergy: data.stigmergy,
                         };
                         this.plugin.episodicExtractor.recordEpisode(episode).then((ep) => {
                             if (ep && this.plugin.recipePromotionService) {
-                                // FEAT-32-02 PR 2.4 / ADR-132: hand the
-                                // Stigmergy decision snapshot to the promotion
-                                // service so Gate 1 (recipe-wins) and Gate 2
-                                // (sequence shortcut) can fire. Daemon-down
-                                // -> data.stigmergy is undefined and the
-                                // service falls through to Gate 3 ADR-058.
-                                this.plugin.recipePromotionService.checkForPromotion(ep, data.stigmergy).catch((e) =>
+                                // ADR-058: check for semantic recipe promotion.
+                                // recipeWinner routes a FastPath recipe win to a
+                                // success-count bump instead of a duplicate promotion.
+                                this.plugin.recipePromotionService.checkForPromotion(ep, data.recipeWinner).catch((e) =>
                                     console.warn('[Mastery] Promotion check failed:', e)
                                 );
                             }
@@ -3129,7 +3125,7 @@ export class AgentSidebarView extends ItemView {
 
         // Recipe matching (ADR-017) — find procedural recipes before starting the task
         let recipesSection: string | undefined;
-        // FEAT-32-01 PR 1.3 / ADR-131: capture the matches so we can pass
+        // Capture the matches so we can pass
         // them into AgentTask.run via `recipeMatches`. Without this the
         // FastPath gate inside AgentTask would re-run `match()` and could
         // diverge from the Sidebar's `recipesSection` source.
@@ -3176,8 +3172,8 @@ export class AgentSidebarView extends ItemView {
             memoryContext,
             pluginSkillsSection: pluginSkillsSection || undefined,
             recipesSection,
-            // FEAT-32-01 PR 1.3 / ADR-131: hand the SAME matches to AgentTask
-            // so the FastPath gate sees what `recipesSection` was built from.
+            // Hand the SAME matches to AgentTask so the FastPath gate
+            // sees what `recipesSection` was built from.
             recipeMatches: recipeMatchesForRun,
             configDir: this.app.vault.configDir,
             conversationId: this.activeConversationId ?? undefined,
