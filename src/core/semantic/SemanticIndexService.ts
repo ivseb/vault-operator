@@ -277,6 +277,8 @@ export class SemanticIndexService {
 
     get isIndexed(): boolean { return this.builtAt !== null; }
     get building(): boolean { return this.isBuilding; }
+    /** True between cancelBuild() and the build loop actually exiting. */
+    get cancelling(): boolean { return this.cancelled && (this.isBuilding || this.enrichmentRunning); }
     get lastBuiltAt(): Date | null { return this.builtAt; }
 
     setEmbeddingModel(model: CustomModel | null): void {
@@ -517,10 +519,14 @@ export class SemanticIndexService {
                     this.progressIndexed = indexed;
                     onProgress?.(indexed, total);
 
-                    // Persist every N files: save DB to disk + yield UI
+                    // Persist every N files + yield UI. IMP-01-04-03 (Lever A):
+                    // coalesced save (2s-debounced via markDirty) instead of a
+                    // blocking 312MB db.export() per batch, which stalled the single
+                    // renderer thread mid agent-task (the [Violation] setTimeout
+                    // blocks). onunload/close still force-flushes.
                     if (uncommitted >= this.batchSize) {
                         this.saveCheckpointToDB(modelKey, indexed);
-                        await this.knowledgeDB.save();
+                        this.knowledgeDB.markDirty();
                         uncommitted = 0;
                         await new Promise<void>((r) => window.setTimeout(r, 0)); // yield
                     }
@@ -1225,8 +1231,9 @@ export class SemanticIndexService {
                 await mapWithConcurrency([...byPath.entries()], FILE_CONCURRENCY, ([filePath, chunks]) =>
                     enrichOneFile(filePath, chunks));
 
-                // Persist progress periodically
-                await this.knowledgeDB.save();
+                // Persist progress periodically. IMP-01-04-03 (Lever A):
+                // coalesced save (markDirty), not a blocking per-batch export.
+                this.knowledgeDB.markDirty();
 
                 // Fetch next batch
                 batch = this.vectorStore.getUnenrichedChunks(BATCH_SIZE);
@@ -1564,10 +1571,12 @@ export class SemanticIndexService {
 
         console.debug(`[SemanticIndex] Embedding via SDK: ${model.provider} ${baseURL} model=${model.name} texts=${texts.length}`);
 
-        const response = await client.embeddings.create({
-            model: model.name,
-            input: texts,
-        });
+        // Pass the build's AbortController signal so cancelBuild() terminates
+        // the in-flight request instead of waiting up to 30s for it to return.
+        const response = await client.embeddings.create(
+            { model: model.name, input: texts },
+            { signal: this.abortController?.signal },
+        );
 
         const sorted = response.data.sort((a, b) => a.index - b.index);
         return sorted.map((d) => new Float32Array(d.embedding));

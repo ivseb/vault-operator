@@ -4,7 +4,7 @@ description: Compact summary of a transcript note that stays digestible in under
 trigger: meeting.*summary|meeting.*zusammenfassung|protokoll|transkript.*zusammenfassung|besprechung.*notiz
 source: pro
 requiredTools: [read_file]
-allowedTools: [read_file, edit_file, write_file, append_to_file, search_files, evaluate_expression, update_todo_list, attempt_completion]
+allowedTools: [read_file, edit_file, write_file, append_to_file, update_frontmatter, find_notes_by_type, set_block_anchors, update_todo_list, attempt_completion]
 ---
 
 # /meeting-summary -- Transkript-Zusammenfassung mit Block-Refs
@@ -23,16 +23,9 @@ keine Ergänzungen.**
 2. Wenn das Ergebnis mit `[Truncated: ...]` endet: mit
    `read_file path="{activeNote}" offset=<angegebener Wert>` weiterlesen,
    bis das Transkript vollständig gelesen ist. **Kein** Umweg über
-   `search_files`, um Rest-Inhalte zu finden.
-3. **Verboten für das Transkript-Lesen:** `evaluate_expression` mit
-   `ctx.vault.read(path)` und `.slice(...)`-Return. Der Rückgabewert
-   landet 1:1 als Tool-Result in der Message-History; bei mehreren
-   Chunks läuft der Context in die 50k-Message-Truncation und der
-   Agent verliert die eigenen früheren Tool-Results. `read_file offset=`
-   liefert stattdessen einen sauber gekappten `[Truncated: ...]`-Marker
-   ohne Payload-Wachstum. `evaluate_expression` ist ausschließlich für
-   den Bulk-Write-Pfad in Schritt "Block-IDs setzen" gedacht -- dort
-   wird das Ergebnis `write`-t, nicht `return`-ed.
+   `search_files`, um Rest-Inhalte zu finden. Bei einem grossen
+   Kontextfenster liefert `read_file` das Transkript meist in einem
+   einzigen Call.
 
 ## Fokus
 
@@ -102,9 +95,8 @@ timestamp:
 
 **Felder füllen (streng aus dem Transkript, nichts erfinden):**
 
-- `uid`: bestehenden Wert behalten. Wenn leer: UUID v4 eintragen,
-  bevorzugt via `evaluate_expression` (`return crypto.randomUUID();`),
-  sonst selbst eine im v4-Format erzeugen.
+- `uid`: bestehenden Wert behalten. Wenn leer: selbst eine UUID im
+  v4-Format erzeugen und eintragen.
 - `title`: prägnanter Meeting-Titel (Thema des Termins).
 - `description`: Kernergebnis des Meetings in einem Satz.
 - `tags`: 3 bis 6 Schlagworte zu den besprochenen Themen
@@ -113,13 +105,29 @@ timestamp:
   nicht ersetzen.
 - `timestamp`: Meeting-Datum als `YYYY-MM-DD` (aus Transkript oder
   Dateiname). Wenn nicht ermittelbar: leer lassen.
-- `related`: Wikilinks auf Personen- oder Projekt-Notes, nur wenn
-  zweifelsfrei zuordenbar. Im Zweifel leer lassen; **keine**
-  Vault-Suche, um Kandidaten zu finden oder Existenz zu prüfen.
-- `resource`, `moc`: leer lassen bzw. bestehende Werte behalten.
+- `moc` und `related`: mit **einem einzigen** `find_notes_by_type`-Call
+  befüllen (der einzige Lookup dieser Skill). Rufe
+  `find_notes_by_type types=["topic", "concept", "person", "project"]`
+  auf. Das Ergebnis listet die vorhandenen OKF-getypten Notes mit Titel
+  und Tags. Dann:
+  - `moc`: **Pflicht-Feld, nicht leer.** Ein bis vier Wikilinks auf die
+    `type: topic`/`type: concept`-Notes aus dem Ergebnis, deren Titel oder
+    Tags zu den Kernthemen/-konzepten des Meetings passen, im Format
+    `[[<Basename>]]`. So greifen **zuerst vorhandene MOCs**. Passt zu
+    einem klaren Hauptthema keine vorhandene Note, ergänze einen neuen,
+    legitimen `[[<Hauptthema>]]`-Link. Bestehende `moc`-Werte behalten.
+  - `related`: Wikilinks auf `type: person`/`type: project`-Notes aus dem
+    Ergebnis, die im Transkript namentlich vorkommen (`[[<Basename>]]`).
+    Im Zweifel weglassen. Bestehende Werte behalten.
+- `resource`: leer lassen bzw. bestehende Werte behalten.
 
 Merge-Regeln:
 
+- **Pflicht-Tool: `update_frontmatter`.** Setze die Felder ausschliesslich
+  mit `update_frontmatter path="{activeNote}" updates={...}`. **Niemals**
+  `edit_file` auf den Frontmatter-Block: ein Wert mit Doppelpunkt (z.B.
+  `title: Acme Kickoff: Roadmap`) bricht sonst als unquotiertes YAML.
+  `update_frontmatter` quotet und serialisiert korrekt.
 - Die Note hat am Ende genau EINEN `---`-Frontmatter-Block am
   Dateianfang. Existiert schon einer: in-place ergänzen, niemals
   einen zweiten Block davor setzen.
@@ -152,43 +160,39 @@ Zwei Fälle machen Block-Refs kaputt, beide VOR dem Setzen prüfen:
   keine ist, den Absatz an dieser Stelle splitten (Leerzeile einfügen,
   Wortlaut bleibt unverändert).
 
-### 2. Block-IDs setzen -- in EINEM Durchgang
+### 2. Block-IDs setzen -- in EINEM `set_block_anchors`-Call
 
-Pro Schlüsselpassage ein system-generated `^block-N` ans Absatz-Ende
-anhängen (Leerzeichen vor dem Anker), danach Leerzeile (siehe oben).
-**Eine ID pro Kernaussage**, nicht pro Satz. Idempotent: vorhandene
-`^block-N`-IDs respektieren, nicht neu nummerieren.
+Pro Schlüsselpassage ein system-generated `^block-N` ans Absatz-Ende.
+**Eine ID pro Kernaussage**, nicht pro Satz.
 
-**Effizienz-Pflicht:** NICHT pro Block-ID einen eigenen `edit_file`-Call
-machen (N Runden = N mal volles Kontext-Roundtrip). Stattdessen:
+Nutze dafür **`set_block_anchors`** mit ALLEN Ankern in einem einzigen
+Call. Das Tool matcht robust (tolerant gegenüber Leerzeichen,
+Punktuation und kleinen Transkriptions-Abweichungen), setzt jeden Anker
+ans Absatz-Ende mit folgender Leerzeile, splittet Ein-Absatz-Transkripte
+automatisch und ist idempotent (vorhandene `^block-N` bleiben):
 
-- **Bevorzugt:** `evaluate_expression` -- Note einmal lesen, alle Anker
-  plus Absatz-Splits im Code setzen, einmal schreiben. Der `read` in
-  diesem Block ist ausschließlich Vorbereitung für den `write`; die
-  Note wird NICHT als `.slice(...)`-Chunk zurückgegeben. Rückgabewert
-  bleibt eine Kurz-Statistik (z.B. `{ set, missed }`):
+```
+set_block_anchors(
+  path="{activeNote}",
+  anchors=[
+    { find: "<Zitat der Kernaussage 1>", id: 1 },
+    { find: "<Zitat der Kernaussage 2>", id: 2 }
+  ]
+)
+```
 
-  ```typescript
-  const path = "<activeNote>";
-  let text = await ctx.vault.read(path);
-  const anchors = [
-    { find: "<exakter Satz 1>", id: 1 },
-    { find: "<exakter Satz 2>", id: 2 },
-    // ...
-  ];
-  const missed = [];
-  for (const a of anchors) {
-    const idx = text.indexOf(a.find);
-    if (idx === -1) { missed.push(a.id); continue; }
-    const insertAt = idx + a.find.length;
-    text = text.slice(0, insertAt) + ` ^block-${a.id}\n\n` + text.slice(insertAt).replace(/^\s+/, " ");
-  }
-  await ctx.vault.write(path, text);
-  return { set: anchors.length - missed.length, missed };
-  ```
+`find` muss NICHT byte-exakt sein -- ein sinngemäßes Zitat der Passage
+reicht. Das Tool liefert `set` / `missed` / `ambiguous` zurück:
 
-- **Fallback** (wenn `evaluate_expression` nicht verfügbar): wenige
-  `edit_file`-Calls mit mehreren Ankern pro Call bündeln.
+- Für jede ID in `missed`: das Zitat näher am Wortlaut wählen und den
+  Anker erneut setzen, oder den zugehörigen Link aus der Zusammenfassung
+  entfernen.
+- Für jede ID in `ambiguous`: mehr umgebenden Kontext ins `find`
+  aufnehmen, damit die Stelle eindeutig ist.
+
+**Kein** eigener `edit_file`-Call pro Anker (N Runden = N Roundtrips),
+**kein** manuelles Suchen der Positionen -- `set_block_anchors` erledigt
+Matching, Split und Idempotenz in einem Durchgang.
 
 ### 3. Inline-Link in der Zusammenfassung
 
@@ -215,31 +219,36 @@ Wikilinks.
 
 ### 5. Verifikation (Pflicht, vor attempt_completion)
 
-Nach dem Einfügen von Ankern und Zusammenfassung:
+Die Verifikation läuft **allein über das `set_block_anchors`-Ergebnis** --
+kein zusätzlicher `search_files`-Lauf nötig (das Tool hat die Note bereits
+geprüft):
 
-1. `search_files` mit Pattern `\^block-\d+` auf die Note.
-2. Abgleichen: Jede in der Zusammenfassung referenzierte `^block-N`
-   MUSS als Anker in der Note existieren, und hinter jedem Anker muss
-   eine Leerzeile oder das Dateiende stehen.
-3. Fehlt ein Anker (z.B. weil ein `edit_file`/`indexOf` nicht gegriffen
-   hat): Anker nachsetzen oder den Link aus der Zusammenfassung
-   entfernen. **Niemals** einen Link auf eine nicht existierende
-   Block-ID stehen lassen.
-4. Ergebnis im Abschluss-Text nennen: "N Block-Refs gesetzt, N
-   verifiziert."
+1. Nur IDs aus `set` sind verlinkbar. Für jede ID in `missed`/`ambiguous`
+   den Anker mit einem besseren `find` erneut setzen (ein weiterer
+   `set_block_anchors`-Call) oder den Link aus der Zusammenfassung
+   entfernen.
+2. **Niemals** einen Link auf eine nicht in `set` bestätigte Block-ID
+   stehen lassen.
+3. Ergebnis im Abschluss-Text nennen: "N Block-Refs gesetzt, N
+   verifiziert." Zahlen direkt aus dem `set`-Array.
 
 ## Aktionen
 
-1. Transkript vollständig lesen (siehe Pflicht-Reihenfolge oben).
+1. Transkript vollständig lesen (siehe Pflicht-Reihenfolge oben). Dabei
+   prüfen, ob die Note **bereits** eine `## Zusammenfassung`-Section und
+   `^block-N`-Anker enthält (schon einmal verarbeitet). Wenn ja: **nicht**
+   alles neu erzeugen -- nur fehlende Felder/Anker ergänzen und mit einem
+   kurzen Hinweis abschliessen, dass die Note bereits zusammengefasst ist.
 2. Erstelle die Zusammenfassung gemäß Fokus / Stil / Block-Ref-
    Konvention.
 3. Setze Block-IDs an den Anker-Stellen im Transkript-Section der
-   selben Note (ein Durchgang, siehe Effizienz-Pflicht).
-4. Setze das OKF-Frontmatter am Dateianfang (siehe Frontmatter-
-   Abschnitt): fehlende Felder ergänzen, bestehende Werte behalten.
+   selben Note mit einem einzigen `set_block_anchors`-Call.
+4. Setze das OKF-Frontmatter am Dateianfang mit `update_frontmatter`
+   (siehe Frontmatter-Abschnitt): fehlende Felder ergänzen, bestehende
+   Werte behalten. **Kein `edit_file` auf den Frontmatter-Block.**
 5. Füge die Zusammenfassung als `## Zusammenfassung`-Section nach
    dem Frontmatter ein (vor dem Transkript-Body).
-6. Verifiziere alle Block-Refs (Schritt 5 der Konvention).
+6. Werte das `set_block_anchors`-Ergebnis aus (Verifikation, siehe oben).
 
 ## Pflicht
 
@@ -263,14 +272,12 @@ aufbereitet.
 - Interpretationen oder Ergänzungen über den Transkript-Inhalt
   hinaus.
 - `read_document` für Vault-Notes, auch für den Template-Pfad
-  (immer `read_file`); pro Block-ID ein eigener `edit_file`-Call.
-- `search_files` für etwas anderes als die Block-Ref-Verifikation
-  (Schritt 5). Niemals, um Dateien, Templates oder Inhalte zu
-  beschaffen.
-- `evaluate_expression` mit `ctx.vault.read(...)` und Rückgabe des
-  Note-Contents (voll oder als `.slice(...)`-Chunk) als Lese-Ersatz.
-  Der Rückgabewert füllt die Message-History und löst
-  50k-Message-Truncation aus. Für Lesen ausnahmslos `read_file` (mit
-  `offset` bei Truncation) verwenden. `evaluate_expression` ist nur
-  für Bulk-Write-Vorbereitung erlaubt (Block-IDs im Code setzen und
-  in einem Rutsch `write`en).
+  (immer `read_file`).
+- Pro Block-ID ein eigener `edit_file`-Call. Block-Anker werden
+  ausschliesslich per `set_block_anchors` in einem Durchgang gesetzt.
+- `edit_file` auf den Frontmatter-Block (bricht YAML). Frontmatter
+  ausschliesslich per `update_frontmatter`.
+- `search_files` in dieser Skill. Die Block-Ref-Verifikation läuft über
+  das `set_block_anchors`-Ergebnis.
+- Mehr als **ein** `find_notes_by_type`-Call. Er dient ausschliesslich
+  dem einmaligen moc/related-Lookup, für nichts anderes.

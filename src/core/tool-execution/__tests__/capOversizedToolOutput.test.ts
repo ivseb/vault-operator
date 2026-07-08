@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { capOversizedToolOutput, HARD_TOOL_OUTPUT_CAP_CHARS } from '../ToolExecutionPipeline';
+import { capOversizedToolOutput, readAwareOutputCap, HARD_TOOL_OUTPUT_CAP_CHARS } from '../ToolExecutionPipeline';
 
 describe('capOversizedToolOutput (FEAT-24-03)', () => {
     it('leaves a within-budget string untouched', () => {
@@ -48,5 +48,29 @@ describe('capOversizedToolOutput (FEAT-24-03)', () => {
         const r = capOversizedToolOutput('y'.repeat(2000), false, 500);
         expect(r.capped).toBe(true);
         expect((r.content as string).startsWith('y'.repeat(500))).toBe(true);
+    });
+});
+
+describe('readAwareOutputCap (IMP-01-04-03)', () => {
+    it('keeps the flat 60k floor for non-read tools', () => {
+        expect(readAwareOutputCap('search_files', 1_000_000)).toBe(HARD_TOOL_OUTPUT_CAP_CHARS);
+        expect(readAwareOutputCap('use_mcp_tool', 1_000_000)).toBe(HARD_TOOL_OUTPUT_CAP_CHARS);
+    });
+
+    it('raises the floor for read_file on a 1M model so a one-call read survives', () => {
+        const cap = readAwareOutputCap('read_file', 1_000_000);
+        expect(cap).toBeGreaterThanOrEqual(400_000);
+        // A 400k read result (plus wrapper) must pass through uncapped.
+        const bigRead = 'x'.repeat(400_500);
+        expect(capOversizedToolOutput(bigRead, false, cap).capped).toBe(false);
+    });
+
+    it('read_document gets the same treatment as read_file', () => {
+        expect(readAwareOutputCap('read_document', 1_000_000)).toBe(readAwareOutputCap('read_file', 1_000_000));
+    });
+
+    it('stays at the 60k floor for small windows and unknown models', () => {
+        expect(readAwareOutputCap('read_file', 128_000)).toBe(HARD_TOOL_OUTPUT_CAP_CHARS);
+        expect(readAwareOutputCap('read_file', undefined)).toBe(HARD_TOOL_OUTPUT_CAP_CHARS);
     });
 });

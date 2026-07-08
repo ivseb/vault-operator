@@ -184,19 +184,23 @@ describe('FIX-COMPACT-09: dry run + economy guard', () => {
         expect(dossier.render()).not.toContain('Notes/A.md');
     });
 
-    it('shouldDeferMicrocompact applies the economy guard below the ceiling, prunes on real pressure', () => {
-        // small free, low pressure -> defer (cache rebuild would cost more than the free)
-        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
-        // large free amortizes the one-time cache rebuild -> prune even at low pressure
-        expect(shouldDeferMicrocompact({ pressure: 0.2, wouldFreeTokens: 5000, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
-        // FIX-COMPACT-09 gap fix: mid pressure (>= old floor 0.6 but < ceiling) with a
-        // small free now DEFERS. Previously the guard was skipped in this band and
-        // pruned unconditionally, busting the prompt-cache prefix on every turn --
-        // exactly where the cache rebuild is most expensive (the 0.80 EUR driver).
-        expect(shouldDeferMicrocompact({ pressure: 0.7, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(true);
-        // real pressure at/above the ceiling -> always prune to make room before full condense
-        expect(shouldDeferMicrocompact({ pressure: 0.78, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
-        // exactly at the ceiling counts as real pressure -> prune
-        expect(shouldDeferMicrocompact({ pressure: 0.75, wouldFreeTokens: 500, pressureCeiling: 0.75, minFreedTokens: 3000 })).toBe(false);
+    it('shouldDeferMicrocompact: 3-band guard (headroom / economy floor / real pressure)', () => {
+        const base = { pressureCeiling: 0.75, minFreedTokens: 3000, minHeadroomFraction: 0.5 };
+        // BAND 1 -- lots of headroom (pressure < 0.5): ALWAYS defer, even a big free.
+        // IMP-01-04-03: this is the fix for the 1M-model re-read churn -- a 12k-token
+        // read at 3-20% context was being pruned then re-read. Now it stays put.
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.08, wouldFreeTokens: 31000 })).toBe(true); // 920k-free-on-1M case
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.2, wouldFreeTokens: 5000 })).toBe(true); // FLIPPED (was prune)
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.2, wouldFreeTokens: 500 })).toBe(true);
+        // BAND 2 -- mid pressure (0.5..ceiling): FIX-COMPACT-09 economy floor preserved.
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.6, wouldFreeTokens: 500 })).toBe(true); // small free -> defer
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.6, wouldFreeTokens: 12000 })).toBe(false); // big free -> prune (200k task)
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.7, wouldFreeTokens: 500 })).toBe(true);
+        // Boundary at 0.5: headroom exactly 0.5 is NOT > 0.5, so the economy floor applies.
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.5, wouldFreeTokens: 500 })).toBe(true);
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.5, wouldFreeTokens: 12000 })).toBe(false);
+        // BAND 3 -- real pressure at/above the ceiling: always prune before full condense.
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.78, wouldFreeTokens: 500 })).toBe(false);
+        expect(shouldDeferMicrocompact({ ...base, pressure: 0.75, wouldFreeTokens: 500 })).toBe(false);
     });
 });

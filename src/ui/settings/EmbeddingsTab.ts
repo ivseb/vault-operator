@@ -233,6 +233,13 @@ export class EmbeddingsTab {
                 return;
             }
             if (idx.building) {
+                if (idx.cancelling) {
+                    // Cancel was requested; don't fight the "Cancelling" hint the
+                    // click handler wrote (the build loop hasn't seen the abort yet).
+                    statusEl.setText(t('settings.embeddings.statusCancelling'));
+                    cancelBtn?.setDisabled(true);
+                    return;
+                }
                 const p = idx.progressIndexed ?? idx.docCount;
                 const total = idx.progressTotal ?? '?';
                 statusEl.setText(t('settings.embeddings.statusBuildingProgress', { indexed: p, total }));
@@ -346,11 +353,23 @@ export class EmbeddingsTab {
             .setDesc(t('settings.embeddings.cancelIndexingDesc'))
             .addButton((btn) => {
                 cancelBtn = btn;
-                // Enable immediately if a build is already running (e.g. auto-index on startup)
+                // Enable while build OR enrichment is running (cancelBuild cancels both).
+                const idxNow = getIdx();
+                const active = !!(idxNow && (idxNow.building || idxNow.enriching));
                 btn.setButtonText(t('settings.embeddings.cancel'))
-                    .setDisabled(!getIdx()?.building)
+                    .setDisabled(!active)
                     .onClick(() => {
-                        getIdx()?.cancelBuild();
+                        console.debug('[EmbeddingsTab] Cancel indexing clicked');
+                        const idx = getIdx();
+                        if (!idx) {
+                            new Notice(t('settings.embeddings.enableFirst'));
+                            return;
+                        }
+                        if (!idx.building && !idx.enriching) {
+                            new Notice(t('settings.embeddings.alreadyBuilding'));
+                            return;
+                        }
+                        idx.cancelBuild();
                         btn.setDisabled(true);
                         statusEl.setText(t('settings.embeddings.statusCancelling'));
                     });
@@ -361,13 +380,30 @@ export class EmbeddingsTab {
             .setDesc(t('settings.embeddings.deleteIndexDesc'))
             .addButton((btn) => {
                 btn.setButtonText(t('settings.embeddings.deleteIndex')).onClick(async () => {
-                    const confirmed = await this.confirmDestructive(
-                        t('settings.embeddings.deleteConfirmTitle'),
-                        t('settings.embeddings.deleteConfirmMessage'),
-                    );
+                    console.debug('[EmbeddingsTab] Delete index clicked');
+                    let confirmed = false;
+                    try {
+                        confirmed = await this.confirmDestructive(
+                            t('settings.embeddings.deleteConfirmTitle'),
+                            t('settings.embeddings.deleteConfirmMessage'),
+                        );
+                    } catch (e) {
+                        console.warn('[EmbeddingsTab] Confirm modal failed:', e);
+                        new Notice(String((e as Error).message ?? e));
+                        return;
+                    }
                     if (!confirmed) return;
                     const idx = getIdx();
-                    if (idx) await idx.deleteIndex();
+                    if (!idx) {
+                        new Notice(t('settings.embeddings.enableFirst'));
+                        return;
+                    }
+                    try {
+                        await idx.deleteIndex();
+                    } catch (e) {
+                        console.warn('[EmbeddingsTab] deleteIndex failed:', e);
+                        new Notice(String((e as Error).message ?? e));
+                    }
                     refreshStatus();
                 });
             });
@@ -922,6 +958,16 @@ export class EmbeddingsTab {
 
     private confirmDestructive(title: string, message: string): Promise<boolean> {
         return new Promise((resolve) => {
+            // Modal.close() calls onClose() synchronously. If we called
+            // this.close() before resolve(true), onClose's resolve(false)
+            // would win and Delete Index would silently no-op. Latch the
+            // decision first, then close.
+            let decided = false;
+            const decide = (result: boolean): void => {
+                if (decided) return;
+                decided = true;
+                resolve(result);
+            };
             const modal = new (class extends Modal {
                 onOpen(): void {
                     const { contentEl } = this;
@@ -934,11 +980,11 @@ export class EmbeddingsTab {
                         text: t('settings.embeddings.deleteConfirmAccept'),
                         cls: 'mod-warning',
                     });
-                    cancelBtn.addEventListener('click', () => { this.close(); resolve(false); });
-                    confirmBtn.addEventListener('click', () => { this.close(); resolve(true); });
+                    cancelBtn.addEventListener('click', () => { decide(false); this.close(); });
+                    confirmBtn.addEventListener('click', () => { decide(true); this.close(); });
                 }
                 onClose(): void {
-                    resolve(false);
+                    decide(false);
                 }
             })(this.app);
             modal.open();

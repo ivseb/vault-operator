@@ -134,9 +134,17 @@ export class BuiltinSkillMaterializer {
                         report.skipped.push({ name: skillName, reason: 'user-override' });
                         continue;
                     }
-                    if (existingSource && existingSource !== 'builtin' && existingSource !== 'bundled') {
+                    if (
+                        existingSource
+                        && existingSource !== 'builtin'
+                        && existingSource !== 'bundled'
+                        && existingSource !== 'pro'
+                    ) {
                         // Plugin-id source (e.g. "dataview"). Plugin-managed
-                        // skills win over builtin materialization.
+                        // skills win over builtin materialization. `pro` is our
+                        // own managed premium tier (IMP-01-09-01) -- it ships in
+                        // the same private bundle and must be overwritable so a
+                        // skill update reaches the runtime.
                         report.skipped.push({ name: skillName, reason: 'plugin-override' });
                         continue;
                     }
@@ -191,7 +199,7 @@ export class BuiltinSkillMaterializer {
                         const bytes = this.decodeBase64(content);
                         await this.adapter.writeBinary(fullPath, bytes);
                     } else if (relPath === 'SKILL.md') {
-                        await this.adapter.write(fullPath, this.ensureBuiltinSource(content));
+                        await this.adapter.write(fullPath, this.ensureManagedSource(content));
                     } else {
                         await this.adapter.write(fullPath, content);
                     }
@@ -227,20 +235,26 @@ export class BuiltinSkillMaterializer {
         return value.replace(/^['"]|['"]$/g, '');
     }
 
-    private ensureBuiltinSource(content: string): string {
+    private ensureManagedSource(content: string): string {
+        // Normalise the bundle source to `builtin`, but preserve the `pro`
+        // monetization tag (IMP-01-09-01) so a future licence mechanism can
+        // still identify premium skills. Everything else the bundle declares
+        // (`bundled`, or none) becomes `builtin`.
+        const declared = this.extractSource(content);
+        const target = declared === 'pro' ? 'pro' : 'builtin';
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) {
             // No frontmatter at all -- prepend a minimal block. Should not
             // happen for bundled skills but the guard keeps the contract.
-            return `---\nsource: builtin\n---\n\n${content}`;
+            return `---\nsource: ${target}\n---\n\n${content}`;
         }
         const fm = fmMatch[1];
         const lines = fm.split('\n');
         const sourceIdx = lines.findIndex((line) => /^\s*source\s*:/.test(line));
         if (sourceIdx >= 0) {
-            lines[sourceIdx] = 'source: builtin';
+            lines[sourceIdx] = `source: ${target}`;
         } else {
-            lines.push('source: builtin');
+            lines.push(`source: ${target}`);
         }
         const newFm = lines.join('\n');
         return content.replace(fmMatch[0], `---\n${newFm}\n---`);
