@@ -110,11 +110,16 @@ timestamp:
   `find_notes_by_type types=["topic", "concept", "person", "project"]`
   auf. Das Ergebnis listet die vorhandenen OKF-getypten Notes mit Titel
   und Tags. Dann:
-  - `moc`: **Pflicht-Feld, nicht leer.** Ein bis vier Wikilinks auf die
-    `type: topic`/`type: concept`-Notes aus dem Ergebnis, deren Titel oder
-    Tags zu den Kernthemen/-konzepten des Meetings passen, im Format
-    `[[<Basename>]]`. So greifen **zuerst vorhandene MOCs**. Passt zu
-    einem klaren Hauptthema keine vorhandene Note, ergänze einen neuen,
+  - `moc`: **Pflicht-Feld, nicht leer.** Wikilinks auf ALLE thematisch
+    passenden `type: topic`/`type: concept`-Notes aus dem Ergebnis
+    (typischerweise 3 bis 6), im Format `[[<Basename>]]`. Thematisch
+    vollständig heisst: sowohl die wörtlich besprochenen Themen (z.B.
+    `[[LLM Gateway]]`, wenn das Gateway Thema war) als auch die
+    **übergreifenden Themenfelder** des Meetings (z.B. `[[Agentic AI]]`
+    oder `[[AI Agents]]`, wenn es um AI-Agenten ging). Matche primär über
+    den **Titel** der Note gegen die Meeting-Themen; die Tags im Ergebnis
+    sind nur Zusatzsignal (sie können veraltet sein). Passt zu einem
+    klaren Hauptthema keine vorhandene Note, ergänze einen neuen,
     legitimen `[[<Hauptthema>]]`-Link. Bestehende `moc`-Werte behalten.
   - `related`: Wikilinks auf `type: person`/`type: project`-Notes aus dem
     Ergebnis, die im Transkript namentlich vorkommen (`[[<Basename>]]`).

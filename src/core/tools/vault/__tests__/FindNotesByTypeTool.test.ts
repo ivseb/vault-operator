@@ -96,7 +96,7 @@ describe('FindNotesByTypeTool', () => {
         expect(results[0]).toContain('<error>');
     });
 
-    it('respects a limit', async () => {
+    it('respects a limit and says the list was truncated', async () => {
         const many: FakeNote[] = Array.from({ length: 10 }, (_, i) => ({
             path: `t${i}.md`, basename: `T${i}`, type: 'topic',
         }));
@@ -105,5 +105,24 @@ describe('FindNotesByTypeTool', () => {
         await tool.execute({ types: ['topic'], limit: 3 }, context);
         const lineCount = (results[0].match(/T\d/g) ?? []).length;
         expect(lineCount).toBe(3);
+        // The model must know the list was cut, so it raises the limit ONCE
+        // instead of guessing which notes are missing.
+        expect(results[0].toLowerCase()).toContain('truncated');
+    });
+
+    it('keeps the result compact: at most 3 tags per note, no file paths', async () => {
+        // Compactness is load-bearing: a 100-note result with 5 tags + path
+        // crossed the 2k externalize threshold and sent the model into a
+        // capped-tmp-re-read loop (live incident 2026-07-08).
+        const tool = makeTool([{
+            path: 'Notes/Deep/Nested/LLM-Gateway.md', basename: 'LLM-Gateway',
+            type: 'topic', tags: ['a', 'b', 'c', 'd', 'e', 'f'],
+        }]);
+        const { context, results } = makeCtx();
+        await tool.execute({ types: ['topic'] }, context);
+        expect(results[0]).toContain('[[LLM-Gateway]]');
+        expect(results[0]).toContain('a, b, c');
+        expect(results[0]).not.toContain('d');
+        expect(results[0]).not.toContain('Notes/Deep/Nested');
     });
 });

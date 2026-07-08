@@ -21,7 +21,16 @@ interface FindNotesByTypeInput {
     limit?: number;
 }
 
-const DEFAULT_LIMIT = 100;
+/**
+ * High default on purpose: typed notes are a curated set (a few hundred at
+ * most) and a TRUNCATED list is worse than a longer one -- the live incident
+ * 2026-07-08 showed the model re-calling with a higher limit and then
+ * fishing the result out of externalized tmp files when limit=100 cut the
+ * alphabetically-late notes.
+ */
+const DEFAULT_LIMIT = 500;
+/** Tags echoed per note; enough for theme matching, keeps the result compact. */
+const MAX_TAGS_PER_NOTE = 3;
 
 /** Normalise a frontmatter `type` value (string or array) to a lowercase set. */
 function typeValues(raw: unknown): string[] {
@@ -101,16 +110,21 @@ export class FindNotesByTypeTool extends BaseTool<'find_notes_by_type'> {
                 return;
             }
 
+            // Compact on purpose: basename (the wikilink target) + a few tags.
+            // No file paths, tags capped -- a bloated list crosses the
+            // externalize threshold and the model never sees it inline.
+            const truncated = matches.length >= limit;
             const lines = matches.map((m) => {
-                const tagStr = m.tags.length ? `  [tags: ${m.tags.join(', ')}]` : '';
-                return `- [[${m.basename}]]${tagStr}  (${m.path})`;
+                const tags = m.tags.slice(0, MAX_TAGS_PER_NOTE);
+                return tags.length ? `- [[${m.basename}]]  [${tags.join(', ')}]` : `- [[${m.basename}]]`;
             });
             callbacks.pushToolResult(
                 [
-                    `<notes_by_type types="${types.join(', ')}" count="${matches.length}">`,
+                    `<notes_by_type types="${types.join(', ')}" count="${matches.length}"${truncated ? ' truncated="true"' : ''}>`,
                     ...lines,
+                    truncated ? `(truncated at ${limit} -- raise limit to see the rest)` : '',
                     '</notes_by_type>',
-                ].join('\n'),
+                ].filter(Boolean).join('\n'),
             );
             callbacks.log(`find_notes_by_type: ${matches.length} notes for types [${types.join(', ')}]`);
         } catch (error) {
