@@ -5,7 +5,9 @@ description: Guide for creating effective Vault Operator skills. Use when the us
 
 # Skill Creator
 
-This skill guides the agent through creating a Vault Operator skill that another agent run can pick up and execute reliably.
+This skill guides the agent through creating a Vault Operator skill that another agent run can pick up and execute reliably. It is the basic authoring flow: initialize, edit, validate.
+
+**If the `skill-creator-pro` skill is available, prefer it for anything beyond a trivial one-step skill.** The Pro flow adds a guided requirements dialog (it interviews the user when they cannot state exactly what they need), a feasibility check against the actual plugin runtime and sandbox limits, a confirmed skill brief before any file is written, and a dry-run. This basic flow stays fully usable on its own; the Pro flow is the upgrade for designing non-trivial skills reliably.
 
 ## Binding rules (read first, no exceptions)
 
