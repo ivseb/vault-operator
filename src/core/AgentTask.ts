@@ -51,6 +51,8 @@ import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelP
 import { shouldRunTaskRouter } from './routing/TaskRouter';
 import { resolveLeanFlags } from './prompts/leanFlags';
 import { buildApiHandlerForModel } from '../api';
+import { getModelKey } from '../types/settings';
+import { expandProviderConfigsToCustomModels } from './settings/expandProviderConfigs';
 import { CompositionStackService } from './skills/CompositionStackService';
 import { getPerformanceMarks } from './observability/PerformanceMarks';
 import {
@@ -828,7 +830,16 @@ export class AgentTask {
             // configured yet), fall back to the parent's api handler so the
             // pre-migration code path keeps working unchanged.
             let childApi: ApiHandler = this.api;
-            if (profile?.tierOverride) {
+            if (overrides?.modelKey) {
+                // Issue #54.4.1: an explicit per-spawn model wins over the
+                // profile tier. The key is validated in NewTaskTool.execute;
+                // an unknown key here just falls back to the parent api.
+                const configured = expandProviderConfigsToCustomModels(
+                    this.toolRegistry.plugin.settings.providerConfigs ?? [],
+                );
+                const picked = configured.find((m) => getModelKey(m) === overrides.modelKey);
+                if (picked) childApi = buildApiHandlerForModel(picked);
+            } else if (profile?.tierOverride) {
                 const pluginAny = this.toolRegistry.plugin as unknown as {
                     getTierModel?: (t: 'fast' | 'mid' | 'flagship') => CustomModel | null;
                 };

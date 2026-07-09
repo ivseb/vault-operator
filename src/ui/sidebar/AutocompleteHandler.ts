@@ -169,7 +169,10 @@ export class AutocompleteHandler {
             this.render();
             return true;
         }
-        if (e.key === 'Tab' || e.key === 'Enter') {
+        // Issue #54.1: a modifier+Enter (Ctrl/Cmd) is the composer's send
+        // accelerator, not a suggestion-accept. Let it fall through so the
+        // keydown handler can send instead of picking a suggestion.
+        if ((e.key === 'Tab' || e.key === 'Enter') && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
             this.items[this.selectedIndex]?.onSelect();
             return true;

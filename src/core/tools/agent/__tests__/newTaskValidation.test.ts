@@ -133,3 +133,27 @@ describe('validateNewTaskInput profile path (FEAT-24-04 / ADR-113)', () => {
         }
     });
 });
+
+describe('validateNewTaskInput model_key (Issue #54.4.1)', () => {
+    it('normalizes and passes through model_key on the profile path', () => {
+        const result = validateNewTaskInput({
+            mode: 'agent',
+            message: 'find every Q3 note and summarise the decisions',
+            profile: 'research',
+            model_key: '  claude-opus-4-6|anthropic  ',
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.value.modelKey).toBe('claude-opus-4-6|anthropic');
+    });
+
+    it('defaults modelKey to empty string when absent (Tier-4 path)', () => {
+        const result = validateNewTaskInput({
+            mode: 'agent',
+            message: 'compare three notes',
+            justification_category: 'PARALLEL',
+            justification_reason: 'comparing 3 independent meeting notes for synthesis',
+        });
+        expect(result.ok).toBe(true);
+        if (result.ok) expect(result.value.modelKey).toBe('');
+    });
+});

@@ -68,3 +68,20 @@ export function resolveOverrideModel(
     if (!provider || !overrideId || overrideId === 'auto') return null;
     return (provider.discoveredModels ?? []).find((m) => m.id === overrideId) ?? null;
 }
+
+/**
+ * Issue #54.3: resolve the sticky chat-model override for the active provider.
+ * Returns the persisted model id only when persistence is on, a provider is
+ * active, and the saved id still exists on that provider (a deprovisioned model
+ * falls back to Auto). Otherwise null (= Auto).
+ */
+export function resolveStickyChatModel(
+    provider: ProviderConfig | null,
+    savedMap: Record<string, string> | undefined,
+    providerId: string | null,
+    enabled: boolean,
+): string | null {
+    if (!enabled || !provider || !providerId) return null;
+    const saved = savedMap?.[providerId] ?? null;
+    return resolveOverrideModel(provider, saved) ? saved : null;
+}

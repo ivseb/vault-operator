@@ -27,6 +27,7 @@
 
 import { t } from '../../../i18n';
 import type { InlineTriggerContext } from '../InlineTriggerContext';
+import { shouldSendOnEnter } from '../../../ui/sidebar/composerKeymap';
 
 export type InlinePanelActionId =
     | 'free-chat'
@@ -360,7 +361,9 @@ export class InlineChatPanel {
         textarea.addEventListener('keydown', (ev) => {
             // Autocomplete first: lets the dropdown handle Up/Down/Enter/Esc.
             if (this.autocomplete !== null && this.autocomplete.handleKeyDown(ev) === true) return;
-            if (ev.key === 'Enter' && ev.shiftKey === false && ev.ctrlKey === false && ev.metaKey === false && ev.isComposing === false) {
+            // Issue #54.1: keep "Enter sends" here but also honor the
+            // Ctrl/Cmd+Enter accelerator for parity with the sidebar composer.
+            if (shouldSendOnEnter(ev, true)) {
                 ev.preventDefault();
                 this.sendFromInput();
             }

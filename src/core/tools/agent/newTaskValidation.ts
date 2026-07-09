@@ -40,6 +40,12 @@ export interface NewTaskInput {
     justificationCategory: string;
     /** Empty string when a profile was used. */
     justificationReason: string;
+    /**
+     * Issue #54.4.1: optional model key "name|provider" the child should run on.
+     * Empty string when unset. Existence is checked in NewTaskTool.execute
+     * (which has settings access); this only normalises the raw value.
+     */
+    modelKey: string;
 }
 
 export type ValidationResult =
@@ -66,6 +72,7 @@ export function validateNewTaskInput(raw: Record<string, unknown>): ValidationRe
     const profile = (typeof raw.profile === 'string' ? raw.profile : '').trim();
     const justificationCategory = (typeof raw.justification_category === 'string' ? raw.justification_category : '').trim().toUpperCase();
     const justificationReason = (typeof raw.justification_reason === 'string' ? raw.justification_reason : '').trim();
+    const modelKey = (typeof raw.model_key === 'string' ? raw.model_key : '').trim();
 
     if (!mode) return { ok: false, error: 'mode parameter is required' };
     if (!message) return { ok: false, error: 'message parameter is required' };
@@ -90,7 +97,7 @@ export function validateNewTaskInput(raw: Record<string, unknown>): ValidationRe
         }
         return {
             ok: true,
-            value: { mode, message, profile, justificationCategory: '', justificationReason: '' },
+            value: { mode, message, profile, justificationCategory: '', justificationReason: '', modelKey },
         };
     }
 
@@ -127,6 +134,6 @@ export function validateNewTaskInput(raw: Record<string, unknown>): ValidationRe
 
     return {
         ok: true,
-        value: { mode, message, profile: '', justificationCategory, justificationReason },
+        value: { mode, message, profile: '', justificationCategory, justificationReason, modelKey },
     };
 }

@@ -11,16 +11,17 @@ import type { ToolExecutionContext } from '../../types';
 
 interface CapturedResult { content: string }
 
-function makePlugin(subtaskTokenBudget = 8000): ObsidianAgentPlugin {
+function makePlugin(subtaskTokenBudget = 8000, providerConfigs: unknown[] = []): ObsidianAgentPlugin {
     return {
         settings: {
             advancedApi: { subtaskTokenBudget },
             activeMcpServers: [],
+            providerConfigs,
         },
     } as unknown as ObsidianAgentPlugin;
 }
 
-function makeContext(opts: { mode?: string; spawnResult?: string; spawnSpy?: (m: string, msg: string, p?: string) => void } = {}): { ctx: ToolExecutionContext; results: CapturedResult[]; logs: string[] } {
+function makeContext(opts: { mode?: string; spawnResult?: string; spawnSpy?: (m: string, msg: string, p?: string, ov?: unknown) => void } = {}): { ctx: ToolExecutionContext; results: CapturedResult[]; logs: string[] } {
     const results: CapturedResult[] = [];
     const logs: string[] = [];
     const ctx = {
@@ -30,13 +31,22 @@ function makeContext(opts: { mode?: string; spawnResult?: string; spawnSpy?: (m:
             log: (msg: string) => { logs.push(msg); },
             handleError: async () => { /* noop */ },
         },
-        spawnSubtask: async (mode: string, message: string, profileName?: string) => {
-            opts.spawnSpy?.(mode, message, profileName);
+        spawnSubtask: async (mode: string, message: string, profileName?: string, overrides?: unknown) => {
+            opts.spawnSpy?.(mode, message, profileName, overrides);
             return opts.spawnResult ?? 'subtask result';
         },
     } as unknown as ToolExecutionContext;
     return { ctx, results, logs };
 }
+
+const PROVIDER_WITH_OPUS = {
+    id: 'anthropic-main',
+    type: 'anthropic',
+    enabled: true,
+    apiKey: 'sk-x',
+    baseUrl: 'https://api.anthropic.com',
+    discoveredModels: [{ id: 'claude-opus-4-6', displayName: 'Opus 4.6' }],
+};
 
 describe('NewTaskTool token budget (FEAT-24-04 / ADR-113)', () => {
     let plugin: ObsidianAgentPlugin;
@@ -147,5 +157,47 @@ describe('NewTaskTool profile vs Tier-4 path (FEAT-24-04 / ADR-113)', () => {
             profile: 'research',
         }, ctx);
         expect(results[0].content).toMatch(/only available in Agent mode/);
+    });
+});
+
+describe('NewTaskTool model_key (Issue #54.4.1)', () => {
+    it('forwards a valid model_key to spawnSubtask as overrides.modelKey', async () => {
+        const tool = new NewTaskTool(makePlugin(8000, [PROVIDER_WITH_OPUS]));
+        const captured: unknown[] = [];
+        const { ctx } = makeContext({ spawnSpy: (_m, _msg, _p, ov) => { captured.push(ov); } });
+        await tool.execute({
+            mode: 'agent',
+            message: 'find every Q3 note and summarise',
+            profile: 'research',
+            model_key: 'claude-opus-4-6|anthropic',
+        }, ctx);
+        expect(captured[0]).toEqual({ modelKey: 'claude-opus-4-6|anthropic' });
+    });
+
+    it('rejects an unknown model_key and does not spawn', async () => {
+        const tool = new NewTaskTool(makePlugin(8000, [PROVIDER_WITH_OPUS]));
+        let spawned = false;
+        const { ctx, results } = makeContext({ spawnSpy: () => { spawned = true; } });
+        await tool.execute({
+            mode: 'agent',
+            message: 'find every Q3 note and summarise',
+            profile: 'research',
+            model_key: 'ghost|anthropic',
+        }, ctx);
+        expect(spawned).toBe(false);
+        expect(results[0].content).toContain('claude-opus-4-6|anthropic');
+        expect(results[0].content).toMatch(/not a configured model/i);
+    });
+
+    it('spawns without overrides.modelKey when no model_key is given', async () => {
+        const tool = new NewTaskTool(makePlugin(8000, [PROVIDER_WITH_OPUS]));
+        const captured: Array<{ modelKey?: string } | undefined> = [];
+        const { ctx } = makeContext({ spawnSpy: (_m, _msg, _p, ov) => { captured.push(ov as { modelKey?: string } | undefined); } });
+        await tool.execute({
+            mode: 'agent',
+            message: 'find every Q3 note and summarise',
+            profile: 'research',
+        }, ctx);
+        expect(captured[0]?.modelKey).toBeUndefined();
     });
 });

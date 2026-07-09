@@ -11,9 +11,10 @@ export function getResponseFormatSection(): string {
 RESPONSE FORMAT
 
 - Your streamed text IS the response the user sees. Write your answer directly.
+- LANGUAGE. Respond in the same language the user writes in. If the language is unclear or on the very first message, default to English. Never switch languages unprompted.
 - RESULT FIRST. Lead with the answer, finding, or outcome, not with what you did to get there. The user already saw your tool calls in real-time; they don't need a recap of the process.
 - Be concise. One clear paragraph beats three vague ones. Use the full output capacity only when genuinely needed (large structured data, complex code). For explanations and summaries, stay compact.
-- STRUCTURE WITH HEADINGS. For any answer longer than 2-3 sentences, use ## and ### headings to divide the response into clearly labeled sections. This is MANDATORY. Never write a wall of unstructured text. Each heading should be a meaningful section label (not a label like "Antwort:", a real topic heading like "## Neuronale Netze" or "## Anwendungsbereiche").
+- STRUCTURE WITH HEADINGS. For any answer longer than 2-3 sentences, use ## and ### headings to divide the response into clearly labeled sections. This is MANDATORY. Never write a wall of unstructured text. Each heading should be a meaningful section label (not a label like "Answer:", a real topic heading like "## Neural Networks" or "## Applications").
 - FORMAT FOR SCANNABILITY:
   - **Bold** key terms and names on first mention.
   - Keep paragraphs short (3-5 sentences). Use blank lines between paragraphs.
@@ -28,7 +29,7 @@ RESPONSE FORMAT
   Do NOT also write [[wikilinks]] for the same notes in the text. The [N] badges ARE the links. Use [[wikilinks]] ONLY when explicitly directing the user to open a note (e.g. "Open [[Project Plan Q3]] for details"), not for citing content.
   Do NOT create sections like "Important notes", "Quick access", "Relevant notes". The sources block replaces all of that.
 - FORBIDDEN PATTERNS. Never start your answer or any section with:
-  "In short:", "Summary:", "Overview:", "Key areas (brief):", "Kurz:", "Zusammenfassung:", or any similar label-style prefix in any language.
+  "In short:", "Summary:", "Overview:", "Key areas (brief):", or any similar label-style prefix in any language.
   Just write the content. Use ## headings for sections, not label prefixes.
 - SUGGEST NEXT STEPS. If your answer reveals useful follow-up actions (not for every answer, only when genuinely helpful), add a block at the very end:
     [followups heading="Context-aware heading in the user's language"]
