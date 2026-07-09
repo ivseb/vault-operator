@@ -277,12 +277,18 @@ export class EmbeddingsTab {
         };
         refreshStatus();
 
-        // FIX-PERF-06: only refresh while the index is actually
-        // building. Outside of a build the status is stable and the
+        // FIX-PERF-06: only refresh while the index is actually building
+        // or enriching. Outside of that the status is stable and the
         // per-second SQL query against knowledge.db was wasted work.
+        // One extra refresh fires on the active->idle transition, otherwise
+        // the final tick would leave the last "Building (X/Y)" text frozen
+        // (builds started by auto-index/sidebar never repaint via the button).
+        let pollWasActive = false;
         const pollHandle = scheduleRecurring(() => {
             const idx = getIdx();
-            if (!idx || !idx.building) return;
+            const active = !!idx && (idx.building || idx.enriching);
+            if (!active && !pollWasActive) return;
+            pollWasActive = active;
             refreshStatus();
         }, 1000);
         const observer = new MutationObserver((mutations) => {

@@ -264,6 +264,8 @@ export class KnowledgeDB {
     private dirty = false;
     private saveTimer: number | null = null;
     private saving = false;
+    /** In-flight doSaveOnce(), so concurrent save() calls coalesce instead of silently dropping. */
+    private savePromise: Promise<boolean> | null = null;
     /** ADR-079 Cloud-Sync-Abwehr: only set in obsidian-sync setup. */
     private writerLock: WriterLock | null = null;
     /** Vault-relative plugin folder (e.g. `.obsidian/plugins/vault-operator`) — used to locate the sql.js WASM bundle. */
@@ -398,16 +400,43 @@ export class KnowledgeDB {
         this.scheduleSave();
     }
 
-    /** Persist DB to disk immediately. */
+    /**
+     * Persist DB to disk. Guarantees that every write made BEFORE the call
+     * is on disk when the promise resolves: a save that is already in
+     * flight exported an OLDER snapshot, so we wait for it and export
+     * again while the DB is still dirty. (2026-07-09 incident: the old
+     * `this.saving` guard silently dropped the second save, losing the
+     * final index checkpoint on reload.)
+     */
     async save(): Promise<void> {
-        if (!this.db || !this.dirty || this.saving) return;
+        while (this.db && this.dirty) {
+            if (this.savePromise) {
+                await this.savePromise;
+                continue; // re-check: writes during the flight need another pass
+            }
+            const attempt = this.doSaveOnce();
+            this.savePromise = attempt;
+            const ok = await attempt.finally(() => {
+                if (this.savePromise === attempt) this.savePromise = null;
+            });
+            if (!ok) return; // write failed; dirty stays set, next markDirty retries
+        }
+    }
+
+    private async doSaveOnce(): Promise<boolean> {
+        if (!this.db) return true;
         this.saving = true;
+        // Claim the current state BEFORE exporting: writes landing during
+        // the export/write re-mark dirty and trigger another save pass.
+        this.dirty = false;
         try {
             const data = this.db.export();
             await this.writeDB(data);
-            this.dirty = false;
+            return true;
         } catch (e) {
+            this.dirty = true;
             console.warn('[KnowledgeDB] Save failed:', e);
+            return false;
         } finally {
             this.saving = false;
         }
