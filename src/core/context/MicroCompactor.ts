@@ -137,6 +137,14 @@ export interface MicrocompactGuardInput {
     pressureCeiling: number;
     /** Frees below this token count never justify a prompt-cache rebuild. */
     minFreedTokens: number;
+    /**
+     * IMP-01-04-03: while free headroom (1 - pressure) exceeds this fraction,
+     * never prune -- there is no context-pressure reason to, and pruning a
+     * just-read result only forces a re-read. Above `pressureCeiling` this is
+     * irrelevant (real pressure prunes); between the two the economy floor
+     * applies.
+     */
+    minHeadroomFraction: number;
 }
 
 /**
@@ -152,7 +160,12 @@ export interface MicrocompactGuardInput {
  *   accumulate until one batch prune clears the min-freed bar or pressure rises.
  */
 export function shouldDeferMicrocompact(g: MicrocompactGuardInput): boolean {
+    // Band 3: real pressure -> prune to make room before full condensing.
     if (g.pressure >= g.pressureCeiling) return false;
+    // Band 1: plenty of free headroom -> never prune (IMP-01-04-03). Pruning a
+    // just-read result here only forces a re-read; there is no pressure reason.
+    if (1 - g.pressure > g.minHeadroomFraction) return true;
+    // Band 2: filling up but below the ceiling -> FIX-COMPACT-09 economy floor.
     return g.wouldFreeTokens < g.minFreedTokens;
 }
 

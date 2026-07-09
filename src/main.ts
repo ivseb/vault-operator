@@ -4270,7 +4270,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // started. A second run would overlap writes to the same day-file, or --
         // if a run is mid-flight -- be swallowed as a steering nudge
         // (AgentSidebarView.handleSendMessage). Refuse both.
-        if (this.skillRunPending || this.isAgentRunBusy()) {
+        if (this.skillRunPending || this.isAgentBusy()) {
             new Notice(t('protocol.runSkillBusy', { skill }));
             return;
         }
@@ -4298,8 +4298,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /** True while any agent sidebar view has a run in flight. Used by the
-     *  deeplink reentrancy guard so a browser trigger cannot overlap a run. */
-    private isAgentRunBusy(): boolean {
+     *  deeplink reentrancy guard AND by background indexing (agentBusyGate,
+     *  IMP-01-04-03) to defer boot-deferred reindex/enrichment while a task runs. */
+    isAgentBusy(): boolean {
         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
         return leaves.some((leaf) => leaf.view instanceof AgentSidebarView && leaf.view.isBusy);
     }

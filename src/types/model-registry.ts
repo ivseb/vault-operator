@@ -291,6 +291,31 @@ export function getModelContextWindow(modelId: string): number {
 }
 
 /**
+ * IMP-01-04-03: per-call read budget for read_file, derived from the serving
+ * model's context window instead of a fixed 50k cap. The old flat cap forced
+ * a large note into 3 sequential chunk-reads even on a 1M-context model
+ * (117k-char transcript = 50k + 50k + 17k = 3 turns), and each chunk then
+ * became prunable microcompact fodder that got re-read -- the dominant turn
+ * multiplier for /meeting-summary. A window-proportional budget lets a 1M
+ * model read the whole file in one call while a 128k model keeps a safe cap.
+ *
+ * Outputs: unknown/absent -> 50k (preserves prior behaviour), 128k -> ~51k,
+ * 200k -> 80k, 1M -> 400k (a 117k note is one call).
+ */
+export const READ_BUDGET_WINDOW_FRACTION = 0.10;
+export const READ_BUDGET_CHARS_PER_TOKEN = 4;
+export const READ_BUDGET_FLOOR_CHARS = 50_000;
+export const READ_BUDGET_CEIL_CHARS = 400_000;
+
+export function computeReadBudgetChars(windowTokens?: number): number {
+    if (!windowTokens || !Number.isFinite(windowTokens) || windowTokens <= 0) {
+        return READ_BUDGET_FLOOR_CHARS;
+    }
+    const raw = Math.round(windowTokens * READ_BUDGET_WINDOW_FRACTION * READ_BUDGET_CHARS_PER_TOKEN);
+    return Math.min(Math.max(raw, READ_BUDGET_FLOOR_CHARS), READ_BUDGET_CEIL_CHARS);
+}
+
+/**
  * Reduce a provider-decorated model ID down to the bare model name so registry
  * lookups and pattern matching work regardless of how the ID is namespaced:
  *   - OpenRouter   "anthropic/claude-3.5-sonnet"              -> "claude-3.5-sonnet"

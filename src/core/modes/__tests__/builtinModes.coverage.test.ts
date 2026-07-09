@@ -31,13 +31,13 @@ const MUST_BE_REACHABLE: ToolName[] = [
     'read_file', 'read_document', 'list_files', 'search_files',
     'list_checkpoints', 'read_checkpoint', 'diff_checkpoint',
     // Vault structured
-    'get_frontmatter', 'search_by_tag', 'get_vault_stats', 'get_linked_notes',
+    'get_frontmatter', 'search_by_tag', 'find_notes_by_type', 'get_vault_stats', 'get_linked_notes',
     'get_daily_note', 'open_note', 'semantic_search', 'query_base',
     'vault_health_check',
     // Vault memory-source (FEAT-03-25 / ADR-109)
     'mark_note_as_memory_source', 'unmark_note_as_memory_source', 'list_memory_source_notes',
     // Edit
-    'write_file', 'edit_file', 'append_to_file', 'create_folder', 'delete_file',
+    'write_file', 'edit_file', 'append_to_file', 'set_block_anchors', 'create_folder', 'delete_file',
     'move_file', 'extract_zip', 'update_frontmatter', 'generate_canvas', 'create_excalidraw', 'create_drawio',
     'create_base', 'update_base', 'create_pptx', 'create_docx', 'create_xlsx',
     'plan_presentation', 'ingest_document', 'ingest_deep', 'ingest_triage',

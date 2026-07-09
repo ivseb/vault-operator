@@ -28,6 +28,7 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
+import { computeReadBudgetChars } from '../../types/model-registry';
 import { validateToolInput } from './inputSchemaValidator';
 import { stableStringify } from '../utils/stableStringify';
 import type { ModeService } from '../modes/ModeService';
@@ -41,10 +42,34 @@ export type DispatchSource = 'model' | 'fastpath' | 'planner';
  * primary mechanism (large results -> tmp file + reference); this cap is the
  * floor for results the externalizer skips (read_file/read_document,
  * search_history, recall_memory, MCP tools) or where externalization failed.
- * Generous enough that normal results pass untouched (read_file is already
- * capped at 50000 chars by ReadFileTool).
+ * Generous enough that normal results pass untouched. read_file/read_document
+ * self-cap at a window-proportional budget (IMP-01-04-03), so their floor here
+ * is raised via {@link readAwareOutputCap} to not re-truncate a legitimate
+ * large read on a big-context model.
  */
 export const HARD_TOOL_OUTPUT_CAP_CHARS = 60_000;
+
+/**
+ * Headroom over the raw read budget for the untrusted-content wrapper tag and
+ * the truncation-hint line that ReadFileTool adds around the content.
+ */
+export const READ_OUTPUT_WRAPPER_HEADROOM_CHARS = 4_000;
+
+/**
+ * IMP-01-04-03: the per-tool output floor for read_file/read_document must
+ * clear their window-proportional read budget, otherwise a 1M-context model's
+ * one-call read (up to 400k chars) gets chopped back to 60k here and the model
+ * has to re-read in chunks anyway. All other tools keep the flat 60k floor.
+ */
+export function readAwareOutputCap(toolName: string, windowTokens?: number): number {
+    if (toolName !== 'read_file' && toolName !== 'read_document') {
+        return HARD_TOOL_OUTPUT_CAP_CHARS;
+    }
+    return Math.max(
+        HARD_TOOL_OUTPUT_CAP_CHARS,
+        computeReadBudgetChars(windowTokens) + READ_OUTPUT_WRAPPER_HEADROOM_CHARS,
+    );
+}
 
 /**
  * AUDIT-034 L-17 cross-module gate. Mirrors `TRUSTED_SKILL_SOURCES` in
@@ -759,7 +784,11 @@ export class ToolExecutionPipeline {
             // floor that catches anything the externalizer skipped or that slipped
             // through (e.g. an MCP tool with a huge response).
             {
-                const capResult = capOversizedToolOutput(finalContent, executionHadError);
+                const capChars = readAwareOutputCap(
+                    toolCall.name,
+                    this.apiHandler?.getModel()?.info?.contextWindow,
+                );
+                const capResult = capOversizedToolOutput(finalContent, executionHadError, capChars);
                 if (capResult.capped) {
                     finalContent = capResult.content;
                     console.debug(`[Pipeline] Capped ${toolCall.name} output ${capResult.originalLength} -> ${(finalContent as string).length} chars`);

@@ -186,6 +186,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         whenToUse: 'For tag/category filtering. Use match="all" for AND, match="any" for OR.',
         commonMistakes: 'Using search_files to grep for tags — this handles nested tags and tag inheritance.',
     },
+    find_notes_by_type: {
+        group: 'vault', label: 'Find by Type', icon: 'shapes',
+        signature: 'find_notes_by_type(types[], limit?)',
+        description: 'Find notes by their OKF `type` frontmatter (e.g. topic, concept, person, project). Returns basename (for wikilinks) + tags, from the metadata cache. Use to fill map-of-content links (a note\'s `moc` should point at type:topic/concept notes).',
+        example: 'find_notes_by_type(["topic", "concept"])',
+        whenToUse: 'To link into the vault\'s typed map-of-content structure (moc/related), or to find notes of a given OKF type.',
+        commonMistakes: 'Guessing note names instead of resolving the real typed notes; using search_by_tag (matches tags, not the OKF type key).',
+    },
     get_linked_notes: {
         group: 'vault', label: 'Linked Notes', icon: 'link',
         signature: 'get_linked_notes(path, direction?)',
@@ -251,6 +259,14 @@ export const TOOL_METADATA: Record<string, ToolMeta> = {
         example: 'append_to_file("Journal/daily.md", "## New Entry\\n\\nContent...")',
         whenToUse: 'For daily notes, logs, and additive entries. Avoids the read-edit cycle.',
         commonMistakes: 'Using write_file for append operations — that would overwrite existing content.',
+    },
+    set_block_anchors: {
+        group: 'edit', label: 'Set Block Anchors', icon: 'anchor',
+        signature: 'set_block_anchors(path, anchors: [{find, id}])',
+        description: 'Insert ^block-<id> anchors at matched passages in one call. Fuzzy matching tolerates whitespace, punctuation and minor transcription drift. Returns set/missed/ambiguous so links can be fixed or dropped.',
+        example: 'set_block_anchors("Inbox/Meeting.md", [{find: "Wir liefern bis November.", id: 1}])',
+        whenToUse: 'When placing block-reference anchors for a summary. Replaces many edit_file calls and evaluate_expression for anchor insertion.',
+        commonMistakes: 'Leaving a summary link on an id that came back missed or ambiguous instead of fixing the quote.',
     },
     update_frontmatter: {
         group: 'edit', label: 'Update Frontmatter', icon: 'tag',

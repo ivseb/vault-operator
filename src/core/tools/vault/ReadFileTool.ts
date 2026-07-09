@@ -13,13 +13,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getInternalAgentFolderPath } from '../../utils/agentFolder';
 import { validateVaultRelativePath } from './pathValidation';
-
-/**
- * Maximum characters to return. ~12500 tokens at 4 chars/token.
- * Aligned with Claude Code's read budget; covers a typical 60-90 min
- * meeting transcript or a long article without truncation.
- */
-const MAX_CONTENT_CHARS = 50_000;
+import { computeReadBudgetChars } from '../../../types/model-registry';
 
 /**
  * BUG-020: Agents sometimes call `read_file("tmp/task-<id>/result.md")`
@@ -57,7 +51,7 @@ export class ReadFileTool extends BaseTool<'read_file'> {
             name: 'read_file',
             description:
                 'Read the complete content of a file from the vault. Use this to view notes, check existing content before editing, or gather information. ' +
-                'Files larger than 50000 chars are returned in chunks; the result names the offset to continue with.',
+                'Very large files are chunk-sized to the model context window; if the result is truncated it names the offset to continue with.',
             input_schema: {
                 type: 'object',
                 properties: {
@@ -171,7 +165,12 @@ export class ReadFileTool extends BaseTool<'read_file'> {
                 ));
                 return;
             }
-            const end = Math.min(start + MAX_CONTENT_CHARS, originalLength);
+            // IMP-01-04-03: budget scales with the serving model's context
+            // window (a 1M model reads a 117k transcript in one call; a 128k
+            // model keeps a safe cap). Falls back to the 50k floor when no
+            // model info is on the context.
+            const budget = computeReadBudgetChars(context.apiHandler?.getModel()?.info?.contextWindow);
+            const end = Math.min(start + budget, originalLength);
             content = content.slice(start, end);
 
             // Return formatted content. AUDIT-034 L-15: vault file content is

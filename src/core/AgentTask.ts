@@ -60,6 +60,7 @@ import {
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
     MICROCOMPACT_MIN_FREED_TOKENS,
     MICROCOMPACT_PRESSURE_CEILING,
+    MICROCOMPACT_MIN_HEADROOM_FRACTION,
 } from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
@@ -516,6 +517,7 @@ export class AgentTask {
             wouldFreeTokens: wouldFree,
             pressureCeiling: MICROCOMPACT_PRESSURE_CEILING,
             minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
+            minHeadroomFraction: MICROCOMPACT_MIN_HEADROOM_FRACTION,
         })) {
             if (probe.prunedBlocks > 0) {
                 console.debug(

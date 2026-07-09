@@ -81,13 +81,18 @@ function makePlugin(opts: {
     return { plugin, pushed };
 }
 
-function makeContext(capturedResults: string[]): ToolExecutionContext {
+function makeContext(capturedResults: string[], windowTokens?: number): ToolExecutionContext {
     return {
         callbacks: {
             pushToolResult: (msg: string) => { capturedResults.push(msg); },
             log: vi.fn(),
             handleError: vi.fn().mockResolvedValue(undefined),
         },
+        // IMP-01-04-03: read_file derives its chunk budget from the serving
+        // model's context window via context.apiHandler.getModel().info.
+        apiHandler: windowTokens === undefined
+            ? undefined
+            : { getModel: () => ({ id: 'stub', info: { contextWindow: windowTokens } }) },
     } as unknown as ToolExecutionContext;
 }
 
@@ -252,6 +257,74 @@ describe('ReadFileTool chunked reading -- FIX-PERF-45', () => {
         expect(pushed[0]).toContain(content);
         expect(pushed[0]).not.toContain('offset=');
         expect(pushed[0]).not.toContain('Truncated');
+    });
+});
+
+/**
+ * IMP-01-04-03: read_file chunk budget scales with the serving model's
+ * context window instead of a flat 50k cap. On a 1M model a 117k-char
+ * transcript must read in ONE call, not three -- the 3-chunk read plus
+ * microcompact re-reads were the dominant turn multiplier for
+ * /meeting-summary. A 128k model keeps a safe sub-window cap, and when no
+ * model info is available the old 50k floor is preserved.
+ */
+describe('ReadFileTool window-aware budget -- IMP-01-04-03', () => {
+    function makeLargeFilePlugin(totalChars: number) {
+        const content = Array.from(
+            { length: totalChars / 10 },
+            (_, i) => String(i).padStart(9, '0') + '|',
+        ).join('');
+        const { plugin } = makePlugin({
+            agentFolderPath: '.obsidian-agent',
+            vaultAdapterFiles: { 'notes/long.md': content },
+        });
+        return { plugin, content };
+    }
+
+    it('HEADLINE: a 1M-context model reads a 120k file in ONE call (no truncation)', async () => {
+        const { plugin, content } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed, 1_000_000));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain(content); // whole file present
+        expect(pushed[0]).not.toContain('Truncated');
+        expect(pushed[0]).not.toContain('offset=');
+    });
+
+    it('a 128k model still chunks a 120k file (budget ~51.2k)', async () => {
+        const { plugin } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed, 128_000));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('Truncated');
+        expect(pushed[0]).toContain('offset=51200');
+    });
+
+    it('CEIL clamp: a 1M model reading a 500k file truncates at 400k', async () => {
+        const { plugin } = makeLargeFilePlugin(500_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed, 1_000_000));
+
+        expect(pushed).toHaveLength(1);
+        expect(pushed[0]).toContain('offset=400000');
+    });
+
+    it('REGRESSION PIN: no model info falls back to the 50k floor', async () => {
+        const { plugin } = makeLargeFilePlugin(120_000);
+        const tool = new ReadFileTool(plugin);
+        const pushed: string[] = [];
+
+        await tool.execute({ path: 'notes/long.md' }, makeContext(pushed)); // no windowTokens
+
+        expect(pushed[0]).toContain('offset=50000');
     });
 });
 

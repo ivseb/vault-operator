@@ -17,6 +17,7 @@
 
 import { requestUrl } from 'obsidian';
 import type { Vault } from 'obsidian';
+import { waitWhileBusy, BACKGROUND_STARVATION_MS, BACKGROUND_POLL_MS } from './agentBusyGate';
 import type { CustomModel } from '../../types/settings';
 import type { KnowledgeDB } from '../knowledge/KnowledgeDB';
 import type { VectorStore } from '../knowledge/VectorStore';
@@ -277,6 +278,8 @@ export class SemanticIndexService {
 
     get isIndexed(): boolean { return this.builtAt !== null; }
     get building(): boolean { return this.isBuilding; }
+    /** True between cancelBuild() and the build loop actually exiting. */
+    get cancelling(): boolean { return this.cancelled && (this.isBuilding || this.enrichmentRunning); }
     get lastBuiltAt(): Date | null { return this.builtAt; }
 
     setEmbeddingModel(model: CustomModel | null): void {
@@ -319,6 +322,24 @@ export class SemanticIndexService {
     cancelEnrichment(): void {
         this.enrichmentCancelled = true;
         this.enrichmentAbortController?.abort();
+    }
+
+    /**
+     * IMP-01-04-03 (Lever A step 2): at a batch boundary, defer to a running
+     * agent task. The boot reindex + enrichment sidecar otherwise compete with
+     * the task for the model provider and the renderer thread. Capped by a
+     * starvation deadline so back-to-back tasks can never starve indexing.
+     * Only the resumable batch loops call this; scheduleFileIndex (freshness
+     * for a just-written note) is deliberately NOT gated.
+     */
+    private async awaitAgentIdle(isCancelled: () => boolean): Promise<void> {
+        const plugin = this.plugin;
+        if (!plugin) return;
+        await waitWhileBusy(() => plugin.isAgentBusy(), {
+            maxWaitMs: BACKGROUND_STARVATION_MS,
+            pollMs: BACKGROUND_POLL_MS,
+            isCancelled,
+        });
     }
 
     /** Restore state from checkpoint stored in the KnowledgeDB. */
@@ -517,12 +538,18 @@ export class SemanticIndexService {
                     this.progressIndexed = indexed;
                     onProgress?.(indexed, total);
 
-                    // Persist every N files: save DB to disk + yield UI
+                    // Persist every N files + yield UI. IMP-01-04-03 (Lever A):
+                    // coalesced save (2s-debounced via markDirty) instead of a
+                    // blocking 312MB db.export() per batch, which stalled the single
+                    // renderer thread mid agent-task (the [Violation] setTimeout
+                    // blocks). onunload/close still force-flushes.
                     if (uncommitted >= this.batchSize) {
                         this.saveCheckpointToDB(modelKey, indexed);
-                        await this.knowledgeDB.save();
+                        this.knowledgeDB.markDirty();
                         uncommitted = 0;
                         await new Promise<void>((r) => window.setTimeout(r, 0)); // yield
+                        // Lever A step 2: pause the boot reindex while a task runs.
+                        await this.awaitAgentIdle(() => this.cancelled);
                     }
                 } catch (e) {
                     errors++;
@@ -1210,6 +1237,10 @@ export class SemanticIndexService {
             };
 
             while (batch.length > 0 && !this.enrichmentCancelled) {
+                // Lever A step 2: pause the Haiku enrichment sidecar while an
+                // agent task is running so it does not compete for the provider.
+                await this.awaitAgentIdle(() => this.enrichmentCancelled);
+                if (this.enrichmentCancelled) break;
                 // Group chunks by path so we read each file only once
                 const byPath = new Map<string, typeof batch>();
                 for (const chunk of batch) {
@@ -1225,8 +1256,9 @@ export class SemanticIndexService {
                 await mapWithConcurrency([...byPath.entries()], FILE_CONCURRENCY, ([filePath, chunks]) =>
                     enrichOneFile(filePath, chunks));
 
-                // Persist progress periodically
-                await this.knowledgeDB.save();
+                // Persist progress periodically. IMP-01-04-03 (Lever A):
+                // coalesced save (markDirty), not a blocking per-batch export.
+                this.knowledgeDB.markDirty();
 
                 // Fetch next batch
                 batch = this.vectorStore.getUnenrichedChunks(BATCH_SIZE);
@@ -1564,10 +1596,12 @@ export class SemanticIndexService {
 
         console.debug(`[SemanticIndex] Embedding via SDK: ${model.provider} ${baseURL} model=${model.name} texts=${texts.length}`);
 
-        const response = await client.embeddings.create({
-            model: model.name,
-            input: texts,
-        });
+        // Pass the build's AbortController signal so cancelBuild() terminates
+        // the in-flight request instead of waiting up to 30s for it to return.
+        const response = await client.embeddings.create(
+            { model: model.name, input: texts },
+            { signal: this.abortController?.signal },
+        );
 
         const sorted = response.data.sort((a, b) => a.index - b.index);
         return sorted.map((d) => new Float32Array(d.embedding));

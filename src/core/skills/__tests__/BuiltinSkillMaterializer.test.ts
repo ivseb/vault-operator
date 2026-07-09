@@ -146,6 +146,45 @@ describe('BuiltinSkillMaterializer', () => {
         expect(skillMd).toMatch(/^---\n[\s\S]*?\nsource: builtin\n[\s\S]*?---/);
     });
 
+    it('preserves source: pro for a premium skill (monetization tag survives materialization)', async () => {
+        // IMP-01-09-01 follow-up: pro-skills ship in the same private bundle
+        // and must materialize so the loader picks them up, but the `pro`
+        // tag has to survive so a future licence mechanism can identify them.
+        const bundle = {
+            'meeting-summary': {
+                'SKILL.md': '---\nname: meeting-summary\ndescription: Test\nsource: pro\n---\n\nBody\n',
+            },
+        };
+
+        await materializer.materializeAll(bundle);
+        const skillMd = stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md');
+        expect(skillMd).toMatch(/^---\n[\s\S]*?\nsource: pro\n[\s\S]*?---/);
+        expect(skillMd).not.toContain('source: builtin');
+    });
+
+    it('overwrites an existing on-disk source: pro skill (our managed pro skill, not a plugin override)', async () => {
+        // The stale on-disk copy from before the migration carries source: pro.
+        // A new bundle version must overwrite it, otherwise a skill update
+        // could never reach the runtime.
+        stub.files.set(
+            '.vault-operator/data/skills/meeting-summary/SKILL.md',
+            '---\nname: meeting-summary\ndescription: Stale\nsource: pro\n---\n\nOld body with evaluate_expression\n',
+        );
+        const bundle = {
+            'meeting-summary': {
+                'SKILL.md': '---\nname: meeting-summary\ndescription: Fresh\nsource: pro\n---\n\nNew body with set_block_anchors\n',
+            },
+        };
+
+        const report = await materializer.materializeAll(bundle);
+
+        expect(report.written).toEqual(['meeting-summary']);
+        expect(report.skipped).toEqual([]);
+        const skillMd = stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md');
+        expect(skillMd).toContain('set_block_anchors');
+        expect(skillMd).not.toContain('evaluate_expression');
+    });
+
     it('writes nested scripts/, references/, assets/ files', async () => {
         const bundle = {
             'office-workflow': {

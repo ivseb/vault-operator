@@ -32,3 +32,16 @@ export const DEFAULT_ROLLING_SUMMARY_THRESHOLD = 50;
  */
 export const MICROCOMPACT_MIN_FREED_TOKENS = 3000;
 export const MICROCOMPACT_PRESSURE_CEILING = 0.75;
+
+/**
+ * IMP-01-04-03: below this much free headroom the microcompactor does NOT
+ * prune, no matter how large the free. The absolute 3000-token floor above was
+ * window-blind: on a 1M-context model with ~920k free tokens it still pruned a
+ * just-read 12k-token transcript, which the model then re-read -- the dominant
+ * turn multiplier for /meeting-summary. Pruning only earns its prompt-cache
+ * rebuild once the context is genuinely filling up (headroom <= this fraction),
+ * at which point the FIX-COMPACT-09 economy floor and the 80% condense catch
+ * take over. Tunable single knob; do not push above ~0.85 or the high-headroom
+ * re-read protection stops firing.
+ */
+export const MICROCOMPACT_MIN_HEADROOM_FRACTION = 0.5;

@@ -5,6 +5,26 @@ import { safeRegex } from '../../utils/safeRegex';
 
 const MAX_RESULTS = 50;
 const MAX_FILES_TO_SCAN = 500;
+/**
+ * Max chars echoed for a single match line. ASR transcripts have "lines"
+ * that run to ~13k chars, so echoing the whole matched line dumped the
+ * file into the result (live incident 2026-07-08: 23 anchor hits =
+ * 115,666 chars, externalized + re-read in 50k chunks). A hit is shown
+ * as a context window around the match instead.
+ */
+const MAX_MATCH_LINE_CHARS = 240;
+const MATCH_CONTEXT_BEFORE = 80;
+
+/** Show a match line trimmed to a window around the hit; ellipsis marks truncation. */
+function clampMatchLine(line: string, matchIndex: number): string {
+    const trimmed = line.trim();
+    if (trimmed.length <= MAX_MATCH_LINE_CHARS) return trimmed;
+    const start = Math.max(0, matchIndex - MATCH_CONTEXT_BEFORE);
+    const end = Math.min(line.length, start + MAX_MATCH_LINE_CHARS);
+    const prefix = start > 0 ? '…' : '';
+    const suffix = end < line.length ? '…' : '';
+    return `${prefix}${line.slice(start, end).trim()}${suffix}`;
+}
 
 export class SearchFilesTool extends BaseTool<'search_files'> {
     readonly name = 'search_files' as const;
@@ -92,8 +112,12 @@ export class SearchFilesTool extends BaseTool<'search_files'> {
                 const fileMatches: string[] = [];
 
                 for (let i = 0; i < lines.length; i++) {
-                    if (regex.test(lines[i])) {
-                        fileMatches.push(`  L${i + 1}: ${lines[i].trim()}`);
+                    // exec (not test) so we know WHERE the hit is and can show a
+                    // context window instead of the whole (possibly huge) line.
+                    regex.lastIndex = 0;
+                    const m = regex.exec(lines[i]);
+                    if (m) {
+                        fileMatches.push(`  L${i + 1}: ${clampMatchLine(lines[i], m.index)}`);
                         totalMatches++;
                         if (totalMatches >= MAX_RESULTS) break;
                     }
