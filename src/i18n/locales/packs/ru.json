@@ -536,6 +536,8 @@
   "settings.interface.autoAddActiveNoteDesc": "Автоматически прикреплять открытую в редакторе заметку к каждому отправляемому сообщению. Агент сможет видеть её содержимое и ссылаться на него.",
   "settings.interface.sendWithEnter": "Отправка по Enter",
   "settings.interface.sendWithEnterDesc": "Нажмите Enter, чтобы отправить сообщение (Shift+Enter для переноса строки). Если выключено, используйте Ctrl+Enter (или Cmd+Enter на Mac) для отправки.",
+  "settings.interface.persistChatModel": "Запоминать выбранную модель",
+  "settings.interface.persistChatModelDesc": "Сохраняет выбранную модель чата между перезапусками и новыми чатами. Если выключено, выбор каждый раз открывается на Auto.",
   "settings.interface.includeTime": "Включать текущее время суток в контекст",
   "settings.interface.includeTimeDesc": "Текущая дата всегда передаётся агенту. Включите, чтобы также передавать точное время суток. По умолчанию выключено: время меняется при каждом запросе и ломает кеширование промптов, что повышает стоимость длинных разговоров.",
   "settings.interface.historyFolder": "Папка истории чата",

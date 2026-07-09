@@ -199,6 +199,12 @@ export interface SubtaskSpawnOverrides {
     maxIterations?: number;
     /** Restrict the child's tool schema to this allowlist. */
     allowedTools?: ToolName[];
+    /**
+     * Issue #54.4.1: run the child on a specific configured model, given as a
+     * model key "name|provider". Resolved against providerConfigs; wins over a
+     * profile tier override. Ignored (parent api) when the key is unknown.
+     */
+    modelKey?: string;
 }
 
 /**

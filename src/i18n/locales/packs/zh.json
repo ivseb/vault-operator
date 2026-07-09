@@ -536,6 +536,8 @@
   "settings.interface.autoAddActiveNoteDesc": "自动将编辑器中打开的笔记附加到你发送的每条消息。代理可以查看并引用其内容。",
   "settings.interface.sendWithEnter": "按 Enter 发送",
   "settings.interface.sendWithEnterDesc": "按 Enter 发送消息（Shift+Enter 换行）。关闭后，使用 Ctrl+Enter（Mac 上为 Cmd+Enter）发送。",
+  "settings.interface.persistChatModel": "记住所选模型",
+  "settings.interface.persistChatModelDesc": "在重启和新对话之间保留所选的聊天模型。关闭时，选择器每次都以 Auto 打开。",
   "settings.interface.includeTime": "在上下文中包含当前时间",
   "settings.interface.includeTimeDesc": "当前日期始终会提供给代理。开启后还会包含精确的当天时间。默认关闭：时间在每次请求时都会变化，会破坏 Prompt 缓存，从而增加长对话的成本。",
   "settings.interface.historyFolder": "聊天历史文件夹",

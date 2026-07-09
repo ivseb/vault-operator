@@ -614,6 +614,8 @@ export const en = {
     'settings.interface.autoAddActiveNoteDesc': 'Automatically attach the note you have open in the editor to every message you send. The agent can see and reference its content.',
     'settings.interface.sendWithEnter': 'Send with enter',
     'settings.interface.sendWithEnterDesc': 'Press Enter to send a message (Shift+Enter for a line break). When off, use Ctrl+Enter (or Cmd+Enter on Mac) to send.',
+    'settings.interface.persistChatModel': 'Remember selected model',
+    'settings.interface.persistChatModelDesc': 'Keep the chat model you pick across restarts and new chats. When off, the picker opens on auto each time.',
     'settings.interface.includeTime': 'Include the current time of day in context',
     'settings.interface.includeTimeDesc': 'The current date is always given to the agent. Turn this on to also include the exact time of day. Off by default: the time changes on every request and defeats prompt caching, which raises cost on long conversations.',
     'settings.interface.historyFolder': 'Chat history folder',

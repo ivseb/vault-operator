@@ -3,6 +3,7 @@ import type { ProviderConfig } from '../../../types/settings';
 import {
     buildChatModelDropdownOptions,
     resolveOverrideModel,
+    resolveStickyChatModel,
 } from '../chatModelDropdown';
 
 function makeProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
@@ -122,5 +123,34 @@ describe('resolveOverrideModel (EPIC-26 / FEAT-26-05)', () => {
 
     it('returns null for unknown id', () => {
         expect(resolveOverrideModel(makeProvider(), 'ghost')).toBeNull();
+    });
+});
+
+describe('resolveStickyChatModel (Issue #54.3)', () => {
+    const map = { 'anthropic-main': 'claude-sonnet-4-6' };
+
+    it('returns the saved model id when it still exists on the provider', () => {
+        expect(resolveStickyChatModel(makeProvider(), map, 'anthropic-main', true)).toBe('claude-sonnet-4-6');
+    });
+
+    it('returns null when persistence is disabled', () => {
+        expect(resolveStickyChatModel(makeProvider(), map, 'anthropic-main', false)).toBeNull();
+    });
+
+    it('returns null when the saved model was deprovisioned', () => {
+        const provider = makeProvider({
+            discoveredModels: [{ id: 'claude-opus-4-6', displayName: 'Opus 4.6', autoTier: 'flagship' }],
+        });
+        expect(resolveStickyChatModel(provider, map, 'anthropic-main', true)).toBeNull();
+    });
+
+    it('returns null when no provider is active', () => {
+        expect(resolveStickyChatModel(null, map, 'anthropic-main', true)).toBeNull();
+    });
+
+    it('returns null when there is no entry for the active provider', () => {
+        expect(resolveStickyChatModel(makeProvider(), map, 'other-provider', true)).toBeNull();
+        expect(resolveStickyChatModel(makeProvider(), map, null, true)).toBeNull();
+        expect(resolveStickyChatModel(makeProvider(), undefined, 'anthropic-main', true)).toBeNull();
     });
 });

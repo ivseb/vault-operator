@@ -536,6 +536,8 @@
   "settings.interface.autoAddActiveNoteDesc": "편집기에서 열려 있는 노트를 보내는 모든 메시지에 자동으로 첨부합니다. 에이전트가 그 내용을 보고 참조할 수 있습니다.",
   "settings.interface.sendWithEnter": "Enter로 보내기",
   "settings.interface.sendWithEnterDesc": "Enter 키로 메시지를 보냅니다(줄 바꿈은 Shift+Enter). 끄면 Ctrl+Enter(Mac에서는 Cmd+Enter)로 보냅니다.",
+  "settings.interface.persistChatModel": "선택한 모델 기억",
+  "settings.interface.persistChatModelDesc": "선택한 채팅 모델을 재시작과 새 채팅에서도 유지합니다. 끄면 선택기가 매번 Auto로 열립니다.",
   "settings.interface.includeTime": "현재 시각을 컨텍스트에 포함",
   "settings.interface.includeTimeDesc": "현재 날짜는 항상 에이전트에게 전달됩니다. 이 옵션을 켜면 정확한 시각도 함께 포함됩니다. 기본값은 꺼짐입니다: 시각이 요청마다 바뀌어 프롬프트 캐싱이 무효화되고 긴 대화에서 비용이 늘어납니다.",
   "settings.interface.historyFolder": "채팅 기록 폴더",

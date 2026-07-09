@@ -16,7 +16,8 @@ import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
-import { resolveOverrideModel } from './sidebar/chatModelDropdown';
+import { resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
+import { shouldSendOnEnter } from './sidebar/composerKeymap';
 import {
     DEFAULT_THINKING_OVERRIDE,
     isExplicitThinkingOverride,
@@ -667,15 +668,15 @@ export class AgentSidebarView extends ItemView {
                 return;
             }
 
-            if (e.key === 'Enter') {
-                const sendWithEnter = this.plugin.settings.sendWithEnter ?? true;
-                if (sendWithEnter && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                    e.preventDefault();
-                    void this.handleSendMessage();
-                } else if (!sendWithEnter && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    void this.handleSendMessage();
-                }
+            // Issue #54.1: shared send-decision. Ctrl/Cmd+Enter always sends
+            // (universal accelerator, fixes Windows where it was a no-op),
+            // plain Enter sends only when sendWithEnter is on; Shift+Enter and
+            // IME composition insert a newline.
+            const sendWithEnter = this.plugin.settings.sendWithEnter ?? true;
+            if (shouldSendOnEnter(e, sendWithEnter)) {
+                e.preventDefault();
+                this.autocomplete.hide(); // close any open dropdown after a modifier-send
+                void this.handleSendMessage();
             }
         });
 
@@ -751,6 +752,7 @@ export class AgentSidebarView extends ItemView {
             cls: 'toolbar-button model-button',
             attr: { 'aria-label': t('ui.sidebar.selectModel') },
         });
+        this.restoreChatModelOverride(); // Issue #54.3: sticky model on view open
         this.updateModelButton();
         this.modelButton.addEventListener('click', (e) => this.showModelMenu(e));
 
@@ -1150,6 +1152,36 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * Issue #54.3: persist the chat-header model override for the active
+     * provider so it survives restarts and new chats. No-op when
+     * persistChatModel is off; null (Auto) clears the stored entry.
+     */
+    private async persistChatModelOverride(overrideId: string | null): Promise<void> {
+        if (!this.plugin.settings.persistChatModel) return;
+        const pid = this.plugin.settings.activeProviderId;
+        if (!pid) return;
+        const map = this.plugin.settings.lastChatModelByProvider ?? {};
+        if (overrideId === null) delete map[pid];
+        else map[pid] = overrideId;
+        this.plugin.settings.lastChatModelByProvider = map;
+        await this.plugin.saveSettings();
+    }
+
+    /**
+     * Issue #54.3: restore the sticky chat-header model for the active provider.
+     * Falls back to Auto (null) when persistence is off, no provider is active,
+     * or the saved model no longer exists on the provider.
+     */
+    private restoreChatModelOverride(): void {
+        this.chatModelOverride = resolveStickyChatModel(
+            resolveActiveProvider(this.plugin.settings),
+            this.plugin.settings.lastChatModelByProvider,
+            this.plugin.settings.activeProviderId,
+            this.plugin.settings.persistChatModel,
+        );
+    }
+
+    /**
      * EPIC-26 / FEAT-26-05: searchable popover when a provider is active.
      * Bedrock and OpenRouter routinely list 50+ models -- a plain Menu
      * was not scrollable enough; ChatModelPickerPopover adds a filter
@@ -1172,6 +1204,7 @@ export class AgentSidebarView extends ItemView {
                 if (overrideId === null) {
                     this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
                 }
+                void this.persistChatModelOverride(overrideId); // Issue #54.3
                 this.updateModelButton();
             },
             getThinking: () => this.chatThinkingOverride,
@@ -1203,9 +1236,10 @@ export class AgentSidebarView extends ItemView {
                 void (async () => {
                     if (id === this.plugin.settings.activeProviderId) return;
                     this.plugin.settings.activeProviderId = id;
-                    // A pinned model belongs to the previous provider; reset to Auto
-                    // so a stale model id never reaches the newly active provider.
-                    this.chatModelOverride = null;
+                    // Issue #54.3: load the newly active provider's sticky model
+                    // (or Auto). A pinned id from the previous provider must never
+                    // reach the new one, so resolve against the new provider.
+                    this.restoreChatModelOverride();
                     this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
                     await this.plugin.saveSettings();
                     this.updateModelButton();
@@ -3401,11 +3435,9 @@ export class AgentSidebarView extends ItemView {
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
-        // Reset the per-conversation chat-header overrides so a pinned model,
-        // forced thinking, or a chosen effort level does not leak into the next
-        // conversation. The state-field comments claim a fresh-chat reset; this
-        // is where that reset actually happens.
-        this.chatModelOverride = null;
+        // Issue #54.3: the model override is sticky (survives a fresh chat);
+        // thinking + effort stay per-conversation and reset here.
+        this.restoreChatModelOverride();
         this.chatThinkingOverride = DEFAULT_THINKING_OVERRIDE;
         this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
         this.updateModelButton();

@@ -16,6 +16,7 @@ import type { CustomModel, ProviderType } from '../../../types/settings';
 import { getModelKey, BUILT_IN_MODELS, getDefaultBaseUrlForProvider } from '../../../types/settings';
 import { buildApiHandlerForModel } from '../../../api/index';
 import { validateProviderUrl } from '../../../api/providers/providerUrlGuard';
+import { expandProviderConfigsToCustomModels } from '../../settings/expandProviderConfigs';
 
 export class ConfigureModelTool extends BaseTool<'configure_model'> {
     readonly name = 'configure_model' as const;
@@ -34,7 +35,8 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
         return {
             name: 'configure_model',
             description:
-                'Add, select, or test an LLM model. ' +
+                'List, add, select, or test an LLM model. ' +
+                'Use action "list" to see the models you already have configured (name|provider keys). ' +
                 'Use action "add" to configure a new model with API key. ' +
                 'Use action "select" to switch the active model. ' +
                 'Use action "test" to verify API connectivity. ' +
@@ -45,7 +47,7 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
                 properties: {
                     action: {
                         type: 'string',
-                        enum: ['add', 'select', 'test'],
+                        enum: ['list', 'add', 'select', 'test'],
                         description: 'Action to perform',
                     },
                     provider: {
@@ -86,19 +88,45 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
         try {
             if (action === 'add') {
                 await this.handleAdd(input, callbacks);
+            } else if (action === 'list') {
+                this.handleList(callbacks);
             } else if (action === 'select') {
                 await this.handleSelect(input, callbacks);
             } else if (action === 'test') {
                 await this.handleTest(input, callbacks);
             } else {
                 callbacks.pushToolResult(this.formatError(new Error(
-                    `Unknown action: "${action}". Use "add", "select", or "test".`
+                    `Unknown action: "${action}". Use "list", "add", "select", or "test".`
                 )));
             }
         } catch (error) {
             callbacks.pushToolResult(this.formatError(error));
             await callbacks.handleError('configure_model', error);
         }
+    }
+
+    /**
+     * Issue #54.4b: the canonical model universe after the EPIC-26 migration
+     * lives in providerConfigs[]; activeModels[] is emptied on migration. All
+     * agent-facing lookups resolve against this bridge instead of the dead array.
+     */
+    private getConfiguredModels(): CustomModel[] {
+        return expandProviderConfigsToCustomModels(this.plugin.settings.providerConfigs ?? []);
+    }
+
+    private handleList(callbacks: import('../types').ToolCallbacks): void {
+        const models = this.getConfiguredModels();
+        if (models.length === 0) {
+            callbacks.pushToolResult(
+                'No models configured. Add one in Settings > Providers, or use action "add".'
+            );
+            return;
+        }
+        const lines = models.map(
+            (m) => `- ${getModelKey(m)} (${m.displayName ?? m.name}, provider: ${m.provider})`
+        );
+        callbacks.pushToolResult(`Configured models (${models.length}):\n${lines.join('\n')}`);
+        callbacks.log(`configure_model: listed ${models.length} models`);
     }
 
     private async handleAdd(input: Record<string, unknown>, callbacks: import('../types').ToolCallbacks): Promise<void> {
@@ -200,28 +228,19 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
             return;
         }
 
-        const model = this.plugin.settings.activeModels.find(
-            (m) => getModelKey(m) === modelKey
-        );
+        // Issue #54.4b: resolve against providerConfigs (the post-migration
+        // store); expandProviderConfigsToCustomModels only yields enabled
+        // provider models, so a separate disabled-model branch is unnecessary.
+        const models = this.getConfiguredModels();
+        const model = models.find((m) => getModelKey(m) === modelKey);
 
         if (!model) {
-            const available = this.plugin.settings.activeModels
-                .filter((m) => m.enabled)
+            const available = models
                 .map((m) => `${getModelKey(m)} (${m.displayName ?? m.name})`)
                 .join(', ');
             callbacks.pushToolResult(this.formatError(new Error(
-                `Model "${modelKey}" not found in active models. Available: ${available || 'none configured'}`
-            )));
-            return;
-        }
-
-        if (!model.enabled) {
-            const available = this.plugin.settings.activeModels
-                .filter((m) => m.enabled)
-                .map((m) => `${getModelKey(m)} (${m.displayName ?? m.name})`)
-                .join(', ');
-            callbacks.pushToolResult(this.formatError(new Error(
-                `Model "${model.displayName ?? model.name}" is disabled. Enable it in Settings first, or choose from: ${available || 'none configured'}`
+                `Model "${modelKey}" not found. Available: ${available || 'none configured'}. `
+                + 'Use action "list" to see configured models.'
             )));
             return;
         }
@@ -243,13 +262,12 @@ export class ConfigureModelTool extends BaseTool<'configure_model'> {
             return;
         }
 
-        const model = this.plugin.settings.activeModels.find(
-            (m) => getModelKey(m) === modelKey
-        );
+        // Issue #54.4b: resolve against providerConfigs (post-migration store).
+        const model = this.getConfiguredModels().find((m) => getModelKey(m) === modelKey);
 
         if (!model) {
             callbacks.pushToolResult(this.formatError(new Error(
-                `Model "${modelKey}" not found in active models`
+                `Model "${modelKey}" not found. Use action "list" to see configured models.`
             )));
             return;
         }

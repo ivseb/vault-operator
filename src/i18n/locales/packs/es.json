@@ -536,6 +536,8 @@
   "settings.interface.autoAddActiveNoteDesc": "Adjunta automáticamente la nota que tienes abierta en el editor a cada mensaje que envías. El agente puede ver y referenciar su contenido.",
   "settings.interface.sendWithEnter": "Enviar con Enter",
   "settings.interface.sendWithEnterDesc": "Pulsa Enter para enviar un mensaje (Shift+Enter para un salto de línea). Si está desactivado, usa Ctrl+Enter (o Cmd+Enter en Mac) para enviar.",
+  "settings.interface.persistChatModel": "Recordar el modelo seleccionado",
+  "settings.interface.persistChatModelDesc": "Mantiene el modelo de chat elegido entre reinicios y chats nuevos. Cuando está desactivado, el selector se abre en Auto cada vez.",
   "settings.interface.includeTime": "Incluir la hora actual del día en el contexto",
   "settings.interface.includeTimeDesc": "La fecha actual siempre se le da al agente. Activa esto para incluir también la hora exacta del día. Desactivado por defecto: la hora cambia en cada solicitud y anula la caché de prompts, lo que aumenta el coste en conversaciones largas.",
   "settings.interface.historyFolder": "Carpeta del historial del chat",

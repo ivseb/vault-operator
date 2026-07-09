@@ -536,6 +536,8 @@
   "settings.interface.autoAddActiveNoteDesc": "エディタで開いているノートを、送信するすべてのメッセージに自動的に添付します。エージェントはその内容を参照できます。",
   "settings.interface.sendWithEnter": "Enterで送信",
   "settings.interface.sendWithEnterDesc": "Enterキーでメッセージを送信します(改行はShift+Enter)。オフの場合はCtrl+Enter(MacではCmd+Enter)で送信します。",
+  "settings.interface.persistChatModel": "選択したモデルを記憶する",
+  "settings.interface.persistChatModelDesc": "選択したチャットモデルを再起動や新しいチャットをまたいで保持します。オフの場合、選択画面は毎回 Auto で開きます。",
   "settings.interface.includeTime": "現在の時刻をコンテキストに含める",
   "settings.interface.includeTimeDesc": "現在の日付は常にエージェントに渡されます。オンにすると正確な時刻も含まれます。デフォルトはオフです: 時刻はリクエストごとに変わるためプロンプトキャッシュが無効になり、長い会話でコストが増加します。",
   "settings.interface.historyFolder": "チャット履歴フォルダ",
