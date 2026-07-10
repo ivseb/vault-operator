@@ -33,18 +33,17 @@ import { TokenEstimator } from './context/TokenEstimator';
 import { stripPrunedForCondense } from './context/stripPrunedForCondense';
 import { filterShadowedBuiltins } from './tools/shadowedByPlugin';
 import { isDeferredTool } from './tools/toolMetadata';
-import { getSubagentProfile, listSubagentProfileNames } from './agent/subagent-profiles';
+import { getSubagentProfile } from './agent/subagent-profiles';
 import { decideLoopErrorAction } from './agent/loopErrorPolicy';
 import { initLoopStateForRun } from './agent/LoopState';
 import { AgentLoopEngine, type CondensePorts } from './agent/AgentLoopEngine';
 import { TodoAnchorInterceptor } from './agent/interceptors/TodoAnchorInterceptor';
 import { RouterEscalationInterceptor } from './agent/interceptors/RouterEscalationInterceptor';
 import { FastPathInterceptor } from './agent/interceptors/FastPathInterceptor';
-import { StigmergyInterceptor } from './agent/interceptors/StigmergyInterceptor';
 import { PowerSteeringInterceptor } from './agent/interceptors/PowerSteeringInterceptor';
 import { AdvisorReminderInterceptor } from './agent/interceptors/AdvisorReminderInterceptor';
 import { abortableDelay, parseOutputCapLimit } from '../api/retry';
-import { resolveOutputBudget } from '../types/model-registry';
+import { resolveOutputBudget, getModelContextWindow as registryContextWindow } from '../types/model-registry';
 import { learnOutputCap } from './agent/LearnedCapsStore';
 import { requestRateLimiter } from '../api/RequestRateLimiter';
 import { getHelperApi } from './helper-api';
@@ -52,14 +51,9 @@ import { addUsage, mergeUsageByModel, type UsageByModel } from './pricing/ModelP
 import { shouldRunTaskRouter } from './routing/TaskRouter';
 import { resolveLeanFlags } from './prompts/leanFlags';
 import { buildApiHandlerForModel } from '../api';
+import { getModelKey } from '../types/settings';
+import { expandProviderConfigsToCustomModels } from './settings/expandProviderConfigs';
 import { CompositionStackService } from './skills/CompositionStackService';
-import {
-    stigmergyPromptOf,
-    stigmergySubagentId,
-    type CapabilityDescriptor,
-    type McpCapabilityDescriptor,
-    type StigmergyTurn,
-} from './stigmergy/StigmergyAdapter';
 import { getPerformanceMarks } from './observability/PerformanceMarks';
 import {
     DEFAULT_CONDENSING_ENABLED,
@@ -68,6 +62,7 @@ import {
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
     MICROCOMPACT_MIN_FREED_TOKENS,
     MICROCOMPACT_PRESSURE_CEILING,
+    MICROCOMPACT_MIN_HEADROOM_FRACTION,
 } from './condensingDefaults';
 
 /** FEAT-29-10: max composition-stack depth (skill -> skill / mcp chains). */
@@ -192,12 +187,11 @@ export interface AgentTaskCallbacks {
     onCheckpoint?: (checkpoint: import('./checkpoints/GitCheckpointService').CheckpointInfo) => void;
     /**
      * Called once per task in the finally-block with the complete episode
-     * payload (FEAT-32-02 PR 2.2 / ADR-133). Replaces the pre-FEAT-32-02
-     * success-only shape -- the callback now fires for every exit path
+     * payload (ADR-133). The callback fires for every exit path
      * (success, iteration-cap, abort, error) so RecipePromotion sees the
      * full picture. Fields:
      *   - toolSequence / toolLedger: existing ADR-018 payload.
-     *   - success: true when `stigmergyOutcome === 'accept'` AND
+     *   - success: true when `turnOutcome === 'accept'` AND
      *     `mistakesEncountered === 0` AND (`attemptCompletionFired` OR
      *     the turn was a clean natural exit -- streamed text, used at
      *     least one tool, no errors, no iteration-cap hit). The natural-
@@ -206,7 +200,9 @@ export interface AgentTaskCallbacks {
      *   - mistakesEncountered: total tool errors during the loop.
      *   - attemptCompletionFired: whether the model called attempt_completion.
      *   - fastPathFired: whether the ADR-061 FastPath block ran successfully.
-     *   - stigmergy: Stigmergy decision snapshot for this turn (ADR-133).
+     *   - recipeWinner: RecipeStore id of the recipe FastPath executed this
+     *     turn, or null. Feeds the recipe-win gate in RecipePromotionService
+     *     (success-count bump instead of duplicate promotion).
      */
     onEpisodeData?: (data: {
         toolSequence: string[];
@@ -215,7 +211,7 @@ export interface AgentTaskCallbacks {
         mistakesEncountered: number;
         attemptCompletionFired: boolean;
         fastPathFired: boolean;
-        stigmergy?: import('./mastery/EpisodicExtractor').EpisodeStigmergySnapshot;
+        recipeWinner: string | null;
     }) => void;
     /** Called before context condensing to flush important facts to memory (Phase 5) */
     onPreCompactionFlush?: (history: MessageParam[]) => Promise<void>;
@@ -523,6 +519,7 @@ export class AgentTask {
             wouldFreeTokens: wouldFree,
             pressureCeiling: MICROCOMPACT_PRESSURE_CEILING,
             minFreedTokens: MICROCOMPACT_MIN_FREED_TOKENS,
+            minHeadroomFraction: MICROCOMPACT_MIN_HEADROOM_FRACTION,
         })) {
             if (probe.prunedBlocks > 0) {
                 console.debug(
@@ -622,129 +619,14 @@ export class AgentTask {
         // contribute to it. Pipeline mutates on each successful read.
         const readFiles = new Set<string>();
 
-        // Stigmergy observability turn, since contract v2 as an interceptor --
-        // consult BEFORE the user message is pushed to history, so
-        // pathGuidance can be appended cache-safely (the cached prefix is
-        // system + tools schema; the messages tail is not cached). The full
-        // Phase-1 and VO/Stigmergy contract docs (registration-superset ==
-        // consult-set, four namespaced surfaces, recall-not-selector) live
-        // in StigmergyInterceptor.ts; the ports below are thin host
-        // accessors and enumeration failures stay non-fatal inside the
-        // interceptor.
-        const pluginForStigmergy = this.toolRegistry.plugin as unknown as {
-            selfAuthoredSkillLoader?: { getAllSkills(): Array<{ name: string; description: string }> };
-            skillsManager?: { discoverSkills(): Promise<Array<{ name: string; description: string }>> };
-        };
-        const stigmergyInterceptor = new StigmergyInterceptor({
-            taskId,
-            getTurnPrompt: () => stigmergyPromptOf(userMessage),
-            getRegisteredTools: () => this.toolRegistry.getToolDefinitions(),
-            getSelfAuthoredSkills: () => pluginForStigmergy.selfAuthoredSkillLoader?.getAllSkills() ?? [],
-            discoverUserSkills: () => pluginForStigmergy.skillsManager?.discoverSkills(),
-            getMcpTools: () => {
-                if (!mcpClient) return [];
-                const allowed = allowedMcpServers;
-                const serverAllowed = (name: string): boolean =>
-                    !allowed || allowed.length === 0 || allowed.includes(name);
-                const list: McpCapabilityDescriptor[] = [];
-                for (const { serverName, tool } of mcpClient.getAllTools()) {
-                    if (!serverAllowed(serverName)) continue;
-                    list.push({
-                        server: serverName,
-                        name: tool.name,
-                        description: tool.description ?? '',
-                    });
-                }
-                return list;
-            },
-            getSubagentProfiles: () => listSubagentProfileNames()
-                .map((name) => {
-                    const p = getSubagentProfile(name);
-                    return p ? { name: p.name, description: p.description } : null;
-                })
-                .filter((x): x is CapabilityDescriptor => x !== null),
-        });
-        await stigmergyInterceptor.onRunStart({
-            history,
-            userMessageText: typeof userMessage === 'string' ? userMessage : '',
-            abortSignal,
-        });
-        const stigmergyTurn: StigmergyTurn = stigmergyInterceptor.getTurn();
-        // Bind the turn to the per-task pipeline so the single-tool dispatch
-        // point can emit capability_invoked / capability_returned around
-        // tool.execute(). Without this, the daemon only sees START->tool
-        // (from capability_loaded) and never tool->tool edges.
-        pipeline.setStigmergyTurn(stigmergyTurn);
-
-        // VO/Stigmergy contract: outcome grading (Cooperation Building Block 1).
-        // The finally below MUST grade the turn, not unconditionally accept
-        // it. A flailing run that ended in find_tool / tool errors must not
-        // reinforce the same path the same way a clean attempt_completion
-        // does -- otherwise consult would learn to recommend bad shortcuts.
-        // Resolution rules (first matching wins, defaults to 'abandon'):
-        //   - clean attempt_completion, no abort/error -> 'accept'
-        //   - normal end without attempt_completion (iteration cap, hard
-        //     limit recovery, model stopped early)             -> 'iterate'
-        //   - abort, thrown error, circuit-breaker trip,
-        //     network/API failure                              -> 'abandon'
-        // Set at the three return sites in run(); the finally reads it.
         // IMP-41-02-01a / ADR-145: explicit serializable loop state replaces
         // the ~20 closure variables this function previously accumulated.
         const loopState = initLoopStateForRun(config.resumeState);
-        // FIX 2026-06-09 (Stigmergy substrate starvation RCA): a turn
-        // graded 'iterate' previously called stigmergyTurn.iterate(),
-        // which the upstream loop SDK uses to CANCEL the daemon's auto-
-        // accept timer AND leak the response buffer without depositing
-        // any edges in the substrate. With the prompt explicitly
-        // forbidding attempt_completion for read-only / question tasks
-        // (toolRules.ts:19, toolRouting.ts:33, AttemptCompletionTool.ts
-        // description), every clean read-only turn ended on 'iterate'
-        // and the substrate accumulated zero edges -- so no pin could
-        // ever form and no RecipePromotion shortcut could ever fire.
-        // The grading is now binary: a clean natural exit (streamed
-        // text, no errors, didn't hit the cap) is reinforcement-worthy
-        // (accept). Iteration-cap and error exits are negative evidence
-        // (abandon). The 'iterate' state is gone.
 
-        // pathGuidance: when Stigmergy has a pinned sequence or pinned-set for
-        // this task, append the hint as an extra text block on the SAME user
-        // message. Two consecutive role:'user' messages would violate the
-        // Anthropic alternation contract, so we merge into one. The text is
-        // appended at the END of the content array, after the cached system +
-        // tools schema, so the prompt cache stays valid. The interceptor's
-        // four-surface descOf map resolves pinned `skill:*` / `mcp:*` /
-        // `subagent:*` ids to readable descriptions.
-        const guidance = stigmergyInterceptor.getGuidance();
-        // STIGMERGY-PRECEDENCE-ANCHOR (FEAT-32-03 PR 3.3 / ADR-131 / ADR-062):
-        // this region is where the precedence rule lives. Cross-references:
-        //   - Doc: arc42 Sektion 8.16 (Stigmergy als externer Recall-Layer)
-        //   - Helpers: src/core/stigmergy/precedenceResolver.ts (pure, tested)
-        //   - Pipeline gate: src/core/stigmergy/stigmergyEmitGate.ts
-        //   - Promotion gates: src/core/mastery/RecipePromotionService.ts:55
-        // INVARIANTS (do not break without updating arc42 + ADR-131):
-        //   1. recipesSection stays in the cached System-Prompt-Prefix.
-        //   2. guidance.text appends only at the User-Message-Tail.
-        //   3. guidance.path is always honoured for deferred-tool Pre-Activation.
-        //   4. FastPath-Erfolg suppressed guidance.text (no double-hint).
-        //   5. stigmergyDecisionSnapshot is closure-local; never leaks to subagents.
-        // FEAT-32-01 PR 1.3 / ADR-131: precedence resolver. The user message
-        // push moves DOWN to AFTER the FastPath block so we can decide whether
-        // to append guidance.text only once the FastPath outcome is known.
-        // guidance.path stays in scope for Pre-Activation (kept below); only
-        // the textual hint is gated against Recipe + FastPath success.
-        // (Contract v2: the FastPath outcome lives in the interceptor's
-        // accessors -- fired(), getRecipeWinnerId(), getHistoryEntries().)
-        const stigmergyGuidanceText = guidance.text;
         // FEAT-32-02 PR 2.2: hoisted detector so FastPath can feed it via
         // `recordForEpisodeOnly` BEFORE the main loop opens. Originally
         // declared in the main-loop-prep block ~150 lines below.
         const repetitionDetector = new ToolRepetitionDetector();
-        // Phase 2 hook (intentionally inert): once we trust the ranking, swap
-        // the candidate set to `stigmergyTurn.surfaced` here, gated behind a
-        // user setting. Phase 1 keeps the full tool list so the daemon can
-        // learn from the unbiased baseline.
-        // const useSurfacedOnly = false;
-        // if (useSurfacedOnly && stigmergyTurn.surfaced.length > 0) { ... }
 
         // v2.10.0: TaskRouter, since contract v2 as an interceptor. Only
         // runs for the top-level task (subtasks inherit the parent's api);
@@ -856,45 +738,13 @@ export class AgentTask {
             abortSignal,
         });
 
-        // FEAT-32-01 PR 1.3 / ADR-131: precedence resolver. Decide guidance.text
-        // suppression now that the FastPath outcome is known, then push:
-        //   1) the user message (with conditional guidance.text)
-        //   2) the FastPath history entries (assistant + tool_results + hint)
-        // This order keeps the cached system-prompt-prefix invariant (ADR-062)
-        // and ensures the agent never sees the recipesSection + guidance.text
-        // double-hint when FastPath fired.
-        const { resolveStigmergyPrecedence, appendGuidanceText, buildStigmergyDecisionSnapshot } =
-            await import('./stigmergy/precedenceResolver');
-        const precedence = resolveStigmergyPrecedence({
-            fastPathFired: fastPathInterceptor.fired(),
-            bestMatchRecipeId: fastPathInterceptor.getRecipeWinnerId(),
-            guidanceText: stigmergyGuidanceText,
-        });
-        const userMessageWithGuidance: typeof userMessage = precedence.suppressGuidanceText
-            ? userMessage
-            : (appendGuidanceText(userMessage, stigmergyGuidanceText) as typeof userMessage);
-        history.push({ role: 'user', content: userMessageWithGuidance });
+        // Push the user message first, then the FastPath history entries
+        // (assistant + tool_results + hint). This order keeps the Anthropic
+        // alternation contract and the cached system-prompt-prefix invariant
+        // (ADR-062).
+        history.push({ role: 'user', content: userMessage });
         for (const entry of fastPathInterceptor.getHistoryEntries()) {
             history.push(entry);
-        }
-        // Snapshot for ADR-132 / ADR-133 (consumed by FEAT-32-02 in finally).
-        const stigmergyDecisionSnapshot = buildStigmergyDecisionSnapshot({
-            turn: stigmergyTurn,
-            pinnedPath: guidance.path,
-            suppressGuidanceText: precedence.suppressGuidanceText,
-            recipeWinner: precedence.recipeWinner,
-        });
-        if (precedence.suppressGuidanceText) {
-            console.debug(
-                `[Precedence] Recipe '${precedence.recipeWinner ?? '<unknown>'}' won; `
-                + `Stigmergy guidance.text suppressed (mode=${stigmergyTurn.decisionMode}, `
-                + `pathLen=${guidance.path.length})`,
-            );
-        } else if (stigmergyGuidanceText.length > 0) {
-            console.debug(
-                `[Precedence] No FastPath winner; Stigmergy guidance.text shown `
-                + `(mode=${stigmergyTurn.decisionMode}, pathLen=${guidance.path.length})`,
-            );
         }
         // FEAT-32-02 PR 2.2 / ADR-133: episode-recording closure counters.
         // All closure-local (not `this.*`) so a subagent re-entry of run()
@@ -980,7 +830,16 @@ export class AgentTask {
             // configured yet), fall back to the parent's api handler so the
             // pre-migration code path keeps working unchanged.
             let childApi: ApiHandler = this.api;
-            if (profile?.tierOverride) {
+            if (overrides?.modelKey) {
+                // Issue #54.4.1: an explicit per-spawn model wins over the
+                // profile tier. The key is validated in NewTaskTool.execute;
+                // an unknown key here just falls back to the parent api.
+                const configured = expandProviderConfigsToCustomModels(
+                    this.toolRegistry.plugin.settings.providerConfigs ?? [],
+                );
+                const picked = configured.find((m) => getModelKey(m) === overrides.modelKey);
+                if (picked) childApi = buildApiHandlerForModel(picked);
+            } else if (profile?.tierOverride) {
                 const pluginAny = this.toolRegistry.plugin as unknown as {
                     getTierModel?: (t: 'fast' | 'mid' | 'flagship') => CustomModel | null;
                 };
@@ -1056,6 +915,12 @@ export class AgentTask {
                                 return { decision: 'rejected' };
                             }
                         },
+                    // FIX-24-08-03 steering gap: while invoke_skill/new_task
+                    // parks the parent in `await spawnSubtask`, the parent
+                    // preamble never drains the steering queue. Forwarding
+                    // the consumer lets the child deliver mid-run
+                    // corrections at ITS iteration boundaries.
+                    consumeSteeringMessages: this.taskCallbacks.consumeSteeringMessages,
                 },
                 this.modeService,
                 this.consecutiveMistakeLimit,
@@ -1070,42 +935,26 @@ export class AgentTask {
                 this.compositionStack, // FEAT-29-10: share stack by reference
             );
 
-            // Stigmergy: emit at the inner dispatch when the spawn is a
-            // PROFILE spawn -- those are the ones with a stable, namespaced
-            // `subagent:<profile>` id the daemon can rank. Anonymous
-            // new_task spawns have no canonical id (the child mode/message
-            // are too freeform), so we leave them as their outer
-            // `new_task`-tool emission and skip the subagent layer.
-            // Captures the outer `stigmergyTurn` from the run() scope.
-            const stigmergyOn = profile !== undefined && stigmergyTurn.enabled === true;
-            const capId = profile !== undefined ? stigmergySubagentId(profile.name) : '';
-            if (stigmergyOn) await stigmergyTurn.emitInvoked(capId);
-            let subagentOk = false;
-            try {
-                await childTask.run({
-                    userMessage: childMessage,
-                    taskId: `${taskId}-sub-${Date.now()}`,
-                    initialMode: profile ? 'agent' : childMode,
-                    history: childHistory,
-                    abortSignal,
-                    globalCustomInstructions,
-                    includeTime,
-                    // Profile spawn: drop the parent's rules/mcp/plugin-skills set
-                    // entirely. The profile's roleDefinition + allowedTools is the
-                    // full scope.
-                    rulesContent: profile ? undefined : rulesContent,
-                    skillDirectorySection, // subtask-gated to '' inside buildSystemPromptForMode -- pass-through anyway
-                    mcpClient: profile ? undefined : mcpClient,
-                    allowedMcpServers: profile ? undefined : allowedMcpServers,
-                    pluginSkillsSection: profile ? undefined : pluginSkillsSection,
-                    subagentRoleOverride: profile?.roleDefinition,
-                    subagentAllowedTools: effectiveAllowedTools,
-                    configDir,
-                });
-                subagentOk = true;
-            } finally {
-                if (stigmergyOn) await stigmergyTurn.emitReturned(capId, subagentOk);
-            }
+            await childTask.run({
+                userMessage: childMessage,
+                taskId: `${taskId}-sub-${Date.now()}`,
+                initialMode: profile ? 'agent' : childMode,
+                history: childHistory,
+                abortSignal,
+                globalCustomInstructions,
+                includeTime,
+                // Profile spawn: drop the parent's rules/mcp/plugin-skills set
+                // entirely. The profile's roleDefinition + allowedTools is the
+                // full scope.
+                rulesContent: profile ? undefined : rulesContent,
+                skillDirectorySection, // subtask-gated to '' inside buildSystemPromptForMode -- pass-through anyway
+                mcpClient: profile ? undefined : mcpClient,
+                allowedMcpServers: profile ? undefined : allowedMcpServers,
+                pluginSkillsSection: profile ? undefined : pluginSkillsSection,
+                subagentRoleOverride: profile?.roleDefinition,
+                subagentAllowedTools: effectiveAllowedTools,
+                configDir,
+            });
             return childText;
         };
 
@@ -1118,22 +967,6 @@ export class AgentTask {
         // via find_tool during this session. Injected into the prompt cache
         // until the task ends.
         const activatedDeferredTools = new Set<string>();
-
-        // ADR-26 Recall-feeds-Retrieval: when consult returned a learned
-        // `sequence` decision, pre-activate every DEFERRED TOOL on that
-        // path so the schemas are already in the very first prompt and
-        // find_tool is unnecessary for the path-tools. Only tool ids are
-        // pre-activated -- skill:* / mcp:* / subagent:* ids are reached by
-        // the agent through their own dispatch tools, not by schema
-        // injection. We pre-activate even ids the daemon learned for tools
-        // that are NOT currently deferred: the activated-set is a no-op for
-        // already-visible tools (isDeferredTool gate inside the helper),
-        // so the loop stays correct when the daemon's view drifts.
-        for (const id of guidance.path) {
-            if (isDeferredTool(id)) {
-                activatedDeferredTools.add(id);
-            }
-        }
 
         // EPIC-26 / FEAT-26-01 / ADR-120: reminder is rebuilt as part of the
         // prompt cache. The closure captures the current value of
@@ -1246,24 +1079,6 @@ export class AgentTask {
             if (this.modelOverrideActive || !pluginAny.getAdvisorModel?.()) {
                 cachedTools = cachedTools.filter((t) => t.name !== 'consult_flagship');
             }
-
-            // ADR-26 / Recall-feeds-Retrieval contract: Stigmergy is NOT a
-            // second tool selector and MUST NOT reorder the tool block --
-            // VOs own find_tool / progressive disclosure is the precise
-            // default selector. Reordering would compete with that selector,
-            // could downgrade a good pick, and would break the prompt cache
-            // because the model sees the tool array in a per-turn-dependent
-            // order. cachedTools stays in VOs registered order.
-            //
-            // Stigmergy's surfacing signal is delivered earlier in run():
-            // for a learned `sequence` decision, pathGuidance.path lists the
-            // tools the daemon expects on this task; deferred tool ids in
-            // that path are pre-activated via activateDeferredTool BEFORE
-            // the prompt cache is built, so their schemas are already in
-            // cachedTools when this builder runs. find_tool is unaffected
-            // when the path is unknown.
-            // Per-tool capability_invoked/returned events are emitted at the
-            // real dispatch point in ToolExecutionPipeline.executeTool().
 
             cachedPromptMode = activeMode.slug;
             loopState.cacheInvalidated = false;
@@ -1809,20 +1624,16 @@ export class AgentTask {
                 outcome: 'completed',
             });
 
-            // VO/Stigmergy: grade the turn at the normal success-exit.
-            // FIX 2026-06-09 (substrate starvation RCA): binary grading.
-            // - clean attempt_completion -> accept (full reinforcement).
+            // Episode grading at the normal success-exit (ADR-133 / ADR-058):
+            // binary grading.
+            // - clean attempt_completion -> accept.
             // - clean natural exit (model streamed visible text, used at
             //   least one tool, no tool errors, didn't hit the iteration
             //   cap) -> accept. This is the read-only / question shape
             //   the prompt explicitly steers the model into; reaching it
-            //   IS a successful turn from the user's POV and worth
-            //   reinforcing.
+            //   IS a successful turn from the user's POV.
             // - everything else at the success-exit (iteration cap hit,
-            //   hard-limit recovery firing) -> abandon. The previous
-            //   'iterate' grading triggered loop.iterate() which leaks
-            //   the daemon buffer and deposits nothing, so it was a
-            //   strictly-worse choice than abandon for our flow.
+            //   hard-limit recovery firing) -> abandon.
             const hitIterationCap = loopState.telemetryIterations >= MAX_ITERATIONS;
             const productiveToolWork = repetitionDetector.getToolSequence().length > 0;
             loopState.cleanNaturalExit =
@@ -1832,7 +1643,7 @@ export class AgentTask {
                 && loopState.totalToolErrors === 0
                 && loopState.consecutiveMistakes === 0
                 && !hitIterationCap;
-            loopState.stigmergyOutcome =
+            loopState.turnOutcome =
                 (loopState.completionResult !== null || loopState.cleanNaturalExit)
                     ? 'accept'
                     : 'abandon';
@@ -1858,9 +1669,13 @@ export class AgentTask {
                     iterations: loopState.telemetryIterations,
                     outcome: 'aborted',
                 });
-                // VO/Stigmergy: abort is negative evidence -- no
-                // reinforcement of whatever partial path the agent took.
-                loopState.stigmergyOutcome = 'abandon';
+                // Abort is negative evidence for the episode grading.
+                loopState.turnOutcome = 'abandon';
+                // IMP-24-08-04: mark the exit so telemetry/forensics can
+                // distinguish a user stop from a clean end. The snapshot
+                // keep-decision in the finally is signal-based (covers the
+                // loop-boundary abort break too), this is documentation.
+                loopState.phase = 'aborted';
                 this.taskCallbacks.onComplete();
                 return;
             }
@@ -1999,47 +1814,45 @@ export class AgentTask {
                 loopState.phase = 'failed';
             this.taskCallbacks.onError(err);
             }
-            // VO/Stigmergy: thrown error (parse failure, circuit-breaker
-            // trip from consecutive tool errors, API/network failure after
-            // retries) is negative evidence -- no reinforcement.
-            loopState.stigmergyOutcome = 'abandon';
+            // Thrown error (parse failure, circuit-breaker trip from
+            // consecutive tool errors, API/network failure after retries)
+            // is negative evidence for the episode grading.
+            loopState.turnOutcome = 'abandon';
             return;  // Error — exit the emergency retry loop
         }
         } // while (true) — emergency condensing retry loop
         } finally {
             // IMP-41-03-01: clean exits clear the inflight snapshot. On a
-            // FAILED run (phase set below via the catch path) the snapshot
-            // stays as recovery/forensic data until the 24h sweep; on a hard
-            // crash this finally never runs and the snapshot survives too.
-            if (this.inflightStore && loopState.phase !== 'failed') {
+            // FAILED run the snapshot stays as recovery/forensic data until
+            // the 24h sweep; on a hard crash this finally never runs and
+            // the snapshot survives too.
+            // IMP-24-08-04 (stop=pause): an ABORTED run also keeps its
+            // snapshot -- the sidebar offers a Resume card so the user can
+            // continue from the last turn boundary. The pending debounced
+            // write is flushed so the card sees the freshest state. The
+            // check is signal-based because an abort at the loop boundary
+            // exits through the success path, not the catch.
+            if (this.inflightStore && loopState.phase !== 'failed' && !abortSignal?.aborted) {
                 void this.inflightStore.clear(taskId);
+            } else if (this.inflightStore && abortSignal?.aborted) {
+                void this.inflightStore.flushNow();
             }
-            // VO/Stigmergy: outcome-graded resolution, contract v2 onRunEnd.
-            // Binary: accept or abandon. The default is 'abandon' so any
-            // unexpected exit path (e.g. a future return someone forgets to
-            // grade) lands on the safe side: no reinforcement of an
-            // unverified path. Grading happens at the exit sites above
-            // (serializable state); the interceptor delivers end() +
-            // accept/abandon from that state.
-            await stigmergyInterceptor.onRunEnd({ state: loopState, history, activeMode });
 
-            // FEAT-32-02 PR 2.2 / ADR-133: episode recording (single source
-            // of truth for the episode payload). Fires for every exit path
-            // -- success, iteration-cap, abort, error -- so RecipePromotion
-            // sees the complete picture. `success` is derived from the
-            // already-graded loopState.stigmergyOutcome plus the closure counters.
+            // ADR-133: episode recording (single source of truth for the
+            // episode payload). Fires for every exit path -- success,
+            // iteration-cap, abort, error -- so RecipePromotion sees the
+            // complete picture. `success` is derived from the
+            // already-graded loopState.turnOutcome plus the closure counters.
             try {
                 const toolSeq = repetitionDetector.getToolSequence();
                 if (toolSeq.length > 0) {
-                    // FIX 2026-06-09 (Stigmergy substrate starvation RCA):
-                    // mirror the grading relaxation so RecipePromotion
-                    // (ADR-058 Gate 3 organic 3-similar) is no longer
-                    // starved on the read-only / question task shape that
-                    // the prompt explicitly steers into. A clean natural
-                    // exit counts as success for episode-recording too,
-                    // not just an explicit attempt_completion.
+                    // A clean natural exit counts as success for
+                    // episode-recording too, not just an explicit
+                    // attempt_completion, so RecipePromotion (ADR-058
+                    // organic 3-similar) is not starved on the read-only /
+                    // question task shape the prompt explicitly steers into.
                     const episodeSuccess =
-                        loopState.stigmergyOutcome === 'accept'
+                        loopState.turnOutcome === 'accept'
                         && loopState.totalToolErrors === 0
                         && (loopState.attemptCompletionFired || loopState.cleanNaturalExit);
                     this.taskCallbacks.onEpisodeData?.({
@@ -2049,7 +1862,7 @@ export class AgentTask {
                         mistakesEncountered: loopState.totalToolErrors,
                         attemptCompletionFired: loopState.attemptCompletionFired,
                         fastPathFired: loopState.fastPathFired,
-                        stigmergy: stigmergyDecisionSnapshot,
+                        recipeWinner: fastPathInterceptor.getRecipeWinnerId(),
                     });
                 }
             } catch (e) {
@@ -2125,11 +1938,13 @@ export class AgentTask {
         const model = this.api.getModel();
         // getModel() returns { id: string; info: ModelInfo } — extract the id string
         const modelId: string = typeof model === 'string' ? model : (model?.id ?? '');
-        // Use the provider-reported context window when available
+        // Use the provider-reported context window when available. Providers now
+        // resolve this through the registry, so this branch is the normal path.
         if (model?.info?.contextWindow) return model.info.contextWindow;
-        if (modelId.includes('claude')) return 200_000;
-        if (modelId.includes('gpt-4') || modelId.includes('gpt-5')) return 128_000;
-        return 128_000;
+        // Fallback for a provider that returns no window: consult the same
+        // registry (with normalization + Claude family-floor inference) rather
+        // than the old flat claude=200k/gpt=128k ladder, which capped 1M models.
+        return registryContextWindow(modelId);
     }
 
     /**

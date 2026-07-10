@@ -21,6 +21,7 @@ import { SearchFilesTool } from './vault/SearchFilesTool';
 import { WriteFileTool } from './vault/WriteFileTool';
 import { EditFileTool } from './vault/EditFileTool';
 import { AppendToFileTool } from './vault/AppendToFileTool';
+import { SetBlockAnchorsTool } from './vault/SetBlockAnchorsTool';
 import { CreateFolderTool } from './vault/CreateFolderTool';
 import { DeleteFileTool } from './vault/DeleteFileTool';
 import { MoveFileTool } from './vault/MoveFileTool';
@@ -42,6 +43,7 @@ import { ListPinnedConversationsTool } from './vault/ListPinnedConversationsTool
 import { GetFrontmatterTool } from './vault/GetFrontmatterTool';
 import { UpdateFrontmatterTool } from './vault/UpdateFrontmatterTool';
 import { SearchByTagTool } from './vault/SearchByTagTool';
+import { FindNotesByTypeTool } from './vault/FindNotesByTypeTool';
 import { GetVaultStatsTool } from './vault/GetVaultStatsTool';
 import { VaultHealthCheckTool } from './vault/VaultHealthCheckTool';
 import { GetLinkedNotesTool } from './vault/GetLinkedNotesTool';
@@ -173,6 +175,7 @@ export class ToolRegistry {
         this.register(new WriteFileTool(this.plugin));
         this.register(new EditFileTool(this.plugin));
         this.register(new AppendToFileTool(this.plugin));
+        this.register(new SetBlockAnchorsTool(this.plugin));
         this.register(new IngestDocumentTool(this.plugin));
         this.register(new IngestTriageTool(this.plugin));
         this.register(new IngestDeepTool(this.plugin));
@@ -195,6 +198,7 @@ export class ToolRegistry {
         this.register(new GetFrontmatterTool(this.plugin));
         this.register(new UpdateFrontmatterTool(this.plugin));
         this.register(new SearchByTagTool(this.plugin));
+        this.register(new FindNotesByTypeTool(this.plugin));
         this.register(new GetVaultStatsTool(this.plugin));
         this.register(new VaultHealthCheckTool(this.plugin));
         this.register(new GetLinkedNotesTool(this.plugin));
@@ -326,9 +330,9 @@ export class ToolRegistry {
      */
     // FIX-PERF-16: cache tool definitions. getDefinition() builds a
     // ToolDefinition object every call; the registry rebuilds the full
-    // list 3-4 times per turn (system-prompt assembly, mode filter,
-    // stigmergy inventory). The cache is invalidated when the tool set
-    // changes (register / unregister).
+    // list 3-4 times per turn (system-prompt assembly, mode filter).
+    // The cache is invalidated when the tool set changes
+    // (register / unregister).
     private cachedAllDefinitions: ToolDefinition[] | null = null;
     private cachedByName: Map<string, ToolDefinition> | null = null;
 

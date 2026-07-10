@@ -32,6 +32,44 @@ const MIN_TRIGGER_RECALL = 0.10;
 /** Minimum prefix length for fuzzy stem matching (e.g. "visualisiert" matches "visualisierung") */
 const MIN_PREFIX_LEN = 6;
 
+/** Interrogative sentence starters -- a message opening with one is a question. */
+const INTERROGATIVES = new Set([
+    // German
+    'was', 'wie', 'warum', 'wieso', 'weshalb', 'wer', 'wem', 'wen', 'wann',
+    'wo', 'woran', 'wofür', 'wodurch', 'womit', 'worin', 'welche', 'welcher',
+    'welches', 'welchen',
+    // English
+    'what', 'why', 'how', 'which', 'who', 'when', 'where',
+]);
+
+/** Analysis-verb imperatives -- the user wants an assessment in chat, not a workflow run. */
+const ANALYSIS_VERBS = new Set([
+    // German (imperative stems)
+    'vergleiche', 'vergleich', 'prüfe', 'prüf', 'analysiere', 'bewerte',
+    'beurteile', 'erkläre', 'erklär', 'untersuche', 'checke',
+    // English
+    'compare', 'analyze', 'analyse', 'evaluate', 'explain', 'assess',
+    'review', 'check', 'verify',
+]);
+
+/**
+ * IMP-32-02-01: true when the message asks a question or requests an
+ * analysis of existing content. Such turns must not receive procedural
+ * recipes -- an injected write-workflow makes the agent modify files
+ * instead of answering in chat (live incident 2026-07-08: "vergleiche
+ * die Zusammenfassung mit dem Transkript" re-ran the meeting-summary
+ * anchor workflow on the note). Conservative on purpose: only clear
+ * question/analysis signals suppress matching; plain task statements
+ * keep their recipes.
+ */
+export function isAnalysisIntent(userMessage: string): boolean {
+    const normalized = userMessage.trim().toLowerCase();
+    if (normalized.length === 0) return false;
+    if (normalized.endsWith('?')) return true;
+    const firstWord = normalized.split(/\s+/)[0].replace(/[^a-zäöüß]/g, '');
+    return INTERROGATIVES.has(firstWord) || ANALYSIS_VERBS.has(firstWord);
+}
+
 export class RecipeMatchingService {
     private store: RecipeStore;
 
@@ -42,8 +80,14 @@ export class RecipeMatchingService {
     /**
      * Find matching recipes for a user message.
      * Returns up to MAX_RESULTS recipes within the char budget.
+     *
+     * Questions and analysis requests return no matches (IMP-32-02-01);
+     * this also gates the ADR-061 FastPath, which executes the same
+     * matches directly.
      */
     match(userMessage: string, mode?: string): RecipeMatchResult[] {
+        if (isAnalysisIntent(userMessage)) return [];
+
         const recipes = this.store.getAll(mode);
         if (recipes.length === 0) return [];
 
@@ -118,7 +162,11 @@ export class RecipeMatchingService {
         const parts: string[] = [
             '====', '',
             'PROCEDURAL RECIPES', '',
-            'For the following task types, use this proven step-by-step approach:', '',
+            'For the following task types, use this proven step-by-step approach.',
+            'ONLY apply a recipe when the user asked you to EXECUTE that workflow.',
+            'If the user asked a question about existing content (compare, review,',
+            'analyze, "what should change"), answer in chat and do NOT modify any',
+            'files -- ignore the recipe in that case.', '',
         ];
 
         for (const { recipe } of matches) {

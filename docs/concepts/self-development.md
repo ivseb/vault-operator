@@ -56,7 +56,7 @@ CDN imports use esm.sh with the `?bundle` flag as the preferred source, falling 
 
 Tier 1 and tier 2 feed into each other naturally. The agent might start by writing a skill file (tier 1) that describes a workflow. After using it several times, it might notice that part of the workflow could be automated with code and propose a dynamic tool (tier 2) to handle that part. The skill file then references the dynamic tool instead of describing the manual steps.
 
-Tier 5 draws on the memory system's pattern detection. `RecipePromotionService` watches for repeated successful episodes (the default threshold is three semantically similar runs), and Stigmergy can promote pinned tool sequences via its substrate. When a pattern crosses the threshold, tier 5 can propose turning it into a skill or recipe. That closes the loop: usage patterns become automation proposals.
+Tier 5 draws on the memory system's pattern detection. `RecipePromotionService` watches for repeated successful episodes (the default threshold is three semantically similar runs). When a pattern crosses the threshold, tier 5 can propose turning it into a skill or recipe. That closes the loop: usage patterns become automation proposals.
 
 ## Embedded source: tier 3 in detail
 

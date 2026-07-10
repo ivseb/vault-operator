@@ -58,12 +58,16 @@ export class FastPathInterceptor implements LoopInterceptor {
 
     constructor(private readonly ports: FastPathPorts) {}
 
-    /** True when a recipe pre-ran successfully (precedence resolver input). */
+    /** True when a recipe pre-ran successfully. */
     fired(): boolean {
         return this.firedFlag;
     }
 
-    /** Winning recipe id, or null (precedence resolver input). */
+    /**
+     * Winning recipe id, or null. Feeds the recipe-win gate in
+     * RecipePromotionService via the onEpisodeData payload: a win bumps
+     * the recipe's success count instead of promoting a duplicate.
+     */
     getRecipeWinnerId(): string | null {
         return this.recipeWinnerId;
     }

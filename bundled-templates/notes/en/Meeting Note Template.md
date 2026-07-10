@@ -1,24 +1,19 @@
 ---
-Summary:
-Date:
-People:
-Topics:
-Concepts:
-Notes:
-Meeting notes:
-Project:
-Sources:
-Category:
-  - Meeting note
-tags:
-Permanent: false
 uid:
+title:
+description:
+resource:
+tags:
+type:
+  - meeting
+moc:
+related:
+timestamp:
 ---
+
+## Summary
+
 ---
 
-##### Transcript
+### Transcript
 
-``` Transcript
-
-
-```

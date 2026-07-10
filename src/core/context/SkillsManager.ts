@@ -29,8 +29,8 @@ export interface SkillMeta {
     name: string;
     /** Description used for keyword matching */
     description: string;
-    /** Source: 'learned' (agent-created), 'user' (manual), or undefined (legacy) */
-    source?: 'learned' | 'user' | 'bundled';
+    /** Source: 'learned' (agent-created), 'user' (manual), 'pro' (purchased premium), or undefined (legacy) */
+    source?: 'learned' | 'user' | 'bundled' | 'pro';
     /** Optional trigger regex for fast-path matching */
     trigger?: string;
 }

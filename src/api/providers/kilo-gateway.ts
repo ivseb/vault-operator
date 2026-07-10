@@ -15,7 +15,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import { KiloAuthService } from '../../core/security/KiloAuthService';
-import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature } from '../../types/model-registry';
+import { resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, getModelContextWindow } from '../../types/model-registry';
 import { logCacheStat } from '../logCacheStat';
 import { normalizeDeltaContent } from './utils/openAiContent';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
@@ -54,10 +54,13 @@ export class KiloGatewayProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
+        // Resolve the real window from the central registry instead of a flat
+        // 128k, which condensed 1M-context models (Opus 4.7/4.8, Sonnet 5) at
+        // ~100k. getModelContextWindow normalizes any gateway-decorated id.
         return {
             id: this.config.model,
             info: {
-                contextWindow: 128_000,
+                contextWindow: getModelContextWindow(this.config.model),
                 supportsTools: true,
                 supportsStreaming: true,
             },

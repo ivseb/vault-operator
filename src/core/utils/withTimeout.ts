@@ -1,5 +1,5 @@
 /**
- * withTimeout (FEAT-32-03 PR 3.1)
+ * withTimeout
  *
  * Hard ceiling on any single async operation. Wraps a Promise in
  * `Promise.race` against a setTimeout-driven rejection. When the inner
@@ -7,9 +7,7 @@
  * timeout wins, a `TimeoutError` is thrown carrying the label so the caller
  * can produce a non-fatal log line and continue.
  *
- * Used by AgentTask to wrap `skillsManager.discoverSkills()` so a hanging
- * plugin-skill discovery cannot block the Stigmergy capability registration
- * (Audit Finding 26).
+ * Generic, tested utility; currently without a production consumer.
  *
  * Timer access goes through `src/core/utils/runtime.ts` so the cross-env
  * `globalThis` fallback lives in exactly one place (review-bot Tier 3).

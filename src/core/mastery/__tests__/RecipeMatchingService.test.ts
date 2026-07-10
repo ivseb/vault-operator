@@ -97,6 +97,47 @@ describe('RecipeMatchingService', () => {
         });
     });
 
+    // IMP-32-02-01: questions and analysis requests about existing content
+    // must not receive procedural recipes -- injected write-workflows made
+    // the agent modify files instead of answering (live incident 2026-07-08:
+    // "vergleiche die Zusammenfassung mit dem Transkript" re-ran the whole
+    // meeting-summary anchor workflow).
+    describe('analysis-intent gate (IMP-32-02-01)', () => {
+        const trigger = 'zusammenfassung transkript meeting';
+
+        function makeService(): RecipeMatchingService {
+            return new RecipeMatchingService(createMockStore([makeRecipe({ trigger })]));
+        }
+
+        it('suppresses recipes for messages ending in a question mark', () => {
+            const results = makeService().match(
+                'Vergleiche die Zusammenfassung mit dem Transkript. Was davon sollte korrigiert werden?',
+            );
+            expect(results).toEqual([]);
+        });
+
+        it('suppresses recipes for interrogative sentence starts', () => {
+            expect(makeService().match('Warum ist die Zusammenfassung so kurz')).toEqual([]);
+            expect(makeService().match('what is missing from the transkript zusammenfassung')).toEqual([]);
+        });
+
+        it('suppresses recipes for analysis-verb imperatives', () => {
+            expect(makeService().match('Vergleiche die Zusammenfassung mit dem Transkript')).toEqual([]);
+            expect(makeService().match('Prüfe die Zusammenfassung gegen das Meeting-Transkript')).toEqual([]);
+            expect(makeService().match('compare the zusammenfassung with the transkript')).toEqual([]);
+        });
+
+        it('still matches execution requests', () => {
+            const results = makeService().match('Erstelle eine Zusammenfassung des Meeting-Transkripts');
+            expect(results.length).toBe(1);
+        });
+
+        it('still matches plain task statements with trigger keywords', () => {
+            const results = makeService().match('Zusammenfassung für das Transkript im Meeting-Ordner anlegen');
+            expect(results.length).toBe(1);
+        });
+    });
+
     describe('buildPromptSection', () => {
         it('should return empty string for no matches', () => {
             const service = new RecipeMatchingService(createMockStore([]));

@@ -16,7 +16,8 @@ import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
-import { resolveOverrideModel } from './sidebar/chatModelDropdown';
+import { resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
+import { shouldSendOnEnter } from './sidebar/composerKeymap';
 import {
     DEFAULT_THINKING_OVERRIDE,
     isExplicitThinkingOverride,
@@ -34,6 +35,7 @@ import { providerConfigToCustomModel, resolveActiveProvider } from '../core/rout
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
 import { wireApprovalTimeout } from './sidebar/approvalTimeout';
+import { resolveRunStateButtons } from './sidebar/runStateButtons';
 import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
@@ -151,6 +153,21 @@ export class AgentSidebarView extends ItemView {
 
     // Feature 3: AbortController for cancelling in-flight requests
     private currentAbortController: AbortController | null = null;
+    /**
+     * FIX-24-08-03: signal of the most recently started run. Unlike
+     * `currentAbortController` this is NOT nulled by handleStop, so
+     * approval cards surfacing from a draining task bind an already-
+     * aborted signal (immediate rejection) instead of undefined
+     * (10-minute wall-clock hang).
+     */
+    private lastRunAbortSignal: AbortSignal | null = null;
+    /**
+     * IMP-24-08-04: per-run hook that swaps the Working spinner for a
+     * "Stopping" row the moment Stop is pressed. Without it the spinner
+     * keeps spinning until the stopped run drains to its next abort
+     * checkpoint, which reads as "Stop did nothing".
+     */
+    private currentStopFeedback: (() => void) | null = null;
     /** GUARD-L1: true between Stop and the aborted loop's onComplete/onError. */
     private taskDraining = false;
     private taskDrainingTimer = 0;
@@ -387,15 +404,19 @@ export class AgentSidebarView extends ItemView {
             resumeBtn.addEventListener('click', () => {
                 void (async () => {
                     row.remove();
-                    if (snapshot.conversationId) {
+                    // IMP-24-08-04: the card now also appears right after
+                    // Stop, in the conversation that is already active --
+                    // reloading it would repaint the chat mid-view.
+                    if (snapshot.conversationId && snapshot.conversationId !== this.activeConversationId) {
                         await this.loadConversation(snapshot.conversationId, { skipNavPush: true })
                             .catch(() => { /* stale id: resume still works from the snapshot history */ });
                     }
                     this.pendingResume = snapshot;
                     await store.clear(snapshot.taskId);
                     if (this.textarea) {
-                        this.textarea.value = '[System] The previous task was interrupted by a reload. '
-                            + 'Resume from where you left off and finish it.';
+                        this.textarea.value = '[System] The previous task was interrupted. '
+                            + 'Resume from where you left off using the conversation so far; '
+                            + 'do not redo work that is already done.';
                         await this.handleSendMessage();
                     }
                 })();
@@ -638,15 +659,24 @@ export class AgentSidebarView extends ItemView {
             // Autocomplete navigation takes priority
             if (this.autocomplete.handleKeyDown(e)) return;
 
-            if (e.key === 'Enter') {
-                const sendWithEnter = this.plugin.settings.sendWithEnter ?? true;
-                if (sendWithEnter && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
-                    e.preventDefault();
-                    void this.handleSendMessage();
-                } else if (!sendWithEnter && (e.ctrlKey || e.metaKey)) {
-                    e.preventDefault();
-                    void this.handleSendMessage();
-                }
+            // FIX-24-08-03: Escape always stops a running task, independent
+            // of textarea content (the button alone was unreachable while
+            // steering text sat in the field).
+            if (e.key === 'Escape' && this.currentAbortController) {
+                e.preventDefault();
+                this.handleStop();
+                return;
+            }
+
+            // Issue #54.1: shared send-decision. Ctrl/Cmd+Enter always sends
+            // (universal accelerator, fixes Windows where it was a no-op),
+            // plain Enter sends only when sendWithEnter is on; Shift+Enter and
+            // IME composition insert a newline.
+            const sendWithEnter = this.plugin.settings.sendWithEnter ?? true;
+            if (shouldSendOnEnter(e, sendWithEnter)) {
+                e.preventDefault();
+                this.autocomplete.hide(); // close any open dropdown after a modifier-send
+                void this.handleSendMessage();
             }
         });
 
@@ -722,6 +752,7 @@ export class AgentSidebarView extends ItemView {
             cls: 'toolbar-button model-button',
             attr: { 'aria-label': t('ui.sidebar.selectModel') },
         });
+        this.restoreChatModelOverride(); // Issue #54.3: sticky model on view open
         this.updateModelButton();
         this.modelButton.addEventListener('click', (e) => this.showModelMenu(e));
 
@@ -1121,6 +1152,36 @@ export class AgentSidebarView extends ItemView {
     }
 
     /**
+     * Issue #54.3: persist the chat-header model override for the active
+     * provider so it survives restarts and new chats. No-op when
+     * persistChatModel is off; null (Auto) clears the stored entry.
+     */
+    private async persistChatModelOverride(overrideId: string | null): Promise<void> {
+        if (!this.plugin.settings.persistChatModel) return;
+        const pid = this.plugin.settings.activeProviderId;
+        if (!pid) return;
+        const map = this.plugin.settings.lastChatModelByProvider ?? {};
+        if (overrideId === null) delete map[pid];
+        else map[pid] = overrideId;
+        this.plugin.settings.lastChatModelByProvider = map;
+        await this.plugin.saveSettings();
+    }
+
+    /**
+     * Issue #54.3: restore the sticky chat-header model for the active provider.
+     * Falls back to Auto (null) when persistence is off, no provider is active,
+     * or the saved model no longer exists on the provider.
+     */
+    private restoreChatModelOverride(): void {
+        this.chatModelOverride = resolveStickyChatModel(
+            resolveActiveProvider(this.plugin.settings),
+            this.plugin.settings.lastChatModelByProvider,
+            this.plugin.settings.activeProviderId,
+            this.plugin.settings.persistChatModel,
+        );
+    }
+
+    /**
      * EPIC-26 / FEAT-26-05: searchable popover when a provider is active.
      * Bedrock and OpenRouter routinely list 50+ models -- a plain Menu
      * was not scrollable enough; ChatModelPickerPopover adds a filter
@@ -1143,6 +1204,7 @@ export class AgentSidebarView extends ItemView {
                 if (overrideId === null) {
                     this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
                 }
+                void this.persistChatModelOverride(overrideId); // Issue #54.3
                 this.updateModelButton();
             },
             getThinking: () => this.chatThinkingOverride,
@@ -1174,9 +1236,10 @@ export class AgentSidebarView extends ItemView {
                 void (async () => {
                     if (id === this.plugin.settings.activeProviderId) return;
                     this.plugin.settings.activeProviderId = id;
-                    // A pinned model belongs to the previous provider; reset to Auto
-                    // so a stale model id never reaches the newly active provider.
-                    this.chatModelOverride = null;
+                    // Issue #54.3: load the newly active provider's sticky model
+                    // (or Auto). A pinned id from the previous provider must never
+                    // reach the new one, so resolve against the new provider.
+                    this.restoreChatModelOverride();
                     this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
                     await this.plugin.saveSettings();
                     this.updateModelButton();
@@ -1749,6 +1812,15 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
+        // FIX-24-08-03 / GUARD-L1: a stopped task is still draining to its
+        // next abort checkpoint. Starting a new run in this window lets the
+        // old run's late onComplete/onError race the new run's controller
+        // (and both render into the same chat). Refuse until the drain ends.
+        if (this.taskDraining) {
+            new Notice(t('ui.sidebar.taskStillStopping'), 6000);
+            return;
+        }
+
         // MEAS-02: TTFT split. point captures the send click; the
         // span runs until AgentTask hands off to the provider, then
         // the provider-span runs until the first stream chunk arrives.
@@ -2048,8 +2120,16 @@ export class AgentSidebarView extends ItemView {
             return;
         }
 
-        // Feature 3: Create AbortController, show stop button
+        // Feature 3: Create AbortController, show stop button.
+        // FIX-24-08-03: `myController` pins this run's identity -- the
+        // completion closures below may fire LATE (after Stop + a newer
+        // run's start) and must only clean up their own controller.
+        // `lastRunAbortSignal` survives handleStop's nulling so approval
+        // cards created by a draining task still bind an (aborted) signal
+        // instead of undefined.
         this.currentAbortController = new AbortController();
+        const myController = this.currentAbortController;
+        this.lastRunAbortSignal = myController.signal;
         // FEAT-24-08 Steering: clear any stale entries before a new task
         // starts so leftover mid-run messages from a previous run cannot
         // leak into a fresh conversation. Any pending bubbles that never
@@ -2239,6 +2319,18 @@ export class AgentSidebarView extends ItemView {
         const taskId = `task-${Date.now()}`;
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
+
+        // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
+        // Working spinner for a Stopping row; the drain-end removeLoading
+        // (which always clears .tool-computing-row) cleans it up again.
+        this.currentStopFeedback = () => {
+            removeLoading();
+            const host = stepsBodyEl ?? toolsEl;
+            host.querySelector('.tool-computing-row')?.remove();
+            const row = host.createDiv('tool-computing-row');
+            setIcon(row.createSpan('tool-computing-icon'), 'loader');
+            row.createSpan('tool-computing-text').setText(t('ui.sidebar.stopping'));
+        };
         let lastTodoItems: import('../core/tools/agent/UpdateTodoListTool').TodoItem[] = [];
 
         // Initialize context tracker for this conversation turn (only if not exists)
@@ -2739,9 +2831,9 @@ export class AgentSidebarView extends ItemView {
                     scheduleScroll();
                 },
                 onEpisodeData: (data) => {
-                    // Episodic memory: record task outcome (ADR-018 + FEAT-32-02 / ADR-133).
-                    // FEAT-32-02 PR 2.2: payload now includes success, mistakesEncountered,
-                    // attemptCompletionFired, fastPathFired, stigmergy. Fires for ALL exit
+                    // Episodic memory: record task outcome (ADR-018).
+                    // Payload includes success, mistakesEncountered,
+                    // attemptCompletionFired, fastPathFired. Fires for ALL exit
                     // paths (success, iteration-cap, abort, error). Fire-and-forget.
                     if (this.plugin.episodicExtractor && this.plugin.settings.mastery.enabled) {
                         const resultSummary = data.success
@@ -2754,17 +2846,13 @@ export class AgentSidebarView extends ItemView {
                             toolLedger: data.toolLedger,
                             success: data.success,
                             resultSummary,
-                            stigmergy: data.stigmergy,
                         };
                         this.plugin.episodicExtractor.recordEpisode(episode).then((ep) => {
                             if (ep && this.plugin.recipePromotionService) {
-                                // FEAT-32-02 PR 2.4 / ADR-132: hand the
-                                // Stigmergy decision snapshot to the promotion
-                                // service so Gate 1 (recipe-wins) and Gate 2
-                                // (sequence shortcut) can fire. Daemon-down
-                                // -> data.stigmergy is undefined and the
-                                // service falls through to Gate 3 ADR-058.
-                                this.plugin.recipePromotionService.checkForPromotion(ep, data.stigmergy).catch((e) =>
+                                // ADR-058: check for semantic recipe promotion.
+                                // recipeWinner routes a FastPath recipe win to a
+                                // success-count bump instead of a duplicate promotion.
+                                this.plugin.recipePromotionService.checkForPromotion(ep, data.recipeWinner).catch((e) =>
                                     console.warn('[Mastery] Promotion check failed:', e)
                                 );
                             }
@@ -2875,9 +2963,22 @@ export class AgentSidebarView extends ItemView {
                         }
                     }
                     messageEl.removeClass('message-streaming');
-                    this.currentAbortController = null;
+                    // FIX-24-08-03: only clean up when this is still OUR
+                    // controller. A late onComplete of a stopped, drained
+                    // run must not clobber a newer run's controller (which
+                    // would make that run unstoppable).
+                    if (this.currentAbortController === myController) {
+                        this.currentAbortController = null;
+                        this.setRunningState(false);
+                        this.currentStopFeedback = null;
+                    }
                     this.endTaskDraining(); // GUARD-L1
-                    this.setRunningState(false);
+                    // IMP-24-08-04 (stop=pause): a stopped run kept its
+                    // inflight snapshot -- offer the Resume card now that
+                    // the drain is over and sends are unblocked.
+                    if (myController.signal.aborted) {
+                        void this.maybeOfferInflightResume();
+                    }
                     scheduleScroll();
                     if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
                         this.showUndoBar(taskId, taskWriteCount);
@@ -2944,9 +3045,12 @@ export class AgentSidebarView extends ItemView {
 
                     // Clean up streaming/running state
                     messageEl.removeClass('message-streaming');
-                    this.currentAbortController = null;
+                    // FIX-24-08-03: identity check, see onComplete.
+                    if (this.currentAbortController === myController) {
+                        this.currentAbortController = null;
+                        this.setRunningState(false);
+                    }
                     this.endTaskDraining(); // GUARD-L1
-                    this.setRunningState(false);
                 },
                 onTaskTelemetry: (data) => {
                     // ADR-090 / FEATURE-1804: see TaskMonitor.onTaskTelemetry
@@ -3129,7 +3233,7 @@ export class AgentSidebarView extends ItemView {
 
         // Recipe matching (ADR-017) — find procedural recipes before starting the task
         let recipesSection: string | undefined;
-        // FEAT-32-01 PR 1.3 / ADR-131: capture the matches so we can pass
+        // Capture the matches so we can pass
         // them into AgentTask.run via `recipeMatches`. Without this the
         // FastPath gate inside AgentTask would re-run `match()` and could
         // diverge from the Sidebar's `recipesSection` source.
@@ -3165,7 +3269,10 @@ export class AgentSidebarView extends ItemView {
             initialMode: activeMode,
             history: this.conversationHistory,
             resumeState: resumeSnapshot?.state,
-            abortSignal: this.currentAbortController.signal,
+            // FIX-24-08-03: bind the pinned controller, not the mutable
+            // field -- awaits between controller creation and this call
+            // could otherwise hand this run a different run's signal.
+            abortSignal: myController.signal,
             globalCustomInstructions: this.plugin.settings.globalCustomInstructions || undefined,
             includeTime: this.plugin.settings.includeCurrentTimeInContext ?? false,
             rulesContent: rulesContent || undefined,
@@ -3176,8 +3283,8 @@ export class AgentSidebarView extends ItemView {
             memoryContext,
             pluginSkillsSection: pluginSkillsSection || undefined,
             recipesSection,
-            // FEAT-32-01 PR 1.3 / ADR-131: hand the SAME matches to AgentTask
-            // so the FastPath gate sees what `recipesSection` was built from.
+            // Hand the SAME matches to AgentTask so the FastPath gate
+            // sees what `recipesSection` was built from.
             recipeMatches: recipeMatchesForRun,
             configDir: this.app.vault.configDir,
             conversationId: this.activeConversationId ?? undefined,
@@ -3218,6 +3325,11 @@ export class AgentSidebarView extends ItemView {
         if (this.currentAbortController) this.beginTaskDraining(); // GUARD-L1
         this.currentAbortController?.abort();
         this.currentAbortController = null;
+        // IMP-24-08-04: swap the Working spinner for a Stopping row NOW --
+        // the run drains to its next abort checkpoint in the background
+        // and offers a Resume card when it ends.
+        this.currentStopFeedback?.();
+        this.currentStopFeedback = null;
         // FEAT-24-08 Steering: pending bubbles never reached the agent --
         // flip them to "discarded" so the user knows the correction was
         // never applied.
@@ -3252,11 +3364,13 @@ export class AgentSidebarView extends ItemView {
     private refreshRunStateButtons(): void {
         const running = this.currentAbortController !== null;
         const hasText = (this.textarea?.value.trim().length ?? 0) > 0;
-        // Show Send when: not running OR running-with-text (steering mode).
-        // Show Stop when: running AND empty textarea.
-        const showSend = !running || hasText;
+        // FIX-24-08-03: Stop stays visible for the whole task lifetime;
+        // Send appears NEXT TO it in steering mode. The old morph replaced
+        // Stop with Send at the same position, making a running task
+        // unstoppable as soon as text sat in the textarea.
+        const { showSend, showStop } = resolveRunStateButtons(running, hasText);
         if (this.sendButton) this.sendButton.classList.toggle('agent-u-hidden', !showSend);
-        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', showSend);
+        if (this.stopButton) this.stopButton.classList.toggle('agent-u-hidden', !showStop);
     }
 
     /**
@@ -3321,11 +3435,9 @@ export class AgentSidebarView extends ItemView {
         this.uiMessages = [];
         this.conversationHistory = [];
         this.userDismissedContext = false;
-        // Reset the per-conversation chat-header overrides so a pinned model,
-        // forced thinking, or a chosen effort level does not leak into the next
-        // conversation. The state-field comments claim a fresh-chat reset; this
-        // is where that reset actually happens.
-        this.chatModelOverride = null;
+        // Issue #54.3: the model override is sticky (survives a fresh chat);
+        // thinking + effort stay per-conversation and reset here.
+        this.restoreChatModelOverride();
         this.chatThinkingOverride = DEFAULT_THINKING_OVERRIDE;
         this.chatEffortOverride = DEFAULT_EFFORT_OVERRIDE;
         this.updateModelButton();
@@ -5170,7 +5282,13 @@ export class AgentSidebarView extends ItemView {
             const cleanup = () => { timeoutHandle?.dispose(); row.remove(); };
             timeoutHandle = wireApprovalTimeout({
                 timeoutMs: timeoutMinutes * 60_000,
-                abortSignal: this.currentAbortController?.signal,
+                // FIX-24-08-03: bind the run's signal, not the mutable
+                // controller field. handleStop nulls the field immediately,
+                // so a card surfacing from a still-draining tool would bind
+                // undefined and hang until the wall-clock timeout. The
+                // already-aborted signal fires onAbort synchronously inside
+                // wireApprovalTimeout instead.
+                abortSignal: this.lastRunAbortSignal ?? undefined,
                 onExpire: () => {
                     cleanup();
                     resolve({

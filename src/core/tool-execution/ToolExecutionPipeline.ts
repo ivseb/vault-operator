@@ -28,15 +28,13 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { scanUnreadSources } from '../quality-gates';
+import { computeReadBudgetChars } from '../../types/model-registry';
 import { validateToolInput } from './inputSchemaValidator';
 import { stableStringify } from '../utils/stableStringify';
-import type { StigmergyTurn } from '../stigmergy/StigmergyAdapter';
 import type { ModeService } from '../modes/ModeService';
-import {
-    emitStigmergyInvoked,
-    emitStigmergyReturned,
-    type DispatchSource,
-} from '../stigmergy/stigmergyEmitGate';
+
+/** Source of a single-tool dispatch routed through the Pipeline. */
+export type DispatchSource = 'model' | 'fastpath' | 'planner';
 
 /**
  * FEAT-24-03 (ADR-63 amendment): hard ceiling on the characters of any single
@@ -44,10 +42,34 @@ import {
  * primary mechanism (large results -> tmp file + reference); this cap is the
  * floor for results the externalizer skips (read_file/read_document,
  * search_history, recall_memory, MCP tools) or where externalization failed.
- * Generous enough that normal results pass untouched (read_file is already
- * capped at 50000 chars by ReadFileTool).
+ * Generous enough that normal results pass untouched. read_file/read_document
+ * self-cap at a window-proportional budget (IMP-01-04-03), so their floor here
+ * is raised via {@link readAwareOutputCap} to not re-truncate a legitimate
+ * large read on a big-context model.
  */
 export const HARD_TOOL_OUTPUT_CAP_CHARS = 60_000;
+
+/**
+ * Headroom over the raw read budget for the untrusted-content wrapper tag and
+ * the truncation-hint line that ReadFileTool adds around the content.
+ */
+export const READ_OUTPUT_WRAPPER_HEADROOM_CHARS = 4_000;
+
+/**
+ * IMP-01-04-03: the per-tool output floor for read_file/read_document must
+ * clear their window-proportional read budget, otherwise a 1M-context model's
+ * one-call read (up to 400k chars) gets chopped back to 60k here and the model
+ * has to re-read in chunks anyway. All other tools keep the flat 60k floor.
+ */
+export function readAwareOutputCap(toolName: string, windowTokens?: number): number {
+    if (toolName !== 'read_file' && toolName !== 'read_document') {
+        return HARD_TOOL_OUTPUT_CAP_CHARS;
+    }
+    return Math.max(
+        HARD_TOOL_OUTPUT_CAP_CHARS,
+        computeReadBudgetChars(windowTokens) + READ_OUTPUT_WRAPPER_HEADROOM_CHARS,
+    );
+}
 
 /**
  * AUDIT-034 L-17 cross-module gate. Mirrors `TRUSTED_SKILL_SOURCES` in
@@ -62,10 +84,17 @@ export const HARD_TOOL_OUTPUT_CAP_CHARS = 60_000;
  *
  * Keep this set tight. Adding `agent`/`learned`/etc here would silently
  * widen the trust boundary for every `invoke_skill` auto-approval path.
+ *
+ * `pro` (monetized publisher skills) is trusted here to mirror
+ * TRUSTED_SKILL_SOURCES in InvokeSkillTool.ts. SECURITY CONTRACT: sound
+ * only while `source: pro` is written exclusively by a verified installer
+ * (dev install today, hash-pinned download later). The download flow MUST
+ * verify integrity before stamping `source: pro`.
  */
 const PIPELINE_TRUSTED_SKILL_SOURCES: ReadonlySet<string> = new Set([
     'builtin',
     'bundled',
+    'pro',
 ]);
 
 /**
@@ -351,15 +380,6 @@ export class ToolExecutionPipeline {
     private resultExternalizer: ResultExternalizer | null = null;
 
     /**
-     * Active Stigmergy turn for this task (set once after `loop.beginTurn`).
-     * The pipeline emits `capability_invoked` / `capability_returned` around
-     * each single-tool dispatch so the daemon can learn real tool->tool
-     * trails (not just START->tool stars). Undefined or `enabled=false`
-     * means observe-only mode is off and emits are skipped on the fast path.
-     */
-    private stigmergyTurn?: StigmergyTurn;
-
-    /**
      * AUDIT-034 M-9: ModeService used to enforce mode.toolGroups at the
      * execution layer (not just in the schema). When set, executeTool
      * rejects model-driven and MCP-driven dispatches of tools the active
@@ -418,16 +438,6 @@ export class ToolExecutionPipeline {
     }
 
     /**
-     * Bind the Stigmergy turn used to instrument the single-tool dispatch.
-     * Called by AgentTask right after `loop.beginTurn(...)` returns. The
-     * turn carries its own enabled-gate, so passing a no-op turn (daemon
-     * down / SDK missing / Studio toggle off) is safe.
-     */
-    setStigmergyTurn(turn: StigmergyTurn): void {
-        this.stigmergyTurn = turn;
-    }
-
-    /**
      * AUDIT-034 M-9: bind the ModeService so executeTool can enforce the
      * active mode's toolGroups at dispatch time. Called by AgentTask after
      * pipeline construction so the schema filter and the runtime check use
@@ -469,11 +479,11 @@ export class ToolExecutionPipeline {
     /**
      * CENTRAL EXECUTION METHOD — all tools MUST flow through here.
      *
-     * `opts.source` (FEAT-32-01 PR 1.2 / ADR-131) tags the dispatch origin so
-     * the Pipeline can keep the Stigmergy substrate free of FastPath /
-     * planner mechanics. Default `'model'` preserves existing behavior; the
-     * FastPath executor passes `'fastpath'` so the substrate stays blind to
-     * Recipe-driven batches (by design -- the agent did not pick the tool).
+     * `opts.source` tags the dispatch origin for the mode-gate / subagent-
+     * allowlist bypass (AUDIT-034 M-9/H-3): fastpath/planner dispatches of
+     * user-authored recipes skip the gates, everything else runs them.
+     * Default `'model'` preserves existing behavior. `opts.trust`
+     * (IMP-41-02-05) narrows the bypass to user-trusted dispatches.
      */
     async executeTool(
         toolCall: ToolUse,
@@ -495,6 +505,19 @@ export class ToolExecutionPipeline {
         const startTime = Date.now();
 
         try {
+            // 0. FIX-24-08-03: a stopped task must not start new tools.
+            // No tool consumes the abort signal itself, so without this
+            // pre-check a Stop only takes effect at the next loop
+            // checkpoint and a long tool batch keeps a "stopped" run
+            // visibly working. Returning an error result (instead of
+            // throwing) keeps every tool_use answered for history
+            // consistency and task resume.
+            if (extensions?.abortSignal?.aborted) {
+                const msg = `Tool "${toolCall.name}" skipped: task was stopped.`;
+                this.logOperation(toolCall, false, Date.now() - startTime, msg, undefined);
+                return this.errorResult(toolCall.id, msg);
+            }
+
             // 1. Validate tool exists
             const tool = this.toolRegistry.getTool(toolCall.name);
             if (!tool) {
@@ -674,45 +697,9 @@ export class ToolExecutionPipeline {
                 invalidateToolCache: extensions?.invalidateToolCache,
                 activateDeferredTool: extensions?.activateDeferredTool,
                 getReadFiles: extensions?.readFiles ? () => extensions.readFiles! : undefined,
-                // Stigmergy turn: dispatcher tools (use_mcp_tool, read_skill,
-                // invoke_skill) emit additional namespaced events for the
-                // inner capability (mcp:<server>:<tool>, skill:<name>) so
-                // the substrate sees real tool->skill / tool->mcp edges,
-                // not just dispatcher stars. The turn is a no-op when
-                // Stigmergy is off / the daemon is down, so passing it
-                // through unconditionally is safe.
-                stigmergyTurn: this.stigmergyTurn,
-                // FEAT-32-01 PR 1.2 / ADR-131: propagate the dispatch source
-                // so dispatcher tools can suppress their inner emits when the
-                // outer call came from FastPath / planner. Default `'model'`.
-                dispatchSource: opts?.source ?? 'model',
             };
 
-            // Stigmergy: emit capability_invoked BEFORE the dispatch and
-            // capability_returned AFTER, so the daemon can build tool->tool
-            // edges instead of only START->tool stars. The id MUST match what
-            // we registered with registerCapability (toolCall.name == tool
-            // definition name == capability id), otherwise phantom
-            // capabilities would appear in the substrate.
-            // The turn handle itself is non-fatal: emit failures are logged
-            // and swallowed so they cannot mask the tool's own error.
-            // `success=false` covers BOTH a throw AND the codebase's
-            // pushToolResult('<error>...') convention (executionHadError),
-            // since both are negative evidence for the substrate.
-            // FEAT-32-01 PR 1.2 / ADR-131: route every emit through the gate
-            // helper so the Pipeline cannot drift from the dispatchers. The
-            // helper is a no-op when the source is `'fastpath'` / `'planner'`
-            // or when the turn is missing / disabled.
-            const stigmergyTurn = this.stigmergyTurn;
-            const dispatchSource = context.dispatchSource;
-            await emitStigmergyInvoked(stigmergyTurn, toolCall.name, dispatchSource);
-            try {
-                await tool.execute(toolCall.input, context);
-            } catch (e) {
-                await emitStigmergyReturned(stigmergyTurn, toolCall.name, false, dispatchSource);
-                throw e;
-            }
-            await emitStigmergyReturned(stigmergyTurn, toolCall.name, !executionHadError, dispatchSource);
+            await tool.execute(toolCall.input, context);
 
             // FIX-H: track successful file reads for todo-verification (ADR-090 follow-up)
             // Must happen BEFORE the hallucination scan below so this same call's
@@ -797,7 +784,11 @@ export class ToolExecutionPipeline {
             // floor that catches anything the externalizer skipped or that slipped
             // through (e.g. an MCP tool with a huge response).
             {
-                const capResult = capOversizedToolOutput(finalContent, executionHadError);
+                const capChars = readAwareOutputCap(
+                    toolCall.name,
+                    this.apiHandler?.getModel()?.info?.contextWindow,
+                );
+                const capResult = capOversizedToolOutput(finalContent, executionHadError, capChars);
                 if (capResult.capped) {
                     finalContent = capResult.content;
                     console.debug(`[Pipeline] Capped ${toolCall.name} output ${capResult.originalLength} -> ${(finalContent as string).length} chars`);

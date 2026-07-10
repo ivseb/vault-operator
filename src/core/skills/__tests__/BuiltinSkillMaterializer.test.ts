@@ -146,6 +146,45 @@ describe('BuiltinSkillMaterializer', () => {
         expect(skillMd).toMatch(/^---\n[\s\S]*?\nsource: builtin\n[\s\S]*?---/);
     });
 
+    it('preserves source: pro for a premium skill (monetization tag survives materialization)', async () => {
+        // IMP-01-09-01 follow-up: pro-skills ship in the same private bundle
+        // and must materialize so the loader picks them up, but the `pro`
+        // tag has to survive so a future licence mechanism can identify them.
+        const bundle = {
+            'meeting-summary': {
+                'SKILL.md': '---\nname: meeting-summary\ndescription: Test\nsource: pro\n---\n\nBody\n',
+            },
+        };
+
+        await materializer.materializeAll(bundle);
+        const skillMd = stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md');
+        expect(skillMd).toMatch(/^---\n[\s\S]*?\nsource: pro\n[\s\S]*?---/);
+        expect(skillMd).not.toContain('source: builtin');
+    });
+
+    it('overwrites an existing on-disk source: pro skill (our managed pro skill, not a plugin override)', async () => {
+        // The stale on-disk copy from before the migration carries source: pro.
+        // A new bundle version must overwrite it, otherwise a skill update
+        // could never reach the runtime.
+        stub.files.set(
+            '.vault-operator/data/skills/meeting-summary/SKILL.md',
+            '---\nname: meeting-summary\ndescription: Stale\nsource: pro\n---\n\nOld body with evaluate_expression\n',
+        );
+        const bundle = {
+            'meeting-summary': {
+                'SKILL.md': '---\nname: meeting-summary\ndescription: Fresh\nsource: pro\n---\n\nNew body with set_block_anchors\n',
+            },
+        };
+
+        const report = await materializer.materializeAll(bundle);
+
+        expect(report.written).toEqual(['meeting-summary']);
+        expect(report.skipped).toEqual([]);
+        const skillMd = stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md');
+        expect(skillMd).toContain('set_block_anchors');
+        expect(skillMd).not.toContain('evaluate_expression');
+    });
+
     it('writes nested scripts/, references/, assets/ files', async () => {
         const bundle = {
             'office-workflow': {
@@ -346,5 +385,92 @@ describe('BuiltinSkillMaterializer', () => {
 
         expect(report.written).toEqual(['good']);
         expect(report.errors.map((e) => e.name)).toContain('bad/name');
+    });
+
+    /**
+     * Pro-skill grandfathering (skill monetization, ADR-152).
+     *
+     * When a skill leaves the shipped bundle -- e.g. a premium skill moved
+     * to pro-skills/ and stripped from the public build -- early adopters
+     * who already have it on disk must KEEP it as-is: never updated, never
+     * deleted. materializeAll only iterates over the skills present in the
+     * bundle, so a skill absent from the bundle is left untouched. These
+     * tests pin that behaviour so a future "orphan cleanup" refactor cannot
+     * silently break the grandfathering guarantee.
+     */
+    describe('Pro-skill grandfathering: a skill removed from the bundle is preserved', () => {
+        it('keeps an on-disk source: builtin skill that is no longer in the bundle', async () => {
+            // Early-adopter disk state: meeting-summary shipped as `bundled`
+            // up to 3.2.2 and was normalised to source: builtin on disk.
+            await materializer.materializeAll({
+                humanizer: {
+                    'SKILL.md': '---\nname: humanizer\ndescription: v1\n---\n\nHumanizer body\n',
+                },
+                'meeting-summary': {
+                    'SKILL.md': '---\nname: meeting-summary\ndescription: v1\n---\n\nMeeting body v1\n',
+                    'scripts/summarize.js': '// summarize v1',
+                },
+            });
+            expect(stub.files.has('.vault-operator/data/skills/meeting-summary/SKILL.md')).toBe(true);
+
+            // Next release: meeting-summary moved to pro-skills/ and stripped
+            // from the public bundle. Only humanizer ships now.
+            const report = await materializer.materializeAll({
+                humanizer: {
+                    'SKILL.md': '---\nname: humanizer\ndescription: v2\n---\n\nHumanizer body v2\n',
+                },
+            });
+
+            // humanizer updates as usual...
+            expect(report.written).toEqual(['humanizer']);
+            expect(stub.files.get('.vault-operator/data/skills/humanizer/SKILL.md')).toContain('body v2');
+            // ...but the grandfathered pro skill survives untouched, files and all.
+            const preserved = stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md');
+            expect(preserved).toBeDefined();
+            expect(preserved).toContain('Meeting body v1');
+            expect(stub.files.get('.vault-operator/data/skills/meeting-summary/scripts/summarize.js'))
+                .toBe('// summarize v1');
+            // It is neither written nor skipped -- it is simply not iterated.
+            expect(report.written).not.toContain('meeting-summary');
+            expect(report.skipped.map((s) => s.name)).not.toContain('meeting-summary');
+        });
+
+        it('keeps an on-disk source: pro skill that is no longer in the bundle', async () => {
+            // If a pro-tagged copy ever reached disk, it must also survive.
+            stub.files.set(
+                '.vault-operator/data/skills/office-workflow/SKILL.md',
+                '---\nname: office-workflow\ndescription: pro copy\nsource: pro\n---\n\nOffice body\n',
+            );
+
+            await materializer.materializeAll({
+                humanizer: {
+                    'SKILL.md': '---\nname: humanizer\ndescription: v1\n---\n\nBody\n',
+                },
+            });
+
+            const preserved = stub.files.get('.vault-operator/data/skills/office-workflow/SKILL.md');
+            expect(preserved).toBeDefined();
+            expect(preserved).toContain('Office body');
+            expect(preserved).toContain('source: pro');
+        });
+
+        it('survives repeated updates (grandfathered skill stays across multiple boots)', async () => {
+            await materializer.materializeAll({
+                'meeting-summary': {
+                    'SKILL.md': '---\nname: meeting-summary\ndescription: seed\n---\n\nSeed body\n',
+                },
+            });
+
+            // Two subsequent releases, both without meeting-summary.
+            await materializer.materializeAll({
+                humanizer: { 'SKILL.md': '---\nname: humanizer\ndescription: a\n---\n\nA\n' },
+            });
+            await materializer.materializeAll({
+                humanizer: { 'SKILL.md': '---\nname: humanizer\ndescription: b\n---\n\nB\n' },
+            });
+
+            expect(stub.files.get('.vault-operator/data/skills/meeting-summary/SKILL.md'))
+                .toContain('Seed body');
+        });
     });
 });

@@ -7,14 +7,14 @@ import initSqlJs from 'sql.js';
 type SqlJsDb = InstanceType<Awaited<ReturnType<typeof initSqlJs>>['Database']>;
 
 /**
- * Schema migration v4 -> v5 for the MemoryDB `episodes` table (FEAT-32-02 / ADR-133).
+ * Schema migration v4 -> v5 for the MemoryDB `episodes` table.
  *
- * Adds a single TEXT column `stigmergy_json` to persist the Stigmergy decision
- * snapshot per episode (mode, pinnedPath, guidanceTextSuppressed, recipeWinner).
- * Old rows keep `stigmergy_json = NULL`; new rows write a JSON-encoded snapshot.
- *
- * The migration must be idempotent: running it twice over the same DB must
- * succeed without error, and running it against a fresh v5 DB must be a no-op.
+ * Adds a single TEXT column `stigmergy_json`. The migration is a released
+ * part of v5 and stays live; the column itself is an unused legacy field
+ * since the feature that wrote it was removed (all rows keep
+ * `stigmergy_json = NULL`). These tests only guard the upgrade path:
+ * additivity (existing rows untouched) and idempotency (running the
+ * migration twice must not throw).
  *
  * The test replicates the migration logic inline so it does not depend on
  * the plugin's KnowledgeDB / Vault adapter and can run in node-only vitest.
@@ -55,7 +55,7 @@ beforeAll(async () => {
     SQL = await initSqlJs();
 });
 
-describe('MemoryDB migration v4 -> v5 (FEAT-32-02 / ADR-133)', () => {
+describe('MemoryDB migration v4 -> v5 (legacy stigmergy_json column)', () => {
     it('adds the `stigmergy_json` column to an existing v4 episodes table', () => {
         const db = new SQL.Database();
         for (const stmt of V1_EPISODES_DDL.split(';').map((s) => s.trim()).filter(Boolean)) {
@@ -91,29 +91,4 @@ describe('MemoryDB migration v4 -> v5 (FEAT-32-02 / ADR-133)', () => {
         db.close();
     });
 
-    it('persists and round-trips a JSON-encoded stigmergy snapshot on a new row', () => {
-        const db = new SQL.Database();
-        for (const stmt of V1_EPISODES_DDL.split(';').map((s) => s.trim()).filter(Boolean)) {
-            db.run(stmt + ';');
-        }
-        applyV5StigmergyColumn(db);
-
-        const snapshot = {
-            enabled: true,
-            mode: 'sequence',
-            pinnedPath: ['search_files', 'read_file', 'attempt_completion'],
-            guidanceTextSuppressed: true,
-            recipeWinner: 'rcp-42',
-        };
-        db.run(
-            'INSERT INTO episodes (id, user_message, mode, tool_sequence, tool_ledger, success, result_summary, created_at, stigmergy_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            ['ep-2', 'do thing', 'agent', '[]', '', 1, 'ok', '2026-06-07T00:00:00Z', JSON.stringify(snapshot)],
-        );
-
-        const result = db.exec('SELECT stigmergy_json FROM episodes WHERE id = ?', ['ep-2']);
-        const stored = JSON.parse(result[0].values[0][0] as string);
-        expect(stored).toEqual(snapshot);
-
-        db.close();
-    });
 });

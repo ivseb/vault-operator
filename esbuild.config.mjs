@@ -138,10 +138,19 @@ function generateInlineAssets() {
             skillCount++;
         }
     }
-    const bundledSkillsDir = join(__dirname, "bundled-skills");
-    if (existsSync(bundledSkillsDir)) {
-        for (const skillDir of readdirSync(bundledSkillsDir)) {
-            const srcDir = join(bundledSkillsDir, skillDir);
+    // IMP-01-09-01: both the free bundled-skills/ and the private pro-skills/
+    // trees materialize into the same data/skills/ folder at startup, so the
+    // loader scans one place regardless of a skill's origin. pro-skills/ is
+    // stripped from the public bundle by sync-public.yml + promote-to-test.sh,
+    // so on the public build this loop finds nothing and PRO stays out. The
+    // generated bundled-skills.ts is gitignored, so no premium content is ever
+    // committed. Each skill keeps its own `source:` tag (pro is preserved by
+    // the materializer for future licence gating).
+    for (const skillsRoot of ["bundled-skills", "pro-skills"]) {
+        const rootDir = join(__dirname, skillsRoot);
+        if (!existsSync(rootDir)) continue;
+        for (const skillDir of readdirSync(rootDir)) {
+            const srcDir = join(rootDir, skillDir);
             if (!statSync(srcDir).isDirectory()) continue;
             const files = {};
             walkSkill(srcDir, "", files);

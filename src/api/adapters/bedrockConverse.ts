@@ -209,11 +209,27 @@ export function prepareBedrockConverseInput(
     }
 
     if (useCachePoint) {
-        for (let i = bedrockMessages.length - 1; i >= 0; i--) {
-            const m = bedrockMessages[i];
-            if (m.role === 'user' && Array.isArray(m.content)) {
+        // IMP-01-04-03 (Lever B): a rolling cachePoint on the last user message
+        // (advances each turn) PLUS a stable one ~6 user-messages back, so the
+        // history bulk stays a cache READ across turns instead of a full
+        // cacheCreate every turn. Mirrors anthropicBlocks.markRollingHistory-
+        // Breakpoints. Total cachePoints stay within Bedrock's limit of 4
+        // (system + tools + these two).
+        const STABLE_BACKOFF = 6;
+        const pushCachePoint = (m: (typeof bedrockMessages)[number] | undefined): boolean => {
+            if (m && m.role === 'user' && Array.isArray(m.content)) {
                 m.content.push({ cachePoint: { type: 'default' } });
-                break;
+                return true;
+            }
+            return false;
+        };
+        let lastUser = -1;
+        for (let i = bedrockMessages.length - 1; i >= 0; i--) {
+            if (pushCachePoint(bedrockMessages[i])) { lastUser = i; break; }
+        }
+        if (lastUser >= 0) {
+            for (let i = lastUser - STABLE_BACKOFF; i >= 0; i--) {
+                if (pushCachePoint(bedrockMessages[i])) break;
             }
         }
     }

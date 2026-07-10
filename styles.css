@@ -5223,6 +5223,11 @@
     color: var(--text-muted);
 }
 
+.agent-skill-source-pro {
+    background-color: var(--color-purple, #7c3aed);
+    color: var(--text-on-accent);
+}
+
 .agent-skill-cmd-cell {
     width: 80px;
     text-align: center;

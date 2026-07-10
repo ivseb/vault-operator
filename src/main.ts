@@ -24,8 +24,6 @@ import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
 import { getPerformanceMarks } from './core/observability/PerformanceMarks';
-import { initStigmergy, registerCapabilitiesIfChanged } from './core/stigmergy/StigmergyAdapter';
-import { getSubagentProfile, listSubagentProfileNames } from './core/agent/subagent-profiles';
 import { IgnoreService } from './core/governance/IgnoreService';
 import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
@@ -1245,45 +1243,6 @@ export default class ObsidianAgentPlugin extends Plugin {
         this.selfAuthoredSkillLoader.setDependencies(
             this.esbuildWasmManager, this.sandboxExecutor, this.toolRegistry,
         );
-
-        // Stigmergy: connect once at startup to the external daemon and seed it
-        // with the current inventory across ALL FOUR explorable surfaces --
-        // tools, self-authored skills, connected MCP tools, and the static
-        // subagent profiles. Both steps are non-fatal: if the daemon is down
-        // or the SDK is not installed, every per-turn call degrades to a
-        // no-op and the agent loop runs unchanged. Skills/MCP that connect
-        // later (async) are picked up automatically on the next turn because
-        // AgentTask.run re-registers (hash-gated) with whatever is loaded at
-        // that point. So this startup pass is best-effort with the surfaces
-        // already in memory; subagent profiles are static so they always
-        // appear here, skills/mcp may be partial until later turns.
-        void initStigmergy()
-            .then(async () => {
-                const subagents = listSubagentProfileNames()
-                    .map((name): { name: string; description: string } | null => {
-                        const p = getSubagentProfile(name);
-                        return p ? { name: p.name, description: p.description } : null;
-                    })
-                    .filter((x): x is { name: string; description: string } => x !== null);
-                const skills = this.selfAuthoredSkillLoader?.getAllSkills().map((s) => ({
-                    name: s.name,
-                    description: s.description,
-                })) ?? [];
-                const mcp = this.mcpClient
-                    ? this.mcpClient.getAllTools().map(({ serverName, tool }) => ({
-                        server: serverName,
-                        name: tool.name,
-                        description: tool.description ?? '',
-                    }))
-                    : [];
-                await registerCapabilitiesIfChanged({
-                    tools: this.toolRegistry.getToolDefinitions(),
-                    skills,
-                    mcp,
-                    subagents,
-                });
-            })
-            .catch((e) => console.debug('[Stigmergy] startup wiring failed (non-fatal):', e));
 
         // FEATURE-2201: one-time migration from legacy `.obsilo-sync/skills/` to
         // the configurable agent-folder (ADR-072). Idempotent via `.migrated` marker.
@@ -2759,6 +2718,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     onunload(): void {
         console.debug('Unloading Vault Operator plugin');
+        // FIX-24-08-03: abort a running background agent task -- it holds
+        // its own AbortController and would otherwise keep calling the API
+        // after the plugin is gone.
+        try {
+            this.backgroundTaskRunner?.stop();
+        } catch (e) {
+            console.debug('[main] background-task stop error (non-fatal):', e);
+        }
         // EPIC-33: dispose inline-actions before async cleanup so the
         // floating-menu listeners detach immediately.
         try {
@@ -4303,7 +4270,7 @@ export default class ObsidianAgentPlugin extends Plugin {
         // started. A second run would overlap writes to the same day-file, or --
         // if a run is mid-flight -- be swallowed as a steering nudge
         // (AgentSidebarView.handleSendMessage). Refuse both.
-        if (this.skillRunPending || this.isAgentRunBusy()) {
+        if (this.skillRunPending || this.isAgentBusy()) {
             new Notice(t('protocol.runSkillBusy', { skill }));
             return;
         }
@@ -4331,8 +4298,9 @@ export default class ObsidianAgentPlugin extends Plugin {
     }
 
     /** True while any agent sidebar view has a run in flight. Used by the
-     *  deeplink reentrancy guard so a browser trigger cannot overlap a run. */
-    private isAgentRunBusy(): boolean {
+     *  deeplink reentrancy guard AND by background indexing (agentBusyGate,
+     *  IMP-01-04-03) to defer boot-deferred reindex/enrichment while a task runs. */
+    isAgentBusy(): boolean {
         const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SIDEBAR);
         return leaves.some((leaf) => leaf.view instanceof AgentSidebarView && leaf.view.isBusy);
     }

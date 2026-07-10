@@ -90,9 +90,9 @@ function validateLoopState(raw: unknown): AgentLoopState | null {
         if (typeof r.phase !== 'string' || !LOOP_PHASES.has(r.phase)) return null;
         out.phase = r.phase as LoopPhase;
     }
-    if (r.stigmergyOutcome !== undefined && r.stigmergyOutcome !== null) {
-        if (r.stigmergyOutcome !== 'accept' && r.stigmergyOutcome !== 'abandon') return null;
-        out.stigmergyOutcome = r.stigmergyOutcome;
+    if (r.turnOutcome !== undefined && r.turnOutcome !== null) {
+        if (r.turnOutcome !== 'accept' && r.turnOutcome !== 'abandon') return null;
+        out.turnOutcome = r.turnOutcome;
     }
     for (const k of ['completionResult', 'pendingModeSwitch'] as const) {
         const v = r[k];
@@ -151,6 +151,19 @@ export class InflightStore {
             this.flushTimer = undefined;
             void this.flush();
         }, DEBOUNCE_MS);
+    }
+
+    /**
+     * IMP-24-08-04 (stop=pause): flush the pending debounced snapshot
+     * immediately. The abort path calls this so the Resume card can list
+     * the stopped task without waiting out the debounce window.
+     */
+    async flushNow(): Promise<void> {
+        if (this.flushTimer !== undefined) {
+            window.clearTimeout(this.flushTimer);
+            this.flushTimer = undefined;
+        }
+        await this.flush();
     }
 
     /** Remove a task's snapshot (clean end, discard, resume consumed). */

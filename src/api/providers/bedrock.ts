@@ -70,10 +70,8 @@ import type {
 import type { ToolDefinition } from '../../core/tools/types';
 import { validateProviderUrl } from './providerUrlGuard';
 import { prepareBedrockConverseInput, parseBedrockConverseStream } from '../adapters/bedrockConverse';
+import { getModelContextWindow } from '../../types/model-registry';
 
-// Default context window for Claude models on Bedrock.
-// Can be refined per model in the model-registry later.
-const BEDROCK_DEFAULT_CONTEXT_WINDOW = 200_000;
 
 // IMP-41-03-03 / ADR-150: the Converse wire format (helpers, conversion,
 // request construction, stream parsing) lives in ../adapters/bedrockConverse.
@@ -232,10 +230,14 @@ export class BedrockProvider implements ApiHandler {
     }
 
     getModel(): { id: string; info: ModelInfo } {
+        // Resolve the real window from the central registry. getModelContextWindow
+        // normalizes the Bedrock-decorated id (region prefix + "-vN:M" suffix),
+        // so "eu.anthropic.claude-opus-4-8-v1:0" maps to the 1M Opus floor
+        // instead of a hardcoded 200k that condensed the loop far too early.
         return {
             id: this.config.model,
             info: {
-                contextWindow: BEDROCK_DEFAULT_CONTEXT_WINDOW,
+                contextWindow: getModelContextWindow(this.config.model),
                 supportsTools: true,
                 supportsStreaming: true,
             },

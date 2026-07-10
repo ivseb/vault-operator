@@ -17,6 +17,7 @@ export type ToolName =
     | 'write_file'
     | 'edit_file'
     | 'append_to_file'
+    | 'set_block_anchors'
     | 'create_folder'
     | 'delete_file'
     | 'move_file'
@@ -36,6 +37,7 @@ export type ToolName =
     | 'get_vault_stats'
     | 'vault_health_check'
     | 'search_by_tag'
+    | 'find_notes_by_type'
     | 'get_daily_note'
     | 'open_note'
     | 'generate_canvas'
@@ -197,6 +199,12 @@ export interface SubtaskSpawnOverrides {
     maxIterations?: number;
     /** Restrict the child's tool schema to this allowlist. */
     allowedTools?: ToolName[];
+    /**
+     * Issue #54.4.1: run the child on a specific configured model, given as a
+     * model key "name|provider". Resolved against providerConfigs; wins over a
+     * profile tier override. Ignored (parent api) when the key is unknown.
+     */
+    modelKey?: string;
 }
 
 /**
@@ -337,28 +345,6 @@ export interface ToolExecutionContext {
      * rebuildPromptCache. No-op if the tool is already active or not deferred.
      */
     activateDeferredTool?: (toolName: string) => void;
-
-    /**
-     * Active Stigmergy turn (StigmergyAdapter) for the current AgentTask.
-     * Threaded through so the inner dispatch points of dispatcher tools
-     * (use_mcp_tool, read_skill / invoke_skill) can emit lifecycle events
-     * with a namespaced capability id (`mcp:<server>:<tool>`,
-     * `skill:<name>`) -- otherwise the substrate only sees the outer
-     * dispatcher tool that the pipeline already instruments. Undefined or
-     * `enabled === false` means observe-only mode is off; tools should
-     * fast-path on that and skip the emits without awaiting anything.
-     */
-    stigmergyTurn?: import('../stigmergy/StigmergyAdapter').StigmergyTurn;
-
-    /**
-     * Source of the dispatch (FEAT-32-01 PR 1.2 / ADR-131). Propagated by
-     * the Pipeline into the tool's ToolExecutionContext so dispatcher tools
-     * (use_mcp_tool, invoke_skill, read_skill) can suppress their inner
-     * `capability_invoked` / `capability_returned` emits when the outer call
-     * was driven by FastPath rather than the model. Default `'model'` keeps
-     * backward compatibility for callers that have not been migrated.
-     */
-    dispatchSource?: import('../stigmergy/stigmergyEmitGate').DispatchSource;
 }
 
 /**

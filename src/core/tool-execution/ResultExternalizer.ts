@@ -57,6 +57,13 @@ const SKIP_EXTERNALIZATION = new Set([
     // agent verbatim. Externalizing forces a follow-up read_file that
     // gets re-externalized and the model never sees the actual hits.
     'search_history', 'recall_memory',
+    // find_notes_by_type (IMP-01-04-03): a bounded typed-note directory the
+    // model must SEE inline to pick moc/related links. Externalizing it
+    // triggered the capped-tmp-re-read loop (live incident 2026-07-08: 8+10
+    // re-reads of the tmp file, a second lookup call, ~20 wasted turns). A
+    // full typed-note list is a few thousand tokens -- cheaper inline than
+    // any re-read dance.
+    'find_notes_by_type',
     // ingest_triage (FEAT-19-12): the triage card carries the cluster
     // match + curated top-K hits from Vault/Memory/History. Externalizing
     // forces the agent to spend a second tool_call re-reading a tmp file

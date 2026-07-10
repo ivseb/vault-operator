@@ -34,10 +34,10 @@ export interface AgentLoopState {
     attemptCompletionFired: boolean;
     /** True when a FastPath recipe pre-ran before the loop. */
     fastPathFired: boolean;
-    /** Natural end without cap/error (Stigmergy outcome grading). */
+    /** Natural end without cap/error (episode outcome grading). */
     cleanNaturalExit: boolean;
-    /** Substrate outcome, resolved at the return sites. */
-    stigmergyOutcome: 'accept' | 'abandon';
+    /** Turn outcome, resolved at the return sites. */
+    turnOutcome: 'accept' | 'abandon';
 
     // --- guards / budgets ---
     consecutiveMistakes: number;
@@ -106,7 +106,7 @@ export function createInitialLoopState(opts: { fastPathFired?: boolean } = {}): 
         attemptCompletionFired: false,
         fastPathFired: opts.fastPathFired ?? false,
         cleanNaturalExit: false,
-        stigmergyOutcome: 'abandon',
+        turnOutcome: 'abandon',
         consecutiveMistakes: 0,
         totalToolErrors: 0,
         rateLimitRetries: 0,

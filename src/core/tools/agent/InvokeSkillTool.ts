@@ -33,8 +33,6 @@ import {
     CompositionCycleError,
     CompositionDepthExceededError,
 } from '../../skills/CompositionStackService';
-import { stigmergySkillId } from '../../stigmergy/StigmergyAdapter';
-import { emitStigmergyInvoked, emitStigmergyReturned } from '../../stigmergy/stigmergyEmitGate';
 import { BUILT_IN_MODES, TOOL_GROUP_MAP, expandToolGroups } from '../../modes/builtinModes';
 import type { ToolGroup } from '../../../types/settings';
 
@@ -55,7 +53,15 @@ interface InvokeSkillArgs {
  * to the model as if their instructions can override the host's approval
  * rules.
  */
-const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled']);
+// `pro` = publisher-curated monetized skills. Host-trusted so a paying
+// user does not hit the provenance gate on every invoke. SECURITY
+// CONTRACT: this trust is only sound while `source: pro` is written
+// exclusively by a verified installer -- dev install today, hash-pinned
+// on-demand download later. The download flow MUST verify integrity
+// (catalog hash pin, analogous to the language packs) BEFORE stamping
+// `source: pro`, otherwise a downloaded skill could spoof the marker to
+// escalate trust. Mirror any change in ToolExecutionPipeline.ts.
+const TRUSTED_SKILL_SOURCES = new Set<string>(['builtin', 'bundled', 'pro']);
 
 /**
  * Per-process record of which imported skills the user has already approved
@@ -215,19 +221,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             return;
         }
 
-        // Stigmergy: emit at the inner dispatch (the spawn itself) with a
-        // namespaced skill id so the substrate sees `skill:<name>` as a
-        // first-class capability and not just the outer `invoke_skill`
-        // dispatcher star. Pipeline still emits `invoke_skill`
-        // invoked/returned around the whole call.
-        // FEAT-32-01 PR 1.2 / ADR-131: route emits through the gate helper so
-        // the inner `skill:<name>` event respects the outer dispatchSource
-        // (FastPath / planner -> no emit).
-        const stigmergyTurn = context.stigmergyTurn;
-        const dispatchSource = context.dispatchSource;
-        const capId = stigmergySkillId(skillName);
-        await emitStigmergyInvoked(stigmergyTurn, capId, dispatchSource);
-        let invokedOk = false;
         try {
             const message = this.composeSubtaskMessage(
                 skillName,
@@ -264,7 +257,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
                 result: subResult,
             }, null, 2)));
             callbacks.log(`Invoked sub-skill: ${skillName} (source=${skill.source}, depth ${compositionStack.depth()}, maxIter=${maxIterations}, tools=${allowedTools?.length ?? 'inherit'})`);
-            invokedOk = true;
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             callbacks.pushToolResult(this.formatError(
@@ -274,7 +266,6 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             // Pop unconditionally so a failed spawn does not leave the
             // stack in a bad state.
             compositionStack.pop();
-            await emitStigmergyReturned(stigmergyTurn, capId, invokedOk, dispatchSource);
         }
     }
 

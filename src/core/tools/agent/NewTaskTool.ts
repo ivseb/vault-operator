@@ -12,10 +12,12 @@
  */
 
 import { BaseTool } from '../BaseTool';
-import type { ToolDefinition, ToolExecutionContext } from '../types';
+import type { ToolDefinition, ToolExecutionContext, SubtaskSpawnOverrides } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { validateNewTaskInput } from './newTaskValidation';
 import { listSubagentProfileNames } from '../../agent/subagent-profiles';
+import { getModelKey } from '../../../types/settings';
+import { expandProviderConfigsToCustomModels } from '../../settings/expandProviderConfigs';
 
 /**
  * FEAT-24-04 / ADR-113: hard fallback when settings.subtaskTokenBudget is
@@ -83,6 +85,13 @@ export class NewTaskTool extends BaseTool<'new_task'> {
                             '"ESCALATION: edit_file failed twice, search_files cannot find the section". ' +
                             'Generic phrases ("better context", "more thorough") are rejected.',
                     },
+                    model_key: {
+                        type: 'string',
+                        description:
+                            'Optional. Run the sub-agent on a specific configured model, given as "name|provider" ' +
+                            '(use configure_model with action="list" to discover the available keys). ' +
+                            'Defaults to the parent task\'s model when omitted.',
+                    },
                 },
                 required: ['mode', 'message'],
             },
@@ -100,7 +109,7 @@ export class NewTaskTool extends BaseTool<'new_task'> {
             callbacks.pushToolResult(this.formatError(new Error(validation.error)));
             return;
         }
-        const { mode, message, profile } = validation.value;
+        const { mode, message, profile, modelKey } = validation.value;
 
         // Only available in Agent mode.
         if (context.mode !== 'agent') {
@@ -135,13 +144,33 @@ export class NewTaskTool extends BaseTool<'new_task'> {
             return;
         }
 
+        // Issue #54.4.1: optional per-spawn model override. Validate the key
+        // against the user's configured models here (the tool has settings
+        // access) so a hallucinated key returns a helpful error instead of
+        // silently falling back to the parent model inside spawnSubtask.
+        let overrides: SubtaskSpawnOverrides | undefined;
+        if (modelKey) {
+            const configured = expandProviderConfigsToCustomModels(this.plugin.settings.providerConfigs ?? []);
+            const picked = configured.find((m) => getModelKey(m) === modelKey);
+            if (!picked) {
+                const available = configured.map((m) => getModelKey(m)).join(', ');
+                callbacks.pushToolResult(this.formatError(new Error(
+                    `model_key "${modelKey}" is not a configured model. Available: ${available || 'none'}. `
+                    + 'Use configure_model with action="list" to see configured models.'
+                )));
+                return;
+            }
+            overrides = { modelKey };
+        }
+
         const label = profile ? `profile=${profile}` : `mode=${mode}`;
-        callbacks.log(`Spawning sub-agent (${label}): ${message.slice(0, 80)}…`);
+        callbacks.log(`Spawning sub-agent (${label}${modelKey ? `, model=${modelKey}` : ''}): ${message.slice(0, 80)}…`);
 
         try {
             // Profile path passes `profile` as the third argument; the parent
             // AgentTask.spawnSubtask resolves it to a lean SubagentProfile.
-            const result = await context.spawnSubtask(mode, message, profile || undefined);
+            // Issue #54.4.1: overrides carries an optional per-spawn model key.
+            const result = await context.spawnSubtask(mode, message, profile || undefined, overrides);
             const header = profile
                 ? `[Sub-agent completed -- profile: ${profile}]`
                 : `[Sub-agent completed -- mode: ${mode}]`;

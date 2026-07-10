@@ -97,6 +97,16 @@ export class InterfaceTab {
             );
 
         new Setting(containerEl)
+            .setName(t('settings.interface.persistChatModel'))
+            .setDesc(t('settings.interface.persistChatModelDesc'))
+            .addToggle((tog) =>
+                tog.setValue(this.plugin.settings.persistChatModel ?? true).onChange(async (v) => {
+                    this.plugin.settings.persistChatModel = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
+        new Setting(containerEl)
             .setName(t('settings.interface.includeTime'))
             .setDesc(t('settings.interface.includeTimeDesc'))
             .addToggle((tog) =>

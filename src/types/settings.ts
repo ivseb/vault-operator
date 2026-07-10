@@ -1218,6 +1218,16 @@ export interface ObsidianAgentSettings {
     activeProviderId: string | null;
 
     /**
+     * Issue #54.3: last chat-header model override per providerId. Makes the
+     * pinned model sticky across restarts and new chats. A stale id (model
+     * deprovisioned) falls back to Auto on restore.
+     */
+    lastChatModelByProvider: Record<string, string>;
+
+    /** Issue #54.3: toggle for the sticky chat-model behavior (default on). */
+    persistChatModel: boolean;
+
+    /**
      * EPIC-26 / ADR-122: schema version for the provider-only settings
      * shape. Once a user's data.json has this version, the plugin reads
      * tier-resolution exclusively from `providerConfigs[]`. Missing or
@@ -1931,6 +1941,8 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
 
     autoAddActiveFileContext: true,
     sendWithEnter: true,
+    lastChatModelByProvider: {},
+    persistChatModel: true,
     includeCurrentTimeInContext: false, // ADR-62 amendment: date is always present; time-of-day is opt-in (defeats caching)
     showContextProgress: false,
     rulesToggles: {},

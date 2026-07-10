@@ -18,6 +18,15 @@
  *     or `source: <plugin-id>`, the bundle is skipped with a notice.
  *   - On re-materialization, the previous builtin folder is wiped so a
  *     bundled-skill file that disappeared between releases is gone.
+ *   - Grandfathering (ADR-152): the pass ONLY iterates over skills present
+ *     in the bundle. A skill that left the bundle entirely -- e.g. a premium
+ *     skill moved to pro-skills/ and stripped from the public build -- is
+ *     never iterated, so an existing on-disk copy is left fully intact
+ *     (not updated, not deleted). This is the deliberate mechanism that lets
+ *     early adopters keep monetized skills they already installed. Do NOT
+ *     add an "orphan cleanup" that deletes on-disk skills absent from the
+ *     bundle: it would silently revoke that grandfathered access. Guarded by
+ *     the "Pro-skill grandfathering" tests in BuiltinSkillMaterializer.test.ts.
  */
 
 import { normalizePath } from 'obsidian';
@@ -109,6 +118,9 @@ export class BuiltinSkillMaterializer {
             // Marker missing or unreadable -- fall through to full materialize.
         }
 
+        // ADR-152 grandfathering: iterate over bundle entries only. Skills
+        // absent from the bundle (e.g. removed premium skills) are never
+        // reached here and their on-disk copies stay untouched by design.
         for (const [skillName, files] of Object.entries(bundle)) {
             try {
                 if (!isSafePathSegment(skillName)) {
@@ -134,9 +146,17 @@ export class BuiltinSkillMaterializer {
                         report.skipped.push({ name: skillName, reason: 'user-override' });
                         continue;
                     }
-                    if (existingSource && existingSource !== 'builtin' && existingSource !== 'bundled') {
+                    if (
+                        existingSource
+                        && existingSource !== 'builtin'
+                        && existingSource !== 'bundled'
+                        && existingSource !== 'pro'
+                    ) {
                         // Plugin-id source (e.g. "dataview"). Plugin-managed
-                        // skills win over builtin materialization.
+                        // skills win over builtin materialization. `pro` is our
+                        // own managed premium tier (IMP-01-09-01) -- it ships in
+                        // the same private bundle and must be overwritable so a
+                        // skill update reaches the runtime.
                         report.skipped.push({ name: skillName, reason: 'plugin-override' });
                         continue;
                     }
@@ -191,7 +211,7 @@ export class BuiltinSkillMaterializer {
                         const bytes = this.decodeBase64(content);
                         await this.adapter.writeBinary(fullPath, bytes);
                     } else if (relPath === 'SKILL.md') {
-                        await this.adapter.write(fullPath, this.ensureBuiltinSource(content));
+                        await this.adapter.write(fullPath, this.ensureManagedSource(content));
                     } else {
                         await this.adapter.write(fullPath, content);
                     }
@@ -227,20 +247,26 @@ export class BuiltinSkillMaterializer {
         return value.replace(/^['"]|['"]$/g, '');
     }
 
-    private ensureBuiltinSource(content: string): string {
+    private ensureManagedSource(content: string): string {
+        // Normalise the bundle source to `builtin`, but preserve the `pro`
+        // monetization tag (IMP-01-09-01) so a future licence mechanism can
+        // still identify premium skills. Everything else the bundle declares
+        // (`bundled`, or none) becomes `builtin`.
+        const declared = this.extractSource(content);
+        const target = declared === 'pro' ? 'pro' : 'builtin';
         const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
         if (!fmMatch) {
             // No frontmatter at all -- prepend a minimal block. Should not
             // happen for bundled skills but the guard keeps the contract.
-            return `---\nsource: builtin\n---\n\n${content}`;
+            return `---\nsource: ${target}\n---\n\n${content}`;
         }
         const fm = fmMatch[1];
         const lines = fm.split('\n');
         const sourceIdx = lines.findIndex((line) => /^\s*source\s*:/.test(line));
         if (sourceIdx >= 0) {
-            lines[sourceIdx] = 'source: builtin';
+            lines[sourceIdx] = `source: ${target}`;
         } else {
-            lines.push('source: builtin');
+            lines.push(`source: ${target}`);
         }
         const newFm = lines.join('\n');
         return content.replace(fmMatch[0], `---\n${newFm}\n---`);

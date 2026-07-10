@@ -46,6 +46,29 @@ describe('TodoAnchorInterceptor', () => {
         expect(out[2].content).toContain('continue\n\n[Current Task Plan]');
     });
 
+    it('anchors on the last user message even when it is tool_result array content (recency zone, not the front string)', () => {
+        // The agentic case: every user turn after the first is a tool_result
+        // (array content); the only string user message is msg#0 at the FRONT.
+        // Appending there (the old behaviour) changed the cache prefix every
+        // turn -> full cacheCreate. The anchor must land on the LAST message.
+        const anchor = new TodoAnchorInterceptor();
+        anchor.noteTodoUpdate([{ text: 'a', status: 'open' }]);
+        const safeHistory: MessageParam[] = [
+            { role: 'user', content: 'task' },
+            { role: 'assistant', content: [{ type: 'tool_use', id: '1', name: 'read', input: {} }] },
+            { role: 'user', content: [{ type: 'tool_result', tool_use_id: '1', content: 'file contents' }] },
+        ];
+        const out = anchor.transformRequestHistory(safeHistory, ctx(2));
+
+        // The front string message (the stable cache prefix) is untouched.
+        expect(out[0].content).toBe('task');
+        // The anchor rides on the LAST user message, as a text block.
+        const last = out[2].content as Array<{ type: string; text?: string }>;
+        expect(Array.isArray(last)).toBe(true);
+        const texts = last.filter((b) => b.type === 'text').map((b) => b.text).join('');
+        expect(texts).toContain('[Current Task Plan]');
+    });
+
     it('does not anchor on iteration 0 or when no todos exist', () => {
         const anchor = new TodoAnchorInterceptor();
         const history: MessageParam[] = [{ role: 'user', content: 'task' }];
