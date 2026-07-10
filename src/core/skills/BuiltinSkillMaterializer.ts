@@ -18,6 +18,15 @@
  *     or `source: <plugin-id>`, the bundle is skipped with a notice.
  *   - On re-materialization, the previous builtin folder is wiped so a
  *     bundled-skill file that disappeared between releases is gone.
+ *   - Grandfathering (ADR-152): the pass ONLY iterates over skills present
+ *     in the bundle. A skill that left the bundle entirely -- e.g. a premium
+ *     skill moved to pro-skills/ and stripped from the public build -- is
+ *     never iterated, so an existing on-disk copy is left fully intact
+ *     (not updated, not deleted). This is the deliberate mechanism that lets
+ *     early adopters keep monetized skills they already installed. Do NOT
+ *     add an "orphan cleanup" that deletes on-disk skills absent from the
+ *     bundle: it would silently revoke that grandfathered access. Guarded by
+ *     the "Pro-skill grandfathering" tests in BuiltinSkillMaterializer.test.ts.
  */
 
 import { normalizePath } from 'obsidian';
@@ -109,6 +118,9 @@ export class BuiltinSkillMaterializer {
             // Marker missing or unreadable -- fall through to full materialize.
         }
 
+        // ADR-152 grandfathering: iterate over bundle entries only. Skills
+        // absent from the bundle (e.g. removed premium skills) are never
+        // reached here and their on-disk copies stay untouched by design.
         for (const [skillName, files] of Object.entries(bundle)) {
             try {
                 if (!isSafePathSegment(skillName)) {
