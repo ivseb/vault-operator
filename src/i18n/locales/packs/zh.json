@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "企业网关",
   "settings.providers.effortOptInAdd": "为模型启用",
   "settings.providers.effortOptInAddDesc": "已提供原生力度等级的模型不会列在此处。",
-  "settings.providers.effortOptInDesc": "为此端点上的模型提供推理力度滑块。插件无法自动检测支持情况；仅对端点接受 OpenAI 风格推理力度字段的模型启用。",
+  "settings.providers.effortOptInDesc": "为此端点上的模型提供推理力度滑块。插件无法自动检测支持情况；仅对端点接受 reasoning_effort 字段的模型启用。",
   "settings.providers.effortOptInSelect": "选择模型",
   "settings.providers.modal.infoAria": "{{label}}：信息",
   "settings.providers.modal.section.effort": "推理力度",

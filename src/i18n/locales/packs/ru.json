@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "Корпоративный шлюз",
   "settings.providers.effortOptInAdd": "Включить для модели",
   "settings.providers.effortOptInAddDesc": "Модели, у которых уже есть собственные уровни усилий, здесь не перечислены.",
-  "settings.providers.effortOptInDesc": "Показывает ползунок усилия рассуждения для моделей этого эндпоинта. Плагин не может определить поддержку автоматически; включайте только для моделей, чей эндпоинт принимает поле усилия рассуждения в стиле OpenAI.",
+  "settings.providers.effortOptInDesc": "Показывает ползунок усилия рассуждения для моделей этого эндпоинта. Плагин не может определить поддержку автоматически; включайте только для моделей, чей эндпоинт принимает поле reasoning_effort.",
   "settings.providers.effortOptInSelect": "Выберите модель",
   "settings.providers.modal.infoAria": "{{label}}: информация",
   "settings.providers.modal.section.effort": "Усилие рассуждения",

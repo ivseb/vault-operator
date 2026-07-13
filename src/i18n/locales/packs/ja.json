@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "エンタープライズゲートウェイ",
   "settings.providers.effortOptInAdd": "モデルで有効化",
   "settings.providers.effortOptInAddDesc": "ネイティブの労力レベルを既に持つモデルはここには表示されません。",
-  "settings.providers.effortOptInDesc": "このエンドポイントのモデルに推論労力スライダーを提供します。プラグインは対応を自動検出できません。OpenAI形式のreasoning effortフィールドを受け付けるエンドポイントのモデルにのみ有効化してください。",
+  "settings.providers.effortOptInDesc": "このエンドポイントのモデルに推論労力スライダーを提供します。プラグインは対応を自動検出できません。reasoning_effortフィールドを受け付けるエンドポイントのモデルにのみ有効化してください。",
   "settings.providers.effortOptInSelect": "モデルを選択",
   "settings.providers.modal.infoAria": "{{label}}: 情報",
   "settings.providers.modal.section.effort": "推論の労力",

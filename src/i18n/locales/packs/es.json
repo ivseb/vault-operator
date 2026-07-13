@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "Gateway corporativo",
   "settings.providers.effortOptInAdd": "Activar para el modelo",
   "settings.providers.effortOptInAddDesc": "Los modelos que ya exponen niveles de esfuerzo nativos no aparecen aquí.",
-  "settings.providers.effortOptInDesc": "Ofrece el control de esfuerzo de razonamiento para los modelos de este endpoint. El plugin no puede detectar la compatibilidad automáticamente; actívalo solo para modelos cuyo endpoint acepte un campo de esfuerzo de razonamiento al estilo de OpenAI.",
+  "settings.providers.effortOptInDesc": "Ofrece el control de esfuerzo de razonamiento para los modelos de este endpoint. El plugin no puede detectar la compatibilidad automáticamente; actívalo solo para modelos cuyo endpoint acepte un campo reasoning_effort.",
   "settings.providers.effortOptInSelect": "Selecciona un modelo",
   "settings.providers.modal.infoAria": "{{label}}: información",
   "settings.providers.modal.section.effort": "Esfuerzo de razonamiento",

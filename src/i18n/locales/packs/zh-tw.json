@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "企業閘道",
   "settings.providers.effortOptInAdd": "為模型啟用",
   "settings.providers.effortOptInAddDesc": "已提供原生強度等級的模型不會列在此處。",
-  "settings.providers.effortOptInDesc": "為此端點上的模型提供推理強度滑桿。外掛無法自動偵測支援情況；僅對端點接受 OpenAI 樣式推理強度欄位的模型啟用。",
+  "settings.providers.effortOptInDesc": "為此端點上的模型提供推理強度滑桿。外掛無法自動偵測支援情況；僅對端點接受 reasoning_effort 欄位的模型啟用。",
   "settings.providers.effortOptInSelect": "選擇模型",
   "settings.providers.modal.infoAria": "{{label}}：資訊",
   "settings.providers.modal.section.effort": "推理強度",

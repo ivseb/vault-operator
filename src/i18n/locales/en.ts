@@ -2411,7 +2411,7 @@ export const en = {
     'settings.providers.gateway.title': 'Enterprise gateway',
     'settings.providers.effortOptInAdd': 'Enable for model',
     'settings.providers.effortOptInAddDesc': 'Models that already expose native effort levels are not listed here.',
-    'settings.providers.effortOptInDesc': 'Offer the reasoning effort slider for models on this endpoint. The plugin cannot detect support automatically; enable it only for models whose endpoint accepts an OpenAI-style reasoning effort field.',
+    'settings.providers.effortOptInDesc': 'Offer the reasoning effort slider for models on this endpoint. The plugin cannot detect support automatically; enable it only for models whose endpoint accepts a reasoning_effort field.',
     'settings.providers.effortOptInSelect': 'Select a model',
     'settings.providers.modal.infoAria': '{{label}}: info',
     'settings.providers.modal.section.effort': 'Reasoning effort',

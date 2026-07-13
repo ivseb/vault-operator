@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "Enterprise-Gateway",
   "settings.providers.effortOptInAdd": "Für Modell aktivieren",
   "settings.providers.effortOptInAddDesc": "Modelle, die bereits native Aufwandsstufen haben, werden hier nicht aufgeführt.",
-  "settings.providers.effortOptInDesc": "Bietet den Regler für den Reasoning-Aufwand für Modelle auf diesem Endpoint an. Das Plugin kann die Unterstützung nicht automatisch erkennen; nur für Modelle aktivieren, deren Endpoint ein Reasoning-Effort-Feld im OpenAI-Stil akzeptiert.",
+  "settings.providers.effortOptInDesc": "Bietet den Regler für den Reasoning-Aufwand für Modelle auf diesem Endpoint an. Das Plugin kann die Unterstützung nicht automatisch erkennen; nur für Modelle aktivieren, deren Endpoint ein reasoning_effort-Feld akzeptiert.",
   "settings.providers.effortOptInSelect": "Modell auswählen",
   "settings.providers.modal.infoAria": "{{label}}: Info",
   "settings.providers.modal.section.effort": "Reasoning-Aufwand",

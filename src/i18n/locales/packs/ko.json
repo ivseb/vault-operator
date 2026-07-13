@@ -2133,7 +2133,7 @@
   "settings.providers.gateway.title": "엔터프라이즈 게이트웨이",
   "settings.providers.effortOptInAdd": "모델에 사용",
   "settings.providers.effortOptInAddDesc": "기본 강도 수준을 이미 제공하는 모델은 여기에 표시되지 않습니다.",
-  "settings.providers.effortOptInDesc": "이 엔드포인트의 모델에 추론 강도 슬라이더를 제공합니다. 플러그인은 지원 여부를 자동으로 감지할 수 없으므로 OpenAI 방식의 추론 강도 필드를 받아들이는 엔드포인트의 모델에만 사용하세요.",
+  "settings.providers.effortOptInDesc": "이 엔드포인트의 모델에 추론 강도 슬라이더를 제공합니다. 플러그인은 지원 여부를 자동으로 감지할 수 없으므로 reasoning_effort 필드를 받아들이는 엔드포인트의 모델에만 사용하세요.",
   "settings.providers.effortOptInSelect": "모델 선택",
   "settings.providers.modal.infoAria": "{{label}}: 정보",
   "settings.providers.modal.section.effort": "추론 강도",
