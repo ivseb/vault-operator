@@ -17,7 +17,7 @@
  */
 
 import type { App } from 'obsidian';
-import { TFile } from 'obsidian';
+import { TFile, TFolder } from 'obsidian';
 
 interface DragManagerLike {
     draggable?: unknown;
@@ -33,6 +33,11 @@ interface FilesDraggable {
     files: TFile[];
 }
 
+interface FolderDraggable {
+    type: 'folder';
+    file: TFolder;
+}
+
 function isFileDraggable(x: unknown): x is FileDraggable {
     return typeof x === 'object'
         && x !== null
@@ -45,6 +50,18 @@ function isFilesDraggable(x: unknown): x is FilesDraggable {
     if ((x as { type?: unknown }).type !== 'files') return false;
     const files = (x as { files?: unknown }).files;
     return Array.isArray(files);
+}
+
+/**
+ * FEAT-02-11: Obsidian internal folder drag payload. The dragManager stores a
+ * folder-drag as `{ type: 'folder', file: TFolder }` -- symmetric to the
+ * file case. Verified against Obsidian 1.5+ file-explorer drags.
+ */
+function isFolderDraggable(x: unknown): x is FolderDraggable {
+    return typeof x === 'object'
+        && x !== null
+        && (x as { type?: unknown }).type === 'folder'
+        && (x as { file?: unknown }).file instanceof TFolder;
 }
 
 function getDragManager(app: App): DragManagerLike | null {
@@ -64,5 +81,19 @@ export function resolveObsidianDraggedFiles(app: App): TFile[] {
     const draggable = dm.draggable;
     if (isFileDraggable(draggable)) return [draggable.file];
     if (isFilesDraggable(draggable)) return draggable.files.filter((f): f is TFile => f instanceof TFile);
+    return [];
+}
+
+/**
+ * FEAT-02-11: returns TFolder(s) currently held by the drag manager. Empty
+ * array when nothing folder-shaped is being dragged. Callers should probe
+ * BEFORE the file bridge -- a folder-drag is distinct and the folder path
+ * carries semantic meaning that a flattened file list would lose.
+ */
+export function resolveObsidianDraggedFolders(app: App): TFolder[] {
+    const dm = getDragManager(app);
+    if (!dm) return [];
+    const draggable = dm.draggable;
+    if (isFolderDraggable(draggable)) return [draggable.file];
     return [];
 }

@@ -37,3 +37,66 @@ export function normalizePath(p: string): string {
         .replace(/\/+/g, '/')
         .replace(/^\/+|\/+$/g, '');
 }
+
+/**
+ * FIX-44-09: the frontmatter guard parses the resulting YAML block to decide
+ * whether an edit would break the note. Obsidian exports parseYaml at runtime;
+ * in tests we back it with the `yaml` package that is already on disk.
+ */
+export function parseYaml(yaml: string): unknown {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- test stub only, never bundled
+    const { parse } = require('yaml') as { parse: (s: string) => unknown };
+    return parse(yaml);
+}
+
+/**
+ * FEAT-44-10: update_frontmatter resolves its result via parseYaml/stringifyYaml
+ * so that the approval diff and the write come from the same code. Obsidian
+ * exports both at runtime; in tests we back them with the `yaml` package.
+ */
+export function stringifyYaml(obj: unknown): string {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports -- test stub only, never bundled
+    const { stringify } = require('yaml') as { stringify: (o: unknown) => string };
+    return stringify(obj);
+}
+
+/**
+ * Minimal Modal stub. FIX-44-14 needs to assert that closing the approval gate
+ * with Esc / the X resolves its promise (it used to hang the agent loop), and
+ * that requires driving the Obsidian Modal lifecycle in a test.
+ */
+export class Modal {
+    app: unknown;
+    contentEl: {
+        empty: () => void;
+        createDiv: () => unknown;
+        appendChild: (n: unknown) => void;
+        ownerDocument: unknown;
+    };
+    modalEl: { addClass: (c: string) => void };
+    private closed = false;
+
+    constructor(app: unknown) {
+        this.app = app;
+        this.contentEl = {
+            empty: () => { /* no-op */ },
+            createDiv: () => ({}),
+            appendChild: () => { /* no-op */ },
+            ownerDocument: globalThis.document,
+        };
+        this.modalEl = { addClass: () => { /* no-op */ } };
+    }
+
+    open(): void { this.onOpen(); }
+
+    close(): void {
+        if (this.closed) return;
+        this.closed = true;
+        this.onClose();
+    }
+
+    onOpen(): void { /* subclass */ }
+    onClose(): void { /* subclass */ }
+}
+
+export function setIcon(_el: unknown, _name: string): void { /* no-op */ }

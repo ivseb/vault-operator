@@ -443,14 +443,18 @@ export interface ModeConfig {
 export interface AutoApprovalConfig {
     /** Master toggle: when false, all write operations require manual approval */
     enabled: boolean;
-    /** Show the quick-toggle bar inside the chat view */
-    showMenuInChat: boolean;
-    /** Auto-approve read operations (read_file, list_files, search_files, ...) */
-    read: boolean;
     /**
-     * @deprecated — migrated to noteEdits + vaultChanges.
-     * Kept as optional for the migration pass in loadSettings().
+     * @deprecated FIX-44-34 — dead keys removed from the surface. `read` was
+     * never consulted (reads are always auto, EFFECT_POLICY.read has key:null);
+     * `showMenuInChat`/`mode`/`question`/`todo` had no consumer at all. `write`
+     * migrated to noteEdits + vaultChanges. Kept optional ONLY so a one-time
+     * migration in loadSettings() can read and then drop a stored value.
      */
+    read?: boolean;
+    showMenuInChat?: boolean;
+    mode?: boolean;
+    question?: boolean;
+    todo?: boolean;
     write?: boolean;
     /** Auto-approve note content changes (write_file, edit_file, append_to_file, update_frontmatter) */
     noteEdits: boolean;
@@ -460,14 +464,8 @@ export interface AutoApprovalConfig {
     web: boolean;
     /** Auto-approve MCP tool calls */
     mcp: boolean;
-    /** Auto-approve mode switching (switch_mode) */
-    mode: boolean;
     /** Auto-approve spawning subtasks (new_task) */
     subtasks: boolean;
-    /** Auto-approve ask_followup_question (skips approval card, shows question card directly) */
-    question: boolean;
-    /** Auto-approve update_todo_list */
-    todo: boolean;
     /** Auto-approve skills injection into context (future) */
     skills: boolean;
     /** Auto-approve plugin API read calls (built-in allowlist, isWrite=false) */
@@ -1809,17 +1807,14 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
     modeMcpServers: {},
 
     autoApproval: {
+        // FIX-44-34: read/showMenuInChat/mode/question/todo removed -- they had
+        // no consumer. Reads are always auto (EFFECT_POLICY.read, key:null).
         enabled: false,
-        showMenuInChat: true,
-        read: true,         // reads are always safe
         noteEdits: false,
         vaultChanges: false,
         web: false,
         mcp: false,
-        mode: false,
         subtasks: false,
-        question: true,
-        todo: true,
         skills: false,
         pluginApiRead: true,
         pluginApiWrite: false,

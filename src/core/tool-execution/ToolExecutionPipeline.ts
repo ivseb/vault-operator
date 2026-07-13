@@ -27,6 +27,11 @@ import { ResultExternalizer } from './ResultExternalizer';
 import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
+import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
+import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect } from '../tools/toolEffects';
+import { hasEditPreview, type EditPreview } from '../tools/editPreview';
+import { safeNoteWrite } from '../utils/safeNoteWrite';
+import type { AutoApprovalConfig } from '../../types/settings';
 import { scanUnreadSources } from '../quality-gates';
 import { computeReadBudgetChars } from '../../types/model-registry';
 import { validateToolInput } from './inputSchemaValidator';
@@ -125,135 +130,34 @@ export function capOversizedToolOutput(
 }
 
 /**
- * Approval group classification — determines how a tool call gets approved.
+ * ADR-153: the approval classification now lives centrally in
+ * `src/core/tools/toolEffects.ts` (TOOL_EFFECTS + EFFECT_POLICY).
  *
- * NOT the same as the mode-level ToolGroup in settings.ts (which controls
- * tool availability per mode). This type controls the approval/governance path.
+ * A hand-maintained name map (TOOL_GROUPS) used to sit here and, together with
+ * the self-declared `isWriteOperation`, decided whether a tool was checked at
+ * all. Both are gone as sources: `isWriteOperation` now only drives checkpoints
+ * and cache invalidation, and the effect class comes from the registry. A tool
+ * with no entry requires approval.
  */
-type ApprovalGroup = 'read' | 'note-edit' | 'vault-change' | 'web' | 'agent' | 'subtask' | 'mcp' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' | 'self-modify';
 
-const TOOL_GROUPS: Record<string, ApprovalGroup> = {
-    // Read-only vault tools
-    read_file: 'read',
-    list_files: 'read',
-    search_files: 'read',
-    get_frontmatter: 'read',
-    get_linked_notes: 'read',
-    get_vault_stats: 'read',
-    search_by_tag: 'read',
-    get_daily_note: 'read',
-    query_base: 'read',
-    semantic_search: 'read',
-    render_presentation: 'read',
-    // Note content edits (write_file, edit_file, append_to_file, update_frontmatter)
-    write_file: 'note-edit',
-    edit_file: 'note-edit',
-    append_to_file: 'note-edit',
-    update_frontmatter: 'note-edit',
-    // Vault structural changes (create_folder, delete_file, move_file)
-    create_folder: 'vault-change',
-    delete_file: 'vault-change',
-    move_file: 'vault-change',
-    // BA-25 Karpathy-Wiki-Pattern: Triage schreibt nur ins Triage-Log,
-    // kein Vault-Side-Effect ausser Decision-Persistierung -> als 'note-edit' kategorisiert
-    ingest_triage: 'note-edit',
-    // ingest_deep schreibt mehrere neue Notes in den Vault -> note-edit
-    ingest_deep: 'note-edit',
-    // anti_echo_search nutzt nur Web-Search-API (read-only)
-    anti_echo_search: 'web',
-    // FEAT-03-25 / ADR-109 Vault-zu-Memory-Bruecke
-    mark_note_as_memory_source: 'note-edit',
-    unmark_note_as_memory_source: 'note-edit',
-    list_memory_source_notes: 'read',
-    // IMP-24-06-02: read-only listing of conversations pinned to memory
-    list_pinned_conversations: 'read',
-    generate_canvas: 'vault-change',
-    create_base: 'vault-change',
-    update_base: 'vault-change',
-    // FIX-29-99-05: pre-fix, the four Office-creation tools and several
-    // meta-tools landed on the `note-edit` default. Office creates binary
-    // files (pptx/docx/xlsx/drawio/excalidraw) -- semantically vault-change.
-    // The agent/read meta-tools belong in the agent/read groups so
-    // auto-approval respects their actual side-effect class.
-    create_pptx: 'vault-change',
-    create_docx: 'vault-change',
-    create_xlsx: 'vault-change',
-    create_excalidraw: 'vault-change',
-    create_drawio: 'vault-change',
-    plan_presentation: 'agent',
-    extract_zip: 'vault-change',
-    ingest_document: 'note-edit',
-    // Checkpoint-restore touches every tracked file at once -- treated as
-    // a structural change rather than a single note edit.
-    restore_checkpoint: 'vault-change',
-    // vault_health_check mutating actions are gated by a multi-file
-    // snapshot inside the tool (FIX-19-99-04); classification stays at
-    // vault-change so auto-approval picks up the right group.
-    vault_health_check: 'vault-change',
-    read_document: 'read',
-    list_checkpoints: 'read',
-    read_checkpoint: 'read',
-    diff_checkpoint: 'read',
-    // Meta-tools: discovery + skill-body fetch are read-only relative to
-    // the vault. invoke_skill/invoke_mcp_server route to the same gate
-    // their targets use -- treated as skill for now.
-    find_tool: 'agent',
-    read_skill: 'read',
-    read_mcp_tool: 'read',
-    invoke_skill: 'skill',
-    invoke_mcp_server: 'skill',
-    probe_plugin: 'skill',
-    run_skill_script: 'skill',
-    // EPIC-26 flagship escalation: still an LLM call but no vault edit.
-    consult_flagship: 'agent',
-    // Memory-v2 surfaces. recall is read-only; mark/update mutate the
-    // memory store (not the vault) -- 'agent' keeps them auto-approvable
-    // because the user opted into the memory system already.
-    recall_memory: 'read',
-    mark_for_memory: 'agent',
-    update_soul: 'self-modify',
-    inspect_self: 'read',
-    search_history: 'read',
-    // Web
-
-    web_fetch: 'web',
-    web_search: 'web',
-    // Agent control (always auto-approved)
-    ask_followup_question: 'agent',
-    attempt_completion: 'agent',
-    update_todo_list: 'agent',
-    open_note: 'agent',
-    // Agent switching (always auto-approved, agent-internal)
-    switch_agent: 'agent',
-    // Subtask spawning (respects autoApproval.subtasks)
-    new_task: 'subtask',
-    run_in_background: 'subtask',
-    // MCP
-    use_mcp_tool: 'mcp',
-    // Plugin Skills (PAS-1)
-    execute_command: 'skill',
-    resolve_capability_gap: 'skill',
-    enable_plugin: 'skill',
-    // Plugin API + Recipe Shell (PAS-1.5)
-    call_plugin_api: 'plugin-api',
-    execute_recipe: 'recipe',
-    // Settings & Model configuration (Onboarding)
-    update_settings: 'agent',
-    configure_model: 'agent',
-    // Self-Development (Phase 1)
-    read_agent_logs: 'agent',
-    manage_mcp_server: 'agent',
-    // Self-Development (Phase 2+3) — sandbox: always requires approval by default
-    evaluate_expression: 'sandbox',
-    // M-7: Self-modification tools always require human approval.
-    // FEAT-29-05: manage_skill removed; skill authoring is now a builtin
-    // skill that uses write_file/edit_file via the regular approval gate.
-    manage_source: 'self-modify',
-};
 
 /** Result of an approval check — may include user-edited content */
 export interface ApprovalResult {
     decision: 'auto' | 'approved' | 'rejected';
+    /**
+     * FEAT-44-02 (run scope): "yes, and stop asking me for this kind of change for
+     * the rest of this run".
+     *
+     * A single approval covering the WHOLE run up front is impossible: the agent
+     * only decides its second tool call after seeing the result of the first, so
+     * there is nothing to preview yet. What IS possible is to remember the answer.
+     * The user sees the first real diff, says yes once, and the rest of the run
+     * runs on that consent.
+     *
+     * Deliberately scoped to the run, not the session and not persisted: consent
+     * given for one task does not carry into the next one.
+     */
+    rememberForRun?: boolean;
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
     /**
@@ -291,9 +195,17 @@ export interface ContextExtensions {
     signalCompletion?: (result: string) => void;
     /**
      * Request user approval for a tool call.
-     * Returns an ApprovalResult with decision and optional edited content.
+     *
+     * FEAT-44-10: `preview` carries the real before/after of a note edit when the
+     * tool could compute it without writing. The UI then renders the approval as
+     * a diff, and the user decides on what they can actually see. When it is
+     * absent the caller shows the plain card -- never no approval.
      */
-    onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<ApprovalResult>;
+    onApprovalRequired?: (
+        toolName: string,
+        input: Record<string, unknown>,
+        preview?: EditPreview,
+    ) => Promise<ApprovalResult>;
     /**
      * Ask the user to install a missing optional asset (office bundle,
      * pdfjs bundle, reranker WASM, ...). Renders an in-chat install card
@@ -554,7 +466,21 @@ export class ToolExecutionPipeline {
             // user-authored recipes / internal classifiers, not model picks.
             // 'model' (and undefined for legacy callers) and any other source
             // are enforced.
-            if (enforceModeGate && this.modeService) {
+            if (
+                enforceModeGate
+                && this.modeService
+                // FIX-44-29: dynamic skill tools (custom_*) are never part of a
+                // mode's toolGroups -- they are governed by the skill's own
+                // allowedTools and the subagent allowlist above. Enforcing the
+                // mode-group check on them would deny every skill tool outright.
+                && !toolCall.name.startsWith(DYNAMIC_TOOL_PREFIX)
+                // FIX-44-29 follow-up: the progressive-disclosure meta-tools are
+                // ALWAYS injected into the schema (even for restricted modes that
+                // omit the `agent` group), so the gate must exempt them too --
+                // otherwise the model calls a tool it was told it has and gets
+                // denied every time. Same list as the injection in AgentTask.
+                && !PROGRESSIVE_DISCLOSURE_META_TOOLS.includes(toolCall.name)
+            ) {
                 const activeMode = this.modeService.getMode(this.mode) ?? this.modeService.getActiveMode();
                 if (!this.modeService.modeHasTool(activeMode, toolCall.name)) {
                     const msg = `Tool "${toolCall.name}" is not available in mode "${activeMode.slug}". The active agent does not include this tool in its toolGroups.`;
@@ -593,28 +519,31 @@ export class ToolExecutionPipeline {
                 }
             }
 
-            // 3. Auto-approve or request approval for write/mcp/mode/subtask operations
-            // Web tools are always auto-approved when webTools.enabled is true (the only way they appear).
-            const toolGroup = TOOL_GROUPS[toolCall.name];
-            if (tool.isWriteOperation || toolGroup === 'mcp' || toolGroup === 'subtask' || toolGroup === 'sandbox') {
-                const approval = await this.checkApproval(toolCall, extensions);
-                if (approval.decision === 'rejected') {
-                    return this.errorResult(toolCall.id, approval.reason ?? 'Operation denied by user');
-                }
-                // FEAT-29-07: when the user approves a dynamically-discovered
-                // plugin-API call, count the approval. Once the per-method
-                // threshold is reached AND the method name matches the read
-                // heuristic, the method is auto-promoted into
-                // safeMethodOverrides so future calls skip the prompt.
-                // Only fires for genuine USER approvals -- auto-approved
-                // calls (decision === 'auto') don't count, otherwise the
-                // promotion would be trivial.
-                if (
-                    approval.decision === 'approved'
-                    && toolCall.name === 'call_plugin_api'
-                ) {
-                    void this.maybeAutoPromotePluginApi(toolCall.input);
-                }
+            // 3. Approval. ADR-153: runs for EVERY tool call, with no pre-filter.
+            // Whether confirmation is needed is decided solely by checkApproval,
+            // from the central effect class. The pre-filter that used to sit here
+            // (`tool.isWriteOperation || group in {mcp, subtask, sandbox}`) let
+            // five tools with real side effects through, because they declared
+            // `isWriteOperation = false` about themselves -- among them
+            // update_settings, which let the agent switch off its own
+            // default-deny.
+            const approval = await this.checkApproval(toolCall, tool, extensions);
+            if (approval.decision === 'rejected') {
+                return this.errorResult(toolCall.id, approval.reason ?? 'Operation denied by user');
+            }
+            // FEAT-29-07: when the user approves a dynamically-discovered
+            // plugin-API call, count the approval. Once the per-method
+            // threshold is reached AND the method name matches the read
+            // heuristic, the method is auto-promoted into
+            // safeMethodOverrides so future calls skip the prompt.
+            // Only fires for genuine USER approvals -- auto-approved
+            // calls (decision === 'auto') don't count, otherwise the
+            // promotion would be trivial.
+            if (
+                approval.decision === 'approved'
+                && toolCall.name === 'call_plugin_api'
+            ) {
+                void this.maybeAutoPromotePluginApi(toolCall.input);
             }
 
             // 3b. Cache invalidation: write tools invalidate cached reads for affected paths
@@ -648,6 +577,35 @@ export class ToolExecutionPipeline {
                         console.warn('[Pipeline] Checkpoint failed (non-fatal):', e);
                     }
                 }
+            }
+
+            // FEAT-44-10: the user rewrote the proposal in the approval gate before
+            // saying yes. Their version is the one that lands, not the agent's, so
+            // we write it and skip execute -- re-running the tool would just
+            // recompute the agent's content and overwrite them.
+            //
+            // FIX-44-19: this sits AFTER the checkpoint and the cache invalidation,
+            // not before them. It used to return early, which meant a user-edited
+            // write got no snapshot (so Undo could not reach back past it -- the
+            // task's earliest checkpoint already contained the edit) and left the
+            // read cache holding the pre-write content. A write the user made by
+            // hand deserves exactly the same safety net as one the agent made.
+            if (approval.decision === 'approved' && typeof approval.finalContent === 'string') {
+                const editedPath = typeof toolCall.input?.path === 'string' ? toolCall.input.path : '';
+                const written = await safeNoteWrite(this.plugin.app, editedPath, approval.finalContent);
+                if (!written.ok) {
+                    return this.errorResult(toolCall.id, `Approved edit was refused: ${written.reason}`);
+                }
+                this.logOperation(toolCall, true, 0);
+                return {
+                    type: 'tool_result',
+                    tool_use_id: toolCall.id,
+                    content:
+                        `<success>Applied the user's edited version of ${editedPath}. `
+                        + `They changed the content you proposed, so the file now holds THEIR version, not yours. `
+                        + `Re-read it before your next edit.</success>`,
+                    is_error: false,
+                };
             }
 
             // 5. Execute the tool
@@ -899,139 +857,178 @@ export class ToolExecutionPipeline {
      * Determine if this tool call needs approval and whether it's already granted.
      * Returns an ApprovalResult with the decision and optional edited content.
      */
+    /**
+     * Decide whether this tool call needs approval, and obtain it if so.
+     *
+     * ADR-153: the decision depends SOLELY on the central effect class
+     * (toolEffects.ts), no longer on the self-declared `isWriteOperation` and no
+     * longer on a local name map. This method runs for EVERY tool call -- there
+     * is no pre-filter a tool could slip past.
+     */
+    /**
+     * FEAT-44-02: effects the user approved "for the rest of this run". The
+     * Pipeline is constructed per task, so this dies with the run -- consent is
+     * never carried into the next one, and never persisted.
+     *
+     * config and self-modify can never land in here: they are alwaysAsk, and the
+     * agent must not be able to buy itself a blanket permission by asking nicely
+     * once.
+     */
+    private runApprovedEffects = new Set<ToolEffect>();
+
+    /**
+     * FEAT-44-02: adopt the parent run's approved-effects set so "for the rest of
+     * this run" survives into a subtask / invoked skill. The parent shares its
+     * actual Set (not a copy), so a grant made in the child is also visible to the
+     * parent and siblings for the remainder of the run. alwaysAsk effects still
+     * never enter the set, so this cannot widen config / self-modify.
+     */
+    setRunApprovedEffects(shared: Set<ToolEffect>): void {
+        this.runApprovedEffects = shared;
+    }
+
+    /** Expose the run-scope set so a parent task can share it with subtasks. */
+    getRunApprovedEffects(): Set<ToolEffect> {
+        return this.runApprovedEffects;
+    }
+
+    /**
+     * FEAT-44-02: tools that ALWAYS re-ask, even when their effect class was
+     * approved for the run. A run-grant for 'vault-change' should not silently
+     * authorise a mass rollback or a bulk archive extraction -- those have a far
+     * larger blast radius than the edit the user actually consented to.
+     */
+    private static readonly RUN_SCOPE_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
+        'restore_checkpoint',
+        'extract_zip',
+    ]);
+
     private async checkApproval(
         toolCall: ToolUse,
+        tool: unknown,
         extensions?: ContextExtensions,
     ): Promise<ApprovalResult> {
         const cfg = this.plugin.settings.autoApproval;
-        const group = TOOL_GROUPS[toolCall.name] ?? 'note-edit';
+        const effect = resolveToolEffect(toolCall.name, toolCall.input);
 
-        // Agent tools are normally auto-approved, EXCEPT update_settings when
-        // touching autoApproval paths (AUDIT-006 H-3: prevent LLM self-escalation)
-        // AUDIT-034 M-11: configure_model always requires user approval because
-        // it can add a model + apiKey + baseUrl, switch the active model, or
-        // overwrite credentials. Without this carve-out a compromised turn could
-        // re-point the next createMessage payload to an attacker-controlled
-        // account (validateProviderUrl catches the worst pivot but not a stolen
-        // apiKey on a legitimate provider host).
-        if (group === 'agent') {
-            if (toolCall.name === 'update_settings') {
-                const action = (toolCall.input?.action as string ?? '').trim();
-                const settingsPath = (toolCall.input?.path as string ?? '').trim();
-                const needsApproval =
-                    action === 'apply_preset' ||
-                    (action === 'set' && settingsPath.startsWith('autoApproval.'));
-                if (needsApproval) {
-                    if (!extensions?.onApprovalRequired) {
-                        console.warn('[Pipeline] update_settings touching autoApproval -- denying (fail-closed)');
-                        return { decision: 'rejected' };
-                    }
-                    return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
-                }
-            }
-            if (toolCall.name === 'configure_model') {
-                if (!extensions?.onApprovalRequired) {
-                    console.warn('[Pipeline] configure_model -- denying (fail-closed, always requires approval)');
-                    return { decision: 'rejected' };
-                }
-                return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
-            }
+        // Unknown tool: fail-closed. NO fallback to a harmless class -- that
+        // fallback was precisely the bug. Registering a tool means adding it to
+        // TOOL_EFFECTS (enforced by toolEffectCompleteness.test.ts).
+        if (effect === undefined) {
+            console.warn(
+                `[Pipeline] ${toolCall.name} has no effect class -- approval required (fail-closed)`,
+            );
+            return await this.askOrDeny(toolCall, tool, extensions, 'unclassified');
+        }
+
+        const policy = EFFECT_POLICY[effect];
+
+        // config + self-modify: never auto-approvable, whatever the settings
+        // say. This is the lock against self-escalation (AUDIT-006 H-3) and the
+        // M-7 contract for persona/memory/source mutations.
+        if (policy.alwaysAsk) {
+            return await this.askOrDeny(toolCall, tool, extensions, effect);
+        }
+
+        // FEAT-44-02: the user already said yes to this kind of change for this run.
+        // Checked AFTER policy.alwaysAsk, so config/self-modify can never be waved
+        // through by it. High-blast-radius tools (mass rollback, bulk extract) are
+        // exempt -- a run-grant for their effect still re-asks for them.
+        if (
+            this.runApprovedEffects.has(effect)
+            && !ToolExecutionPipeline.RUN_SCOPE_EXEMPT_TOOLS.has(toolCall.name)
+        ) {
             return { decision: 'auto' };
         }
 
-        // Sandbox code execution (evaluate_expression) — requires explicit opt-in.
-        // Default off because sandboxed code runs arbitrary JS/TS which could be
-        // injected via prompt injection. User approval is the primary defense.
-        if (group === 'sandbox') {
-            if (cfg.enabled && cfg.sandbox) return { decision: 'auto' };
-            if (cfg.sandbox && !cfg.enabled) {
-                // Diagnostic for "I toggled sandbox on but it still asks": the
-                // category bit is set, but the master switch above is off so
-                // the gate refuses. The UI now hard-disables category toggles
-                // while the master is off; this log is kept for legacy
-                // data.json files where the combination persists.
-                console.debug(
-                    `[Pipeline] ${toolCall.name}: sandbox category is on, ` +
-                    `but autoApproval.enabled (master) is off; falling back to user prompt.`,
-                );
-            }
-            if (!extensions?.onApprovalRequired) {
-                console.warn(`[Pipeline] Sandbox tool ${toolCall.name} — denying (requires approval)`);
-                return { decision: 'rejected' };
-            }
-            return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
+        // read + ui: always auto, DELIBERATELY independent of the master toggle.
+        // The master is off by default; if reads hung off it, every read_file
+        // would raise a card. plugin-api also has key === null but is resolved
+        // from the input below.
+        if (policy.key === null && effect !== 'plugin-api') {
+            return { decision: 'auto' };
         }
 
-        // M-7: Self-modification tools (manage_source) ALWAYS require
-        // human approval — no auto-approve bypass possible
-        if (group === 'self-modify') {
-            if (!extensions?.onApprovalRequired) {
-                console.warn(`[Pipeline] Self-modify tool ${toolCall.name} — denying (always requires approval)`);
-                return { decision: 'rejected' };
-            }
-            return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
-        }
-
-        // Check if auto-approved by settings
         if (cfg.enabled) {
-            if (group === 'read' && cfg.read) return { decision: 'auto' };
-            if (group === 'note-edit' && cfg.noteEdits) return { decision: 'auto' };
-            if (group === 'vault-change' && cfg.vaultChanges) return { decision: 'auto' };
-            if (group === 'web' && cfg.web) return { decision: 'auto' };
-            if (group === 'mcp' && cfg.mcp) return { decision: 'auto' };
-            if (group === 'subtask' && cfg.subtasks) return { decision: 'auto' };
-            if (group === 'skill' && cfg.skills) {
-                // AUDIT-034 L-17 cross-module gate. The general
-                // `autoApproval.skills` flag covers builtin/bundled skills
-                // and the dispatcher tools that invoke them. Imported
-                // skills (source != builtin/bundled) MUST still go through
-                // the per-skill prompt in InvokeSkillTool even when the
-                // user has the general skills auto-approval on, otherwise
-                // a malicious imported skill body could ride the trust
-                // boundary of the auto-approve toggle. Tools other than
-                // `invoke_skill` (execute_command, resolve_capability_gap,
-                // enable_plugin, probe_plugin, run_skill_script,
-                // invoke_mcp_server) keep the existing auto-approve.
-                if (toolCall.name !== 'invoke_skill') {
-                    return { decision: 'auto' };
-                }
-                const rawName: unknown = toolCall.input?.skill_name;
-                const targetName = typeof rawName === 'string' ? rawName.trim() : '';
-                if (targetName.length === 0) {
-                    // Malformed call -- let the tool itself reject it.
-                    return { decision: 'auto' };
-                }
-                const targetSkill = this.plugin.selfAuthoredSkillLoader?.getSkill(targetName);
-                const source = targetSkill?.source ?? 'user';
-                if (PIPELINE_TRUSTED_SKILL_SOURCES.has(source)) {
-                    return { decision: 'auto' };
-                }
-                // Untrusted source -- do not auto-approve. Fall through
-                // to the standard onApprovalRequired modal below. The tool
-                // layer (InvokeSkillTool.askImportedSkillApproval) caches
-                // the per-skill decision in sessionApprovedImportedSkills,
-                // so the user sees at most one prompt per skill per
-                // session even though two gates fire.
-            }
-            if (group === 'plugin-api') {
-                // Differentiate read vs write for plugin API calls
-                const isWriteCall = this.isPluginApiWriteCall(toolCall);
-                if (!isWriteCall && cfg.pluginApiRead) return { decision: 'auto' };
-                if (isWriteCall && cfg.pluginApiWrite) return { decision: 'auto' };
-            }
-            if (group === 'recipe' && cfg.recipes) return { decision: 'auto' };
+            const auto = this.isAutoApprovedBySettings(effect, policy.key, toolCall, cfg);
+            if (auto) return { decision: 'auto' };
         }
 
-        // No auto-approve config AND no approval callback — fail-closed.
-        // Silently auto-approving writes when no callback is wired (e.g. subtasks) is a
-        // security risk. Deny by default to prevent unauthorized vault changes.
+        return await this.askOrDeny(toolCall, tool, extensions, effect);
+    }
+
+    /**
+     * Whether the effect is auto-approved by settings while the master toggle is
+     * on. Only called from checkApproval, after alwaysAsk and the always-auto
+     * classes have been handled.
+     */
+    private isAutoApprovedBySettings(
+        effect: ToolEffect,
+        key: keyof AutoApprovalConfig | null,
+        toolCall: ToolUse,
+        cfg: AutoApprovalConfig,
+    ): boolean {
+        // plugin-api: read and write hang off different flags.
+        if (effect === 'plugin-api') {
+            return this.isPluginApiWriteCall(toolCall)
+                ? cfg.pluginApiWrite === true
+                : cfg.pluginApiRead === true;
+        }
+
+        if (key === null || cfg[key] !== true) return false;
+
+        // AUDIT-034 L-17: the general skills toggle only covers skills from a
+        // trusted source. An imported skill must still go through the per-skill
+        // prompt in InvokeSkillTool even when the toggle is on.
+        if (effect === 'skill' && toolCall.name === 'invoke_skill') {
+            const rawName: unknown = toolCall.input?.skill_name;
+            const targetName = typeof rawName === 'string' ? rawName.trim() : '';
+            // Malformed call -- let the tool itself reject it.
+            if (targetName.length === 0) return true;
+            const source = this.plugin.selfAuthoredSkillLoader?.getSkill(targetName)?.source ?? 'user';
+            return PIPELINE_TRUSTED_SKILL_SOURCES.has(source);
+        }
+
+        return true;
+    }
+
+    /**
+     * Obtain user approval. With no callback wired we deny rather than wave the
+     * call through (ADR-05, fail-closed).
+     */
+    private async askOrDeny(
+        toolCall: ToolUse,
+        tool: unknown,
+        extensions: ContextExtensions | undefined,
+        effect: ToolEffect | 'unclassified',
+    ): Promise<ApprovalResult> {
         if (!extensions?.onApprovalRequired) {
-            console.warn(`[Pipeline] No approval callback for ${toolCall.name} — denying (fail-closed)`);
+            console.warn(
+                `[Pipeline] No approval callback for ${toolCall.name} (${effect}) -- denying (fail-closed)`,
+            );
             return { decision: 'rejected' };
         }
 
-        // Ask for user approval
-        return await extensions.onApprovalRequired(toolCall.name, toolCall.input);
+        // FEAT-44-10: a change is approved on its diff, not on its name. Any tool
+        // that can say what it would do WITHOUT doing it gets to show that. This
+        // is deliberately not restricted to note edits: delete_file is the most
+        // destructive thing the agent can do and used to show the least -- a card
+        // with a tool name on it. It now renders the full content of the doomed
+        // note as a deletion diff.
+        //
+        // A failed preview costs the diff, never the approval.
+        let preview: EditPreview | undefined;
+        if (hasEditPreview(tool)) {
+            preview = (await tool.previewEdit(toolCall.input)) ?? undefined;
+        }
+
+        const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview);
+
+        if (result.decision === 'approved' && result.rememberForRun === true && effect !== 'unclassified') {
+            this.runApprovedEffects.add(effect);
+            console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
+        }
+        return result;
     }
 
     /**
@@ -1077,19 +1074,8 @@ export class ToolExecutionPipeline {
      * unless user marked as safe.
      */
     private isPluginApiWriteCall(toolCall: ToolUse): boolean {
-        const pluginId = (toolCall.input?.plugin_id as string ?? '').trim();
-        const method = (toolCall.input?.method as string ?? '').trim();
-
-        // Check built-in allowlist first
-        const entry = findAllowedMethod(pluginId, method);
-        if (entry) return entry.isWrite;
-
-        // Dynamic discovery: check user overrides
-        const overrideKey = `${pluginId}:${method}`;
-        const overrides = this.plugin.settings.pluginApi?.safeMethodOverrides ?? {};
-        if (overrides[overrideKey]) return false; // User marked as safe read
-
-        return true; // Default: treat as write
+        // FIX-44-03a: shared with the sidebar so gate and grant cannot diverge.
+        return resolvePluginApiIsWrite(toolCall.input, this.plugin.settings.pluginApi);
     }
 
     /**

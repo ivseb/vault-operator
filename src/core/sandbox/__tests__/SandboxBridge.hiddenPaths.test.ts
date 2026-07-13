@@ -167,6 +167,13 @@ describe('SandboxBridge hidden-path adapter fallback (FEAT-29-05)', () => {
                 bridge.vaultWrite('.obsidian/plugins/evil/data.json', 'malicious'),
             ).rejects.toThrow(/protected/);
         });
+
+        it('FIX-44-22: blocks writes to the agent config root (settings.json)', async () => {
+            const { bridge } = makeBridge({});
+            await expect(
+                bridge.vaultWrite('.vault-operator/data/settings.json', '{"autoApproval":{"enabled":true}}'),
+            ).rejects.toThrow(/protected/);
+        });
     });
 
     describe('vaultList', () => {
@@ -189,22 +196,23 @@ describe('SandboxBridge hidden-path adapter fallback (FEAT-29-05)', () => {
         it('throws when the hidden folder does not exist', async () => {
             const { bridge } = makeBridge({});
             await expect(
-                bridge.vaultList('.vault-operator/missing'),
+                bridge.vaultList('.vault-operator/data/skill-data/missing'),
             ).rejects.toThrow(/Not a folder/);
         });
     });
 
     describe('vaultMkdir', () => {
         it('creates the entire chain of missing folders idempotently', async () => {
+            // FIX-44-24: skill-data/ is the sandbox-writable zone; skills/ is not.
             const { bridge, folders, calls } = makeBridge({});
-            await bridge.vaultMkdir('.vault-operator/data/skills/new/scripts');
+            await bridge.vaultMkdir('.vault-operator/data/skill-data/new/scripts');
 
             // Each segment is mkdir'd
             expect(folders.has('.vault-operator')).toBe(true);
             expect(folders.has('.vault-operator/data')).toBe(true);
-            expect(folders.has('.vault-operator/data/skills')).toBe(true);
-            expect(folders.has('.vault-operator/data/skills/new')).toBe(true);
-            expect(folders.has('.vault-operator/data/skills/new/scripts')).toBe(true);
+            expect(folders.has('.vault-operator/data/skill-data')).toBe(true);
+            expect(folders.has('.vault-operator/data/skill-data/new')).toBe(true);
+            expect(folders.has('.vault-operator/data/skill-data/new/scripts')).toBe(true);
 
             const mkdirCalls = calls.filter((c) => c.op === 'mkdir');
             expect(mkdirCalls.length).toBeGreaterThanOrEqual(5);
@@ -215,10 +223,10 @@ describe('SandboxBridge hidden-path adapter fallback (FEAT-29-05)', () => {
                 folders: new Set([
                     '.vault-operator',
                     '.vault-operator/data',
-                    '.vault-operator/data/skills',
+                    '.vault-operator/data/skill-data',
                 ]),
             });
-            await bridge.vaultMkdir('.vault-operator/data/skills');
+            await bridge.vaultMkdir('.vault-operator/data/skill-data');
 
             // No mkdir call (every segment short-circuited via exists)
             const mkdirCalls = calls.filter((c) => c.op === 'mkdir');

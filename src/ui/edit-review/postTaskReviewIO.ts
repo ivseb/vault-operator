@@ -1,6 +1,8 @@
 import { TFile, type App } from 'obsidian';
 import { atomicAdapterWrite } from '../../core/utils/atomicAdapterWrite';
 import { validateVaultRelativePath } from '../../core/tools/vault/pathValidation';
+import { checkFrontmatterIntegrity } from '../../core/utils/frontmatterGuard';
+import { safeNoteWrite } from '../../core/utils/safeNoteWrite';
 
 /**
  * FIX-01-07-04: index-independent read/write helpers for the post-task
@@ -85,6 +87,14 @@ export async function applyReviewDecisions(
                 outcome.guarded.push(d.path);
                 continue;
             }
+            // FIX-44-09: the review is also a write path. An edit that leaves the
+            // YAML frontmatter unterminated must not land here either.
+            const fmReason = checkFrontmatterIntegrity(current ?? '', d.finalContent);
+            if (fmReason) {
+                console.warn(`[PostTaskReview] Refusing to write ${safePath}: ${fmReason}`);
+                outcome.guarded.push(d.path);
+                continue;
+            }
 
             const file = app.vault.getFileByPath(safePath);
             if (file instanceof TFile) {
@@ -100,6 +110,84 @@ export async function applyReviewDecisions(
         } catch (e) {
             console.error(`[PostTaskReview] Failed to apply decision for ${d.path}:`, e);
             outcome.failed.push(d.path);
+        }
+    }
+
+    return outcome;
+}
+
+/** What a discard actually did. */
+export interface RevertOutcome {
+    reverted: string[];
+    /** Already at their pre-task state; nothing to do. */
+    unchanged: string[];
+    failed: string[];
+}
+
+export interface RevertEntry {
+    path: string;
+    /** The pre-task content. '' together with isNew means the file did not exist. */
+    before: string;
+    after: string;
+    isNew?: boolean;
+}
+
+/**
+ * FIX-44-16: undo the agent's changes.
+ *
+ * The post-task review used to treat "discard" as `return;` -- it only ever had a
+ * write path (`applyReviewDecisions`) and no way back. So the button that says
+ * the changes go away left them exactly where they were. The user pressed it and
+ * the note stayed rewritten.
+ *
+ * The pre-task content is already in hand (it comes from the task's earliest
+ * checkpoint), so a real undo is just writing it back. A file the agent CREATED
+ * has no pre-task content -- undoing that means trashing it, not writing an empty
+ * file over it.
+ */
+export async function revertReviewedFiles(app: App, entries: RevertEntry[]): Promise<RevertOutcome> {
+    const outcome: RevertOutcome = { reverted: [], unchanged: [], failed: [] };
+
+    for (const e of entries) {
+        // AUDIT-034 M-1: revalidate at the sink. A traversal path must never
+        // reach adapter IO, no matter who assembled it.
+        const safePath = validateVaultRelativePath(e.path);
+        if (!safePath) {
+            console.error(`[PostTaskReview] Refusing to revert an invalid path: ${e.path}`);
+            outcome.failed.push(e.path);
+            continue;
+        }
+
+        try {
+            if (e.isNew === true) {
+                // Undoing a creation is a deletion. Trash, never hard-delete, so
+                // the undo is itself undoable.
+                const file = app.vault.getAbstractFileByPath(safePath);
+                if (file instanceof TFile) {
+                    await app.fileManager.trashFile(file);
+                    outcome.reverted.push(e.path);
+                } else {
+                    outcome.unchanged.push(e.path);
+                }
+                continue;
+            }
+
+            const current = await readCurrentContent(app, safePath);
+            if (current === e.before) {
+                outcome.unchanged.push(e.path);
+                continue;
+            }
+
+            const written = await safeNoteWrite(app, safePath, e.before);
+            if (!written.ok) {
+                console.warn(`[PostTaskReview] Could not revert ${safePath}: ${written.reason}`);
+                outcome.failed.push(e.path);
+                continue;
+            }
+            outcome.reverted.push(e.path);
+        } catch (err) {
+            console.warn(`[PostTaskReview] Revert of ${safePath} threw:`, err);
+            outcome.failed.push(e.path);
         }
     }
 

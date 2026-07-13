@@ -49,6 +49,22 @@ export async function handleWriteVault(
     const results: string[] = [];
     const vault = plugin.app.vault;
 
+    // FIX-44-27: a headless MCP client cannot show an approval card, so an
+    // external bearer-token holder writes with no confirmation. The compensating
+    // control is a checkpoint: snapshot every target BEFORE the batch so the user
+    // can undo an unwanted MCP write via restore_checkpoint. Non-fatal.
+    try {
+        const paths = operations
+            .map((op) => op?.path)
+            .filter((p): p is string => typeof p === 'string' && p.length > 0);
+        if (paths.length > 0 && plugin.settings.enableCheckpoints !== false) {
+            const taskId = `mcp-write-vault-${Date.now()}`;
+            await plugin.checkpointService?.snapshot(taskId, paths, 'mcp:write_vault');
+        }
+    } catch (e) {
+        console.warn('[MCP write_vault] Checkpoint failed (non-fatal):', e);
+    }
+
     for (const op of operations) {
         try {
             // AUDIT-006 H-2: Governance check (path traversal, IgnoreService, configDir)

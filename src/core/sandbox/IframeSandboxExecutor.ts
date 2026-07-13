@@ -68,6 +68,11 @@ export class IframeSandboxExecutor implements ISandboxExecutor {
         this.bridge = new SandboxBridge(plugin);
     }
 
+    /** FIX-44-04: forward the governance task to the bridge for checkpointing. */
+    setGovernanceContext(taskId: string | undefined): void {
+        this.bridge.setGovernanceContext(taskId);
+    }
+
     /**
      * Lazy initialization — iframe is created only when first needed (~50ms).
      */

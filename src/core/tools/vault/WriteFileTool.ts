@@ -13,6 +13,8 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { getAgentFolderPath } from '../../utils/agentFolder';
 import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
+import { checkFrontmatterIntegrity } from '../../utils/frontmatterGuard';
+import type { EditPreview } from '../editPreview';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { validateVaultRelativePath } from './pathValidation';
 
@@ -105,6 +107,36 @@ export class WriteFileTool extends BaseTool<'write_file'> {
         };
     }
 
+    /**
+     * FEAT-44-10: the diff the approval gate shows. Never writes.
+     *
+     * write_file is the one tool where the "after" needs no computing -- the model
+     * hands it over whole. The value of the diff here is the OTHER side: it makes
+     * visible how much of the existing note this overwrite is about to throw away.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const { path, content } = input as unknown as WriteFileInput;
+            if (!path || content === undefined || content === null) return null;
+
+            const safePath = validateVaultRelativePath(path);
+            if (!safePath) return null;
+
+            const existing = this.app.vault.getAbstractFileByPath(safePath);
+            if (existing instanceof TFile) {
+                return { path: safePath, before: await this.app.vault.read(existing), after: content };
+            }
+            const adapter = this.app.vault.adapter;
+            if (await adapter.exists(safePath)) {
+                return { path: safePath, before: await adapter.read(safePath), after: content };
+            }
+            return { path: safePath, before: '', after: content, isNew: true };
+        } catch {
+            // A preview is a courtesy, never a gate. Fall back to the plain card.
+            return null;
+        }
+    }
+
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { path, content } = input as unknown as WriteFileInput;
         const { callbacks } = context;
@@ -174,6 +206,11 @@ export class WriteFileTool extends BaseTool<'write_file'> {
                 // P0 (2026-07-05 data-loss): do not wipe a finished note when
                 // the new content is empty/whitespace-only (lost/truncated arg).
                 this.guardDestructiveEmptyOverwrite(safePath, content, existingContent);
+                // FIX-44-09: and do not leave the YAML frontmatter unterminated.
+                const fmReason = checkFrontmatterIntegrity(existingContent, content);
+                if (fmReason) {
+                    throw new Error(`Refusing to write "${safePath}": ${fmReason}`);
+                }
                 await this.app.vault.modify(existingFile, content);
                 // FIX-01-07-03: push the new content directly into the open
                 // CodeMirror buffer so the editor view shows the write

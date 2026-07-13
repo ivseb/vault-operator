@@ -45,6 +45,35 @@ describe('IgnoreService', () => {
         });
     });
 
+    describe('FIX-44-24: agent config-zone protection', () => {
+        let svc: IgnoreService;
+        beforeEach(async () => {
+            svc = new IgnoreService(makeVault({}), '.vault-operator');
+            await svc.load();
+        });
+
+        it('write-protects the global settings file', () => {
+            expect(svc.isProtected('.vault-operator/data/settings.json')).toBe(true);
+        });
+
+        it('write-protects the provenance manifest and mcp config', () => {
+            expect(svc.isProtected('.vault-operator/data/skill-provenance.json')).toBe(true);
+            expect(svc.isProtected('.vault-operator/data/mcp-servers.json')).toBe(true);
+        });
+
+        it('leaves the skill workspace writable (skills/ and skill-data/)', () => {
+            expect(svc.isProtected('.vault-operator/data/skills/mine/SKILL.md')).toBe(false);
+            expect(svc.isProtected('.vault-operator/data/skill-data/mine/state.json')).toBe(false);
+        });
+
+        it('does nothing when no agent root is configured', () => {
+            const bare = new IgnoreService(makeVault({}));
+            return bare.load().then(() => {
+                expect(bare.isProtected('.vault-operator/data/settings.json')).toBe(false);
+            });
+        });
+    });
+
     describe('always-blocked paths', () => {
         let svc: IgnoreService;
         beforeEach(async () => {

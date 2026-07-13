@@ -221,8 +221,14 @@ export function getAutoSessionId(): string | null {
 // Dispatcher
 // ---------------------------------------------------------------------------
 
-/** MCP-2: MCP tools that mutate the vault; gated behind settings.mcpAllowWriteTools. */
-const MCP_WRITE_TOOLS = new Set<string>(['write_vault']);
+/**
+ * MCP-2 / FIX-44-26: MCP tools that mutate persistent state; gated behind
+ * settings.mcpAllowWriteTools (default off, fail-closed). save_to_memory /
+ * update_memory write long-term memory -- the agent-side equivalents
+ * (mark_for_memory, update_soul) are self-modify and always ask, so their MCP
+ * counterparts must not be an ungated bypass for a bearer-token holder.
+ */
+export const MCP_WRITE_TOOLS = new Set<string>(['write_vault', 'save_to_memory', 'update_memory']);
 
 export async function handleToolCall(
     plugin: ObsidianAgentPlugin,
@@ -248,7 +254,7 @@ export async function handleToolCall(
         return {
             content: [{
                 type: 'text',
-                text: 'write_vault is disabled over MCP. Enable "Allow write tools over MCP" '
+                text: `${tool} is disabled over MCP. Enable "Allow write tools over MCP" `
                     + 'in Vault Operator settings to permit external writes.',
             }],
             isError: true,

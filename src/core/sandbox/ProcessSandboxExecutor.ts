@@ -67,6 +67,11 @@ export class ProcessSandboxExecutor implements ISandboxExecutor {
         this.bridge = new SandboxBridge(plugin);
     }
 
+    /** FIX-44-04: forward the governance task to the bridge for checkpointing. */
+    setGovernanceContext(taskId: string | undefined): void {
+        this.bridge.setGovernanceContext(taskId);
+    }
+
     /**
      * Build the minimal env for the sandbox worker process. The
      * identity-related names (HOME, USERPROFILE, APPDATA, ...) are

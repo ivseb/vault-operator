@@ -243,7 +243,9 @@ describe('AUDIT-034 M-11: configure_model requires user approval', () => {
         };
         await pipeline.executeTool(call, callbacks, { onApprovalRequired });
         expect(onApprovalRequired).toHaveBeenCalledTimes(1);
-        expect(onApprovalRequired).toHaveBeenCalledWith('configure_model', call.input);
+        // FEAT-44-10: the callback gained a third parameter (the edit preview).
+        // configure_model is not a note edit, so it arrives undefined.
+        expect(onApprovalRequired).toHaveBeenCalledWith('configure_model', call.input, undefined);
         expect(tool.execute).toHaveBeenCalledTimes(1);
     });
 
@@ -315,6 +317,24 @@ describe('AUDIT-034 M-9: mode-gate enforced at execution layer', () => {
         const result = await pipeline.executeTool(call, callbacks);
         expect(result.is_error).toBe(true);
         expect(writeTool.execute).not.toHaveBeenCalled();
+    });
+
+    it('FIX-44-29: does NOT deny the always-injected meta-tools in a restricted mode', async () => {
+        // find_tool / read_skill are injected into the schema even for a mode
+        // that omits the `agent` group, to keep progressive disclosure alive.
+        // The gate must exempt them or the model calls a tool it was told it has
+        // and gets denied every turn.
+        const findTool = makeTool('find_tool', false);
+        const { pipeline } = await buildPipeline({ tools: [findTool] }, 'read-only-agent');
+        (pipeline as unknown as { setModeService: (m: unknown) => void }).setModeService(
+            // read-only mode does NOT list find_tool.
+            makeModeService('read-only-agent', ['read_file']),
+        );
+        const { callbacks } = makeCallbacks();
+        const call: ToolUse = { type: 'tool_use', id: 'mg-meta', name: 'find_tool', input: {} };
+        const result = await pipeline.executeTool(call, callbacks, undefined, { source: 'model' });
+        expect(result.is_error).toBe(false);
+        expect(findTool.execute).toHaveBeenCalledTimes(1);
     });
 
     it('bypasses the mode-gate for fastpath dispatches (recipes are user-authored)', async () => {

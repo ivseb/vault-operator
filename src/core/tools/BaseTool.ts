@@ -23,8 +23,16 @@ export abstract class BaseTool<TName extends ToolName = ToolName> {
     abstract readonly name: TName;
 
     /**
-     * Whether this tool performs write operations
-     * (determines if approval and checkpoints are needed)
+     * Whether this tool writes vault FILES.
+     *
+     * Drives ONLY the pre-write checkpoint snapshot and read-cache invalidation.
+     *
+     * NOT the approval decision. That is made solely by the central effect
+     * registry (ADR-153, `src/core/tools/toolEffects.ts`). The approval gate used
+     * to hang off this flag, and because every tool declares it ABOUT ITSELF,
+     * five tools with real side effects (update_settings, update_soul,
+     * manage_mcp_server, mark_for_memory, get_daily_note) skipped the check
+     * simply by having `false` here.
      */
     abstract readonly isWriteOperation: boolean;
 

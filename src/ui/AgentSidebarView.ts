@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile } from 'obsidian';
+import { ItemView, WorkspaceLeaf, setIcon, Menu, MarkdownRenderer, MarkdownView, Notice, TFile, TFolder } from 'obsidian';
 import type ObsidianAgentPlugin from '../main';
 import { AgentTaskRunner } from '../core/agent/AgentTaskRunner';
 import {
@@ -9,6 +9,12 @@ import {
     DEFAULT_ROLLING_SUMMARY_THRESHOLD,
 } from '../core/condensingDefaults';
 import { ModeService } from '../core/modes/ModeService';
+// ADR-153: the approval card consumes the same effect registry as the Pipeline.
+// No second, drifting copy of the group mapping.
+import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { grantAutoApproval } from '../core/tools/autoApprovalGrant';
+import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
+import { confirmModal } from './modals/PromptModal';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -40,7 +46,7 @@ import type { AttachmentItem } from './sidebar/AttachmentHandler';
 import { AutocompleteHandler } from './sidebar/AutocompleteHandler';
 import { VaultFilePicker } from './sidebar/VaultFilePicker';
 import { CommandPicker, type CommandPickerItem } from './sidebar/CommandPicker';
-import { resolveObsidianDraggedFiles } from './sidebar/dragManagerBridge';
+import { resolveObsidianDraggedFiles, resolveObsidianDraggedFolders } from './sidebar/dragManagerBridge';
 import { HistoryPanel } from './sidebar/HistoryPanel';
 import type { UiMessage } from '../core/history/ConversationStore';
 import { LazyConversationId } from '../core/history/LazyConversationId';
@@ -645,6 +651,9 @@ export class AgentSidebarView extends ItemView {
             () => this.textarea,
             () => this.inputArea,
             (file) => this.attachments.addVaultFile(file),
+            // FEAT-02-11: folder-mention. Manifest attachment (path list),
+            // lazy-read via read_file / read_document.
+            (folder, opts) => this.attachments.addVaultFolder(folder, opts),
         );
 
         this.textarea.addEventListener('input', () => {
@@ -721,6 +730,19 @@ export class AgentSidebarView extends ItemView {
             // Obsidian 1.4+ and widely used by community plugins. Guarded by a
             // null-check so a future API change silently falls through to the
             // text/plain path.
+            //
+            // FEAT-02-11: probe folders BEFORE files -- a folder-drag from the
+            // file explorer is a distinct payload (`{ type: 'folder', file: TFolder }`)
+            // and the folder path carries semantic meaning that a flattened
+            // file list would lose. Default recursive, same as the @-mention
+            // recursive row.
+            const draggedFolders = resolveObsidianDraggedFolders(this.app);
+            if (draggedFolders.length > 0) {
+                for (const folder of draggedFolders) {
+                    void this.attachments.addVaultFolder(folder, { recursive: true });
+                }
+                return;
+            }
             const draggedFiles = resolveObsidianDraggedFiles(this.app);
             if (draggedFiles.length > 0) {
                 for (const file of draggedFiles) void this.attachments.addVaultFile(file);
@@ -733,6 +755,8 @@ export class AgentSidebarView extends ItemView {
                 const vaultFile = this.app.vault.getAbstractFileByPath(textData);
                 if (vaultFile instanceof TFile) {
                     void this.attachments.addVaultFile(vaultFile);
+                } else if (vaultFile instanceof TFolder) {
+                    void this.attachments.addVaultFolder(vaultFile, { recursive: true });
                 }
             }
         });
@@ -2815,8 +2839,8 @@ export class AgentSidebarView extends ItemView {
                     };
                     this.showQuestionCard(question, options, wrappedResolve, allowMultiple);
                 },
-                onApprovalRequired: async (toolName, input) => {
-                    return this.showApprovalCard(toolName, input);
+                onApprovalRequired: async (toolName, input, preview) => {
+                    return this.showApprovalCard(toolName, input, preview);
                 },
                 onOptionalAssetRequired: async (spec, toolName) => {
                     return this.showInstallPromptCard(spec, toolName);
@@ -4235,6 +4259,12 @@ export class AgentSidebarView extends ItemView {
                     const img = chip.createEl('img', { cls: 'attachment-chip-thumb' });
                     img.src = att.objectUrl;
                     img.alt = att.name;
+                } else if (att.folderMeta) {
+                    // FEAT-02-11: folder-manifest chip.
+                    const icon = att.folderMeta.recursive ? 'folder-tree' : 'folder';
+                    setIcon(chip.createSpan('attachment-chip-icon'), icon);
+                    const label = `${att.folderMeta.path || att.name}/ (${att.folderMeta.fileCount})`;
+                    chip.createSpan('attachment-chip-name').setText(label);
                 } else {
                     setIcon(chip.createSpan('attachment-chip-icon'), 'file-text');
                     chip.createSpan('attachment-chip-name').setText(att.name);
@@ -4401,16 +4431,30 @@ export class AgentSidebarView extends ItemView {
 
         // Auto-accept Edits (toggle)
         menu.addItem((item) => {
-            const enabled = settings.autoApproval.noteEdits && settings.autoApproval.vaultChanges;
+            // FIX-44-03c: the check must reflect what the gate actually does.
+            // note/vault edits only auto-approve when the MASTER is on too, so a
+            // check that ignored the master showed "on" while every edit still
+            // prompted. Derive the state from the master as well.
+            const cfg = settings.autoApproval;
+            const enabled = cfg.enabled && cfg.noteEdits && cfg.vaultChanges;
             item.setTitle(t('ui.menu.autoAcceptEdits'));
             item.setIcon(enabled ? 'check' : 'pencil');
             item.setChecked(enabled);
             item.onClick(async () => {
-                const newVal = !enabled;
-                settings.autoApproval.noteEdits = newVal;
-                settings.autoApproval.vaultChanges = newVal;
+                const flags = cfg as unknown as Record<string, unknown>;
+                if (!enabled) {
+                    // Turning on: flip the master (clearing dormant flags,
+                    // FIX-44-03b) and grant both edit categories.
+                    grantAutoApproval(flags, 'noteEdits');
+                    flags.vaultChanges = true;
+                } else {
+                    // Turning off: drop just these two; leave the master and any
+                    // other grants as they are.
+                    flags.noteEdits = false;
+                    flags.vaultChanges = false;
+                }
                 await this.plugin.saveSettings();
-                new Notice(t('notice.autoAcceptEdits', { value: newVal ? 'on' : 'off' }));
+                new Notice(t('notice.autoAcceptEdits', { value: !enabled ? 'on' : 'off' }));
             });
         });
 
@@ -5163,25 +5207,100 @@ export class AgentSidebarView extends ItemView {
         return lines.join('\n');
     }
 
+    /**
+     * FEAT-44-10: approve a note edit on its DIFF, before it is written.
+     *
+     * The post-task review that used to be the only diff in the product opens
+     * after every write has landed, and its "reject" only declines the user's own
+     * manual edits -- the agent's version stays on disk. That is a gate in
+     * appearance only. When the Pipeline hands us a preview, we put the real diff
+     * in front of the write: Apply approves (with whatever the user typed),
+     * discard rejects and nothing is written.
+     */
+    private async showEditApprovalGate(
+        toolName: string,
+        preview: import('../core/tools/editPreview').EditPreview,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
+        const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
+        const result = await showEditReviewModal({
+            app: this.app,
+            source: this.formatToolLabel(toolName),
+            title: preview.isDeleted ? t('ui.approval.gateTitleDelete') : t('ui.approval.gateTitle'),
+            entries: [{
+                path: preview.path,
+                before: preview.before,
+                after: preview.after,
+                isNew: preview.isNew,
+                isDeleted: preview.isDeleted,
+            }],
+            // FEAT-44-02: one approval for the whole run is impossible -- the agent
+            // only decides its next tool call after seeing this one's result, so
+            // there is nothing to preview yet. Offering to REMEMBER the answer is
+            // the honest version of what the user actually wants.
+            allowRememberForRun: true,
+        });
+
+        // Discarded, or the single file was skipped: nothing happens.
+        const decision = result.decisions?.[0];
+        if (!result.decisions || !decision || decision.skipped) {
+            return { decision: 'rejected', reason: 'Rejected by user in the diff view.' };
+        }
+
+        const rememberForRun = result.rememberForRun === true;
+
+        // A deletion has no meaningful "edited after-state" -- the only real
+        // choices are let it go or keep it. Whatever the textarea says, we do not
+        // turn a delete into a write behind the user's back.
+        if (preview.isDeleted) {
+            return { decision: 'approved', rememberForRun };
+        }
+
+        // Approved as proposed -- let the tool do its own write.
+        if (decision.finalContent === preview.after) {
+            return { decision: 'approved', rememberForRun };
+        }
+
+        // The user rewrote it in the diff. Their content wins; the Pipeline
+        // writes it instead of re-running the tool.
+        //
+        // Say so out loud. The note is usually not open yet at this point (skills
+        // call open_note at the END of a run), so the write lands silently and the
+        // user is left wondering whether their edit survived. It did.
+        new Notice(t('ui.approval.editApplied', { path: preview.path }));
+        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun };
+    }
+
     private async showApprovalCard(
         toolName: string,
         input: Record<string, unknown>,
+        preview?: import('../core/tools/editPreview').EditPreview,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
-        // All tools use the same inline approval card during execution.
-        // Approvals are always rendered in chatContainer (not toolsEl) to ensure visibility
-        // even when .agent-steps-block is collapsed.
-        // Post-task DiffReviewModal is shown in onComplete for collected review.
+        // FEAT-44-10: a note edit with a computable diff gets the real gate.
+        if (preview) {
+            return await this.showEditApprovalGate(toolName, preview);
+        }
+        // Everything else uses the inline card. Rendered in chatContainer (not
+        // toolsEl) so it stays visible even when .agent-steps-block is collapsed.
         return new Promise((resolve) => {
-            if (!this.chatContainer) { resolve({ decision: 'approved' }); return; }
+            // FIX-44-28: fail CLOSED, not open. If there is no chat container to
+            // show the card in, we cannot have obtained consent -- approving
+            // anyway would run an unconfirmed CUD action. Deny instead.
+            if (!this.chatContainer) {
+                resolve({ decision: 'rejected', reason: 'Approval UI unavailable; operation denied.' });
+                return;
+            }
 
-            const group = this.getToolGroup(toolName);
+            const group = this.getToolEffect(toolName, input);
             const groupLabels: Record<string, string> = {
                 'note-edit': t('ui.approval.noteEdits'), 'vault-change': t('ui.approval.vaultChanges'),
                 web: t('ui.approval.web'), mcp: t('ui.approval.mcp'), read: t('ui.approval.read'),
-                mode: t('ui.approval.modeSwitching'), subtask: t('ui.approval.subAgents'),
+                ui: t('ui.approval.agentControl'), subtask: t('ui.approval.subAgents'),
                 skill: t('ui.approval.pluginSkills'),
                 'plugin-api': t('ui.approval.pluginApi'), recipe: t('ui.approval.recipes'),
                 sandbox: t('ui.approval.sandbox'),
+                config: t('ui.approval.config'),
+                'self-modify': t('ui.approval.selfModify'),
+                unclassified: t('ui.approval.unclassified'),
             };
 
             // Always render in chatContainer (like Question-Cards)
@@ -5249,7 +5368,20 @@ export class AgentSidebarView extends ItemView {
 
             const actions = row.createDiv('tool-approval-actions');
             const allowBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-allow-once', text: t('ui.approval.allowOnce') });
-            const enableBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') });
+            // ADR-153: only offer "Always allow" when a settings flag actually
+            // backs it. config and self-modify (alwaysAsk) have none -- a button
+            // promising a permanent grant that never takes effect would be a lie,
+            // and it would set an unrelated permission instead.
+            const permKey = this.effectToPermKey(group, input);
+            // FEAT-44-02: a run-scoped grant is offered for the same effects that
+            // can be remembered (not alwaysAsk). It applies to the rest of THIS
+            // run only, dies with the task, and cannot buy off config/self-modify.
+            const runBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-run', text: t('ui.approval.allowForRun') })
+                : null;
+            const enableBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') })
+                : null;
             const denyBtn = actions.createEl('button', { cls: 'tool-approval-btn approval-deny-small', text: '✕' });
 
             // AUDIT-FEAT-14-07 L-5: gate the Allow-button on the preview
@@ -5259,15 +5391,15 @@ export class AgentSidebarView extends ItemView {
             // hard timeout re-enables Allow even if the plugin call hangs.
             if (previewPromise) {
                 allowBtn.disabled = true;
-                enableBtn.disabled = true;
+                if (enableBtn) enableBtn.disabled = true;
                 const releaseTimeout = window.setTimeout(() => {
                     allowBtn.disabled = false;
-                    enableBtn.disabled = false;
+                    if (enableBtn) enableBtn.disabled = false;
                 }, 2000);
                 void previewPromise.finally(() => {
                     window.clearTimeout(releaseTimeout);
                     allowBtn.disabled = false;
-                    enableBtn.disabled = false;
+                    if (enableBtn) enableBtn.disabled = false;
                 });
             }
 
@@ -5306,17 +5438,38 @@ export class AgentSidebarView extends ItemView {
             });
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
+            runBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForRun: true }); });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
-            enableBtn.addEventListener('click', () => {
-                void (async () => {
-                    this.plugin.settings.autoApproval.enabled = true;
-                    const permKey = this.groupToPermKey(group);
-                    if (permKey) (this.plugin.settings.autoApproval as unknown as Record<string, boolean>)[permKey] = true;
-                    await this.plugin.saveSettings();
-                    cleanup();
-                    resolve({ decision: 'approved' });
-                })();
-            });
+            if (enableBtn && permKey) {
+                enableBtn.addEventListener('click', () => {
+                    void (async () => {
+                        const cfg = this.plugin.settings.autoApproval;
+                        const flags = cfg as unknown as Record<string, boolean>;
+
+                        // FIX-44-03b: sandbox auto-approval means arbitrary
+                        // agent-authored code writes the vault without a further
+                        // prompt. Require an explicit confirm, as the Settings tab
+                        // does -- a single card click must not arm it silently.
+                        if (permKey === 'sandbox') {
+                            const ok = await confirmModal(this.app, {
+                                title: t('ui.approval.sandbox'),
+                                message: t('ui.approval.sandboxGrantWarning'),
+                                confirmLabel: t('ui.approval.enableInSettings'),
+                                destructive: true,
+                            });
+                            if (!ok) return; // leave the card open, grant nothing
+                        }
+
+                        // FIX-44-03b: flipping the master ON must not silently
+                        // re-arm category flags left true by a past permissive
+                        // session. grantAutoApproval clears them first.
+                        grantAutoApproval(flags, permKey);
+                        await this.plugin.saveSettings();
+                        cleanup();
+                        resolve({ decision: 'approved' });
+                    })();
+                });
+            }
 
             this.chatContainer?.scrollTo({ top: this.chatContainer.scrollHeight });
         });
@@ -5467,38 +5620,45 @@ export class AgentSidebarView extends ItemView {
         });
     }
 
-    private getToolGroup(toolName: string): 'note-edit' | 'vault-change' | 'web' | 'mcp' | 'read' | 'mode' | 'subtask' | 'skill' | 'plugin-api' | 'recipe' | 'sandbox' {
-        const readTools = ['read_file', 'list_files', 'search_files', 'get_frontmatter', 'get_linked_notes', 'get_vault_stats', 'search_by_tag', 'get_daily_note', 'query_base', 'semantic_search'];
-        const vaultChangeTools = ['create_folder', 'delete_file', 'move_file', 'generate_canvas', 'create_base', 'update_base'];
-        const skillTools = ['execute_command', 'enable_plugin', 'resolve_capability_gap'];
-        if (toolName === 'evaluate_expression') return 'sandbox';
-        if (['web_fetch', 'web_search'].includes(toolName)) return 'web';
-        if (toolName === 'use_mcp_tool') return 'mcp';
-        if (readTools.includes(toolName)) return 'read';
-        if (vaultChangeTools.includes(toolName)) return 'vault-change';
-        if (skillTools.includes(toolName)) return 'skill';
-        if (toolName === 'call_plugin_api') return 'plugin-api';
-        if (toolName === 'execute_recipe') return 'recipe';
-        if (toolName === 'switch_agent') return 'mode';
-        if (toolName === 'new_task') return 'subtask';
-        return 'note-edit'; // write_file, edit_file, append_to_file, update_frontmatter
+    /**
+     * ADR-153: the effect class comes from the central registry, not from a
+     * local copy.
+     *
+     * A hand-maintained list used to sit here that had drifted from the
+     * Pipeline: anything unknown fell back to 'note-edit'. Clicking "Always
+     * allow" on e.g. a restore_checkpoint card therefore wrote
+     * `autoApproval.noteEdits` -- a DIFFERENT permission from the one displayed
+     * -- and did not even suppress the next prompt for the tool that was
+     * clicked.
+     */
+    private getToolEffect(toolName: string, input: Record<string, unknown>): ToolEffect | 'unclassified' {
+        return resolveToolEffect(toolName, input) ?? 'unclassified';
     }
 
-    /** Map a tool group to the corresponding permission key in autoApproval config */
-    private groupToPermKey(group: string): string | null {
-        const map: Record<string, string> = {
-            'note-edit': 'noteEdits',
-            'vault-change': 'vaultChanges',
-            web: 'web',
-            mcp: 'mcp',
-            mode: 'mode',
-            subtask: 'subtasks',
-            skill: 'skills',
-            'plugin-api': 'pluginApiWrite', // "Enable" sets the broader write permission
-            recipe: 'recipes',
-            sandbox: 'sandbox',
-        };
-        return map[group] ?? null;
+    /**
+     * The settings flag that "Always allow" would set for this effect.
+     *
+     * `null` means there is nothing to grant permanently, so the button is not
+     * rendered at all. That covers `config` and `self-modify` (alwaysAsk --
+     * otherwise the agent could unlock itself) and unclassified tools.
+     */
+    private effectToPermKey(
+        effect: ToolEffect | 'unclassified',
+        input?: Record<string, unknown>,
+    ): string | null {
+        if (effect === 'unclassified') return null;
+        const policy = EFFECT_POLICY[effect];
+        if (policy.alwaysAsk) return null;
+        // FIX-44-03a: plugin-api read vs write hangs off the INPUT, exactly as
+        // the gate resolves it. Granting the write flag for a read card (the old
+        // hardcoded 'pluginApiWrite') handed the user a permission the card never
+        // showed. Mirror the gate via the shared helper.
+        if (effect === 'plugin-api') {
+            return isPluginApiWriteCall(input, this.plugin.settings.pluginApi)
+                ? 'pluginApiWrite'
+                : 'pluginApiRead';
+        }
+        return policy.key;
     }
 
     // -------------------------------------------------------------------------
@@ -5863,6 +6023,21 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
+        // FIX-44-16: the diff belongs BEFORE the write, not after it.
+        //
+        // With the master auto-approve toggle off, every CUD tool goes through the
+        // pre-write gate (FEAT-44-01 / FEAT-44-10): the user already saw this exact
+        // diff and already said yes, and a rejection there means the write never
+        // happened. Showing the same diff again afterwards is not a second chance,
+        // it is a second, weaker-looking approval -- and that is precisely what
+        // misled a user into thinking the POST-task modal was the gate, rejecting
+        // in it, and watching nothing happen.
+        //
+        // The review is only still needed for writes that were NOT gated, i.e. when
+        // the user has switched auto-approval on. Then it is the last line of
+        // defence, and its discard really does take the changes back.
+        if (this.plugin.settings.autoApproval.enabled !== true) return;
+
         const checkpoints = service.getCheckpointsForTask(taskId);
         if (checkpoints.length === 0) return;
 
@@ -5887,7 +6062,7 @@ export class AgentSidebarView extends ItemView {
         // read. vault.getFileByPath returns null for dot-paths (.obsidian/,
         // agent folder), which made the review show after='' and Apply then
         // zeroed the file through a raw adapter.write.
-        const { readCurrentContent, applyReviewDecisions } = await import('./edit-review/postTaskReviewIO');
+        const { readCurrentContent, applyReviewDecisions, revertReviewedFiles } = await import('./edit-review/postTaskReviewIO');
         const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
         const entries: import('./edit-review/EditReviewPanel').EditReviewEntry[] = [];
 
@@ -5917,8 +6092,25 @@ export class AgentSidebarView extends ItemView {
             entries,
             title: t('ui.editReview.titleReview'),
             source: t('ui.editReview.sourceTask', { taskId }),
+            // FIX-44-16: in a POST-task review the writes have already landed, so
+            // "discard" cannot mean "do not write" -- it has to mean "take it
+            // back". The label says so, and the handler below does so.
+            discardLabel: t('ui.editReview.revertAll'),
         });
-        if (result.decisions === null) return;
+
+        if (result.decisions === null) {
+            // FIX-44-16: this used to be a bare `return`. The user pressed the
+            // button that says the changes go away, and the changes stayed. The
+            // pre-task content is right here in `entries`, so give it back.
+            const undone = await revertReviewedFiles(this.app, entries);
+            if (undone.reverted.length > 0) {
+                new Notice(t('ui.editReview.reverted', { count: undone.reverted.length }));
+            }
+            if (undone.failed.length > 0) {
+                new Notice(t('ui.editReview.revertFailed', { paths: undone.failed.join(', ') }));
+            }
+            return;
+        }
 
         // FIX-01-07-04: only decisions the user actually changed are written,
         // through the atomic + empty-guarded path. An unchanged Apply is a

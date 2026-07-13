@@ -22,24 +22,29 @@ When Vault Operator wants to do something, a card appears with the tool name and
 - **Delete a file:** which file will be removed
 - **Move or rename:** source and destination paths
 
-Click the card to expand the full payload before deciding. You can Allow once (approve this specific action) or Always allow (auto-approve this category from now on).
+Click the card to expand the full payload before deciding. Three levels: **Allow once** (this action only), **Allow for this run** (stop asking for this kind of change until the current task ends; the grant is never persisted), or **Always allow** (auto-approve this category from now on).
 
 ## Auto-approve categories
 
-You can enable auto-approve per category. Go to **Settings > Vault Operator > Agents > Auto-approve** to see the full list. The categories map one-to-one to the seven tool groups the agent uses internally.
+Every tool call is classified into one effect by a central registry, and the effect decides whether it can auto-approve. The master switch under **Settings > Vault Operator > Agents > Permissions** ships **off**: with it off, everything that writes, spends money, or leaves the device asks. Reads always run.
 
 | Category | What it covers | Risk level |
 |----------|----------------|------------|
-| **read** | Reading files, listing folders, searching, reading checkpoints | Low (nothing changes) |
-| **vault** | Frontmatter, tag and link lookups, semantic search, memory recall, daily notes | Low (read-side queries) |
-| **edit** | Writing, editing, moving, deleting files, frontmatter updates, canvas, office docs, ingest, restore checkpoint | High (changes your content and structure) |
+| **reads** | Reading files, listing folders, searching, semantic search | Always run (nothing changes); no toggle |
+| **note edits** | Writing, editing, appending, frontmatter updates, ingest | High (changes your content) |
+| **vault changes** | Create/move/delete files, extract archives, restore checkpoint, canvas and office docs | High (changes structure; harder to undo) |
 | **web** | Fetching pages, web search, anti-echo search | Medium (external data enters the vault) |
-| **agent** | Followup questions, completion signal, todo list, subtasks, mode and settings changes, plugin discovery, skill invocation | Medium (controls agent behaviour and settings) |
-| **mcp** | Calling external MCP tools | Medium (depends on the connected server) |
-| **skill** | Shell commands, recipes, plugin API calls, capability resolution, sandbox scripts | High (runs generated or scripted code) |
+| **mcp** | Calling external MCP tools/servers | Medium (depends on the connected server) |
+| **subtasks** | Spawning sub-agents | Medium |
+| **skills** | Running a skill (only trusted built-in / Pro skills auto-approve) | Medium |
+| **recipes** | Running a stored recipe | Medium |
+| **plugin API** | Reading from / writing to other plugins (two separate toggles) | Medium to high |
+| **sandbox** | Agent-authored expressions, skill scripts, dynamic skill tools | High (runs generated code); toggle carries a confirm |
+
+Two effects are **never** auto-approvable, whatever the settings say: **settings changes** (`update_settings`, `configure_model`, MCP server management) and **agent self-modification** (persona, memory, source). The agent cannot turn its own permissions on.
 
 :::warning Permissive combination
-If you auto-approve both **web** and **edit**, Vault Operator shows a security warning. The agent could fetch content from the internet and write it to your vault without asking.
+If you auto-approve both **web** and a write category, Vault Operator lights up a "Permissive" warning in the Permissions tab. The agent could fetch content from the internet and act on it without asking.
 :::
 
 ## Reviewing changes

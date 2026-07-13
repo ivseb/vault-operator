@@ -20,7 +20,7 @@
  */
 
 import type { ApiHandler, MessageParam } from '../api/types';
-import type { ToolExecutionPipeline } from './tool-execution/ToolExecutionPipeline';
+import type { ToolExecutionPipeline, ContextExtensions } from './tool-execution/ToolExecutionPipeline';
 import type { ProceduralRecipe } from './mastery/types';
 import type { ToolCallbacks, ToolName, ToolDefinition } from './tools/types';
 import { getHelperApi } from './helper-api';
@@ -133,6 +133,18 @@ export class FastPathExecutor {
         ) => void,
     ) {}
 
+    /** FIX-44-33: approval + checkpoint callbacks for the current run (set in execute()). */
+    private gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint'>;
+
+    /** Build the extensions object for a pipeline dispatch, merging readFiles + the gate. */
+    private buildExtensions(readFiles?: Set<string>): ContextExtensions | undefined {
+        const ext: ContextExtensions = {};
+        if (readFiles) ext.readFiles = readFiles;
+        if (this.gate?.onApprovalRequired) ext.onApprovalRequired = this.gate.onApprovalRequired;
+        if (this.gate?.onCheckpoint) ext.onCheckpoint = this.gate.onCheckpoint;
+        return Object.keys(ext).length > 0 ? ext : undefined;
+    }
+
     /**
      * FEAT-24-07 / ADR-115: resolve the helper handler for internal
      * planner/presenter calls. Uses the parent plugin reachable through
@@ -164,7 +176,12 @@ export class FastPathExecutor {
             summary: string,
             source: 'fastpath',
         ) => void,
+        // FIX-44-33: the approval + checkpoint callbacks from the owning task.
+        // Without them a recipe step whose effect is not auto-approved was denied
+        // fail-closed with only a console.warn, instead of asking the user.
+        gate?: Pick<ContextExtensions, 'onApprovalRequired' | 'onCheckpoint'>,
     ): Promise<FastPathResult> {
+        this.gate = gate;
         const failed: FastPathResult = { success: false, historyEntries: [], toolCallsExecuted: 0 };
 
         // IMP-41-02-05 / ADR-151: machine-promoted recipes run the full
@@ -405,7 +422,7 @@ export class FastPathExecutor {
                     const result = await this.pipeline.executeTool(
                         { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                         callbacks,
-                        readFiles ? { readFiles } : undefined,
+                        this.buildExtensions(readFiles),
                         { source: 'fastpath', trust: this.currentTrust },
                     );
                     return {
@@ -425,7 +442,7 @@ export class FastPathExecutor {
             const result = await this.pipeline.executeTool(
                 { type: 'tool_use', id, name: call.tool as ToolName, input: call.input },
                 callbacks,
-                readFiles ? { readFiles } : undefined,
+                this.buildExtensions(readFiles),
                 { source: 'fastpath', trust: this.currentTrust },
             );
             results.push({

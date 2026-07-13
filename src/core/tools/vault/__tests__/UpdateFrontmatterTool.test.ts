@@ -12,33 +12,24 @@ import { UpdateFrontmatterTool } from '../UpdateFrontmatterTool';
 import type { ToolCallbacks, ToolExecutionContext } from '../../types';
 import type ObsidianAgentPlugin from '../../../../main';
 
+/**
+ * FEAT-44-10: the tool no longer writes through `processFrontMatter` (which
+ * cannot preview what it is about to do). It resolves the new content itself and
+ * writes it via `vault.modify`, so the stub mirrors that. The echo below is now
+ * built from the resolved content, i.e. by construction it IS what landed on
+ * disk -- which is strictly stronger than the old re-read.
+ */
 function makeTool(initial: string): { tool: UpdateFrontmatterTool; captured: { content: string } } {
-    const file = new TFile();
+    const file = Object.assign(new TFile(), { path: 'Inbox/M.md', extension: 'md' });
     const captured = { content: initial };
     const plugin = {
         app: {
             vault: {
                 getAbstractFileByPath: (_p: string) => file,
                 read: (_f: TFile) => Promise.resolve(captured.content),
+                modify: (_f: TFile, c: string) => { captured.content = c; return Promise.resolve(); },
             },
-            fileManager: {
-                // Minimal processFrontMatter: parse the block, hand the object to
-                // the mutator, re-serialise deterministically (test double).
-                processFrontMatter: async (_f: TFile, fn: (fm: Record<string, unknown>) => void) => {
-                    const m = captured.content.match(/^---\n([\s\S]*?)\n---/);
-                    const fm: Record<string, unknown> = {};
-                    if (m) {
-                        for (const line of m[1].split('\n')) {
-                            const idx = line.indexOf(':');
-                            if (idx > 0) fm[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-                        }
-                    }
-                    fn(fm);
-                    const body = captured.content.replace(/^---\n[\s\S]*?\n---\n?/, '');
-                    const fmText = Object.entries(fm).map(([k, v]) => `${k}: ${String(v)}`).join('\n');
-                    captured.content = `---\n${fmText}\n---\n${body}`;
-                },
-            },
+            workspace: { getLeavesOfType: () => [] },
         },
     } as unknown as ObsidianAgentPlugin;
     return { tool: new UpdateFrontmatterTool(plugin), captured };

@@ -11,6 +11,7 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { assertSafeVaultPath } from './vaultPathGuard';
+import type { EditPreview } from '../editPreview';
 
 interface AppendToFileInput {
     path: string;
@@ -57,6 +58,40 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
         };
     }
 
+    /**
+     * FEAT-44-10: what an append produces. Pure -- the diff the user approves and
+     * the content that gets written both come from here, so they cannot drift.
+     */
+    private resolveAppend(currentContent: string, content: string, separator: string): string {
+        return currentContent ? currentContent + separator + content : content;
+    }
+
+    /** FEAT-44-10: the diff the approval gate shows. Never writes. */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const { path, content, separator = '\n' } = input as unknown as AppendToFileInput;
+            if (!path || !content) return null;
+            assertSafeVaultPath(path, { paramName: 'path' });
+
+            const existing = this.app.vault.getAbstractFileByPath(path);
+            if (!existing) {
+                // The file will be created; the whole content is the addition.
+                return { path, before: '', after: content, isNew: true };
+            }
+            if (!(existing instanceof TFile)) return null;
+
+            const currentContent = await this.app.vault.read(existing);
+            return {
+                path,
+                before: currentContent,
+                after: this.resolveAppend(currentContent, content, separator),
+            };
+        } catch {
+            // A preview is a courtesy, never a gate. Fall back to the plain card.
+            return null;
+        }
+    }
+
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {
         const { path, content, separator = '\n' } = input as unknown as AppendToFileInput;
         const { callbacks } = context;
@@ -74,7 +109,7 @@ export class AppendToFileTool extends BaseTool<'append_to_file'> {
                     throw new Error(`Path exists but is not a file: ${path}`);
                 }
                 const currentContent = await this.app.vault.read(existing);
-                const newContent = currentContent ? currentContent + separator + content : content;
+                const newContent = this.resolveAppend(currentContent, content, separator);
                 await this.app.vault.modify(existing, newContent);
                 // FIX-01-07-03: push the new content directly into the open
                 // CodeMirror buffer so the editor view shows the append

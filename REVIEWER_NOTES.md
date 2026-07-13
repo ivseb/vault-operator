@@ -15,9 +15,11 @@ text) to `fs.*` or `child_process.spawn`. Filesystem access goes through
 root-directory allowlist; process spawning goes through
 [src/core/security/spawnAllowlist.ts](src/core/security/spawnAllowlist.ts)
 with a hard binary allowlist (six logical binaries plus their platform
-variants). Dynamic code execution lives only inside one of two sandboxes
-(Chromium iframe or Node `vm.runInNewContext` worker process) with a
-supplementary regex deny-list as a pre-compile filter. Internal audit
+variants). Dynamic code execution lives only inside a Chromium iframe
+sandbox (`sandbox="allow-scripts"`, CSP `default-src 'none'`) on every
+platform, with a supplementary regex deny-list as a pre-compile filter.
+(The earlier Node `vm.runInNewContext` worker was removed at audit finding
+SBX-1; there is no `vm`-based execution path anymore.) Internal audit
 history is summarised in the "Audit history" section below; the audit
 reports themselves live in a private development tree and can be shared
 with the community plugin maintainer on request.
@@ -50,10 +52,12 @@ with the community plugin maintainer on request.
 2. **Plugin <-> vault.** Vault reads and writes go through the Obsidian
    `vault.*` API. The community plugin scanner correctly marks Vault Read
    and Vault Write as Pass.
-3. **Plugin <-> sandbox.** Code executed via `evaluate_expression` runs in
-   one of two isolated layers: a Chromium iframe (browser sandbox, no Node)
-   or a Node `vm.runInNewContext` worker (no `require`, no `process`, no
-   filesystem unless explicitly bridged).
+3. **Plugin <-> sandbox.** Code executed via `evaluate_expression`,
+   `run_skill_script`, or a dynamic `custom_*` skill tool runs in a Chromium
+   iframe sandbox (browser sandbox, no Node, no `require`, no `process`, no
+   filesystem unless explicitly bridged). Vault access via the bridge is
+   governed exactly like the tools: IgnoreService, a checkpoint before each
+   write, and a deny-zone over the agent's own config folder (FIX-44-04).
 4. **Plugin <-> system.** Everything outside the vault, including the system
    temp directory, the user-home Claude/Codex desktop config directories,
    and the plugin data directory, is gated by `safeFs` and `spawnAllowlist`.
@@ -116,9 +120,10 @@ plus the file-header comment in `safeFs.ts`, not by an automated CI grep.
 
 ### Shell execution (`child_process`)
 
-**Why we use it.** The Node-based sandbox worker spawns a child process for
-isolation (`evaluate_expression` runs there, not in the Obsidian renderer).
-The shadow-git for vault checkpoints calls `git`. The remote-MCP-server
+**Why we use it.** `evaluate_expression` no longer spawns a child process --
+it runs in the Chromium iframe sandbox on every platform (the Node worker was
+removed at SBX-1). The remaining spawns are: the shadow-git for vault
+checkpoints calls `git`; the remote-MCP-server
 feature spawns a Cloudflare Tunnel (`cloudflared`) for inbound HTTPS
 exposure. The office pipeline spawns LibreOffice (`soffice`) for headless
 conversion. The optional document-conversion recipes spawn `pandoc`. Binary
@@ -130,7 +135,7 @@ The allowlist is hard-coded; below are the six logical binaries and their
 platform variants:
 
 ```
-node, node.exe                                   -- sandbox worker process
+node, node.exe                                   -- legacy worker path (SBX-1: sandbox is iframe-only)
 which, where, where.exe                          -- binary discovery
 git, git.exe                                     -- shadow git for vault checkpoints
 soffice, soffice.exe, soffice.bin,
@@ -228,32 +233,30 @@ LLM output (untrusted)
                         the sandbox itself.
   -> esbuild transform (TypeScript -> ES2022 IIFE) or esbuild bundle for
      npm imports
-  -> ONE of:
-     ProcessSandboxExecutor (Desktop, ADR-021)
-       -> child_process.spawn (via spawnAllowlist) of `node` with
-          --max-old-space-size=128, ELECTRON_RUN_AS_NODE=1, minimal env
-          (PATH, LANG, NODE_PATH, HOME/USERPROFILE/APPDATA only -- the
-          parent's secrets in process.env do not propagate)
-       -> vm.createContext + vm.runInNewContext (separate V8 realm,
-          no `process` / `require` / `fs`)
-       -> realm globals expose only language primitives (JSON, Math,
-          Object, Array, typed arrays, ...) plus the bridge proxies
-          `vault` and `requestUrl` (both `Object.freeze()`-d). The user
-          code's `.execute(input, ctx)` is called with `ctx = { vault,
-          requestUrl }`.
-       -> 30 s execution timeout (process side); 15 s bridge-call timeout
-          (worker side)
-     IframeSandboxExecutor (Mobile / fallback)
-       -> sandboxed iframe in the renderer (CSP `default-src 'none';
-          script-src 'unsafe-inline' 'unsafe-eval'`); same bridge
-          protocol via `postMessage` instead of IPC; relies on the
-          parent-side SandboxBridge for all security checks.
+  -> IframeSandboxExecutor (all platforms, since SBX-1)
+       -> sandboxed iframe in the renderer (`sandbox="allow-scripts"`,
+          CSP `default-src 'none'`); the bridge protocol runs via
+          `postMessage`, validated by an `event.source` identity check;
+          the parent-side SandboxBridge performs all security checks.
+          (The desktop `ProcessSandboxExecutor` / Node `vm.runInNewContext`
+          path was removed at SBX-1; there is no `vm`-based path anymore.)
+       -> realm exposes only language primitives plus the frozen bridge
+          proxies `vault` and `requestUrl`; user code's `.execute(input, ctx)`
+          is called with `ctx = { vault, requestUrl }`.
+       -> 30 s execution timeout; heap sampled and torn down over a limit.
 
-  Both sandboxes share the parent-side SandboxBridge:
+  The parent-side SandboxBridge governs every bridge call:
    -> URL allowlist (`unpkg.com`, `cdn.jsdelivr.net`, `registry.npmjs.org`,
       `esm.sh`); HTTPS-only; no IP literals / `localhost`; no non-443 ports
-   -> Vault write path validation (rejects `..`, leading `/`, leading `\`,
-      and any path under `vault.configDir/`)
+   -> Vault path validation (rejects `..`, leading `/`, leading `\`,
+      drive-letter and UNC prefixes, and any path under `vault.configDir/`)
+   -> FIX-44-04: reads/writes obey the IgnoreService (ignored = no access,
+      protected = read-only), exactly like the vault tools
+   -> FIX-44-22: the agent config folder (`.vault-operator/`, except the
+      skill workspace `skills/` and `skill-data/`) is a deny-zone, so a
+      script cannot write `settings.json` and grant itself permissions
+   -> FIX-44-04: a checkpoint is taken before each sandbox vault write, so
+      an unwanted write is recoverable via restore_checkpoint
    -> Prototype-pollution check on request payloads (rejects keys
       `__proto__`, `constructor`, `prototype`)
    -> Per-write size limit: 10 MB

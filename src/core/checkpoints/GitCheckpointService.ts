@@ -595,8 +595,11 @@ export class GitCheckpointService {
                     const content = new TextDecoder().decode(blob);
                     const existingFile = this.vault.getAbstractFileByPath(vaultRelPath);
                     if (existingFile) {
-                            if (existingFile instanceof TFile) {
+                        if (existingFile instanceof TFile) {
                             await this.vault.modify(existingFile, content);
+                            // FIX-44-11: same as restore() above. Without this the
+                            // stale editor buffer saves back over the restored file.
+                            await this.refreshOpenViewsFor(existingFile, content);
                         }
                     } else {
                         await this.vault.adapter.write(vaultRelPath, content);

@@ -21,6 +21,7 @@ import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { atomicAdapterWrite } from '../../utils/atomicAdapterWrite';
 import { validateVaultRelativePath } from './pathValidation';
 import { applyAnchors, type AnchorRequest } from './blockAnchorMatcher';
+import type { EditPreview } from '../editPreview';
 
 interface SetBlockAnchorsInput {
     path: string;
@@ -76,6 +77,47 @@ export class SetBlockAnchorsTool extends BaseTool<'set_block_anchors'> {
                 required: ['path', 'anchors'],
             },
         };
+    }
+
+    /**
+     * FEAT-44-10: the diff the approval gate shows. Never writes.
+     *
+     * This tool sprays anchor ids through a note's body -- a live run put 41 of
+     * them into a user's interview transcript. That is precisely the kind of
+     * change nobody should have to approve blind.
+     *
+     * `applyAnchors` is already pure, so preview and execute share it by
+     * construction and cannot drift.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const { path, anchors } = input as unknown as SetBlockAnchorsInput;
+            if (!path || !Array.isArray(anchors) || anchors.length === 0) return null;
+
+            const cleanPath = validateVaultRelativePath(path);
+            if (!cleanPath) return null;
+
+            const isHidden = cleanPath.split('/').some((seg) => seg.startsWith('.'));
+            let content: string;
+            if (isHidden) {
+                const adapter = this.app.vault.adapter;
+                if (!(await adapter.exists(cleanPath))) return null;
+                content = await adapter.read(cleanPath);
+            } else {
+                const found = this.app.vault.getAbstractFileByPath(cleanPath);
+                if (!(found instanceof TFile)) return null;
+                content = await this.app.vault.read(found);
+            }
+
+            const result = applyAnchors(content, anchors);
+            // Nothing matched: no change to show, and execute would not write
+            // either. Fall back to the plain card.
+            if (result.text === content) return null;
+
+            return { path: cleanPath, before: content, after: result.text };
+        } catch {
+            return null;
+        }
     }
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {

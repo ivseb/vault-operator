@@ -84,8 +84,13 @@ export class GlobalSettingsService {
     /**
      * Save global-scoped settings to ~/.obsidian-agent/settings.json.
      * Only writes keys that are NOT vault-local.
+     *
+     * FIX-44-36: returns whether the write succeeded. The global file WINS over
+     * data.json on load (mergeIntoVault), so a silently-swallowed failure meant a
+     * permission change looked saved but reverted on the next restart. The caller
+     * surfaces the failure instead.
      */
-    async saveGlobal(settings: ObsidianAgentSettings): Promise<void> {
+    async saveGlobal(settings: ObsidianAgentSettings): Promise<boolean> {
         try {
             const globalSubset: Record<string, unknown> = {};
             for (const [key, value] of Object.entries(settings)) {
@@ -96,8 +101,10 @@ export class GlobalSettingsService {
             // Encrypt API keys before writing
             const encrypted = this.encryptGlobal(globalSubset);
             await this.globalFs.write(SETTINGS_FILE, JSON.stringify(encrypted, null, 2));
+            return true;
         } catch (e) {
-            console.warn('[GlobalSettingsService] Failed to save global settings:', e);
+            console.error('[GlobalSettingsService] Failed to save global settings:', e);
+            return false;
         }
     }
 

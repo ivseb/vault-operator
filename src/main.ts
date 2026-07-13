@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
-import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, MarkdownView } from 'obsidian';
+import { Plugin, WorkspaceLeaf, Notice, TFile, TFolder, addIcon, Platform, MarkdownView, normalizePath } from 'obsidian';
 import { formatHotkeyHint, formatSendSelectionToSidebarHotkeyHint } from './core/inline/HotkeyHint';
 import { preWarmProviderConnection } from './api/warmup';
 import { scheduleRecurring } from './util/scheduleRecurring';
@@ -28,7 +28,8 @@ import { IgnoreService } from './core/governance/IgnoreService';
 import { OperationLogger } from './core/governance/OperationLogger';
 import { GlobalFileService } from './core/storage/GlobalFileService';
 import * as safeFs from './core/security/safeFs';
-import { getPluginSkillsDir, getSelfAuthoredSkillsDir } from './core/utils/agentFolder';
+import { getPluginSkillsDir, getSelfAuthoredSkillsDir, getAgentDataDir, getInternalAgentFolderPath } from './core/utils/agentFolder';
+import { SkillProvenanceStore } from './core/skills/SkillProvenanceStore';
 import { isSafePathSegment } from './core/utils/safePathName';
 import { confirmModal } from './ui/modals/PromptModal';
 import { GlobalSettingsService } from './core/storage/GlobalSettingsService';
@@ -1121,8 +1122,10 @@ export default class ObsidianAgentPlugin extends Plugin {
             }
         }
 
-        // Governance: ignore/protected path rules
-        this.ignoreService = new IgnoreService(this.app.vault);
+        // Governance: ignore/protected path rules. FIX-44-24: pass the agent
+        // folder root so its config zone (settings, mcp config, provenance
+        // manifest) is write-protected against the agent's own vault tools.
+        this.ignoreService = new IgnoreService(this.app.vault, getInternalAgentFolderPath(this));
         await this.ignoreService.load();
 
         // Rules loader (Sprint 3.2) — now uses global storage
@@ -1269,6 +1272,19 @@ export default class ObsidianAgentPlugin extends Plugin {
             if (report.errors.length > 0 || report.skipped.length > 0 || report.written.length > 0) {
                 console.debug('[Plugin] Builtin skill materialization:', report);
             }
+
+            // FIX-44-05: reconcile the provenance manifest so the loader can tell
+            // a genuinely materialized trusted skill from a forged `source: pro`.
+            // The manifest lives in the protected config zone (not skills/), so a
+            // sandboxed script cannot write it. Freshly written skills are
+            // authoritative; grandfathered ones (ADR-152) are preserved.
+            const provenanceStore = new SkillProvenanceStore(
+                this.app.vault.adapter,
+                normalizePath(`${getAgentDataDir(this)}/skill-provenance.json`),
+            );
+            await provenanceStore.load();
+            await provenanceStore.reconcile(getSelfAuthoredSkillsDir(this), report.written);
+            this.selfAuthoredSkillLoader.setProvenanceStore(provenanceStore);
         } catch (e) {
             console.warn('[Plugin] Builtin skill materialization failed (non-fatal):', e);
         }
@@ -2938,14 +2954,29 @@ export default class ObsidianAgentPlugin extends Plugin {
         const advApi = this.settings.advancedApi as unknown as Record<string, unknown>;
         if ('useCustomTemperature' in advApi) delete advApi['useCustomTemperature'];
         if ('temperature' in advApi) delete advApi['temperature'];
-        // Migrate: autoApproval.write split into noteEdits + vaultChanges
+        // Migrate: autoApproval.write split into noteEdits + vaultChanges.
+        // FIX-44-35: migrate ONLY when the new key is strictly undefined. The old
+        // `|| === false` clauses re-armed a flag the user had deliberately turned
+        // off, every load, as long as a stale write:true lingered.
         const ap = this.settings.autoApproval as unknown as Record<string, unknown>;
+        let autoApprovalMigrated = false;
         if (ap['write'] !== undefined) {
             const writeVal = ap['write'] as boolean;
-            if (ap['noteEdits'] === undefined || ap['noteEdits'] === false) ap['noteEdits'] = writeVal;
-            if (ap['vaultChanges'] === undefined || ap['vaultChanges'] === false) ap['vaultChanges'] = writeVal;
+            if (ap['noteEdits'] === undefined) ap['noteEdits'] = writeVal;
+            if (ap['vaultChanges'] === undefined) ap['vaultChanges'] = writeVal;
             delete ap['write'];
+            autoApprovalMigrated = true;
         }
+        // FIX-44-34: drop dead keys from stored settings so they do not linger in
+        // data.json. They have no consumer; reads are always auto.
+        for (const deadKey of ['read', 'showMenuInChat', 'mode', 'question', 'todo']) {
+            if (deadKey in ap) {
+                delete ap[deadKey];
+                autoApprovalMigrated = true;
+            }
+        }
+        // Persist the cleanup exactly once so the next load sees a clean object.
+        if (autoApprovalMigrated) this.markSettingsDirty();
         // Ensure new fields exist for users upgrading from older versions
         ap.noteEdits = ap.noteEdits ?? false;
         ap.vaultChanges = ap.vaultChanges ?? false;
@@ -3411,9 +3442,14 @@ export default class ObsidianAgentPlugin extends Plugin {
      */
     async saveSettings() {
         await this.saveData(this.encryptSettingsForSave(this.settings));
-        // Dual-write: persist global keys to ~/.obsidian-agent/settings.json
+        // Dual-write: persist global keys to ~/.obsidian-agent/settings.json.
+        // FIX-44-36: the global file wins on load, so a failed write silently
+        // reverts permission changes on restart. Surface it instead of hiding it.
         if (this.globalSettingsService) {
-            await this.globalSettingsService.saveGlobal(this.settings);
+            const ok = await this.globalSettingsService.saveGlobal(this.settings);
+            if (!ok) {
+                new Notice(t('notice.globalSettingsSaveFailed'));
+            }
         }
         this.initApiHandler();
         this.settingsDirty = false;
