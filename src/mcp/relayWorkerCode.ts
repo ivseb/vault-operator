@@ -69,23 +69,65 @@ async function safeTokenCompare(a, b) {
     return result === 0;
 }
 
+// CORS only for MCP endpoint (AI assistants need it) -- not for plugin endpoints (H-6).
+// FIX-23-04-01: erweitert um GET (Streamable-HTTP SSE-Subscribe) und DELETE
+// (Session-Termination), plus Mcp-Session-Id im Allow-Headers damit
+// Spec-strikte Clients wie Perplexity nicht im Preflight haengen bleiben.
+const MCP_CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, Last-Event-ID',
+    'Access-Control-Expose-Headers': 'Mcp-Session-Id',
+};
+
+// FIX-23-04-12: shared JSON-RPC error envelope for internal failures.
+function relayInternalError(extraHeaders) {
+    return new Response(JSON.stringify({
+        jsonrpc: '2.0', id: null,
+        error: { code: -32603, message: 'Relay internal error' },
+    }), {
+        status: 500,
+        headers: Object.assign({ 'Content-Type': 'application/json' }, extraHeaders || {}),
+    });
+}
+
 export default {
     async fetch(request, env) {
-        // CORS only for MCP endpoint (AI assistants need it) -- not for plugin endpoints (H-6).
-        // FIX-23-04-01: erweitert um GET (Streamable-HTTP SSE-Subscribe) und DELETE
-        // (Session-Termination), plus Mcp-Session-Id im Allow-Headers damit
-        // Spec-strikte Clients wie Perplexity nicht im Preflight haengen bleiben.
-        const mcpCorsHeaders = {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Mcp-Session-Id, Last-Event-ID',
-            'Access-Control-Expose-Headers': 'Mcp-Session-Id',
-        };
+        // FIX-23-04-12: no exception may escape the handler -- Cloudflare
+        // renders escaped exceptions as an 1101 HTML page, which strict MCP
+        // clients (Perplexity) report as FETCHER_HTML_STATUS_CODE_ERROR.
+        try {
+            return await handleWorkerFetch(request, env);
+        } catch (e) {
+            return relayInternalError(MCP_CORS_HEADERS);
+        }
+    },
+};
+
+async function handleWorkerFetch(request, env) {
+        const mcpCorsHeaders = MCP_CORS_HEADERS;
 
         const url = new URL(request.url);
 
         if (request.method === 'OPTIONS') {
             return new Response(null, { status: 204, headers: mcpCorsHeaders });
+        }
+
+        // FIX-23-04-12: HEAD probes (client preflights) get a clean
+        // 200 with no body instead of a 405.
+        if (request.method === 'HEAD') {
+            return new Response(null, { status: 200, headers: mcpCorsHeaders });
+        }
+
+        // FIX-23-04-12: OAuth discovery probes (/.well-known/oauth-*) got a
+        // 401 before, so OAuth-probing clients hung on auth they can never
+        // complete. A clean JSON 404 makes them fail fast: this relay only
+        // supports Auth: None with the tokenized URL.
+        if (url.pathname.startsWith('/.well-known/')) {
+            return new Response(JSON.stringify({
+                error: 'not_found',
+                message: 'This relay does not support OAuth. Configure the client with Auth: None and the tokenized MCP URL.',
+            }), { status: 404, headers: Object.assign({ 'Content-Type': 'application/json' }, mcpCorsHeaders) });
         }
 
         if (url.pathname === '/health') {
@@ -248,8 +290,7 @@ export default {
             status: resp.status,
             headers: finalHeaders,
         });
-    },
-};
+}
 
 const MAX_QUEUE = 100;     // H-5: max pending requests in queue
 const MAX_PENDING = 50;    // H-5: max concurrent pending responses
@@ -273,6 +314,17 @@ export class RelayDO {
     }
 
     async fetch(request) {
+        // FIX-23-04-12: same guard as the worker fetch handler -- an
+        // unhandled DO exception (e.g. invalid JSON on /respond) must
+        // surface as a JSON-RPC envelope, not a Cloudflare 1101 HTML page.
+        try {
+            return await this.handle(request);
+        } catch (e) {
+            return relayInternalError();
+        }
+    }
+
+    async handle(request) {
         const url = new URL(request.url);
 
         // FIX-23-04-11: internal liveness probe for the worker /health handler.

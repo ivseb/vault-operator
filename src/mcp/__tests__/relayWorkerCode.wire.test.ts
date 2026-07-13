@@ -12,6 +12,8 @@
  * requestUrl timeout semantics.
  *
  * FIX-23-04-11: long-poll /poll + plugin liveness (issue #53)
+ * FIX-23-04-12: JSON-RPC error envelopes instead of Cloudflare 1101 HTML,
+ *               HEAD 200, clean JSON 404 for /.well-known/ OAuth probes.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -244,5 +246,67 @@ describe('FIX-23-04-11: worker round-trip (regression, AUDIT-015)', () => {
         expect(postResp.headers.get('Mcp-Session-Id')).toBeTruthy();
         const postData = await postResp.json() as { id: number };
         expect(postData.id).toBe(42);
+    });
+});
+
+describe('FIX-23-04-12: error envelopes and probe paths', () => {
+    it('answers with a JSON-RPC -32603 envelope instead of an unhandled exception when the DO fetch throws', async () => {
+        const { worker } = loadWorkerModule();
+        const env: RelayEnv = {
+            RELAY_TOKEN: TOKEN,
+            RELAY_DO: {
+                idFromName: (name: string) => name,
+                get: () => ({ fetch: () => { throw new Error('DO exploded'); } }),
+            },
+        };
+
+        const resp = await worker.fetch(mcpPost({ jsonrpc: '2.0', id: 1, method: 'initialize' }), env);
+        expect(resp.status).toBe(500);
+        expect(resp.headers.get('Content-Type')).toContain('application/json');
+        expect(resp.headers.get('Access-Control-Allow-Origin')).toBe('*');
+        const data = await resp.json() as { error: { code: number } };
+        expect(data.error.code).toBe(-32603);
+    });
+
+    it('answers /respond with an invalid JSON body with a JSON -32603 envelope instead of throwing', async () => {
+        const { RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+
+        const resp = await relay.fetch(new Request('https://relay.test/respond', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+            body: 'this is not json',
+        }));
+        expect(resp.status).toBe(500);
+        expect(resp.headers.get('Content-Type')).toContain('application/json');
+        const data = await resp.json() as { error: { code: number } };
+        expect(data.error.code).toBe(-32603);
+    });
+
+    it('answers HEAD with 200 and no body', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+
+        const resp = await worker.fetch(new Request(`https://relay.test/${TOKEN}/mcp`, { method: 'HEAD' }), env);
+        expect(resp.status).toBe(200);
+        expect(await resp.text()).toBe('');
+    });
+
+    it('answers /.well-known/ OAuth probes with a clean JSON 404 without requiring auth', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+
+        for (const path of [
+            '/.well-known/oauth-authorization-server',
+            '/.well-known/oauth-protected-resource',
+        ]) {
+            const resp = await worker.fetch(new Request(`https://relay.test${path}`, { method: 'GET' }), env);
+            expect(resp.status).toBe(404);
+            expect(resp.headers.get('Content-Type')).toContain('application/json');
+            const data = await resp.json() as { error: string };
+            expect(data.error).toBe('not_found');
+        }
     });
 });
