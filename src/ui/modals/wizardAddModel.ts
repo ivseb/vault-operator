@@ -60,7 +60,8 @@ function toDiscoveredModel(model: CustomModel): DiscoveredModel {
  * Apply a wizard-added model to `settings.providerConfigs[]` (in place).
  *
  * - An existing provider config of the same type absorbs the model (deduped
- *   by id; missing auth/baseUrl fields are backfilled from the model).
+ *   by id; auth/baseUrl fields entered in the wizard overwrite the stored
+ *   ones, empty wizard fields keep them).
  * - Otherwise a new ProviderConfig is created from the model's credentials.
  * - `activeProviderId` is set when nothing is active yet.
  * - `schemaVersion` is stamped so the legacy migration never runs for a
@@ -84,8 +85,13 @@ export function applyWizardModelToProviderConfigs(
         if (!provider.discoveredModels.some((m) => m.id === discovered.id)) {
             provider.discoveredModels.push(discovered);
         }
-        if (!provider.apiKey && model.apiKey) provider.apiKey = model.apiKey;
-        if (!provider.baseUrl && model.baseUrl) provider.baseUrl = model.baseUrl;
+        // Review finding C3 (2026-07-14): freshly entered credentials win.
+        // The wizard is reachable long after first run; when a stored key is
+        // stale (revoked, rotated) the user re-runs the wizard with a new one
+        // and the old backfill-only rule silently kept the broken credential.
+        // Empty wizard fields leave the stored values untouched.
+        if (model.apiKey) provider.apiKey = model.apiKey;
+        if (model.baseUrl) provider.baseUrl = model.baseUrl;
     } else {
         provider = {
             id: allocateInstanceId(list, model.provider),

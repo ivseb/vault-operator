@@ -193,14 +193,40 @@ describe('merge into an existing provider config (review follow-up)', () => {
         expect(settings.providerConfigs[0].enabled).toBe(true);
     });
 
-    it('keeps existing provider credentials on merge (documented behavior: a differing model apiKey is dropped)', () => {
+    it('lets a freshly entered apiKey overwrite a stale one on merge (review finding C3)', () => {
+        // The wizard is reachable long after first run. When the stored key
+        // is stale (revoked, rotated) the user re-runs the wizard with a new
+        // key; silently keeping the old one reports success while the
+        // provider keeps failing 401.
         const settings = freshSettings();
         settings.providerConfigs = [disabledProvider()];
         applyWizardModelToProviderConfigs(settings, model({ apiKey: 'sk-new' }));
 
-        // Backfill only fills EMPTY fields; an existing credential wins.
-        // A credential-mismatch split (as the migration does via
-        // authDiscriminator) is intentionally out of scope for the wizard.
+        expect(settings.providerConfigs[0].apiKey).toBe('sk-new');
+    });
+
+    it('lets a freshly entered baseUrl overwrite a stale one on merge (review finding C3)', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({ baseUrl: 'https://old.example' })];
+        applyWizardModelToProviderConfigs(settings, model({ baseUrl: 'https://new.example' }));
+
+        expect(settings.providerConfigs[0].baseUrl).toBe('https://new.example');
+    });
+
+    it('keeps existing credentials when the wizard fields were left empty', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({ baseUrl: 'https://old.example' })];
+        applyWizardModelToProviderConfigs(settings, model({ apiKey: undefined, baseUrl: undefined }));
+
         expect(settings.providerConfigs[0].apiKey).toBe('sk-old');
+        expect(settings.providerConfigs[0].baseUrl).toBe('https://old.example');
+    });
+
+    it('still backfills empty provider credentials from the model', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider({ apiKey: undefined })];
+        applyWizardModelToProviderConfigs(settings, model({ apiKey: 'sk-fresh' }));
+
+        expect(settings.providerConfigs[0].apiKey).toBe('sk-fresh');
     });
 });
