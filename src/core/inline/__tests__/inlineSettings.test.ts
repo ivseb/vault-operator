@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { INLINE_ACTIONS_DEFAULTS, resolveInlineActionsSettings } from '../inlineSettings';
+import { INLINE_ACTIONS_DEFAULTS, resolveInlineActionsSettings, resolveInlineModelSnapshot } from '../inlineSettings';
 
 describe('inlineSettings.resolveInlineActionsSettings', () => {
     it('returns defaults for undefined', () => {
@@ -71,5 +71,59 @@ describe('inlineSettings.resolveInlineActionsSettings', () => {
         // The contract: invalid numbers should not crash. We verify it returns a finite number.
         expect(typeof out.skillsTopN).toBe('number');
         expect(Number.isFinite(out.skillsTopN)).toBe(true);
+    });
+});
+
+/**
+ * Review finding B1 (2026-07-14): the inline settings snapshot must resolve
+ * its model from the canonical providerConfigs[] store. The first-run wizard
+ * writes only providerConfigs[] (FIX-26-99-03); reading activeModels[] alone
+ * left the snapshot model-blind after a wizard install.
+ */
+describe('inlineSettings.resolveInlineModelSnapshot (review finding B1)', () => {
+    const providerConfigs = [{
+        id: 'anthropic-main',
+        type: 'anthropic' as const,
+        displayName: 'Anthropic',
+        enabled: true,
+        apiKey: 'sk-live',
+        discoveredModels: [{ id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' }],
+        lastRefreshAt: 0,
+        tierMapping: { mid: 'claude-sonnet-4-6' },
+        tierOverrides: {},
+    }];
+
+    it('resolves from providerConfigs[] after a wizard-only install', () => {
+        const out = resolveInlineModelSnapshot({
+            activeModels: [],
+            activeModelKey: '',
+            providerConfigs,
+            activeProviderId: 'anthropic-main',
+        });
+        expect(out.modelId).toBe('claude-sonnet-4-6');
+        expect(out.provider).toBe('anthropic');
+    });
+
+    it('falls back to legacy activeModels[] for not-yet-migrated setups', () => {
+        const out = resolveInlineModelSnapshot({
+            activeModels: [{ name: 'legacy-model', provider: 'openai', enabled: true }],
+            activeModelKey: 'legacy-model',
+            providerConfigs: [],
+            activeProviderId: null,
+        });
+        expect(out.modelId).toBe('legacy-model');
+        expect(out.provider).toBe('openai');
+    });
+
+    it('returns the defaultProvider defaults when neither store has a model', () => {
+        const out = resolveInlineModelSnapshot({
+            activeModels: [],
+            activeModelKey: '',
+            providerConfigs: [],
+            activeProviderId: null,
+            defaultProvider: 'openai',
+        });
+        expect(out.modelId).toBe('');
+        expect(out.provider).toBe('openai');
     });
 });

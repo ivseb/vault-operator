@@ -47,7 +47,7 @@ import { DefaultVaultRagPipeline, type SemanticIndexProbe } from './lookup/Vault
 import { EmbeddingCache } from './lookup/EmbeddingCache';
 import { LookupEdgeAggregator } from './lookup/LookupEdgeAggregator';
 import { InlineWebLookup } from './lookup/InlineWebLookup';
-import { resolveInlineActionsSettings } from './inlineSettings';
+import { resolveInlineActionsSettings, resolveInlineModelSnapshot } from './inlineSettings';
 import type { InlineLLMCaller, InlineLLMStreamArgs, InlineLLMStreamCallbacks } from './InlineLLMCaller';
 import type { InlineSettingsSnapshot } from './InlineTriggerContext';
 import { VIEW_TYPE_AGENT_SIDEBAR } from '../../ui/AgentSidebarView';
@@ -545,12 +545,14 @@ function buildEdgeProbe(plugin: ObsidianAgentPlugin): import('./lookup/LookupEdg
 
 function buildSettingsSnapshotProvider(plugin: ObsidianAgentPlugin): () => InlineSettingsSnapshot {
     return () => {
-        const settings = plugin.settings;
-        const activeKey = settings.activeModelKey;
-        const activeModel = settings.activeModels.find(m => m.name === activeKey) ?? settings.activeModels[0];
+        // Review finding B1 (2026-07-14): canonical providerConfigs[] store
+        // first, legacy activeModels[] as fallback. The first-run wizard
+        // writes only providerConfigs[] (FIX-26-99-03); reading activeModels
+        // alone left this snapshot model-blind after a wizard install.
+        const resolved = resolveInlineModelSnapshot(plugin.settings);
         return {
-            modelId: activeModel?.name ?? '',
-            provider: activeModel?.provider ?? settings.defaultProvider ?? 'anthropic',
+            modelId: resolved.modelId,
+            provider: resolved.provider,
             skillIds: [],
             customPromptIds: [],
         };
