@@ -186,6 +186,7 @@ export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: st
                 return list;
             }
             markModelFetch('fallback', 'empty-list');
+            console.debug('[chatgpt-oauth] /codex/models returned HTTP 200 but no parseable models; using the static fallback lineup');
         } else {
             markModelFetch('fallback', 'http-error');
             console.debug(`[chatgpt-oauth] /codex/models returned HTTP ${res.status}; using the static fallback lineup`);

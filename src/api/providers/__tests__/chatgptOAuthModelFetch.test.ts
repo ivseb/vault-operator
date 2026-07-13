@@ -110,6 +110,18 @@ describe('fetchChatGptOAuthModels fallback visibility (FIX-55-03)', () => {
         expect(status.reason).toBe('http-error');
     });
 
+    it('reports a fallback with reason empty-list and logs it when a 200 response carries no models', async () => {
+        const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+        authState.token = 'tok';
+        requestUrlMock.mockResolvedValue({ status: 200, json: {} });
+        const list = await fetchChatGptOAuthModels();
+        expect(list).toEqual(listKnownChatGptOAuthModels());
+        const status = getLastChatGptOAuthModelFetch();
+        expect(status.source).toBe('fallback');
+        expect(status.reason).toBe('empty-list');
+        expect(debugSpy).toHaveBeenCalled();
+    });
+
     it('logs via console.debug instead of swallowing exceptions silently', async () => {
         const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
         authState.token = 'tok';
