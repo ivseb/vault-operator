@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-return, @typescript-eslint/restrict-template-expressions, @typescript-eslint/unbound-method -- File-level disable: interacts with external SDK / JSON / Obsidian internals where untyped 'any' values are unavoidable. Inputs are validated at boundaries via type guards or schema checks where security-relevant. */
 /**
  * FirstRunWizardModal -- Phase 2.3.
  *
@@ -23,6 +22,7 @@ import { resolveLocale, t, type SupportedLocale } from '../../i18n';
 import { ModelConfigModal } from '../settings/ModelConfigModal';
 import type { CustomModel } from '../../types/settings';
 import { getModelKey } from '../../types/settings';
+import { applyWizardModelToProviderConfigs } from './wizardAddModel';
 import { resolveCoreTemplatesFolder } from '../../core/utils/templatesFolder';
 import { TemplateMaterializer } from '../../core/templates/TemplateMaterializer';
 import { makeTemplateTranslator } from '../../core/templates/translateTemplate';
@@ -466,10 +466,12 @@ export class FirstRunWizardModal extends Modal {
         addBtn.addEventListener('click', () => {
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- event handler / callback returns Promise; errors handled inside
             new ModelConfigModal(this.app, null, async (newModel: CustomModel) => {
-                this.plugin.settings.activeModels.push(newModel);
-                if (!this.plugin.settings.activeModelKey) {
-                    this.plugin.settings.activeModelKey = getModelKey(newModel);
-                }
+                // FIX-26-99-03 (issue #48 point 1): write to the canonical
+                // providerConfigs[] store. The legacy activeModels[] push
+                // (without schemaVersion) made the one-shot migration run on
+                // the next load and show the MigrationNotificationModal right
+                // after first setup.
+                applyWizardModelToProviderConfigs(this.plugin.settings, newModel);
                 await this.plugin.saveSettings();
                 refresh();
             }, false).open();
@@ -914,5 +916,3 @@ export class FirstRunWizardModal extends Modal {
         }
     }
 }
-
-/* eslint-enable -- end of file-level disable for boundary code (SDK/JSON/Obsidian internals) */
