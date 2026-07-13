@@ -9,7 +9,6 @@
 
 import { describe, it, expect } from 'vitest';
 import type {
-    DiscoveredModel,
     ObsidianAgentSettings,
     ProviderConfig,
 } from '../../../types/settings';
@@ -166,7 +165,7 @@ describe('resolveAdvisorModel (EPIC-26 / FEAT-26-01 / ADR-120)', () => {
             tierOverrides: { flagship: 'claude-3-5-sonnet-20241022' },
             discoveredModels: [
                 ...makeProvider().discoveredModels,
-                { id: 'claude-3-5-sonnet-20241022', displayName: 'Sonnet 3.5', autoTier: 'mid' } as DiscoveredModel,
+                { id: 'claude-3-5-sonnet-20241022', displayName: 'Sonnet 3.5', autoTier: 'mid' },
             ],
         });
         const result = resolveAdvisorModel(makeSettings({ providerConfigs: [provider] }));
