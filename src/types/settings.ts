@@ -49,6 +49,14 @@ export interface CustomModel {
     thinkingBudgetTokens?: number;
     /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
     reasoningEffort?: EffortLevel;
+    /**
+     * IMP-54-05b (issue #54): per-model effort opt-in threaded down from
+     * ProviderConfig.effortOptIn. True marks a model on a custom /
+     * OpenAI-compatible endpoint whose effort capability the static registry
+     * cannot know (e.g. GLM-5.2); resolveEffortLevels then grants the
+     * OpenAI-style level set. Undefined/false keeps the registry answer.
+     */
+    effortOptIn?: boolean;
     /** AWS region (Bedrock only), e.g. "eu-central-1", "us-east-1" */
     awsRegion?: string;
     /** Auth mode for Bedrock: 'api-key' uses a single bearer token (new AWS Bedrock API Keys),
@@ -302,6 +310,8 @@ export interface LLMProvider {
     thinkingBudgetTokens?: number;
     /** Native reasoning-effort level for effort-capable models; undefined sends no effort field. */
     reasoningEffort?: EffortLevel;
+    /** IMP-54-05b: per-model effort opt-in (see CustomModel.effortOptIn). */
+    effortOptIn?: boolean;
     /** AWS region (Bedrock only) */
     awsRegion?: string;
     /** Bedrock auth mode (FEAT-26-07 adds 'gateway') */
@@ -339,6 +349,7 @@ export function modelToLLMProvider(model: CustomModel): LLMProvider {
         thinkingEnabled: model.thinkingEnabled,
         thinkingBudgetTokens: model.thinkingBudgetTokens,
         reasoningEffort: model.reasoningEffort,
+        effortOptIn: model.effortOptIn,
         awsRegion: model.awsRegion,
         awsAuthMode: model.awsAuthMode,
         awsApiKey: model.awsApiKey,
@@ -740,6 +751,20 @@ export interface ProviderConfig {
         mid?: string;
         flagship?: string;
     };
+
+    /**
+     * IMP-54-05b (issue #54): per-model reasoning-effort opt-in for
+     * custom / OpenAI-compatible endpoints. Key = model id (discovered or
+     * manually typed tier-override id), value true = the endpoint accepts
+     * an OpenAI-style reasoning_effort field for this model, so the effort
+     * slider is offered and the field is sent. Lives on the provider (not
+     * on DiscoveredModel) so a discovery refresh, which replaces the
+     * discoveredModels array wholesale, cannot wipe it, and manual ids
+     * that never appear in discovery are coverable. Only honoured for
+     * provider types on the OpenAI-compatible wire path
+     * (see providerSupportsEffortOptIn).
+     */
+    effortOptIn?: Record<string, boolean>;
 
     /**
      * IMP-20-06-01 W4-T2 / ADR-135: per-provider Zero-Data-Retention

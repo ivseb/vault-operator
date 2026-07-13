@@ -223,3 +223,30 @@ describe('providerConfigToCustomModel (EPIC-26)', () => {
         expect(result.maxTokens).toBeUndefined();
     });
 });
+
+describe('providerConfigToCustomModel - effort opt-in threading (IMP-54-05b)', () => {
+    it('sets effortOptIn true when the provider map opts the model in', () => {
+        const provider = makeProvider({
+            type: 'custom',
+            effortOptIn: { 'GLM-5.2': true },
+        });
+        const result = providerConfigToCustomModel(provider, 'GLM-5.2');
+        expect(result.effortOptIn).toBe(true);
+    });
+
+    it('leaves effortOptIn undefined for models not in the map (no settings churn)', () => {
+        const provider = makeProvider({
+            type: 'custom',
+            effortOptIn: { 'GLM-5.2': true },
+        });
+        expect(providerConfigToCustomModel(provider, 'other-model').effortOptIn).toBeUndefined();
+        expect(providerConfigToCustomModel(makeProvider(), 'claude-opus-4-6').effortOptIn).toBeUndefined();
+    });
+
+    it('modelToLLMProvider forwards the flag to the wire config', async () => {
+        const { modelToLLMProvider } = await import('../../../types/settings');
+        const provider = makeProvider({ type: 'custom', effortOptIn: { 'GLM-5.2': true } });
+        const cm = providerConfigToCustomModel(provider, 'GLM-5.2');
+        expect(modelToLLMProvider(cm).effortOptIn).toBe(true);
+    });
+});

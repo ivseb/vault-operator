@@ -11,7 +11,7 @@ import type { LLMProvider } from '../../types/settings';
 import type { ApiHandler, ApiStream, ApiStreamChunk, MessageParam, ModelInfo } from '../types';
 import type { ToolDefinition } from '../../core/tools/types';
 import type { IncomingMessage } from 'http';
-import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, getModelEffortLevels, modelUsesBudgetTokensThinking } from '../../types/model-registry';
+import { getModelContextWindow, resolveOutputBudget, estimatePromptTokens, modelSupportsTemperature, resolveEffortLevels, modelUsesBudgetTokensThinking } from '../../types/model-registry';
 import { validateProviderUrl } from './providerUrlGuard';
 import { logCacheStat } from '../logCacheStat';
 import { flushToolCallAccumulators, type ToolCallAccumulator } from './utils/toolCallFlush';
@@ -281,13 +281,16 @@ export class OpenAiProvider implements ApiHandler {
         //     Claude and non-Claude reasoning models, and merges with the
         //     existing reasoning.max_tokens passthrough).
         //   - openai / github-copilot use the chat-completions reasoning_effort.
-        // Defensive per-family validity: getModelEffortLevels returns the exact
+        // Defensive per-family validity: resolveEffortLevels returns the exact
         // native set for this (model, provider) pair (OpenRouter Claude -> low..
         // max, GPT -> minimal..high), so a cross-family level (a Claude-only
         // xhigh/max accidentally set on a GPT model, or a GPT-only minimal on an
-        // OpenRouter Claude) is dropped, not sent.
+        // OpenRouter Claude) is dropped, not sent. IMP-54-05b: the per-model
+        // opt-in (custom / OpenAI-compatible endpoints, e.g. GLM-5.2) grants
+        // the OpenAI-style set through the same choke point the picker gate
+        // uses, so slider visibility and the wire field can never disagree.
         const effort = this.config.reasoningEffort;
-        const effortLevels = getModelEffortLevels(this.config.model, this.config.type);
+        const effortLevels = resolveEffortLevels(this.config.model, this.config.type, this.config.effortOptIn);
         const effortValid = effort !== undefined && effortLevels.includes(effort);
         // OpenRouter reasoning object: merge the existing extended-thinking
         // max_tokens passthrough (if any) with the effort field (if any).

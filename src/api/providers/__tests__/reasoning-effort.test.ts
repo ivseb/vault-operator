@@ -494,3 +494,82 @@ describe('ChatGptOAuthProvider - reasoning effort', () => {
         expect(reasoning?.effort).toBe('low');
     });
 });
+
+// ===========================================================================
+// IMP-54-05b (issue #54): per-model effort opt-in for custom / OpenAI-
+// compatible providers. An opted-in unknown model (GLM-5.2 on a custom
+// endpoint) accepts the OpenAI-style level set; without the opt-in the
+// request stays byte-identical to before.
+// ===========================================================================
+
+describe('OpenAiProvider - effort opt-in (IMP-54-05b)', () => {
+    it('custom provider + opted-in GLM-5.2 sends reasoning_effort', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'custom',
+            model: 'GLM-5.2',
+            baseUrl: 'https://glm.example.com/v1',
+            reasoningEffort: 'high',
+            effortOptIn: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect(lastRequest()?.reasoning_effort).toBe('high');
+    });
+
+    it('openai-type custom endpoint + opted-in GLM-5.2 sends reasoning_effort', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'openai',
+            model: 'GLM-5.2',
+            baseUrl: 'https://glm.example.com/v1',
+            reasoningEffort: 'medium',
+            effortOptIn: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect(lastRequest()?.reasoning_effort).toBe('medium');
+    });
+
+    it('custom provider WITHOUT opt-in drops the level (regression: byte-identical)', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'custom',
+            model: 'GLM-5.2',
+            reasoningEffort: 'high',
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect('reasoning_effort' in lastRequest()!).toBe(false);
+        expect('reasoning' in lastRequest()!).toBe(false);
+    });
+
+    it('opted-in model still drops a Claude-only level (max is not in the OpenAI set)', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'custom',
+            model: 'GLM-5.2',
+            reasoningEffort: 'max',
+            effortOptIn: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect('reasoning_effort' in lastRequest()!).toBe(false);
+    });
+
+    it('opted-in model on openrouter sends the normalized reasoning.effort shape', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'openrouter',
+            model: 'z-ai/glm-5.2',
+            reasoningEffort: 'low',
+            effortOptIn: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        const reasoning = lastRequest()?.reasoning as Record<string, unknown> | undefined;
+        expect(reasoning?.effort).toBe('low');
+        expect('reasoning_effort' in lastRequest()!).toBe(false);
+    });
+
+    it('opt-in without a chosen level sends nothing (auto stays byte-identical)', async () => {
+        const { provider, lastRequest } = makeOpenAi({
+            type: 'custom',
+            model: 'GLM-5.2',
+            effortOptIn: true,
+        });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
+        expect('reasoning_effort' in lastRequest()!).toBe(false);
+        expect('reasoning' in lastRequest()!).toBe(false);
+    });
+});
