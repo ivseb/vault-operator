@@ -8,9 +8,10 @@
  * showed the MigrationNotificationModal right after first setup.
  */
 import { describe, expect, it } from 'vitest';
-import type { CustomModel } from '../../../types/settings';
+import type { CustomModel, ProviderConfig } from '../../../types/settings';
 import { applyWizardModelToProviderConfigs, type WizardModelSettings } from '../wizardAddModel';
 import { migrateActiveModelsToProviders, SCHEMA_VERSION } from '../../../core/settings/migrations/activeModelsToProviders';
+import { resolveTierModel } from '../../../core/routing/tierResolution';
 
 function freshSettings(): WizardModelSettings {
     return {
@@ -116,5 +117,90 @@ describe('applyWizardModelToProviderConfigs (FIX-26-99-03)', () => {
         settings.activeProviderId = 'ollama-main';
         applyWizardModelToProviderConfigs(settings, model());
         expect(settings.activeProviderId).toBe('ollama-main');
+    });
+});
+
+/**
+ * Review follow-up on FIX-26-99-03: the wizard-added model must be reachable
+ * through the default tier cascade (mid -> fast), otherwise initApiHandler
+ * resolves nothing and the very first message after the wizard hits the
+ * "no model setup" card. classifyModelTier returns null for local providers
+ * (ollama/lmstudio/custom) and unknown cloud ids, and a flagship-only
+ * mapping is never reached by the mid cascade.
+ */
+describe('default tier cascade reachability (FIX-26-99-03 review follow-up)', () => {
+    it('makes an unclassifiable local (ollama) model resolvable via the mid cascade', () => {
+        const settings = freshSettings();
+        applyWizardModelToProviderConfigs(settings, model({
+            name: 'llama3.3:70b',
+            provider: 'ollama',
+            apiKey: undefined,
+            baseUrl: 'http://localhost:11434',
+        }));
+
+        const p = settings.providerConfigs[0];
+        expect(p.discoveredModels[0].autoTier).toBeUndefined();
+        expect(resolveTierModel(settings, 'mid')?.name).toBe('llama3.3:70b');
+    });
+
+    it('makes a flagship-only model resolvable via the mid cascade', () => {
+        const settings = freshSettings();
+        applyWizardModelToProviderConfigs(settings, model({
+            name: 'claude-opus-4-7',
+            displayName: 'Claude Opus 4.7',
+        }));
+
+        const p = settings.providerConfigs[0];
+        expect(p.tierMapping?.flagship).toBe('claude-opus-4-7');
+        expect(resolveTierModel(settings, 'mid')?.name).toBe('claude-opus-4-7');
+    });
+
+    it('leaves the mid slot to the classified tier when the model lands in the cascade', () => {
+        const settings = freshSettings();
+        applyWizardModelToProviderConfigs(settings, model());
+
+        const p = settings.providerConfigs[0];
+        // claude-sonnet classifies into the cascade on its own; no fallback
+        // slot must be written on top of the classification result.
+        const slots = Object.values(p.tierMapping ?? {});
+        expect(slots).toEqual(['claude-sonnet-4-6']);
+        expect(resolveTierModel(settings, 'mid')?.name).toBe('claude-sonnet-4-6');
+    });
+});
+
+describe('merge into an existing provider config (review follow-up)', () => {
+    function disabledProvider(overrides: Partial<ProviderConfig> = {}): ProviderConfig {
+        return {
+            id: 'anthropic-main',
+            type: 'anthropic',
+            displayName: 'Anthropic',
+            enabled: false,
+            apiKey: 'sk-old',
+            discoveredModels: [],
+            lastRefreshAt: 0,
+            tierMapping: {},
+            tierOverrides: {},
+            ...overrides,
+        };
+    }
+
+    it('re-enables a disabled provider config it merges into', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider()];
+        applyWizardModelToProviderConfigs(settings, model());
+
+        expect(settings.providerConfigs).toHaveLength(1);
+        expect(settings.providerConfigs[0].enabled).toBe(true);
+    });
+
+    it('keeps existing provider credentials on merge (documented behavior: a differing model apiKey is dropped)', () => {
+        const settings = freshSettings();
+        settings.providerConfigs = [disabledProvider()];
+        applyWizardModelToProviderConfigs(settings, model({ apiKey: 'sk-new' }));
+
+        // Backfill only fills EMPTY fields; an existing credential wins.
+        // A credential-mismatch split (as the migration does via
+        // authDiscriminator) is intentionally out of scope for the wizard.
+        expect(settings.providerConfigs[0].apiKey).toBe('sk-old');
     });
 });

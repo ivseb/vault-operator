@@ -77,6 +77,10 @@ export function applyWizardModelToProviderConfigs(
 
     let provider = list.find((p) => p.type === model.provider);
     if (provider) {
+        // The user just added a model here through the wizard; a previously
+        // disabled config of the same type must come back, otherwise
+        // resolveActiveProvider filters it and the model stays invisible.
+        provider.enabled = true;
         if (!provider.discoveredModels.some((m) => m.id === discovered.id)) {
             provider.discoveredModels.push(discovered);
         }
@@ -110,6 +114,22 @@ export function applyWizardModelToProviderConfigs(
     // is still empty (first occurrence wins, same as the migration).
     if (discovered.autoTier && !provider.tierMapping?.[discovered.autoTier]) {
         provider.tierMapping = { ...provider.tierMapping, [discovered.autoTier]: discovered.id };
+    }
+
+    // Guarantee the model is reachable through the default tier cascade
+    // (mid -> fast, see resolveTierModel). classifyModelTier returns null
+    // for local providers (ollama/lmstudio/custom) and unknown cloud ids,
+    // and a flagship-only mapping is never reached by the mid cascade.
+    // Without this fallback the wizard reports a configured model while
+    // initApiHandler resolves nothing and the first message hits the
+    // "no model setup" card. Discovery refresh keeps the slot: its merge
+    // only overwrites tiers it actually classified.
+    const target = provider;
+    const reachableByDefaultCascade = (['mid', 'fast'] as const).some(
+        (tier) => Boolean(target.tierOverrides?.[tier] ?? target.tierMapping?.[tier]),
+    );
+    if (!reachableByDefaultCascade) {
+        provider.tierMapping = { ...provider.tierMapping, mid: discovered.id };
     }
 
     if (!settings.activeProviderId) {
