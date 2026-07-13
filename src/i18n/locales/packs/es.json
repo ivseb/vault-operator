@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "Actualizar",
   "settings.providers.refreshing": "Actualizando…",
   "settings.providers.refreshDone": "Modelos actualizados.",
+  "settings.providers.refreshCodexFallback": "La detección de modelos en vivo falló; se muestra la lista de respaldo integrada. Comprueba tu sesión de ChatGPT y la red, luego actualiza de nuevo.",
   "settings.providers.refreshFailed": "Error al actualizar: {{msg}}",
   "settings.providers.refreshUnavailable": "El servicio de descubrimiento aún no está listo. Inténtalo de nuevo en un momento.",
   "settings.providers.advisorDisabled": "Patrón advisor desactivado para este provider: no hay modelo de tier frontier.",

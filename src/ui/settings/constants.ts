@@ -132,6 +132,7 @@ const MODEL_SUGGESTIONS: Record<string, { group: string; id: string; label: stri
         // src/api/providers/chatgpt-oauth.ts (the static fallback lineup) so
         // an offline pick is one the backend currently accepts. Guard:
         // src/ui/settings/__tests__/chatgptOAuthSuggestions.test.ts.
+        { group: 'GPT-5',  id: 'gpt-5.6',              label: 'GPT-5.6' },
         { group: 'GPT-5',  id: 'gpt-5.5',              label: 'GPT-5.5' },
         { group: 'GPT-5',  id: 'gpt-5.4',              label: 'GPT-5.4' },
         { group: 'GPT-5',  id: 'gpt-5.4-mini',         label: 'GPT-5.4 mini' },

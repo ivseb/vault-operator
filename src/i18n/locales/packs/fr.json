@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "Actualiser",
   "settings.providers.refreshing": "Actualisation…",
   "settings.providers.refreshDone": "Modèles actualisés.",
+  "settings.providers.refreshCodexFallback": "La découverte des modèles en direct a échoué ; la liste de secours intégrée est affichée. Vérifiez votre connexion ChatGPT et le réseau, puis actualisez à nouveau.",
   "settings.providers.refreshFailed": "Échec de l'actualisation: {{msg}}",
   "settings.providers.refreshUnavailable": "Le service de découverte n'est pas encore prêt. Réessayez dans un instant.",
   "settings.providers.advisorDisabled": "Pattern advisor désactivé pour ce provider: aucun modèle de tier flagship.",

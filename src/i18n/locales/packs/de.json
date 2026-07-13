@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "Aktualisieren",
   "settings.providers.refreshing": "Aktualisiere…",
   "settings.providers.refreshDone": "Modelle aktualisiert.",
+  "settings.providers.refreshCodexFallback": "Live-Modellabruf fehlgeschlagen; die eingebaute Fallback-Liste wird angezeigt. ChatGPT-Anmeldung und Netzwerk prüfen, dann erneut aktualisieren.",
   "settings.providers.refreshFailed": "Aktualisierung fehlgeschlagen: {{msg}}",
   "settings.providers.refreshUnavailable": "Der Discovery-Dienst ist noch nicht bereit. Versuche es gleich noch einmal.",
   "settings.providers.advisorDisabled": "Advisor-Pattern für diesen Provider deaktiviert: kein Modell im Frontier-Tier.",

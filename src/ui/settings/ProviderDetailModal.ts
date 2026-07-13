@@ -31,6 +31,10 @@ import {
 import { purgeProviderLegacyState } from '../../core/security/providerLegacyPurge';
 import { GitHubCopilotAuthService } from '../../core/security/GitHubCopilotAuthService';
 import { ChatGptOAuthService } from '../../core/auth/ChatGptOAuthService';
+import {
+    CHATGPT_OAUTH_DEFAULT_TEST_MODEL,
+    getLastChatGptOAuthModelFetch,
+} from '../../api/providers/chatgpt-oauth';
 import { isOpenAIChatCompletionModel } from './testModelConnection';
 import { t } from '../../i18n';
 import { openInfoPopover } from './utils';
@@ -625,7 +629,9 @@ export class ProviderDetailModal extends Modal {
         // backend (HTTP 400 "model not found"). Use a known-good Codex model
         // instead so Test Connection still works right after sign-in, before
         // the background discovery has populated tierMapping/discoveredModels.
-        if (this.formType === 'chatgpt-oauth') return 'gpt-5';
+        // FIX-55-03: was the hardcoded 'gpt-5', an id the backend retired
+        // (400s as "not supported"); the shared constant tracks the lineup.
+        if (this.formType === 'chatgpt-oauth') return CHATGPT_OAUTH_DEFAULT_TEST_MODEL;
         // Provider-default placeholder for fresh drafts -- enough to ping the
         // /v1/models endpoint via testModelConnection which calls fetchProviderModels.
         return 'test-probe';
@@ -1017,7 +1023,15 @@ export class ProviderDetailModal extends Modal {
             this.discoveredModels = result;
             this.lastRefreshAt = persisted?.lastRefreshAt ?? Date.now();
             this.tierMapping = { ...(persisted?.tierMapping ?? {}) };
-            new Notice(t('settings.providers.refreshDone'));
+            // FIX-55-03 (issue #55): the ChatGPT OAuth live discovery used to
+            // fall back to the static lineup silently, so a failed fetch
+            // looked like a successful refresh. Tell the user when the list
+            // shown is the built-in fallback, not the account's live lineup.
+            if (this.formType === 'chatgpt-oauth' && getLastChatGptOAuthModelFetch().source === 'fallback') {
+                new Notice(t('settings.providers.refreshCodexFallback'));
+            } else {
+                new Notice(t('settings.providers.refreshDone'));
+            }
         } catch (e) {
             console.warn('[ProviderDetailModal] refresh failed:', e);
             new Notice(t('settings.providers.refreshFailed', { msg: (e as Error).message }));

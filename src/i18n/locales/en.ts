@@ -1640,6 +1640,7 @@ export const en = {
     'settings.providers.refresh': 'Refresh',
     'settings.providers.refreshing': 'Refreshing…',
     'settings.providers.refreshDone': 'Models refreshed.',
+    'settings.providers.refreshCodexFallback': 'Live model discovery failed; showing the built-in fallback list. Check your ChatGPT sign-in and network, then refresh again.',
     'settings.providers.refreshFailed': 'Refresh failed: {{msg}}',
     'settings.providers.refreshUnavailable': 'Discovery service is not ready yet. Try again in a moment.',
     'settings.providers.advisorDisabled': 'Advisor pattern disabled for this provider: no flagship-tier model.',

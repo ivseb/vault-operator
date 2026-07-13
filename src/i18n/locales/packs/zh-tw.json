@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "重新整理",
   "settings.providers.refreshing": "正在重新整理…",
   "settings.providers.refreshDone": "模型已重新整理。",
+  "settings.providers.refreshCodexFallback": "即時模型探索失敗；正在顯示內建的備用清單。請檢查您的 ChatGPT 登入與網路，然後重新重新整理。",
   "settings.providers.refreshFailed": "重新整理失敗：{{msg}}",
   "settings.providers.refreshUnavailable": "探索服務尚未就緒，請稍後再試。",
   "settings.providers.advisorDisabled": "此 Provider 已停用 Advisor 模式：沒有旗艦層級模型。",

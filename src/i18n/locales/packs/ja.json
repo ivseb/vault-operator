@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "更新",
   "settings.providers.refreshing": "更新中…",
   "settings.providers.refreshDone": "モデルを更新しました。",
+  "settings.providers.refreshCodexFallback": "ライブモデル検出に失敗したため、内蔵のフォールバックリストを表示しています。ChatGPTのサインインとネットワークを確認して、もう一度更新してください。",
   "settings.providers.refreshFailed": "更新に失敗しました: {{msg}}",
   "settings.providers.refreshUnavailable": "検出サービスの準備がまだできていません。しばらくしてからもう一度お試しください。",
   "settings.providers.advisorDisabled": "このProviderではアドバイザーパターンが無効です: フラッグシップティアのモデルがありません。",

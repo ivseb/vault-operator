@@ -39,11 +39,15 @@ const CODEX_MODELS_URL = 'https://chatgpt.com/backend-api/codex/models';
  * The version in the User-Agent is load-bearing: the Codex backend gates the
  * available model set on the reported client version (the /codex/models
  * response is keyed by client_version). A stale version is served the old,
- * now-removed model set, so EVERY current model (gpt-5.4, gpt-5.5, ...) comes
+ * now-removed model set, so EVERY current model (gpt-5.5, gpt-5.6, ...) comes
  * back "not supported when using Codex with a ChatGPT account". Keep this at a
  * current codex-cli release.
+ *
+ * FIX-55-03 (issue #55): 0.140.0 -> 0.144.3, verified 2026-07-13 against
+ * https://registry.npmjs.org/@openai/codex/latest ("version" field). Exported
+ * so the pin is test-guarded (chatgptOAuthModelFetch.test.ts).
  */
-const CODEX_CLIENT_VERSION = '0.140.0';
+export const CODEX_CLIENT_VERSION = '0.144.3';
 const CODEX_HEADERS: Record<string, string> = {
     'OpenAI-Beta': 'responses=experimental',
     'Originator': 'codex_cli_rs',
@@ -57,12 +61,16 @@ const CODEX_HEADERS: Record<string, string> = {
  * (offline, not signed in). The authoritative source is the live endpoint:
  * the available set is account- and version-specific and rotates as OpenAI
  * ships new frontier models and retires old ones. This list is the current
- * known lineup (2026-06); older ids (gpt-5, gpt-5.1, gpt-5.2, the -codex
+ * known lineup (2026-07, FIX-55-03: gpt-5.6 added, reporter-confirmed in
+ * issue #55 against a live Codex account; the gpt-5.6-sol/-terra/-luna ids on
+ * developers.openai.com are PLATFORM API ids, not Codex slugs, and are
+ * deliberately not listed). Older ids (gpt-5, gpt-5.1, gpt-5.2, the -codex
  * variants) were retired by the backend and now 400 as "not supported".
  *
  * @see ADR-088
  */
 const KNOWN_MODELS: Record<string, ModelInfo> = {
+    'gpt-5.6':       { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.5':       { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.4':       { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
     'gpt-5.4-mini':  { contextWindow: 272_000, supportsTools: true, supportsStreaming: true },
@@ -111,17 +119,53 @@ export function parseCodexModelsResponse(body: unknown): { id: string; label: st
 }
 
 /**
+ * FIX-55-03 (issue #55): outcome of the most recent fetchChatGptOAuthModels
+ * call. Previously any failure was swallowed by a bare catch and silently
+ * replaced by the static lineup; combined with the 24h discovery cache the
+ * user saw a stale 3-model list with no signal. The provider-settings
+ * Refresh flow reads this to surface an i18n Notice when the static
+ * fallback was used.
+ */
+export interface ChatGptOAuthModelFetchStatus {
+    source: 'live' | 'fallback';
+    reason?: 'no-token' | 'http-error' | 'empty-list' | 'exception';
+    at: number;
+}
+
+let lastModelFetchStatus: ChatGptOAuthModelFetchStatus = {
+    source: 'fallback',
+    reason: 'no-token',
+    at: 0,
+};
+
+/** Status of the most recent live model-discovery attempt (FIX-55-03). */
+export function getLastChatGptOAuthModelFetch(): ChatGptOAuthModelFetchStatus {
+    return lastModelFetchStatus;
+}
+
+function markModelFetch(
+    source: ChatGptOAuthModelFetchStatus['source'],
+    reason?: ChatGptOAuthModelFetchStatus['reason'],
+): void {
+    lastModelFetchStatus = { source, reason, at: Date.now() };
+}
+
+/**
  * Discover the models the signed-in ChatGPT account can actually use, from
  * the live Codex `/codex/models` endpoint (the same source the official Codex
  * client caches). Falls back to the static KNOWN_MODELS lineup on any failure
  * so the picker is never empty. The endpoint is account- and version-specific,
- * so this is the authoritative list, not the hardcoded one.
+ * so this is the authoritative list, not the hardcoded one. Every fallback is
+ * recorded via getLastChatGptOAuthModelFetch and logged (FIX-55-03).
  */
 export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: string }[]> {
     try {
         const auth = ChatGptOAuthService.getInstance();
         const token = await auth.getValidAccessToken();
-        if (!token) return listKnownChatGptOAuthModels();
+        if (!token) {
+            markModelFetch('fallback', 'no-token');
+            return listKnownChatGptOAuthModels();
+        }
         const accountId = auth.getAccountId();
         const headers: Record<string, string> = {
             'OpenAI-Beta': CODEX_HEADERS['OpenAI-Beta'],
@@ -137,10 +181,18 @@ export async function fetchChatGptOAuthModels(): Promise<{ id: string; label: st
         const res = await requestUrl({ url: CODEX_MODELS_URL, method: 'GET', headers, throw: false });
         if (res.status === 200) {
             const list = parseCodexModelsResponse(res.json);
-            if (list.length > 0) return list;
+            if (list.length > 0) {
+                markModelFetch('live');
+                return list;
+            }
+            markModelFetch('fallback', 'empty-list');
+        } else {
+            markModelFetch('fallback', 'http-error');
+            console.debug(`[chatgpt-oauth] /codex/models returned HTTP ${res.status}; using the static fallback lineup`);
         }
-    } catch {
-        // fall through to the static lineup
+    } catch (e) {
+        markModelFetch('fallback', 'exception');
+        console.debug('[chatgpt-oauth] live model discovery failed; using the static fallback lineup:', e instanceof Error ? e.message : String(e));
     }
     return listKnownChatGptOAuthModels();
 }

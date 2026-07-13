@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "刷新",
   "settings.providers.refreshing": "刷新中…",
   "settings.providers.refreshDone": "模型已刷新。",
+  "settings.providers.refreshCodexFallback": "实时模型发现失败；正在显示内置的备用列表。请检查您的 ChatGPT 登录和网络，然后重新刷新。",
   "settings.providers.refreshFailed": "刷新失败：{{msg}}",
   "settings.providers.refreshUnavailable": "发现服务尚未就绪，请稍后重试。",
   "settings.providers.advisorDisabled": "该 Provider 已禁用顾问模式：没有旗舰层级模型。",

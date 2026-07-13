@@ -1374,6 +1374,7 @@
   "settings.providers.refresh": "Обновить",
   "settings.providers.refreshing": "Обновление…",
   "settings.providers.refreshDone": "Модели обновлены.",
+  "settings.providers.refreshCodexFallback": "Не удалось получить список моделей в реальном времени; показан встроенный резервный список. Проверьте вход в ChatGPT и сеть, затем обновите снова.",
   "settings.providers.refreshFailed": "Не удалось обновить: {{msg}}",
   "settings.providers.refreshUnavailable": "Служба обнаружения ещё не готова. Попробуйте ещё раз чуть позже.",
   "settings.providers.advisorDisabled": "Паттерн Advisor отключён для этого провайдера: нет модели флагманского уровня.",
