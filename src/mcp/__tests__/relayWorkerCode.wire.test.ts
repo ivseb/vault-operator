@@ -14,6 +14,9 @@
  * FIX-23-04-11: long-poll /poll + plugin liveness (issue #53)
  * FIX-23-04-12: JSON-RPC error envelopes instead of Cloudflare 1101 HTML,
  *               HEAD 200, clean JSON 404 for /.well-known/ OAuth probes.
+ * FIX-23-04-14: review follow-ups -- CORS stays off plugin endpoints even
+ *               on error envelopes and HEAD (H-6), /health probes the DO
+ *               only for token-authenticated callers, supersede coverage.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -73,6 +76,22 @@ function mcpPost(body: Record<string, unknown>, headers: Record<string, string> 
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
         body: JSON.stringify(body),
     });
+}
+
+/**
+ * FIX-23-04-14: /health only probes the DO for authenticated callers.
+ * Browser diagnosis cannot set headers, so the query token is supported too.
+ */
+function healthRequest(mode?: 'bearer' | 'query'): Request {
+    if (mode === 'bearer') {
+        return new Request('https://relay.test/health', {
+            headers: { Authorization: `Bearer ${TOKEN}` },
+        });
+    }
+    if (mode === 'query') {
+        return new Request(`https://relay.test/health?token=${TOKEN}`);
+    }
+    return new Request('https://relay.test/health');
 }
 
 function respondRequest(body: Record<string, unknown>): Request {
@@ -143,6 +162,42 @@ describe('FIX-23-04-11: DO /poll long-poll', () => {
         const data = await resp.json() as { requests: string[] };
         expect(data.requests).toEqual([]);
     });
+
+    it('supersedes a parked poll with an empty batch and delivers to the new poll', async () => {
+        const { RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+
+        // Poll A parks (empty queue), poll B supersedes it: the DO holds a
+        // single waiter slot, so A must be released with an empty batch and
+        // B takes over the parking slot.
+        const pollA = relay.fetch(pollRequest());
+        const pollB = relay.fetch(pollRequest());
+
+        const respA = await pollA;
+        const dataA = await respA.json() as { requests: string[] };
+        expect(dataA.requests).toEqual([]);
+
+        // A request arriving now must reach poll B; nothing may be lost
+        // or double-delivered through the supersede.
+        const postPromise = relay.fetch(mcpPost({ jsonrpc: '2.0', id: 5, method: 'tools/list' }));
+
+        const respB = await pollB;
+        const dataB = await respB.json() as { requests: string[] };
+        expect(dataB.requests).toHaveLength(1);
+        const delivered = JSON.parse(dataB.requests[0]) as { __correlationId: string; method: string };
+        expect(delivered.method).toBe('tools/list');
+
+        await relay.fetch(respondRequest({
+            jsonrpc: '2.0',
+            id: delivered.__correlationId,
+            result: { ok: true },
+        }));
+        const postResp = await postPromise;
+        expect(postResp.status).toBe(200);
+        const postData = await postResp.json() as { id: number; result: { ok: boolean } };
+        expect(postData.id).toBe(5);
+        expect(postData.result.ok).toBe(true);
+    });
 });
 
 describe('FIX-23-04-11: plugin liveness', () => {
@@ -182,14 +237,14 @@ describe('FIX-23-04-11: plugin liveness', () => {
         await postPromise;
     });
 
-    it('exposes plugin liveness in /health', async () => {
+    it('exposes plugin liveness in /health for token-authenticated callers', async () => {
         vi.useFakeTimers();
         const { worker, RelayDO } = loadWorkerModule();
         const relay = new RelayDO({}, {});
         const env = makeEnv(relay);
 
         // Fresh relay: no plugin has ever polled.
-        const fresh = await worker.fetch(new Request('https://relay.test/health'), env);
+        const fresh = await worker.fetch(healthRequest('bearer'), env);
         expect(fresh.status).toBe(200);
         const freshData = await fresh.json() as {
             status: string;
@@ -203,7 +258,7 @@ describe('FIX-23-04-11: plugin liveness', () => {
         const pollPromise = relay.fetch(pollRequest());
         await vi.advanceTimersByTimeAsync(2_000);
 
-        const alive = await worker.fetch(new Request('https://relay.test/health'), env);
+        const alive = await worker.fetch(healthRequest('bearer'), env);
         const aliveData = await alive.json() as {
             plugin: { connected: boolean; lastPollAgeMs: number | null };
         };
@@ -212,6 +267,92 @@ describe('FIX-23-04-11: plugin liveness', () => {
 
         await vi.advanceTimersByTimeAsync(30_000);
         await pollPromise;
+    });
+});
+
+describe('FIX-23-04-14: /health auth gate for the DO probe', () => {
+    it('answers anonymous /health statically without a DO subrequest', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+        const getSpy = vi.spyOn(env.RELAY_DO, 'get');
+
+        const resp = await worker.fetch(healthRequest(), env);
+        expect(resp.status).toBe(200);
+        const data = await resp.json() as { status: string; relay: string; plugin?: unknown };
+        expect(data.status).toBe('ok');
+        expect(data.relay).toBe('obsilo');
+        // No plugin liveness and, crucially, no DO request burned: an
+        // unauthenticated caller must not be able to consume the free-plan
+        // DO request quota or keep the DO resident via /health.
+        expect(data.plugin).toBeUndefined();
+        expect(getSpy).not.toHaveBeenCalled();
+    });
+
+    it('probes the DO for a ?token= authenticated /health (browser diagnosis)', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+
+        const resp = await worker.fetch(healthRequest('query'), env);
+        expect(resp.status).toBe(200);
+        const data = await resp.json() as { plugin: { connected: boolean } };
+        expect(data.plugin).toBeDefined();
+        expect(data.plugin.connected).toBe(false);
+    });
+
+    it('treats a wrong token as anonymous (static status only)', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+        const getSpy = vi.spyOn(env.RELAY_DO, 'get');
+
+        const resp = await worker.fetch(new Request('https://relay.test/health?token=wrong'), env);
+        expect(resp.status).toBe(200);
+        const data = await resp.json() as { plugin?: unknown };
+        expect(data.plugin).toBeUndefined();
+        expect(getSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('FIX-23-04-14: CORS scope on plugin endpoints (H-6)', () => {
+    it('omits CORS headers on the error envelope for plugin endpoints', async () => {
+        const { worker } = loadWorkerModule();
+        const env: RelayEnv = {
+            RELAY_TOKEN: TOKEN,
+            RELAY_DO: {
+                idFromName: (name: string) => name,
+                get: () => ({ fetch: () => { throw new Error('DO exploded'); } }),
+            },
+        };
+
+        const resp = await worker.fetch(pollRequest(), env);
+        expect(resp.status).toBe(500);
+        expect(resp.headers.get('Access-Control-Allow-Origin')).toBeNull();
+        const data = await resp.json() as { error: { code: number } };
+        expect(data.error.code).toBe(-32603);
+    });
+
+    it('answers HEAD on plugin endpoints without CORS headers', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+
+        for (const path of ['/poll', '/respond']) {
+            const resp = await worker.fetch(new Request(`https://relay.test${path}`, { method: 'HEAD' }), env);
+            expect(resp.status).toBe(200);
+            expect(resp.headers.get('Access-Control-Allow-Origin')).toBeNull();
+        }
+    });
+
+    it('keeps CORS headers on HEAD for the MCP endpoint', async () => {
+        const { worker, RelayDO } = loadWorkerModule();
+        const relay = new RelayDO({}, {});
+        const env = makeEnv(relay);
+
+        const resp = await worker.fetch(new Request(`https://relay.test/${TOKEN}/mcp`, { method: 'HEAD' }), env);
+        expect(resp.status).toBe(200);
+        expect(resp.headers.get('Access-Control-Allow-Origin')).toBe('*');
     });
 });
 
@@ -227,11 +368,20 @@ describe('FIX-23-04-11: worker round-trip (regression, AUDIT-015)', () => {
         // so poll/POST ordering is not guaranteed by call order alone. Wait
         // until /health reports the parked poll before POSTing, otherwise
         // the POST can hit a fresh DO and fast-fail with 502.
+        let gateOpen = false;
         for (let i = 0; i < 50; i++) {
-            const health = await worker.fetch(new Request('https://relay.test/health'), env);
+            // Yield a macrotask so the /poll path's async token digest
+            // (crypto.subtle) can settle; microtask-only spinning never
+            // lets the poll park.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            const health = await worker.fetch(healthRequest('bearer'), env);
             const h = await health.json() as { plugin: { connected: boolean } };
-            if (h.plugin.connected) break;
+            if (h.plugin.connected) { gateOpen = true; break; }
         }
+        // FIX-23-04-14 (review): fail loudly here instead of letting the
+        // round-trip assertions below produce a confusing 502/timeout when
+        // the ordering guard never saw the parked poll.
+        expect(gateOpen, 'health gate never reported the parked poll').toBe(true);
 
         const postPromise = worker.fetch(mcpPost({
             jsonrpc: '2.0',

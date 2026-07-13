@@ -14,7 +14,8 @@
  *   5. DO resolves the original HTTP response to the AI assistant
  *
  * URL structure:
- *   /health                  -- health check incl. plugin liveness (no auth)
+ *   /health                  -- static status (no auth); plugin liveness
+ *                               only with relay token (Bearer or ?token=)
  *   /poll                    -- plugin long-polls for pending requests (Bearer auth)
  *   /respond                 -- plugin sends tool results back (Bearer auth)
  *   /{token}/mcp             -- MCP endpoint for AI assistants (token in URL)
@@ -44,8 +45,18 @@ export const RELAY_WORKER_CODE = `
 
 // FIX-23-04-11: long-poll park window for /poll. Kept safely below
 // Obsidian requestUrl's implicit timeout; Cloudflare does not bill
-// IO wait as CPU time. Quota: idle long-polling is <= 180 polls/hour
-// (4320/day), half of the old fixed 10s short-poll (8640/day).
+// IO wait as CPU time. Request quota: idle long-polling is <= 180
+// polls/hour (4320/day), half of the old fixed 10s short-poll (8640/day).
+// FIX-23-04-14 (quota arithmetic, DO duration dimension): Durable Object
+// duration is billed wall-clock while a request is open, so a parked poll
+// with immediate re-poll keeps the single 'default' DO resident around
+// the clock: 0.125 GB x 86,400 s = ~10,800 GB-s/day against the Workers
+// Free plan cap of 13,000 GB-s/day. This is NOT a regression: DOs stay
+// in memory ~10 s after the last request, so the old 10s short-poll
+// already pinned the DO continuously, and one DO's wall clock cannot
+// exceed 86,400 s/day, i.e. the relay alone cannot blow the cap. The
+// remaining ~2,200 GB-s/day of headroom is shared with any OTHER Durable
+// Objects on the same Cloudflare account (documented in connectors.md).
 const POLL_PARK_MS = 20000;
 
 // FIX-23-04-11: plugin counts as disconnected when it has not polled
@@ -80,6 +91,12 @@ const MCP_CORS_HEADERS = {
     'Access-Control-Expose-Headers': 'Mcp-Session-Id',
 };
 
+// FIX-23-04-14: H-6 requires plugin endpoints (/poll, /respond) to stay
+// CORS-free, including error envelopes and HEAD responses.
+function isPluginPath(pathname) {
+    return pathname === '/poll' || pathname === '/respond';
+}
+
 // FIX-23-04-12: shared JSON-RPC error envelope for internal failures.
 function relayInternalError(extraHeaders) {
     return new Response(JSON.stringify({
@@ -99,7 +116,11 @@ export default {
         try {
             return await handleWorkerFetch(request, env);
         } catch (e) {
-            return relayInternalError(MCP_CORS_HEADERS);
+            // FIX-23-04-14: keep the H-6 invariant on the failure path --
+            // plugin endpoints never carry CORS headers.
+            let pluginPath = false;
+            try { pluginPath = isPluginPath(new URL(request.url).pathname); } catch { /* keep false */ }
+            return relayInternalError(pluginPath ? {} : MCP_CORS_HEADERS);
         }
     },
 };
@@ -114,9 +135,13 @@ async function handleWorkerFetch(request, env) {
         }
 
         // FIX-23-04-12: HEAD probes (client preflights) get a clean
-        // 200 with no body instead of a 405.
+        // 200 with no body instead of a 405. FIX-23-04-14: CORS headers
+        // only off plugin paths (H-6).
         if (request.method === 'HEAD') {
-            return new Response(null, { status: 200, headers: mcpCorsHeaders });
+            return new Response(null, {
+                status: 200,
+                headers: isPluginPath(url.pathname) ? {} : mcpCorsHeaders,
+            });
         }
 
         // FIX-23-04-12: OAuth discovery probes (/.well-known/oauth-*) got a
@@ -134,6 +159,20 @@ async function handleWorkerFetch(request, env) {
             // FIX-23-04-11: expose plugin liveness (age of the last /poll)
             // so users can tell 'relay up, plugin gone' from a client
             // incompatibility without guessing.
+            // FIX-23-04-14: the DO liveness probe requires the relay token
+            // (Bearer header, or ?token= for browser diagnosis since a
+            // browser cannot set headers). Anonymous callers get the static
+            // status only -- an unauthenticated hit must not burn DO
+            // request quota or open DO requests.
+            const healthBearer = (request.headers.get('Authorization') || '').replace('Bearer ', '');
+            const healthQueryToken = url.searchParams.get('token') || '';
+            const healthAuthed = (await safeTokenCompare(healthBearer, env.RELAY_TOKEN))
+                || (await safeTokenCompare(healthQueryToken, env.RELAY_TOKEN));
+            if (!healthAuthed) {
+                return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo' }), {
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
             let plugin = { connected: false, lastPollAgeMs: null };
             try {
                 const id = env.RELAY_DO.idFromName('default');
@@ -350,6 +389,10 @@ export class RelayDO {
             if (this.pollWaiter) {
                 // Supersede: the plugin runs exactly one poll loop, so a new
                 // poll releases a stale parked one with an empty batch.
+                // FIX-23-04-14: with two devices on the same token the polls
+                // evict each other; no requests are lost, but the evicted
+                // device degrades to the 10s legacy spacing (fast-empty
+                // response). Documented in the FIX-23-04-14 spec.
                 const prev = this.pollWaiter;
                 this.pollWaiter = null;
                 prev.deliver([]);
