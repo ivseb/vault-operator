@@ -122,15 +122,18 @@ The relay worker code ships inside the plugin and only reaches Cloudflare when y
 
 #### Troubleshooting a remote connection
 
-Check the relay's health endpoint first: open `https://<your-worker>.workers.dev/health` (the plain `/health` path, without your token). It reports both relay and plugin liveness:
+Check the relay's health endpoint first: open `https://<your-worker>.workers.dev/health?token=<your-relay-token>` (the same token that is embedded in your MCP URL). With the token it reports both relay and plugin liveness:
 
 ```json
 { "status": "ok", "relay": "obsilo", "plugin": { "connected": true, "lastPollAgeMs": 1250 } }
 ```
 
+Without the token, `/health` answers with the static `{ "status": "ok", "relay": "obsilo" }` only. That confirms the worker is deployed but says nothing about your plugin; the token gate exists so anonymous callers cannot burn your Cloudflare free plan quota through the liveness probe.
+
 - `plugin.connected: false` or a large `lastPollAgeMs`: the relay is up but your Obsidian instance is not polling. Make sure Obsidian is running and remote access is enabled. Clients get a fast "Vault Operator not connected" error in this state.
 - `plugin.connected: true` but the client still fails: the problem is on the client side. For Perplexity, verify Transport = Streamable HTTP and Auth = None.
 - HTML error page instead of JSON: your deployed worker predates the current plugin version. Redeploy the relay from plugin settings.
+- Errors that appear late in the day and disappear around midnight UTC: you are hitting a Cloudflare free plan daily limit. The relay's idle long-polling keeps its Durable Object resident around the clock, which uses about 10,800 GB-s of the 13,000 GB-s daily free Durable Object duration quota. The relay alone stays under the cap, but the quota is shared with any other Durable Objects on the same Cloudflare account. If you run other Workers with Durable Objects on that account, move the relay to its own account or upgrade the plan.
 
 Do not judge the connection by opening the tokenized MCP URL in a browser; a browser GET does not exercise the MCP handshake and its result is misleading.
 
