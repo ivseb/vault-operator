@@ -1,142 +1,142 @@
 ---
 name: vault-health-batch
 description: Autonomous batch mode for Vault Health findings. Works through orphans, missing backlinks, and tags in batches without asking on every fix.
-trigger: vault-health-batch|findings.*autonom.*batch|batch.*health.*fix|health.*batch.*repair
+trigger: vault-health-batch|findings.*autonom.*batch|batch.*health.*fix|health.*batch.*repair|fix.*health.*batch|health.*findings.*batch|autonom.*vault.*health|vault.*health.*autonom
 source: bundled
 requiredTools: [vault_health_check, update_frontmatter, write_file, read_file, semantic_search]
 ---
 
 # Vault Health Batch Mode
 
-Du arbeitest Vault-Health-Findings AUTONOM in Batches ab.
-Frage den User NUR bei echten Entscheidungen, NICHT bei jedem einzelnen Fix.
-Alle Aenderungen sind per Undo-Bar reversibel (Checkpoints werden automatisch erstellt).
+You work through Vault Health findings AUTONOMOUSLY in batches.
+Ask the user ONLY at real decision points, NOT on every single fix.
+All changes are reversible via the undo bar (checkpoints are created automatically).
 
 ## Phase 1: TRIAGE
 
-1. Rufe `vault_health_check` auf
-2. Lies die Findings und gruppiere nach Typ
-3. Gib dem User eine kurze Uebersicht (3-5 Zeilen):
+1. Call `vault_health_check`
+2. Read the findings and group them by type
+3. Give the user a short overview (3-5 lines):
    ```
-   Vault Health: X Findings
-   - N Orphaned Notes (davon M mit Kontext)
-   - N Missing Backlinks
-   - N Broken Links
-   - N Inconsistent Tags
-   - N Weak Clusters
-   
-   Ich starte mit den mechanischen Fixes (Backlinks, Tags).
-   Bei Broken Links und isolierten Orphans frage ich dich.
+   Vault Health: X findings
+   - N orphaned notes (M of them with context)
+   - N missing backlinks
+   - N broken links
+   - N inconsistent tags
+   - N weak clusters
+
+   I will start with the mechanical fixes (backlinks, tags).
+   For broken links and isolated orphans I will ask you.
    ```
-4. Starte SOFORT mit Phase 2 -- warte NICHT auf Bestaetigung
+4. Start Phase 2 IMMEDIATELY -- do NOT wait for confirmation
 
-## Phase 2: BATCH-FIX
+## Phase 2: BATCH FIX
 
-Arbeite die Typen in dieser Reihenfolge ab.
+Work through the types in this order.
 
-### 2a: Missing Backlinks + Orphans mit Kontext (EIN TOOL-CALL)
+### 2a: Missing backlinks + orphans with context (ONE TOOL CALL)
 
-Das sind mechanische Fixes: Entitaeten die referenziert werden aber nicht zurueckverlinken.
+These are mechanical fixes: entities that are referenced but do not link back.
 
-Vorgehen:
-1. Rufe `vault_health_check` mit `action: "fix_backlinks"` auf
-2. Das Tool fixt ALLE fehlenden Backlinks in einem Batch (rein in Code, 0 LLM-Kosten)
-3. Zeige dem User das Ergebnis: "X Entities aktualisiert, Y Backlinks hinzugefuegt"
+Steps:
+1. Call `vault_health_check` with `action: "fix_backlinks"`
+2. The tool fixes ALL missing backlinks in one batch (pure code, 0 LLM cost)
+3. Show the user the result: "X entities updated, Y backlinks added"
 
-KEIN read_file, KEIN update_frontmatter, KEIN Sub-Agent. EIN Tool-Call erledigt alles.
+NO read_file, NO update_frontmatter, NO sub-agent. ONE tool call does everything.
 
-### 2c: Inconsistent Tags (AUTONOM)
+### 2c: Inconsistent tags (AUTONOMOUS)
 
-Tags die sich nur in Gross-/Kleinschreibung unterscheiden.
+Tags that differ only in upper/lower case.
 
-Vorgehen:
-1. Waehle die haeufigere Variante
-2. Aendere alle Vorkommen der selteneren Variante via `update_frontmatter`
-3. KEIN Fragen
+Steps:
+1. Pick the more frequent variant
+2. Change all occurrences of the rarer variant via `update_frontmatter`
+3. NO questions
 
-### 2d: Broken Links (USER-ENTSCHEIDUNG)
+### 2d: Broken links (USER DECISION)
 
-Links die auf nicht-existierende Notes zeigen.
+Links that point to notes that do not exist.
 
-Vorgehen:
-1. Zeige ALLE Broken Links gesammelt (nicht einzeln)
-2. STOPP -- frage den User:
+Steps:
+1. Show ALL broken links together (not one by one)
+2. STOP -- ask the user:
    ```
-   N Broken Links gefunden:
-   - [[Note A]] (referenziert von 3 Notes)
-   - [[Note B]] (referenziert von 1 Note)
-   
-   Optionen:
-   a) Stub-Notes erstellen (mit Basis-Inhalt)
-   b) Links entfernen
-   c) Einzeln entscheiden
-   d) Ueberspringen
+   N broken links found:
+   - [[Note A]] (referenced by 3 notes)
+   - [[Note B]] (referenced by 1 note)
+
+   Options:
+   a) Create stub notes (with basic content)
+   b) Remove the links
+   c) Decide one by one
+   d) Skip
    ```
-3. Erst nach Antwort weitermachen
+3. Continue only after the answer
 
-### 2e: Orphaned Notes OHNE Kontext (USER-ENTSCHEIDUNG)
+### 2e: Orphaned notes WITHOUT context (USER DECISION)
 
-Komplett isolierte Notes ohne jegliche MOC-Links.
+Completely isolated notes without any MOC links.
 
-Vorgehen:
-1. Zeige die ersten 10 isolierten Notes
-2. STOPP -- frage den User:
+Steps:
+1. Show the first 10 isolated notes
+2. STOP -- ask the user:
    ```
-   N isolierte Notes (keine MOC-Properties, keine eingehenden Links):
+   N isolated notes (no MOC properties, no incoming links):
    - Note A
    - Note B
    - ...
-   
-   Soll ich per semantic_search passende Themen finden und vorschlagen?
-   Oder sollen diese Notes ignoriert werden?
+
+   Should I use semantic_search to find and suggest matching topics?
+   Or should these notes be ignored?
    ```
-3. Wenn ja: Fuer jede Note semantic_search, Thema vorschlagen, update_frontmatter
+3. If yes: for each note run semantic_search, suggest a topic, update_frontmatter
 
-### 2f: Weak Clusters (NUR TOP-5)
+### 2f: Weak clusters (TOP 5 ONLY)
 
-Semantisch aehnliche Notes ohne explizite Links.
+Semantically similar notes without explicit links.
 
-Vorgehen:
-1. Nur die Top-5 Paare (hoechste Similarity)
-2. Lies beide Notes mit `read_file`
-3. Schlage dem User vor: "Soll ich [[A]] und [[B]] verlinken?"
-4. Warte auf Bestaetigung
+Steps:
+1. Only the top 5 pairs (highest similarity)
+2. Read both notes with `read_file`
+3. Suggest to the user: "Should I link [[A]] and [[B]]?"
+4. Wait for confirmation
 
-## Phase 3: REFRESH + ABSCHLUSS
+## Phase 3: REFRESH + WRAP-UP
 
-Nach allen Fixes: Rufe `vault_health_check` mit `refresh: true` auf.
-Das re-extrahiert den Graph und rebuildet die Ontologie, damit die Findings
-den aktuellen Vault-Zustand zeigen (nicht den veralteten Stand von vor den Fixes).
+After all fixes: call `vault_health_check` with `refresh: true`.
+This re-extracts the graph and rebuilds the ontology so the findings
+reflect the current vault state (not the stale state from before the fixes).
 
-Dann gib eine kompakte Zusammenfassung:
+Then give a compact summary:
 ```
-Vault Health Batch abgeschlossen:
-- X Missing Backlinks gefixt
-- Y Orphan-Backlinks eingetragen
-- Z Tags vereinheitlicht
-- N Broken Links: [Status]
-- M isolierte Orphans: [Status]
-- Verbleibende Findings nach Refresh: N
+Vault Health batch finished:
+- X missing backlinks fixed
+- Y orphan backlinks added
+- Z tags unified
+- N broken links: [status]
+- M isolated orphans: [status]
+- Findings remaining after refresh: N
 
-Alle Aenderungen sind per Undo-Bar (oben im Chat) reversibel.
+All changes are reversible via the undo bar (top of the chat).
 ```
 
-## Token-Effizienz-Regeln (STRIKT einhalten)
+## Token efficiency rules (follow STRICTLY)
 
-1. KEIN `read_file` fuer Orphans wenn die Finding-Daten den Kontext liefern
-2. KEIN `semantic_search` fuer Notes die bereits MOC-Links haben
-3. Arbeite in Batches von 10 gleichartigen Fixes
-4. Nach 20 Iterationen: Zusammenfassung geben und fragen "Weiter?"
-5. IGNORIERE die Fix Rules im vault_health_check Output -- befolge DIESE Regeln
+1. NO `read_file` for orphans when the finding data already provides the context
+2. NO `semantic_search` for notes that already have MOC links
+3. Work in batches of 10 fixes of the same kind
+4. After 20 iterations: give a summary and ask "Continue?"
+5. IGNORE the fix rules in the vault_health_check output -- follow THESE rules
 
-## Autonomie-Regeln (STRIKT einhalten)
+## Autonomy rules (follow STRICTLY)
 
-AUTONOM (KEIN Fragen):
-- Backlink-Eintragungen (Missing Backlinks, Orphans mit Kontext)
-- Tag-Vereinheitlichung
+AUTONOMOUS (NO questions):
+- Backlink entries (missing backlinks, orphans with context)
+- Tag unification
 
-MIT USER-ENTSCHEIDUNG (IMMER Fragen):
-- Broken Links (erstellen vs. entfernen)
-- Orphans ohne Kontext (einordnen vs. ignorieren)
-- Weak Clusters (verlinken ja/nein)
-- Neue Entitaeten erstellen (Themen, Konzepte)
+WITH USER DECISION (ALWAYS ask):
+- Broken links (create vs. remove)
+- Orphans without context (classify vs. ignore)
+- Weak clusters (link yes or no)
+- Creating new entities (topics, concepts)
