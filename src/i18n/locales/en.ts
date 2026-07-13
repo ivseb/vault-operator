@@ -1728,6 +1728,7 @@ export const en = {
     'ui.sidebar.effortXhigh': 'Xhigh',
     'ui.sidebar.effortMax': 'Max',
     'ui.sidebar.effortAutoHint': 'Effort is set automatically while routing is on. Pin a model to control it.',
+    'ui.sidebar.effortHintOptIn': 'This model has no effort levels. For custom endpoints you can enable them in the provider settings.',
 
     // =========================================================================
     // String sweep (FEAT-42-04)
@@ -2408,7 +2409,12 @@ export const en = {
     'settings.providers.gateway.subscriptionKeyDesc': 'Pasted into the gateway header above. Saved encrypted at REST.',
     'settings.providers.gateway.subscriptionKeyPlaceholder': 'Paste your subscription key',
     'settings.providers.gateway.title': 'Enterprise gateway',
+    'settings.providers.effortOptInAdd': 'Enable for model',
+    'settings.providers.effortOptInAddDesc': 'Models that already expose native effort levels are not listed here.',
+    'settings.providers.effortOptInDesc': 'Offer the reasoning effort slider for models on this endpoint. The plugin cannot detect support automatically; enable it only for models whose endpoint accepts a reasoning_effort field.',
+    'settings.providers.effortOptInSelect': 'Select a model',
     'settings.providers.modal.infoAria': '{{label}}: info',
+    'settings.providers.modal.section.effort': 'Reasoning effort',
     'settings.providers.modal.section.privacy': 'Privacy',
     'settings.providers.plaintextAcknowledged': 'Warning acknowledged. The banner stays visible so the state remains clear.',
     'settings.providers.plaintextBody': 'The OS keychain is unavailable on this device, so Vault Operator cannot encrypt API keys, OAUTH tokens, or MCP secrets. These values are written as plain strings to data.json and are visible to any process that can read the vault. Common cause: Linux installs without libsecret. Install libsecret-1-0 and restart Obsidian to enable encryption.',

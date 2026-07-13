@@ -188,17 +188,35 @@ export class ChatModelPickerPopover {
         const effortCapable = levels.length > 0;
 
         // Build the effort row once (if the model can send effort) so the
-        // switch can show/hide it without rebuilding the DOM.
+        // switch can show/hide it without rebuilding the DOM. IMP-54-05a
+        // (issue #54): when the model cannot, a one-line hint takes the
+        // slider's slot instead -- telling the user to pin a model (Auto
+        // active) or to enable effort for this model in the provider
+        // settings (custom endpoints, IMP-54-05b). The pin state is fixed
+        // while the popover is open (selecting a row closes it), only the
+        // thinking switch toggles the row live.
         const effortRow = effortCapable ? this.makeEffortControl(popover, callbacks, levels) : null;
+        const effortHint = effortCapable ? null : popover.createDiv('chat-model-picker-effort-hint');
 
         const syncEffortRowVisibility = () => {
-            if (!effortRow) return;
             const visibility = effortControlVisibility(
                 thinkingSwitchIsOn(callbacks.getThinking()),
                 effortCapable,
+                callbacks.getCurrent() !== null,
             );
-            effortRow.wrap.classList.toggle('agent-u-hidden', visibility !== 'control');
-            if (visibility === 'control') effortRow.sync();
+            if (effortRow) {
+                effortRow.wrap.classList.toggle('agent-u-hidden', visibility !== 'control');
+                if (visibility === 'control') effortRow.sync();
+            }
+            if (effortHint) {
+                const showHint = visibility === 'hint-pin' || visibility === 'hint-model';
+                effortHint.classList.toggle('agent-u-hidden', !showHint);
+                if (showHint) {
+                    effortHint.setText(visibility === 'hint-pin'
+                        ? t('ui.sidebar.effortAutoHint')
+                        : t('ui.sidebar.effortHintOptIn'));
+                }
+            }
         };
 
         this.makeThinkingControl(popover, callbacks, syncEffortRowVisibility);

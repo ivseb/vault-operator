@@ -512,6 +512,59 @@ export function getModelEffortSupport(modelId: string, providerType: string): bo
     return getModelEffortLevels(modelId, providerType).length > 0;
 }
 
+/**
+ * IMP-54-05b (issue #54): provider types whose requests go through the
+ * OpenAI-compatible chat-completions wire path (OpenAiProvider). Only these
+ * can carry a reasoning_effort / reasoning.effort field for models the static
+ * registry does not know, so the per-model effort opt-in is restricted to
+ * them. anthropic / bedrock / github-copilot / chatgpt-oauth / kilo-gateway
+ * have their own wire paths and their reasoning models are covered by the
+ * static families above.
+ */
+const EFFORT_OPT_IN_PROVIDER_TYPES = new Set([
+    'openai', 'azure', 'custom', 'gemini', 'ollama', 'lmstudio', 'openrouter',
+]);
+
+/** Whether the per-model effort opt-in is honoured for this provider type. */
+export function providerSupportsEffortOptIn(providerType: string): boolean {
+    return EFFORT_OPT_IN_PROVIDER_TYPES.has(providerType.toLowerCase());
+}
+
+/**
+ * Read a model's opt-in flag from a provider-level opt-in map
+ * (ProviderConfig.effortOptIn). Only an explicit `true` counts.
+ */
+export function isEffortOptedIn(
+    effortOptIn: Record<string, boolean> | undefined,
+    modelId: string,
+): boolean {
+    return effortOptIn?.[modelId] === true;
+}
+
+/**
+ * IMP-54-05b: the single choke point for "which effort levels does this
+ * (model, provider) pair accept". Resolution order: the per-model opt-in
+ * first (custom / OpenAI-compatible endpoints serving reasoning models the
+ * static registry cannot know, e.g. GLM-5.2 or DeepSeek-R1 -- they get the
+ * OpenAI-style set), then the static families of getModelEffortLevels.
+ *
+ * Both the picker capability gate AND the openai.ts request-body validation
+ * call this function, so an opted-in model that shows a slider also sends
+ * the field, and vice versa. An opt-in on a provider type outside the
+ * OpenAI-compatible wire path (hand-edited data.json) stays inert on both
+ * sides for the same reason.
+ */
+export function resolveEffortLevels(
+    modelId: string,
+    providerType: string,
+    effortOptedIn?: boolean,
+): EffortLevel[] {
+    if (effortOptedIn === true && providerSupportsEffortOptIn(providerType)) {
+        return [...OPENAI_EFFORT_LEVELS];
+    }
+    return getModelEffortLevels(modelId, providerType);
+}
+
 /** Output ceiling assumed for models we have no registry entry for (local models, gateways, ...). */
 const UNKNOWN_MODEL_OUTPUT_CEILING = 64_000;
 /** Generous-but-bounded default visible-output budget for known cloud models. */

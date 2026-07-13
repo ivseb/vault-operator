@@ -15,6 +15,7 @@
  */
 
 import type { DiscoveredModel, ModelTier, ProviderConfig } from '../../types/settings';
+import { isEffortOptedIn, resolveEffortLevels, type EffortLevel } from '../../types/model-registry';
 
 export type ChatModelDropdownOption =
     | { id: 'auto'; label: string; kind: 'auto'; advisorDisabled: boolean }
@@ -113,6 +114,25 @@ export function resolveOverrideModel(
         (tier) => (provider.tierOverrides?.[tier] ?? '').trim() === overrideId,
     );
     return isManualOverride ? { id: overrideId } : null;
+}
+
+/**
+ * IMP-54-05b (issue #54): native effort levels for the PINNED chat-header
+ * model, or [] when nothing is pinned. Effort is a pin-only control: in Auto
+ * mode the tier router picks the model, so no effort dial is offered and the
+ * model keeps its own vendor default. Resolution goes through the same
+ * resolveEffortLevels choke point the openai.ts request-body validation uses,
+ * with the provider's per-model opt-in applied first, so an opted-in custom
+ * model (e.g. GLM-5.2) that shows a slider also sends the field.
+ */
+export function resolveEffortLevelsForPin(
+    provider: ProviderConfig,
+    overrideId: string | null,
+): EffortLevel[] {
+    if (!overrideId) return [];
+    const m = resolveOverrideModel(provider, overrideId);
+    if (!m) return [];
+    return resolveEffortLevels(m.id, provider.type, isEffortOptedIn(provider.effortOptIn, m.id));
 }
 
 /**

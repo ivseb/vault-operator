@@ -22,7 +22,7 @@ import { buildApiHandler, buildApiHandlerForModel } from '../api/index';
 import { ToolPickerPopover } from './sidebar/ToolPickerPopover';
 import { McpServerPopover } from './sidebar/McpServerPopover';
 import { ChatModelPickerPopover, type ChatProviderNav } from './sidebar/ChatModelPickerPopover';
-import { resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
+import { resolveEffortLevelsForPin, resolveOverrideModel, resolveStickyChatModel } from './sidebar/chatModelDropdown';
 import { shouldSendOnEnter } from './sidebar/composerKeymap';
 import {
     DEFAULT_THINKING_OVERRIDE,
@@ -36,7 +36,7 @@ import {
     thinkingSwitchIsOn,
     type EffortOverride,
 } from './sidebar/effortOverride';
-import { getModelEffortLevels, type EffortLevel } from '../types/model-registry';
+import type { EffortLevel } from '../types/model-registry';
 import { providerConfigToCustomModel, resolveActiveProvider } from '../core/routing/tierResolution';
 import { TOOL_METADATA } from '../core/tools/toolMetadata';
 import { AttachmentHandler } from './sidebar/AttachmentHandler';
@@ -1283,14 +1283,15 @@ export class AgentSidebarView extends ItemView {
      * model keeps its own vendor default (the provider layer sends no effort
      * field). The empty array hides the effort slider, which is how Auto mode and
      * effort-incapable models (Gemini, local) both end up with no control.
+     *
+     * IMP-54-05b: delegates to the pure resolveEffortLevelsForPin helper,
+     * which applies the provider's per-model effort opt-in (custom /
+     * OpenAI-compatible endpoints) before the static registry families.
      */
     private resolveEffortLevelsForPinnedModel(
         provider: import('../types/settings').ProviderConfig,
     ): EffortLevel[] {
-        if (!this.chatModelOverride) return [];
-        const m = resolveOverrideModel(provider, this.chatModelOverride);
-        if (!m) return [];
-        return getModelEffortLevels(m.id, provider.type);
+        return resolveEffortLevelsForPin(provider, this.chatModelOverride);
     }
 
     /**

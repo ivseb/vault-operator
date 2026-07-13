@@ -46,14 +46,20 @@ export function resolveEffectiveEffort(override: EffortOverride): EffortLevel | 
 }
 
 /** What the picker should render for the reasoning-effort control. */
-export type EffortControlVisibility = 'control' | 'none';
+export type EffortControlVisibility = 'control' | 'hint-pin' | 'hint-model' | 'none';
 
 /**
  * Decide what the chat picker renders for reasoning effort.
- *  - 'control': the thinking toggle is On AND the active model/provider can
- *               send a native effort field
- *  - 'none'   : thinking is Off (effort would be inert), or the model cannot
- *               send effort (e.g. a local or Gemini model); render nothing
+ *  - 'control'   : the thinking toggle is On AND the active model/provider can
+ *                  send a native effort field
+ *  - 'hint-pin'  : thinking is On but no model is pinned (Auto). IMP-54-05a
+ *                  (issue #54): users in Auto mode never see the slider and
+ *                  conclude the feature does not exist, so a one-line hint
+ *                  sits where the slider would be.
+ *  - 'hint-model': thinking is On and a model is pinned, but it resolves no
+ *                  effort levels; the hint points at the provider-settings
+ *                  opt-in for custom endpoints (IMP-54-05b).
+ *  - 'none'      : thinking is Off (effort would be inert); render nothing.
  *
  * Hiding the control when thinking is Off replaces the old within-pin coherence
  * collapse: a contradictory Thinking=Off + Effort=High pair can no longer be
@@ -62,8 +68,11 @@ export type EffortControlVisibility = 'control' | 'none';
 export function effortControlVisibility(
     thinkingOn: boolean,
     effortCapable: boolean,
+    modelPinned: boolean,
 ): EffortControlVisibility {
-    return thinkingOn && effortCapable ? 'control' : 'none';
+    if (!thinkingOn) return 'none';
+    if (effortCapable) return 'control';
+    return modelPinned ? 'hint-model' : 'hint-pin';
 }
 
 /**
