@@ -164,6 +164,11 @@ export class RelayClient {
     private token = '';
     private consecutivePollFailures = 0;
     private noticeShownForCurrentOutage = false;
+    // FIX-23-04-14: incremented on every startPolling(). disconnect() cannot
+    // abort an in-flight requestUrl, so a connect() during a parked poll
+    // starts a second loop; the stale loop detects the generation mismatch
+    // when its poll settles and exits without touching shared state.
+    private pollGeneration = 0;
 
     constructor(private plugin: ObsidianAgentPlugin) {}
 
@@ -197,11 +202,14 @@ export class RelayClient {
         if (this.polling) return;
         this.polling = true;
         this._connecting = true;
-        void this.pollLoop();
+        this.pollGeneration += 1;
+        void this.pollLoop(this.pollGeneration);
     }
 
-    private async pollLoop(): Promise<void> {
+    private async pollLoop(generation: number): Promise<void> {
         while (this.polling && this.shouldReconnect) {
+            // FIX-23-04-14: a newer connect() owns the loop state now.
+            if (generation !== this.pollGeneration) return;
             try {
                 // FIX-23-04-11: measure how long the relay held the poll so
                 // computePollDelayMs can tell long-poll from legacy workers.
@@ -213,6 +221,11 @@ export class RelayClient {
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${this.token}` },
                 });
+
+                // FIX-23-04-14: stale loop (superseded by a reconnect while
+                // this poll was parked at the relay) must exit here instead
+                // of re-entering the loop next to the new one.
+                if (generation !== this.pollGeneration) return;
 
                 // First successful poll means we're connected
                 if (!this._connected) {
@@ -244,6 +257,10 @@ export class RelayClient {
                     await new Promise(resolve => window.setTimeout(resolve, delayMs));
                 }
             } catch (err) {
+                // FIX-23-04-14: same guard on the failure path -- a stale
+                // loop's rejected poll must not clobber the new loop's
+                // connection state or failure counters.
+                if (generation !== this.pollGeneration) return;
                 if (!this.shouldReconnect) break;
 
                 this._connected = false;
@@ -275,6 +292,9 @@ export class RelayClient {
             }
         }
 
+        // FIX-23-04-14: only the loop that still owns the current generation
+        // may reset the shared state on exit.
+        if (generation !== this.pollGeneration) return;
         this.polling = false;
         this._connected = false;
         this._connecting = false;
