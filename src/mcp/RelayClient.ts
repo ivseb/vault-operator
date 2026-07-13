@@ -30,7 +30,31 @@ import { handleToolCall } from './tools/index';
 // account. At 2s the plugin alone burns 43.200/day per open Obsidian instance,
 // independent of actual MCP usage. 10s drops that to ~8.640/day, leaving
 // headroom for external clients and multi-device setups.
+// FIX-23-04-11: only used as the fallback spacing against legacy (not yet
+// redeployed) workers that still answer /poll immediately. Redeployed
+// workers long-poll (~20s park), so the client re-polls without delay:
+// idle traffic is then <= 180 polls/hour (4320/day), half of the old rate.
 const POLL_INTERVAL_MS = 10_000;
+
+// FIX-23-04-11: a /poll response that took at least this long means the
+// worker parked it (true long-poll). Anything faster with an empty batch
+// is a legacy worker answering immediately; re-polling instantly against
+// one of those would burn the Cloudflare free-plan quota.
+const LONG_POLL_MIN_ELAPSED_MS = 5_000;
+
+/**
+ * FIX-23-04-11: decide how long to wait before the next /poll.
+ * - Requests delivered: re-poll immediately, more may be queued.
+ * - Long-poll response (server parked >= LONG_POLL_MIN_ELAPSED_MS):
+ *   re-poll immediately, the server paces us.
+ * - Fast empty response (legacy worker): fall back to the FIX-14-03-01
+ *   short-poll spacing.
+ */
+export function computePollDelayMs(elapsedMs: number, requestCount: number): number {
+    if (requestCount > 0) return 0;
+    if (elapsedMs >= LONG_POLL_MIN_ELAPSED_MS) return 0;
+    return POLL_INTERVAL_MS;
+}
 const INITIAL_RECONNECT_DELAY_MS = 5_000;
 const MAX_RECONNECT_DELAY_MS = 60_000;
 
@@ -140,6 +164,11 @@ export class RelayClient {
     private token = '';
     private consecutivePollFailures = 0;
     private noticeShownForCurrentOutage = false;
+    // FIX-23-04-14: incremented on every startPolling(). disconnect() cannot
+    // abort an in-flight requestUrl, so a connect() during a parked poll
+    // starts a second loop; the stale loop detects the generation mismatch
+    // when its poll settles and exits without touching shared state.
+    private pollGeneration = 0;
 
     constructor(private plugin: ObsidianAgentPlugin) {}
 
@@ -173,18 +202,30 @@ export class RelayClient {
         if (this.polling) return;
         this.polling = true;
         this._connecting = true;
-        void this.pollLoop();
+        this.pollGeneration += 1;
+        void this.pollLoop(this.pollGeneration);
     }
 
-    private async pollLoop(): Promise<void> {
+    private async pollLoop(generation: number): Promise<void> {
         while (this.polling && this.shouldReconnect) {
+            // FIX-23-04-14: a newer connect() owns the loop state now.
+            if (generation !== this.pollGeneration) return;
             try {
+                // FIX-23-04-11: measure how long the relay held the poll so
+                // computePollDelayMs can tell long-poll from legacy workers.
+                const pollStartedAt = Date.now();
+
                 // H-4: Token in Authorization header, not URL
                 const response = await requestUrl({
                     url: `${this.relayUrl}/poll`,
                     method: 'GET',
                     headers: { 'Authorization': `Bearer ${this.token}` },
                 });
+
+                // FIX-23-04-14: stale loop (superseded by a reconnect while
+                // this poll was parked at the relay) must exit here instead
+                // of re-entering the loop next to the new one.
+                if (generation !== this.pollGeneration) return;
 
                 // First successful poll means we're connected
                 if (!this._connected) {
@@ -198,7 +239,9 @@ export class RelayClient {
 
                 // M-1: Runtime validation of relay response
                 const data = response.json as { requests?: unknown[] };
+                let requestCount = 0;
                 if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
+                    requestCount = data.requests.length;
                     for (const reqBody of data.requests) {
                         if (typeof reqBody === 'string') {
                             void this.handleRequest(reqBody);
@@ -206,9 +249,18 @@ export class RelayClient {
                     }
                 }
 
-                // Short-poll interval: see POLL_INTERVAL_MS (FIX-14-03-01)
-                await new Promise(resolve => window.setTimeout(resolve, POLL_INTERVAL_MS));
+                // FIX-23-04-11: re-poll immediately after a long-poll response
+                // or delivered work; only a fast empty response (legacy worker)
+                // keeps the FIX-14-03-01 short-poll spacing.
+                const delayMs = computePollDelayMs(Date.now() - pollStartedAt, requestCount);
+                if (delayMs > 0) {
+                    await new Promise(resolve => window.setTimeout(resolve, delayMs));
+                }
             } catch (err) {
+                // FIX-23-04-14: same guard on the failure path -- a stale
+                // loop's rejected poll must not clobber the new loop's
+                // connection state or failure counters.
+                if (generation !== this.pollGeneration) return;
                 if (!this.shouldReconnect) break;
 
                 this._connected = false;
@@ -240,6 +292,9 @@ export class RelayClient {
             }
         }
 
+        // FIX-23-04-14: only the loop that still owns the current generation
+        // may reset the shared state on exit.
+        if (generation !== this.pollGeneration) return;
         this.polling = false;
         this._connected = false;
         this._connecting = false;
