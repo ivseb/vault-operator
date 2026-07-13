@@ -45,7 +45,25 @@ export interface RawDiscoveredModel {
     pricingCompletionUsd?: number;
 }
 
-export type ModelFetcher = (provider: ProviderConfig) => Promise<RawDiscoveredModel[]>;
+/**
+ * Fetch result with in-band provenance (review finding AL1, 2026-07-14).
+ * `source: 'fallback'` marks a static built-in lineup the fetcher served
+ * because the live endpoint was unreachable (currently only the ChatGPT
+ * OAuth Codex fetcher does this). The service refuses to persist such a
+ * lineup over previously discovered live data.
+ */
+export interface ModelFetchResult {
+    models: RawDiscoveredModel[];
+    source: 'live' | 'fallback';
+}
+
+/**
+ * A fetcher may return a plain array (legacy contract, treated as 'live')
+ * or a ModelFetchResult carrying its provenance.
+ */
+export type ModelFetcher = (
+    provider: ProviderConfig,
+) => Promise<RawDiscoveredModel[] | ModelFetchResult>;
 
 export interface DiscoveryHost {
     /** Current list of providers from settings. */
@@ -96,8 +114,16 @@ export class ModelDiscoveryService {
         if (!provider) return [];
 
         let raw: RawDiscoveredModel[];
+        let source: 'live' | 'fallback';
         try {
-            raw = await this.fetcher(provider);
+            const fetched = await this.fetcher(provider);
+            if (Array.isArray(fetched)) {
+                raw = fetched;
+                source = 'live';
+            } else {
+                raw = fetched.models;
+                source = fetched.source;
+            }
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             // Network-level failures (daemon down, host unresolved) are
@@ -125,6 +151,19 @@ export class ModelDiscoveryService {
                 );
             }
             return provider.discoveredModels ?? [];
+        }
+
+        // Review finding AL1 (2026-07-14): a static-fallback lineup must not
+        // overwrite a previously discovered live lineup nor stamp
+        // lastRefreshAt (which would let frozen data masquerade as fresh for
+        // 24h on the auto-refresh paths: refreshOnStartup, maybeAutoRefresh,
+        // 24h tick). First-ever discovery still persists the fallback so the
+        // picker is not empty.
+        if (source === 'fallback' && (provider.discoveredModels?.length ?? 0) > 0) {
+            console.debug(
+                `[ModelDiscoveryService] ${providerId}: fetcher served the static fallback lineup; keeping the previously discovered models`,
+            );
+            return provider.discoveredModels;
         }
 
         const enriched = this.enrichWithTier(raw, provider.type);
