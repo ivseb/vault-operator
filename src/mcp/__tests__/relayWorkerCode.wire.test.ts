@@ -222,6 +222,17 @@ describe('FIX-23-04-11: worker round-trip (regression, AUDIT-015)', () => {
         const env = makeEnv(relay);
 
         const pollPromise = worker.fetch(pollRequest(), env);
+
+        // The worker path awaits async token digests before reaching the DO,
+        // so poll/POST ordering is not guaranteed by call order alone. Wait
+        // until /health reports the parked poll before POSTing, otherwise
+        // the POST can hit a fresh DO and fast-fail with 502.
+        for (let i = 0; i < 50; i++) {
+            const health = await worker.fetch(new Request('https://relay.test/health'), env);
+            const h = await health.json() as { plugin: { connected: boolean } };
+            if (h.plugin.connected) break;
+        }
+
         const postPromise = worker.fetch(mcpPost({
             jsonrpc: '2.0',
             id: 42,
