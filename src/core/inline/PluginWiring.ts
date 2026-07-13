@@ -1010,6 +1010,12 @@ export function wireInlineActions(plugin: ObsidianAgentPlugin): InlineWiringResu
                         await activePanelSurface.attachments.addVaultFile(file);
                     }
                 },
+                // FEAT-02-11: folder-mention manifest.
+                async (folder, opts) => {
+                    if (activePanelSurface !== null) {
+                        await activePanelSurface.attachments.addVaultFolder(folder, opts);
+                    }
+                },
             );
             installAutocompletePortal(plugin, inputArea);
             return handler;

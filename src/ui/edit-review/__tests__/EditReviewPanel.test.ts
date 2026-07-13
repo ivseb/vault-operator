@@ -30,6 +30,7 @@ interface FakeNode {
 
 interface FakeDocument {
     createElement: (tag: string) => FakeNode;
+    createTextNode: (text: string) => FakeNode;
     addEventListener: (t: string, h: (ev: unknown) => void) => void;
     removeEventListener: (t: string, h: (ev: unknown) => void) => void;
     dispatch: (t: string, ev: unknown) => void;
@@ -60,7 +61,7 @@ function makeNode(doc: FakeDocument, tag: string): FakeNode {
         parent: null as FakeNode | null,
         text: '',
         value: '',
-        attrs: {} as Record<string, string>,
+        attrs: {},
         ownerDocument: doc,
         scrollTop: 0,
         scrollHeight: 100,
@@ -119,6 +120,13 @@ function makeDocument(): FakeDocument {
     const docListeners = new Map<string, ((ev: unknown) => void)[]>();
     const doc = {
         createElement: (tag: string) => makeNode(doc, tag),
+        // FEAT-44-15: unchanged runs inside a word-diffed line are plain text
+        // nodes, so a 300-word paragraph with one edit costs 3 nodes, not 600.
+        createTextNode: (text: string) => {
+            const n = makeNode(doc, '#text');
+            n.textContent = text;
+            return n;
+        },
         defaultView: { innerWidth: 1024, innerHeight: 768 },
     } as Partial<FakeDocument> as FakeDocument;
     doc.body = makeNode(doc, 'body');
@@ -246,112 +254,106 @@ describe('EditReviewPanel', () => {
     });
 
     describe('side-by-side columns', () => {
-        it('left column renders BEFORE content read-only', () => {
+        it('the OLD cell of each row renders the BEFORE content', () => {
             const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const before = findByClass(root, 'agent-edit-review__column--before');
-            expect(before).not.toBeNull();
-            expect(before!.textContent).toContain('Lorem ipsum dolor sit amet.');
-            expect(before!.textContent).toContain('Consectetur adipiscing.');
+            const root = panel.open();
+            const oldCells = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__cell--old');
+            const text = oldCells.map((c) => c.textContent).join('\n');
+            expect(text).toContain('Lorem ipsum dolor sit amet.');
+            expect(text).toContain('Consectetur adipiscing.');
         });
 
-        it('right column is a contenteditable div rendering AFTER lines', () => {
+        it('the NEW cell of each row renders the proposed content', () => {
             const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const after = findByClass(root, 'agent-edit-review__column--after');
-            expect(after).not.toBeNull();
-            const editor = findByClass(after!, 'agent-edit-review__editor');
-            expect(editor).not.toBeNull();
-            expect(editor!.tagName).toBe('DIV');
-            expect(editor!.getAttribute('contenteditable')).toBe('plaintext-only');
-            expect(editor!.textContent).toContain('Lorem ipsum.');
-            expect(editor!.textContent).toContain('Kurz und klar.');
+            const root = panel.open();
+            const newCells = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__cell--new');
+            const text = newCells.map((c) => c.textContent).join('\n');
+            expect(text).toContain('Kurz und klar.');
         });
 
-        it('AFTER-side added lines get the is-added (and is-changed) class', () => {
+        it('both cells of a row live in ONE row element -- that is the alignment', () => {
+            // The old build had two independent scroll columns, so a wrapped line
+            // on one side silently pushed the two sides out of sync (diff2html #99).
+            // A row that owns both cells cannot drift: a CSS grid row is as tall as
+            // its tallest cell.
             const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const editor = findByClass(root, 'agent-edit-review__editor')!;
-            const lines = editor.children.filter(c => c.classList.contains('agent-edit-review__line'));
-            const added = lines.filter(c => c.classList.contains('is-added'));
-            // First file: "Lorem ipsum." and "Kurz und klar." are new lines.
-            expect(added.length).toBeGreaterThanOrEqual(2);
-            for (const a of added) {
-                expect(a.classList.contains('is-changed')).toBe(true);
+            const root = panel.open();
+            const rows = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__row')
+                .filter((r) => !r.classList.contains('agent-edit-review__row--collapsed'));
+            expect(rows.length).toBeGreaterThan(0);
+            for (const row of rows) {
+                const cells = row.children.filter((c) => c.classList.contains('agent-edit-review__cell'));
+                expect(cells).toHaveLength(2);
+                expect(cells[0].classList.contains('agent-edit-review__cell--old')).toBe(true);
+                expect(cells[1].classList.contains('agent-edit-review__cell--new')).toBe(true);
             }
-            // Unchanged line stays plain on the AFTER side too. The text
-            // lives inside a .agent-edit-review__line-text sub-element.
-            const unchanged = lines.find(l => {
-                const txt = findByClass(l, 'agent-edit-review__line-text');
-                return txt !== null && txt.textContent === 'Sed do eiusmod tempor.';
-            });
-            expect(unchanged).toBeDefined();
-            expect(unchanged!.classList.contains('is-added')).toBe(false);
         });
 
-        it('typing in the contenteditable updates the panels internal final-content for that file', () => {
+        it('marks removed lines on the old side and added lines on the new side', () => {
+            const panel = newPanel();
+            const root = panel.open();
+            const dels = findAllByClass(root as unknown as FakeNode, 'is-del');
+            const adds = findAllByClass(root as unknown as FakeNode, 'is-add');
+            expect(dels.length).toBeGreaterThan(0);
+            expect(adds.length).toBeGreaterThan(0);
+            expect(dels.every((c) => c.classList.contains('agent-edit-review__cell--old'))).toBe(true);
+            expect(adds.every((c) => c.classList.contains('agent-edit-review__cell--new'))).toBe(true);
+        });
+
+        it('highlights the changed WORDS inside a rewritten line, not just the line', () => {
+            // The whole point for prose: a German paragraph is one line, so
+            // "line changed" carries no information.
+            const panel = newPanel({
+                entries: [{
+                    path: 'Notes/a.md',
+                    before: 'Sie nutzt Cowork täglich als Sparringspartner.',
+                    after: 'Sie nutzt Cowork wöchentlich als Sparringspartner.',
+                }],
+            });
+            const root = panel.open();
+            const words = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__word');
+            const del = words.filter((w) => w.classList.contains('is-del-word')).map((w) => w.textContent);
+            const ins = words.filter((w) => w.classList.contains('is-add-word')).map((w) => w.textContent);
+            expect(del).toEqual(['täglich']);
+            expect(ins).toEqual(['wöchentlich']);
+        });
+
+        it('carries a non-colour marker, so the diff does not rest on red/green alone', () => {
+            const panel = newPanel();
+            const root = panel.open();
+            const dels = findAllByClass(root as unknown as FakeNode, 'is-del');
+            const marker = dels[0].children.find((c) => c.classList.contains('agent-edit-review__marker'));
+            expect(marker?.textContent).toBe('\u2212');
+        });
+
+        it('editing happens in a textarea, and the text flows back into the decision', () => {
+            // The right column used to BE the editor (contenteditable), so the
+            // highlighting fell apart the moment you typed and the text had to be
+            // scraped back out of the mangled DOM.
             const onApply = vi.fn();
             const panel = newPanel({ onApply });
-            panel.open();
-            const root = container.children[0];
-            const editor = findByClass(root, 'agent-edit-review__editor')!;
-            // Simulate the user clearing the rendered lines and typing
-            // a single new line. The FakeNode lets us reset children +
-            // set textContent directly.
-            editor.children.length = 0;
-            editor.text = 'User typed override.';
-            editor.dispatch('input', { target: editor });
-            const applyBtn = findByClass(root, 'agent-edit-review__apply-btn')!;
-            applyBtn.click();
-            expect(onApply).toHaveBeenCalledTimes(1);
-            const decisions = onApply.mock.calls[0][0] as Array<{ path: string; finalContent: string; skipped: boolean }>;
-            expect(decisions).toHaveLength(2);
-            expect(decisions[0].finalContent).toBe('User typed override.');
-            expect(decisions[1].finalContent).toContain('Step two refined.');
+            const root = panel.open();
+
+            const editBtn = findByClass(root as unknown as FakeNode, 'agent-edit-review__edit-btn');
+            expect(editBtn).not.toBeNull();
+            editBtn!.click();
+
+            const ta = findByClass(root as unknown as FakeNode, 'agent-edit-review__textarea');
+            expect(ta).not.toBeNull();
+            ta!.value = 'Von Hand geschrieben.';
+            ta!.dispatch('input', {});
+
+            findByClass(root as unknown as FakeNode, 'agent-edit-review__apply-btn')!.click();
+            const decisions = onApply.mock.calls[0][0] as Array<{ finalContent: string }>;
+            expect(decisions[0].finalContent).toBe('Von Hand geschrieben.');
         });
 
-        it('changed lines on the LEFT (before) get the is-changed class', () => {
+        it('every row holds exactly the two sides, so left and right stay in lock-step', () => {
             const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const beforeCol = findByClass(root, 'agent-edit-review__column--before')!;
-            const beforeLines = findAllByClass(beforeCol, 'agent-edit-review__line');
-            const changedLines = beforeLines.filter(l => l.classList.contains('is-changed'));
-            expect(changedLines.length).toBeGreaterThanOrEqual(2);
-            const unchanged = beforeLines.find(l => {
-                const txt = findByClass(l, 'agent-edit-review__line-text');
-                return txt !== null && txt.textContent === 'Sed do eiusmod tempor.';
-            });
-            expect(unchanged).toBeDefined();
-            expect(unchanged!.classList.contains('is-changed')).toBe(false);
-        });
-
-        it('every non-padding line has a numbered gutter', () => {
-            const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const beforeCol = findByClass(root, 'agent-edit-review__column--before')!;
-            const beforeLines = findAllByClass(beforeCol, 'agent-edit-review__line');
-            for (const l of beforeLines) {
-                if (l.classList.contains('agent-edit-review__line--padding')) continue;
-                const gutter = findByClass(l, 'agent-edit-review__lineno');
-                expect(gutter).not.toBeNull();
-                expect(gutter!.textContent.length).toBeGreaterThan(0);
-            }
-        });
-
-        it('left and right columns have the SAME number of lines (zeilen-aligned)', () => {
-            const panel = newPanel();
-            panel.open();
-            const root = container.children[0];
-            const beforeCol = findByClass(root, 'agent-edit-review__column--before')!;
-            const beforeLines = findAllByClass(beforeCol, 'agent-edit-review__line');
-            const editor = findByClass(root, 'agent-edit-review__editor')!;
-            const afterLines = findAllByClass(editor, 'agent-edit-review__line');
-            expect(beforeLines.length).toBe(afterLines.length);
+            const root = panel.open();
+            const olds = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__cell--old');
+            const news = findAllByClass(root as unknown as FakeNode, 'agent-edit-review__cell--new');
+            expect(olds.length).toBe(news.length);
         });
 
         it('shows a stats label (e.g. "+N −M") in the AFTER column header', () => {
@@ -433,7 +435,7 @@ describe('EditReviewPanel', () => {
     });
 
     describe('checkpoint mode', () => {
-        it('mode=checkpoint shows a restore button and no contenteditable editor', () => {
+        it('mode=checkpoint shows a restore button and offers no editing surface', () => {
             const onRestore = vi.fn();
             const panel = new EditReviewPanel({
                 containerEl: container as unknown as HTMLElement,
@@ -443,10 +445,12 @@ describe('EditReviewPanel', () => {
             });
             panel.open();
             const root = container.children[0];
-            // Editor field on the right side is NOT editable in checkpoint mode.
-            const editor = findByClass(root, 'agent-edit-review__editor');
-            expect(editor).not.toBeNull();
-            expect(editor!.getAttribute('contenteditable')).toBeNull();
+            // A checkpoint is history: it can be restored, never rewritten. So it
+            // gets neither the edit toggle nor the textarea.
+            expect(findByClass(root, 'agent-edit-review__textarea')).toBeNull();
+            expect(findByClass(root, 'agent-edit-review__edit-btn')).toBeNull();
+            // ...but it still renders the diff.
+            expect(findByClass(root, 'agent-edit-review__body')).not.toBeNull();
             // Footer has a restore button instead of Apply.
             const restore = findByClass(root, 'agent-edit-review__restore-btn');
             expect(restore).not.toBeNull();

@@ -25,11 +25,17 @@ export interface ShowEditReviewArgs {
     /** Source label shown in the header (e.g. "Inline-AI: Rewrite"). */
     source?: string;
     title?: string;
+    /** Overrides the discard-button label (FIX-44-16). */
+    discardLabel?: string;
+    /** FEAT-44-02: offer "apply, and stop asking for the rest of this run". */
+    allowRememberForRun?: boolean;
 }
 
 export interface EditReviewResult {
     /** Decisions provided by the user via Apply. null when user discarded. */
     decisions: EditReviewDecision[] | null;
+    /** FEAT-44-02: the user applied AND asked not to be asked again this run. */
+    rememberForRun?: boolean;
 }
 
 /**
@@ -44,7 +50,9 @@ export function showEditReviewModal(args: ShowEditReviewArgs): Promise<EditRevie
             mode: 'edit',
             source: args.source,
             title: args.title,
-            onApply: (decisions) => resolve({ decisions }),
+            discardLabel: args.discardLabel,
+            allowRememberForRun: args.allowRememberForRun,
+            onApply: (decisions, meta) => resolve({ decisions, rememberForRun: meta?.rememberForRun === true }),
             onDiscard: () => resolve({ decisions: null }),
         });
         modal.open();
@@ -75,19 +83,38 @@ interface EditReviewModalOptions {
     mode: 'edit' | 'checkpoint';
     source?: string;
     title?: string;
-    onApply?: (decisions: EditReviewDecision[]) => void;
+    discardLabel?: string;
+    allowRememberForRun?: boolean;
+    onApply?: (decisions: EditReviewDecision[], meta?: { rememberForRun: boolean }) => void;
     onDiscard?: () => void;
     onRestore?: () => void | Promise<void>;
 }
 
-class EditReviewModal extends Modal {
+export class EditReviewModal extends Modal {
     private readonly opts: EditReviewModalOptions;
     private panel: EditReviewPanel | null = null;
+    /**
+     * FIX-44-14: this modal is an approval GATE. The Pipeline awaits its answer
+     * inside checkApproval, before the tool runs. Obsidian can close a modal
+     * without ever routing through our buttons (Esc, the X, the backdrop), and
+     * `onClose` used to settle nothing -- so a dismissed gate left the promise
+     * pending and deadlocked the agent loop.
+     *
+     * Every exit path now goes through {@link settle}, exactly once. Dismissal
+     * counts as a rejection: if the user did not say yes, the answer is no.
+     */
+    private settled = false;
 
     constructor(app: App, opts: EditReviewModalOptions) {
         super(app);
         this.opts = opts;
         this.modalEl.addClass('agent-edit-review-modal');
+    }
+
+    private settle(fn?: () => void): void {
+        if (this.settled) return;
+        this.settled = true;
+        fn?.();
     }
 
     onOpen(): void {
@@ -99,14 +126,17 @@ class EditReviewModal extends Modal {
             mode: this.opts.mode,
             title: this.opts.title,
             sourceLabel: this.opts.source,
+            discardLabel: this.opts.discardLabel,
+            allowRememberForRun: this.opts.allowRememberForRun,
             setIcon: (el, name) => setIcon(el, name),
-            onApply: (decisions) => {
-                try { this.opts.onApply?.(decisions); } finally { this.close(); }
+            onApply: (decisions, meta) => {
+                try { this.settle(() => this.opts.onApply?.(decisions, meta)); } finally { this.close(); }
             },
             onDiscard: () => {
-                try { this.opts.onDiscard?.(); } finally { this.close(); }
+                try { this.settle(() => this.opts.onDiscard?.()); } finally { this.close(); }
             },
             onRestore: () => {
+                // Checkpoint mode has no pending approval to settle.
                 const r = this.opts.onRestore?.();
                 if (r instanceof Promise) void r.catch((e) => console.warn('[edit-review-modal] onRestore threw:', e));
                 this.close();
@@ -116,6 +146,9 @@ class EditReviewModal extends Modal {
     }
 
     onClose(): void {
+        // Dismissed without an explicit answer: reject, never hang.
+        this.settle(() => this.opts.onDiscard?.());
+
         if (this.panel !== null) {
             this.panel.close();
             this.panel = null;

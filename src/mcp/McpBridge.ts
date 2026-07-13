@@ -13,7 +13,7 @@
 
 import type ObsidianAgentPlugin from '../main';
 import type { McpToolDefinition } from './types';
-import { handleToolCall } from './tools/index';
+import { handleToolCall, MCP_WRITE_TOOLS } from './tools/index';
 import { RelayClient } from './RelayClient';
 import { buildPrompts } from './prompts/systemContext';
 import { validateMcpVaultPath } from './tools/mcpPathValidation';
@@ -697,11 +697,12 @@ export class McpBridge {
             }
         } catch { /* non-fatal */ }
 
-        // MCP-2: hide write_vault from the advertised tool list unless the user
-        // opted in. handleToolCall also fails it closed, so this is the visible
-        // half of the same default-off gate.
+        // MCP-2 / FIX-44-26: hide EVERY write tool from the advertised tool list
+        // unless the user opted in -- not just write_vault. handleToolCall also
+        // fails them closed, so this is the visible half of the same default-off
+        // gate, kept consistent via the shared MCP_WRITE_TOOLS set.
         const allowWrite = this.plugin.settings.mcpAllowWriteTools;
-        return TOOLS.filter(t => allowWrite || t.name !== 'write_vault').map(t => {
+        return TOOLS.filter(t => allowWrite || !MCP_WRITE_TOOLS.has(t.name)).map(t => {
             let description = t.description;
             if (t.name === 'write_vault') {
                 description += folderList + defaultFolder + rulesHint;

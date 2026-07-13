@@ -12,6 +12,7 @@
 
 import type { Vault } from 'obsidian';
 import { safeRegex } from '../utils/safeRegex';
+import { isProtectedAgentConfigPath } from './agentFolderGuard';
 
 export class IgnoreService {
     private vault: Vault;
@@ -22,14 +23,24 @@ export class IgnoreService {
     /** Paths always blocked regardless of config (built from vault.configDir) */
     private alwaysBlocked: string[];
 
+    /**
+     * FIX-44-24: vault-relative agent folder root. When set, the agent's own
+     * config zone (settings.json, mcp config, provenance manifest, cache -- i.e.
+     * everything under the agent folder except skills/ and skill-data/) is
+     * write-protected, so no vault tool can let the agent rewrite its own
+     * settings and self-escalate. Empty string disables the check.
+     */
+    private agentRoot: string;
+
     /** Paths always write-protected regardless of config */
     private static readonly ALWAYS_PROTECTED: string[] = [
         '.obsidian-agentignore',
         '.obsidian-agentprotected',
     ];
 
-    constructor(vault: Vault) {
+    constructor(vault: Vault, agentRoot = '') {
         this.vault = vault;
+        this.agentRoot = agentRoot;
         const configDir = vault.configDir;
         this.alwaysBlocked = [
             '.git/',
@@ -37,6 +48,11 @@ export class IgnoreService {
             `${configDir}/workspace.json`,
             `${configDir}/cache`,
         ];
+    }
+
+    /** FIX-44-24: bind (or update) the agent folder root for config protection. */
+    setAgentRoot(agentRoot: string): void {
+        this.agentRoot = agentRoot;
     }
 
     /**
@@ -78,6 +94,9 @@ export class IgnoreService {
         for (const p of IgnoreService.ALWAYS_PROTECTED) {
             if (normalPath === p) return true;
         }
+
+        // FIX-44-24: the agent's own config zone is never writable by a tool.
+        if (isProtectedAgentConfigPath(normalPath, this.agentRoot)) return true;
 
         // User-defined protected patterns
         return this.matchesAnyPattern(normalPath, this.protectedPatterns);

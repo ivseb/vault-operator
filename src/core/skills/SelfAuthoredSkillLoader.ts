@@ -18,6 +18,7 @@ import { safeRegex } from '../utils/safeRegex';
 import { getSelfAuthoredSkillsDir } from '../utils/agentFolder';
 import { AstValidator } from '../sandbox/AstValidator';
 import { validateSkillFrontmatter } from './SkillFrontmatterValidator';
+import { TRUSTED_SKILL_TIERS, type SkillProvenanceStore } from './SkillProvenanceStore';
 import type ObsidianAgentPlugin from '../../main';
 import type { EsbuildWasmManager } from '../sandbox/EsbuildWasmManager';
 import type { ISandboxExecutor } from '../sandbox/ISandboxExecutor';
@@ -94,6 +95,13 @@ export class SelfAuthoredSkillLoader {
     private esbuildManager: EsbuildWasmManager | null;
     private sandboxExecutor: ISandboxExecutor | null;
     private toolRegistry: ToolRegistry | null;
+    /** FIX-44-05: provenance authority for trusted-tier `source:` claims. */
+    private provenance: SkillProvenanceStore | null = null;
+
+    /** FIX-44-05: bind the provenance manifest used to verify trusted-tier skills. */
+    setProvenanceStore(store: SkillProvenanceStore): void {
+        this.provenance = store;
+    }
     /** Debounce timers for hot-reload per file path */
     private recompileTimers = new Map<string, number>();
     /** Serialize compilation to prevent concurrent builds for the same module */
@@ -175,11 +183,10 @@ export class SelfAuthoredSkillLoader {
                     const content = await adapter.read(skillPath);
                     const parsed = this.parseSkillMd(content, skillPath);
                     if (!parsed) continue;
-                    // AUDIT-034 L-17: resolve the source field. Explicit
-                    // frontmatter wins; otherwise inspect the folder layout
-                    // to tell skill-creator output (-> 'agent') from a
-                    // hand-written or imported file (-> 'user').
-                    parsed.source = await this.resolveSkillSource(parsed.source, subfolderPath);
+                    // FIX-44-05: a trusted-tier `source:` claim is only honoured
+                    // when the provenance manifest confirms the plugin materialized
+                    // this exact SKILL.md; otherwise it drops to 'user'.
+                    parsed.source = await this.resolveSkillSource(parsed.source, subfolderPath, content);
                     // FEATURE-2201: populate inventory from scripts/, references/,
                     // assets/, and sub-role *.skill.md files next to SKILL.md.
                     parsed.inventory = await this.loadSkillInventory(subfolderPath, parsed.isCoordinator);
@@ -192,18 +199,31 @@ export class SelfAuthoredSkillLoader {
     }
 
     /**
-     * AUDIT-034 L-17 source resolver. Called after parseSkillMd so the
-     * SKILL.md frontmatter is authoritative when it sets `source:`. When
-     * the field is missing, we check for the skill-creator scaffolding
-     * (`init_skill` always creates `scripts/`, `references/`, `assets/`
-     * next to SKILL.md) and normalize to `agent`. Hand-written and
-     * imported skills miss at least one of those folders, so they fall
-     * back to the conservative `user` default. The result is used by the
-     * SkillsTab badge AND by the InvokeSkillTool / ToolExecutionPipeline
-     * trust gates, so getting the marker right matters.
+     * Source resolver. The result feeds the SkillsTab badge AND the
+     * InvokeSkillTool / ToolExecutionPipeline trust gates, so a wrong marker is
+     * a privilege bug.
+     *
+     * FIX-44-05: a frontmatter `source:` is NOT trusted verbatim. A trusted tier
+     * (builtin | bundled | pro) is honoured only when the provenance manifest
+     * confirms the plugin materialized this exact SKILL.md (name + content hash);
+     * otherwise it drops to 'user'. This is what stops a third-party skill from
+     * forging `source: pro` to inherit paid-skill trust. Non-trusted declarations
+     * (user, agent, learned, a plugin-id) grant no elevation and pass through.
+     *
+     * AUDIT-034 L-17: when `source:` is absent, structural detection stands in --
+     * `init_skill` always scaffolds scripts/, references/, assets/, so that shape
+     * means skill-creator output ('agent'); anything else is the conservative
+     * 'user' default.
      */
-    private async resolveSkillSource(parsedSource: string, skillFolder: string): Promise<string> {
+    private async resolveSkillSource(parsedSource: string, skillFolder: string, content: string): Promise<string> {
         if (parsedSource.length > 0) {
+            if (TRUSTED_SKILL_TIERS.has(parsedSource)) {
+                const skillName = skillFolder.slice(skillFolder.lastIndexOf('/') + 1);
+                const verified = this.provenance?.getVerifiedSource(skillName, content);
+                // No manifest (e.g. tests without wiring) is fail-closed: a
+                // trusted-tier claim we cannot verify becomes 'user'.
+                return verified ?? 'user';
+            }
             return parsedSource;
         }
         const adapter = this.plugin.app.vault.adapter;
@@ -722,12 +742,10 @@ export class SelfAuthoredSkillLoader {
             const parsed = this.parseSkillMd(content, file.path);
             if (parsed) {
                 const skillFolder = file.path.replace(/\/SKILL\.md$/, '');
-                // AUDIT-034 L-17: keep the hot-reload path aligned with the
-                // initial scan so a SKILL.md saved without an explicit
-                // `source:` field gets the same structural-detection
-                // treatment instead of silently flipping to the parser
-                // default.
-                parsed.source = await this.resolveSkillSource(parsed.source, skillFolder);
+                // AUDIT-034 L-17 / FIX-44-05: keep the hot-reload path aligned
+                // with the initial scan -- structural detection for a missing
+                // `source:`, and provenance verification for a trusted-tier one.
+                parsed.source = await this.resolveSkillSource(parsed.source, skillFolder, content);
                 parsed.inventory = await this.loadSkillInventory(skillFolder, parsed.isCoordinator);
                 this.skills.set(parsed.name, parsed);
             }

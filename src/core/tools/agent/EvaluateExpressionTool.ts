@@ -121,9 +121,16 @@ export async function execute(input: Record<string, unknown>, ctx: { vault: any;
             const compiledJs = (params.dependencies?.length)
                 ? await this.esbuildManager.build(wrappedSource, params.dependencies)
                 : await this.esbuildManager.transform(wrappedSource);
-            const result = await this.sandboxExecutor.execute(compiledJs, {
-                context: params.context ?? {},
-            });
+            // FIX-44-04: bind the task so sandbox vault writes are checkpointed.
+            this.sandboxExecutor.setGovernanceContext?.(context.taskId);
+            let result: unknown;
+            try {
+                result = await this.sandboxExecutor.execute(compiledJs, {
+                    context: params.context ?? {},
+                });
+            } finally {
+                this.sandboxExecutor.setGovernanceContext?.(undefined);
+            }
 
             let output = typeof result === 'string'
                 ? result

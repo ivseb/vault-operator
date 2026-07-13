@@ -1,11 +1,45 @@
-import type { App, TFile } from 'obsidian';
+import type { App, TFile, TFolder } from 'obsidian';
+import { TFile as TFileCtor, TFolder as TFolderCtor } from 'obsidian';
 import type ObsidianAgentPlugin from '../../main';
+import { t } from '../../i18n';
 
 interface AutocompleteItem {
     label: string;
     sub?: string;
     tag?: string;
+    /**
+     * FEAT-02-11: CSS variant for the tag pill. `file` = light grey,
+     * `folder` = darker grey. Skills/prompts/workflows omit this so their
+     * pill keeps the accent colour.
+     */
+    tagVariant?: 'file' | 'folder';
     onSelect: () => void;
+}
+
+/**
+ * FEAT-02-11: separate caps for file and folder rows so a query that hits many
+ * markdown files (e.g. "Acme") does not push the matching folders out of the
+ * popup entirely. Unused slots on one side flow to the other.
+ */
+const AUTOCOMPLETE_MAX_FILE_ROWS = 5;
+const AUTOCOMPLETE_MAX_FOLDER_ROWS = 5;
+const AUTOCOMPLETE_MAX_TOTAL_ROWS = 10;
+
+/**
+ * Compute a match-quality rank for a candidate against the lowercased query.
+ * Lower = better. Ties are broken by path length (shorter = better) so a
+ * parent folder always outranks a sub-folder for the same substring match.
+ */
+function matchRank(name: string, path: string, query: string): number {
+    const n = name.toLowerCase();
+    const p = path.toLowerCase();
+    if (query === '') return 0;
+    if (n === query) return 0;             // exact name match
+    if (n.startsWith(query)) return 1;     // name prefix
+    if (n.includes(query)) return 2;       // name substring
+    if (p.startsWith(query)) return 3;     // path prefix (rare)
+    if (p.includes(query)) return 4;       // path substring
+    return 99;
 }
 
 /**
@@ -24,6 +58,12 @@ export class AutocompleteHandler {
         private getTextarea: () => HTMLTextAreaElement | null,
         private getInputArea: () => HTMLElement | null,
         private addVaultFile: (file: TFile) => Promise<void>,
+        /**
+         * FEAT-02-11: folder-mention callback. Attaches the folder as a
+         * manifest attachment (path list, lazy-read via read_file /
+         * read_document). Called by the suggest rows tagged 'Folder'.
+         */
+        private addVaultFolder: (folder: TFolder, opts: { recursive: boolean }) => Promise<void>,
     ) {}
 
     async handleInput(): Promise<void> {
@@ -76,18 +116,62 @@ export class AutocompleteHandler {
             };
 
             const currentFile = this.app.workspace.getActiveFile();
-            const activeOption = (currentFile && (query === '' || 'active'.startsWith(query)))
-                ? [{ label: 'Active note', sub: `@active → ${currentFile.basename}`, onSelect: makeFileOnSelect(currentFile) }]
+            const activeOption: AutocompleteItem[] = (currentFile && (query === '' || 'active'.startsWith(query)))
+                ? [{ label: t('ui.sidebar.autocompleteActiveNote'), sub: `@active → ${currentFile.basename}`, onSelect: makeFileOnSelect(currentFile) }]
                 : [];
 
-            const allFiles = this.app.vault.getMarkdownFiles();
-            const filtered = allFiles
-                .filter((f) => f.path.toLowerCase().includes(query))
-                .slice(0, 10);
+            // FEAT-02-11: rank-sort files by match quality so an exact-name
+            // match ("Cowork.md") ranks above a deep path substring
+            // ("Notes/2026/Cowork/journal.md") for a short query like "cowork".
+            const rankedFiles = this.app.vault.getMarkdownFiles()
+                .map((f) => ({ f, rank: matchRank(f.basename, f.path, query) }))
+                .filter((r) => r.rank < 99)
+                .sort((a, b) => a.rank - b.rank || a.f.path.length - b.f.path.length);
+            const fileItems: AutocompleteItem[] = rankedFiles.map(({ f }) => ({
+                label: f.basename,
+                sub: f.path,
+                tag: t('ui.sidebar.autocompleteFileTag'),
+                tagVariant: 'file' as const,
+                onSelect: makeFileOnSelect(f),
+            }));
+
+            // FEAT-02-11: folder rows. One row per match by default (recursive);
+            // a second "top-level only" row is emitted when the folder has any
+            // sub-folder so the alternative is discoverable without a modifier
+            // key.
+            const folderItems: AutocompleteItem[] = this.buildFolderItems(query, atIdx, query.length, value);
+
+            // FEAT-02-11: separate slot caps so a query that lights up many
+            // files (like "Acme" against a project folder full of markdown)
+            // never drops the matching folders out entirely. Ungenutzte
+            // Datei-Slots wandern in den Ordner-Bereich und umgekehrt.
+            const activeSlots = activeOption.length;
+            const remainingAfterActive = Math.max(0, AUTOCOMPLETE_MAX_TOTAL_ROWS - activeSlots);
+            const desiredFiles = Math.min(fileItems.length, AUTOCOMPLETE_MAX_FILE_ROWS);
+            const desiredFolders = Math.min(folderItems.length, AUTOCOMPLETE_MAX_FOLDER_ROWS);
+            let takeFiles = desiredFiles;
+            let takeFolders = desiredFolders;
+            if (takeFiles + takeFolders > remainingAfterActive) {
+                // Distribute the deficit proportionally; folders win a tie.
+                const deficit = takeFiles + takeFolders - remainingAfterActive;
+                const fileHead = Math.max(0, takeFiles - Math.ceil(deficit / 2));
+                takeFiles = fileHead;
+                takeFolders = Math.max(0, remainingAfterActive - takeFiles);
+            } else {
+                // Fill unused folder slots with more files, or vice versa.
+                const spare = remainingAfterActive - takeFiles - takeFolders;
+                if (spare > 0) {
+                    const extraFiles = Math.min(spare, fileItems.length - takeFiles);
+                    takeFiles += extraFiles;
+                    const remainingSpare = remainingAfterActive - takeFiles - takeFolders;
+                    if (remainingSpare > 0) takeFolders += Math.min(remainingSpare, folderItems.length - takeFolders);
+                }
+            }
 
             this.items = [
                 ...activeOption,
-                ...filtered.map((f) => ({ label: f.basename, sub: f.path, onSelect: makeFileOnSelect(f) })),
+                ...fileItems.slice(0, takeFiles),
+                ...folderItems.slice(0, takeFolders),
             ];
             if (this.items.length === 0) { this.hide(); return; }
             this.selectedIndex = 0;
@@ -96,6 +180,78 @@ export class AutocompleteHandler {
         }
 
         this.hide();
+    }
+
+    /**
+     * FEAT-02-11: build the folder rows for the @ autocomplete. Emits one row
+     * per matching folder (recursive), plus a second row per folder that has
+     * sub-folders (top-level only). Rows are ranked after files by the caller.
+     */
+    private buildFolderItems(
+        query: string,
+        atIdx: number,
+        queryLen: number,
+        value: string,
+    ): AutocompleteItem[] {
+        const allFolders: TFolder[] = this.app.vault.getAllLoadedFiles()
+            .filter((f): f is TFolder => f instanceof TFolderCtor);
+        // Rank folders by match quality then path length. This is the fix for
+        // the "parent folder disappears" bug the user hit with
+        // `Schreibtische/Acme Cowork` vs `Schreibtische/Acme Cowork/Insights`:
+        // a shorter path (parent) now always outranks a sub-folder for the
+        // same substring hit, and the parent survives the popup slot cap.
+        const matches = allFolders
+            .map((f) => ({ f, rank: matchRank(f.name, f.path, query) }))
+            .filter((r) => r.f.path && r.rank < 99)
+            .sort((a, b) => a.rank - b.rank || a.f.path.length - b.f.path.length)
+            .map((r) => r.f);
+
+        const items: AutocompleteItem[] = [];
+        for (const fld of matches) {
+            const fileChildren = (fld.children ?? []).filter((c): c is TFile => c instanceof TFileCtor);
+            const hasSubfolders = (fld.children ?? []).some((c) => c instanceof TFolderCtor);
+            const shortName = fld.name || fld.path;
+
+            const makeFolderOnSelect = (recursive: boolean) => async () => {
+                const ta = this.getTextarea();
+                if (!ta) return;
+                const inlineRef = `@${shortName}`;
+                const before = value.slice(0, atIdx);
+                const after = value.slice(atIdx + 1 + queryLen);
+                const needsTrailingSpace = after.length === 0 || !after.startsWith(' ');
+                const replacement = `${inlineRef}${needsTrailingSpace ? ' ' : ''}`;
+                ta.value = before + replacement + after;
+                const newCursor = (before + replacement).length;
+                ta.setSelectionRange(newCursor, newCursor);
+                this.hide();
+                await this.addVaultFolder(fld, { recursive });
+                ta.focus();
+            };
+
+            items.push({
+                label: `${shortName}/`,
+                sub: t('ui.sidebar.autocompleteFolderRecursive', {
+                    path: fld.path,
+                    count: String(fileChildren.length),
+                }),
+                tag: t('ui.sidebar.autocompleteFolderTag'),
+                tagVariant: 'folder' as const,
+                onSelect: makeFolderOnSelect(true),
+            });
+            if (hasSubfolders) {
+                items.push({
+                    label: `${shortName}/`,
+                    sub: t('ui.sidebar.autocompleteFolderTopLevel', {
+                        path: fld.path,
+                        count: String(fileChildren.length),
+                    }),
+                    tag: t('ui.sidebar.autocompleteFolderTag'),
+                    tagVariant: 'folder' as const,
+                    onSelect: makeFolderOnSelect(false),
+                });
+            }
+        }
+        return items;
     }
 
     private async buildPrefixItems(prefix: string, query: string, value: string): Promise<AutocompleteItem[]> {
@@ -214,12 +370,20 @@ export class AutocompleteHandler {
 
         this.dropdownEl.empty();
         this.items.forEach((item, idx) => {
+            // FEAT-02-11: two-line layout so the file/folder name is legible
+            // even when the path is long. Top row: name (bold) + tag pill.
+            // Bottom row: path in a smaller muted line, wrapping under both
+            // above elements.
             const row = this.dropdownEl!.createDiv({
                 cls: `autocomplete-item${idx === this.selectedIndex ? ' active' : ''}`,
             });
-            row.createSpan({ cls: 'autocomplete-label', text: item.label });
-            if (item.tag) row.createSpan({ cls: 'autocomplete-tag', text: item.tag });
-            if (item.sub) row.createSpan({ cls: 'autocomplete-sub', text: item.sub });
+            const topRow = row.createDiv('autocomplete-top');
+            topRow.createSpan({ cls: 'autocomplete-label', text: item.label });
+            if (item.tag) {
+                const variantCls = item.tagVariant ? ` tag-${item.tagVariant}` : '';
+                topRow.createSpan({ cls: `autocomplete-tag${variantCls}`, text: item.tag });
+            }
+            if (item.sub) row.createDiv({ cls: 'autocomplete-sub', text: item.sub });
             row.addEventListener('mousedown', (e) => {
                 e.preventDefault();
                 item.onSelect();

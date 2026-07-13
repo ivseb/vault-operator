@@ -29,6 +29,12 @@ class DynamicTool extends BaseTool {
     ) {
         super(plugin);
         this.name = definition.name as ToolName;
+        // ADR-153: this self-report from the skill's source now only drives
+        // checkpoints and cache. It is irrelevant for approval: every custom_*
+        // tool runs sandboxed code with a vault.write bridge and is pinned to
+        // 'sandbox' in toolEffects.ts. Before, a skill dropped into the vault
+        // could declare `false` here (or omit the field) and thereby get a tool
+        // with no approval gate at all.
         this.isWriteOperation = definition.isWriteOperation ?? false;
     }
 

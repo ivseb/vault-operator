@@ -23,6 +23,7 @@ import type { ModeConfig, CustomModel } from '../types/settings';
 import type { McpClient } from './mcp/McpClient';
 import { BUILT_IN_MODES } from './modes/builtinModes';
 import { TOOL_METADATA } from './tools/toolMetadata';
+import { PROGRESSIVE_DISCLOSURE_META_TOOLS } from './tools/toolEffects';
 import { sanitizeAndLog } from './utils/sanitizeHistoryForApi';
 import { logInputBreakdown } from './utils/logInputBreakdown';
 import { microcompactToolResults, shouldDeferMicrocompact } from './context/MicroCompactor';
@@ -141,7 +142,11 @@ export interface AgentTaskCallbacks {
     /** Called when ask_followup_question is invoked — pauses loop until resolved */
     onQuestion?: (question: string, options: string[] | undefined, resolve: (answer: string) => void, allowMultiple?: boolean) => void;
     /** Called when a write tool needs user approval — pauses loop until user decides */
-    onApprovalRequired?: (toolName: string, input: Record<string, unknown>) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
+    onApprovalRequired?: (
+        toolName: string,
+        input: Record<string, unknown>,
+        preview?: import('./tools/editPreview').EditPreview,
+    ) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
     /**
      * Called when a tool needs an optional asset (office bundle, pdfjs
      * bundle, reranker WASM, ...) that is not installed. Renders an
@@ -284,6 +289,12 @@ export interface AgentTaskRunConfig {
      * Used only by spawnSubtask when `new_task` was called with `profile='...'`.
      */
     subagentAllowedTools?: ToolName[];
+    /**
+     * FEAT-44-02: the parent run's approved-effects set, shared so "for the rest
+     * of this run" survives into a subtask / invoked skill. The child pipeline
+     * adopts this exact Set; alwaysAsk effects can never be in it.
+     */
+    parentRunApprovedEffects?: Set<import('./tools/toolEffects').ToolEffect>;
     /**
      * FEAT-32-01 PR 1.3 / ADR-131: pre-computed recipe matches for the user
      * message. When set, AgentTask uses these instead of calling
@@ -613,6 +624,17 @@ export class AgentTask {
         // pipeline rejects hallucinated dispatches outside the profile.
         // Top-level tasks pass undefined and keep the legacy behaviour.
         pipeline.setSubagentAllowedTools(subagentAllowedTools);
+        // FIX-44-29: bind the mode service so the AUDIT-034 M-9 runtime mode gate
+        // actually runs. Without this it was dead (only tests ever set it), so a
+        // restricted Custom Agent could still call any tool. The default 'agent'
+        // mode includes every group, so unrestricted runs are unaffected; dynamic
+        // custom_* skill tools are exempted inside the gate.
+        if (this.modeService) pipeline.setModeService(this.modeService);
+        // FEAT-44-02: adopt the parent run's approved-effects set so a
+        // "for this run" grant is honoured inside subtasks and invoked skills.
+        if (config.parentRunApprovedEffects) {
+            pipeline.setRunApprovedEffects(config.parentRunApprovedEffects);
+        }
 
         // FIX-H/I (ADR-090 follow-up): set of files read during this task.
         // Declared early so FastPath (which runs before the main loop) can
@@ -729,6 +751,13 @@ export class AgentTask {
                     // complete. Iteration 0 marks pre-loop dispatches.
                     (tool, input, summary) =>
                         repetitionDetector.recordForEpisodeOnly(tool, input, summary, 0),
+                    // FIX-44-33: forward the approval + checkpoint callbacks so a
+                    // recipe step that is not auto-approved asks the user instead
+                    // of being silently denied.
+                    {
+                        onApprovalRequired: this.taskCallbacks.onApprovalRequired,
+                        onCheckpoint: this.taskCallbacks.onCheckpoint,
+                    },
                 );
             },
         });
@@ -906,9 +935,12 @@ export class AgentTask {
                     // bubble through the pipeline.
                     onApprovalRequired: this.taskCallbacks.onApprovalRequired === undefined
                         ? undefined
-                        : async (toolName, input) => {
+                        : async (toolName, input, preview) => {
                             try {
-                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input);
+                                // FEAT-44-10: the diff must survive the hop into a
+                                // subtask, otherwise a skill's edits are approved
+                                // blind while the parent's are not.
+                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input, preview);
                                 return result ?? { decision: 'rejected' };
                             } catch (e) {
                                 console.warn('[AgentTask] subtask approval callback threw, failing closed:', e);
@@ -953,6 +985,8 @@ export class AgentTask {
                 pluginSkillsSection: profile ? undefined : pluginSkillsSection,
                 subagentRoleOverride: profile?.roleDefinition,
                 subagentAllowedTools: effectiveAllowedTools,
+                // FEAT-44-02: share the parent's run-scope grants with the child.
+                parentRunApprovedEffects: pipeline.getRunApprovedEffects(),
                 configDir,
             });
             return childText;
@@ -1045,14 +1079,14 @@ export class AgentTask {
             // disabling the meta-tools would silently disable progressive
             // disclosure for the whole task.
             const allFromRegistry = this.toolRegistry.getToolDefinitions();
-            for (const name of ['find_tool', 'read_skill'] as const) {
+            for (const name of PROGRESSIVE_DISCLOSURE_META_TOOLS) {
                 if (cachedTools.some((t) => t.name === name)) continue;
                 const def = allFromRegistry.find((t) => t.name === name);
                 if (!def) continue;
                 // Respect subagent profile allowlists explicitly: if the profile
                 // chose to exclude a meta-tool, do not override.
                 if (subagentAllowedTools && subagentAllowedTools.length > 0
-                    && !subagentAllowedTools.includes(name)) continue;
+                    && !subagentAllowedTools.includes(name as ToolName)) continue;
                 cachedTools.push(def);
             }
 

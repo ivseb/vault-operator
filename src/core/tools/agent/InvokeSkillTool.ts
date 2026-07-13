@@ -242,7 +242,13 @@ export class InvokeSkillTool extends BaseTool<'invoke_skill'> {
             // tool set so an imported skill cannot escalate beyond the host.
             // AUDIT-034 L-17.
             const allowedTools = this.resolveAllowedTools(skill, isImported, context.mode);
-            const subResult = await spawnSubtask('agent', message, undefined, {
+            // FIX-44-30: the sub-skill inherits the active mode instead of always
+            // running as the unrestricted 'agent'. With the runtime mode gate now
+            // bound (FIX-44-29), a skill invoked from a restricted Custom Agent can
+            // no longer escape that mode's tool restrictions. Falls back to 'agent'
+            // for callers with no mode in context.
+            const subMode = context.mode || 'agent';
+            const subResult = await spawnSubtask(subMode, message, undefined, {
                 maxIterations,
                 allowedTools,
             });

@@ -14,6 +14,8 @@ import type ObsidianAgentPlugin from '../../main';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import { atomicAdapterWrite, atomicAdapterWriteBinary } from '../utils/atomicAdapterWrite';
 import { followAllowlistedRedirects, type HopResponse } from './redirectGuard';
+import { getInternalAgentFolderPath, DEFAULT_AGENT_FOLDER } from '../utils/agentFolder';
+import { isProtectedAgentConfigPath } from '../governance/agentFolderGuard';
 
 // ---------------------------------------------------------------------------
 // SandboxBridge
@@ -45,6 +47,38 @@ export class SandboxBridge {
     ];
 
     constructor(private plugin: ObsidianAgentPlugin) {}
+
+    // FIX-44-04: the task whose approval let this script run. Set by the sandbox
+    // tools before execution so every bridge write can snapshot a checkpoint
+    // under the right task, and cleared afterwards. Undefined means "no task in
+    // scope" -- e.g. a bare unit test -- in which case writes are not snapshotted.
+    private governanceTaskId?: string;
+    // FIX-44-04 concurrency: this bridge is a warm singleton shared by every
+    // task. If two task loops run sandbox scripts that overlap (multiple sidebar
+    // leaves, a background job over a foreground run), a naive set/clear-to-
+    // undefined would let one script's finally null the context out from under
+    // the other -- its next write would then go un-snapshotted (unrecoverable).
+    // Reference-count instead: the context stays bound while ANY execution is
+    // active, so no in-flight write is ever left without a checkpoint task.
+    private governanceDepth = 0;
+
+    /**
+     * FIX-44-04: bind (or release) the governance context for the current run.
+     * The sandbox tools call this with `context.taskId` right before executing a
+     * script and with `undefined` in their finally block. Without it, sandbox
+     * writes would be the one write path in the plugin with no recovery snapshot.
+     */
+    setGovernanceContext(taskId: string | undefined): void {
+        if (taskId) {
+            this.governanceTaskId = taskId;
+            this.governanceDepth++;
+        } else if (this.governanceDepth > 0) {
+            this.governanceDepth--;
+            // Only drop the id once the LAST active execution has released, so an
+            // overlapping script never loses its checkpoint task mid-run.
+            if (this.governanceDepth === 0) this.governanceTaskId = undefined;
+        }
+    }
 
     async vaultRead(path: string): Promise<string> {
         this.checkCircuitBreaker();
@@ -153,6 +187,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.length} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
+        await this.snapshotBeforeWrite(path);
         this.logBridgeOp('vault-write', `${path} (${content.length} chars)`);
         // FEAT-29-05: adapter.write for hidden folders (Vault.create skips them).
         // FIX-01-07-04 parity: atomic temp+rename so a skill bug or crash
@@ -207,6 +242,7 @@ export class SandboxBridge {
             throw new Error(`Write too large: ${content.byteLength} bytes (max ${SandboxBridge.MAX_WRITE_SIZE})`);
         }
         this.checkWriteRateLimit();
+        await this.snapshotBeforeWrite(path);
         this.logBridgeOp('vault-write-binary', `${path} (${content.byteLength} bytes)`);
         if (this.isHiddenPath(path)) {
             // FIX-01-07-04 parity: see vaultWrite above.
@@ -439,6 +475,82 @@ export class SandboxBridge {
         const configDir = this.plugin.app.vault.configDir;
         if (safe.startsWith(`${configDir}/`) || safe === configDir) {
             throw new Error(`Sandbox ${isWrite ? 'write' : 'read'} blocked: ${configDir}/ is protected`);
+        }
+
+        // FIX-44-22 / FIX-44-24: the agent's own data root holds the security
+        // knobs -- settings.json (autoApproval flags, provider apiKeys), the MCP
+        // config, and the skill definitions whose `source: pro` decides trust.
+        // configDir (.obsidian) was a deny-zone; .vault-operator/ was not, so a
+        // sandboxed script could grant itself every permission or forge a paid
+        // skill. Close it: inside the agent folder the sandbox may only touch
+        // skill-data/ (its own runtime state), and may READ (not write) skills/.
+        this.checkAgentFolderAccess(safe, isWrite);
+
+        // FIX-44-04: obey the same IgnoreService the vault tools obey. Ignored
+        // paths are off-limits entirely; protected paths are read-only. Without
+        // this, .obsidian-agentprotected meant nothing to sandbox code.
+        const ignore = this.plugin.ignoreService;
+        if (ignore) {
+            if (ignore.isIgnored(safe)) {
+                throw new Error(`Sandbox blocked: ${ignore.getDenialReason(safe)}`);
+            }
+            if (isWrite && ignore.isProtected(safe)) {
+                throw new Error(`Sandbox write blocked: ${ignore.getDenialReason(safe)}`);
+            }
+        }
+    }
+
+    /**
+     * FIX-44-22: enforce the agent-folder deny-zone.
+     *
+     * The agent folder holds the security-critical configuration -- settings.json
+     * (autoApproval flags, provider apiKeys), the MCP config, and the cache. A
+     * sandboxed script could write settings.json and grant itself every
+     * auto-approval flag; configDir was blocked, this root was not. Close it.
+     *
+     * The two exceptions are the skill workspace, which legitimately belongs to
+     * the sandbox:
+     *   - `skills/`     -- the skill-creator's `init_skill` script writes SKILL.md
+     *                      and scripts here. It is NOT a trust hole: a skill's
+     *                      trust class comes from the materializer manifest, not
+     *                      from its frontmatter (resolveSkillSource, FIX-44-05),
+     *                      so a script-authored skill is always `user`.
+     *   - `skill-data/` -- a skill's own persistent runtime state.
+     * Everything else under the agent folder (settings.json, mcp config, provider
+     * configs, cache) is denied for both read and write.
+     */
+    private checkAgentFolderAccess(safe: string, isWrite: boolean): void {
+        let root: string;
+        try {
+            root = getInternalAgentFolderPath(this.plugin);
+        } catch {
+            // No settings in scope (e.g. a bare unit test): fall back to the
+            // default folder name so the deny-zone still applies fail-safe.
+            root = DEFAULT_AGENT_FOLDER;
+        }
+        if (!isProtectedAgentConfigPath(safe, root)) return;
+
+        throw new Error(
+            `Sandbox ${isWrite ? 'write' : 'read'} blocked: ${root}/ is protected ` +
+            `(agent configuration: settings, credentials, cache). ` +
+            `Only skills/ and skill-data/ are accessible.`,
+        );
+    }
+
+    /**
+     * FIX-44-04: snapshot the target before a sandbox write, so a bad script is
+     * recoverable via restore_checkpoint just like a bad tool write. No-op when
+     * no task is bound (setGovernanceContext was not called) or checkpoints are
+     * off. Never throws -- a failed snapshot must not block the write path.
+     */
+    private async snapshotBeforeWrite(path: string): Promise<void> {
+        const taskId = this.governanceTaskId;
+        if (!taskId) return;
+        if (this.plugin.settings?.enableCheckpoints === false) return;
+        try {
+            await this.plugin.checkpointService?.snapshot(taskId, [path], 'sandbox:write');
+        } catch (e) {
+            console.warn('[SandboxBridge] Checkpoint failed (non-fatal):', e);
         }
     }
 

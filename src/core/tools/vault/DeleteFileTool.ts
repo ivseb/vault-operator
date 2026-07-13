@@ -1,8 +1,9 @@
-import { TFolder } from 'obsidian';
+import { TFile, TFolder } from 'obsidian';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { assertSafeVaultPath } from './vaultPathGuard';
+import type { EditPreview } from '../editPreview';
 
 export class DeleteFileTool extends BaseTool<'delete_file'> {
     readonly name = 'delete_file' as const;
@@ -28,6 +29,37 @@ export class DeleteFileTool extends BaseTool<'delete_file'> {
                 required: ['path'],
             },
         };
+    }
+
+    /**
+     * FEAT-44-10: show WHAT is about to be thrown away, before it is.
+     *
+     * A delete is the most destructive thing the agent can do, and it was the one
+     * approval that showed the least: a card with a tool name and a path. Now the
+     * gate renders the full content of the doomed note as a deletion diff, so the
+     * user approves the loss with their eyes open.
+     *
+     * Folders return null (they only ever get here when empty -- the tool refuses
+     * non-empty ones -- so there is no content to show). The plain card covers it.
+     */
+    async previewEdit(input: Record<string, unknown>): Promise<EditPreview | null> {
+        try {
+            const path = typeof input['path'] === 'string' ? input['path'] : '';
+            if (!path) return null;
+            assertSafeVaultPath(path, { paramName: 'path' });
+
+            const item = this.app.vault.getAbstractFileByPath(path);
+            if (!(item instanceof TFile)) return null;
+
+            return {
+                path,
+                before: await this.app.vault.read(item),
+                after: '',
+                isDeleted: true,
+            };
+        } catch {
+            return null;
+        }
     }
 
     async execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void> {

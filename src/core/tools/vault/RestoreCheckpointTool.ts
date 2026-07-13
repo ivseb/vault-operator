@@ -20,6 +20,7 @@
  */
 
 import { TFile } from 'obsidian';
+import { refreshOpenMarkdownViewsFor } from '../../utils/refreshMarkdownView';
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
@@ -151,6 +152,13 @@ export class RestoreCheckpointTool extends BaseTool<'restore_checkpoint'> {
             const existing = this.app.vault.getAbstractFileByPath(path as string);
             if (existing instanceof TFile) {
                 await this.app.vault.modify(existing, content);
+                // FIX-44-11 (FIX-01-07-03 parity): the note is very likely OPEN --
+                // skills call open_note right after writing. Without this push the
+                // stale CodeMirror buffer saves itself back over the restore on the
+                // next sync: the disk is correct, the user sees the old content, and
+                // the tool has just reported success. A restore that does not survive
+                // an open editor is not a restore.
+                await refreshOpenMarkdownViewsFor(this.app, existing, content);
             } else {
                 await this.app.vault.adapter.write(path as string, content);
             }
