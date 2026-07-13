@@ -1705,6 +1705,7 @@ export const en = {
     'ui.sidebar.modelPickerTitle': '{{provider}} models',
     'ui.sidebar.modelPickerSearch': 'Filter models…',
     'ui.sidebar.modelPickerNoModels': 'No discovered models yet; open settings, then providers, then refresh.',
+    'ui.sidebar.modelPickerManual': 'Manual',
 
     // Issue #44 -- per-conversation extended-thinking override
     'ui.sidebar.thinkingOverrideLabel': 'Thinking',

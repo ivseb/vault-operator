@@ -19,6 +19,7 @@ import type { DiscoveredModel, ProviderConfig } from '../../types/settings';
 import { getTierBadgeLabel } from '../../types/settings';
 import type { EffortLevel } from '../../types/model-registry';
 import { t } from '../../i18n';
+import { buildChatModelPickerRows } from './chatModelDropdown';
 import type { ThinkingOverride } from './thinkingOverride';
 import type { EffortOverride } from './effortOverride';
 import {
@@ -141,11 +142,13 @@ export class ChatModelPickerPopover {
             this.close();
         });
 
-        // Model rows
-        const models = provider.discoveredModels ?? [];
+        // Model rows. FIX-55-01 (issue #55): rows come from the merge helper
+        // so manually typed tier-override ids (providers without a model
+        // listing endpoint) are visible and pinnable like discovered models.
+        const pickerRows = buildChatModelPickerRows(provider);
         const modelRows: Array<{ row: HTMLElement; needle: string }> = [];
-        for (const m of models) {
-            const row = this.makeModelRow(scrollEl, m, current);
+        for (const { model: m, manual } of pickerRows) {
+            const row = this.makeModelRow(scrollEl, m, current, manual);
             row.addEventListener('click', () => {
                 callbacks.onSelect(m.id);
                 this.close();
@@ -154,12 +157,13 @@ export class ChatModelPickerPopover {
                 m.id,
                 m.displayName ?? '',
                 m.autoTier ?? '',
+                manual ? t('ui.sidebar.modelPickerManual') : '',
             ].join(' ').toLowerCase();
             modelRows.push({ row, needle });
         }
 
         // Empty-state hint when the provider has no discovered models yet
-        if (models.length === 0) {
+        if (pickerRows.length === 0) {
             scrollEl.createDiv({
                 cls: 'tp-empty-hint',
                 text: t('ui.sidebar.modelPickerNoModels'),
@@ -275,7 +279,12 @@ export class ChatModelPickerPopover {
         return row;
     }
 
-    private makeModelRow(scrollEl: HTMLElement, m: DiscoveredModel, currentOverride: string | null): HTMLElement {
+    private makeModelRow(
+        scrollEl: HTMLElement,
+        m: DiscoveredModel,
+        currentOverride: string | null,
+        manual = false,
+    ): HTMLElement {
         const row = scrollEl.createDiv({ cls: 'tp-item-row chat-model-picker-row' });
         const labelWrap = row.createDiv('tp-item-label-wrap');
         const labelLine = labelWrap.createDiv('tp-item-label');
@@ -286,6 +295,16 @@ export class ChatModelPickerPopover {
                 text: getTierBadgeLabel(m.autoTier),
             });
             tier.setAttr('aria-label', `tier: ${getTierBadgeLabel(m.autoTier)}`);
+        }
+        if (manual) {
+            // FIX-55-01: a manually typed tier-override id that discovery does
+            // not know. The badge tells the user why the entry has no tier or
+            // display-name metadata.
+            const badge = labelLine.createSpan({
+                cls: 'chat-model-picker-tier chat-model-picker-manual-badge',
+                text: t('ui.sidebar.modelPickerManual'),
+            });
+            badge.setAttr('aria-label', t('ui.sidebar.modelPickerManual'));
         }
         if (m.displayName && m.displayName !== m.id) {
             labelWrap.createDiv({ cls: 'tp-item-desc', text: m.id });

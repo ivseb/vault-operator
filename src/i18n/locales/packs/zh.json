@@ -1437,6 +1437,7 @@
   "ui.sidebar.modelPickerTitle": "{{provider}} 模型",
   "ui.sidebar.modelPickerSearch": "筛选模型…",
   "ui.sidebar.modelPickerNoModels": "尚未发现任何模型；请打开设置，进入 Provider 页面并刷新。",
+  "ui.sidebar.modelPickerManual": "手动",
   "ui.sidebar.thinkingOverrideLabel": "思考",
   "ui.sidebar.thinkingOverrideFollow": "跟随模型",
   "ui.sidebar.thinkingOverrideOn": "开",

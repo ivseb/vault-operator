@@ -1437,6 +1437,7 @@
   "ui.sidebar.modelPickerTitle": "Модели {{provider}}",
   "ui.sidebar.modelPickerSearch": "Фильтр моделей…",
   "ui.sidebar.modelPickerNoModels": "Модели пока не обнаружены; откройте настройки, затем провайдеров и нажмите «Обновить».",
+  "ui.sidebar.modelPickerManual": "Вручную",
   "ui.sidebar.thinkingOverrideLabel": "Размышление",
   "ui.sidebar.thinkingOverrideFollow": "Как у модели",
   "ui.sidebar.thinkingOverrideOn": "Вкл",

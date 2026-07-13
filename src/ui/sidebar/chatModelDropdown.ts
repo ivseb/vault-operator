@@ -14,7 +14,7 @@
  * tier slot is empty. The caller renders that as a subtitle hint.
  */
 
-import type { DiscoveredModel, ProviderConfig } from '../../types/settings';
+import type { DiscoveredModel, ModelTier, ProviderConfig } from '../../types/settings';
 
 export type ChatModelDropdownOption =
     | { id: 'auto'; label: string; kind: 'auto'; advisorDisabled: boolean }
@@ -58,15 +58,61 @@ export function buildChatModelDropdownOptions(input: BuildOptionsInput): ChatMod
 }
 
 /**
+ * One row of the chat model picker. `manual: true` marks an id the user
+ * typed into a tier slot (provider.tierOverrides) that discovery does not
+ * know; the picker renders those with a small "manual" badge.
+ */
+export interface ChatModelPickerRow {
+    model: DiscoveredModel;
+    manual: boolean;
+}
+
+/** Fixed iteration order so manual rows render deterministically. */
+const TIER_MERGE_ORDER: ModelTier[] = ['flagship', 'mid', 'fast'];
+
+/**
+ * FIX-55-01 (issue #55): build the picker row list by merging the provider's
+ * discoveredModels with any tierOverrides ids that discovery does not know.
+ * Manually typed ids (ChatGPT OAuth / custom endpoints without a model
+ * listing) were previously saved but invisible: the picker read only
+ * discoveredModels, so the user could never see or pin them. Deduped: an id
+ * that later shows up in discovery keeps its discovered entry (with
+ * displayName/tier metadata) and loses the manual flag.
+ */
+export function buildChatModelPickerRows(provider: ProviderConfig): ChatModelPickerRow[] {
+    const discovered = provider.discoveredModels ?? [];
+    const rows: ChatModelPickerRow[] = discovered.map((m) => ({ model: m, manual: false }));
+    const seen = new Set(discovered.map((m) => m.id));
+    for (const tier of TIER_MERGE_ORDER) {
+        const id = (provider.tierOverrides?.[tier] ?? '').trim();
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        rows.push({ model: { id }, manual: true });
+    }
+    return rows;
+}
+
+/**
  * Helper: locate the discovered model entry for the current override id.
  * Returns null when override is 'auto' or the id is unknown.
+ *
+ * FIX-55-01: a manually typed tier-override id is a valid pin target even
+ * though it never appears in discoveredModels (providers without a listing
+ * endpoint). It resolves to a synthetic entry carrying just the id, so the
+ * send-time handler build, the sticky restore (issue #54.3) and the effort
+ * lookup all treat it like any discovered model.
  */
 export function resolveOverrideModel(
     provider: ProviderConfig | null,
     overrideId: string | null,
 ): DiscoveredModel | null {
     if (!provider || !overrideId || overrideId === 'auto') return null;
-    return (provider.discoveredModels ?? []).find((m) => m.id === overrideId) ?? null;
+    const found = (provider.discoveredModels ?? []).find((m) => m.id === overrideId);
+    if (found) return found;
+    const isManualOverride = TIER_MERGE_ORDER.some(
+        (tier) => (provider.tierOverrides?.[tier] ?? '').trim() === overrideId,
+    );
+    return isManualOverride ? { id: overrideId } : null;
 }
 
 /**

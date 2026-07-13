@@ -6255,6 +6255,11 @@
 .chat-model-picker-tier-fast     { background: #5c6bc0; }
 .chat-model-picker-tier-mid      { background: #2e7d32; }
 .chat-model-picker-tier-flagship { background: #c27c4a; }
+/* FIX-55-01: badge for manually typed tier-override ids (issue #55) */
+.chat-model-picker-manual-badge {
+    background: var(--background-modifier-border);
+    color: var(--text-muted);
+}
 
 .chat-model-picker-auto {
     border-bottom: 1px solid var(--background-modifier-border);

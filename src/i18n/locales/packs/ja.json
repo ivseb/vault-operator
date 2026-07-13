@@ -1437,6 +1437,7 @@
   "ui.sidebar.modelPickerTitle": "{{provider}}のモデル",
   "ui.sidebar.modelPickerSearch": "モデルを絞り込み…",
   "ui.sidebar.modelPickerNoModels": "検出されたモデルがまだありません。設定を開き、Providerで更新してください。",
+  "ui.sidebar.modelPickerManual": "手動",
   "ui.sidebar.thinkingOverrideLabel": "思考",
   "ui.sidebar.thinkingOverrideFollow": "モデルに従う",
   "ui.sidebar.thinkingOverrideOn": "オン",

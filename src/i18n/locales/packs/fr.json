@@ -1437,6 +1437,7 @@
   "ui.sidebar.modelPickerTitle": "Modèles {{provider}}",
   "ui.sidebar.modelPickerSearch": "Filtrer les modèles…",
   "ui.sidebar.modelPickerNoModels": "Aucun modèle découvert pour l'instant; ouvrez les réglages, puis les providers, puis actualisez.",
+  "ui.sidebar.modelPickerManual": "Manuel",
   "ui.sidebar.thinkingOverrideLabel": "Réflexion",
   "ui.sidebar.thinkingOverrideFollow": "Suivre le modèle",
   "ui.sidebar.thinkingOverrideOn": "Activé",
