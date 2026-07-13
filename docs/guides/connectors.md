@@ -105,7 +105,34 @@ Claude Desktop now sees the vault, memory, and history as available tool sources
 
 1. Same relay URL as ChatGPT.
 2. Add it as an MCP server in Perplexity's connector settings.
-3. Authorize.
+3. Set **Transport: Streamable HTTP** and **Auth: None**. The token is already part of the relay URL. Perplexity's OAuth and API-key auth modes do not work with the relay (it answers OAuth discovery probes with a clean 404).
+
+#### Remote client support matrix
+
+| Client | Status | Notes |
+|--------|--------|-------|
+| claude.ai | Supported | Streamable HTTP |
+| Claude Desktop | Supported | Local connector (config file) or relay URL |
+| ChatGPT | Supported | Custom connector with the relay URL |
+| Perplexity | Supported with constraints | Transport = Streamable HTTP and Auth = None only. The SSE transport option is not supported by the relay. Perplexity enforces a hard 15 second fetch timeout, which the relay meets via long-polling. |
+
+:::warning Redeploy the relay after plugin updates
+The relay worker code ships inside the plugin and only reaches Cloudflare when you deploy it. After updating Vault Operator, redeploy the relay from **Settings > Vault Operator > Customize > Connectors > Remote access** so worker-side fixes (long-polling, error handling) take effect. An outdated worker still works with the plugin, but keeps the old latency and error behavior.
+:::
+
+#### Troubleshooting a remote connection
+
+Check the relay's health endpoint first: open `https://<your-worker>.workers.dev/health` (the plain `/health` path, without your token). It reports both relay and plugin liveness:
+
+```json
+{ "status": "ok", "relay": "obsilo", "plugin": { "connected": true, "lastPollAgeMs": 1250 } }
+```
+
+- `plugin.connected: false` or a large `lastPollAgeMs`: the relay is up but your Obsidian instance is not polling. Make sure Obsidian is running and remote access is enabled. Clients get a fast "Vault Operator not connected" error in this state.
+- `plugin.connected: true` but the client still fails: the problem is on the client side. For Perplexity, verify Transport = Streamable HTTP and Auth = None.
+- HTML error page instead of JSON: your deployed worker predates the current plugin version. Redeploy the relay from plugin settings.
+
+Do not judge the connection by opening the tokenized MCP URL in a browser; a browser GET does not exercise the MCP handshake and its result is misleading.
 
 :::warning Write access
 The write tier lets external clients modify your vault. Enable per-surface write access only for clients you trust with file-level access. The read and history tiers are safe for everyday use.
