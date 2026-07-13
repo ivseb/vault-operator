@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "할당되지 않음",
   "settings.providers.tier.differentTier": "다른 티어",
   "settings.providers.tier.manualOption": "모델 ID 직접 입력...",
-  "settings.providers.tier.manualPlaceholder": "예: gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "예: gpt-5.6",
   "settings.providers.tier.manualBack": "목록 사용",
   "settings.providers.modal.title": "{{name}} 구성",
   "settings.providers.modal.titleNew": "Provider 추가",

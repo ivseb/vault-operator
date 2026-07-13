@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "Не назначено",
   "settings.providers.tier.differentTier": "Другой уровень",
   "settings.providers.tier.manualOption": "Ввести ID модели вручную...",
-  "settings.providers.tier.manualPlaceholder": "Пример: gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "Пример: gpt-5.6",
   "settings.providers.tier.manualBack": "Использовать список",
   "settings.providers.modal.title": "Настроить {{name}}",
   "settings.providers.modal.titleNew": "Добавить провайдера",

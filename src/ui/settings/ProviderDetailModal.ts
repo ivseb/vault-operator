@@ -35,6 +35,7 @@ import { isOpenAIChatCompletionModel } from './testModelConnection';
 import { t } from '../../i18n';
 import { openInfoPopover } from './utils';
 import {
+    MANUAL_TIER_INPUT_CLS,
     MANUAL_TIER_OPTION_VALUE,
     providerSupportsManualModelId,
     resolveTierSlotView,
@@ -1139,8 +1140,10 @@ export class ProviderDetailModal extends Modal {
      * error surfaces if the id is wrong.
      */
     private renderManualTierControl(parent: HTMLElement, tier: ModelTier, value: string): void {
+        // FIX-55-02 (issue #55): no 'dropdown' class here -- Obsidian styles
+        // it for <select> elements and breaks a text input visually.
         const input = parent.createEl('input', {
-            cls: 'dropdown mcm-tier-dropdown mcm-tier-manual-input',
+            cls: MANUAL_TIER_INPUT_CLS,
             attr: { type: 'text' },
         });
         input.value = value;

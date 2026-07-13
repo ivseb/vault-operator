@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "Nicht zugewiesen",
   "settings.providers.tier.differentTier": "Anderes Tier",
   "settings.providers.tier.manualOption": "Modell-ID manuell eingeben...",
-  "settings.providers.tier.manualPlaceholder": "Beispiel: gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "Beispiel: gpt-5.6",
   "settings.providers.tier.manualBack": "Liste verwenden",
   "settings.providers.modal.title": "{{name}} konfigurieren",
   "settings.providers.modal.titleNew": "Provider hinzufügen",

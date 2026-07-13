@@ -1664,7 +1664,7 @@ export const en = {
     'settings.providers.tier.empty': 'Not assigned',
     'settings.providers.tier.differentTier': 'Different tier',
     'settings.providers.tier.manualOption': 'Enter model ID manually...',
-    'settings.providers.tier.manualPlaceholder': 'Example: gpt-5.3-codex',
+    'settings.providers.tier.manualPlaceholder': 'Example: gpt-5.6',
     'settings.providers.tier.manualBack': 'Use list',
     'settings.providers.modal.title': 'Configure {{name}}',
     'settings.providers.modal.titleNew': 'Add provider',

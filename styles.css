@@ -2562,6 +2562,19 @@
     padding: 2px 8px;
     cursor: pointer;
 }
+/* FIX-55-02 (issue #55): free-text model-id input. Text-input look, same
+   width as the tier dropdowns. Previously carried the 'dropdown' class,
+   which Obsidian styles for <select> elements and which breaks an input. */
+.provider-detail-modal .mcm-tier-manual-input {
+    width: 100%;
+    max-width: 320px;
+    font-size: 12px;
+    padding: 4px 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--input-radius, 5px);
+    background: var(--background-primary);
+    color: var(--text-normal);
+}
 
 /* EPIC-26 / FEAT-26-03 -- section header inside .mcm-form */
 .mcm-section {

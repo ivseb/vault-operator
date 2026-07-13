@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "未割り当て",
   "settings.providers.tier.differentTier": "別のティア",
   "settings.providers.tier.manualOption": "モデルIDを手動入力...",
-  "settings.providers.tier.manualPlaceholder": "例: gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "例: gpt-5.6",
   "settings.providers.tier.manualBack": "一覧を使用",
   "settings.providers.modal.title": "{{name}}を設定",
   "settings.providers.modal.titleNew": "Providerを追加",

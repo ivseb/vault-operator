@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "未指派",
   "settings.providers.tier.differentTier": "其他層級",
   "settings.providers.tier.manualOption": "手動輸入模型 ID...",
-  "settings.providers.tier.manualPlaceholder": "範例：gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "範例：gpt-5.6",
   "settings.providers.tier.manualBack": "使用清單",
   "settings.providers.modal.title": "設定 {{name}}",
   "settings.providers.modal.titleNew": "新增 Provider",

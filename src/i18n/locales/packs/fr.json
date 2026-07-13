@@ -1398,7 +1398,7 @@
   "settings.providers.tier.empty": "Non assigné",
   "settings.providers.tier.differentTier": "Autre tier",
   "settings.providers.tier.manualOption": "Saisir l'ID du modèle manuellement...",
-  "settings.providers.tier.manualPlaceholder": "Exemple: gpt-5.3-codex",
+  "settings.providers.tier.manualPlaceholder": "Exemple: gpt-5.6",
   "settings.providers.tier.manualBack": "Utiliser la liste",
   "settings.providers.modal.title": "Configurer {{name}}",
   "settings.providers.modal.titleNew": "Ajouter un provider",
