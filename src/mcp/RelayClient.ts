@@ -222,9 +222,29 @@ export class RelayClient {
                     headers: { 'Authorization': `Bearer ${this.token}` },
                 });
 
+                // M-1: Runtime validation of relay response.
+                // Processed BEFORE the stale-generation exit: the Durable
+                // Object already spliced this batch off its queue when it
+                // answered the poll, so a superseded loop must still hand
+                // the work to handleRequest (answering via /respond is
+                // generation-independent; the DO keeps the pending entries
+                // until the response arrives). Only the loop-continuation
+                // decision below belongs to the generation guard.
+                const data = response.json as { requests?: unknown[] };
+                let requestCount = 0;
+                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
+                    requestCount = data.requests.length;
+                    for (const reqBody of data.requests) {
+                        if (typeof reqBody === 'string') {
+                            void this.handleRequest(reqBody);
+                        }
+                    }
+                }
+
                 // FIX-23-04-14: stale loop (superseded by a reconnect while
                 // this poll was parked at the relay) must exit here instead
-                // of re-entering the loop next to the new one.
+                // of re-entering the loop next to the new one. It must not
+                // touch the shared connection state either.
                 if (generation !== this.pollGeneration) return;
 
                 // First successful poll means we're connected
@@ -236,18 +256,6 @@ export class RelayClient {
                 }
                 this.consecutivePollFailures = 0;
                 this.noticeShownForCurrentOutage = false;
-
-                // M-1: Runtime validation of relay response
-                const data = response.json as { requests?: unknown[] };
-                let requestCount = 0;
-                if (data.requests && Array.isArray(data.requests) && data.requests.length > 0) {
-                    requestCount = data.requests.length;
-                    for (const reqBody of data.requests) {
-                        if (typeof reqBody === 'string') {
-                            void this.handleRequest(reqBody);
-                        }
-                    }
-                }
 
                 // FIX-23-04-11: re-poll immediately after a long-poll response
                 // or delivered work; only a fast empty response (legacy worker)

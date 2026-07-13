@@ -78,6 +78,48 @@ describe('RelayClient poll loop generation guard', () => {
         expect(polls).toHaveLength(2);
     });
 
+    it('processes requests delivered to a superseded poll before the stale loop exits', async () => {
+        // FIX-44-C2: the DO splices a batch off its queue when it answers a
+        // parked poll. If that poll belongs to a superseded generation, the
+        // guard used to discard the response wholesale -- the batch was
+        // gone from the DO but never dispatched, so the external client
+        // hung into a 504. Responding via /respond is generation-free, so
+        // the stale loop must hand off the delivered work and only then exit.
+        const respondCalls: { url: string; body: string }[] = [];
+        requestUrlMock.mockImplementation((opts: unknown) => {
+            const { url, body } = opts as { url: string; body?: string };
+            if (url.endsWith('/respond')) {
+                respondCalls.push({ url, body: body ?? '' });
+                return Promise.resolve({ json: {} });
+            }
+            return new Promise((resolve, reject) => {
+                polls.push({ resolve, reject });
+            });
+        });
+
+        const client = new RelayClient({} as never);
+        client.connect('https://relay.test', 'tok');
+        await vi.advanceTimersByTimeAsync(0);
+        client.disconnect();
+        client.connect('https://relay.test', 'tok');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(polls).toHaveLength(2);
+
+        // The relay releases the STALE poll with a delivered batch.
+        polls[0].resolve({
+            json: {
+                requests: [JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'initialize' })],
+            },
+        });
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The delivered request must have been answered via /respond ...
+        expect(respondCalls).toHaveLength(1);
+        expect(respondCalls[0].body).toContain('"id":"7"');
+        // ... while the stale loop still exits instead of double-polling.
+        expect(polls).toHaveLength(2);
+    });
+
     it('a stale loop failure does not clobber the connected state of the new loop', async () => {
         const client = new RelayClient({} as never);
 
