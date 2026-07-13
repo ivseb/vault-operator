@@ -1456,6 +1456,7 @@
   "ui.sidebar.effortXhigh": "Sehr hoch",
   "ui.sidebar.effortMax": "Max",
   "ui.sidebar.effortAutoHint": "Der Effort wird automatisch gesetzt, solange Routing aktiv ist. Pinne ein Modell, um ihn selbst zu steuern.",
+  "ui.sidebar.effortHintOptIn": "Dieses Modell hat keine Aufwandsstufen. Für Custom-Endpoints kannst du sie in den Provider-Einstellungen aktivieren.",
   "guide.bedrock.heading": "Amazon Bedrock einrichten",
   "guide.bedrock.step1": "Öffne in der AWS-Konsole Bedrock in deiner bevorzugten Region und beantrage auf der Model-Access-Seite Zugriff auf die benötigten Modellfamilien. Die Freigabe erfolgt bei den gängigen Foundation-Modellen meist sofort.",
   "guide.bedrock.step2": "Wähle eine Authentifizierungsmethode. Der Bedrock API key ist ein einzelnes Bearer-Token, das du einmal aus der Bedrock-Konsole kopierst. IAM Access Key + Secret ist der klassische Weg, falls du bereits einen eingerichtet hast.",

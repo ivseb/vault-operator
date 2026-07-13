@@ -59,17 +59,29 @@ describe('DEFAULT_EFFORT_OVERRIDE', () => {
 });
 
 describe('effortControlVisibility', () => {
-    it('shows the control only when thinking is on and the model is effort-capable', () => {
-        expect(effortControlVisibility(true, true)).toBe('control');
+    it('shows the control only when thinking is on, a model is pinned and it is effort-capable', () => {
+        expect(effortControlVisibility(true, true, true)).toBe('control');
     });
 
     it('renders nothing when thinking is off (effort is hidden, no coherence collapse needed)', () => {
-        expect(effortControlVisibility(false, true)).toBe('none');
-        expect(effortControlVisibility(false, false)).toBe('none');
+        expect(effortControlVisibility(false, true, true)).toBe('none');
+        expect(effortControlVisibility(false, false, true)).toBe('none');
+        expect(effortControlVisibility(false, false, false)).toBe('none');
     });
 
-    it('renders nothing when thinking is on but the model cannot send effort', () => {
-        expect(effortControlVisibility(true, false)).toBe('none');
+    it('IMP-54-05a: hints at pinning a model when thinking is on but Auto is active', () => {
+        expect(effortControlVisibility(true, false, false)).toBe('hint-pin');
+    });
+
+    it('IMP-54-05a: hints at the provider opt-in when the pinned model has no effort levels', () => {
+        expect(effortControlVisibility(true, false, true)).toBe('hint-model');
+    });
+
+    it('an effort-capable resolution implies a pin, so capability wins', () => {
+        // getEffortLevels only resolves non-empty for a pinned model; if it
+        // ever did while unpinned, showing the working control is the safe
+        // degenerate answer.
+        expect(effortControlVisibility(true, true, false)).toBe('control');
     });
 });
 

@@ -1456,6 +1456,7 @@
   "ui.sidebar.effortXhigh": "超高",
   "ui.sidebar.effortMax": "最大",
   "ui.sidebar.effortAutoHint": "ルーティングが有効な間、Effortは自動的に設定されます。制御するにはモデルを固定してください。",
+  "ui.sidebar.effortHintOptIn": "このモデルには労力レベルがありません。カスタムエンドポイントの場合は、プロバイダー設定で有効化できます。",
   "guide.bedrock.heading": "Amazon Bedrockのセットアップ",
   "guide.bedrock.step1": "AWSコンソールで希望のリージョンのBedrockを開き、モデルアクセスのページで必要なモデルファミリーへのアクセスをリクエストします。一般的な基盤モデルは通常すぐに承認されます。",
   "guide.bedrock.step2": "認証方法を選択します。Bedrock API keyはBedrockコンソールから一度だけコピーする単一のBearerトークンです。IAMアクセスキーとシークレットは、すでに設定済みの場合に使える従来の方式です。",

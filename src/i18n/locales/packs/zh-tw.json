@@ -1456,6 +1456,7 @@
   "ui.sidebar.effortXhigh": "極高",
   "ui.sidebar.effortMax": "最大",
   "ui.sidebar.effortAutoHint": "啟用路由時，effort 會自動設定。固定選擇一個模型即可自行控制。",
+  "ui.sidebar.effortHintOptIn": "此模型沒有強度等級。若為自訂端點，可在供應商設定中啟用。",
   "guide.bedrock.heading": "Amazon Bedrock 設定",
   "guide.bedrock.step1": "在 AWS 主控台中，於偏好的區域開啟 Bedrock，並在模型存取頁面申請所需模型系列的存取權。常見基礎模型通常會立即核准。",
   "guide.bedrock.step2": "選擇驗證方式。Bedrock API key 是從 Bedrock 主控台複製一次的單一 bearer token。IAM access key + secret 則是傳統流程，適合已有設定的使用者。",

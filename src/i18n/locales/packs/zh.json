@@ -1456,6 +1456,7 @@
   "ui.sidebar.effortXhigh": "特高",
   "ui.sidebar.effortMax": "最高",
   "ui.sidebar.effortAutoHint": "启用路由时会自动设置推理强度。固定一个模型即可手动控制。",
+  "ui.sidebar.effortHintOptIn": "此模型没有力度等级。若为自定义端点，可在提供商设置中启用。",
   "guide.bedrock.heading": "Amazon Bedrock 设置",
   "guide.bedrock.step1": "在 AWS 控制台中打开你偏好区域的 Bedrock，并在模型访问页面为所需的模型系列申请访问权限。常见基础模型通常会即时获批。",
   "guide.bedrock.step2": "选择一种认证方式。Bedrock API key 是从 Bedrock 控制台一次性复制的单个 bearer token。IAM access key + secret 是传统方式，适合已有配置的用户。",

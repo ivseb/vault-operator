@@ -1728,6 +1728,7 @@ export const en = {
     'ui.sidebar.effortXhigh': 'Xhigh',
     'ui.sidebar.effortMax': 'Max',
     'ui.sidebar.effortAutoHint': 'Effort is set automatically while routing is on. Pin a model to control it.',
+    'ui.sidebar.effortHintOptIn': 'This model has no effort levels. For custom endpoints you can enable them in the provider settings.',
 
     // =========================================================================
     // String sweep (FEAT-42-04)

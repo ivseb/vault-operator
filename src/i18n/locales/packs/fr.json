@@ -1456,6 +1456,7 @@
   "ui.sidebar.effortXhigh": "Très élevé",
   "ui.sidebar.effortMax": "Max",
   "ui.sidebar.effortAutoHint": "L'effort est défini automatiquement tant que le routage est actif. Épinglez un modèle pour le contrôler.",
+  "ui.sidebar.effortHintOptIn": "Ce modèle n'a pas de niveaux d'effort. Pour les points de terminaison personnalisés, vous pouvez les activer dans les paramètres du fournisseur.",
   "guide.bedrock.heading": "Configuration d'Amazon Bedrock",
   "guide.bedrock.step1": "Dans la console AWS, ouvrez Bedrock dans votre région préférée et demandez l'accès aux familles de modèles dont vous avez besoin sur la page d'accès aux modèles. L'approbation est généralement instantanée pour les modèles de fondation courants.",
   "guide.bedrock.step2": "Choisissez une méthode d'authentification. La clé API Bedrock est un simple jeton bearer copié une fois depuis la console Bedrock. La clé d'accès IAM + secret est le flux classique si vous en avez déjà une configurée.",

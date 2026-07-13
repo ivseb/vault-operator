@@ -6343,6 +6343,17 @@
     text-align: right;
 }
 
+/* IMP-54-05a: one-line discoverability hint sitting where the effort slider
+   would be (thinking on, but Auto active or the pinned model resolves no
+   effort levels). Muted, single line, toggled live with the thinking switch. */
+.chat-model-picker-effort-hint {
+    border-top: 1px solid var(--background-modifier-border);
+    padding: 6px 10px;
+    font-size: 11px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+}
+
 /* Per-conversation reasoning-effort slider: a Claude-Code-style pill slider
    with discrete dot markers and a round knob, accent-filled up to the knob. */
 .chat-model-picker-effort {
