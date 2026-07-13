@@ -14,11 +14,19 @@
  *   5. DO resolves the original HTTP response to the AI assistant
  *
  * URL structure:
- *   /health                  -- health check (no auth)
- *   /poll                    -- plugin polls for pending requests (Bearer auth)
+ *   /health                  -- health check incl. plugin liveness (no auth)
+ *   /poll                    -- plugin long-polls for pending requests (Bearer auth)
  *   /respond                 -- plugin sends tool results back (Bearer auth)
  *   /{token}/mcp             -- MCP endpoint for AI assistants (token in URL)
  *   POST with Bearer header  -- MCP endpoint (Bearer auth)
+ *
+ * FIX-23-04-11 (issue #53): /poll is a true long-poll. The DO parks the
+ * poll until a request arrives or POLL_PARK_MS elapses, and the plugin
+ * re-polls immediately. First-byte latency for a POSTed initialize drops
+ * from ~10-12s (short-poll gap, over Perplexity's 15s fetch timeout under
+ * load) to the dispatch round-trip. The DO tracks lastPollAt and fails
+ * POSTs fast with a JSON-RPC 502 when the plugin has not polled for
+ * 2.5x the park window, instead of parking them for the 30s timeout.
  *
  * Security (AUDIT-005):
  *   - Constant-time token comparison (SHA-256 digest)
@@ -33,6 +41,17 @@
 
 export const RELAY_WORKER_CODE = `
 // Vault Operator Relay Worker -- deployed via Vault Operator Plugin
+
+// FIX-23-04-11: long-poll park window for /poll. Kept safely below
+// Obsidian requestUrl's implicit timeout; Cloudflare does not bill
+// IO wait as CPU time. Quota: idle long-polling is <= 180 polls/hour
+// (4320/day), half of the old fixed 10s short-poll (8640/day).
+const POLL_PARK_MS = 20000;
+
+// FIX-23-04-11: plugin counts as disconnected when it has not polled
+// for 2.5x the park window. POSTs then fail fast with a JSON-RPC 502
+// instead of parking for the 30s pending timeout.
+const PLUGIN_STALE_MS = 50000;
 
 // Constant-time token comparison via SHA-256 digest (H-1)
 async function safeTokenCompare(a, b) {
@@ -70,7 +89,21 @@ export default {
         }
 
         if (url.pathname === '/health') {
-            return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo' }), {
+            // FIX-23-04-11: expose plugin liveness (age of the last /poll)
+            // so users can tell 'relay up, plugin gone' from a client
+            // incompatibility without guessing.
+            let plugin = { connected: false, lastPollAgeMs: null };
+            try {
+                const id = env.RELAY_DO.idFromName('default');
+                const relay = env.RELAY_DO.get(id);
+                const resp = await relay.fetch(new Request(url.origin + '/health', { method: 'GET' }));
+                const data = await resp.json();
+                plugin = {
+                    connected: data.pluginConnected === true,
+                    lastPollAgeMs: typeof data.lastPollAgeMs === 'number' ? data.lastPollAgeMs : null,
+                };
+            } catch (e) { /* DO unavailable -> report disconnected */ }
+            return new Response(JSON.stringify({ status: 'ok', relay: 'obsilo', plugin }), {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
@@ -228,16 +261,57 @@ export class RelayDO {
         this.env = env;
         this.pending = new Map();
         this.requestQueue = [];
-        this.pluginConnected = false;
+        // FIX-23-04-11: liveness via lastPollAt instead of the old sticky
+        // pluginConnected latch, which was set on the first /poll and never
+        // reset -- an absent plugin parked every POST for the full 30s.
+        this.lastPollAt = 0;
+        this.pollWaiter = null;
+    }
+
+    isPluginAlive() {
+        return this.lastPollAt > 0 && (Date.now() - this.lastPollAt) <= PLUGIN_STALE_MS;
     }
 
     async fetch(request) {
         const url = new URL(request.url);
 
-        // Plugin polls for pending MCP requests
+        // FIX-23-04-11: internal liveness probe for the worker /health handler.
+        if (url.pathname === '/health') {
+            return new Response(JSON.stringify({
+                pluginConnected: this.isPluginAlive(),
+                lastPollAgeMs: this.lastPollAt > 0 ? Date.now() - this.lastPollAt : null,
+            }), { headers: { 'Content-Type': 'application/json' } });
+        }
+
+        // Plugin long-polls for pending MCP requests.
+        // FIX-23-04-11: park the poll until a request arrives or
+        // POLL_PARK_MS elapses, so a POSTed initialize reaches the plugin
+        // immediately instead of waiting out a poll interval.
         if (url.pathname === '/poll') {
-            this.pluginConnected = true;
-            const requests = this.requestQueue.splice(0);
+            this.lastPollAt = Date.now();
+            if (this.requestQueue.length > 0) {
+                const requests = this.requestQueue.splice(0);
+                return new Response(JSON.stringify({ requests }), {
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
+            if (this.pollWaiter) {
+                // Supersede: the plugin runs exactly one poll loop, so a new
+                // poll releases a stale parked one with an empty batch.
+                const prev = this.pollWaiter;
+                this.pollWaiter = null;
+                prev.deliver([]);
+            }
+            const requests = await new Promise((resolve) => {
+                const timeout = setTimeout(() => {
+                    this.pollWaiter = null;
+                    resolve([]);
+                }, POLL_PARK_MS);
+                this.pollWaiter = {
+                    deliver: (reqs) => { clearTimeout(timeout); resolve(reqs); },
+                };
+            });
+            this.lastPollAt = Date.now();
             return new Response(JSON.stringify({ requests }), {
                 headers: { 'Content-Type': 'application/json' },
             });
@@ -260,7 +334,10 @@ export class RelayDO {
 
         // MCP request from AI assistant (POST)
         if (request.method === 'POST') {
-            if (!this.pluginConnected) {
+            // FIX-23-04-11: fail fast when the plugin never polled (fresh
+            // or evicted DO) OR when its last poll is stale, instead of
+            // parking the client for the full 30s pending timeout.
+            if (!this.isPluginAlive()) {
                 return new Response(JSON.stringify({
                     jsonrpc: '2.0', id: null,
                     error: { code: -32603, message: 'Vault Operator not connected. Make sure Obsidian is running with remote access enabled.' },
@@ -352,6 +429,12 @@ export class RelayDO {
 
     enqueueForPlugin(body) {
         this.requestQueue.push(body);
+        // FIX-23-04-11: wake a parked poll immediately with the whole batch.
+        if (this.pollWaiter) {
+            const waiter = this.pollWaiter;
+            this.pollWaiter = null;
+            waiter.deliver(this.requestQueue.splice(0));
+        }
     }
 }
 `;
