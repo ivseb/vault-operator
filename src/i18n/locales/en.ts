@@ -1640,6 +1640,7 @@ export const en = {
     'settings.providers.refresh': 'Refresh',
     'settings.providers.refreshing': 'Refreshing…',
     'settings.providers.refreshDone': 'Models refreshed.',
+    'settings.providers.refreshCodexFallback': 'Live model discovery failed; showing the built-in fallback list. Check your ChatGPT sign-in and network, then refresh again.',
     'settings.providers.refreshFailed': 'Refresh failed: {{msg}}',
     'settings.providers.refreshUnavailable': 'Discovery service is not ready yet. Try again in a moment.',
     'settings.providers.advisorDisabled': 'Advisor pattern disabled for this provider: no flagship-tier model.',
@@ -1664,7 +1665,7 @@ export const en = {
     'settings.providers.tier.empty': 'Not assigned',
     'settings.providers.tier.differentTier': 'Different tier',
     'settings.providers.tier.manualOption': 'Enter model ID manually...',
-    'settings.providers.tier.manualPlaceholder': 'Example: gpt-5.3-codex',
+    'settings.providers.tier.manualPlaceholder': 'Example: gpt-5.6',
     'settings.providers.tier.manualBack': 'Use list',
     'settings.providers.modal.title': 'Configure {{name}}',
     'settings.providers.modal.titleNew': 'Add provider',
@@ -1705,6 +1706,7 @@ export const en = {
     'ui.sidebar.modelPickerTitle': '{{provider}} models',
     'ui.sidebar.modelPickerSearch': 'Filter models…',
     'ui.sidebar.modelPickerNoModels': 'No discovered models yet; open settings, then providers, then refresh.',
+    'ui.sidebar.modelPickerManual': 'Manual',
 
     // Issue #44 -- per-conversation extended-thinking override
     'ui.sidebar.thinkingOverrideLabel': 'Thinking',
