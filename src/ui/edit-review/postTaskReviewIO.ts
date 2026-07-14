@@ -178,7 +178,11 @@ export async function revertReviewedFiles(app: App, entries: RevertEntry[]): Pro
                 continue;
             }
 
-            const written = await safeNoteWrite(app, safePath, e.before);
+            // FIX-44-40: mode 'revert' -- the target is the known-genuine
+            // pre-task snapshot, so the forward-edit content guards (empty
+            // overwrite, frontmatter integrity) must not veto it. Path
+            // validation and editor-refresh stay active inside.
+            const written = await safeNoteWrite(app, safePath, e.before, { mode: 'revert' });
             if (!written.ok) {
                 console.warn(`[PostTaskReview] Could not revert ${safePath}: ${written.reason}`);
                 outcome.failed.push(e.path);
