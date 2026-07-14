@@ -23,8 +23,8 @@ vi.mock('../../../agent/AgentTaskRunner', () => {
             cb.onText?.('lo');
             cb.onToolStart?.('search_vault', {});
             cb.onComplete?.();
-            (config.history as unknown[]).push({ role: 'user', content: config.userMessage } as never);
-            (config.history as unknown[]).push({ role: 'assistant', content: 'hello' } as never);
+            (config.history).push({ role: 'user', content: config.userMessage });
+            (config.history).push({ role: 'assistant', content: 'hello' });
         }
     }
     return { AgentTaskRunner: FakeAgentTaskRunner };
@@ -55,7 +55,7 @@ function makeHandle(): InlinePanelHandle & { _stream: string[]; _status: string[
         close: () => {},
         _stream: stream,
         _status: status,
-    } as InlinePanelHandle & { _stream: string[]; _status: string[] };
+    };
 }
 
 function makePlugin(): import('../../../../main').default {

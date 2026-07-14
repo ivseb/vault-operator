@@ -234,6 +234,8 @@
   "settings.mcp.edit": "編輯",
   "settings.mcp.delete": "刪除",
   "settings.mcp.builtInDisabledHint": "需要 API key。點擊編輯進行設定後再連線。",
+  "settings.mcp.allowWriteTools": "允許透過 MCP 使用寫入工具",
+  "settings.mcp.allowWriteToolsDesc": "允許外部 MCP 用戶端(Claude Desktop、ChatGPT、中繼)建立、編輯與刪除 Vault 檔案,並寫入長期記憶。預設為關閉:外部用戶端只能讀取。也涵蓋透過 execute_vault_op 的寫入操作。",
   "settings.modes.introTitle": "什麼是 Agent？",
   "settings.modes.introDesc": "Agent 是助手所採用的角色設定：包含它的系統 Prompt（遊戲規則）、可使用的工具組合，以及你提供的額外指示。在此選擇另一個 Agent 會立即改變助手的思考方式與能力。Default Agent 可讀寫並擁有完整工具組。你可以自訂 Agent 以專精特定任務（例如唯讀研究、專注寫作、程式碼審查）。",
   "settings.modes.groupBuiltIn": "預設",

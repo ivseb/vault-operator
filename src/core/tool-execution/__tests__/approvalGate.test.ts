@@ -337,3 +337,70 @@ describe('FEAT-44-01: effect policy matrix', () => {
         expect(onApprovalRequired).toHaveBeenCalledTimes(1);
     });
 });
+
+// ---------------------------------------------------------------------------
+// 6. FIX-44-50: a bound headless policy is the sole approval authority
+// ---------------------------------------------------------------------------
+
+describe('FIX-44-50: headless policy pre-empts agent-local autoApproval', () => {
+    const HEADLESS_ALL_ON = {
+        enabled: true, read: true, noteEdits: true, vaultChanges: true,
+        web: true, mcp: true, subtasks: true, skills: true,
+        pluginApiRead: true, pluginApiWrite: true, recipes: true, sandbox: true,
+    };
+
+    async function buildHeadless(tool: StubTool, consentGranted: boolean) {
+        const pipeline = await buildPipeline([tool], HEADLESS_ALL_ON);
+        pipeline.setHeadlessApprovalPolicy({
+            consentedEffects: new Set<import('../../tools/toolEffects').ToolEffect>(['note-edit', 'vault-change']),
+            consentGranted,
+            consentSettingLabel: 'Allow write tools over MCP',
+            consentSettingPath: 'Settings > Vault Operator > Customize > Connectors',
+        });
+        return pipeline;
+    }
+
+    it('write_file is denied without consent even with autoApproval fully turned up', async () => {
+        const tool = makeTool('write_file', true);
+        const pipeline = await buildHeadless(tool, false);
+        const result = await pipeline.executeTool(
+            call('write_file', { path: 'a.md', content: 'x' }),
+            makeCallbacks(),
+        );
+        expect(result.is_error).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+    });
+
+    it('web_fetch is denied headless even with autoApproval.web on and consent granted', async () => {
+        const tool = makeTool('web_fetch', false);
+        const pipeline = await buildHeadless(tool, true);
+        const result = await pipeline.executeTool(
+            call('web_fetch', { url: 'https://example.com' }),
+            makeCallbacks(),
+        );
+        expect(result.is_error).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+    });
+
+    it('write_file runs when the standing consent is granted', async () => {
+        const tool = makeTool('write_file', true);
+        const pipeline = await buildHeadless(tool, true);
+        const result = await pipeline.executeTool(
+            call('write_file', { path: 'a.md', content: 'x' }),
+            makeCallbacks(),
+        );
+        expect(result.is_error).toBeFalsy();
+        expect(tool.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('reads stay auto with a headless policy bound', async () => {
+        const tool = makeTool('read_file', false);
+        const pipeline = await buildHeadless(tool, false);
+        const result = await pipeline.executeTool(
+            call('read_file', { path: 'a.md' }),
+            makeCallbacks(),
+        );
+        expect(result.is_error).toBeFalsy();
+        expect(tool.execute).toHaveBeenCalledTimes(1);
+    });
+});

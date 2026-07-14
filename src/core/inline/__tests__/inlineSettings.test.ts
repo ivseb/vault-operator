@@ -63,8 +63,8 @@ describe('inlineSettings.resolveInlineActionsSettings', () => {
 
     it('ignores invalid numeric inputs', () => {
         const out = resolveInlineActionsSettings({
-            vaultRagConfidenceThreshold: Number.NaN as unknown as number,
-            skillsTopN: Number.POSITIVE_INFINITY as unknown as number,
+            vaultRagConfidenceThreshold: Number.NaN,
+            skillsTopN: Number.POSITIVE_INFINITY,
         });
         // NaN passes typeof === 'number' but Math.min(1, Math.max(0, NaN)) === NaN; clamp falls back to default.
         // For NaN: Math.max(0, NaN) is NaN, Math.min(1, NaN) is NaN -- so this is an edge we accept.

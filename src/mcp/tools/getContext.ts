@@ -6,7 +6,7 @@
 
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
-import { AGENT_INTERNAL_TOOLS } from '../McpBridge';
+import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { validateSourceInterface } from '../../core/memory/SourceInterface';
 
 export async function handleGetContext(

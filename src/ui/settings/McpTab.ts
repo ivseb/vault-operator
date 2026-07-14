@@ -79,6 +79,20 @@ export class McpTab {
                 });
         }
 
+        // FIX-44-48: the write gate (MCP-2 / FIX-44-26) had no UI. The wire
+        // errors name this exact toggle and path, so it must exist here.
+        // Applies to the local connector AND the remote relay: both dispatch
+        // through the same gate in handleToolCall / execute_vault_op.
+        new Setting(containerEl)
+            .setName(t('settings.mcp.allowWriteTools'))
+            .setDesc(t('settings.mcp.allowWriteToolsDesc'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.mcpAllowWriteTools ?? false).onChange(async (v) => {
+                    this.plugin.settings.mcpAllowWriteTools = v;
+                    await this.plugin.saveSettings();
+                }),
+            );
+
         // ── Remote access ─────────────────────────────────────────────────
         containerEl.createEl('h4', { text: t('settings.mcp.headingRemoteAccess') });
 

@@ -234,6 +234,8 @@
   "settings.mcp.edit": "편집",
   "settings.mcp.delete": "삭제",
   "settings.mcp.builtInDisabledHint": "API 키가 필요합니다. 편집을 눌러 설정한 뒤 연결하십시오.",
+  "settings.mcp.allowWriteTools": "MCP를 통한 쓰기 도구 허용",
+  "settings.mcp.allowWriteToolsDesc": "외부 MCP 클라이언트(Claude Desktop, ChatGPT, 릴레이)가 Vault 파일을 생성, 편집, 삭제하고 장기 메모리에 저장할 수 있게 합니다. 기본값은 꺼짐: 외부 클라이언트는 읽기만 가능합니다. execute_vault_op를 통한 쓰기 작업에도 적용됩니다.",
   "settings.modes.introTitle": "에이전트란?",
   "settings.modes.introDesc": "에이전트는 어시스턴트가 취하는 인격입니다. 시스템 Prompt(게임의 규칙), 사용 가능한 도구 세트, 그리고 사용자가 추가한 지침으로 구성됩니다. 여기서 다른 에이전트를 선택하면 어시스턴트의 사고 방식과 수행 가능한 작업이 즉시 바뀝니다. Default 에이전트는 읽기/쓰기 및 전체 도구를 사용합니다. 특화된 용도(예: 읽기 전용 리서치, 집중 글쓰기, 코드 리뷰)를 위해 직접 만들 수 있습니다.",
   "settings.modes.groupBuiltIn": "기본",

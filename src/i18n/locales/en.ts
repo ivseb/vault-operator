@@ -344,7 +344,7 @@ export const en = {
 
     // Sandbox execution
     'settings.permissions.headingSandbox': 'Sandbox code execution',
-    'settings.permissions.sectionSandboxInfo': 'The agent can run TypeScript inside an isolated sandbox: one-off expressions (evaluate_expression), skill scripts, and any dynamic skill tool. The sandbox has no Node.js APIs, but through Vault Operator it CAN read and write vault notes (blocked from the plugin config and rate-limited). Auto-approving this skips the confirmation step for all of it. High-risk because the code is authored by the LLM or by a third-party skill; only enable if you trust your active model, your prompts, and any installed skills.',
+    'settings.permissions.sectionSandboxInfo': 'The agent can run TypeScript inside an isolated sandbox: one-off expressions (evaluate_expression), skill scripts, and any dynamic skill tool. The sandbox has no Node.js APIs, but through Vault Operator it does have read and write access to your vault notes (blocked from the plugin config and rate-limited). Auto-approving this skips the confirmation step for all of it. High-risk because the code is authored by the LLM or by a third-party skill; only enable if you trust your active model, your prompts, and any installed skills.',
     'settings.permissions.sandbox': 'Auto-approve sandbox execution',
     'settings.permissions.sandboxDesc': 'Let the agent run code in a protected sandbox without asking. Off by default. Your confirmation is the main safeguard against harmful code.',
     'settings.permissions.sandboxConfirmTitle': 'Enable sandbox auto-approval?',
@@ -2315,6 +2315,8 @@ export const en = {
     'settings.mcp.connectorUrl': 'Connector URL',
     'settings.mcp.connectorUrlDesc': 'Use this URL in your AI assistant. It includes the auth token. Do not share it.',
     'settings.mcp.copyUrlButton': 'Copy URL',
+    'settings.mcp.allowWriteTools': 'Allow write tools over MCP',
+    'settings.mcp.allowWriteToolsDesc': 'Let external MCP clients (desktop clients, ChatGPT, the relay) create, edit, and delete vault files and save to long-term memory. Off by default: external clients can read but not write. Also covers write operations routed through execute_vault_op.',
     'settings.mcp.deployButton': 'Deploy',
     'settings.mcp.deployingButton': 'Deploying...',
     'settings.mcp.deployRelay': 'Deploy relay server',

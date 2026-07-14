@@ -299,8 +299,12 @@ export class AttachmentHandler {
      * inlining every file's contents. Individual files are read on-demand by
      * the agent via `read_file` / `read_document`, which already accept any
      * vault path, no attachment registry needed.
+     *
+     * FIX-44-37: the body is synchronous (metadata only, no file reads), but
+     * the Promise contract stays: AutocompleteHandler and PluginWiring await
+     * this call, and a future content-reading variant will need it.
      */
-    async addVaultFolder(folder: TFolder, opts: { recursive: boolean }): Promise<void> {
+    addVaultFolder(folder: TFolder, opts: { recursive: boolean }): Promise<void> {
         const files = this.collectFolderFiles(folder, opts.recursive);
         const totalMatched = files.length;
         const capped = files.slice(0, FOLDER_MANIFEST_MAX_FILES);
@@ -346,6 +350,7 @@ export class AttachmentHandler {
         };
         this.pending.push(item);
         this.renderChips();
+        return Promise.resolve();
     }
 
     /**

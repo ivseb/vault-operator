@@ -87,6 +87,22 @@ Before any write operation, the pipeline takes a git snapshot of the affected fi
 
 After any task, you can undo all changes. Every write operation gets its own checkpoint, so you can roll back to any intermediate state. The vault's own git history, if it has one, is never touched.
 
+## The external MCP surface
+
+When the local connector is enabled, external MCP clients (Claude Desktop, ChatGPT, Perplexity, or anything holding the bearer token) reach the vault through a second surface. It follows the same effect-based rules, adapted to a context that cannot show an approval card.
+
+**Declared effects, derived gate.** Every MCP tool definition carries a mandatory effect declaration (`read`, `session`, `dispatch`, or `write`) in `src/mcp/toolDefinitions.ts`. The write gate is derived from those declarations, never hand-maintained next to them, and an undeclared or unknown tool resolves to `write`: forgetting a declaration gates a tool instead of exposing it. A drift test pins the ungated sets, mirroring the agent-side `TOOL_EFFECTS` contract.
+
+**Standing consent instead of a card.** Write-class MCP tools (`write_vault`, `save_to_memory`, `update_memory`) are disabled by default and only run once you enable **Allow write tools over MCP** under Settings > Vault Operator > Customize > Connectors. The generic `execute_vault_op` dispatcher routes every operation through the same `ToolExecutionPipeline` as the agent, with an explicit headless approval policy: your toggle counts as standing consent for write effects (`note-edit`, `vault-change`), so `get_daily_note` with `create: true` follows the same decision as `write_vault`. With the toggle off, the client receives a clean error naming the setting, not a fabricated "denied by user".
+
+**What no toggle can open.** `config` and `self-modify` effects (settings, persona, long-term-memory extraction via `mark_for_memory`) are rejected over MCP unconditionally. The self-escalation lock is checked before the consent set, so no standing consent can cover them. Effects that would genuinely need a human decision in the moment (web egress, sandbox execution, subtasks) are also unavailable headless. The headless policy is the sole authority on this surface: the in-app auto-approval toggles and any "for the rest of this run" grants apply only to the agent you supervise in the sidebar and never authorize an external MCP client.
+
+**Compensating checkpoint.** Since no card is shown, `write_vault` snapshots every target file before the batch, and pipeline-routed writes get the usual per-write checkpoint, so an unwanted external write stays undoable via `restore_checkpoint`. Memory writes (`save_to_memory`, `update_memory`) persist single additive facts into the user-global memory database outside the vault, where the vault checkpoint cannot reach; the undo path there is deleting the fact in the Memory tab.
+
+::: warning Breaking change in 3.2.4
+`save_to_memory` and `update_memory` are now behind the same **Allow write tools over MCP** toggle as `write_vault` (default off). External clients that saved memory before 3.2.4 will receive an error naming the setting until you re-enable write access under Settings > Vault Operator > Customize > Connectors.
+:::
+
 ## Audit log
 
 Every tool call is logged to a JSONL file via `OperationLogger` (`src/core/governance/OperationLogger.ts`). One file per day, stored under the agent folder at `.vault-operator/data/logs/YYYY-MM-DD.jsonl`. Files older than 30 days get deleted automatically.

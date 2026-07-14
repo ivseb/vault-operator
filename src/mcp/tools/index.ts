@@ -9,6 +9,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { str } from '../types';
+import { resolveMcpToolEffect } from '../toolDefinitions';
 import { handleGetContext } from './getContext';
 import { handleSearchVault } from './searchVault';
 import { handleReadNotes } from './readNotes';
@@ -222,13 +223,11 @@ export function getAutoSessionId(): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * MCP-2 / FIX-44-26: MCP tools that mutate persistent state; gated behind
- * settings.mcpAllowWriteTools (default off, fail-closed). save_to_memory /
- * update_memory write long-term memory -- the agent-side equivalents
- * (mark_for_memory, update_soul) are self-modify and always ask, so their MCP
- * counterparts must not be an ungated bypass for a bearer-token holder.
+ * FIX-44-47: registered handler names, exported for the drift contract test
+ * (mcpToolEffects.test.ts) that keeps this dispatcher and the TOOLS
+ * definitions in toolDefinitions.ts from drifting apart.
  */
-export const MCP_WRITE_TOOLS = new Set<string>(['write_vault', 'save_to_memory', 'update_memory']);
+export const MCP_REGISTERED_TOOL_NAMES: readonly string[] = [...handlers.keys()];
 
 export async function handleToolCall(
     plugin: ObsidianAgentPlugin,
@@ -244,18 +243,29 @@ export async function handleToolCall(
         };
     }
 
-    // MCP-2: external MCP write tools are gated behind an explicit, default-off
-    // setting and fail closed. Any bearer-token holder (Claude Desktop, the
-    // relay, a prompt-injected external LLM) could otherwise create/overwrite/
-    // delete vault files with no user confirmation -- the generic
-    // execute_vault_op path already fails write tools closed, so the dedicated
-    // write_vault handler must not be an ungated bypass.
-    if (MCP_WRITE_TOOLS.has(tool) && !plugin.settings.mcpAllowWriteTools) {
+    // MCP-2 / FIX-44-26 / FIX-44-47: external MCP write tools are gated behind
+    // an explicit, default-off setting and fail closed. Any bearer-token holder
+    // (Claude Desktop, the relay, a prompt-injected external LLM) could
+    // otherwise create/overwrite/delete vault files or long-term memory with no
+    // user confirmation. The write class is DERIVED from the mandatory effect
+    // declaration on each tool definition (ADR-153 pattern).
+    //
+    // Precision on fail-closed (code-review 2026-07-14): tools WITHOUT a
+    // handler never reach this gate -- the lookup above already rejected
+    // them. The 'write' fallback in resolveMcpToolEffect protects the
+    // residual case of a REGISTERED handler whose definition lost its effect
+    // declaration at runtime (only constructible via a cast; the field is
+    // mandatory at compile time). The property that a newly added handler
+    // cannot ship without a declaration is enforced by the handler <->
+    // definition parity assertion in mcpToolEffects.test.ts, not here.
+    // FIX-44-48: the wire-facing error names the exact settings path.
+    if (resolveMcpToolEffect(tool) === 'write' && !plugin.settings.mcpAllowWriteTools) {
         return {
             content: [{
                 type: 'text',
                 text: `${tool} is disabled over MCP. Enable "Allow write tools over MCP" `
-                    + 'in Vault Operator settings to permit external writes.',
+                    + 'under Settings > Vault Operator > Customize > Connectors '
+                    + 'to permit external writes.',
             }],
             isError: true,
         };

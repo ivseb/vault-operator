@@ -55,10 +55,34 @@ export interface McpResource {
 // Tool Definitions (registered in the worker, dispatched via IPC)
 // ---------------------------------------------------------------------------
 
+/**
+ * FIX-44-47: effect class of an MCP tool on the external bearer-token
+ * surface. Mandatory on every definition so the write gate is DERIVED from
+ * the registration instead of hand-maintained next to it (the fail-open
+ * allowlist pattern ADR-153 eliminated agent-side).
+ *
+ * - `read`:     no persistent mutation. Ungated.
+ * - `session`:  persists only the caller's own conversation-history /
+ *               session bookkeeping (the dispatcher writes the same class of
+ *               history rows itself as auto-tracking). Ungated by design.
+ * - `dispatch`: routes to the ToolExecutionPipeline, which enforces
+ *               per-operation effect governance (TOOL_EFFECTS + the headless
+ *               MCP approval policy, FIX-44-46). No wholesale dispatcher gate.
+ * - `write`:    mutates vault content or long-term memory. Gated behind
+ *               settings.mcpAllowWriteTools (default off, fail-closed).
+ *
+ * Anything that is not explicitly declared resolves to `write` at runtime
+ * (see resolveMcpToolEffect), so a forgotten declaration gates a tool
+ * instead of exposing it.
+ */
+export type McpToolEffect = 'read' | 'session' | 'dispatch' | 'write';
+
 export interface McpToolDefinition {
     name: string;
     description: string;
     inputSchema: Record<string, unknown>;
+    /** FIX-44-47: mandatory effect declaration; the write gate derives from it. */
+    effect: McpToolEffect;
 }
 
 // ---------------------------------------------------------------------------

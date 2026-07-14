@@ -234,6 +234,8 @@
   "settings.mcp.edit": "Modifier",
   "settings.mcp.delete": "Supprimer",
   "settings.mcp.builtInDisabledHint": "Nécessite une clé d'API. Cliquez sur modifier pour la configurer, puis connectez-vous.",
+  "settings.mcp.allowWriteTools": "Autoriser les outils d'écriture via MCP",
+  "settings.mcp.allowWriteToolsDesc": "Permet aux clients MCP externes (Claude Desktop, ChatGPT, relay) de créer, modifier et supprimer des fichiers du vault et d'écrire dans la mémoire à long terme. Désactivé par défaut : les clients externes peuvent lire mais pas écrire. Couvre aussi les opérations d'écriture via execute_vault_op.",
   "settings.modes.introTitle": "Qu'est-ce qu'un agent ?",
   "settings.modes.introDesc": "Un agent est la personnalité qu'adopte votre assistant : son prompt système (les règles du jeu), l'ensemble des outils qu'il peut utiliser et les instructions supplémentaires que vous lui donnez. Choisir un autre agent ici change immédiatement la façon dont l'assistant réfléchit et ce qu'il peut faire. L'agent Default est en lecture/écriture, avec tous les outils. Créez le vôtre pour le spécialiser (par ex. recherche en lecture seule, rédaction ciblée, revue de code).",
   "settings.modes.groupBuiltIn": "Par défaut",
