@@ -10,6 +10,7 @@
 import { TFile, TFolder, Notice } from 'obsidian';
 import https from 'https';
 import http from 'http';
+import { MAX_RESPONSE_BYTES, readCappedResponseBody } from '../utils/httpBodyCap';
 import type ObsidianAgentPlugin from '../../main';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import { atomicAdapterWrite, atomicAdapterWriteBinary } from '../utils/atomicAdapterWrite';
@@ -198,6 +199,10 @@ export class SandboxBridge {
         try {
             const normalised = normaliseVaultPath(path);
             this.validateVaultPath(normalised, true);
+            // AUDIT 2026-07-14 (Codex) M-5: mkdir is a write and must count
+            // against the write rate limit, like vaultWrite. Otherwise delayed
+            // or looping sandbox code can spam folder creation unbounded.
+            this.checkWriteRateLimit();
             this.logBridgeOp('vault-mkdir', normalised);
             const adapter = this.plugin.app.vault.adapter;
             const segments = normalised.split('/').filter((s) => s.length > 0);
@@ -300,27 +305,36 @@ export class SandboxBridge {
                     },
                 },
                 (res) => {
-                    const chunks: Buffer[] = [];
-                    res.on('data', (chunk: Buffer) => chunks.push(chunk));
-                    res.on('end', () => {
-                        const headers: Record<string, string> = {};
-                        for (const [k, v] of Object.entries(res.headers)) {
-                            if (typeof v === 'string') headers[k] = v;
-                            else if (Array.isArray(v)) headers[k] = v.join(', ');
-                        }
-                        resolve({
-                            status: res.statusCode ?? 0,
-                            headers,
-                            text: Buffer.concat(chunks).toString('utf8'),
-                        });
-                    });
-                    res.on('error', (err: Error) => reject(err));
+                    // AUDIT 2026-07-14 (Codex) M-7 / SEC-039-M2: cap the buffered
+                    // body while streaming instead of after Buffer.concat.
+                    readCappedResponseBody(res, () => req.destroy(), MAX_RESPONSE_BYTES)
+                        .then((text) => {
+                            const headers: Record<string, string> = {};
+                            for (const [k, v] of Object.entries(res.headers)) {
+                                if (typeof v === 'string') headers[k] = v;
+                                else if (Array.isArray(v)) headers[k] = v.join(', ');
+                            }
+                            resolve({
+                                status: res.statusCode ?? 0,
+                                headers,
+                                text,
+                            });
+                        })
+                        .catch(reject);
                 },
             );
             req.on('error', (err: Error) => reject(err));
+            // Idle timeout.
             req.setTimeout(15_000, () => {
                 req.destroy(new Error('Sandbox request timed out after 15s'));
             });
+            // AUDIT 2026-07-14 (Codex) M-7 / SEC-039-M3: absolute ceiling so a
+            // slow-drip response cannot hold the request open indefinitely.
+            const hardDeadline = setTimeout(() => {
+                req.destroy(new Error('Sandbox request exceeded absolute time budget of 45s'));
+            }, 45_000);
+            if (typeof hardDeadline === 'object' && 'unref' in hardDeadline) hardDeadline.unref();
+            req.on('close', () => clearTimeout(hardDeadline));
             if (options?.body && method !== 'GET' && method !== 'HEAD') {
                 req.write(options.body);
             }

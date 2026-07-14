@@ -22,6 +22,7 @@ import { AgentSidebarView, VIEW_TYPE_AGENT_SIDEBAR } from './ui/AgentSidebarView
 import { shouldRebuildSidebarLeaf } from './ui/sidebar/staleLeafGuard';
 import { AgentSettingsTab, type TabId } from './ui/AgentSettingsTab';
 import { ToolRegistry } from './core/tools/ToolRegistry';
+import { sanitizeDirectoryEntry } from './core/tools/BaseTool';
 import { ToolExecutionPipeline } from './core/tool-execution/ToolExecutionPipeline';
 import { getPerformanceMarks } from './core/observability/PerformanceMarks';
 import { IgnoreService } from './core/governance/IgnoreService';
@@ -3298,7 +3299,10 @@ export default class ObsidianAgentPlugin extends Plugin {
         );
         const userLines = filteredUserSkills
             .filter(s => !selfAuthoredNames.has(s.name))
-            .map(s => `- ${s.name}: ${s.description}`);
+            // AUDIT 2026-07-14 (Codex re-review, M-1): sanitise untrusted user
+            // skill metadata; getSkillDirectorySection defangs the assembled
+            // block as the security backstop.
+            .map(s => `- ${sanitizeDirectoryEntry(s.name, 80)}: ${sanitizeDirectoryEntry(s.description, 300)}`);
         const blocks = [selfAuthoredBlock, userLines.join('\n')].filter(Boolean);
         if (blocks.length === 0) return undefined;
         return blocks.join('\n');

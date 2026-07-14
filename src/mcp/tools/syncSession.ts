@@ -11,7 +11,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import { getAutoSessionId } from './index';
-import { validateSourceInterface } from '../../core/memory/SourceInterface';
+import { resolveExternalSourceInterface } from '../../core/memory/SourceInterface';
 import { MAX_MESSAGE_TEXT_LENGTH, MAX_MESSAGES_PER_CALL } from './saveConversation';
 
 interface TranscriptMessage {
@@ -29,9 +29,11 @@ export async function handleSyncSession(
     const learnings = typeof args.learnings === 'string' ? args.learnings : '';
     const toolsUsed = (args.tools_used as string[]) ?? [];
     // FIX-23-01-02: optional source_interface tag, fallback to 'unknown'.
-    const sourceInterface = args.source_interface !== undefined
-        ? validateSourceInterface(args.source_interface)
-        : 'unknown';
+    // AUDIT 2026-07-14 (Codex review, H-1 write-side): an external client must
+    // not tag the conversation as 'obsilo' (the plugin-internal partition);
+    // sync_session runs its history-bookkeeping even with the write gate off,
+    // so coerce a spoofed 'obsilo' to 'unknown' like the read handlers do.
+    const sourceInterface = resolveExternalSourceInterface(args.source_interface);
 
     if (transcript.length === 0) {
         return { content: [{ type: 'text', text: 'Error: transcript is required (array of {role, text})' }], isError: true };
@@ -101,8 +103,16 @@ export async function handleSyncSession(
         }
     }
 
+    // AUDIT 2026-07-14 (Codex) H-2: the ConversationStore save above is the
+    // history bookkeeping this tool is for (same class the dispatcher tracks
+    // anyway). The blocks below persist to long-term memory, the semantic
+    // index, and recipe learning -- those are WRITE side effects and must be
+    // gated behind the MCP write toggle, otherwise sync_session is a backdoor
+    // around the write gate that save_to_memory is explicitly subject to.
+    const allowWrite = plugin.settings.mcpAllowWriteTools === true;
+
     // Save session summary to memory
-    if (plugin.memoryService) {
+    if (allowWrite && plugin.memoryService) {
         try {
             const summary = transcript
                 .filter(m => m.role === 'assistant')
@@ -136,8 +146,8 @@ export async function handleSyncSession(
         }
     }
 
-    // Record episode for recipe promotion
-    if (plugin.episodicExtractor && toolsUsed.length >= 2) {
+    // Record episode for recipe promotion (write side effect, gated).
+    if (allowWrite && plugin.episodicExtractor && toolsUsed.length >= 2) {
         try {
             const episode = await plugin.episodicExtractor.recordEpisode({
                 userMessage: title,

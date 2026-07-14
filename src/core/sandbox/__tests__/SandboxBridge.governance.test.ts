@@ -191,4 +191,29 @@ describe('SandboxBridge governance (FIX-44-04 / 44-22 / 44-24)', () => {
             expect(snapshot).not.toHaveBeenCalled();
         });
     });
+
+    // AUDIT 2026-07-14 (Codex) M-5: mkdir must count against the write rate
+    // limit like vaultWrite, otherwise looping/delayed sandbox code can spam
+    // folder creation unbounded.
+    describe('vaultMkdir write rate limit', () => {
+        it('rejects mkdir once the 10/min write budget is exhausted', async () => {
+            const { bridge } = makeBridge();
+            // adapter.exists returns true, so the mkdir loop is a no-op; each
+            // call still consumes one write-rate token.
+            for (let i = 0; i < 10; i++) {
+                await bridge.vaultMkdir(`Notes/folder-${i}`);
+            }
+            await expect(bridge.vaultMkdir('Notes/folder-11')).rejects.toThrow(/rate limit/i);
+        });
+
+        it('counts mkdir and vaultWrite against the same budget', async () => {
+            const { bridge } = makeBridge();
+            for (let i = 0; i < 9; i++) {
+                await bridge.vaultMkdir(`Notes/f-${i}`);
+            }
+            // 10th write via a different write path must still trip the limit.
+            await bridge.vaultWrite('Notes/ok.md', 'hello');
+            await expect(bridge.vaultMkdir('Notes/late')).rejects.toThrow(/rate limit/i);
+        });
+    });
 });

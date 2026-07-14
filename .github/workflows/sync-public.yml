@@ -10,21 +10,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      # FIX-28-04 (AUDIT 2026-07-14 Codex H-3): actions pinned to full commit SHAs.
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
+      # FIX-28-04: verified lockfile via `npm ci --ignore-scripts` instead of
+      # discarding it and running `npm install` with lifecycle scripts.
       - name: Install dependencies
         run: |
-          npm install --no-audit --no-fund
-          npm install @rollup/rollup-linux-x64-gnu --no-audit --no-fund --no-save
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm install @rollup/rollup-linux-x64-gnu@4.62.2 --no-audit --no-fund --no-save --ignore-scripts
 
       - name: Remove internal files
         run: |

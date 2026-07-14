@@ -25,7 +25,7 @@ interface ConvRecord {
     uiMessages: Array<{ role: string; text: string; ts: string }>;
 }
 
-function makePluginMock(opts: { syncMode?: 'auto' | 'manual'; livingDocumentByDefault?: boolean } = {}) {
+function makePluginMock(opts: { syncMode?: 'auto' | 'manual'; livingDocumentByDefault?: boolean; allowWrite?: boolean } = {}) {
     const conversations = new Map<string, ConvRecord>();
     const enqueueCalls: Array<{ conversationId: string; messages: unknown[] }> = [];
     const indexerCalls: Array<{ id: string; count: number }> = [];
@@ -69,6 +69,10 @@ function makePluginMock(opts: { syncMode?: 'auto' | 'manual'; livingDocumentByDe
         activeMcpSessions: new ActiveMcpSessions(),
         settings: {
             mcpServerToken: 'fake-token',
+            // AUDIT 2026-07-14 (Codex) H-2: auto-sync memory extraction now
+            // requires the MCP write toggle. Default true here so the existing
+            // auto-sync assertions still exercise the auto path.
+            mcpAllowWriteTools: opts.allowWrite ?? true,
             memory: {
                 crossSurface: {
                     ...DEFAULT_CROSS_SURFACE_SETTINGS,

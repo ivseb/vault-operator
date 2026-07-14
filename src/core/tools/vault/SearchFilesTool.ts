@@ -1,10 +1,19 @@
 import { BaseTool } from '../BaseTool';
 import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
-import { safeRegex } from '../../utils/safeRegex';
+import { safeRegexChecked } from '../../utils/regexSafetyProbe';
 
 const MAX_RESULTS = 50;
 const MAX_FILES_TO_SCAN = 500;
+/**
+ * Absolute wall-clock budget for the synchronous scan (AUDIT 2026-07-14 Codex
+ * M-6, defense-in-depth). safeRegex already rejects the known catastrophic
+ * shapes; this bounds any future pattern that still slips through and spreads
+ * moderate per-line cost across many lines/files, so the renderer main thread
+ * cannot be pinned indefinitely. It cannot interrupt a single pathological
+ * exec() call -- that is what the safeRegex gate is for.
+ */
+const SEARCH_DEADLINE_MS = 1500;
 /**
  * Max chars echoed for a single match line. ASR transcripts have "lines"
  * that run to ~13k chars, so echoing the whole matched line dumped the
@@ -72,8 +81,12 @@ export class SearchFilesTool extends BaseTool<'search_files'> {
         }
 
         try {
-            // K-2 / S-02: ReDoS-safe regex via shared utility
-            const regex = safeRegex(pattern, 'i');
+            // K-2 / S-02 + FIX-01-04-03: ReDoS-safe regex. safeRegexChecked
+            // additionally MEASURES the pattern in a terminable worker (dynamic
+            // guard) before it runs synchronously over up to 500 files here, so
+            // a catastrophic pattern the static blocklist misses is literalized
+            // instead of freezing the renderer main thread.
+            const regex = await safeRegexChecked(pattern, 'i');
 
             const dirPath = rawPath === '/' || rawPath === '' ? '' : rawPath;
 
@@ -97,9 +110,12 @@ export class SearchFilesTool extends BaseTool<'search_files'> {
 
             const results: string[] = [];
             let totalMatches = 0;
+            const deadline = Date.now() + SEARCH_DEADLINE_MS;
+            let deadlineHit = false;
 
             for (const file of files) {
                 if (totalMatches >= MAX_RESULTS) break;
+                if (Date.now() > deadline) { deadlineHit = true; break; }
 
                 let content: string;
                 try {
@@ -112,6 +128,8 @@ export class SearchFilesTool extends BaseTool<'search_files'> {
                 const fileMatches: string[] = [];
 
                 for (let i = 0; i < lines.length; i++) {
+                    // Check the wall-clock budget periodically (cheap: every 512 lines).
+                    if ((i & 0x1FF) === 0 && Date.now() > deadline) { deadlineHit = true; break; }
                     // exec (not test) so we know WHERE the hit is and can show a
                     // context window instead of the whole (possibly huge) line.
                     regex.lastIndex = 0;
@@ -126,14 +144,19 @@ export class SearchFilesTool extends BaseTool<'search_files'> {
                 if (fileMatches.length > 0) {
                     results.push(`${file.path}:\n${fileMatches.join('\n')}`);
                 }
+                if (deadlineHit) break;
             }
 
             if (results.length === 0) {
-                callbacks.pushToolResult(`No matches found for "${pattern}" in "${rawPath}".`);
+                const deadlineNote = deadlineHit ? ` (search stopped after ${SEARCH_DEADLINE_MS}ms budget; narrow the pattern)` : '';
+                callbacks.pushToolResult(`No matches found for "${pattern}" in "${rawPath}".${deadlineNote}`);
                 return;
             }
 
-            const header = `Found ${totalMatches} match(es) for "${pattern}" in "${rawPath || '/'}":${totalMatches >= MAX_RESULTS ? ` (showing first ${MAX_RESULTS})` : ''}`;
+            const limitNote = deadlineHit
+                ? ` (stopped after ${SEARCH_DEADLINE_MS}ms budget; results are partial, narrow the pattern)`
+                : (totalMatches >= MAX_RESULTS ? ` (showing first ${MAX_RESULTS})` : '');
+            const header = `Found ${totalMatches} match(es) for "${pattern}" in "${rawPath || '/'}":${limitNote}`;
             // AUDIT-034 H-7: search hits include raw vault content (the
             // matched lines) which can carry prompt-injection payloads.
             // Wrap the body in the untrusted-content boundary so the

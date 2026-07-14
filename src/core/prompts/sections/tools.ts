@@ -9,6 +9,7 @@
 import type { ToolGroup } from '../../../types/settings';
 import type { McpClient } from '../../mcp/McpClient';
 import { buildToolPromptSection } from '../../tools/toolMetadata';
+import { sanitizeDirectoryEntry } from '../../tools/BaseTool';
 
 /**
  * FEAT-24-06 / ADR-118: cap MCP tool descriptions at 200 chars so a verbose
@@ -19,9 +20,14 @@ import { buildToolPromptSection } from '../../tools/toolMetadata';
 export const MCP_DESCRIPTION_CAP = 200;
 
 export function capMcpDescription(description: string, server: string, name: string): string {
-    if (description.length <= MCP_DESCRIPTION_CAP) return description;
-    const head = description.slice(0, MCP_DESCRIPTION_CAP).trimEnd();
-    return `${head} ... [full description: read_mcp_tool({ server: "${server}", name: "${name}" })]`;
+    // AUDIT 2026-07-14 (Codex) M-1: MCP tool descriptions come from a possibly
+    // compromised server and were rendered raw into the cached prompt. Defang
+    // boundary tags and flatten to one line before capping.
+    const safe = sanitizeDirectoryEntry(description, MCP_DESCRIPTION_CAP);
+    // sanitizeDirectoryEntry only appends '...' when it actually truncated, so a
+    // result at or below the cap was not truncated and needs no read_mcp_tool hint.
+    if (safe.length <= MCP_DESCRIPTION_CAP) return safe;
+    return `${safe} [full description: read_mcp_tool({ server: "${server}", name: "${name}" })]`;
 }
 
 export function getToolsSection(

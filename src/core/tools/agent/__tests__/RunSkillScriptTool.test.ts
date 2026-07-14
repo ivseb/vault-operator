@@ -181,7 +181,40 @@ describe('RunSkillScriptTool (FEAT-29-06)', () => {
                 context,
             );
             expect(stub.sandboxCalls).toHaveLength(1);
-            expect(stub.sandboxCalls[0].input).toEqual({ foo: 42, bar: 'baz' });
+            // The host injects the paths a script cannot derive: there is no __dirname
+            // in the sandbox and the agent folder is a free-form setting.
+            expect(stub.sandboxCalls[0].input).toEqual({
+                foo: 42,
+                bar: 'baz',
+                skills_root: '.vault-operator/data/skills',
+                skill_data_root: '.vault-operator/data/skill-data',
+                skill_name: 'my-skill',
+            });
+        });
+
+        it('host-injected paths cannot be overridden by the agent', async () => {
+            const stub = makePluginStub({
+                files: {
+                    '.vault-operator/data/skills/my-skill/scripts/echo.js':
+                        'export async function execute(args) { return args; }',
+                },
+                sandboxResult: { received: true },
+            });
+            const tool = new RunSkillScriptTool(stub.plugin);
+            const { context } = makeContext();
+            await tool.execute(
+                {
+                    skill_name: 'my-skill',
+                    script_name: 'echo',
+                    args: { skills_root: 'somewhere/else', skill_name: 'other-skill' },
+                },
+                context,
+            );
+            // Spread last, so a hallucinated path never reaches the script.
+            expect(stub.sandboxCalls[0].input).toMatchObject({
+                skills_root: '.vault-operator/data/skills',
+                skill_name: 'my-skill',
+            });
         });
 
         it('treats args as empty object when omitted', async () => {
@@ -195,7 +228,11 @@ describe('RunSkillScriptTool (FEAT-29-06)', () => {
             const tool = new RunSkillScriptTool(stub.plugin);
             const { context } = makeContext();
             await tool.execute({ skill_name: 'my-skill', script_name: 'noargs' }, context);
-            expect(stub.sandboxCalls[0].input).toEqual({});
+            expect(stub.sandboxCalls[0].input).toEqual({
+                skills_root: '.vault-operator/data/skills',
+                skill_data_root: '.vault-operator/data/skill-data',
+                skill_name: 'my-skill',
+            });
         });
 
         it('returns the sandbox result as JSON in tool_result', async () => {

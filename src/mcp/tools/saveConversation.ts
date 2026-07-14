@@ -101,7 +101,15 @@ export async function handleSaveConversation(
 
     // Resolve sync-mode per provider.
     const crossSurface = plugin.settings.memory?.crossSurface ?? DEFAULT_CROSS_SURFACE_SETTINGS;
-    const syncMode = resolveSyncMode(sourceInterface, crossSurface);
+    let syncMode = resolveSyncMode(sourceInterface, crossSurface);
+    // AUDIT 2026-07-14 (Codex) H-2: with the MCP write toggle off (default), an
+    // external client may store a conversation in the history but must NOT
+    // silently trigger memory extraction (which writes long-term facts into the
+    // user-global memory.db). Force manual sync so the user confirms the write
+    // via star / mark_for_memory, matching the chatgpt/perplexity default.
+    if (syncMode === 'auto' && !plugin.settings.mcpAllowWriteTools) {
+        syncMode = 'manual';
+    }
     const syncState = syncMode === 'auto' ? 'confirmed' : 'pending';
 
     // FIX-23-01-01: Living-Document-Decision. Default true (Settings),

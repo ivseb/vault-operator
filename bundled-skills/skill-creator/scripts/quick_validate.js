@@ -57,6 +57,29 @@ function parseFrontmatter(content) {
     return result;
 }
 
+
+/**
+ * The skill folder, taken from the host.
+ *
+ * A sandboxed script has no __dirname and cannot see the settings, and the agent
+ * folder is a free-form user setting (settings.agentFolderPath), so it cannot be
+ * guessed either. RunSkillScriptTool resolves the path and passes it in as
+ * `skills_root`. Hardcoding '.vault-operator/data/skills' silently writes into a
+ * folder nobody scans the moment a user renames their agent folder, and the skill
+ * then never appears. Refuse rather than guess.
+ */
+function skillRootOf(args, name) {
+    const root = args && typeof args.skills_root === 'string' ? args.skills_root.trim() : '';
+    if (!root) {
+        throw new Error(
+            'skills_root was not provided by the host. This Vault Operator build is ' +
+            'too old for this skill: it must pass skills_root into run_skill_script. ' +
+            'Update the plugin, then run this again.',
+        );
+    }
+    return `${root}/${name}`;
+}
+
 export async function execute(args, ctx) {
     // Accept either `name` or `skill_name` -- the agent's intuition flips
     // between the two depending on the surrounding tool schema.
@@ -72,7 +95,7 @@ export async function execute(args, ctx) {
         };
     }
 
-    const skillMdPath = `.vault-operator/data/skills/${name}/SKILL.md`;
+    const skillMdPath = `${skillRootOf(args, name)}/SKILL.md`;
     let content;
     try {
         content = await ctx.vault.read(skillMdPath);
@@ -144,7 +167,7 @@ export async function execute(args, ctx) {
     }
 
     // Anti-pattern files at the root.
-    const list = await ctx.vault.list(`.vault-operator/data/skills/${name}`).catch(() => []);
+    const list = await ctx.vault.list(skillRootOf(args, name)).catch(() => []);
     const blacklist = ['README.md', 'INSTALLATION_GUIDE.md', 'QUICK_REFERENCE.md', 'CHANGELOG.md'];
     for (const path of list) {
         const basename = path.split('/').pop();

@@ -2329,7 +2329,7 @@ export const en = {
     'settings.mcp.connectorUrlDesc': 'Use this URL in your AI assistant. It includes the auth token. Do not share it.',
     'settings.mcp.copyUrlButton': 'Copy URL',
     'settings.mcp.allowWriteTools': 'Allow write tools over MCP',
-    'settings.mcp.allowWriteToolsDesc': 'Let external MCP clients (desktop clients, ChatGPT, the relay) create, edit, and delete vault files and save to long-term memory. Off by default: external clients can read but not write. Also covers write operations routed through execute_vault_op.',
+    'settings.mcp.allowWriteToolsDesc': 'Let external MCP clients (desktop clients, ChatGPT, the relay) create, edit, and delete vault files and write to long-term memory. Off by default: external clients can read and save conversations into the History sidebar, but cannot change vault files or extract long-term memory. Also covers write operations routed through execute_vault_op.',
     'settings.mcp.deployButton': 'Deploy',
     'settings.mcp.deployingButton': 'Deploying...',
     'settings.mcp.deployRelay': 'Deploy relay server',
