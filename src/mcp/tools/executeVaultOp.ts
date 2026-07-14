@@ -26,7 +26,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import type { ToolName, ToolUse } from '../../core/tools/types';
-import { AGENT_INTERNAL_TOOLS } from '../McpBridge';
+import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { ToolExecutionPipeline } from '../../core/tool-execution/ToolExecutionPipeline';
 
 export async function handleExecuteVaultOp(
