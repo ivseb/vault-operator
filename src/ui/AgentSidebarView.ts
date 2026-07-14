@@ -15,6 +15,14 @@ import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
+// FIX-44-12: checkpoint markers persist into the conversation and rehydrate live.
+import {
+    planCheckpointMarkerRehydration,
+    toPersistedCheckpointMarker,
+    type PersistedCheckpointMarker,
+} from './checkpointMarkerRehydration';
+// FIX-44-44: testable gate for the undo bar / post-task review surfaces.
+import { decidePostTaskSurfaces } from './postTaskReviewGate';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -2344,6 +2352,14 @@ export class AgentSidebarView extends ItemView {
         const taskId = `task-${Date.now()}`;
         let taskWriteCount = 0;
         let hasRenderedCheckpoints = false;
+        // FIX-44-44: true once any write landed WITHOUT an individual diff
+        // approval (settings-auto, run-scope grant, name-only card). Decides
+        // whether the post-task review opens; see showPostTaskReview.
+        let taskHadUnreviewedWrites = false;
+        // FIX-44-12: checkpoints of the CURRENT assistant turn. Persisted into
+        // the UiMessage (uiMessages.push sites) so a reloaded conversation can
+        // re-render live markers; reset with the rest of the per-turn state.
+        let turnCheckpoints: import('../core/checkpoints/GitCheckpointService').CheckpointInfo[] = [];
 
         // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
         // Working spinner for a Stopping row; the drain-end removeLoading
@@ -2781,7 +2797,15 @@ export class AgentSidebarView extends ItemView {
                 onCheckpoint: (checkpoint) => {
                     this.renderCheckpointMarker(toolsEl, checkpoint);
                     hasRenderedCheckpoints = true;
+                    // FIX-44-12: remember for persistence into the UiMessage.
+                    turnCheckpoints.push(checkpoint);
                     scheduleScroll();
+                },
+                // FIX-44-44: the pipeline reports every write that landed
+                // without an individual diff approval; one is enough to owe
+                // the user a post-task review.
+                onUnreviewedWrite: () => {
+                    taskHadUnreviewedWrites = true;
                 },
                 onQuestion: (question, options, resolve, allowMultiple) => {
                     // Render any accumulated text before the question card.
@@ -2810,7 +2834,15 @@ export class AgentSidebarView extends ItemView {
                                 toolStepsHtml: stepsBlockEl?.outerHTML,
                                 taskId,
                                 reasoningText: accumulatedThinking || undefined,
+                                // FIX-44-12: persist this turn's markers so they
+                                // rehydrate live after a reload.
+                                checkpoints: turnCheckpoints.length > 0
+                                    ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                    : undefined,
                             });
+                            // FIX-44-12: markers of the finalized turn were
+                            // just persisted; the next turn starts empty.
+                            turnCheckpoints = [];
                         }
                         // Render user answer as a regular chat message
                         this.addUserMessage(answer);
@@ -2834,6 +2866,12 @@ export class AgentSidebarView extends ItemView {
                         stepsHasError = false;
                         loadingRemoved = false;
                         activeToolGroup = null;
+                        // FIX-44-12 (review follow-up): turnCheckpoints is
+                        // deliberately NOT reset here. When the turn had no
+                        // assistant text, nothing was persisted above -- the
+                        // markers ride along and persist with the NEXT push
+                        // instead of vanishing on reload. The reset lives
+                        // inside the `if (accumulatedText)` block.
                         // Scroll and continue agent loop
                         scheduleScroll();
                         resolve(answer);
@@ -3005,11 +3043,26 @@ export class AgentSidebarView extends ItemView {
                         void this.maybeOfferInflightResume();
                     }
                     scheduleScroll();
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
+                    // Post-task surfaces (extracted for testability, see
+                    // postTaskReviewGate.ts). The review is gated on writes
+                    // that never had a diff surface (regardless of the
+                    // auto-approval master toggle), NOT on the toggle itself
+                    // and NOT on the legacy six-tool write count: tools like
+                    // update_frontmatter or set_block_anchors write without
+                    // ever incrementing taskWriteCount (FIX-44-44). When
+                    // every write was individually diff-approved at the gate,
+                    // the review stays closed -- a second, weaker-looking
+                    // approval is what misled users (FIX-44-16).
+                    const surfaces = decidePostTaskSurfaces({
+                        taskWriteCount,
+                        taskHadUnreviewedWrites,
+                        enableCheckpoints: this.plugin.settings.enableCheckpoints ?? true,
+                        hasRenderedCheckpoints,
+                    });
+                    if (surfaces.showUndoBar) {
                         this.showUndoBar(taskId, taskWriteCount);
                     }
-                    // Post-task review: show all changes for review/undo
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true)) {
+                    if (surfaces.showPostTaskReview) {
                         void this.showPostTaskReview(taskId);
                     }
                     // Notify when sidebar is not the active (focused) view
@@ -3027,6 +3080,11 @@ export class AgentSidebarView extends ItemView {
                             toolStepsHtml: stepsBlockEl?.outerHTML,
                             taskId,
                             reasoningText: accumulatedThinking || undefined,
+                            // FIX-44-12: persist this turn's markers so they
+                            // rehydrate live after a reload.
+                            checkpoints: turnCheckpoints.length > 0
+                                ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                : undefined,
                         });
                     }
                     // Auto-save conversation to ConversationStore
@@ -3909,13 +3967,12 @@ export class AgentSidebarView extends ItemView {
         this.historyPanel?.setActiveId(id);
         this.updateContextBadge();
 
-        // FIX-01-07-02: rebuild checkpoint markers inline at the assistant
-        // message they belong to. The shadow repo holds the snapshots across
-        // plugin reloads, but the in-memory taskCheckpoints map starts empty
-        // and the rehydrated toolStepsHtml only carries dead marker spans
-        // (the live event listeners are gone). For every assistant message
-        // with a persisted taskId we strip the stale markers and render new
-        // live ones via renderCheckpointMarker.
+        // FIX-01-07-02 / FIX-44-12: rebuild checkpoint markers inline at the
+        // assistant message they belong to. Markers never survive into
+        // toolStepsHtml (they render as siblings of the steps block), so this
+        // step re-renders them from UiMessage.checkpoints (verified live, or
+        // expired) with the legacy shadow-repo scan as fallback for older
+        // conversations.
         void this.rehydrateCheckpointMarkers(assistantPairs);
 
         if (!opts.skipNavPush) {
@@ -5716,7 +5773,9 @@ export class AgentSidebarView extends ItemView {
         const files = checkpoint.filesChanged.map((f) => f.split('/').pop()).join(', ');
         const newFileNames = checkpoint.newFiles?.map((f) => f.split('/').pop()).join(', ');
         const allFiles = [files, newFileNames].filter(Boolean).join(', ');
-        const time = new Date(checkpoint.timestamp).toLocaleTimeString('de-DE', {
+        // Locale-neutral like every other timestamp in this file (EPIC-42
+        // ships a 9-locale UI; a hardcoded 'de-DE' leaked in here once).
+        const time = new Date(checkpoint.timestamp).toLocaleTimeString([], {
             hour: '2-digit',
             minute: '2-digit',
         });
@@ -6002,24 +6061,19 @@ export class AgentSidebarView extends ItemView {
     // -------------------------------------------------------------------------
 
     /**
-     * FIX-01-07-02: after loadConversation rebuilds the chat DOM, rehydrate
-     * the per-checkpoint markers inline at the assistant message they belong
-     * to. The shadow repo still holds the snapshots across plugin reloads,
-     * but the in-memory taskCheckpoints map starts empty AND the dead marker
-     * spans in toolStepsHtml have no event listeners.
+     * FIX-01-07-02 / FIX-44-12: after loadConversation rebuilds the chat DOM,
+     * rehydrate the checkpoint markers inline at the assistant message they
+     * belong to. Markers are never part of toolStepsHtml (they render as
+     * siblings of the steps block), so without this step a reloaded chat has
+     * no markers at all.
      *
-     * For each unique taskId we:
-     *   1. service.loadCheckpointsForTask(taskId) -- rebuilds the in-memory map
-     *      from the shadow repo via git log.
-     *   2. Pick the LAST assistant message of that task as the anchor. (Most
-     *      tasks emit one assistant bubble; askQuestion pauses produce more,
-     *      and the trailing bubble is the user's natural exit point.)
-     *   3. Strip any stale .checkpoint-marker nodes that the toolStepsHtml
-     *      snapshot brought in dead, then render fresh markers via
-     *      renderCheckpointMarker so the buttons work again.
-     *
-     * Older conversations stored before taskId was persisted on UiMessages
-     * have m.taskId === undefined and are skipped (no marker, no error).
+     * FIX-44-12: messages that persisted their markers (UiMessage.checkpoints)
+     * get them back at their own bubble -- LIVE (verified against the shadow
+     * repo, full Diff/Undo buttons) or EXPIRED (dimmed, tooltip) when the repo
+     * no longer holds the snapshot (REF_RETENTION_DAYS pruning). Older
+     * conversations without the field keep the legacy behavior: every loaded
+     * checkpoint of a task at its last assistant bubble. The planning logic
+     * lives in checkpointMarkerRehydration.ts (pure, tested).
      */
     private async rehydrateCheckpointMarkers(
         pairs: { msg: UiMessage; el: HTMLElement }[],
@@ -6028,29 +6082,63 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        // Last DOM anchor per taskId (later messages overwrite earlier ones).
-        const anchorByTaskId = new Map<string, HTMLElement>();
-        for (const { msg, el } of pairs) {
-            if (msg.taskId) anchorByTaskId.set(msg.taskId, el);
-        }
+        try {
+            const plan = await planCheckpointMarkerRehydration(
+                pairs.map((p) => p.msg),
+                (taskId) => service.loadCheckpointsForTask(taskId),
+            );
 
-        for (const [taskId, messageEl] of anchorByTaskId) {
-            try {
-                const list = await service.loadCheckpointsForTask(taskId);
-                if (list.length === 0) continue;
+            for (const [index, items] of plan) {
+                const messageEl = pairs[index]?.el;
+                if (!messageEl) continue;
 
-                // Drop stale markers from the rehydrated toolStepsHtml so we
-                // don't render the same checkpoint twice (once dead, once live).
+                // Defensive: never render the same marker twice if rehydration
+                // runs again over the same DOM.
                 messageEl.querySelectorAll('.checkpoint-marker').forEach((el) => el.remove());
 
                 const toolsEl = messageEl.querySelector<HTMLElement>('.message-tools') ?? messageEl;
-                for (const cp of list) {
-                    this.renderCheckpointMarker(toolsEl, cp);
+                for (const item of items) {
+                    if (item.kind === 'live') {
+                        this.renderCheckpointMarker(toolsEl, item.checkpoint);
+                    } else {
+                        this.renderExpiredCheckpointMarker(toolsEl, item.marker);
+                    }
                 }
-            } catch (e) {
-                console.warn('[Checkpoints] rehydrate failed for', taskId, e);
             }
+        } catch (e) {
+            console.warn('[Checkpoints] rehydrate failed:', e);
         }
+    }
+
+    /**
+     * FIX-44-12: a persisted marker whose snapshot the shadow repo no longer
+     * holds (pruned after REF_RETENTION_DAYS, deleted repo). Rendered dimmed,
+     * without action buttons, with a tooltip saying why -- the honest version
+     * of "this existed, but its undo data is gone". Dropping it silently made
+     * users hunt for buttons that could never come back.
+     */
+    private renderExpiredCheckpointMarker(
+        container: HTMLElement,
+        marker: PersistedCheckpointMarker,
+    ): void {
+        const el = container.createDiv('checkpoint-marker checkpoint-marker-expired');
+        el.setAttribute('aria-label', t('ui.checkpoint.snapshotExpired'));
+
+        const iconEl = el.createSpan('checkpoint-icon');
+        setIcon(iconEl, 'git-commit-vertical');
+
+        const label = el.createSpan('checkpoint-label');
+        const files = [...marker.filesChanged, ...(marker.newFiles ?? [])]
+            .map((f) => f.split('/').pop())
+            .filter(Boolean)
+            .join(', ');
+        // Locale-neutral, matching renderCheckpointMarker and the rest of
+        // the file's timestamps.
+        const time = new Date(marker.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        label.setText(t('ui.checkpoint.label', { files, time }));
     }
 
     // -------------------------------------------------------------------------
@@ -6061,20 +6149,18 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        // FIX-44-16: the diff belongs BEFORE the write, not after it.
+        // FIX-44-16: the diff belongs BEFORE the write, not after it. A write the
+        // user individually approved on its real diff must not be re-approved
+        // here -- a second, weaker-looking approval is what misled a user into
+        // thinking the POST-task modal was the gate.
         //
-        // With the master auto-approve toggle off, every CUD tool goes through the
-        // pre-write gate (FEAT-44-01 / FEAT-44-10): the user already saw this exact
-        // diff and already said yes, and a rejection there means the write never
-        // happened. Showing the same diff again afterwards is not a second chance,
-        // it is a second, weaker-looking approval -- and that is precisely what
-        // misled a user into thinking the POST-task modal was the gate, rejecting
-        // in it, and watching nothing happen.
-        //
-        // The review is only still needed for writes that were NOT gated, i.e. when
-        // the user has switched auto-approval on. Then it is the last line of
-        // defence, and its discard really does take the changes back.
-        if (this.plugin.settings.autoApproval.enabled !== true) return;
+        // FIX-44-44: but "the user saw the diff at the gate" only holds for tools
+        // with previewEdit. Name-only card approvals, settings-auto and run-scope
+        // grants land with no diff surface at all, and they exist with the master
+        // toggle OFF too. The caller therefore gates this method on the
+        // pipeline's onUnreviewedWrite signal (taskHadUnreviewedWrites), not on
+        // `autoApproval.enabled`. For those writes this review is the last line
+        // of defence, and its explicit revert really does take the changes back.
 
         const checkpoints = service.getCheckpointsForTask(taskId);
         if (checkpoints.length === 0) return;
@@ -6136,10 +6222,23 @@ export class AgentSidebarView extends ItemView {
             discardLabel: t('ui.editReview.revertAll'),
         });
 
-        if (result.decisions === null) {
+        // FIX-44-38: Esc / X / backdrop is NOT "Revert all". A user who merely
+        // closes the review keeps every file exactly as the agent left it.
+        if (result.outcome === 'dismissed') return;
+
+        if (result.outcome === 'discarded') {
             // FIX-44-16: this used to be a bare `return`. The user pressed the
             // button that says the changes go away, and the changes stayed. The
             // pre-task content is right here in `entries`, so give it back.
+            // FIX-44-38: only the EXPLICIT revert button lands here, and since it
+            // destroys the agent's finished work it gets a confirm step.
+            const ok = await confirmModal(this.app, {
+                title: t('ui.editReview.confirmRevertTitle'),
+                message: t('ui.editReview.confirmRevertBody', { count: entries.length }),
+                confirmLabel: t('ui.editReview.revertAll'),
+                destructive: true,
+            });
+            if (!ok) return; // keep everything
             const undone = await revertReviewedFiles(this.app, entries);
             if (undone.reverted.length > 0) {
                 new Notice(t('ui.editReview.reverted', { count: undone.reverted.length }));
@@ -6149,6 +6248,7 @@ export class AgentSidebarView extends ItemView {
             }
             return;
         }
+        if (result.decisions === null) return; // defensive: applied always carries decisions
 
         // FIX-01-07-04: only decisions the user actually changed are written,
         // through the atomic + empty-guarded path. An unchanged Apply is a

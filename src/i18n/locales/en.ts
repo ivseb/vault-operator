@@ -813,6 +813,8 @@ export const en = {
     'ui.editReview.hiddenLines': '{{count}} unchanged lines',
     'ui.editReview.discard': 'Discard',
     'ui.editReview.revertAll': 'Undo all changes',
+    'ui.editReview.confirmRevertTitle': 'Undo all changes?',
+    'ui.editReview.confirmRevertBody': 'This restores {{count}} file(s) to their state before the task. The changes the agent made will be removed from your vault.',
     'ui.editReview.reverted': '{{count}} file(s) restored to their state before the task.',
     'ui.editReview.revertFailed': 'Could not undo: {{paths}}',
     'ui.editReview.restore': 'Restore',
@@ -1164,6 +1166,7 @@ export const en = {
     'ui.checkpoint.nothingToRestore': 'Nothing to restore',
     'ui.checkpoint.restored': 'Restored {{count}} file(s)',
     'ui.checkpoint.failed': 'Failed',
+    'ui.checkpoint.snapshotExpired': 'This snapshot is no longer available. Checkpoints are kept for 30 days; the actions for this one are disabled.',
 
     // =========================================================================
     // Chat UI -- Undo Bar

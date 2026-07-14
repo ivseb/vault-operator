@@ -3611,6 +3611,13 @@
     height: 13px;
 }
 
+/* FIX-44-12: rehydrated marker whose snapshot the shadow repo no longer holds
+   (pruned refs). Dimmed, no action buttons; the aria-label tooltip says why. */
+.checkpoint-marker-expired {
+    opacity: 0.55;
+    cursor: help;
+}
+
 .checkpoint-restored {
     color: var(--color-green);
     font-size: 10px;

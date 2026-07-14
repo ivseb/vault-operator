@@ -103,6 +103,33 @@ describe('FIX-44-16: discarding a post-task review really undoes the changes', (
         expect(outcome.failed).toEqual(['../../etc/passwd']);
     });
 
+    it('FIX-44-40: reverts a file that was EMPTY before the task', async () => {
+        const { app, written } = makeApp({ 'Notes/leer.md': AFTER });
+
+        const outcome = await revertReviewedFiles(app, [
+            { path: 'Notes/leer.md', before: '', after: AFTER },
+        ]);
+
+        // The P0 empty-overwrite guard protects forward writes; the revert
+        // target is the genuine pre-task snapshot and must win here.
+        expect(written.get('Notes/leer.md')).toBe('');
+        expect(outcome.reverted).toEqual(['Notes/leer.md']);
+        expect(outcome.failed).toEqual([]);
+    });
+
+    it('FIX-44-40: reverts to a pre-task state whose frontmatter was already broken', async () => {
+        const broken = '---\ntitle: Alt\n\nBody war schon vor dem Task im YAML\n';
+        const { app, written } = makeApp({ 'Notes/kaputt.md': AFTER });
+
+        const outcome = await revertReviewedFiles(app, [
+            { path: 'Notes/kaputt.md', before: broken, after: AFTER },
+        ]);
+
+        expect(written.get('Notes/kaputt.md')).toBe(broken);
+        expect(outcome.reverted).toEqual(['Notes/kaputt.md']);
+        expect(outcome.failed).toEqual([]);
+    });
+
     it('reverts what it can and reports what it could not', async () => {
         const { app, written } = makeApp({ 'Notes/a.md': AFTER });
 
