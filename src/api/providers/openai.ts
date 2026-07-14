@@ -300,21 +300,23 @@ export class OpenAiProvider implements ApiHandler {
         // generation 400s when function tools and reasoning_effort are
         // combined on /v1/chat/completions ("... use /v1/responses or set
         // reasoning_effort to 'none'"). When the flag is set AND tools are
-        // present, the user-chosen effort is replaced by the EXPLICIT 'none'
-        // the provider names as the escape; omitting the field is not
-        // equivalent because reasoning models default to a non-none effort
-        // server-side. Only the chat-completions reasoning_effort branch
+        // present, the request must carry the EXPLICIT 'none' the provider
+        // names as the escape, REGARDLESS of whether the user chose an
+        // effort: omitting the field is not equivalent, because reasoning
+        // models apply a non-none default effort server-side and 400 with the
+        // identical message on a field-less request (second field report,
+        // 2026-07-14). Only the chat-completions reasoning_effort branch
         // consults the flag; OpenRouter's reasoning.effort is a different
         // wire surface with its own semantics.
-        const suppressEffortForTools = effortValid
-            && this.config.type !== 'openrouter'
+        const suppressEffortForTools = this.config.type !== 'openrouter'
             && openAiTools !== undefined && openAiTools.length > 0
             && isEffortWithToolsUnsupported(this.config.model);
         if (suppressEffortForTools && !effortSuppressionNotified.has(this.config.model)) {
             effortSuppressionNotified.add(this.config.model);
             console.debug(
-                `[OpenAi] ${this.config.model}: reasoning_effort '${effort}' suppressed to 'none' `
-                + `(model rejects effort combined with function tools; learned flag, FIX-54-10)`,
+                `[OpenAi] ${this.config.model}: reasoning_effort forced to 'none' `
+                + `(was ${effortValid ? `'${effort}'` : 'unset, server default'}; `
+                + `model rejects effort combined with function tools; learned flag, FIX-54-10)`,
             );
         }
         // OpenRouter reasoning object: merge the existing extended-thinking
@@ -358,9 +360,11 @@ export class OpenAiProvider implements ApiHandler {
                 : {}),
             // openai / github-copilot reasoning effort (chat-completions field).
             // FIX-54-10: forced to 'none' when the learned flag says this model
-            // rejects effort with function tools ('none' is not in the SDK's
-            // ReasoningEffort union yet, hence the record cast carries it).
-            ...(effortValid && this.config.type !== 'openrouter'
+            // rejects effort with function tools; the flag path fires even
+            // without a user-chosen effort, because a field-less request gets
+            // the server-side default effort and 400s identically ('none' is
+            // not in the SDK's ReasoningEffort union yet, hence the cast).
+            ...(suppressEffortForTools || (effortValid && this.config.type !== 'openrouter')
                 ? { reasoning_effort: suppressEffortForTools ? 'none' : effort } as Record<string, unknown>
                 : {}),
             // OpenRouter: disable automatic model fallback to prevent silent model switches.

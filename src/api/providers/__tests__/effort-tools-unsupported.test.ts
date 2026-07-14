@@ -302,10 +302,29 @@ describe('OpenAiProvider suppresses effort with tools when flagged (FIX-54-10)',
         expect(lastRequest()?.reasoning_effort).toBe('medium');
     });
 
-    it('sends NO effort field when the user chose none, even with the flag set (byte-identical)', async () => {
+    // Live evidence 2026-07-14 (second field report): when NO user effort is
+    // configured we used to send no field at all, but the SERVER then applies
+    // its own non-none default effort for reasoning models and 400s with the
+    // exact same combination error. The escape the provider names requires an
+    // EXPLICIT 'none', so a flagged model with tools must always carry it,
+    // user-chosen effort or not.
+    it('sends the explicit "none" when the flag is set and NO user effort is configured', async () => {
         setLearnedModelFlags({ 'gpt-5.6-sol': { effortWithToolsUnsupported: true } });
         const { provider, lastRequest } = makeOpenAi({});
         await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], TEST_TOOLS));
+        expect(lastRequest()?.reasoning_effort).toBe('none');
+    });
+
+    it('sends NO effort field for an unflagged model without user effort (byte-identical regression)', async () => {
+        const { provider, lastRequest } = makeOpenAi({ model: 'gpt-5' });
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], TEST_TOOLS));
+        expect('reasoning_effort' in lastRequest()!).toBe(false);
+    });
+
+    it('sends NO effort field on a flagged model when no tools are present and no effort chosen', async () => {
+        setLearnedModelFlags({ 'gpt-5.6-sol': { effortWithToolsUnsupported: true } });
+        const { provider, lastRequest } = makeOpenAi({});
+        await drain(provider.createMessage('sys', [{ role: 'user', content: 'hi' }], []));
         expect('reasoning_effort' in lastRequest()!).toBe(false);
     });
 });
