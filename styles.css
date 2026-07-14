@@ -3415,6 +3415,44 @@
     word-break: break-all;
 }
 
+/* FEAT-44-02b: scope-only batch approval -- planned file list on the card */
+.tool-approval-scope {
+    width: 100%;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-normal);
+}
+
+.tool-approval-scope-summary {
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.tool-approval-scope-heading {
+    margin-top: 4px;
+    color: var(--text-muted);
+}
+
+.tool-approval-scope-list {
+    margin: 4px 0 0;
+    padding: 6px 8px 6px 24px;
+    background: var(--background-secondary);
+    border-radius: 4px;
+    font-family: var(--font-monospace);
+    font-size: 11px;
+    line-height: 1.5;
+    max-height: 160px;
+    overflow-y: auto;
+    word-break: break-all;
+}
+
+.tool-approval-scope-more {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .tool-approval-code-preview {
     width: 100%;
     margin-top: 4px;

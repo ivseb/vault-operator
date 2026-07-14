@@ -31,6 +31,22 @@ export interface ExtractZipInput {
     stripRootFolder?: boolean;
     /** Cumulative uncompressed size cap. Default 100 MB. */
     maxUncompressedBytes?: number;
+    /**
+     * FEAT-44-02b: plan without writing. Every guard (traversal, zip-bomb,
+     * target validation) and every existence check runs exactly as in a real
+     * extraction, but no folder is created and no byte is written. The
+     * result's writtenFiles/skippedEntries ARE the plan -- the batch approval
+     * gate shows them, and a subsequent real run over unchanged inputs
+     * produces the same sets.
+     */
+    dryRun?: boolean;
+    /**
+     * FEAT-44-02b: only extract entries whose ABSOLUTE vault path the filter
+     * admits. Used to honour the approved subset of a batch gate
+     * (context.approvedBatchPaths). Filtered-out entries are reported in
+     * skippedEntries.
+     */
+    entryFilter?: (absPath: string) => boolean;
 }
 
 export interface ExtractZipResult {
@@ -38,6 +54,14 @@ export interface ExtractZipResult {
     skippedEntries: string[];
     strippedRoot: string | null;
     totalUncompressedBytes: number;
+    /** FEAT-44-02b: the normalised target folder (for absolute-path composition). */
+    targetRoot: string;
+    /**
+     * FEAT-44-02b: subset of writtenFiles that already existed and are being
+     * replaced (only non-empty with overwrite=true). The gate renders these
+     * as changes instead of new files.
+     */
+    overwrittenFiles: string[];
 }
 
 export type ExtractZipErrorCode =
@@ -93,18 +117,36 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         }
     }
 
-    if (!(await input.adapter.exists(target))) {
+    if (!input.dryRun && !(await input.adapter.exists(target))) {
         await input.adapter.mkdir(target);
     }
 
     const written: string[] = [];
     const skipped: string[] = [];
+    const overwritten: string[] = [];
 
     for (const entry of entries) {
         const absPath = target ? `${target}/${entry.relPath}` : entry.relPath;
 
-        if ((await input.adapter.exists(absPath)) && !input.overwrite) {
+        // FEAT-44-02b: honour the approved subset of a batch gate. Checked
+        // BEFORE the exists-check so a filtered entry is always "skipped",
+        // never silently overwritten.
+        if (input.entryFilter && !input.entryFilter(absPath)) {
             skipped.push(entry.relPath);
+            continue;
+        }
+
+        const exists = await input.adapter.exists(absPath);
+        if (exists && !input.overwrite) {
+            skipped.push(entry.relPath);
+            continue;
+        }
+        if (exists) {
+            overwritten.push(entry.relPath);
+        }
+
+        if (input.dryRun) {
+            written.push(entry.relPath);
             continue;
         }
 
@@ -123,6 +165,8 @@ export async function extractZip(input: ExtractZipInput): Promise<ExtractZipResu
         skippedEntries: skipped,
         strippedRoot,
         totalUncompressedBytes: total,
+        targetRoot: target,
+        overwrittenFiles: overwritten,
     };
 }
 

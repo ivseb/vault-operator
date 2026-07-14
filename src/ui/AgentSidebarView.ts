@@ -12,6 +12,7 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
@@ -2878,8 +2879,8 @@ export class AgentSidebarView extends ItemView {
                     };
                     this.showQuestionCard(question, options, wrappedResolve, allowMultiple);
                 },
-                onApprovalRequired: async (toolName, input, preview) => {
-                    return this.showApprovalCard(toolName, input, preview);
+                onApprovalRequired: async (toolName, input, preview, batch) => {
+                    return this.showApprovalCard(toolName, input, preview, batch);
                 },
                 onOptionalAssetRequired: async (spec, toolName) => {
                     return this.showInstallPromptCard(spec, toolName);
@@ -5331,11 +5332,52 @@ export class AgentSidebarView extends ItemView {
         return { decision: 'approved', finalContent: decision.finalContent, rememberForRun, rememberForSession };
     }
 
+    private async showBatchEditApprovalGate(
+        toolName: string,
+        batch: import('../core/tools/editPreview').BatchEditPreview,
+    ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
+        const { showEditReviewModal } = await import('./edit-review/EditReviewModal');
+        const { decideBatchApproval } = await import('./edit-review/batchApprovalDecision');
+        const result = await showEditReviewModal({
+            app: this.app,
+            source: `${this.formatToolLabel(toolName)}: ${batch.summary}`,
+            title: t('ui.approval.gateTitleBatch'),
+            entries: batch.entries.map((e) => ({
+                path: e.path,
+                before: e.before,
+                after: e.after,
+                isNew: e.isNew,
+                isDeleted: e.isDeleted,
+            })),
+            // The batch gate is read-only: the tool writes internally, a
+            // user edit inside one entry could not be honoured honestly.
+            readonlyContent: true,
+            // FEAT-44-07: no scope buttons while paranoid mode is on.
+            allowRememberForRun: this.plugin.settings.paranoidMode !== true,
+        });
+        return decideBatchApproval(result);
+    }
+
     private async showApprovalCard(
         toolName: string,
         input: Record<string, unknown>,
         preview?: import('../core/tools/editPreview').EditPreview,
+        batch?: import('../core/tools/editPreview').BatchEditPreview,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
+        // FEAT-44-02b: a multi-file operation with real per-file diffs gets
+        // the multi-entry review as its gate. Scope-only batches fall through
+        // to the card below, which then shows the planned file list instead
+        // of a bare tool name.
+        //
+        // FIX-44-54: the entry-count guard mirrors the Pipeline's own cap
+        // (MAX_BATCH_DIFF_ENTRIES in editPreview.ts, the shared contract
+        // constant). The Pipeline downgrades oversized batches to scopeOnly
+        // BEFORE they reach this callback, so the guard here is defence in
+        // depth only -- it must never be the sole place the cap lives,
+        // because the Pipeline decides diffReviewed from what was offered.
+        if (batch && batch.scopeOnly !== true && batch.entries.length <= MAX_BATCH_DIFF_ENTRIES) {
+            return await this.showBatchEditApprovalGate(toolName, batch);
+        }
         // FEAT-44-10: a note edit with a computable diff gets the real gate.
         if (preview) {
             return await this.showEditApprovalGate(toolName, preview);
@@ -5380,6 +5422,29 @@ export class AgentSidebarView extends ItemView {
                 explanationEl.createSpan('tool-approval-target').setText(target);
             }
 
+            // FEAT-44-02b: scope-only batch -- the card names the operation's
+            // planned file list instead of just the tool. Rendered rows are
+            // capped (no unbounded DOM); the full list sits in the details
+            // <pre> below as one text node.
+            const SCOPE_LIST_CAP = 20;
+            if (batch) {
+                const scope = row.createDiv('tool-approval-scope');
+                scope.createDiv('tool-approval-scope-summary').setText(batch.summary);
+                scope.createDiv('tool-approval-scope-heading').setText(
+                    t('ui.approval.scopeHeading', { count: batch.entries.length }),
+                );
+                const list = scope.createEl('ul', { cls: 'tool-approval-scope-list' });
+                for (const entry of batch.entries.slice(0, SCOPE_LIST_CAP)) {
+                    const li = list.createEl('li');
+                    li.setText(entry.isDeleted === true ? `− ${entry.path}` : entry.isNew === true ? `+ ${entry.path}` : entry.path);
+                }
+                if (batch.entries.length > SCOPE_LIST_CAP) {
+                    scope.createDiv('tool-approval-scope-more').setText(
+                        t('ui.approval.scopeMore', { count: batch.entries.length - SCOPE_LIST_CAP }),
+                    );
+                }
+            }
+
             // For sandbox: show code preview (first 3 lines)
             if (toolName === 'evaluate_expression' && typeof input['expression'] === 'string') {
                 const expr = input['expression'];
@@ -5401,8 +5466,15 @@ export class AgentSidebarView extends ItemView {
                 text: t('ui.approval.explain.showDetails'),
             });
             const detailsContainer = row.createDiv('tool-approval-details');
+            // FEAT-44-02b: the details carry the FULL planned file list (the
+            // visible scope list above is capped) as one text node.
+            const detailsText = this.formatInputForDetails(input)
+                + (batch
+                    ? '\n\n' + t('ui.approval.scopeDetailsHeading', { count: batch.entries.length })
+                        + '\n' + batch.entries.map((e) => e.path).join('\n')
+                    : '');
             detailsContainer.createEl('pre', { cls: 'tool-approval-details-content' })
-                .setText(this.formatInputForDetails(input));
+                .setText(detailsText);
 
             detailsToggle.addEventListener('click', () => {
                 const isVisible = detailsContainer.hasClass('is-visible');

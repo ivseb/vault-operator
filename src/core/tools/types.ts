@@ -345,6 +345,19 @@ export interface ToolExecutionContext {
      * rebuildPromptCache. No-op if the tool is already active or not deferred.
      */
     activateDeferredTool?: (toolName: string) => void;
+
+    /**
+     * FEAT-44-02b: the batch preview paths the user approved. After a batch
+     * gate this is always set (FIX-44-56): the remaining subset when entries
+     * were skipped, otherwise the FULL planned entry set -- the scope is
+     * pinned at gate time, so a tool that re-selects its targets at execute
+     * time cannot write files the card never showed. `undefined` means no
+     * batch gate was shown (plain card, auto-approval, headless policy).
+     * Tools that implement `previewBatch` (editPreview.ts) MUST honour this
+     * set: any planned write whose path is not in it is skipped and reported
+     * as skipped.
+     */
+    approvedBatchPaths?: ReadonlySet<string>;
 }
 
 /**

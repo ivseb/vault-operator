@@ -845,71 +845,45 @@ export class VaultHealthService {
     // Batch fix operations (run in code, no LLM calls)
     // -----------------------------------------------------------------------
 
+    private static readonly MAX_FRONTMATTER_BACKLINKS = 10;
+    private static readonly BASE_CATEGORIES = new Set(['Thema', 'Konzept', 'Topic', 'Concept']);
+
+    /** Sibling .base path for a hub note ("Notes/T.md" -> "Notes/T-Backlinks.base"). */
+    private backlinksBasePathFor(target: string): string {
+        const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
+        const baseFileName = `${targetBaseName}-Backlinks.base`;
+        const targetDir = target.includes('/') ? target.split('/').slice(0, -1).join('/') : '';
+        return targetDir ? `${targetDir}/${baseFileName}` : baseFileName;
+    }
+
     /**
-     * Fix missing backlinks in batch. For each entity that is referenced via MOC
-     * properties but doesn't link back, adds the source notes to the entity's
-     * "Notizen" (or equivalent) frontmatter property.
+     * Target selection for fixMissingBacklinks, extracted so the plan
+     * (FEAT-44-02b approval scope) and the repair iterate the SAME set. Pure
+     * reads: SQL + metadata cache, no mutation.
      *
-     * Runs entirely in code -- 0 LLM tokens. Uses Obsidian's processFrontMatter
-     * which is atomic and preserves existing frontmatter.
+     * FIX-19-01-08: SQL aligned with checkMissingBacklinks. Both the outer
+     * edge and the searched-for reverse edge are pinned to
+     * backlinksProperty. The previous query iterated EVERY one-sided
+     * frontmatter edge regardless of property (incl. Themen / Konzepte /
+     * Personen / ...), which mutated ~130 hub notes per run even though
+     * checkMissingBacklinks only surfaces a handful of findings under the
+     * configured property. The useBase branch's `fm['Notizen'] = null` (now
+     * removed) was destructive, so the wider iteration corrupted reverse
+     * edges across the entire graph. Single source of truth now: the repair
+     * touches the same edges that checkMissingBacklinks reports.
      *
-     * @returns Number of entities updated and total backlinks added
+     * FIX-19-01-09: also exclude targets that the user (or FIX-19-01-06's
+     * auto-dismiss) already marked as dismissed for missing_backlinks.
+     * Without this filter the repair loop re-iterates YAML-broken targets
+     * every run, processFrontMatter throws YAMLParseError every run, and
+     * the result modal re-renders the "X notes have broken YAML" section
+     * for the exact same notes again and again.
      */
-    /**
-     * Fix missing backlinks using a two-tier strategy:
-     *
-     * - **Thema/Konzept notes**: Create an embedded Base (.base file) that dynamically
-     *   shows all notes linking to this entity. No frontmatter changes needed.
-     * - **Other categories (Person, Projekt, etc.)**: Add backlinks to frontmatter,
-     *   but only up to MAX_FRONTMATTER_BACKLINKS. If exceeded, create a Base instead.
-     *
-     * This avoids overloading hub notes with hundreds of frontmatter entries.
-     */
-    async fixMissingBacklinks(
-        backlinksProperty = 'Notizen',
-        categoryProperty = 'Kategorie',
-    ): Promise<{
-        entitiesFixed: number;
-        linksAdded: number;
-        basesCreated: number;
-        // FIX-19-01-06: explicit transparency about why a target produced no
-        // mutation. The result screen surfaces these so the user can see WHY
-        // "130 entities" produced "0 links" instead of guessing.
-        entitiesWithExistingBase: number;
-        yamlErrorPaths: string[];
-    }> {
+    private computeMissingBacklinkTargets(
+        backlinksProperty: string,
+        categoryProperty: string,
+    ): Map<string, { sources: string[]; properties: Set<string> }> {
         const db = this.getDB();
-        let entitiesFixed = 0;
-        let linksAdded = 0;
-        let basesCreated = 0;
-        let entitiesWithExistingBase = 0;
-        const yamlErrorPaths: string[] = [];
-
-        const MAX_FRONTMATTER_BACKLINKS = 10;
-        const BASE_CATEGORIES = new Set(['Thema', 'Konzept', 'Topic', 'Concept']);
-
-        // FIX-19-01-08: SQL aligned with checkMissingBacklinks. Both
-        // the outer edge and the searched-for reverse edge are pinned
-        // to backlinksProperty. The previous query iterated EVERY
-        // one-sided frontmatter edge regardless of property (incl.
-        // Themen / Konzepte / Personen / ...), which mutated ~130 hub
-        // notes per run even though checkMissingBacklinks only
-        // surfaces a handful of findings under the configured
-        // property. The useBase branch's `fm['Notizen'] = null` (now
-        // removed) was destructive, so the wider iteration corrupted
-        // reverse edges across the entire graph. Single source of
-        // truth now: this method touches the same edges that
-        // checkMissingBacklinks reports.
-        // FIX-19-01-09: also exclude targets that the user (or
-        // FIX-19-01-06's auto-dismiss) already marked as dismissed
-        // for missing_backlinks. Without this filter the repair loop
-        // re-iterates YAML-broken targets every run, processFrontMatter
-        // throws YAMLParseError every run, and the result modal
-        // re-renders the "X notes have broken YAML" section for the
-        // exact same notes again and again. checkMissingBacklinks's
-        // post-loop dismissed filter already hides them in the
-        // findings list, so the modal noise was the only remaining
-        // visible symptom of the missing repair-side filter.
         const result = db.exec(
             `SELECT e1.target_path, e1.source_path, e1.property_name
              FROM edges e1
@@ -933,12 +907,12 @@ export class VaultHealthService {
             [backlinksProperty, backlinksProperty],
         );
 
+        const missingByTarget = new Map<string, { sources: string[]; properties: Set<string> }>();
         if (result.length === 0 || result[0].values.length === 0) {
-            return { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] };
+            return missingByTarget;
         }
 
         // Group by target entity
-        const missingByTarget = new Map<string, { sources: string[]; properties: Set<string> }>();
         for (const row of result[0].values) {
             const target = row[0] as string;
             const source = row[1] as string;
@@ -959,11 +933,7 @@ export class VaultHealthService {
         // Filter 1: drop targets whose sibling Base file exists. The
         // Base is dynamic and covers backlinks for free.
         for (const [target] of missingByTarget) {
-            const targetBaseName = target.replace(/\.md$/, '').split('/').pop() ?? '';
-            const baseFileName = `${targetBaseName}-Backlinks.base`;
-            const targetDir = target.includes('/') ? target.split('/').slice(0, -1).join('/') : '';
-            const basePath = targetDir ? `${targetDir}/${baseFileName}` : baseFileName;
-            if (this.app.vault.getAbstractFileByPath(basePath)) {
+            if (this.app.vault.getAbstractFileByPath(this.backlinksBasePathFor(target))) {
                 missingByTarget.delete(target);
             }
         }
@@ -985,8 +955,243 @@ export class VaultHealthService {
             }
         }
 
+        return missingByTarget;
+    }
+
+    /**
+     * FEAT-44-02b / FIX-44-13b: the file paths a repair action WOULD touch,
+     * computed without touching them. The approval gate presents this as the
+     * operation's scope; the repair shares the same selection code (pinned
+     * by parity tests), and FIX-44-56 additionally pins it against STATE
+     * drift: the Pipeline passes the approved plan back as the fix methods'
+     * targetFilter, so files that drifted into the selection while the card
+     * was open are skipped, not silently written.
+     *
+     * Per-note diffs are deliberately NOT computed: the fix methods decide
+     * their exact mutation inside processFrontMatter at write time, and a
+     * simulated diff that can drift from the write is worse than an honest
+     * path list.
+     *
+     * For fix_backlinks, hub targets (Thema/Konzept or >10 sources) get a
+     * dynamically created sibling `<name>-Backlinks.base`; the plan lists
+     * that path too, because it is a file the repair will create.
+     */
+    planRepairTargets(
+        action: 'fix_backlinks' | 'cleanup' | 'fix_categories',
+        backlinksProperty = 'Notizen',
+        categoryProperty = 'Kategorie',
+    ): string[] {
+        if (action === 'fix_backlinks') {
+            const targets = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty);
+            const paths: string[] = [];
+            for (const [target, { sources }] of targets) {
+                paths.push(target);
+                const file = this.app.vault.getAbstractFileByPath(target);
+                const cache = file instanceof TFile ? this.app.metadataCache.getFileCache(file) : null;
+                const category = this.getNoteCategory(cache, categoryProperty);
+                const useBase = VaultHealthService.BASE_CATEGORIES.has(category)
+                    || sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS;
+                if (useBase) {
+                    paths.push(this.backlinksBasePathFor(target));
+                }
+            }
+            return paths;
+        }
+        if (action === 'cleanup') {
+            const paths: string[] = [];
+            for (const file of this.app.vault.getMarkdownFiles()) {
+                if (this.evaluateBacklinkCleanup(file, backlinksProperty, categoryProperty) !== null) {
+                    paths.push(file.path);
+                }
+            }
+            return paths;
+        }
+        return [...this.computeCategoryMismatchFixes().keys()];
+    }
+
+    /**
+     * Per-file decision of cleanupInvalidBacklinks, extracted so plan and
+     * repair share it. Pure reads (metadata cache + link resolution); the
+     * write itself stays in cleanupInvalidBacklinks. Returns null when the
+     * file needs no change.
+     */
+    private evaluateBacklinkCleanup(
+        file: TFile,
+        backlinksProperty: string,
+        categoryProperty: string,
+    ): { clearAll: true } | { clearAll: false; validLinks: string[]; removed: number } | null {
+        const cache = this.app.metadataCache.getFileCache(file);
+        if (!cache?.frontmatter) return null;
+
+        const existing = cache.frontmatter[backlinksProperty];
+        if (!existing || (Array.isArray(existing) && existing.length === 0)) return null;
+
+        const category = this.getNoteCategory(cache, categoryProperty);
+
+        // For Thema/Konzept: clear the whole property (Base handles it)
+        if (VaultHealthService.BASE_CATEGORIES.has(category)) {
+            const items = Array.isArray(existing) ? existing : [existing];
+            if (items.length > 0 && items.some((i: unknown) => typeof i === 'string' && i.toString().trim())) {
+                return { clearAll: true };
+            }
+            return null;
+        }
+
+        // For other categories: remove invalid links, keep valid ones
+        const items: string[] = Array.isArray(existing)
+            ? existing.map(String)
+            : [String(existing)];
+
+        if (items.length === 0) return null;
+
+        const validLinks: string[] = [];
+        const seen = new Set<string>();
+        let removedFromThis = 0;
+
+        for (const link of items) {
+            const cleaned = link.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
+            if (!cleaned) { removedFromThis++; continue; }
+
+            // Skip duplicates
+            if (seen.has(cleaned)) { removedFromThis++; continue; }
+            seen.add(cleaned);
+
+            // Check if the target exists as .md or .canvas in the vault
+            const isValidExt = (p: string) => p.endsWith('.md') || p.endsWith('.canvas');
+            const targetPath = cleaned.endsWith('.md') ? cleaned : `${cleaned}.md`;
+            const resolvedPath = this.app.metadataCache.getFirstLinkpathDest(cleaned, file.path);
+
+            if (resolvedPath && isValidExt(resolvedPath.path)) {
+                validLinks.push(link); // Keep valid .md/.canvas links
+            } else if (!resolvedPath) {
+                // Try direct path lookup
+                const directFile = this.app.vault.getAbstractFileByPath(targetPath)
+                    ?? this.app.vault.getAbstractFileByPath(`Notes/${targetPath}`)
+                    ?? this.app.vault.getAbstractFileByPath(cleaned.endsWith('.canvas') ? cleaned : `${cleaned}.canvas`);
+                if (directFile instanceof TFile && isValidExt(directFile.path)) {
+                    validLinks.push(link);
+                } else {
+                    removedFromThis++;
+                }
+            } else {
+                removedFromThis++; // Non-.md/.canvas target
+            }
+        }
+
+        if (removedFromThis === 0) return null;
+        return { clearAll: false, validLinks, removed: removedFromThis };
+    }
+
+    /**
+     * Source-note selection for fixCategoryMismatches, extracted so plan and
+     * repair share it. Pure reads: SQL + metadata cache.
+     */
+    private computeCategoryMismatchFixes(): Map<string, { targetName: string; wrongProp: string; rightProp: string }[]> {
+        const fixesBySource = new Map<string, { targetName: string; wrongProp: string; rightProp: string }[]>();
+        const db = this.getDB();
+
+        const strictMapping: Record<string, string> = {
+            'Thema': 'Themen', 'Konzept': 'Konzepte',
+            'Topic': 'Topics', 'Concept': 'Concepts',
+        };
+        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
+
+        const result = db.exec(
+            `SELECT DISTINCT target_path, property_name, source_path
+             FROM edges
+             WHERE link_type = 'frontmatter'
+               AND property_name IN ('Themen', 'Konzepte', 'Topics', 'Concepts')
+             ORDER BY source_path`,
+        );
+        if (result.length === 0 || result[0].values.length === 0) {
+            return fixesBySource;
+        }
+
+        // Group by source note -- each source may need multiple property moves
+        for (const row of result[0].values) {
+            const targetPath = row[0] as string;
+            const prop = row[1] as string;
+            const sourcePath = row[2] as string;
+
+            const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
+            if (!(targetFile instanceof TFile)) continue;
+            const cache = this.app.metadataCache.getFileCache(targetFile);
+            const category = this.getNoteCategory(cache, 'Kategorie');
+            if (!category) continue;
+
+            const expectedProp = strictMapping[category];
+            if (!expectedProp || !categoryProperties.has(prop)) continue;
+            if (prop === expectedProp) continue; // Correct -- no fix needed
+
+            const targetName = targetPath.replace(/\.md$/, '').split('/').pop() ?? '';
+            const fixes = fixesBySource.get(sourcePath) ?? [];
+            fixes.push({ targetName, wrongProp: prop, rightProp: expectedProp });
+            fixesBySource.set(sourcePath, fixes);
+        }
+
+        return fixesBySource;
+    }
+
+    /**
+     * Fix missing backlinks in batch. For each entity that is referenced via MOC
+     * properties but doesn't link back, adds the source notes to the entity's
+     * "Notizen" (or equivalent) frontmatter property.
+     *
+     * Runs entirely in code -- 0 LLM tokens. Uses Obsidian's processFrontMatter
+     * which is atomic and preserves existing frontmatter.
+     *
+     * @returns Number of entities updated and total backlinks added
+     */
+    /**
+     * Fix missing backlinks using a two-tier strategy:
+     *
+     * - **Thema/Konzept notes**: Create an embedded Base (.base file) that dynamically
+     *   shows all notes linking to this entity. No frontmatter changes needed.
+     * - **Other categories (Person, Projekt, etc.)**: Add backlinks to frontmatter,
+     *   but only up to MAX_FRONTMATTER_BACKLINKS. If exceeded, create a Base instead.
+     *
+     * This avoids overloading hub notes with hundreds of frontmatter entries.
+     *
+     * FIX-44-56: `targetFilter` pins the repair to the plan the approval gate
+     * showed. The selection code is shared with planRepairTargets, but only
+     * for IDENTICAL vault state -- while the card is open the state can drift
+     * (user edits, metadata-cache refresh, a concurrent task). With a filter,
+     * a target (or a derived .base file) that was not on the approved list is
+     * skipped instead of silently written. Callers with their own consent
+     * surface (the repair modal) omit it and keep the full selection.
+     */
+    async fixMissingBacklinks(
+        backlinksProperty = 'Notizen',
+        categoryProperty = 'Kategorie',
+        targetFilter?: ReadonlySet<string>,
+    ): Promise<{
+        entitiesFixed: number;
+        linksAdded: number;
+        basesCreated: number;
+        // FIX-19-01-06: explicit transparency about why a target produced no
+        // mutation. The result screen surfaces these so the user can see WHY
+        // "130 entities" produced "0 links" instead of guessing.
+        entitiesWithExistingBase: number;
+        yamlErrorPaths: string[];
+    }> {
+        const db = this.getDB();
+        let entitiesFixed = 0;
+        let linksAdded = 0;
+        let basesCreated = 0;
+        let entitiesWithExistingBase = 0;
+        const yamlErrorPaths: string[] = [];
+
+        const missingByTarget = this.computeMissingBacklinkTargets(backlinksProperty, categoryProperty);
+        if (missingByTarget.size === 0) {
+            return { entitiesFixed: 0, linksAdded: 0, basesCreated: 0, entitiesWithExistingBase: 0, yamlErrorPaths: [] };
+        }
+
         for (const [targetPath, { sources, properties }] of missingByTarget) {
             if (this.cancelled) break;
+
+            // FIX-44-56: skip targets outside the approved plan (state drift
+            // between gate and repair).
+            if (targetFilter !== undefined && !targetFilter.has(targetPath)) continue;
 
             const file = this.app.vault.getAbstractFileByPath(targetPath);
             if (!(file instanceof TFile)) continue;
@@ -995,7 +1200,18 @@ export class VaultHealthService {
                 // Determine category of the target note
                 const cache = this.app.metadataCache.getFileCache(file);
                 const category = this.getNoteCategory(cache, categoryProperty);
-                const useBase = BASE_CATEGORIES.has(category) || sources.length > MAX_FRONTMATTER_BACKLINKS;
+                const useBase = VaultHealthService.BASE_CATEGORIES.has(category)
+                    || sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS;
+
+                // FIX-44-56: the branch decision itself can drift. If the
+                // repair now wants a sibling .base the plan never listed,
+                // skip the target entirely -- creating a file the user never
+                // saw on the card is exactly what the filter forbids.
+                if (useBase
+                    && targetFilter !== undefined
+                    && !targetFilter.has(this.backlinksBasePathFor(targetPath))) {
+                    continue;
+                }
 
                 if (useBase) {
                     // FIX-19-01-08: useBase branch is now NON-destructive.
@@ -1172,8 +1388,8 @@ export class VaultHealthService {
     async cleanupInvalidBacklinks(
         backlinksProperty = 'Notizen',
         categoryProperty = 'Kategorie',
+        targetFilter?: ReadonlySet<string>,
     ): Promise<{ notesProcessed: number; linksRemoved: number }> {
-        const BASE_CATEGORIES = new Set(['Thema', 'Konzept', 'Topic', 'Concept']);
         let notesProcessed = 0;
         let linksRemoved = 0;
 
@@ -1182,78 +1398,33 @@ export class VaultHealthService {
         for (const file of allFiles) {
             if (this.cancelled) break;
 
-            const cache = this.app.metadataCache.getFileCache(file);
-            if (!cache?.frontmatter) continue;
+            // FIX-44-56: only rewrite notes the approval gate showed.
+            if (targetFilter !== undefined && !targetFilter.has(file.path)) continue;
 
-            const existing = cache.frontmatter[backlinksProperty];
-            if (!existing || (Array.isArray(existing) && existing.length === 0)) continue;
+            // FEAT-44-02b: the per-file decision is shared with
+            // planRepairTargets, so the approval scope and the repair walk
+            // the same selection. Only the write stays here.
+            const decision = this.evaluateBacklinkCleanup(file, backlinksProperty, categoryProperty);
+            if (decision === null) continue;
 
-            const category = this.getNoteCategory(cache, categoryProperty);
-
-            // For Thema/Konzept: clear the whole property (Base handles it)
-            if (BASE_CATEGORIES.has(category)) {
-                const items = Array.isArray(existing) ? existing : [existing];
-                if (items.length > 0 && items.some((i: unknown) => typeof i === 'string' && i.toString().trim())) {
-                    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-                        const old = fm[backlinksProperty];
-                        if (Array.isArray(old) && old.length > 0) {
-                            linksRemoved += old.length;
-                            fm[backlinksProperty] = null;
-                        }
-                    });
-                    notesProcessed++;
-                }
+            if (decision.clearAll) {
+                // Thema/Konzept: clear the whole property (Base handles it)
+                await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+                    const old = fm[backlinksProperty];
+                    if (Array.isArray(old) && old.length > 0) {
+                        linksRemoved += old.length;
+                        fm[backlinksProperty] = null;
+                    }
+                });
+                notesProcessed++;
                 continue;
             }
 
-            // For other categories: remove invalid links, keep valid ones
-            const items: string[] = Array.isArray(existing)
-                ? existing.map(String)
-                : [String(existing)];
-
-            if (items.length === 0) continue;
-
-            const validLinks: string[] = [];
-            const seen = new Set<string>();
-            let removedFromThis = 0;
-
-            for (const link of items) {
-                const cleaned = link.replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
-                if (!cleaned) { removedFromThis++; continue; }
-
-                // Skip duplicates
-                if (seen.has(cleaned)) { removedFromThis++; continue; }
-                seen.add(cleaned);
-
-                // Check if the target exists as .md or .canvas in the vault
-                const isValidExt = (p: string) => p.endsWith('.md') || p.endsWith('.canvas');
-                const targetPath = cleaned.endsWith('.md') ? cleaned : `${cleaned}.md`;
-                const resolvedPath = this.app.metadataCache.getFirstLinkpathDest(cleaned, file.path);
-
-                if (resolvedPath && isValidExt(resolvedPath.path)) {
-                    validLinks.push(link); // Keep valid .md/.canvas links
-                } else if (!resolvedPath) {
-                    // Try direct path lookup
-                    const directFile = this.app.vault.getAbstractFileByPath(targetPath)
-                        ?? this.app.vault.getAbstractFileByPath(`Notes/${targetPath}`)
-                        ?? this.app.vault.getAbstractFileByPath(cleaned.endsWith('.canvas') ? cleaned : `${cleaned}.canvas`);
-                    if (directFile instanceof TFile && isValidExt(directFile.path)) {
-                        validLinks.push(link);
-                    } else {
-                        removedFromThis++;
-                    }
-                } else {
-                    removedFromThis++; // Non-.md/.canvas target
-                }
-            }
-
-            if (removedFromThis > 0) {
-                await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
-                    fm[backlinksProperty] = validLinks.length > 0 ? validLinks : null;
-                });
-                linksRemoved += removedFromThis;
-                notesProcessed++;
-            }
+            await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+                fm[backlinksProperty] = decision.validLinks.length > 0 ? decision.validLinks : null;
+            });
+            linksRemoved += decision.removed;
+            notesProcessed++;
 
             if (notesProcessed % 20 === 0) {
                 await new Promise<void>(r => window.setTimeout(r, 0));
@@ -1269,55 +1440,23 @@ export class VaultHealthService {
      * E.g., if "Agentic AI" has Kategorie "Thema" but a note has it in
      * Konzepte: [[Agentic AI]], move it to Themen: [[Agentic AI]].
      */
-    async fixCategoryMismatches(): Promise<{ notesFixed: number; valuesMovied: number }> {
-        const db = this.getDB();
+    async fixCategoryMismatches(targetFilter?: ReadonlySet<string>): Promise<{ notesFixed: number; valuesMovied: number }> {
         let notesFixed = 0;
         let valuesMovied = 0;
 
-        const strictMapping: Record<string, string> = {
-            'Thema': 'Themen', 'Konzept': 'Konzepte',
-            'Topic': 'Topics', 'Concept': 'Concepts',
-        };
-        const categoryProperties = new Set(['Themen', 'Konzepte', 'Topics', 'Concepts']);
-
-        const result = db.exec(
-            `SELECT DISTINCT target_path, property_name, source_path
-             FROM edges
-             WHERE link_type = 'frontmatter'
-               AND property_name IN ('Themen', 'Konzepte', 'Topics', 'Concepts')
-             ORDER BY source_path`,
-        );
-        if (result.length === 0 || result[0].values.length === 0) {
+        // FEAT-44-02b: selection shared with planRepairTargets so the
+        // approval scope and the repair walk the same source notes.
+        const fixesBySource = this.computeCategoryMismatchFixes();
+        if (fixesBySource.size === 0) {
             return { notesFixed: 0, valuesMovied: 0 };
-        }
-
-        // Group by source note -- each source may need multiple property moves
-        const fixesBySource = new Map<string, { targetName: string; wrongProp: string; rightProp: string }[]>();
-
-        for (const row of result[0].values) {
-            const targetPath = row[0] as string;
-            const prop = row[1] as string;
-            const sourcePath = row[2] as string;
-
-            const targetFile = this.app.vault.getAbstractFileByPath(targetPath);
-            if (!(targetFile instanceof TFile)) continue;
-            const cache = this.app.metadataCache.getFileCache(targetFile);
-            const category = this.getNoteCategory(cache, 'Kategorie');
-            if (!category) continue;
-
-            const expectedProp = strictMapping[category];
-            if (!expectedProp || !categoryProperties.has(prop)) continue;
-            if (prop === expectedProp) continue; // Correct -- no fix needed
-
-            const targetName = targetPath.replace(/\.md$/, '').split('/').pop() ?? '';
-            const fixes = fixesBySource.get(sourcePath) ?? [];
-            fixes.push({ targetName, wrongProp: prop, rightProp: expectedProp });
-            fixesBySource.set(sourcePath, fixes);
         }
 
         // Apply fixes
         for (const [sourcePath, fixes] of fixesBySource) {
             if (this.cancelled) break;
+
+            // FIX-44-56: only rewrite source notes the approval gate showed.
+            if (targetFilter !== undefined && !targetFilter.has(sourcePath)) continue;
             const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
             if (!(sourceFile instanceof TFile)) continue;
 

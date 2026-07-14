@@ -200,3 +200,82 @@ describe('extractZip', () => {
         ).rejects.toMatchObject({ code: 'INVALID_TARGET' });
     });
 });
+
+// ---------------------------------------------------------------------------
+// FEAT-44-02b / FIX-44-13b: dry-run planning for the batch approval gate
+// ---------------------------------------------------------------------------
+
+describe('extractZip dryRun (FEAT-44-02b)', () => {
+    it('plans the same written/skipped sets as a real run, writing NOTHING', async () => {
+        const buffer = await buildZip({ 'a.txt': 'A', 'sub/b.txt': 'B' });
+        const seed = { 'Inbox/skill.zip': buffer, 'out/a.txt': 'existing' };
+
+        const dryAdapter = makeAdapter(seed);
+        const plan = await extractZip({
+            adapter: dryAdapter, zipPath: 'Inbox/skill.zip', targetFolder: 'out', dryRun: true,
+        });
+
+        const wetAdapter = makeAdapter(seed);
+        const real = await extractZip({
+            adapter: wetAdapter, zipPath: 'Inbox/skill.zip', targetFolder: 'out',
+        });
+
+        // Parity: the plan IS the run, minus the writes.
+        expect(plan.writtenFiles).toEqual(real.writtenFiles);
+        expect(plan.skippedEntries).toEqual(real.skippedEntries);
+
+        // The dry run wrote and created nothing.
+        expect(dryAdapter.files.size).toBe(Object.keys(seed).length);
+        expect(dryAdapter.folders.size).toBe(0);
+    });
+
+    it('reports the normalised target root for path composition', async () => {
+        const buffer = await buildZip({ 'a.txt': 'A' });
+        const adapter = makeAdapter({ 'Inbox/skill.zip': buffer });
+
+        const plan = await extractZip({
+            adapter, zipPath: 'Inbox/skill.zip', targetFolder: 'out/nested/', dryRun: true,
+        });
+
+        expect(plan.targetRoot).toBe('out/nested');
+    });
+
+    it('marks files that would be OVERWRITTEN (overwrite=true, file exists)', async () => {
+        const buffer = await buildZip({ 'a.txt': 'A', 'b.txt': 'B' });
+        const adapter = makeAdapter({ 'Inbox/skill.zip': buffer, 'out/a.txt': 'old' });
+
+        const plan = await extractZip({
+            adapter, zipPath: 'Inbox/skill.zip', targetFolder: 'out', overwrite: true, dryRun: true,
+        });
+
+        expect(plan.writtenFiles.sort()).toEqual(['a.txt', 'b.txt']);
+        expect(plan.overwrittenFiles).toEqual(['a.txt']);
+    });
+
+    it('still enforces the zip-bomb and traversal guards in dry-run', async () => {
+        const big = await buildZip({ 'big.bin': new Uint8Array(2048) });
+        const adapter = makeAdapter({ 'Inbox/big.zip': big });
+
+        await expect(
+            extractZip({
+                adapter, zipPath: 'Inbox/big.zip', targetFolder: 'out',
+                maxUncompressedBytes: 100, dryRun: true,
+            }),
+        ).rejects.toMatchObject({ code: 'ZIP_BOMB' });
+    });
+
+    it('extracts only entries the filter admits (approved batch subset)', async () => {
+        const buffer = await buildZip({ 'a.txt': 'A', 'b.txt': 'B' });
+        const adapter = makeAdapter({ 'Inbox/skill.zip': buffer });
+
+        const result = await extractZip({
+            adapter, zipPath: 'Inbox/skill.zip', targetFolder: 'out',
+            entryFilter: (absPath) => absPath === 'out/a.txt',
+        });
+
+        expect(result.writtenFiles).toEqual(['a.txt']);
+        expect(result.skippedEntries).toEqual(['b.txt']);
+        expect(adapter.files.has('out/a.txt')).toBe(true);
+        expect(adapter.files.has('out/b.txt')).toBe(false);
+    });
+});

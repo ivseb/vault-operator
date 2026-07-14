@@ -15,6 +15,8 @@ import type { ToolDefinition, ToolExecutionContext } from '../types';
 import type ObsidianAgentPlugin from '../../../main';
 import { parseDocument } from '../../document-parsers/parseDocument';
 import { BINARY_DOCUMENT_EXTENSIONS } from '../../document-parsers/types';
+import type { BatchEditPreview } from '../editPreview';
+import { t } from '../../../i18n';
 
 interface IngestDocumentInput {
     /** Path for the new Markdown note (e.g. "Notes/Webb-2026_Title.md") */
@@ -41,6 +43,30 @@ export class IngestDocumentTool extends BaseTool<'ingest_document'> {
     /** Called by AgentSidebarView to pass parsed attachment texts for the current turn */
     setAttachmentTexts(texts: string[]): void {
         this.attachmentTexts = texts;
+    }
+
+    /**
+     * FIX-44-13b: scope-only preview naming the note this call creates and
+     * the source it comes from. Deliberately NO content diff: the composed
+     * note is header_content plus the parsed document text, which routinely
+     * runs to hundreds of thousands of characters (bypassing output-token
+     * limits is this tool's purpose) -- no gate diff can render that, and
+     * parsing a 100 MB document twice just to show its size would stall the
+     * gate. The scope card is the honest, cheap surface.
+     */
+    // eslint-disable-next-line @typescript-eslint/require-await -- interface contract is async; this preview needs no IO
+    async previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null> {
+        const { output_path, source_path, attachment_index } = input as unknown as IngestDocumentInput;
+        if (typeof output_path !== 'string' || output_path.length === 0) return null;
+        const exists = this.app.vault.getAbstractFileByPath(output_path) !== null;
+        const source = typeof source_path === 'string' && source_path.length > 0
+            ? source_path
+            : t('ui.approval.scope.chatAttachment', { index: String(attachment_index ?? 0) });
+        return {
+            entries: [{ path: output_path, before: '', after: '', isNew: !exists }],
+            summary: t('ui.approval.scope.ingestDocument', { path: output_path, source }),
+            scopeOnly: true,
+        };
     }
 
     getDefinition(): ToolDefinition {
