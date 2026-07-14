@@ -1,7 +1,5 @@
 import { TFile, type App } from 'obsidian';
-import { atomicAdapterWrite } from '../../core/utils/atomicAdapterWrite';
 import { validateVaultRelativePath } from '../../core/tools/vault/pathValidation';
-import { checkFrontmatterIntegrity } from '../../core/utils/frontmatterGuard';
 import { safeNoteWrite } from '../../core/utils/safeNoteWrite';
 
 /**
@@ -56,8 +54,13 @@ export interface ReviewApplyOutcome {
  * Apply the user's review decisions. Only decisions that differ from the
  * reviewed after-state are written: an unchanged Apply must be a no-op, not
  * a rewrite (the rewrite is what turned a misread after-state into data
- * loss). Non-indexed paths go through the atomic temp+rename write; an
- * empty overwrite of a non-empty file is refused as defense-in-depth.
+ * loss).
+ *
+ * FIX-44-49: the write itself is `safeNoteWrite` (forward mode, guards
+ * active). This used to be a second hand-rolled copy of the hardened write
+ * stack, complete with the getFileByPath-null -> raw adapter fallthrough
+ * that FIX-44-19 had already removed from safeNoteWrite, and without
+ * ensureParentFolder. One copy of the guards, one place to harden.
  */
 export async function applyReviewDecisions(
     app: App,
@@ -72,39 +75,20 @@ export async function applyReviewDecisions(
             outcome.skippedUnchanged.push(d.path);
             continue;
         }
-        // AUDIT 2026-07-07 PTR-1: revalidate at the sink (AUDIT-034 M-1
-        // convention); a traversal-laden path must never reach adapter IO.
-        const safePath = validateVaultRelativePath(d.path);
-        if (!safePath) {
-            console.error(`[PostTaskReview] Refusing decision with invalid path: ${d.path}`);
-            outcome.failed.push(d.path);
-            continue;
-        }
         try {
-            const current = await readCurrentContent(app, safePath);
-            if (d.finalContent.trim() === '' && (current ?? '').trim() !== '') {
-                console.warn(`[PostTaskReview] Refusing to overwrite non-empty file with empty content: ${safePath}`);
-                outcome.guarded.push(d.path);
+            // Sink revalidation (AUDIT 2026-07-07 PTR-1 / AUDIT-034 M-1),
+            // empty-overwrite guard, frontmatter integrity (FIX-44-09),
+            // TFile-vs-adapter resolution + editor refresh (FIX-44-19 /
+            // FIX-01-07-03) all live inside safeNoteWrite.
+            const written = await safeNoteWrite(app, d.path, d.finalContent);
+            if (!written.ok) {
+                console.warn(`[PostTaskReview] Refusing to write ${d.path}: ${written.reason}`);
+                if (written.guard === 'empty-overwrite' || written.guard === 'frontmatter-integrity') {
+                    outcome.guarded.push(d.path);
+                } else {
+                    outcome.failed.push(d.path);
+                }
                 continue;
-            }
-            // FIX-44-09: the review is also a write path. An edit that leaves the
-            // YAML frontmatter unterminated must not land here either.
-            const fmReason = checkFrontmatterIntegrity(current ?? '', d.finalContent);
-            if (fmReason) {
-                console.warn(`[PostTaskReview] Refusing to write ${safePath}: ${fmReason}`);
-                outcome.guarded.push(d.path);
-                continue;
-            }
-
-            const file = app.vault.getFileByPath(safePath);
-            if (file instanceof TFile) {
-                await app.vault.modify(file, d.finalContent);
-                // Beat the CodeMirror stale-buffer cache that overwrites
-                // vault.modify after the modal closes (FIX-01-07-03).
-                const { refreshOpenMarkdownViewsFor } = await import('../../core/utils/refreshMarkdownView');
-                await refreshOpenMarkdownViewsFor(app, file, d.finalContent);
-            } else {
-                await atomicAdapterWrite(app.vault.adapter, safePath, d.finalContent);
             }
             outcome.written.push(d.path);
         } catch (e) {
