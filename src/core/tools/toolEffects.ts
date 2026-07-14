@@ -60,6 +60,19 @@ export type ToolEffect =
 export type ToolEffectSpec = ToolEffect | ((input: Record<string, unknown> | undefined) => ToolEffect);
 
 /**
+ * FIX-44-39: the key under which a run-/session-scope grant is stored AND
+ * looked up. Plain effects use their class as-is. Input-dependent effects must
+ * be resolved per call: `plugin-api` splits into read/write via the same
+ * `isPluginApiWriteCall` helper the gate and the permanent grant use, so a
+ * grant given on a READ card can never cover WRITE calls. The coarse
+ * 'plugin-api' class itself is deliberately NOT a valid grant key.
+ */
+export type ApprovalGrantKey =
+    | Exclude<ToolEffect, 'plugin-api'>
+    | 'plugin-api:read'
+    | 'plugin-api:write';
+
+/**
  * Prefix of dynamically loaded skill code tools. These declare their own
  * approval class inside the skill's source -- a self-report we do not trust.
  * They run sandboxed code with a vault.write bridge, so they are pinned to

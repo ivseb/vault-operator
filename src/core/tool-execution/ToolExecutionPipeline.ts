@@ -28,7 +28,7 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
-import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect } from '../tools/toolEffects';
+import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
 import { hasEditPreview, type EditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
 import type { AutoApprovalConfig } from '../../types/settings';
@@ -866,30 +866,48 @@ export class ToolExecutionPipeline {
      * is no pre-filter a tool could slip past.
      */
     /**
-     * FEAT-44-02: effects the user approved "for the rest of this run". The
+     * FEAT-44-02: grant keys the user approved "for the rest of this run". The
      * Pipeline is constructed per task, so this dies with the run -- consent is
      * never carried into the next one, and never persisted.
      *
+     * FIX-44-39: the set holds RESOLVED grant keys, not coarse effect classes.
+     * For input-dependent effects (plugin-api) the key encodes what the card
+     * actually showed ('plugin-api:read' vs 'plugin-api:write'), so a grant
+     * given on a read card never covers writes.
+     *
      * config and self-modify can never land in here: they are alwaysAsk, and the
      * agent must not be able to buy itself a blanket permission by asking nicely
-     * once.
+     * once. Enforced BOTH at lookup (checkApproval checks alwaysAsk first) and
+     * at insert (askOrDeny refuses to store them, FIX-44-39/S1).
      */
-    private runApprovedEffects = new Set<ToolEffect>();
+    private runApprovedEffects = new Set<ApprovalGrantKey>();
 
     /**
-     * FEAT-44-02: adopt the parent run's approved-effects set so "for the rest of
+     * FEAT-44-02: adopt the parent run's approved-grants set so "for the rest of
      * this run" survives into a subtask / invoked skill. The parent shares its
      * actual Set (not a copy), so a grant made in the child is also visible to the
      * parent and siblings for the remainder of the run. alwaysAsk effects still
      * never enter the set, so this cannot widen config / self-modify.
      */
-    setRunApprovedEffects(shared: Set<ToolEffect>): void {
+    setRunApprovedEffects(shared: Set<ApprovalGrantKey>): void {
         this.runApprovedEffects = shared;
     }
 
     /** Expose the run-scope set so a parent task can share it with subtasks. */
-    getRunApprovedEffects(): Set<ToolEffect> {
+    getRunApprovedEffects(): Set<ApprovalGrantKey> {
         return this.runApprovedEffects;
+    }
+
+    /**
+     * FIX-44-39: resolve the key a scope grant is stored/looked up under.
+     * Mirrors the permanent path (effectToPermKey + shared isPluginApiWriteCall):
+     * plugin-api resolves per input, every other effect keeps its class key.
+     */
+    private resolveGrantKey(effect: ToolEffect, toolCall: ToolUse): ApprovalGrantKey {
+        if (effect === 'plugin-api') {
+            return this.isPluginApiWriteCall(toolCall) ? 'plugin-api:write' : 'plugin-api:read';
+        }
+        return effect;
     }
 
     /**
@@ -934,8 +952,11 @@ export class ToolExecutionPipeline {
         // Checked AFTER policy.alwaysAsk, so config/self-modify can never be waved
         // through by it. High-blast-radius tools (mass rollback, bulk extract) are
         // exempt -- a run-grant for their effect still re-asks for them.
+        // FIX-44-39: looked up under the RESOLVED grant key, so a plugin-api
+        // read grant does not cover writes of the same effect class.
+        const grantKey = this.resolveGrantKey(effect, toolCall);
         if (
-            this.runApprovedEffects.has(effect)
+            this.runApprovedEffects.has(grantKey)
             && !ToolExecutionPipeline.RUN_SCOPE_EXEMPT_TOOLS.has(toolCall.name)
         ) {
             return { decision: 'auto' };
@@ -1024,9 +1045,19 @@ export class ToolExecutionPipeline {
 
         const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview);
 
-        if (result.decision === 'approved' && result.rememberForRun === true && effect !== 'unclassified') {
-            this.runApprovedEffects.add(effect);
-            console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
+        // FIX-44-39: store the RESOLVED grant key, and refuse to store alwaysAsk
+        // effects (S1) -- the no-config/self-modify invariant must hold in the
+        // set itself, not only in the lookup order, because the set is shared
+        // with subtasks by reference.
+        if (
+            result.decision === 'approved'
+            && result.rememberForRun === true
+            && effect !== 'unclassified'
+            && !EFFECT_POLICY[effect].alwaysAsk
+        ) {
+            const grantKey = this.resolveGrantKey(effect, toolCall);
+            this.runApprovedEffects.add(grantKey);
+            console.debug(`[Pipeline] '${grantKey}' approved for the rest of this run`);
         }
         return result;
     }

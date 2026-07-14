@@ -294,7 +294,7 @@ export interface AgentTaskRunConfig {
      * of this run" survives into a subtask / invoked skill. The child pipeline
      * adopts this exact Set; alwaysAsk effects can never be in it.
      */
-    parentRunApprovedEffects?: Set<import('./tools/toolEffects').ToolEffect>;
+    parentRunApprovedEffects?: Set<import('./tools/toolEffects').ApprovalGrantKey>;
     /**
      * FEAT-32-01 PR 1.3 / ADR-131: pre-computed recipe matches for the user
      * message. When set, AgentTask uses these instead of calling
