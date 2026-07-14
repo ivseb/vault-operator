@@ -244,8 +244,9 @@ describe('AUDIT-034 M-11: configure_model requires user approval', () => {
         await pipeline.executeTool(call, callbacks, { onApprovalRequired });
         expect(onApprovalRequired).toHaveBeenCalledTimes(1);
         // FEAT-44-10: the callback gained a third parameter (the edit preview).
-        // configure_model is not a note edit, so it arrives undefined.
-        expect(onApprovalRequired).toHaveBeenCalledWith('configure_model', call.input, undefined);
+        // FEAT-44-02b: and a fourth (the batch preview). configure_model is
+        // neither a note edit nor a multi-file write, so both arrive undefined.
+        expect(onApprovalRequired).toHaveBeenCalledWith('configure_model', call.input, undefined, undefined);
         expect(tool.execute).toHaveBeenCalledTimes(1);
     });
 

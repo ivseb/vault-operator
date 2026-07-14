@@ -146,6 +146,7 @@ export interface AgentTaskCallbacks {
         toolName: string,
         input: Record<string, unknown>,
         preview?: import('./tools/editPreview').EditPreview,
+        batch?: import('./tools/editPreview').BatchEditPreview,
     ) => Promise<import('./tool-execution/ToolExecutionPipeline').ApprovalResult>;
     /**
      * Called when a tool needs an optional asset (office bundle, pdfjs
@@ -945,12 +946,13 @@ export class AgentTask {
                     // bubble through the pipeline.
                     onApprovalRequired: this.taskCallbacks.onApprovalRequired === undefined
                         ? undefined
-                        : async (toolName, input, preview) => {
+                        : async (toolName, input, preview, batch) => {
                             try {
                                 // FEAT-44-10: the diff must survive the hop into a
                                 // subtask, otherwise a skill's edits are approved
-                                // blind while the parent's are not.
-                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input, preview);
+                                // blind while the parent's are not. FEAT-44-02b:
+                                // same for the batch preview.
+                                const result = await this.taskCallbacks.onApprovalRequired!(toolName, input, preview, batch);
                                 return result ?? { decision: 'rejected' };
                             } catch (e) {
                                 console.warn('[AgentTask] subtask approval callback threw, failing closed:', e);

@@ -29,7 +29,7 @@ import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
 import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
-import { hasEditPreview, hasNonFileEffects, type EditPreview } from '../tools/editPreview';
+import { hasEditPreview, hasBatchEditPreview, hasNonFileEffects, type EditPreview, type BatchEditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import type { AutoApprovalConfig } from '../../types/settings';
@@ -190,8 +190,21 @@ export interface ApprovalResult {
      * approvals leave it unset -- those writes land without a diff surface and
      * are reported via {@link ContextExtensions.onUnreviewedWrite} so the
      * post-task review can pick them up.
+     *
+     * FEAT-44-02b: a BATCH approval whose entries carried real diffs
+     * (scopeOnly !== true) also counts -- the user reviewed every file in the
+     * gate. A scope-only batch (paths without content) does not.
      */
     diffReviewed?: boolean;
+    /**
+     * FEAT-44-02b: the subset of a batch preview's entry paths the user left
+     * un-skipped in the batch gate. Only meaningful when a batch preview was
+     * shown; askOrDeny sanitises it against the batch entries and drops it
+     * entirely when no batch reached the card. Absent = the full planned
+     * scope was approved. The Pipeline threads it into the tool as
+     * `context.approvedBatchPaths`.
+     */
+    approvedPaths?: string[];
 }
 
 /**
@@ -267,11 +280,17 @@ export interface ContextExtensions {
      * tool could compute it without writing. The UI then renders the approval as
      * a diff, and the user decides on what they can actually see. When it is
      * absent the caller shows the plain card -- never no approval.
+     *
+     * FEAT-44-02b: `batch` carries a multi-file preview when the tool could
+     * enumerate its planned writes. Exactly one of preview/batch is set (batch
+     * wins); the UI then leads ONE approval over the whole scope instead of a
+     * blind name card.
      */
     onApprovalRequired?: (
         toolName: string,
         input: Record<string, unknown>,
         preview?: EditPreview,
+        batch?: BatchEditPreview,
     ) => Promise<ApprovalResult>;
     /**
      * Ask the user to install a missing optional asset (office bundle,
@@ -778,6 +797,11 @@ export class ToolExecutionPipeline {
                 invalidateToolCache: extensions?.invalidateToolCache,
                 activateDeferredTool: extensions?.activateDeferredTool,
                 getReadFiles: extensions?.readFiles ? () => extensions.readFiles! : undefined,
+                // FEAT-44-02b: the user skipped entries in the batch gate. The
+                // tool MUST honour this subset (contract in editPreview.ts).
+                approvedBatchPaths: approval.approvedPaths !== undefined
+                    ? new Set(approval.approvedPaths)
+                    : undefined,
             };
 
             await tool.execute(toolCall.input, context);
@@ -1260,13 +1284,23 @@ export class ToolExecutionPipeline {
         // with a tool name on it. It now renders the full content of the doomed
         // note as a deletion diff.
         //
+        // FEAT-44-02b: multi-file tools get to show their WHOLE planned scope in
+        // one gate. The batch wins over the single preview (a tool offering both
+        // answers the same question twice); an empty batch means "nothing to
+        // preview" and falls through like a null one.
+        //
         // A failed preview costs the diff, never the approval.
+        let batch: BatchEditPreview | undefined;
+        if (hasBatchEditPreview(tool)) {
+            batch = (await tool.previewBatch(toolCall.input)) ?? undefined;
+            if (batch !== undefined && batch.entries.length === 0) batch = undefined;
+        }
         let preview: EditPreview | undefined;
-        if (hasEditPreview(tool)) {
+        if (batch === undefined && hasEditPreview(tool)) {
             preview = (await tool.previewEdit(toolCall.input)) ?? undefined;
         }
 
-        const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview);
+        const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview, batch);
 
         // FIX-44-39: store the RESOLVED grant key, and refuse to store alwaysAsk
         // effects (S1) -- the no-config/self-modify invariant must hold in the
@@ -1300,13 +1334,33 @@ export class ToolExecutionPipeline {
         const editedPath = preview && result.decision === 'approved' && typeof result.finalContent === 'string'
             ? preview.path
             : undefined;
+        // FEAT-44-02b: sanitise the batch fields. `approvedPaths` is only
+        // meaningful for the batch that was actually shown -- filter it to the
+        // batch's entry paths, and drop it entirely when no batch reached the
+        // card (a plain card cannot invent a subset). `finalContent` is dropped
+        // for batch approvals: the batch gate is read-only, and honouring a
+        // stray edit would have the Pipeline write ONE file and silently skip
+        // the rest of the batch (execute is skipped on the finalContent path).
+        let approvedPaths: string[] | undefined;
+        let finalContent = result.finalContent;
+        if (batch !== undefined) {
+            finalContent = undefined;
+            if (result.decision === 'approved' && Array.isArray(result.approvedPaths)) {
+                const planned = new Set(batch.entries.map((e) => e.path));
+                approvedPaths = result.approvedPaths.filter((p) => planned.has(p));
+            }
+        }
         // FIX-44-44: only the Pipeline decides whether this approval was given on
         // a real diff. The flag from the UI (if any) is overwritten -- a caller
-        // must not be able to claim a diff review that never happened.
+        // must not be able to claim a diff review that never happened. A batch
+        // counts exactly when its entries carried real diffs (scopeOnly !== true).
         return {
             ...result,
+            finalContent,
+            approvedPaths,
             ...(editedPath !== undefined ? { editedPath } : {}),
-            diffReviewed: result.decision === 'approved' && preview !== undefined,
+            diffReviewed: result.decision === 'approved'
+                && (preview !== undefined || (batch !== undefined && batch.scopeOnly !== true)),
         };
     }
 
