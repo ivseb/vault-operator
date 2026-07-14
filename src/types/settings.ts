@@ -853,6 +853,16 @@ export interface ObsidianAgentSettings {
 
     // Approval (Sprint 1.3)
     autoApproval: AutoApprovalConfig;
+    /**
+     * FEAT-44-07 (kill switch, part b): "Always ask (paranoid mode)". While
+     * true, every effect except read/ui asks for confirmation, regardless of
+     * autoApproval, presets, and run-/session-scope grants. Checked FIRST in
+     * checkApproval. Deliberately a plain top-level setting and NOT an
+     * autoApproval category key: it is a clamp around all categories, so it
+     * must stay outside the EFFECT_POLICY/preset drift contract. Persisted so
+     * the brake survives a plugin reload; default off.
+     */
+    paranoidMode: boolean;
     /** @deprecated use autoApproval */
     autoApprovalRules: AutoApprovalRules;
 
@@ -1846,6 +1856,7 @@ export const DEFAULT_SETTINGS: ObsidianAgentSettings = {
         recipes: false,
         sandbox: false,
     },
+    paranoidMode: false,
     autoApprovalRules: {
         readOperations: true,
         writeToTempFiles: false,

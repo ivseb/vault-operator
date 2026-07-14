@@ -61,9 +61,13 @@ export interface EditReviewDecision {
     skipped: boolean;
 }
 
-/** How the user applied. FEAT-44-02: "and stop asking me for the rest of this run". */
+/**
+ * How the user applied. FEAT-44-02: "and stop asking me for the rest of this
+ * run". FEAT-44-02a: "and stop asking me until the plugin reloads".
+ */
 export interface EditReviewApplyMeta {
     rememberForRun: boolean;
+    rememberForSession?: boolean;
 }
 
 export type EditReviewMode = 'edit' | 'checkpoint';
@@ -461,9 +465,20 @@ export class EditReviewPanel {
                 applyAllBtn.textContent = t('ui.editReview.applyForRun');
                 applyAllBtn.addEventListener('click', (ev) => {
                     ev.preventDefault();
-                    this.handleApply(true);
+                    this.handleApply('run');
                 });
                 footer.appendChild(applyAllBtn);
+
+                // FEAT-44-02a: one level up -- until the plugin reloads.
+                const applySessionBtn = doc.createElement('button');
+                applySessionBtn.classList.add('agent-edit-review__apply-session-btn');
+                applySessionBtn.setAttribute('type', 'button');
+                applySessionBtn.textContent = t('ui.editReview.applyForSession');
+                applySessionBtn.addEventListener('click', (ev) => {
+                    ev.preventDefault();
+                    this.handleApply('session');
+                });
+                footer.appendChild(applySessionBtn);
             }
 
             const applyBtn = doc.createElement('button');
@@ -473,7 +488,7 @@ export class EditReviewPanel {
             applyBtn.textContent = t('ui.editReview.apply');
             applyBtn.addEventListener('click', (ev) => {
                 ev.preventDefault();
-                this.handleApply(false);
+                this.handleApply('once');
             });
             footer.appendChild(applyBtn);
         }
@@ -696,7 +711,7 @@ export class EditReviewPanel {
         this.renderSelectedFile();
     }
 
-    private handleApply(rememberForRun = false): void {
+    private handleApply(scope: 'once' | 'run' | 'session' = 'once'): void {
         this.syncFromTextarea();
         const decisions: EditReviewDecision[] = this.files.map((f) => ({
             path: f.entry.path,
@@ -704,7 +719,10 @@ export class EditReviewPanel {
             skipped: f.skipped,
         }));
         try {
-            const result = this.onApply?.(decisions, { rememberForRun });
+            const result = this.onApply?.(decisions, {
+                rememberForRun: scope === 'run',
+                rememberForSession: scope === 'session',
+            });
             if (result instanceof Promise) {
                 void result.catch((e) => console.warn('[edit-review] onApply threw:', e));
             }

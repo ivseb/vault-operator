@@ -28,7 +28,7 @@ import { VaultDataFileAdapter } from '../storage/VaultDataFileAdapter';
 import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
-import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect } from '../tools/toolEffects';
+import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
 import { hasEditPreview, type EditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
 import type { AutoApprovalConfig } from '../../types/settings';
@@ -158,6 +158,14 @@ export interface ApprovalResult {
      * given for one task does not carry into the next one.
      */
     rememberForRun?: boolean;
+    /**
+     * FEAT-44-02a (session scope): "yes, and stop asking for this kind of change
+     * until the plugin reloads". One level above the run scope: the grant
+     * outlives the task, is visible to every pipeline via the plugin instance,
+     * and dies with the plugin reload. Never persisted. Same resolved-key
+     * granularity and the same config/self-modify lock as the run scope.
+     */
+    rememberForSession?: boolean;
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
     /**
@@ -166,6 +174,18 @@ export interface ApprovalResult {
      * carries the generic "denied by user" line.
      */
     reason?: string;
+}
+
+/**
+ * FEAT-44-02 / FEAT-44-07: run-scope grants plus the revocation epoch they were
+ * made under. Shared BY REFERENCE between a parent task's pipeline and its
+ * subtasks (see setRunApprovedEffects), so both the grants and their revocation
+ * travel together: when the kill switch bumps the plugin's epoch, whichever
+ * pipeline checks next clears the shared keys for every sharer.
+ */
+export interface RunGrantStore {
+    epoch: number;
+    keys: Set<import('../tools/toolEffects').ApprovalGrantKey>;
 }
 
 /**
@@ -342,6 +362,12 @@ export class ToolExecutionPipeline {
         // FEATURE-0507: tmp root honors the configurable agentFolderPath setting.
         const vaultFs = new VaultDataFileAdapter(plugin.app.vault.adapter);
         this.resultExternalizer = new ResultExternalizer(vaultFs, taskId, getTmpRoot(plugin));
+
+        // FEAT-44-07: stamp the fresh (empty) run-grant store with the current
+        // revocation epoch, so a pipeline built after a reset does not treat
+        // its own empty store as revoked and, more importantly, a store filled
+        // BEFORE a reset is recognisably stale.
+        this.runGrants.epoch = this.getRevocationEpoch();
     }
 
     /** ADR-063: Get the externalizer (for Fast Path to disable during batch). */
@@ -866,39 +892,103 @@ export class ToolExecutionPipeline {
      * is no pre-filter a tool could slip past.
      */
     /**
-     * FEAT-44-02: effects the user approved "for the rest of this run". The
+     * FEAT-44-02: grant keys the user approved "for the rest of this run". The
      * Pipeline is constructed per task, so this dies with the run -- consent is
      * never carried into the next one, and never persisted.
      *
+     * FIX-44-39: the set holds RESOLVED grant keys, not coarse effect classes.
+     * For input-dependent effects (plugin-api) the key encodes what the card
+     * actually showed ('plugin-api:read' vs 'plugin-api:write'), so a grant
+     * given on a read card never covers writes.
+     *
+     * FEAT-44-07: wrapped in a store together with the revocation epoch the
+     * grants were made under, so the kill switch can void them even inside
+     * subtasks that inherited the store before the reset.
+     *
      * config and self-modify can never land in here: they are alwaysAsk, and the
      * agent must not be able to buy itself a blanket permission by asking nicely
-     * once.
+     * once. Enforced BOTH at lookup (checkApproval checks alwaysAsk first) and
+     * at insert (askOrDeny refuses to store them, FIX-44-39/S1).
      */
-    private runApprovedEffects = new Set<ToolEffect>();
+    private runGrants: RunGrantStore = { epoch: 0, keys: new Set<ApprovalGrantKey>() };
 
     /**
-     * FEAT-44-02: adopt the parent run's approved-effects set so "for the rest of
-     * this run" survives into a subtask / invoked skill. The parent shares its
-     * actual Set (not a copy), so a grant made in the child is also visible to the
+     * FEAT-44-02: adopt the parent run's grant store so "for the rest of this
+     * run" survives into a subtask / invoked skill. The parent shares its actual
+     * store (not a copy), so a grant made in the child is also visible to the
      * parent and siblings for the remainder of the run. alwaysAsk effects still
      * never enter the set, so this cannot widen config / self-modify.
      */
-    setRunApprovedEffects(shared: Set<ToolEffect>): void {
-        this.runApprovedEffects = shared;
+    setRunApprovedEffects(shared: RunGrantStore): void {
+        this.runGrants = shared;
     }
 
-    /** Expose the run-scope set so a parent task can share it with subtasks. */
-    getRunApprovedEffects(): Set<ToolEffect> {
-        return this.runApprovedEffects;
+    /** Expose the run-scope grant store so a parent task can share it with subtasks. */
+    getRunApprovedEffects(): RunGrantStore {
+        return this.runGrants;
+    }
+
+    /**
+     * FIX-44-39: resolve the key a scope grant is stored/looked up under.
+     * Mirrors the permanent path (effectToPermKey + shared isPluginApiWriteCall):
+     * plugin-api resolves per input, every other effect keeps its class key.
+     */
+    private resolveGrantKey(effect: ToolEffect, toolCall: ToolUse): ApprovalGrantKey {
+        if (effect === 'plugin-api') {
+            return this.isPluginApiWriteCall(toolCall) ? 'plugin-api:write' : 'plugin-api:read';
+        }
+        return effect;
+    }
+
+    /**
+     * FEAT-44-02a: the session-scope set lives on the PLUGIN instance (never
+     * persisted, dies on reload), so every pipeline sees the same grants without
+     * explicit sharing. Optional-typed because legacy test stubs construct the
+     * pipeline with a bare plugin object; a missing set simply means "no session
+     * grants", which is the fail-closed direction.
+     */
+    private getSessionGrants(): Set<ApprovalGrantKey> | undefined {
+        const holder = this.plugin as Partial<Pick<ObsidianAgentPlugin, 'sessionApprovedGrants'>>;
+        return holder.sessionApprovedGrants instanceof Set ? holder.sessionApprovedGrants : undefined;
+    }
+
+    /**
+     * FEAT-44-07 (kill switch, part b): while paranoid mode is on, every effect
+     * except read/ui asks, whatever the config, presets, and scope grants say.
+     */
+    private isParanoidMode(): boolean {
+        return this.plugin.settings.paranoidMode === true;
+    }
+
+    private getRevocationEpoch(): number {
+        const holder = this.plugin as Partial<Pick<ObsidianAgentPlugin, 'approvalRevocationEpoch'>>;
+        return typeof holder.approvalRevocationEpoch === 'number' ? holder.approvalRevocationEpoch : 0;
+    }
+
+    /**
+     * FEAT-44-07 (kill switch, part a): void the run grants when the plugin's
+     * revocation epoch moved past the one the store was filled under. The store
+     * (not a bare Set) is what parent and subtasks share, so the epoch travels
+     * WITH the grants: whichever pipeline notices the bump first clears the
+     * shared keys for everyone. Called lazily on every grant lookup -- the
+     * settings tab cannot reach into per-task pipelines directly.
+     */
+    private syncRunGrantsWithRevocationEpoch(): void {
+        const epoch = this.getRevocationEpoch();
+        if (this.runGrants.epoch !== epoch) {
+            this.runGrants.keys.clear();
+            this.runGrants.epoch = epoch;
+        }
     }
 
     /**
      * FEAT-44-02: tools that ALWAYS re-ask, even when their effect class was
-     * approved for the run. A run-grant for 'vault-change' should not silently
-     * authorise a mass rollback or a bulk archive extraction -- those have a far
-     * larger blast radius than the edit the user actually consented to.
+     * approved for the run or the session. A scope grant for 'vault-change'
+     * should not silently authorise a mass rollback or a bulk archive
+     * extraction -- those have a far larger blast radius than the edit the user
+     * actually consented to.
      */
-    private static readonly RUN_SCOPE_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
+    private static readonly SCOPE_GRANT_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
         'restore_checkpoint',
         'extract_zip',
     ]);
@@ -921,6 +1011,14 @@ export class ToolExecutionPipeline {
             return await this.askOrDeny(toolCall, tool, extensions, 'unclassified');
         }
 
+        // FEAT-44-07 (kill switch, part b): paranoid mode. Checked FIRST, before
+        // any branch that could auto-approve (scope grants, key:null classes,
+        // settings), so it clamps ALL of them. Only read/ui stay auto -- they
+        // mutate nothing, and gating them would make the plugin unusable.
+        if (this.isParanoidMode() && effect !== 'read' && effect !== 'ui') {
+            return await this.askOrDeny(toolCall, tool, extensions, effect);
+        }
+
         const policy = EFFECT_POLICY[effect];
 
         // config + self-modify: never auto-approvable, whatever the settings
@@ -934,11 +1032,22 @@ export class ToolExecutionPipeline {
         // Checked AFTER policy.alwaysAsk, so config/self-modify can never be waved
         // through by it. High-blast-radius tools (mass rollback, bulk extract) are
         // exempt -- a run-grant for their effect still re-asks for them.
-        if (
-            this.runApprovedEffects.has(effect)
-            && !ToolExecutionPipeline.RUN_SCOPE_EXEMPT_TOOLS.has(toolCall.name)
-        ) {
-            return { decision: 'auto' };
+        // FIX-44-39: looked up under the RESOLVED grant key, so a plugin-api
+        // read grant does not cover writes of the same effect class.
+        // FEAT-44-02a: scope order is run -> session -> settings. Both scope
+        // lookups sit behind the alwaysAsk check and in front of the persisted
+        // settings, and both honour the blast-radius exemptions.
+        const grantKey = this.resolveGrantKey(effect, toolCall);
+        if (!ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) {
+            // FEAT-44-07: the kill switch may have voided run grants since the
+            // last lookup; sync before honouring them.
+            this.syncRunGrantsWithRevocationEpoch();
+            if (this.runGrants.keys.has(grantKey)) {
+                return { decision: 'auto' };
+            }
+            if (this.getSessionGrants()?.has(grantKey) === true) {
+                return { decision: 'auto' };
+            }
         }
 
         // read + ui: always auto, DELIBERATELY independent of the master toggle.
@@ -1024,9 +1133,30 @@ export class ToolExecutionPipeline {
 
         const result = await extensions.onApprovalRequired(toolCall.name, toolCall.input, preview);
 
-        if (result.decision === 'approved' && result.rememberForRun === true && effect !== 'unclassified') {
-            this.runApprovedEffects.add(effect);
-            console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
+        // FIX-44-39: store the RESOLVED grant key, and refuse to store alwaysAsk
+        // effects (S1) -- the no-config/self-modify invariant must hold in the
+        // sets themselves, not only in the lookup order, because the run set is
+        // shared with subtasks and the session set with every future task.
+        if (
+            result.decision === 'approved'
+            && effect !== 'unclassified'
+            && !EFFECT_POLICY[effect].alwaysAsk
+            // FEAT-44-07: while paranoid mode is on, the card hides the scope
+            // buttons; if a grant flag arrives anyway, refuse to bank it --
+            // otherwise it would silently arm the moment paranoid is turned off.
+            && !this.isParanoidMode()
+        ) {
+            const grantKey = this.resolveGrantKey(effect, toolCall);
+            if (result.rememberForRun === true) {
+                this.syncRunGrantsWithRevocationEpoch();
+                this.runGrants.keys.add(grantKey);
+                console.debug(`[Pipeline] '${grantKey}' approved for the rest of this run`);
+            }
+            // FEAT-44-02a: session scope, one level above the run scope.
+            if (result.rememberForSession === true) {
+                this.getSessionGrants()?.add(grantKey);
+                console.debug(`[Pipeline] '${grantKey}' approved for this session`);
+            }
         }
         return result;
     }

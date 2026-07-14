@@ -64,7 +64,14 @@ The master toggle lives under Settings > Vault Operator > Agents > Permissions a
 
 `config` and `self-modify` are the two effects the master toggle and every preset can never reach. An agent that could talk its way into "don't ask again" for its own settings would have re-opened the exact hole this design closes.
 
-**Escalation levels.** For any effect except `config` and `self-modify`, you can approve a single call ("Allow once"), approve it for the rest of the current run ("Allow for this run": the grant dies with the task and is never persisted), or grant a standing auto-approval ("Always allow", which enables the matching category). Run-scoped grants are inherited by sub-tasks and invoked skills. Two high-blast-radius tools, `restore_checkpoint` (mass rollback) and `extract_zip` (bulk extraction), always re-ask even when their effect class was approved for the run.
+**Escalation levels.** For any effect except `config` and `self-modify`, the approval card offers a four-step scope ladder:
+
+1. **Allow once**: this single call.
+2. **Allow for this run**: the grant dies with the current task and is never persisted. Run-scoped grants are inherited by sub-tasks and invoked skills.
+3. **Allow this session**: the grant outlives individual tasks but lives only in memory. It is never written to disk and disappears when the plugin reloads.
+4. **Always allow**: a standing auto-approval that enables the matching settings category.
+
+Run- and session-scoped grants cover the whole effect class of the approved card: a session grant given on a `delete_file` card also covers the other vault-change tools until the plugin reloads. Only `call_plugin_api` grants carry one refinement on top of the class: the grant records whether the approved call was a read or a write, so approving a read for the run or session never covers writes. Two high-blast-radius tools, `restore_checkpoint` (mass rollback) and `extract_zip` (bulk extraction), always re-ask even when their effect class was approved for the run or the session.
 
 **The diff gate.** CUD tools that can compute what they would do without doing it (`write_file`, `edit_file`, `append_to_file`, `update_frontmatter`, `delete_file`, `set_block_anchors`) show a real pre-write diff. The diff is produced by the same resolver that performs the write, so the preview cannot lie, and rejecting means the tool never runs. `delete_file` renders the whole doomed note as a deletion diff.
 

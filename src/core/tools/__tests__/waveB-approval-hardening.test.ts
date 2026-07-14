@@ -12,7 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { grantAutoApproval } from '../autoApprovalGrant';
+import { grantAutoApproval, scopeGrantNeedsConfirm } from '../autoApprovalGrant';
 import { classifyMethodIsWrite, isPluginApiWriteCall } from '../agent/pluginApiAdaptive';
 
 describe('FIX-44-03b: grantAutoApproval does not re-arm dormant flags', () => {
@@ -42,6 +42,26 @@ describe('FIX-44-03b: grantAutoApproval does not re-arm dormant flags', () => {
 
         expect(cfg.noteEdits).toBe(true);     // untouched
         expect(cfg.web).toBe(true);           // added
+    });
+});
+
+describe('FIX-44-03b follow-up: scopeGrantNeedsConfirm (adversarial review 2026-07-14)', () => {
+    it('requires a confirm for a sandbox SESSION grant (lives until plugin reload)', () => {
+        expect(scopeGrantNeedsConfirm('sandbox', 'session')).toBe(true);
+    });
+
+    it('requires a confirm for the sandbox STANDING grant (settings flag)', () => {
+        expect(scopeGrantNeedsConfirm('sandbox', 'standing')).toBe(true);
+    });
+
+    it('leaves the sandbox RUN grant one click (dies with the task)', () => {
+        expect(scopeGrantNeedsConfirm('sandbox', 'run')).toBe(false);
+    });
+
+    it('never asks for non-sandbox categories or a missing permKey', () => {
+        expect(scopeGrantNeedsConfirm('noteEdits', 'session')).toBe(false);
+        expect(scopeGrantNeedsConfirm('web', 'standing')).toBe(false);
+        expect(scopeGrantNeedsConfirm(null, 'session')).toBe(false);
     });
 });
 

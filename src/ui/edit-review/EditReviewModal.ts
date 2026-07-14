@@ -36,6 +36,8 @@ export interface EditReviewResult {
     decisions: EditReviewDecision[] | null;
     /** FEAT-44-02: the user applied AND asked not to be asked again this run. */
     rememberForRun?: boolean;
+    /** FEAT-44-02a: the user applied AND asked not to be asked again this session. */
+    rememberForSession?: boolean;
 }
 
 /**
@@ -52,7 +54,11 @@ export function showEditReviewModal(args: ShowEditReviewArgs): Promise<EditRevie
             title: args.title,
             discardLabel: args.discardLabel,
             allowRememberForRun: args.allowRememberForRun,
-            onApply: (decisions, meta) => resolve({ decisions, rememberForRun: meta?.rememberForRun === true }),
+            onApply: (decisions, meta) => resolve({
+                decisions,
+                rememberForRun: meta?.rememberForRun === true,
+                rememberForSession: meta?.rememberForSession === true,
+            }),
             onDiscard: () => resolve({ decisions: null }),
         });
         modal.open();
@@ -85,7 +91,7 @@ interface EditReviewModalOptions {
     title?: string;
     discardLabel?: string;
     allowRememberForRun?: boolean;
-    onApply?: (decisions: EditReviewDecision[], meta?: { rememberForRun: boolean }) => void;
+    onApply?: (decisions: EditReviewDecision[], meta?: { rememberForRun: boolean; rememberForSession?: boolean }) => void;
     onDiscard?: () => void;
     onRestore?: () => void | Promise<void>;
 }

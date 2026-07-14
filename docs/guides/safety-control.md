@@ -22,7 +22,14 @@ When Vault Operator wants to do something, a card appears with the tool name and
 - **Delete a file:** which file will be removed
 - **Move or rename:** source and destination paths
 
-Click the card to expand the full payload before deciding. Three levels: **Allow once** (this action only), **Allow for this run** (stop asking for this kind of change until the current task ends; the grant is never persisted), or **Always allow** (auto-approve this category from now on).
+Click the card to expand the full payload before deciding. Four levels, from narrow to broad:
+
+- **Allow once**: this action only.
+- **Allow for this run**: stop asking for this kind of change until the current task ends. The grant is never persisted and is shared with sub-tasks of the same run.
+- **Allow this session**: stop asking for this kind of change until the plugin reloads (restart Obsidian or disable/enable the plugin). The grant lives only in memory and is never written to disk.
+- **Always allow**: auto-approve this category from now on (a persisted setting).
+
+Run and session grants cover the whole effect category shown on the card, not just the one tool: approving a `delete_file` card for the session also covers the other vault-change tools (`move_file`, `create_folder`, further deletes) until the plugin reloads, and an MCP card covers every tool on every configured MCP server. Plugin-API calls carry one extra distinction: the grant records read vs. write, so approving a plugin-API *read* never covers plugin-API *writes*. Settings changes and agent self-modification can never be covered by any scope. `restore_checkpoint` and `extract_zip` always re-ask, whatever scope was granted.
 
 ## Auto-approve categories
 
@@ -46,6 +53,13 @@ Two effects are **never** auto-approvable, whatever the settings say: **settings
 :::warning Permissive combination
 If you auto-approve both **web** and a write category, Vault Operator lights up a "Permissive" warning in the Permissions tab. The agent could fetch content from the internet and act on it without asking.
 :::
+
+## Kill switch
+
+At the top of the Permissions tab sit two emergency brakes:
+
+- **Always ask (paranoid mode).** A runtime override: while it is on, every action except reads and pure UI steps asks for confirmation, regardless of the category toggles, presets, and any run or session grants. The approval cards stop offering scope grants while it is active (a grant would not take effect). The switch is a persisted setting, so it stays on across restarts until you turn it off; use it when you are inspecting an unfamiliar skill or model and want to watch every step.
+- **Reset to default-deny.** One click (behind a confirmation) applies the restrictive preset: the auto-approve master goes off, every category returns to asking, and all grants given for the current run or session are revoked. Paranoid mode is not changed by the reset. Use it when the configuration has drifted more permissive than you are comfortable with and you want the fail-closed default back without flipping toggles one by one.
 
 ## Reviewing changes
 

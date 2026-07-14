@@ -12,7 +12,7 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
-import { grantAutoApproval } from '../core/tools/autoApprovalGrant';
+import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
 import type { MessageParam, ContentBlock } from '../api/types';
@@ -5238,7 +5238,9 @@ export class AgentSidebarView extends ItemView {
             // only decides its next tool call after seeing this one's result, so
             // there is nothing to preview yet. Offering to REMEMBER the answer is
             // the honest version of what the user actually wants.
-            allowRememberForRun: true,
+            // FEAT-44-07: not while paranoid mode is on -- a scope grant would not
+            // take effect, so the buttons are not offered.
+            allowRememberForRun: this.plugin.settings.paranoidMode !== true,
         });
 
         // Discarded, or the single file was skipped: nothing happens.
@@ -5248,17 +5250,18 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rememberForRun = result.rememberForRun === true;
+        const rememberForSession = result.rememberForSession === true;
 
         // A deletion has no meaningful "edited after-state" -- the only real
         // choices are let it go or keep it. Whatever the textarea says, we do not
         // turn a delete into a write behind the user's back.
         if (preview.isDeleted) {
-            return { decision: 'approved', rememberForRun };
+            return { decision: 'approved', rememberForRun, rememberForSession };
         }
 
         // Approved as proposed -- let the tool do its own write.
         if (decision.finalContent === preview.after) {
-            return { decision: 'approved', rememberForRun };
+            return { decision: 'approved', rememberForRun, rememberForSession };
         }
 
         // The user rewrote it in the diff. Their content wins; the Pipeline
@@ -5268,7 +5271,7 @@ export class AgentSidebarView extends ItemView {
         // call open_note at the END of a run), so the write lands silently and the
         // user is left wondering whether their edit survived. It did.
         new Notice(t('ui.approval.editApplied', { path: preview.path }));
-        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun };
+        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun, rememberForSession };
     }
 
     private async showApprovalCard(
@@ -5373,12 +5376,20 @@ export class AgentSidebarView extends ItemView {
             // backs it. config and self-modify (alwaysAsk) have none -- a button
             // promising a permanent grant that never takes effect would be a lie,
             // and it would set an unrelated permission instead.
-            const permKey = this.effectToPermKey(group, input);
+            // FEAT-44-07: while paranoid mode is on, no scope or standing grant
+            // takes effect -- so none is offered. A button whose grant would not
+            // bite (or would silently arm once paranoid is turned off) is a lie.
+            const paranoid = this.plugin.settings.paranoidMode === true;
+            const permKey = paranoid ? null : this.effectToPermKey(group, input);
             // FEAT-44-02: a run-scoped grant is offered for the same effects that
             // can be remembered (not alwaysAsk). It applies to the rest of THIS
             // run only, dies with the task, and cannot buy off config/self-modify.
+            // FEAT-44-02a: same for the session scope (until plugin reload).
             const runBtn = permKey
                 ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-run', text: t('ui.approval.allowForRun') })
+                : null;
+            const sessionBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-session', text: t('ui.approval.allowForSession') })
                 : null;
             const enableBtn = permKey
                 ? actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') })
@@ -5390,17 +5401,21 @@ export class AgentSidebarView extends ItemView {
             // approve before seeing the affected-note count. The Deny-
             // button stays enabled so the user can always bail out. A 2s
             // hard timeout re-enables Allow even if the plugin call hangs.
+            // Adversarial review 2026-07-14: the run and session buttons
+            // grant MORE than the one-shot Allow, so the "see the count
+            // first" rationale applies to them with more force -- same gate.
             if (previewPromise) {
-                allowBtn.disabled = true;
-                if (enableBtn) enableBtn.disabled = true;
-                const releaseTimeout = window.setTimeout(() => {
-                    allowBtn.disabled = false;
-                    if (enableBtn) enableBtn.disabled = false;
-                }, 2000);
+                const gatedButtons = [allowBtn, runBtn, sessionBtn, enableBtn];
+                const setGated = (disabled: boolean) => {
+                    for (const btn of gatedButtons) {
+                        if (btn) btn.disabled = disabled;
+                    }
+                };
+                setGated(true);
+                const releaseTimeout = window.setTimeout(() => setGated(false), 2000);
                 void previewPromise.finally(() => {
                     window.clearTimeout(releaseTimeout);
-                    allowBtn.disabled = false;
-                    if (enableBtn) enableBtn.disabled = false;
+                    setGated(false);
                 });
             }
 
@@ -5440,6 +5455,28 @@ export class AgentSidebarView extends ItemView {
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
             runBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForRun: true }); });
+            sessionBtn?.addEventListener('click', () => {
+                void (async () => {
+                    // Adversarial review 2026-07-14 (FEAT-44-02a): a session
+                    // grant for the sandbox effect auto-approves ALL agent-
+                    // authored code execution until the plugin reloads --
+                    // functionally close to the standing grant, which
+                    // FIX-44-03b gates behind an explicit confirm on both
+                    // surfaces. Same friction here; the run scope stays one
+                    // click because it dies with the task.
+                    if (scopeGrantNeedsConfirm(permKey, 'session')) {
+                        const ok = await confirmModal(this.app, {
+                            title: t('ui.approval.sandbox'),
+                            message: t('ui.approval.sandboxGrantWarning'),
+                            confirmLabel: t('ui.approval.allowForSession'),
+                            destructive: true,
+                        });
+                        if (!ok) return; // leave the card open, grant nothing
+                    }
+                    cleanup();
+                    resolve({ decision: 'approved', rememberForSession: true });
+                })();
+            });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
             if (enableBtn && permKey) {
                 enableBtn.addEventListener('click', () => {
@@ -5451,7 +5488,7 @@ export class AgentSidebarView extends ItemView {
                         // agent-authored code writes the vault without a further
                         // prompt. Require an explicit confirm, as the Settings tab
                         // does -- a single card click must not arm it silently.
-                        if (permKey === 'sandbox') {
+                        if (scopeGrantNeedsConfirm(permKey, 'standing')) {
                             const ok = await confirmModal(this.app, {
                                 title: t('ui.approval.sandbox'),
                                 message: t('ui.approval.sandboxGrantWarning'),

@@ -52,6 +52,9 @@ async function buildPipeline(tools: ReturnType<typeof makeTool>[]) {
                 web: false, mcp: false, subtasks: false, skills: false,
                 pluginApiRead: true, pluginApiWrite: false, recipes: false, sandbox: false,
             },
+            // FIX-44-39: 'someplugin:getData' is user-marked safe (a READ);
+            // any other method resolves to WRITE (dynamic default).
+            pluginApi: { safeMethodOverrides: { 'someplugin:getData': true } },
         },
         ignoreService: { isIgnored: () => false, isProtected: () => false, getDenialReason: () => 'Denied' },
         operationLogger: { log: () => Promise.resolve() },
@@ -159,6 +162,54 @@ describe('FEAT-44-02: approving for the run', () => {
         await pipeline.executeTool(call('restore_checkpoint', {}), makeCallbacks(), { onApprovalRequired });
 
         expect(onApprovalRequired).toHaveBeenCalledTimes(2); // delete #1 + restore_checkpoint
+    });
+
+    it('FIX-44-39: a run grant from a plugin-api READ card does not cover WRITE calls', async () => {
+        const api = makeTool('call_plugin_api', false);
+        const pipeline = await buildPipeline([api]);
+
+        const onApprovalRequired = vi.fn(async () => ({
+            decision: 'approved' as const, rememberForRun: true,
+        }));
+
+        // READ card (safeMethodOverrides marks getData as safe), granted for the run...
+        await pipeline.executeTool(call('call_plugin_api', { plugin_id: 'someplugin', method: 'getData' }), makeCallbacks(), { onApprovalRequired });
+        // ...a second READ is covered by the grant...
+        await pipeline.executeTool(call('call_plugin_api', { plugin_id: 'someplugin', method: 'getData' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(1);
+
+        // ...but a WRITE call of the same effect class must ask again.
+        await pipeline.executeTool(call('call_plugin_api', { plugin_id: 'someplugin', method: 'setData' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(2);
+    });
+
+    it('FIX-44-39: a run grant from a plugin-api WRITE card does not cover READ calls', async () => {
+        const api = makeTool('call_plugin_api', false);
+        const pipeline = await buildPipeline([api]);
+
+        const onApprovalRequired = vi.fn(async () => ({
+            decision: 'approved' as const, rememberForRun: true,
+        }));
+
+        await pipeline.executeTool(call('call_plugin_api', { plugin_id: 'someplugin', method: 'setData' }), makeCallbacks(), { onApprovalRequired });
+        // A READ was never granted: the grant key is 'plugin-api:write', not the class.
+        await pipeline.executeTool(call('call_plugin_api', { plugin_id: 'someplugin', method: 'getData' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(2);
+    });
+
+    it('FIX-44-39 (S1): config/self-modify approvals never enter the grant set at all', async () => {
+        // The invariant used to hold only because the LOOKUP checks alwaysAsk
+        // first; the set itself still collected 'config' and is shared with
+        // subtasks by reference. The insert must be guarded too.
+        const settings = makeTool('update_settings', false);
+        const pipeline = await buildPipeline([settings]);
+
+        const onApprovalRequired = vi.fn(async () => ({
+            decision: 'approved' as const, rememberForRun: true,
+        }));
+
+        await pipeline.executeTool(call('update_settings', { action: 'set', path: 'debugMode', value: true }), makeCallbacks(), { onApprovalRequired });
+        expect(pipeline.getRunApprovedEffects().keys.size).toBe(0);
     });
 
     it('FEAT-44-02: a subtask inherits the parent run-scope via a shared set', async () => {
