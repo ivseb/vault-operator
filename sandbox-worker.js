@@ -20,23 +20,25 @@ function bridgeCall(type, payload) {
     process.send({ ...payload, type, callId });
   });
 }
-var vault = Object.freeze({
-  read: (path) => bridgeCall("vault-read", { path }),
-  readBinary: (path) => bridgeCall("vault-read-binary", { path }),
-  list: (path) => bridgeCall("vault-list", { path }),
-  write: (path, content) => bridgeCall("vault-write", { path, content }),
-  writeBinary: (path, content) => bridgeCall("vault-write-binary", { path, content }),
-  // FEAT-29-05: parent-folder creation. Obsidian's vault adapter does not
-  // auto-create parents on write, so init_skill needs an explicit mkdir
-  // call. Idempotent: silently succeeds when the folder already exists.
-  mkdir: (path) => bridgeCall("vault-mkdir", { path })
-});
-var requestUrlProxy = Object.freeze(
-  (url, options) => bridgeCall("request-url", { url, options })
-);
+function makeVaultProxy(execId) {
+  return Object.freeze({
+    read: (path) => bridgeCall("vault-read", { path, execId }),
+    readBinary: (path) => bridgeCall("vault-read-binary", { path, execId }),
+    list: (path) => bridgeCall("vault-list", { path, execId }),
+    write: (path, content) => bridgeCall("vault-write", { path, content, execId }),
+    writeBinary: (path, content) => bridgeCall("vault-write-binary", { path, content, execId }),
+    // FEAT-29-05: parent-folder creation. Obsidian's vault adapter does not
+    // auto-create parents on write, so init_skill needs an explicit mkdir
+    // call. Idempotent: silently succeeds when the folder already exists.
+    mkdir: (path) => bridgeCall("vault-mkdir", { path, execId })
+  });
+}
+function makeRequestUrlProxy(execId) {
+  return Object.freeze(
+    (url, options) => bridgeCall("request-url", { url, options, execId })
+  );
+}
 var contextGlobals = {
-  vault,
-  requestUrl: requestUrlProxy,
   console: Object.freeze({
     log: () => {
     },
@@ -89,12 +91,15 @@ var contextGlobals = {
 var vmContext = (0, import_vm.createContext)(contextGlobals);
 async function executeInSandbox(id, code, input) {
   try {
+    const vault = makeVaultProxy(id);
+    const requestUrlProxy = makeRequestUrlProxy(id);
     const escapedCode = JSON.stringify(code);
-    const wrappedCode = '(function() {\n    var exports = {};\n    var __fn = new Function("exports", ' + escapedCode + ");\n    __fn(exports);\n    return exports;\n})()";
-    const moduleExports = (0, import_vm.runInNewContext)(wrappedCode, vmContext, {
+    const wrappedCode = '(function(vault, requestUrl) {\n    var exports = {};\n    var __fn = new Function("exports", "vault", "requestUrl", ' + escapedCode + ");\n    __fn(exports, vault, requestUrl);\n    return exports;\n})";
+    const factory = (0, import_vm.runInNewContext)(wrappedCode, vmContext, {
       timeout: 3e4,
       filename: "sandbox-module.js"
     });
+    const moduleExports = factory(vault, requestUrlProxy);
     const result = await moduleExports.execute(input, { vault, requestUrl: requestUrlProxy });
     process.send({ type: "result", id, value: result });
   } catch (e) {
