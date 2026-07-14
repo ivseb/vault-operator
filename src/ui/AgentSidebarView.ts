@@ -21,6 +21,8 @@ import {
     toPersistedCheckpointMarker,
     type PersistedCheckpointMarker,
 } from './checkpointMarkerRehydration';
+// FIX-44-44: testable gate for the undo bar / post-task review surfaces.
+import { decidePostTaskSurfaces } from './postTaskReviewGate';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -3035,17 +3037,26 @@ export class AgentSidebarView extends ItemView {
                         void this.maybeOfferInflightResume();
                     }
                     scheduleScroll();
-                    if (taskWriteCount > 0 && (this.plugin.settings.enableCheckpoints ?? true) && !hasRenderedCheckpoints) {
+                    // Post-task surfaces (extracted for testability, see
+                    // postTaskReviewGate.ts). The review is gated on writes
+                    // that never had a diff surface (regardless of the
+                    // auto-approval master toggle), NOT on the toggle itself
+                    // and NOT on the legacy six-tool write count: tools like
+                    // update_frontmatter or set_block_anchors write without
+                    // ever incrementing taskWriteCount (FIX-44-44). When
+                    // every write was individually diff-approved at the gate,
+                    // the review stays closed -- a second, weaker-looking
+                    // approval is what misled users (FIX-44-16).
+                    const surfaces = decidePostTaskSurfaces({
+                        taskWriteCount,
+                        taskHadUnreviewedWrites,
+                        enableCheckpoints: this.plugin.settings.enableCheckpoints ?? true,
+                        hasRenderedCheckpoints,
+                    });
+                    if (surfaces.showUndoBar) {
                         this.showUndoBar(taskId, taskWriteCount);
                     }
-                    // Post-task review: show all changes for review/undo.
-                    // FIX-44-44: gated on writes that never had a diff surface
-                    // (regardless of the auto-approval master toggle), NOT on
-                    // the toggle itself. When every write was individually
-                    // diff-approved at the gate, the review stays closed -- a
-                    // second, weaker-looking approval is what misled users
-                    // (FIX-44-16).
-                    if (taskWriteCount > 0 && taskHadUnreviewedWrites && (this.plugin.settings.enableCheckpoints ?? true)) {
+                    if (surfaces.showPostTaskReview) {
                         void this.showPostTaskReview(taskId);
                     }
                     // Notify when sidebar is not the active (focused) view
