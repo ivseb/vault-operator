@@ -150,6 +150,29 @@ describe('FEAT-44-07 (a): revocation epoch clears run grants', () => {
         await pipeline.executeTool(call('write_file', { path: 'a.md', content: 'z' }), makeCallbacks(), { onApprovalRequired });
         expect(onApprovalRequired).toHaveBeenCalledTimes(2);
     });
+
+    it('a subtask pipeline built AFTER the reset does not inherit stale run grants', async () => {
+        // The scenario that motivated RunGrantStore = {keys, epoch}: a
+        // per-pipeline seen-epoch would be stamped fresh in the CHILD's
+        // constructor, so a store adopted from the parent afterwards would
+        // smuggle the pre-reset grants past the revocation. The epoch must
+        // travel WITH the store.
+        const plugin = makeFakePlugin();
+        const write = makeTool('write_file');
+        const parent = await buildPipeline(plugin, [write], 'task-parent');
+
+        const onApprovalRequired = vi.fn(async () => ({ decision: 'approved' as const, rememberForRun: true }));
+        await parent.executeTool(call('write_file', { path: 'a.md', content: 'x' }), makeCallbacks(), { onApprovalRequired });
+        expect(parent.getRunApprovedEffects().keys.size).toBe(1);
+
+        // Kill switch pressed, THEN the subtask is spawned:
+        plugin.approvalRevocationEpoch += 1;
+        const child = await buildPipeline(plugin, [write], 'task-child');
+        child.setRunApprovedEffects(parent.getRunApprovedEffects());
+
+        await child.executeTool(call('write_file', { path: 'b.md', content: 'y' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(2);
+    });
 });
 
 describe('FEAT-44-07 (a): resetToDefaultDeny helper', () => {
