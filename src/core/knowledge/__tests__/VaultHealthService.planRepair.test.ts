@@ -174,6 +174,110 @@ describe('planRepairTargets: cleanup', () => {
     });
 });
 
+describe('FIX-44-56: targetFilter pins the repair to the approved plan', () => {
+    // The parity tests above hold for IDENTICAL vault state. While the
+    // approval card is open the state can drift (user edits, metadata cache
+    // refresh, a concurrent task); these tests simulate that drift and pin
+    // that the repair still writes only what the card showed.
+
+    it('fix_backlinks skips targets that appeared after the plan was approved', async () => {
+        const w = makeWorld([
+            { path: 'Notes/S1.md', frontmatter: { Notizen: ['[[P]]'] } },
+            { path: 'Notes/P.md', frontmatter: { Kategorie: 'Person' }, body: 'p' },
+            { path: 'Notes/T.md', frontmatter: { Kategorie: 'Thema' }, body: 't' },
+            { path: 'Notes/S2.md', frontmatter: { Notizen: ['[[T]]'] } },
+        ]);
+        const { svc, db } = await makeService(w.app);
+        edge(db, 'Notes/S1.md', 'Notes/P.md', 'Notizen');
+
+        const plan = svc.planRepairTargets('fix_backlinks', 'Notizen', 'Kategorie');
+        expect(plan).toEqual(['Notes/P.md']);
+
+        // Drift while the card is open: a new one-sided edge appears.
+        edge(db, 'Notes/S2.md', 'Notes/T.md', 'Notizen');
+
+        await svc.fixMissingBacklinks('Notizen', 'Kategorie', new Set(plan));
+        expect([...w.touched].sort()).toEqual(['Notes/P.md']);
+    });
+
+    it('fix_backlinks skips a target whose branch drifted to an unplanned Base file', async () => {
+        const sources: FakeNote[] = Array.from({ length: 12 }, (_, i) => ({
+            path: `Notes/S${i}.md`, frontmatter: { Notizen: ['[[P]]'] },
+        }));
+        const w = makeWorld([
+            ...sources,
+            { path: 'Notes/P.md', frontmatter: { Kategorie: 'Person' }, body: 'p' },
+        ]);
+        const { svc, db } = await makeService(w.app);
+        edge(db, 'Notes/S0.md', 'Notes/P.md', 'Notizen');
+
+        // Planned: ONE source -> frontmatter branch, no .base in the plan.
+        const plan = svc.planRepairTargets('fix_backlinks', 'Notizen', 'Kategorie');
+        expect(plan).toEqual(['Notes/P.md']);
+
+        // Drift: eleven more sources appear, the repair would now create a
+        // sibling Base the user never saw on the card. It must not.
+        for (let i = 1; i < 12; i++) edge(db, `Notes/S${i}.md`, 'Notes/P.md', 'Notizen');
+
+        await svc.fixMissingBacklinks('Notizen', 'Kategorie', new Set(plan));
+        expect(w.created.size).toBe(0);
+        expect(w.touched.size).toBe(0);
+    });
+
+    it('cleanup skips notes that turned invalid after the plan was approved', async () => {
+        const w = makeWorld([
+            { path: 'Notes/C.md', frontmatter: { Notizen: ['[[Missing]]'] } },
+            { path: 'Notes/OK.md', frontmatter: { Notizen: ['[[P]]'] } },
+            { path: 'Notes/P.md', frontmatter: { Kategorie: 'Person' } },
+        ]);
+        const { svc } = await makeService(w.app);
+
+        const plan = svc.planRepairTargets('cleanup', 'Notizen', 'Kategorie');
+        expect(plan).toEqual(['Notes/C.md']);
+
+        // Drift: OK.md gains a broken link while the card is open.
+        const okFile = w.app.vault.getAbstractFileByPath('Notes/OK.md');
+        const okCache = w.app.metadataCache.getFileCache(okFile as never);
+        (okCache!.frontmatter as Record<string, unknown>).Notizen = ['[[P]]', '[[AlsoMissing]]'];
+
+        await svc.cleanupInvalidBacklinks('Notizen', 'Kategorie', new Set(plan));
+        expect([...w.touched].sort()).toEqual(['Notes/C.md']);
+    });
+
+    it('fix_categories skips source notes that drifted into the selection', async () => {
+        const w = makeWorld([
+            { path: 'Notes/Src.md', frontmatter: { Konzepte: ['[[Th]]'] } },
+            { path: 'Notes/Th.md', frontmatter: { Kategorie: 'Thema' } },
+            { path: 'Notes/Src2.md', frontmatter: { Themen: ['[[Th]]'] } },
+        ]);
+        const { svc, db } = await makeService(w.app);
+        edge(db, 'Notes/Src.md', 'Notes/Th.md', 'Konzepte');
+        edge(db, 'Notes/Src2.md', 'Notes/Th.md', 'Themen');
+
+        const plan = svc.planRepairTargets('fix_categories', 'Notizen', 'Kategorie');
+        expect(plan).toEqual(['Notes/Src.md']);
+
+        // Drift: Src2 misfiles the Thema while the card is open.
+        edge(db, 'Notes/Src2.md', 'Notes/Th.md', 'Konzepte');
+        const srcFile = w.app.vault.getAbstractFileByPath('Notes/Src2.md');
+        const srcCache = w.app.metadataCache.getFileCache(srcFile as never);
+        (srcCache!.frontmatter as Record<string, unknown>).Konzepte = ['[[Th]]'];
+
+        await svc.fixCategoryMismatches(new Set(plan));
+        expect([...w.touched].sort()).toEqual(['Notes/Src.md']);
+    });
+
+    it('without a filter the repair keeps its full selection (modal callers unchanged)', async () => {
+        const w = makeWorld([
+            { path: 'Notes/C.md', frontmatter: { Notizen: ['[[Missing]]'] } },
+            { path: 'Notes/C2.md', frontmatter: { Notizen: ['[[AlsoMissing]]'] } },
+        ]);
+        const { svc } = await makeService(w.app);
+        await svc.cleanupInvalidBacklinks('Notizen', 'Kategorie');
+        expect([...w.touched].sort()).toEqual(['Notes/C.md', 'Notes/C2.md']);
+    });
+});
+
 describe('planRepairTargets: fix_categories', () => {
     async function world() {
         const w = makeWorld([

@@ -961,8 +961,11 @@ export class VaultHealthService {
     /**
      * FEAT-44-02b / FIX-44-13b: the file paths a repair action WOULD touch,
      * computed without touching them. The approval gate presents this as the
-     * operation's scope; the repair then runs over exactly this selection
-     * (same shared computation, pinned by parity tests).
+     * operation's scope; the repair shares the same selection code (pinned
+     * by parity tests), and FIX-44-56 additionally pins it against STATE
+     * drift: the Pipeline passes the approved plan back as the fix methods'
+     * targetFilter, so files that drifted into the selection while the card
+     * was open are skipped, not silently written.
      *
      * Per-note diffs are deliberately NOT computed: the fix methods decide
      * their exact mutation inside processFrontMatter at write time, and a
@@ -1148,10 +1151,19 @@ export class VaultHealthService {
      *   but only up to MAX_FRONTMATTER_BACKLINKS. If exceeded, create a Base instead.
      *
      * This avoids overloading hub notes with hundreds of frontmatter entries.
+     *
+     * FIX-44-56: `targetFilter` pins the repair to the plan the approval gate
+     * showed. The selection code is shared with planRepairTargets, but only
+     * for IDENTICAL vault state -- while the card is open the state can drift
+     * (user edits, metadata-cache refresh, a concurrent task). With a filter,
+     * a target (or a derived .base file) that was not on the approved list is
+     * skipped instead of silently written. Callers with their own consent
+     * surface (the repair modal) omit it and keep the full selection.
      */
     async fixMissingBacklinks(
         backlinksProperty = 'Notizen',
         categoryProperty = 'Kategorie',
+        targetFilter?: ReadonlySet<string>,
     ): Promise<{
         entitiesFixed: number;
         linksAdded: number;
@@ -1177,6 +1189,10 @@ export class VaultHealthService {
         for (const [targetPath, { sources, properties }] of missingByTarget) {
             if (this.cancelled) break;
 
+            // FIX-44-56: skip targets outside the approved plan (state drift
+            // between gate and repair).
+            if (targetFilter !== undefined && !targetFilter.has(targetPath)) continue;
+
             const file = this.app.vault.getAbstractFileByPath(targetPath);
             if (!(file instanceof TFile)) continue;
 
@@ -1186,6 +1202,16 @@ export class VaultHealthService {
                 const category = this.getNoteCategory(cache, categoryProperty);
                 const useBase = VaultHealthService.BASE_CATEGORIES.has(category)
                     || sources.length > VaultHealthService.MAX_FRONTMATTER_BACKLINKS;
+
+                // FIX-44-56: the branch decision itself can drift. If the
+                // repair now wants a sibling .base the plan never listed,
+                // skip the target entirely -- creating a file the user never
+                // saw on the card is exactly what the filter forbids.
+                if (useBase
+                    && targetFilter !== undefined
+                    && !targetFilter.has(this.backlinksBasePathFor(targetPath))) {
+                    continue;
+                }
 
                 if (useBase) {
                     // FIX-19-01-08: useBase branch is now NON-destructive.
@@ -1362,6 +1388,7 @@ export class VaultHealthService {
     async cleanupInvalidBacklinks(
         backlinksProperty = 'Notizen',
         categoryProperty = 'Kategorie',
+        targetFilter?: ReadonlySet<string>,
     ): Promise<{ notesProcessed: number; linksRemoved: number }> {
         let notesProcessed = 0;
         let linksRemoved = 0;
@@ -1370,6 +1397,9 @@ export class VaultHealthService {
 
         for (const file of allFiles) {
             if (this.cancelled) break;
+
+            // FIX-44-56: only rewrite notes the approval gate showed.
+            if (targetFilter !== undefined && !targetFilter.has(file.path)) continue;
 
             // FEAT-44-02b: the per-file decision is shared with
             // planRepairTargets, so the approval scope and the repair walk
@@ -1410,7 +1440,7 @@ export class VaultHealthService {
      * E.g., if "Agentic AI" has Kategorie "Thema" but a note has it in
      * Konzepte: [[Agentic AI]], move it to Themen: [[Agentic AI]].
      */
-    async fixCategoryMismatches(): Promise<{ notesFixed: number; valuesMovied: number }> {
+    async fixCategoryMismatches(targetFilter?: ReadonlySet<string>): Promise<{ notesFixed: number; valuesMovied: number }> {
         let notesFixed = 0;
         let valuesMovied = 0;
 
@@ -1424,6 +1454,9 @@ export class VaultHealthService {
         // Apply fixes
         for (const [sourcePath, fixes] of fixesBySource) {
             if (this.cancelled) break;
+
+            // FIX-44-56: only rewrite source notes the approval gate showed.
+            if (targetFilter !== undefined && !targetFilter.has(sourcePath)) continue;
             const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
             if (!(sourceFile instanceof TFile)) continue;
 

@@ -29,7 +29,7 @@ import { getTmpRoot } from '../utils/agentFolder';
 import { findAllowedMethod } from '../tools/agent/pluginApiAllowlist';
 import { isPluginApiWriteCall as resolvePluginApiIsWrite } from '../tools/agent/pluginApiAdaptive';
 import { EFFECT_POLICY, resolveToolEffect, DYNAMIC_TOOL_PREFIX, PROGRESSIVE_DISCLOSURE_META_TOOLS, type ToolEffect, type ApprovalGrantKey } from '../tools/toolEffects';
-import { hasEditPreview, hasBatchEditPreview, hasNonFileEffects, type EditPreview, type BatchEditPreview } from '../tools/editPreview';
+import { hasEditPreview, hasBatchEditPreview, hasNonFileEffects, MAX_BATCH_DIFF_ENTRIES, type EditPreview, type BatchEditPreview } from '../tools/editPreview';
 import { safeNoteWrite } from '../utils/safeNoteWrite';
 import { validateVaultRelativePath } from '../tools/vault/pathValidation';
 import type { AutoApprovalConfig } from '../../types/settings';
@@ -1134,6 +1134,33 @@ export class ToolExecutionPipeline {
         'extract_zip',
     ]);
 
+    /**
+     * FIX-44-55: vault_health_check's repair actions mutate frontmatter
+     * across hundreds of notes in one call -- the same blast radius as the
+     * two exempted tools above. Exempting the whole tool would gate the
+     * read-only `check` behind a card even after a vault-change grant, so
+     * the exemption is input-conditional (like the plugin-api read/write
+     * resolution): only the mass repairs re-ask. This also keeps the
+     * FEAT-44-02b scope card honest -- a banked vault-change grant used to
+     * auto-approve the repair in checkApproval, so previewBatch never ran
+     * and the user never saw the file list the scope card exists to show.
+     */
+    private static readonly VAULT_HEALTH_REPAIR_ACTIONS: ReadonlySet<string> = new Set([
+        'fix_backlinks',
+        'cleanup',
+        'fix_categories',
+    ]);
+
+    /** Whether a run/session scope grant must NOT cover this specific call. */
+    private isScopeGrantExempt(toolCall: ToolUse): boolean {
+        if (ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) return true;
+        if (toolCall.name === 'vault_health_check') {
+            const action = typeof toolCall.input?.action === 'string' ? toolCall.input.action : 'check';
+            return ToolExecutionPipeline.VAULT_HEALTH_REPAIR_ACTIONS.has(action);
+        }
+        return false;
+    }
+
     private async checkApproval(
         toolCall: ToolUse,
         tool: unknown,
@@ -1199,7 +1226,7 @@ export class ToolExecutionPipeline {
         // lookups sit behind the alwaysAsk check and in front of the persisted
         // settings, and both honour the blast-radius exemptions.
         const grantKey = this.resolveGrantKey(effect, toolCall);
-        if (!ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) {
+        if (!this.isScopeGrantExempt(toolCall)) {
             // FEAT-44-07: the kill switch may have voided run grants since the
             // last lookup; sync before honouring them.
             this.syncRunGrantsWithRevocationEpoch();
@@ -1295,6 +1322,28 @@ export class ToolExecutionPipeline {
             batch = (await tool.previewBatch(toolCall.input)) ?? undefined;
             if (batch !== undefined && batch.entries.length === 0) batch = undefined;
         }
+        // FIX-44-54: the diff-batch cap is a Pipeline decision, not a UI
+        // courtesy. The sidebar renders at most MAX_BATCH_DIFF_ENTRIES diffs
+        // and silently degrades bigger batches to the scope card; if the
+        // Pipeline kept believing it offered a diff, it would stamp the
+        // approval diffReviewed below and suppress the post-task review for
+        // writes nobody saw (the FIX-44-44 failure mode). Downgrade here, so
+        // what the callback receives IS what counts: scope card shown, scope
+        // approved, diffReviewed stays false. Content is blanked -- a
+        // scopeOnly batch whose entries still carry diffs is a contract lie.
+        if (batch !== undefined && batch.scopeOnly !== true && batch.entries.length > MAX_BATCH_DIFF_ENTRIES) {
+            batch = {
+                summary: batch.summary,
+                scopeOnly: true,
+                entries: batch.entries.map((e) => ({
+                    path: e.path,
+                    before: '',
+                    after: '',
+                    ...(e.isNew === true ? { isNew: true } : {}),
+                    ...(e.isDeleted === true ? { isDeleted: true } : {}),
+                })),
+            };
+        }
         let preview: EditPreview | undefined;
         if (batch === undefined && hasEditPreview(tool)) {
             preview = (await tool.previewEdit(toolCall.input)) ?? undefined;
@@ -1341,14 +1390,26 @@ export class ToolExecutionPipeline {
         // for batch approvals: the batch gate is read-only, and honouring a
         // stray edit would have the Pipeline write ONE file and silently skip
         // the rest of the batch (execute is skipped on the finalContent path).
+        //
+        // FIX-44-56: a full approval (no subset from the gate) passes the
+        // WHOLE planned entry set instead of nothing. "Full scope" means the
+        // scope the user SAW, pinned at gate time -- the vault can change
+        // while the card is open (user edits, metadata-cache refresh, a
+        // concurrent task since EPIC-41), and a tool that re-selects its
+        // targets at execute time would otherwise write files that were
+        // never on the approved list. Tools that honour approvedBatchPaths
+        // are thereby pinned to the plan; tools that cannot honour a subset
+        // ignore the set, which keeps their behaviour unchanged.
         let approvedPaths: string[] | undefined;
         let finalContent = result.finalContent;
-        if (batch !== undefined) {
+        if (batch !== undefined && result.decision === 'approved') {
             finalContent = undefined;
-            if (result.decision === 'approved' && Array.isArray(result.approvedPaths)) {
-                const planned = new Set(batch.entries.map((e) => e.path));
-                approvedPaths = result.approvedPaths.filter((p) => planned.has(p));
-            }
+            const planned = new Set(batch.entries.map((e) => e.path));
+            approvedPaths = Array.isArray(result.approvedPaths)
+                ? result.approvedPaths.filter((p) => planned.has(p))
+                : [...planned];
+        } else if (batch !== undefined) {
+            finalContent = undefined;
         }
         // FIX-44-44: only the Pipeline decides whether this approval was given on
         // a real diff. The flag from the UI (if any) is overwritten -- a caller

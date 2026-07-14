@@ -72,3 +72,48 @@ describe('FEAT-44-02b: vault_health_check batch preview', () => {
         expect(await throwing.tool.previewBatch({ action: 'cleanup' })).toBeNull();
     });
 });
+
+describe('FIX-44-56: execute pins the repair to the approved batch scope', () => {
+    function makeRepairWorld() {
+        const fixMissingBacklinks = vi.fn(() => Promise.resolve({
+            entitiesFixed: 0, linksAdded: 0, basesCreated: 0,
+            entitiesWithExistingBase: 0, yamlErrorPaths: [] as string[],
+        }));
+        const cleanupInvalidBacklinks = vi.fn(() => Promise.resolve({ notesProcessed: 0, linksRemoved: 0 }));
+        const fixCategoryMismatches = vi.fn(() => Promise.resolve({ notesFixed: 0, valuesMovied: 0 }));
+        const plugin = {
+            app: { vault: {} },
+            settings: { categoryProperty: 'Kategorie', backlinksProperty: 'Notizen' },
+            checkpointService: null,
+            vaultHealthService: { fixMissingBacklinks, cleanupInvalidBacklinks, fixCategoryMismatches },
+        };
+        const tool = new VaultHealthCheckTool(plugin as never);
+        const callbacks = {
+            pushToolResult: vi.fn(),
+            handleError: vi.fn(() => Promise.resolve()),
+            log: vi.fn(),
+        };
+        return { tool, callbacks, fixMissingBacklinks, cleanupInvalidBacklinks, fixCategoryMismatches };
+    }
+
+    it('threads approvedBatchPaths into fixMissingBacklinks as the targetFilter', async () => {
+        const { tool, callbacks, fixMissingBacklinks } = makeRepairWorld();
+        const approved = new Set(['Notes/A.md']);
+        await tool.execute({ action: 'fix_backlinks' }, { callbacks, approvedBatchPaths: approved } as never);
+        expect(fixMissingBacklinks).toHaveBeenCalledWith('Notizen', 'Kategorie', approved);
+    });
+
+    it('threads approvedBatchPaths into cleanupInvalidBacklinks', async () => {
+        const { tool, callbacks, cleanupInvalidBacklinks } = makeRepairWorld();
+        const approved = new Set(['Notes/A.md']);
+        await tool.execute({ action: 'cleanup' }, { callbacks, approvedBatchPaths: approved } as never);
+        expect(cleanupInvalidBacklinks).toHaveBeenCalledWith('Notizen', 'Kategorie', approved);
+    });
+
+    it('threads approvedBatchPaths into fixCategoryMismatches', async () => {
+        const { tool, callbacks, fixCategoryMismatches } = makeRepairWorld();
+        const approved = new Set(['Notes/A.md']);
+        await tool.execute({ action: 'fix_categories' }, { callbacks, approvedBatchPaths: approved } as never);
+        expect(fixCategoryMismatches).toHaveBeenCalledWith(approved);
+    });
+});

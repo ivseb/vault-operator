@@ -106,6 +106,19 @@ export interface BatchEditPreview {
 }
 
 /**
+ * Ceiling for a reviewable diff batch, shared between the Pipeline and the
+ * UI. Above it a multi-entry diff review stops being a review (a four-digit
+ * file list is scrolled past, not read), so the Pipeline downgrades the
+ * batch to `scopeOnly` BEFORE handing it to the approval callback: the UI
+ * then renders the honest scope card and, critically, the approval does NOT
+ * count as diff-reviewed (FIX-44-44). Keeping the cap here, in the contract
+ * module, is deliberate -- when it lived only in the UI, the Pipeline
+ * stamped `diffReviewed` on batches the UI had silently degraded to the
+ * scope card, suppressing the post-task review for writes nobody saw.
+ */
+export const MAX_BATCH_DIFF_ENTRIES = 100;
+
+/**
  * Implemented by multi-file tools that can enumerate their planned writes.
  *
  * Contract:
@@ -115,11 +128,15 @@ export interface BatchEditPreview {
  *   no approval.
  * - The entry set MUST cover every file `execute` would touch for the same
  *   input. An entry the preview omits is a write the user never approved.
- * - When the user skips entries in the gate, the Pipeline passes the
- *   remaining paths as `context.approvedBatchPaths`. A tool implementing
- *   this interface MUST honour that set: planned writes whose path is not in
- *   it are skipped. Tools whose internals cannot honour a subset must be
- *   rendered all-or-nothing by the UI (scopeOnly batches are).
+ * - After an approved batch gate the Pipeline passes the approved paths as
+ *   `context.approvedBatchPaths`: the user's remaining subset when entries
+ *   were skipped, otherwise (FIX-44-56) the FULL planned entry set. A tool
+ *   implementing this interface MUST honour that set: planned writes whose
+ *   path is not in it are skipped. That pins the repair to the plan the
+ *   user saw even when the vault state drifted while the card was open.
+ *   Tools whose internals cannot honour a subset must be rendered
+ *   all-or-nothing by the UI (scopeOnly batches are) and may ignore the
+ *   full-set pass-through, accepting the drift as a documented limitation.
  */
 export interface BatchEditPreviewProvider {
     previewBatch(input: Record<string, unknown>): Promise<BatchEditPreview | null>;

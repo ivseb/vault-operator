@@ -44,8 +44,12 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
      *
      * scopeOnly: the exact per-note mutation is decided inside
      * processFrontMatter at write time; a simulated diff that can drift from
-     * the write is worse than an honest path list. Because the scope card is
-     * all-or-nothing, this tool never receives approvedBatchPaths subsets.
+     * the write is worse than an honest path list. The scope card is
+     * all-or-nothing, so no user-picked subsets arrive -- but since
+     * FIX-44-56 the Pipeline passes the FULL planned set as
+     * approvedBatchPaths, and execute threads it into the fix methods as
+     * their targetFilter: the repair provably writes only what the card
+     * showed, even when the vault drifted while the card was open.
      *
      * check / refresh / cleanup_edges return null: they write no vault
      * files, the plain card stays honest for them.
@@ -130,6 +134,12 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
 
         const action = (input.action as string) || 'check';
 
+        // FIX-44-56: the planned scope the user approved on the gate. The
+        // fix methods re-run their selection at execute time; pinning them
+        // to this set keeps the repair inside what the card showed even when
+        // the vault changed while the card was open.
+        const approvedScope = context.approvedBatchPaths;
+
         try {
             if (action === 'refresh' || action === 'check') {
                 // Refresh graph + ontology (always for refresh, before check to get fresh data)
@@ -177,6 +187,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 const result = await healthService.fixMissingBacklinks(
                     'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
+                    approvedScope,
                 );
                 callbacks.pushToolResult(
                     `Missing backlinks fixed: ${result.entitiesFixed} entities updated, ` +
@@ -193,6 +204,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
                 const result = await healthService.cleanupInvalidBacklinks(
                     'Notizen',
                     this.plugin.settings.categoryProperty ?? 'Kategorie',
+                    approvedScope,
                 );
                 callbacks.pushToolResult(
                     `Cleanup complete: ${result.notesProcessed} notes processed, ${result.linksRemoved} invalid links removed.\n` +
@@ -205,7 +217,7 @@ export class VaultHealthCheckTool extends BaseTool<'vault_health_check'> {
             } else if (action === 'fix_categories') {
                 await this.takeRepairSnapshot('fix_categories');
                 try {
-                    const result = await healthService.fixCategoryMismatches();
+                    const result = await healthService.fixCategoryMismatches(approvedScope);
                     callbacks.pushToolResult(
                         `Category mismatches fixed: ${result.notesFixed} notes updated, ${result.valuesMovied} values moved.\n` +
                         `Thema/Konzept values moved to correct property.\n` +

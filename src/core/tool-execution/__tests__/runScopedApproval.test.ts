@@ -164,6 +164,27 @@ describe('FEAT-44-02: approving for the run', () => {
         expect(onApprovalRequired).toHaveBeenCalledTimes(2); // delete #1 + restore_checkpoint
     });
 
+    it('FIX-44-55: a run-grant for vault-change still re-asks for vault_health_check repairs', async () => {
+        const del = makeTool('delete_file');
+        const health = makeTool('vault_health_check');
+        const pipeline = await buildPipeline([del, health]);
+
+        const onApprovalRequired = vi.fn(async () => ({ decision: 'approved' as const, rememberForRun: true }));
+
+        // Grant vault-change for the run via a single delete...
+        await pipeline.executeTool(call('delete_file', { path: 'a.md' }), makeCallbacks(), { onApprovalRequired });
+        // ...the read-only check is covered by the grant...
+        await pipeline.executeTool(call('vault_health_check', { action: 'check' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(1);
+        // ...but every mass repair re-asks: hundreds of frontmatter writes
+        // have the same blast radius as the exempted rollback/extract.
+        await pipeline.executeTool(call('vault_health_check', { action: 'fix_backlinks' }), makeCallbacks(), { onApprovalRequired });
+        await pipeline.executeTool(call('vault_health_check', { action: 'cleanup' }), makeCallbacks(), { onApprovalRequired });
+        await pipeline.executeTool(call('vault_health_check', { action: 'fix_categories' }), makeCallbacks(), { onApprovalRequired });
+        expect(onApprovalRequired).toHaveBeenCalledTimes(4);
+        expect(health.execute).toHaveBeenCalledTimes(4);
+    });
+
     it('FIX-44-39: a run grant from a plugin-api READ card does not cover WRITE calls', async () => {
         const api = makeTool('call_plugin_api', false);
         const pipeline = await buildPipeline([api]);

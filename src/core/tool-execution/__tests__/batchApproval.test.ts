@@ -22,6 +22,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { ToolUse, ToolCallbacks, ToolExecutionContext } from '../../tools/types';
 import type { EditPreview, BatchEditPreview } from '../../tools/editPreview';
+import { MAX_BATCH_DIFF_ENTRIES } from '../../tools/editPreview';
 
 function makeCallbacks(): ToolCallbacks {
     return {
@@ -214,7 +215,11 @@ describe('FEAT-44-02b: the approved subset reaches the tool', () => {
         expect([...(ctx.approvedBatchPaths ?? [])].sort()).toEqual(['Notes/A.md', 'Notes/C.md']);
     });
 
-    it('a full approval leaves approvedBatchPaths unset (full planned scope)', async () => {
+    it('FIX-44-56: a full approval passes the WHOLE planned scope as approvedBatchPaths', async () => {
+        // "Full scope" is pinned to the plan the user SAW, not to whatever the
+        // tool re-selects at execute time. The vault can change while the card
+        // is open (user edits, a concurrent task); without the pinned set the
+        // repair could touch files that were never on the approved list.
         const tool = makeBatchTool('restore_checkpoint', DIFF_BATCH);
         const pipeline = await buildPipeline(tool);
         const onApprovalRequired = vi.fn(() => Promise.resolve({ decision: 'approved' as const }));
@@ -222,7 +227,8 @@ describe('FEAT-44-02b: the approved subset reaches the tool', () => {
         await pipeline.executeTool(call('restore_checkpoint', { commitOid: 'abc' }), makeCallbacks(), { onApprovalRequired });
 
         const ctx = tool.execute.mock.calls[0][1] as ToolExecutionContext;
-        expect(ctx.approvedBatchPaths).toBeUndefined();
+        expect(ctx.approvedBatchPaths).toBeInstanceOf(Set);
+        expect([...(ctx.approvedBatchPaths ?? [])].sort()).toEqual(['Notes/A.md', 'Notes/B.md', 'Notes/C.md']);
     });
 
     it('sanitises approvedPaths against the batch entries (no foreign paths)', async () => {
@@ -300,9 +306,75 @@ describe('FIX-44-44 coupling: batch approvals and the post-task review', () => {
     });
 });
 
+describe('FIX-44-54: the diff-batch cap is a Pipeline contract, not a UI courtesy', () => {
+    function diffBatchOfSize(n: number): BatchEditPreview {
+        return {
+            entries: Array.from({ length: n }, (_, i) => ({
+                path: `Notes/N${i}.md`, before: `old ${i}`, after: `new ${i}`,
+            })),
+            summary: `${n} planned edits`,
+        };
+    }
+
+    it('downgrades an oversized diff batch to scopeOnly BEFORE the callback sees it', async () => {
+        const tool = makeBatchTool('restore_checkpoint', diffBatchOfSize(MAX_BATCH_DIFF_ENTRIES + 1));
+        const pipeline = await buildPipeline(tool);
+        const onApprovalRequired = vi.fn(() => Promise.resolve({ decision: 'approved' as const }));
+
+        await pipeline.executeTool(call('restore_checkpoint', { commitOid: 'abc' }), makeCallbacks(), { onApprovalRequired });
+
+        const [, , , batch] = onApprovalRequired.mock.calls[0] as unknown as [
+            string, Record<string, unknown>, EditPreview | undefined, BatchEditPreview | undefined,
+        ];
+        expect(batch).toBeDefined();
+        expect(batch?.scopeOnly).toBe(true);
+        // The downgraded batch keeps the full scope but no content -- a
+        // scopeOnly batch whose entries still carried diffs would tempt a
+        // future UI into rendering them as reviewed.
+        expect(batch?.entries).toHaveLength(MAX_BATCH_DIFF_ENTRIES + 1);
+        expect(batch?.entries.every((e) => e.before === '' && e.after === '')).toBe(true);
+    });
+
+    it('an oversized batch approval is NOT diff-reviewed (unreviewed-write signal fires)', async () => {
+        // This is the FIX-44-44 failure mode: the UI degrades an oversized
+        // batch to the scope card, so the user approved a path list, never a
+        // diff. The Pipeline must not stamp such an approval diff-reviewed.
+        const tool = makeBatchTool('restore_checkpoint', diffBatchOfSize(MAX_BATCH_DIFF_ENTRIES + 1));
+        const pipeline = await buildPipeline(tool);
+        const onUnreviewedWrite = vi.fn();
+        const onApprovalRequired = vi.fn(() => Promise.resolve({ decision: 'approved' as const }));
+
+        await pipeline.executeTool(call('restore_checkpoint', { commitOid: 'abc' }), makeCallbacks(), {
+            onApprovalRequired, onUnreviewedWrite,
+        });
+
+        expect(onUnreviewedWrite).toHaveBeenCalledWith('restore_checkpoint');
+    });
+
+    it('a batch AT the cap keeps its diffs and counts as diff-reviewed', async () => {
+        const tool = makeBatchTool('restore_checkpoint', diffBatchOfSize(MAX_BATCH_DIFF_ENTRIES));
+        const pipeline = await buildPipeline(tool);
+        const onUnreviewedWrite = vi.fn();
+        const onApprovalRequired = vi.fn(() => Promise.resolve({ decision: 'approved' as const }));
+
+        await pipeline.executeTool(call('restore_checkpoint', { commitOid: 'abc' }), makeCallbacks(), {
+            onApprovalRequired, onUnreviewedWrite,
+        });
+
+        const [, , , batch] = onApprovalRequired.mock.calls[0] as unknown as [
+            string, Record<string, unknown>, EditPreview | undefined, BatchEditPreview | undefined,
+        ];
+        expect(batch?.scopeOnly).toBeUndefined();
+        expect(batch?.entries[0]?.after).toBe('new 0');
+        expect(onUnreviewedWrite).not.toHaveBeenCalled();
+    });
+});
+
 describe('FEAT-44-02b: scope grants still work from a batch gate', () => {
-    it('rememberForRun on a batch approval covers the next call of the same effect', async () => {
-        // vault-change effect; second tool of the same class must run without a card.
+    it('rememberForRun on a batch approval covers later calls of the same effect, repairs stay exempt', async () => {
+        // vault-change effect; the banked grant covers ordinary calls of the
+        // class (here: the read-only check action), but FIX-44-55 exempts the
+        // mass repairs -- a second repair must raise its own scope card.
         const tool = makeBatchTool('vault_health_check', SCOPE_BATCH);
         const pipeline = await buildPipeline(tool);
         const onApprovalRequired = vi.fn(() => Promise.resolve({
@@ -311,9 +383,10 @@ describe('FEAT-44-02b: scope grants still work from a batch gate', () => {
         }));
 
         await pipeline.executeTool(call('vault_health_check', { action: 'fix_backlinks' }), makeCallbacks(), { onApprovalRequired });
+        await pipeline.executeTool(call('vault_health_check', { action: 'check' }), makeCallbacks(), { onApprovalRequired });
         await pipeline.executeTool(call('vault_health_check', { action: 'cleanup' }), makeCallbacks(), { onApprovalRequired });
 
-        expect(onApprovalRequired).toHaveBeenCalledTimes(1);
-        expect(tool.execute).toHaveBeenCalledTimes(2);
+        expect(onApprovalRequired).toHaveBeenCalledTimes(2);
+        expect(tool.execute).toHaveBeenCalledTimes(3);
     });
 });

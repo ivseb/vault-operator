@@ -172,6 +172,21 @@ describe('FEAT-44-02a: approving for the session', () => {
         expect(onApprovalRequired).toHaveBeenCalledTimes(3);
     });
 
+    it('FIX-44-55: vault_health_check repairs re-ask despite a session grant for vault-change', async () => {
+        const plugin = makeFakePlugin();
+        const del = makeTool('delete_file');
+        const health = makeTool('vault_health_check');
+        const pipeline = await buildPipeline(plugin, [del, health], 'task-1');
+
+        const onApprovalRequired = grantSession();
+        await pipeline.executeTool(call('delete_file', { path: 'a.md' }), makeCallbacks(), { onApprovalRequired });
+        await pipeline.executeTool(call('vault_health_check', { action: 'check' }), makeCallbacks(), { onApprovalRequired });
+        await pipeline.executeTool(call('vault_health_check', { action: 'fix_backlinks' }), makeCallbacks(), { onApprovalRequired });
+
+        // delete grants; the read-only check is covered; the mass repair is exempt.
+        expect(onApprovalRequired).toHaveBeenCalledTimes(2);
+    });
+
     it('degrades gracefully when the plugin has no session set (legacy stubs): asks every time', async () => {
         const plugin = makeFakePlugin() as Omit<ReturnType<typeof makeFakePlugin>, 'sessionApprovedGrants'> & { sessionApprovedGrants?: Set<ApprovalGrantKey> };
         delete plugin.sessionApprovedGrants;

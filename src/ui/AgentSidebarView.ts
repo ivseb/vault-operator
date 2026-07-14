@@ -12,6 +12,7 @@ import { ModeService } from '../core/modes/ModeService';
 // ADR-153: the approval card consumes the same effect registry as the Pipeline.
 // No second, drifting copy of the group mapping.
 import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools/toolEffects';
+import { MAX_BATCH_DIFF_ENTRIES } from '../core/tools/editPreview';
 import { grantAutoApproval, scopeGrantNeedsConfirm } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
@@ -5331,15 +5332,6 @@ export class AgentSidebarView extends ItemView {
         return { decision: 'approved', finalContent: decision.finalContent, rememberForRun, rememberForSession };
     }
 
-    /**
-     * FEAT-44-02b: one approval for a whole multi-file operation. Entries
-     * with real diffs open the multi-entry review as the gate (per-file
-     * Skip, read-only content). Above this cap we fall back to the scope
-     * card -- the review renders one diff at a time, but a four-digit file
-     * list stops being reviewable and the card stays bounded.
-     */
-    private static readonly MAX_BATCH_DIFF_ENTRIES = 100;
-
     private async showBatchEditApprovalGate(
         toolName: string,
         batch: import('../core/tools/editPreview').BatchEditPreview,
@@ -5373,10 +5365,17 @@ export class AgentSidebarView extends ItemView {
         batch?: import('../core/tools/editPreview').BatchEditPreview,
     ): Promise<import('../core/tool-execution/ToolExecutionPipeline').ApprovalResult> {
         // FEAT-44-02b: a multi-file operation with real per-file diffs gets
-        // the multi-entry review as its gate. Scope-only batches (and
-        // oversized ones) fall through to the card below, which then shows
-        // the planned file list instead of a bare tool name.
-        if (batch && batch.scopeOnly !== true && batch.entries.length <= AgentSidebarView.MAX_BATCH_DIFF_ENTRIES) {
+        // the multi-entry review as its gate. Scope-only batches fall through
+        // to the card below, which then shows the planned file list instead
+        // of a bare tool name.
+        //
+        // FIX-44-54: the entry-count guard mirrors the Pipeline's own cap
+        // (MAX_BATCH_DIFF_ENTRIES in editPreview.ts, the shared contract
+        // constant). The Pipeline downgrades oversized batches to scopeOnly
+        // BEFORE they reach this callback, so the guard here is defence in
+        // depth only -- it must never be the sole place the cap lives,
+        // because the Pipeline decides diffReviewed from what was offered.
+        if (batch && batch.scopeOnly !== true && batch.entries.length <= MAX_BATCH_DIFF_ENTRIES) {
             return await this.showBatchEditApprovalGate(toolName, batch);
         }
         // FEAT-44-10: a note edit with a computable diff gets the real gate.
