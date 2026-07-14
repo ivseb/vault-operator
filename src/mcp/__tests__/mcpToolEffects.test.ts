@@ -7,11 +7,17 @@
  * the set was treated as read and exposed ungated on the bearer-token surface.
  *
  * 1. Completeness: every MCP tool definition declares an explicit effect,
- *    and definitions and dispatcher handlers cannot drift apart.
+ *    and definitions and dispatcher handlers cannot drift apart. The parity
+ *    assertion is the real completeness enforcer: a handler added without a
+ *    declared definition fails HERE, at test time.
  * 2. Pins: the sets of tools that run WITHOUT the write gate (read, session,
  *    dispatch) are frozen. Adding an ungated tool means deliberately editing
  *    this snapshot, not forgetting an allowlist entry.
- * 3. Fail-closed: an unknown or undeclared tool resolves to 'write'.
+ * 3. Fail-closed: an unknown or undeclared tool resolves to 'write'. On the
+ *    live dispatch path an unknown tool is already rejected by the handler
+ *    lookup before the gate; the resolver's fallback covers the residual
+ *    runtime case of a registered handler whose definition lost its effect
+ *    (only constructible via a cast).
  */
 
 import { describe, it, expect } from 'vitest';

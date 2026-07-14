@@ -248,9 +248,16 @@ export async function handleToolCall(
     // (Claude Desktop, the relay, a prompt-injected external LLM) could
     // otherwise create/overwrite/delete vault files or long-term memory with no
     // user confirmation. The write class is DERIVED from the mandatory effect
-    // declaration on each tool definition; an undeclared or unknown tool
-    // resolves to 'write' here, so forgetting a declaration gates a tool
-    // instead of exposing it (fail-closed, ADR-153 pattern).
+    // declaration on each tool definition (ADR-153 pattern).
+    //
+    // Precision on fail-closed (code-review 2026-07-14): tools WITHOUT a
+    // handler never reach this gate -- the lookup above already rejected
+    // them. The 'write' fallback in resolveMcpToolEffect protects the
+    // residual case of a REGISTERED handler whose definition lost its effect
+    // declaration at runtime (only constructible via a cast; the field is
+    // mandatory at compile time). The property that a newly added handler
+    // cannot ship without a declaration is enforced by the handler <->
+    // definition parity assertion in mcpToolEffects.test.ts, not here.
     // FIX-44-48: the wire-facing error names the exact settings path.
     if (resolveMcpToolEffect(tool) === 'write' && !plugin.settings.mcpAllowWriteTools) {
         return {
