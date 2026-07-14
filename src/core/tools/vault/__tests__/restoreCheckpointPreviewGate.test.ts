@@ -144,7 +144,7 @@ describe('FIX-44-13b: restore_checkpoint honours the approved subset', () => {
         await tool.execute({ commitOid: CP.commitOid }, context);
 
         expect(restore).toHaveBeenCalledTimes(1);
-        const filter = restore.mock.calls[0][1] as ((p: string) => boolean) | undefined;
+        const filter = restore.mock.calls[0][1];
         expect(typeof filter).toBe('function');
         expect(filter!('Notes/A.md')).toBe(true);
         expect(filter!('Notes/B.md')).toBe(false);
