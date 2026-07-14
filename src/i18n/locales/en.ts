@@ -344,7 +344,7 @@ export const en = {
 
     // Sandbox execution
     'settings.permissions.headingSandbox': 'Sandbox code execution',
-    'settings.permissions.sectionSandboxInfo': 'The agent can run TypeScript inside an isolated sandbox: one-off expressions (evaluate_expression), skill scripts, and any dynamic skill tool. The sandbox has no Node.js APIs, but through Vault Operator it CAN read and write vault notes (blocked from the plugin config and rate-limited). Auto-approving this skips the confirmation step for all of it. High-risk because the code is authored by the LLM or by a third-party skill; only enable if you trust your active model, your prompts, and any installed skills.',
+    'settings.permissions.sectionSandboxInfo': 'The agent can run TypeScript inside an isolated sandbox: one-off expressions (evaluate_expression), skill scripts, and any dynamic skill tool. The sandbox has no Node.js APIs, but through Vault Operator it does have read and write access to your vault notes (blocked from the plugin config and rate-limited). Auto-approving this skips the confirmation step for all of it. High-risk because the code is authored by the LLM or by a third-party skill; only enable if you trust your active model, your prompts, and any installed skills.',
     'settings.permissions.sandbox': 'Auto-approve sandbox execution',
     'settings.permissions.sandboxDesc': 'Let the agent run code in a protected sandbox without asking. Off by default. Your confirmation is the main safeguard against harmful code.',
     'settings.permissions.sandboxConfirmTitle': 'Enable sandbox auto-approval?',

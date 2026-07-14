@@ -13,14 +13,21 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { handleExecuteVaultOp } from '../executeVaultOp';
+import type ObsidianAgentPlugin from '../../../main';
 import type { ToolDefinition, ToolExecutionContext } from '../../../core/tools/types';
+
+// FIX-44-37: execute is a typed Mock PROPERTY (not a method signature), so
+// `expect(tool.execute)` does not trip @typescript-eslint/unbound-method and
+// the callback params are not `any`.
+type FakeExecute = Mock<(input: Record<string, unknown>, context: ToolExecutionContext) => Promise<void>>;
 
 interface FakeTool {
     name: string;
     isWriteOperation: boolean;
     getDefinition(): ToolDefinition;
-    execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<void>;
+    execute: FakeExecute;
 }
 
 function makeReadTool(name: string, response = 'OK'): FakeTool {
@@ -33,7 +40,7 @@ function makeReadTool(name: string, response = 'OK'): FakeTool {
             description: 'fake read',
             input_schema: { type: 'object', properties: {}, required: [] },
         }),
-        execute: vi.fn(async (_input, ctx) => {
+        execute: vi.fn(async (_input: Record<string, unknown>, ctx: ToolExecutionContext) => {
             ctx.callbacks.pushToolResult(response);
         }),
     };
@@ -48,7 +55,7 @@ function makeWriteTool(name: string): FakeTool {
             description: 'fake write',
             input_schema: { type: 'object', properties: {}, required: [] },
         }),
-        execute: vi.fn(async (_input, ctx) => {
+        execute: vi.fn(async (_input: Record<string, unknown>, ctx: ToolExecutionContext) => {
             ctx.callbacks.pushToolResult('should not run');
         }),
     };
@@ -82,6 +89,11 @@ function makePlugin(tools: FakeTool[], mcpAllowWriteTools = false): PluginStub {
     };
 }
 
+/** FIX-44-37: single typed boundary cast instead of scattered unsafe casts. */
+function asPlugin(stub: PluginStub): ObsidianAgentPlugin {
+    return stub as unknown as ObsidianAgentPlugin;
+}
+
 describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () => {
     it.each([
         // switch_mode was renamed to switch_agent in the Modes -> Agents
@@ -98,8 +110,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
         'call_plugin_api',
     ])('rejects agent-internal tool %s before pipeline', async (op) => {
         const plugin = makePlugin([]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: op });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: op });
         expect(result.isError).toBe(true);
         const text = (result.content[0] as { text: string }).text;
         expect(text).toContain('agent-internal');
@@ -107,15 +118,13 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
 
     it('returns error when operation is missing', async () => {
         const plugin = makePlugin([]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, {});
+        const result = await handleExecuteVaultOp(asPlugin(plugin), {});
         expect(result.isError).toBe(true);
     });
 
     it('returns "Unknown operation" with list of available tools (excluding internal)', async () => {
         const plugin = makePlugin([makeReadTool('list_files')]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'totally_unknown' });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'totally_unknown' });
         expect(result.isError).toBe(true);
         const text = (result.content[0] as { text: string }).text;
         expect(text).toContain('Unknown operation');
@@ -126,8 +135,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
     it('routes a registered read tool through the pipeline and returns its output', async () => {
         const tool = makeReadTool('list_files', 'three files found');
         const plugin = makePlugin([tool]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'list_files' });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'list_files' });
         expect(result.isError).toBe(false);
         const text = (result.content[0] as { text: string }).text;
         expect(text).toContain('three files found');
@@ -147,8 +155,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
         // get_daily_note with create=true is note-edit.
         const tool = makeReadTool('get_daily_note', 'daily note created');
         const plugin = makePlugin([tool], true);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: { create: true } });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'get_daily_note', params: { create: true } });
         expect(result.isError).toBe(false);
         const text = (result.content[0] as { text: string }).text;
         expect(text).toContain('daily note created');
@@ -157,8 +164,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
     it('FIX-44-46: denies get_daily_note create=true with a clean error naming the setting when the toggle is off', async () => {
         const tool = makeReadTool('get_daily_note', 'daily note created');
         const plugin = makePlugin([tool], false);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: { create: true } });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'get_daily_note', params: { create: true } });
         expect(result.isError).toBe(true);
         expect(tool.execute).not.toHaveBeenCalled();
         const text = (result.content[0] as { text: string }).text;
@@ -170,8 +176,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
     it('FIX-44-46: get_daily_note WITHOUT create stays a read and runs regardless of the toggle', async () => {
         const tool = makeReadTool('get_daily_note', 'daily note content');
         const plugin = makePlugin([tool], false);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: {} });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'get_daily_note', params: {} });
         expect(result.isError).toBe(false);
         const text = (result.content[0] as { text: string }).text;
         expect(text).toContain('daily note content');
@@ -182,8 +187,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
         async (toggle) => {
             const tool = makeReadTool('mark_for_memory', 'should never run');
             const plugin = makePlugin([tool], toggle);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result = await handleExecuteVaultOp(plugin as any, { operation: 'mark_for_memory', params: {} });
+            const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'mark_for_memory', params: {} });
             expect(result.isError).toBe(true);
             expect(tool.execute).not.toHaveBeenCalled();
             const text = (result.content[0] as { text: string }).text;
@@ -196,8 +200,7 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
     it('blocks a write tool via pipeline fail-closed approval', async () => {
         const tool = makeWriteTool('write_file');
         const plugin = makePlugin([tool]);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const result = await handleExecuteVaultOp(plugin as any, { operation: 'write_file', params: { path: 'a.md', content: 'x' } });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'write_file', params: { path: 'a.md', content: 'x' } });
         expect(result.isError).toBe(true);
         // The execute body must NOT have been called -- approval rejected first.
         expect(tool.execute).not.toHaveBeenCalled();
