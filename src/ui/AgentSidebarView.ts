@@ -5248,17 +5248,18 @@ export class AgentSidebarView extends ItemView {
         }
 
         const rememberForRun = result.rememberForRun === true;
+        const rememberForSession = result.rememberForSession === true;
 
         // A deletion has no meaningful "edited after-state" -- the only real
         // choices are let it go or keep it. Whatever the textarea says, we do not
         // turn a delete into a write behind the user's back.
         if (preview.isDeleted) {
-            return { decision: 'approved', rememberForRun };
+            return { decision: 'approved', rememberForRun, rememberForSession };
         }
 
         // Approved as proposed -- let the tool do its own write.
         if (decision.finalContent === preview.after) {
-            return { decision: 'approved', rememberForRun };
+            return { decision: 'approved', rememberForRun, rememberForSession };
         }
 
         // The user rewrote it in the diff. Their content wins; the Pipeline
@@ -5268,7 +5269,7 @@ export class AgentSidebarView extends ItemView {
         // call open_note at the END of a run), so the write lands silently and the
         // user is left wondering whether their edit survived. It did.
         new Notice(t('ui.approval.editApplied', { path: preview.path }));
-        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun };
+        return { decision: 'approved', finalContent: decision.finalContent, rememberForRun, rememberForSession };
     }
 
     private async showApprovalCard(
@@ -5377,8 +5378,12 @@ export class AgentSidebarView extends ItemView {
             // FEAT-44-02: a run-scoped grant is offered for the same effects that
             // can be remembered (not alwaysAsk). It applies to the rest of THIS
             // run only, dies with the task, and cannot buy off config/self-modify.
+            // FEAT-44-02a: same for the session scope (until plugin reload).
             const runBtn = permKey
                 ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-run', text: t('ui.approval.allowForRun') })
+                : null;
+            const sessionBtn = permKey
+                ? actions.createEl('button', { cls: 'tool-approval-btn approval-allow-session', text: t('ui.approval.allowForSession') })
                 : null;
             const enableBtn = permKey
                 ? actions.createEl('button', { cls: 'tool-approval-btn approval-enable', text: t('ui.approval.enableInSettings') })
@@ -5440,6 +5445,7 @@ export class AgentSidebarView extends ItemView {
 
             allowBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved' }); });
             runBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForRun: true }); });
+            sessionBtn?.addEventListener('click', () => { cleanup(); resolve({ decision: 'approved', rememberForSession: true }); });
             denyBtn.addEventListener('click', () => { cleanup(); resolve({ decision: 'rejected' }); });
             if (enableBtn && permKey) {
                 enableBtn.addEventListener('click', () => {

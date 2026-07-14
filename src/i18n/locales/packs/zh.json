@@ -688,6 +688,7 @@
   "ui.editReview.restore": "还原",
   "ui.editReview.apply": "应用",
   "ui.editReview.applyForRun": "应用，本次运行不再询问",
+  "ui.editReview.applyForSession": "应用，本次会话不再询问",
   "ui.editReview.skipFile": "跳过此文件",
   "ui.editReview.unskipFile": "重新包含此文件",
   "ui.editReview.emptyFile": "（空）",
@@ -2516,5 +2517,6 @@
   "settings.permissions.readsAlwaysRun": "Reads always run",
   "settings.permissions.readsAlwaysRunDesc": "Reading and searching notes never changes your vault, so it runs without asking. This is not configurable.",
   "ui.approval.allowForRun": "Allow for this run",
+  "ui.approval.allowForSession": "本次会话允许",
   "notice.globalSettingsSaveFailed": "Could not save global settings (permissions, models). Your change may not persist after a restart. Check disk permissions for the plugin folder."
 }

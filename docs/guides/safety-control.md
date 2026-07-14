@@ -22,7 +22,14 @@ When Vault Operator wants to do something, a card appears with the tool name and
 - **Delete a file:** which file will be removed
 - **Move or rename:** source and destination paths
 
-Click the card to expand the full payload before deciding. Three levels: **Allow once** (this action only), **Allow for this run** (stop asking for this kind of change until the current task ends; the grant is never persisted), or **Always allow** (auto-approve this category from now on).
+Click the card to expand the full payload before deciding. Four levels, from narrow to broad:
+
+- **Allow once**: this action only.
+- **Allow for this run**: stop asking for this kind of change until the current task ends. The grant is never persisted and is shared with sub-tasks of the same run.
+- **Allow this session**: stop asking for this kind of change until the plugin reloads (restart Obsidian or disable/enable the plugin). The grant lives only in memory and is never written to disk.
+- **Always allow**: auto-approve this category from now on (a persisted setting).
+
+Run and session grants are as precise as the card you approved: approving a plugin-API *read* never covers plugin-API *writes*. Settings changes and agent self-modification can never be covered by any scope. `restore_checkpoint` and `extract_zip` always re-ask, whatever scope was granted.
 
 ## Auto-approve categories
 

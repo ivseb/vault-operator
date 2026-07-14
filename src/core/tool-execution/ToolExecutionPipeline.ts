@@ -158,6 +158,14 @@ export interface ApprovalResult {
      * given for one task does not carry into the next one.
      */
     rememberForRun?: boolean;
+    /**
+     * FEAT-44-02a (session scope): "yes, and stop asking for this kind of change
+     * until the plugin reloads". One level above the run scope: the grant
+     * outlives the task, is visible to every pipeline via the plugin instance,
+     * and dies with the plugin reload. Never persisted. Same resolved-key
+     * granularity and the same config/self-modify lock as the run scope.
+     */
+    rememberForSession?: boolean;
     /** User-edited final content (only for note-edit approvals via DiffReviewModal) */
     finalContent?: string;
     /**
@@ -911,12 +919,25 @@ export class ToolExecutionPipeline {
     }
 
     /**
-     * FEAT-44-02: tools that ALWAYS re-ask, even when their effect class was
-     * approved for the run. A run-grant for 'vault-change' should not silently
-     * authorise a mass rollback or a bulk archive extraction -- those have a far
-     * larger blast radius than the edit the user actually consented to.
+     * FEAT-44-02a: the session-scope set lives on the PLUGIN instance (never
+     * persisted, dies on reload), so every pipeline sees the same grants without
+     * explicit sharing. Optional-typed because legacy test stubs construct the
+     * pipeline with a bare plugin object; a missing set simply means "no session
+     * grants", which is the fail-closed direction.
      */
-    private static readonly RUN_SCOPE_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
+    private getSessionGrants(): Set<ApprovalGrantKey> | undefined {
+        const holder = this.plugin as Partial<Pick<ObsidianAgentPlugin, 'sessionApprovedGrants'>>;
+        return holder.sessionApprovedGrants instanceof Set ? holder.sessionApprovedGrants : undefined;
+    }
+
+    /**
+     * FEAT-44-02: tools that ALWAYS re-ask, even when their effect class was
+     * approved for the run or the session. A scope grant for 'vault-change'
+     * should not silently authorise a mass rollback or a bulk archive
+     * extraction -- those have a far larger blast radius than the edit the user
+     * actually consented to.
+     */
+    private static readonly SCOPE_GRANT_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
         'restore_checkpoint',
         'extract_zip',
     ]);
@@ -954,12 +975,17 @@ export class ToolExecutionPipeline {
         // exempt -- a run-grant for their effect still re-asks for them.
         // FIX-44-39: looked up under the RESOLVED grant key, so a plugin-api
         // read grant does not cover writes of the same effect class.
+        // FEAT-44-02a: scope order is run -> session -> settings. Both scope
+        // lookups sit behind the alwaysAsk check and in front of the persisted
+        // settings, and both honour the blast-radius exemptions.
         const grantKey = this.resolveGrantKey(effect, toolCall);
-        if (
-            this.runApprovedEffects.has(grantKey)
-            && !ToolExecutionPipeline.RUN_SCOPE_EXEMPT_TOOLS.has(toolCall.name)
-        ) {
-            return { decision: 'auto' };
+        if (!ToolExecutionPipeline.SCOPE_GRANT_EXEMPT_TOOLS.has(toolCall.name)) {
+            if (this.runApprovedEffects.has(grantKey)) {
+                return { decision: 'auto' };
+            }
+            if (this.getSessionGrants()?.has(grantKey) === true) {
+                return { decision: 'auto' };
+            }
         }
 
         // read + ui: always auto, DELIBERATELY independent of the master toggle.
@@ -1047,17 +1073,23 @@ export class ToolExecutionPipeline {
 
         // FIX-44-39: store the RESOLVED grant key, and refuse to store alwaysAsk
         // effects (S1) -- the no-config/self-modify invariant must hold in the
-        // set itself, not only in the lookup order, because the set is shared
-        // with subtasks by reference.
+        // sets themselves, not only in the lookup order, because the run set is
+        // shared with subtasks and the session set with every future task.
         if (
             result.decision === 'approved'
-            && result.rememberForRun === true
             && effect !== 'unclassified'
             && !EFFECT_POLICY[effect].alwaysAsk
         ) {
             const grantKey = this.resolveGrantKey(effect, toolCall);
-            this.runApprovedEffects.add(grantKey);
-            console.debug(`[Pipeline] '${grantKey}' approved for the rest of this run`);
+            if (result.rememberForRun === true) {
+                this.runApprovedEffects.add(grantKey);
+                console.debug(`[Pipeline] '${grantKey}' approved for the rest of this run`);
+            }
+            // FEAT-44-02a: session scope, one level above the run scope.
+            if (result.rememberForSession === true) {
+                this.getSessionGrants()?.add(grantKey);
+                console.debug(`[Pipeline] '${grantKey}' approved for this session`);
+            }
         }
         return result;
     }

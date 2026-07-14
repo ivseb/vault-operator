@@ -688,6 +688,7 @@
   "ui.editReview.restore": "복원",
   "ui.editReview.apply": "적용",
   "ui.editReview.applyForRun": "적용하고 이번 실행에서 다시 묻지 않기",
+  "ui.editReview.applyForSession": "적용하고 이번 세션에서 다시 묻지 않기",
   "ui.editReview.skipFile": "이 파일 건너뛰기",
   "ui.editReview.unskipFile": "이 파일 다시 포함",
   "ui.editReview.emptyFile": "(비어 있음)",
@@ -2516,5 +2517,6 @@
   "settings.permissions.readsAlwaysRun": "Reads always run",
   "settings.permissions.readsAlwaysRunDesc": "Reading and searching notes never changes your vault, so it runs without asking. This is not configurable.",
   "ui.approval.allowForRun": "Allow for this run",
+  "ui.approval.allowForSession": "이번 세션에서 허용",
   "notice.globalSettingsSaveFailed": "Could not save global settings (permissions, models). Your change may not persist after a restart. Check disk permissions for the plugin folder."
 }

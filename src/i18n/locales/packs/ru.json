@@ -688,6 +688,7 @@
   "ui.editReview.restore": "Восстановить",
   "ui.editReview.apply": "Применить",
   "ui.editReview.applyForRun": "Применить и больше не спрашивать в этом запуске",
+  "ui.editReview.applyForSession": "Применить и больше не спрашивать в этой сессии",
   "ui.editReview.skipFile": "Пропустить этот файл",
   "ui.editReview.unskipFile": "Снова включить этот файл",
   "ui.editReview.emptyFile": "(пусто)",
@@ -2516,5 +2517,6 @@
   "settings.permissions.readsAlwaysRun": "Reads always run",
   "settings.permissions.readsAlwaysRunDesc": "Reading and searching notes never changes your vault, so it runs without asking. This is not configurable.",
   "ui.approval.allowForRun": "Allow for this run",
+  "ui.approval.allowForSession": "Разрешить в этой сессии",
   "notice.globalSettingsSaveFailed": "Could not save global settings (permissions, models). Your change may not persist after a restart. Check disk permissions for the plugin folder."
 }

@@ -8646,13 +8646,15 @@
     border-top: 1px solid var(--background-modifier-border);
     background: var(--background-secondary);
 }
-.agent-edit-review__apply-run-btn {
+.agent-edit-review__apply-run-btn,
+.agent-edit-review__apply-session-btn {
     border: 1px solid var(--background-modifier-border);
     background: transparent;
     color: var(--text-muted);
     box-shadow: none;
 }
-.agent-edit-review__apply-run-btn:hover {
+.agent-edit-review__apply-run-btn:hover,
+.agent-edit-review__apply-session-btn:hover {
     color: var(--text-normal);
     background: var(--background-modifier-hover);
 }
