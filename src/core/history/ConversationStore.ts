@@ -62,6 +62,22 @@ export interface ConversationMeta {
     titleSource?: 'auto' | 'user';
 }
 
+/**
+ * FIX-44-12: the persisted identity of a checkpoint marker rendered during an
+ * assistant turn. Enough to re-render the marker after a reload and to verify
+ * it against the shadow repo (commitOid). `toolName` and `skipped` are
+ * deliberately NOT persisted -- they are session-only detail, exactly as in
+ * the commit-message roundtrip of GitCheckpointService.loadCheckpointsForTask.
+ */
+export interface PersistedCheckpointMarker {
+    taskId: string;
+    commitOid: string;
+    /** ISO timestamp of the snapshot. */
+    timestamp: string;
+    filesChanged: string[];
+    newFiles?: string[];
+}
+
 export interface UiMessage {
     role: 'user' | 'assistant';
     text: string;
@@ -84,6 +100,16 @@ export interface UiMessage {
      * block.
      */
     taskId?: string;
+    /**
+     * FIX-44-12: checkpoint markers rendered during this assistant turn.
+     * Persisted so a reloaded conversation can re-render LIVE markers (with
+     * working Diff/Undo buttons) at the bubble they belong to, and degrade to
+     * a disabled marker when the shadow repo no longer holds the snapshot
+     * (REF_RETENTION_DAYS pruning). Optional -- older messages and turns
+     * without writes omit it; those fall back to the FIX-01-07-02 legacy
+     * rehydration (shadow-repo scan anchored at the task's last bubble).
+     */
+    checkpoints?: PersistedCheckpointMarker[];
     /**
      * Captured reasoning text for assistant turns produced by reasoner
      * models (DeepSeek deepseek-reasoner via OpenAI-compatible provider,

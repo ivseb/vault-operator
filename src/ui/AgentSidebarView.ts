@@ -15,6 +15,12 @@ import { EFFECT_POLICY, resolveToolEffect, type ToolEffect } from '../core/tools
 import { grantAutoApproval } from '../core/tools/autoApprovalGrant';
 import { isPluginApiWriteCall } from '../core/tools/agent/pluginApiAdaptive';
 import { confirmModal } from './modals/PromptModal';
+// FIX-44-12: checkpoint markers persist into the conversation and rehydrate live.
+import {
+    planCheckpointMarkerRehydration,
+    toPersistedCheckpointMarker,
+    type PersistedCheckpointMarker,
+} from './checkpointMarkerRehydration';
 import type { MessageParam, ContentBlock } from '../api/types';
 import { getModelKey, getFirstEnabledModelKey, modelToLLMProvider, OKF_DEFAULTS } from '../types/settings';
 import type { CustomModel } from '../types/settings';
@@ -2348,6 +2354,10 @@ export class AgentSidebarView extends ItemView {
         // approval (settings-auto, run-scope grant, name-only card). Decides
         // whether the post-task review opens; see showPostTaskReview.
         let taskHadUnreviewedWrites = false;
+        // FIX-44-12: checkpoints of the CURRENT assistant turn. Persisted into
+        // the UiMessage (uiMessages.push sites) so a reloaded conversation can
+        // re-render live markers; reset with the rest of the per-turn state.
+        let turnCheckpoints: import('../core/checkpoints/GitCheckpointService').CheckpointInfo[] = [];
 
         // IMP-24-08-04: immediate Stop feedback. handleStop swaps the
         // Working spinner for a Stopping row; the drain-end removeLoading
@@ -2785,6 +2795,8 @@ export class AgentSidebarView extends ItemView {
                 onCheckpoint: (checkpoint) => {
                     this.renderCheckpointMarker(toolsEl, checkpoint);
                     hasRenderedCheckpoints = true;
+                    // FIX-44-12: remember for persistence into the UiMessage.
+                    turnCheckpoints.push(checkpoint);
                     scheduleScroll();
                 },
                 // FIX-44-44: the pipeline reports every write that landed
@@ -2820,6 +2832,11 @@ export class AgentSidebarView extends ItemView {
                                 toolStepsHtml: stepsBlockEl?.outerHTML,
                                 taskId,
                                 reasoningText: accumulatedThinking || undefined,
+                                // FIX-44-12: persist this turn's markers so they
+                                // rehydrate live after a reload.
+                                checkpoints: turnCheckpoints.length > 0
+                                    ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                    : undefined,
                             });
                         }
                         // Render user answer as a regular chat message
@@ -2844,6 +2861,9 @@ export class AgentSidebarView extends ItemView {
                         stepsHasError = false;
                         loadingRemoved = false;
                         activeToolGroup = null;
+                        // FIX-44-12: markers of the finalized turn were just
+                        // persisted above; the next turn starts empty.
+                        turnCheckpoints = [];
                         // Scroll and continue agent loop
                         scheduleScroll();
                         resolve(answer);
@@ -3043,6 +3063,11 @@ export class AgentSidebarView extends ItemView {
                             toolStepsHtml: stepsBlockEl?.outerHTML,
                             taskId,
                             reasoningText: accumulatedThinking || undefined,
+                            // FIX-44-12: persist this turn's markers so they
+                            // rehydrate live after a reload.
+                            checkpoints: turnCheckpoints.length > 0
+                                ? turnCheckpoints.map(toPersistedCheckpointMarker)
+                                : undefined,
                         });
                     }
                     // Auto-save conversation to ConversationStore
@@ -3925,13 +3950,12 @@ export class AgentSidebarView extends ItemView {
         this.historyPanel?.setActiveId(id);
         this.updateContextBadge();
 
-        // FIX-01-07-02: rebuild checkpoint markers inline at the assistant
-        // message they belong to. The shadow repo holds the snapshots across
-        // plugin reloads, but the in-memory taskCheckpoints map starts empty
-        // and the rehydrated toolStepsHtml only carries dead marker spans
-        // (the live event listeners are gone). For every assistant message
-        // with a persisted taskId we strip the stale markers and render new
-        // live ones via renderCheckpointMarker.
+        // FIX-01-07-02 / FIX-44-12: rebuild checkpoint markers inline at the
+        // assistant message they belong to. Markers never survive into
+        // toolStepsHtml (they render as siblings of the steps block), so this
+        // step re-renders them from UiMessage.checkpoints (verified live, or
+        // expired) with the legacy shadow-repo scan as fallback for older
+        // conversations.
         void this.rehydrateCheckpointMarkers(assistantPairs);
 
         if (!opts.skipNavPush) {
@@ -5981,24 +6005,19 @@ export class AgentSidebarView extends ItemView {
     // -------------------------------------------------------------------------
 
     /**
-     * FIX-01-07-02: after loadConversation rebuilds the chat DOM, rehydrate
-     * the per-checkpoint markers inline at the assistant message they belong
-     * to. The shadow repo still holds the snapshots across plugin reloads,
-     * but the in-memory taskCheckpoints map starts empty AND the dead marker
-     * spans in toolStepsHtml have no event listeners.
+     * FIX-01-07-02 / FIX-44-12: after loadConversation rebuilds the chat DOM,
+     * rehydrate the checkpoint markers inline at the assistant message they
+     * belong to. Markers are never part of toolStepsHtml (they render as
+     * siblings of the steps block), so without this step a reloaded chat has
+     * no markers at all.
      *
-     * For each unique taskId we:
-     *   1. service.loadCheckpointsForTask(taskId) -- rebuilds the in-memory map
-     *      from the shadow repo via git log.
-     *   2. Pick the LAST assistant message of that task as the anchor. (Most
-     *      tasks emit one assistant bubble; askQuestion pauses produce more,
-     *      and the trailing bubble is the user's natural exit point.)
-     *   3. Strip any stale .checkpoint-marker nodes that the toolStepsHtml
-     *      snapshot brought in dead, then render fresh markers via
-     *      renderCheckpointMarker so the buttons work again.
-     *
-     * Older conversations stored before taskId was persisted on UiMessages
-     * have m.taskId === undefined and are skipped (no marker, no error).
+     * FIX-44-12: messages that persisted their markers (UiMessage.checkpoints)
+     * get them back at their own bubble -- LIVE (verified against the shadow
+     * repo, full Diff/Undo buttons) or EXPIRED (dimmed, tooltip) when the repo
+     * no longer holds the snapshot (REF_RETENTION_DAYS pruning). Older
+     * conversations without the field keep the legacy behavior: every loaded
+     * checkpoint of a task at its last assistant bubble. The planning logic
+     * lives in checkpointMarkerRehydration.ts (pure, tested).
      */
     private async rehydrateCheckpointMarkers(
         pairs: { msg: UiMessage; el: HTMLElement }[],
@@ -6007,29 +6026,61 @@ export class AgentSidebarView extends ItemView {
         const service = this.plugin.checkpointService;
         if (!service) return;
 
-        // Last DOM anchor per taskId (later messages overwrite earlier ones).
-        const anchorByTaskId = new Map<string, HTMLElement>();
-        for (const { msg, el } of pairs) {
-            if (msg.taskId) anchorByTaskId.set(msg.taskId, el);
-        }
+        try {
+            const plan = await planCheckpointMarkerRehydration(
+                pairs.map((p) => p.msg),
+                (taskId) => service.loadCheckpointsForTask(taskId),
+            );
 
-        for (const [taskId, messageEl] of anchorByTaskId) {
-            try {
-                const list = await service.loadCheckpointsForTask(taskId);
-                if (list.length === 0) continue;
+            for (const [index, items] of plan) {
+                const messageEl = pairs[index]?.el;
+                if (!messageEl) continue;
 
-                // Drop stale markers from the rehydrated toolStepsHtml so we
-                // don't render the same checkpoint twice (once dead, once live).
+                // Defensive: never render the same marker twice if rehydration
+                // runs again over the same DOM.
                 messageEl.querySelectorAll('.checkpoint-marker').forEach((el) => el.remove());
 
                 const toolsEl = messageEl.querySelector<HTMLElement>('.message-tools') ?? messageEl;
-                for (const cp of list) {
-                    this.renderCheckpointMarker(toolsEl, cp);
+                for (const item of items) {
+                    if (item.kind === 'live') {
+                        this.renderCheckpointMarker(toolsEl, item.checkpoint);
+                    } else {
+                        this.renderExpiredCheckpointMarker(toolsEl, item.marker);
+                    }
                 }
-            } catch (e) {
-                console.warn('[Checkpoints] rehydrate failed for', taskId, e);
             }
+        } catch (e) {
+            console.warn('[Checkpoints] rehydrate failed:', e);
         }
+    }
+
+    /**
+     * FIX-44-12: a persisted marker whose snapshot the shadow repo no longer
+     * holds (pruned after REF_RETENTION_DAYS, deleted repo). Rendered dimmed,
+     * without action buttons, with a tooltip saying why -- the honest version
+     * of "this existed, but its undo data is gone". Dropping it silently made
+     * users hunt for buttons that could never come back.
+     */
+    private renderExpiredCheckpointMarker(
+        container: HTMLElement,
+        marker: PersistedCheckpointMarker,
+    ): void {
+        const el = container.createDiv('checkpoint-marker checkpoint-marker-expired');
+        el.setAttribute('aria-label', t('ui.checkpoint.snapshotExpired'));
+
+        const iconEl = el.createSpan('checkpoint-icon');
+        setIcon(iconEl, 'git-commit-vertical');
+
+        const label = el.createSpan('checkpoint-label');
+        const files = [...marker.filesChanged, ...(marker.newFiles ?? [])]
+            .map((f) => f.split('/').pop())
+            .filter(Boolean)
+            .join(', ');
+        const time = new Date(marker.timestamp).toLocaleTimeString('de-DE', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        label.setText(t('ui.checkpoint.label', { files, time }));
     }
 
     // -------------------------------------------------------------------------
