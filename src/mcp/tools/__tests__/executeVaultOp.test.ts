@@ -65,7 +65,7 @@ interface PluginStub {
     ignoreService?: undefined;
 }
 
-function makePlugin(tools: FakeTool[]): PluginStub {
+function makePlugin(tools: FakeTool[], mcpAllowWriteTools = false): PluginStub {
     const map = new Map(tools.map((t) => [t.name, t]));
     return {
         toolRegistry: {
@@ -76,6 +76,7 @@ function makePlugin(tools: FakeTool[]): PluginStub {
             // Pipeline reads settings.autoApproval and settings.enableCheckpoints.
             autoApproval: { enabled: true, read: true, noteEdits: false, vaultChanges: false, mcp: false, sandbox: false, web: false, subtasks: false, skills: false, recipes: false, pluginApiRead: false, pluginApiWrite: false },
             enableCheckpoints: false,
+            mcpAllowWriteTools,
         },
         app: { vault: { adapter: {} } },
     };
@@ -132,6 +133,65 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
         expect(text).toContain('three files found');
         expect(tool.execute).toHaveBeenCalled();
     });
+
+    // ── FIX-44-46: headless MCP approval policy ─────────────────────────────
+    // The pipeline used to run with NO approval callback, so the EPIC-44
+    // effect reclassification flipped get_daily_note(create=true) and
+    // mark_for_memory into an unconditional "Operation denied by user" --
+    // even when the user had enabled "Allow write tools over MCP", the same
+    // toggle FIX-44-26 honours for save_to_memory. The headless policy makes
+    // both MCP gates decide from that one standing consent.
+
+    it('FIX-44-46: allows get_daily_note create=true when "Allow write tools over MCP" is on', async () => {
+        // Effects resolve by NAME from the central TOOL_EFFECTS registry:
+        // get_daily_note with create=true is note-edit.
+        const tool = makeReadTool('get_daily_note', 'daily note created');
+        const plugin = makePlugin([tool], true);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: { create: true } });
+        expect(result.isError).toBe(false);
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('daily note created');
+    });
+
+    it('FIX-44-46: denies get_daily_note create=true with a clean error naming the setting when the toggle is off', async () => {
+        const tool = makeReadTool('get_daily_note', 'daily note created');
+        const plugin = makePlugin([tool], false);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: { create: true } });
+        expect(result.isError).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('Allow write tools over MCP');
+        expect(text).toContain('Settings > Vault Operator > Customize > Connectors');
+        expect(text).not.toContain('denied by user');
+    });
+
+    it('FIX-44-46: get_daily_note WITHOUT create stays a read and runs regardless of the toggle', async () => {
+        const tool = makeReadTool('get_daily_note', 'daily note content');
+        const plugin = makePlugin([tool], false);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result = await handleExecuteVaultOp(plugin as any, { operation: 'get_daily_note', params: {} });
+        expect(result.isError).toBe(false);
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('daily note content');
+    });
+
+    it.each([true, false])(
+        'FIX-44-46: mark_for_memory (self-modify) is always denied with a policy message (toggle=%s)',
+        async (toggle) => {
+            const tool = makeReadTool('mark_for_memory', 'should never run');
+            const plugin = makePlugin([tool], toggle);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await handleExecuteVaultOp(plugin as any, { operation: 'mark_for_memory', params: {} });
+            expect(result.isError).toBe(true);
+            expect(tool.execute).not.toHaveBeenCalled();
+            const text = (result.content[0] as { text: string }).text;
+            // The message names the policy, not a user decision that never happened.
+            expect(text).toContain('self-modify');
+            expect(text).not.toContain('denied by user');
+        },
+    );
 
     it('blocks a write tool via pipeline fail-closed approval', async () => {
         const tool = makeWriteTool('write_file');

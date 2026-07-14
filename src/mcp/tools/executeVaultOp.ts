@@ -13,12 +13,18 @@
  *
  * Tools in `AGENT_INTERNAL_TOOLS` are denied at the boundary regardless
  * of pipeline behaviour, because they are conceptually agent-only
- * (switch_mode, new_task, update_todo_list, ...). Write tools are denied
- * by the pipeline's fail-closed approval logic when no `onApprovalRequired`
- * callback is provided -- which is the case here, by design: an MCP
- * client has no user session to approve a write, so writes are not
- * permitted via this dispatcher. Dedicated MCP tools (`write_vault`)
- * exist for the cases where the user wants writes.
+ * (switch_mode, new_task, update_todo_list, ...).
+ *
+ * FIX-44-46: this dispatcher runs HEADLESS -- no user session, no approval
+ * card. Instead of a missing callback (which the pipeline used to answer
+ * with a misleading "Operation denied by user"), it passes an explicit
+ * HeadlessApprovalPolicy: `settings.mcpAllowWriteTools` is the user's
+ * standing consent for write-class effects (note-edit, vault-change), the
+ * same consent the dedicated `write_vault` surface honours (FIX-44-26).
+ * config and self-modify effects stay denied always (self-escalation
+ * lock), with an error that names the policy. Everything else that would
+ * need a card (web, sandbox, subtask, ...) is denied with a clear
+ * headless-context message.
  *
  * AUDIT-013 C-1 (proper fix, replaces interim deny-list).
  */
@@ -26,6 +32,7 @@
 import type ObsidianAgentPlugin from '../../main';
 import type { McpToolResult } from '../types';
 import type { ToolName, ToolUse } from '../../core/tools/types';
+import type { ToolEffect } from '../../core/tools/toolEffects';
 import { AGENT_INTERNAL_TOOLS } from '../toolDefinitions';
 import { ToolExecutionPipeline } from '../../core/tool-execution/ToolExecutionPipeline';
 
@@ -73,8 +80,7 @@ export async function handleExecuteVaultOp(
     }
 
     // Per-call pipeline. No apiHandler is wired so tools that need an LLM
-    // (e.g. plan_presentation) are unavailable from MCP context, and no
-    // approval callback is wired so write tools fail-closed.
+    // (e.g. plan_presentation) are unavailable from MCP context.
     const taskId = `mcp-vault-op-${Date.now()}`;
     const pipeline = new ToolExecutionPipeline(
         plugin,
@@ -83,6 +89,19 @@ export async function handleExecuteVaultOp(
         'agent',
         // apiHandler intentionally omitted
     );
+
+    // FIX-44-46: explicit headless approval policy instead of a missing
+    // callback. Write-class effects follow the user's standing consent
+    // ("Allow write tools over MCP", default off); config/self-modify are
+    // rejected before the consent set is consulted, so this cannot widen
+    // the self-escalation lock. The label and path are wire-facing and must
+    // match the dispatcher gate in tools/index.ts and the McpTab toggle.
+    pipeline.setHeadlessApprovalPolicy({
+        consentedEffects: new Set<ToolEffect>(['note-edit', 'vault-change']),
+        consentGranted: plugin.settings.mcpAllowWriteTools === true,
+        consentSettingLabel: 'Allow write tools over MCP',
+        consentSettingPath: 'Settings > Vault Operator > Customize > Connectors',
+    });
 
     const toolCall: ToolUse = {
         type: 'tool_use',
@@ -119,8 +138,9 @@ export async function handleExecuteVaultOp(
                     logParts.push(message);
                 },
             },
-            // No extensions: no onApprovalRequired (writes fail-closed),
-            // no spawnSubtask, no askQuestion, no readFiles tracking.
+            // No extensions: no onApprovalRequired (the headless policy above
+            // decides instead), no spawnSubtask, no askQuestion, no readFiles
+            // tracking.
             undefined,
         );
     } catch (e) {

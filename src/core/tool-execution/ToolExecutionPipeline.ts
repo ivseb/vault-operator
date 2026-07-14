@@ -187,6 +187,31 @@ export interface OptionalAssetInstallResult {
     error?: string;
 }
 
+/**
+ * FIX-44-46: explicit standing-consent policy for HEADLESS callers (the MCP
+ * execute_vault_op dispatcher). A headless context has no user session to
+ * render an approval card, but the user may have granted standing consent for
+ * a class of effects through a setting ("Allow write tools over MCP"). Without
+ * this policy the missing callback was indistinguishable from a user saying
+ * no, and the pipeline answered "Operation denied by user" for a decision
+ * that never happened.
+ *
+ * This is deliberately NOT a fake onApprovalRequired: the policy can only
+ * map effects to allow/deny with a reason, it cannot edit content, grant
+ * run-scopes, or reach config/self-modify (those are rejected before the
+ * consent set is even consulted -- the self-escalation lock holds).
+ */
+export interface HeadlessApprovalPolicy {
+    /** Effects the standing consent covers (e.g. note-edit, vault-change). */
+    consentedEffects: ReadonlySet<ToolEffect>;
+    /** Whether the consent is currently granted (the setting's live value). */
+    consentGranted: boolean;
+    /** Wire-facing label of the consent setting, named in denial messages. */
+    consentSettingLabel: string;
+    /** Wire-facing settings path, named in denial messages. */
+    consentSettingPath: string;
+}
+
 /** Extra context injected by AgentTask for agent-control tools */
 export interface ContextExtensions {
     /** Abort signal for the currently running task */
@@ -357,6 +382,18 @@ export class ToolExecutionPipeline {
      */
     setModeService(modeService: ModeService): void {
         this.modeService = modeService;
+    }
+
+    /** FIX-44-46: standing-consent policy for headless callers (MCP). */
+    private headlessApprovalPolicy?: HeadlessApprovalPolicy;
+
+    /**
+     * FIX-44-46: bind the headless approval policy. Only headless callers
+     * (execute_vault_op over MCP) set this; the agent path never does, so
+     * its fail-closed "no callback -> deny" behaviour is untouched.
+     */
+    setHeadlessApprovalPolicy(policy: HeadlessApprovalPolicy): void {
+        this.headlessApprovalPolicy = policy;
     }
 
     /**
@@ -1003,6 +1040,12 @@ export class ToolExecutionPipeline {
         effect: ToolEffect | 'unclassified',
     ): Promise<ApprovalResult> {
         if (!extensions?.onApprovalRequired) {
+            // FIX-44-46: a headless caller may carry an explicit standing-
+            // consent policy. Without one, the missing callback still means
+            // deny (ADR-05, fail-closed) -- never auto.
+            if (this.headlessApprovalPolicy) {
+                return this.decideHeadless(toolCall, effect, this.headlessApprovalPolicy);
+            }
             console.warn(
                 `[Pipeline] No approval callback for ${toolCall.name} (${effect}) -- denying (fail-closed)`,
             );
@@ -1029,6 +1072,59 @@ export class ToolExecutionPipeline {
             console.debug(`[Pipeline] '${effect}' approved for the rest of this run`);
         }
         return result;
+    }
+
+    /**
+     * FIX-44-46: decide a headless (no approval card possible) tool call from
+     * the caller's standing-consent policy. Ordering is the contract:
+     *
+     * 1. unclassified          -> deny (fail-closed, same as agent-side).
+     * 2. config / self-modify  -> deny, ALWAYS. The self-escalation lock is
+     *                             checked before the consent set, so no policy
+     *                             object can ever cover these effects.
+     * 3. consented effects     -> allow when the consent setting is on,
+     *                             otherwise a clean error naming the setting.
+     * 4. everything else       -> deny with a message naming the headless
+     *                             context, not a user decision.
+     */
+    private decideHeadless(
+        toolCall: ToolUse,
+        effect: ToolEffect | 'unclassified',
+        policy: HeadlessApprovalPolicy,
+    ): ApprovalResult {
+        if (effect === 'unclassified') {
+            return {
+                decision: 'rejected',
+                reason: `Denied: ${toolCall.name} has no effect classification and fails closed.`,
+            };
+        }
+        if (effect === 'config' || effect === 'self-modify') {
+            return {
+                decision: 'rejected',
+                reason: `Denied by policy: ${toolCall.name} is a ${effect} operation and always `
+                    + `requires in-app user confirmation. It is never permitted in a headless `
+                    + `context, regardless of "${policy.consentSettingLabel}".`,
+            };
+        }
+        if (policy.consentedEffects.has(effect)) {
+            if (policy.consentGranted) {
+                console.debug(
+                    `[Pipeline] headless standing consent covers '${effect}' (${toolCall.name})`,
+                );
+                return { decision: 'auto' };
+            }
+            return {
+                decision: 'rejected',
+                reason: `Denied: ${toolCall.name} is a write operation (${effect}) and external `
+                    + `writes are disabled. Enable "${policy.consentSettingLabel}" under `
+                    + `${policy.consentSettingPath} to permit them.`,
+            };
+        }
+        return {
+            decision: 'rejected',
+            reason: `Denied: '${effect}' operations are not available in a headless context `
+                + `(no user session to approve them).`,
+        };
     }
 
     /**
