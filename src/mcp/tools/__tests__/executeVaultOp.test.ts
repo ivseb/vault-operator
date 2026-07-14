@@ -72,7 +72,11 @@ interface PluginStub {
     ignoreService?: undefined;
 }
 
-function makePlugin(tools: FakeTool[], mcpAllowWriteTools = false): PluginStub {
+function makePlugin(
+    tools: FakeTool[],
+    mcpAllowWriteTools = false,
+    autoApprovalOverrides: Record<string, boolean> = {},
+): PluginStub {
     const map = new Map(tools.map((t) => [t.name, t]));
     return {
         toolRegistry: {
@@ -81,7 +85,7 @@ function makePlugin(tools: FakeTool[], mcpAllowWriteTools = false): PluginStub {
         },
         settings: {
             // Pipeline reads settings.autoApproval and settings.enableCheckpoints.
-            autoApproval: { enabled: true, read: true, noteEdits: false, vaultChanges: false, mcp: false, sandbox: false, web: false, subtasks: false, skills: false, recipes: false, pluginApiRead: false, pluginApiWrite: false },
+            autoApproval: { enabled: true, read: true, noteEdits: false, vaultChanges: false, mcp: false, sandbox: false, web: false, subtasks: false, skills: false, recipes: false, pluginApiRead: false, pluginApiWrite: false, ...autoApprovalOverrides },
             enableCheckpoints: false,
             mcpAllowWriteTools,
         },
@@ -196,6 +200,50 @@ describe('handleExecuteVaultOp -- pipeline-routed (AUDIT-013 C-1 proper)', () =>
             expect(text).not.toContain('denied by user');
         },
     );
+
+    // ── FIX-44-50: the headless policy is the SOLE approval authority ───────
+    // Agent-local autoApproval toggles (Settings > Auto-approval) exist for
+    // the in-app agent the user supervises. They must never widen the
+    // bearer-token MCP surface: with "Allow write tools over MCP" OFF, an
+    // external caller must not be able to write just because the user enabled
+    // noteEdits for their local agent, and web egress must stay unavailable
+    // headless regardless of autoApproval.web.
+
+    it('FIX-44-50: denies write_file when the MCP toggle is off, even with agent autoApproval.noteEdits on', async () => {
+        const tool = makeWriteTool('write_file');
+        const plugin = makePlugin([tool], false, { enabled: true, noteEdits: true });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'write_file', params: { path: 'a.md', content: 'x' } });
+        expect(result.isError).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('Allow write tools over MCP');
+    });
+
+    it('FIX-44-50: denies web_fetch headless even with agent autoApproval.web on (toggle off)', async () => {
+        const tool = makeReadTool('web_fetch', 'fetched external content');
+        const plugin = makePlugin([tool], false, { enabled: true, web: true });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'web_fetch', params: { url: 'https://example.com' } });
+        expect(result.isError).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+        const text = (result.content[0] as { text: string }).text;
+        expect(text).toContain('headless');
+    });
+
+    it('FIX-44-50: web_fetch stays denied even when the MCP write toggle is ON (web is not a consented effect)', async () => {
+        const tool = makeReadTool('web_fetch', 'fetched external content');
+        const plugin = makePlugin([tool], true, { enabled: true, web: true });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'web_fetch', params: { url: 'https://example.com' } });
+        expect(result.isError).toBe(true);
+        expect(tool.execute).not.toHaveBeenCalled();
+    });
+
+    it('FIX-44-50: reads still run headless with agent autoApproval fully off', async () => {
+        const tool = makeReadTool('list_files', 'three files found');
+        const plugin = makePlugin([tool], false, { enabled: false, read: false });
+        const result = await handleExecuteVaultOp(asPlugin(plugin), { operation: 'list_files' });
+        expect(result.isError).toBe(false);
+        expect(tool.execute).toHaveBeenCalled();
+    });
 
     it('blocks a write tool via pipeline fail-closed approval', async () => {
         const tool = makeWriteTool('write_file');

@@ -26,6 +26,12 @@
  * need a card (web, sandbox, subtask, ...) is denied with a clear
  * headless-context message.
  *
+ * FIX-44-50: the bound policy is the SOLE approval authority here. The
+ * pipeline consults it before agent-local autoApproval settings and
+ * run-scope grants, so a convenience toggle the user enabled for their
+ * in-app agent (e.g. autoApproval.noteEdits or .web) can never authorize
+ * an external bearer-token caller.
+ *
  * AUDIT-013 C-1 (proper fix, replaces interim deny-list).
  */
 

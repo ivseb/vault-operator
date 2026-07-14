@@ -200,6 +200,10 @@ export interface OptionalAssetInstallResult {
  * map effects to allow/deny with a reason, it cannot edit content, grant
  * run-scopes, or reach config/self-modify (those are rejected before the
  * consent set is even consulted -- the self-escalation lock holds).
+ *
+ * FIX-44-50: a bound policy is the sole authority for everything beyond
+ * read/ui. Agent-local autoApproval settings and run-scope grants never
+ * apply on the headless surface.
  */
 export interface HeadlessApprovalPolicy {
     /** Effects the standing consent covers (e.g. note-edit, vault-change). */
@@ -391,6 +395,12 @@ export class ToolExecutionPipeline {
      * FIX-44-46: bind the headless approval policy. Only headless callers
      * (execute_vault_op over MCP) set this; the agent path never does, so
      * its fail-closed "no callback -> deny" behaviour is untouched.
+     *
+     * FIX-44-50: once bound, the policy is the SOLE approval authority for
+     * every effect beyond read/ui. checkApproval routes to it before the
+     * run-grant set and before the agent-local autoApproval settings, so a
+     * convenience toggle the user set for their in-app agent can never widen
+     * the bearer-token MCP surface.
      */
     setHeadlessApprovalPolicy(policy: HeadlessApprovalPolicy): void {
         this.headlessApprovalPolicy = policy;
@@ -967,6 +977,26 @@ export class ToolExecutionPipeline {
             return await this.askOrDeny(toolCall, tool, extensions, effect);
         }
 
+        // read + ui: always auto, DELIBERATELY independent of the master toggle.
+        // The master is off by default; if reads hung off it, every read_file
+        // would raise a card. plugin-api also has key === null but is resolved
+        // from the input below. Checked before the run-grant set, which is
+        // behaviour-neutral (read/ui never need a grant) and keeps reads
+        // available on the headless surface below.
+        if (policy.key === null && effect !== 'plugin-api') {
+            return { decision: 'auto' };
+        }
+
+        // FIX-44-50: a bound headless policy is the SOLE authority for every
+        // effect beyond read/ui. Agent-local auto-approval toggles and
+        // run-scope grants exist for the in-app agent the user supervises;
+        // they must never widen the bearer-token MCP surface. Before this
+        // check, cfg.enabled + autoApproval.noteEdits (a local convenience)
+        // silently overrode "Allow write tools over MCP" being off.
+        if (this.headlessApprovalPolicy) {
+            return this.decideHeadless(toolCall, effect, this.headlessApprovalPolicy);
+        }
+
         // FEAT-44-02: the user already said yes to this kind of change for this run.
         // Checked AFTER policy.alwaysAsk, so config/self-modify can never be waved
         // through by it. High-blast-radius tools (mass rollback, bulk extract) are
@@ -975,14 +1005,6 @@ export class ToolExecutionPipeline {
             this.runApprovedEffects.has(effect)
             && !ToolExecutionPipeline.RUN_SCOPE_EXEMPT_TOOLS.has(toolCall.name)
         ) {
-            return { decision: 'auto' };
-        }
-
-        // read + ui: always auto, DELIBERATELY independent of the master toggle.
-        // The master is off by default; if reads hung off it, every read_file
-        // would raise a card. plugin-api also has key === null but is resolved
-        // from the input below.
-        if (policy.key === null && effect !== 'plugin-api') {
             return { decision: 'auto' };
         }
 
